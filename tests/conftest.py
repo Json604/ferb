@@ -475,14 +475,14 @@ def report(status: str = "done", answer: str = "ok", *, reason: str = "", questi
             "how": how, **role}
 
 
-def verdict(*met: bool | None, next: str = "accept", edits: tuple[tuple[str, str], ...] = (), missing: str = "",
+def verdict(*met: bool | None, next: str = "accept", findings: tuple[tuple[str, str, str], ...] = (), missing: str = "",
             instructions: str = "", worker_type: str | None = None, question: str = "", reason: str = "",
             evidence: str = "Scripted inspection", how: str | None = None) -> str:
-    """The merged checker's answer (step 8b): one result per condition in order (FERB's report condition, numbered
-    last, is filled in met=True by `complete_report_verdict` unless given), and its next step."""
+    """The merged checker's answer (step 8b): one result per condition in order, its next step, and its findings about
+    the answer (ORCH-545): (quote, kind, evidence) triples."""
     return json.dumps({"results": [{"index": i, "met": m, "evidence": evidence, "how": how if m is None else None}
                                    for i, m in enumerate(met)],
-                       "next": next, "answer_edits": [{"find": f, "replace": r} for f, r in edits],
+                       "next": next, "findings": [{"quote": q, "kind": k, "evidence": e} for q, k, e in findings],
                        "missing": missing, "instructions": instructions, "worker_type": worker_type,
                        "question": question, "reason": reason})
 
@@ -492,7 +492,7 @@ def verdict(*met: bool | None, next: str = "accept", edits: tuple[tuple[str, str
 # a plan step's "step.<id>", a loop's rounds "loop.<id>", a delegated conversation's turns "conversation.<id>.<n>"; and
 # the roles around an attempt add a suffix. ROLES maps each suffix to the role it plays, and DEFAULT_ANSWERS gives each
 # role the answer a test that doesn't script it gets. Step 8b merged the next-attempt choice into the checker.
-ROLES = {".verify": "checker", ".question": "worker_question"}
+ROLES = {".verify": "checker", ".recheck": "rechecker", ".question": "worker_question"}
 
 
 def role_of(key: str) -> str:
@@ -524,12 +524,12 @@ def _all_met(script: "Script", key: str) -> Any:
     if worker.get("status") != "done":
         return json.dumps({'results': [{'index': int(i), 'met': None, 'evidence': 'Scripted: not done', 'how': None}
                                        for i in indices],
-                           'next': 'ask' if worker.get('question') else 'fail', 'answer_edits': [], 'missing': '',
+                           'next': 'ask' if worker.get('question') else 'fail', 'findings': [], 'missing': '',
                            'instructions': '', 'worker_type': None, 'question': worker.get('question') or '',
                            'reason': worker.get('reason') or ''})
     final = json.dumps({'results': [{'index': int(i), 'met': True,
                                     'evidence': 'Scripted inspection for lifecycle test'} for i in indices],
-                        'next': 'accept', 'answer_edits': [], 'missing': '', 'instructions': '', 'worker_type': None,
+                        'next': 'accept', 'findings': [], 'missing': '', 'instructions': '', 'worker_type': None,
                         'question': '', 'reason': ''})
     records = re.findall(r'change record: task\.evidence span_id=(\S+)', ctx)
     if records and script.sock is not None:
@@ -547,7 +547,8 @@ def _ask_owner(script: "Script", key: str) -> Any:
     return json.dumps({'ask_owner': True, 'answer': '', 'question': ''})
 
 
-DEFAULT_ANSWERS: dict[str, Callable[["Script", str], Any]] = {"checker": _all_met, "worker_question": _ask_owner}
+DEFAULT_ANSWERS: dict[str, Callable[["Script", str], Any]] = {"checker": _all_met, "worker_question": _ask_owner,
+                                                               "rechecker": lambda script, key: json.dumps({"findings": []})}
 # A role given one answer (not a list) serves it at most this often per key, so a script that goes off its path ends
 # with a failed call instead of retrying forever (2026-10-25: a constant "retry" looped test_supervisor and grew a
 # 1.7 GB test database). Applies to the role that chooses another attempt.
@@ -562,7 +563,6 @@ class Script:
         self.contexts: list[tuple[str, str, str, list[str]]] = []      # (mode, key, context, tool names)
         self.requests: list[tuple[str, str, Any]] = []                  # (mode, key, ModelRequest)
         self.times: dict[str, tuple[float, float]] = {}
-        self.fill_report_verdict = True       # complete older scripted verdicts (complete_report_verdict)
         self.sock: Path | None = None         # the daemon's socket: the default scripted checker reads change records
 
     def calls(self, role: str) -> list[str]:
@@ -622,30 +622,7 @@ class Script:
         return {"next": "fail", "reason": reason}
 
 
-# WARNING: every scripted .verify step gets met=True for FERB's report condition unless the test sets
-# script.fill_report_verdict = False; tests about the report condition must opt out.
-def complete_report_verdict(script: "Script", context: str, final: str) -> str:
-    """Scripted checker verdicts written before FERB added its report condition (F4 live fixes) answer only the
-    planner's conditions. FERB numbers its report condition last in the checker's Conditions list; a verdict that
-    doesn't answer it gets met=True for it, so those tests keep testing what they did. A test about the report
-    condition answers it itself, or sets script.fill_report_verdict = False to leave it unanswered."""
-    from ferb.orchestrator.supervisor import REPORT_CONDITION
-    found = re.findall(r"^([0-9]+)\. " + re.escape(REPORT_CONDITION.text) + r"$", context, re.M)
-    if not script.fill_report_verdict or not found:
-        return final
-    try:
-        verdict = json.loads(final)
-    except ValueError:
-        return final
-    results = verdict.get("results") if isinstance(verdict, dict) else None
-    index = int(found[-1])                    # numbered last: a planner condition in the same words comes first
-    if not isinstance(results, list) or any(isinstance(r, dict) and r.get("index") == index for r in results):
-        return final
-    results.append({"index": index, "met": True, "evidence": "Scripted: the report matches the records.", "how": None})
-    return json.dumps(verdict)
-
-
-CHECKER_DEFAULTS = {"answer_edits": [], "missing": "", "instructions": "", "worker_type": None, "question": "",
+CHECKER_DEFAULTS = {"findings": [], "missing": "", "instructions": "", "worker_type": None, "question": "",
                     "reason": ""}
 
 
@@ -722,8 +699,7 @@ class FakeRuntime:
         else:
             final = step
         if role_of(key) == "checker" and isinstance(final, str):
-            final = complete_checker_next(self.script, key,
-                                          complete_report_verdict(self.script, run.state["context"], final))
+            final = complete_checker_next(self.script, key, final)
         elif role_of(key) == "worker" and isinstance(final, str):
             final = complete_worker_report(final)
         yield RuntimeEvent("usage", {"input_tokens": 10, "output_tokens": 5, "cost_usd": 0.001})
@@ -737,8 +713,6 @@ class FakeRuntime:
         run.state["cancel"] = True
 
 
-# WARNING: scripts made here fill met=True for FERB's report condition in every scripted .verify step unless the test
-# sets script.fill_report_verdict = False (see complete_report_verdict); tests about the report condition must opt out.
 def install(d: RunningDaemon, supervisor: list[Any], workers: dict[str, Any] | None = None) -> Script:
     script = Script(supervisor, workers or {})
     script.sock = d.sock

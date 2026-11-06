@@ -235,20 +235,29 @@ WORKER_ALL_SCHEMA: dict[str, Any] = worker_schema(inputs=True, proposals=True, c
 
 # The merged checker (ORCH-302, ORCH-333): it judges each condition and chooses what's next. Code
 # checks the choice against the checker's own verdicts (`Supervisor._next`); it never judges content.
-NEXT = ["accept", "fix_answer", "retry", "ask", "accept_unconfirmed", "fail"]
+NEXT = ["accept", "retry", "ask", "accept_unconfirmed", "fail"]
+# ORCH-545 (owner 2026-11-06): the answer check finds only a sentence the evidence contradicts or a guess stated as fact
+# with nothing behind it: the exact sentence quoted from the answer, which kind, and the evidence. Never replacement text.
+FINDING_KINDS = ("contradicted", "unsupported")
+FINDINGS_SCHEMA: dict[str, Any] = {"type": "array", "items": _obj({
+    "quote": {"type": "string"}, "kind": {"type": "string", "enum": list(FINDING_KINDS)},
+    "evidence": {"type": "string"}})}
 CHECKER_SCHEMA: dict[str, Any] = _obj({
     "results": {"type": "array", "items": _obj({"index": {"type": "integer"}, "met": {"type": ["boolean", "null"]},
                                                 "evidence": {"type": "string"},
                                                 "how": {"type": ["string", "null"]}})},
     "next": {"type": "string", "enum": NEXT},
-    # accept / fix_answer / accept_unconfirmed: exact edits to the worker's answer (each `find` copied from it)
-    "answer_edits": {"type": "array", "items": _obj({"find": {"type": "string"}, "replace": {"type": "string"}})},
+    "findings": FINDINGS_SCHEMA,           # accept / accept_unconfirmed: sentences of the answer the evidence doesn't bear
     "missing": {"type": "string"},             # retry: what is missing
     "instructions": {"type": "string"},        # retry: what the next attempt does differently
     "worker_type": _nullable("string"),        # retry: another worker type from the supplied list, else null
     "question": {"type": "string"},            # ask: one what/who/which question for the owner
     "reason": {"type": "string"},              # fail / accept_unconfirmed: what happened, in the owner's terms
 })
+
+# ORCH-545: the worker's one turn to fix only the quoted sentences of its answer, and the short re-check of that answer
+FIX_SCHEMA: dict[str, Any] = _obj({"answer": {"type": "string"}})
+RECHECK_SCHEMA: dict[str, Any] = _obj({"findings": FINDINGS_SCHEMA})
 
 # L28: FERB's running summary of the older conversation, model-written from the recorded entries (data, never authority)
 SUMMARY_SCHEMA: dict[str, Any] = _obj({"summary": {"type": "string"}})
@@ -500,17 +509,51 @@ class CheckerResult(BaseModel):
     how: str | None = None     # unconfirmed only: one plain sentence on how the owner could check it themselves
 
 
-class AnswerEdit(BaseModel):
-    find: str
-    replace: str
+class Finding(BaseModel):
+    """One sentence of the worker's answer the checker found the evidence doesn't bear (ORCH-545)."""
+    quote: str
+    kind: Literal["contradicted", "unsupported"]
+    evidence: str = ''
+
+
+class FixOutcome(BaseModel):
+    answer: str
+
+
+class RecheckOutcome(BaseModel):
+    findings: list[Finding] = []
 
 
 class CheckerOutcome(BaseModel):
+    """The checker's verdict. A reply in the shape before ORCH-545 (a saved or in-flight one across the upgrade,
+    STORE-403) still reads: `fix_answer` is an accept, and each of its `answer_edits` that only removed or marked its
+    text is that text as a finding (removed: contradicted; marked: unsupported); a rewrite or an addition is dropped
+    (`dropped_edits`), never applied and never marked."""
     results: list[CheckerResult]
-    next: Literal["accept", "fix_answer", "retry", "ask", "accept_unconfirmed", "fail"]
-    answer_edits: list[AnswerEdit] = []
+    next: Literal["accept", "retry", "ask", "accept_unconfirmed", "fail"]
+    findings: list[Finding] = []
     missing: str = ''
     instructions: str = ''
     worker_type: str | None = None
     question: str = ''
     reason: str = ''
+    dropped_edits: list[str] = []
+
+    @model_validator(mode="before")
+    @classmethod
+    def _older_shape(cls, value: Any) -> Any:
+        if not isinstance(value, dict) or ("answer_edits" not in value and value.get("next") != "fix_answer"):
+            return value
+        from ferb.orchestrator.answer_marks import removes_or_marks
+        value = dict(value)
+        if value.get("next") == "fix_answer":
+            value["next"] = "accept"
+        findings, dropped = list(value.get("findings") or []), list(value.get("dropped_edits") or [])
+        for edit in value.pop("answer_edits", None) or []:
+            find, replace = str((edit or {}).get("find") or ""), str((edit or {}).get("replace") or "")
+            if find.strip() and removes_or_marks(find, replace):
+                findings.append({"quote": find, "kind": "unsupported" if replace else "contradicted",
+                                 "evidence": "an earlier checker's edit"})
+            elif find.strip():
+                dropped.append(find)
+        return value | {"findings": findings, "dropped_edits": dropped}

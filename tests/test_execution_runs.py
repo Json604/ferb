@@ -427,18 +427,18 @@ def test_a_check_in_asked_before_a_restart_is_asked_again_and_no_stops(home: Any
         second.stop()
 
 
-# decision: ORCH-307, ORCH-541
-def test_a_report_only_check_in_asked_again_after_a_restart_keeps_its_answer(home: Any, monkeypatch: Any) -> None:
-    """ORCH-541 across a restart: a check-in reached only because the records kept contradicting the answer (its
-    outcome verified) was asked again after a restart without that knowledge, so its No failed the task. Now the saved
-    step keeps the latest answer, and No ends done-unconfirmed with it and code's own line, never the evidence."""
+# decision: ORCH-307, ORCH-546, STORE-403
+def test_a_report_only_check_in_an_older_build_saved_keeps_its_answer_after_the_upgrade(home: Any,
+                                                                                       monkeypatch: Any) -> None:
+    """A check-in an older build reached through report-only retries (ORCH-541, before ORCH-545) saved the latest
+    answer with its waiting step. After the upgrade the same check-in is asked again and No ends done-unconfirmed with
+    that answer and code's own line, never the evidence; no attempt runs."""
     monkeypatch.setattr("ferb.sanitize.images.recognize_text", lambda _image: [])
     found = "Three of the five tools support offline mode."
-    evidence = "The records show only two tools with an offline mode"
     first = own_daemon(home, "a")
     try:
         install(first, [sup("task", "On it.", task("Research offline support in the five tools"))],
-                {"worker": done(found), "worker.verify": verdict(True, False, next="retry", evidence=evidence)})
+                {"worker": _report("failed", "The site errored."), "worker.verify": RETRY})
         turn = Turn(first, "which of the five tools work offline?")
         asked = _pending(first)
         assert "Keep going?" in asked.reason
@@ -446,6 +446,17 @@ def test_a_report_only_check_in_asked_again_after_a_restart_keeps_its_answer(hom
     finally:
         first.stop()
     turn.thread.join(10)
+    # the row as the older build left it: the saved check-in carries the report-only retry's answer
+    import sqlite3
+    db = sqlite3.connect(str(home / "ferb.db"))
+    try:
+        row = db.execute("SELECT step_id, output FROM plan_steps WHERE task_id = ?", (tree,)).fetchone()
+        saved = json.loads(row[1]) | {"report_only": {"answer": found, "artifacts": []}}
+        db.execute("UPDATE plan_steps SET output = ? WHERE task_id = ? AND step_id = ?",
+                   (json.dumps(saved), tree, row[0]))
+        db.commit()
+    finally:
+        db.close()
     import ferb.orchestrator.supervisor as supervisor_module
     resume = supervisor_module.Supervisor.resume_plans
 
@@ -464,10 +475,49 @@ def test_a_report_only_check_in_asked_again_after_a_restart_keeps_its_answer(hom
         answer = run(second, lambda: second.daemon.db.conn.execute(
             "SELECT answer FROM task_results WHERE task_id = ?", (tree,)).fetchone()[0])
         first_line, line = answer.split("\n\n")
-        assert first_line == found and line.startswith("Couldn't confirm:") and evidence not in answer
+        assert first_line == found and line.startswith("Couldn't confirm:")
     finally:
         second.stop()
 
+
+# decision: ORCH-545
+def test_a_restart_during_the_fix_round_settles_the_saved_answer_by_code(home: Any, monkeypatch: Any) -> None:
+    """FERB restarted while the worker's one fix turn ran. The work and its check stand as saved: after the restart
+    code removes or marks the quoted sentences of the saved answer; neither the work nor the fix turn runs again."""
+    monkeypatch.setattr("ferb.sanitize.images.recognize_text", lambda _image: [])
+    said = "The library opens at 10am. It has a rooftop garden."
+    first = own_daemon(home, "a")
+    try:
+        script = install(first, [sup("task", "On it.", task("Find the library's hours"))], {
+            "worker": done(said),
+            "worker.verify": verdict(True, findings=(("It has a rooftop garden.", "unsupported",
+                                                      "Nothing about a garden was seen."),)),
+            "worker.fix": STALL})
+        turn = Turn(first, "library hours?")
+        _until(first, lambda: "worker.fix" in script.calls("worker"))
+        tree = _tree(first)
+    finally:
+        first.stop()
+    turn.thread.join(10)
+    import ferb.orchestrator.supervisor as supervisor_module
+    resume = supervisor_module.Supervisor.resume_plans
+
+    async def held(self: Any) -> None:
+        return None
+    monkeypatch.setattr(supervisor_module.Supervisor, "resume_plans", held)
+    second = own_daemon(home, "b")
+    try:
+        monkeypatch.setattr(supervisor_module.Supervisor, "resume_plans", resume)
+        sv = second.daemon.supervisor
+        again = install(second, [], {"worker": done("Not this one.")})
+        second.loop.call_soon_threadsafe(lambda: second.loop.create_task(sv.resume_plans()))
+        _until(second, lambda: _row(second, tree) in ("done", "done_unverified"))
+        assert again.calls("worker") == [] and again.calls("checker") == []
+        answer = run(second, lambda: second.daemon.db.conn.execute(
+            "SELECT answer FROM task_results WHERE task_id = ?", (tree,)).fetchone()[0])
+        assert answer.startswith("The library opens at 10am. It has a rooftop garden (I couldn't confirm this).")
+    finally:
+        second.stop()
 
 def test_closing_a_tab_the_task_holds_asks_whether_to_continue(daemon: RunningDaemon) -> None:
     """HAND-201: the owner closing a FERB tab or the task's group mid-task stops that part, and FERB asks whether

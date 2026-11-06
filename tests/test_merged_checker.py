@@ -5,8 +5,12 @@ daemon, gateway and scripted model."""
 import json
 from typing import Any
 
+import pytest
+
 from ferb.core.types import RuntimeEvent
 from ferb.orchestrator.attempts import CHECK_IN_AFTER
+from ferb.core.structured import check_final
+from ferb.orchestrator.schemas import CHECKER_SCHEMA, CheckerOutcome
 from ferb.orchestrator.supervisor import RUNTIME_ASK
 from tests.conftest import (RunningDaemon, _context_of, answer_question, chat, done, install, outcome, report, sup,
                             task, cond, verdict)
@@ -20,144 +24,144 @@ def _checks(script: Any) -> list[str]:
     return script.calls("checker")
 
 
-# decision: ORCH-302, ORCH-309
-def test_a_report_only_problem_gets_its_answer_fixed_not_a_redo(daemon: RunningDaemon) -> None:
-    """31% of rejections failed only the report condition and cost a full worker redo (kb area orchestration). The
-    outcome is verified; the checker removes the unproven detail from the answer; the worker runs once."""
-    script = install(daemon, [sup("task", "On it.", task("Book a table for 4 at 7pm"))], {
-        "worker": done(BOOKED),
-        "worker.verify": verdict(True, False, next="fix_answer",
-                                 edits=((" The restaurant confirmed by email.", ""),))})
+def _fix(answer: str) -> str:
+    return json.dumps({"answer": answer})
+
+
+def _settled(daemon: RunningDaemon) -> list[Any]:
+    async def read() -> list[Any]:
+        return [e.data for e in daemon.daemon.journal.of_kind("task.answer_settled")]
+    return daemon.run(read())
+
+
+COURSERA = ("Checked Coursera for the two assignments. Quiz 3 is visible but locked until Monday. The tracker has "
+            "both dates.")
+
+
+# decision: ORCH-545, ORCH-309
+def test_a_contradicted_sentence_is_fixed_by_the_worker_once_and_stays_unmarked(daemon: RunningDaemon) -> None:
+    """The Coursera case (task 7d870ef5): the answer says a quiz is locked until Monday; the page shows it due Friday.
+    The checker quotes the sentence (contradicted) and writes no replacement; the same worker gets one turn to fix only
+    that sentence, a short re-check passes, and the corrected answer stands with no mark and no redo of the work."""
+    fixed = COURSERA.replace("visible but locked until Monday", "open and due Friday")
+    script = install(daemon, [sup("task", "On it.", task("Check the Coursera assignments"))], {
+        "worker": done(COURSERA),
+        "worker.verify": verdict(True, findings=(("Quiz 3 is visible but locked until Monday.", "contradicted",
+                                                  "The course page read at 10:02 shows Quiz 3 open, due Friday."),)),
+        "worker.fix": _fix(fixed),
+        "worker.recheck": json.dumps({"findings": []})})
+    result = outcome(chat(daemon, "check my coursera assignments"))
+    assert script.calls("worker") == ["worker", "worker.fix"] and script.calls("rechecker") == ["worker.recheck"]
+    assert result["status"] == "done" and result["verified"] is True and result["answer"] == fixed
+    assert "couldn't confirm" not in result["answer"].lower()
+    fix_context = _context_of(script, "worker.fix")
+    assert "Quiz 3 is visible but locked until Monday." in fix_context and "due Friday" in fix_context
+    assert [d["how"] for d in _settled(daemon)] == ["fixed"]
+
+
+# decision: ORCH-545
+def test_a_guess_stated_as_fact_is_rewritten_as_a_guess(daemon: RunningDaemon) -> None:
+    """The Hermes case: "Hermes is an acquisition funnel." had nothing behind it; the worker's fix turn says it as a
+    guess, the re-check passes, and that answer stands."""
+    said = "The repo has three services. Hermes is an acquisition funnel."
+    guess = "The repo has three services. Hermes looks like an acquisition funnel, but I couldn't see what it does."
+    install(daemon, [sup("task", "On it.", task("Summarize the repo's services"))], {
+        "worker": done(said),
+        "worker.verify": verdict(True, findings=(("Hermes is an acquisition funnel.", "unsupported",
+                                                  "No file the worker read says what Hermes does."),)),
+        "worker.fix": _fix(guess), "worker.recheck": json.dumps({"findings": []})})
+    result = outcome(chat(daemon, "what services does the repo have"))
+    assert result["status"] == "done" and result["answer"] == guess
+
+
+# decision: ORCH-545
+def test_when_the_fix_turn_fails_code_removes_or_marks_exactly_the_quoted_sentences(daemon: RunningDaemon) -> None:
+    said = "Booked a table for 4 at 7pm at Nopa. The restaurant confirmed by email. Parking is free."
+    install(daemon, [sup("task", "On it.", task("Book a table for 4 at 7pm"))], {
+        "worker": done(said),
+        "worker.verify": verdict(True, findings=(
+            (" The restaurant confirmed by email.", "contradicted", "No email from Nopa was read."),
+            ("Parking is free.", "unsupported", "Nothing about parking was seen."))),
+        "worker.fix": "not a report"})
     result = outcome(chat(daemon, "book a table for 4 at 7pm"))
-    assert script.calls("worker") == ["worker"] and len(_checks(script)) == 1
-    assert result["status"] == "done" and result["verified"] is True
-    assert result["answer"] == "Booked a table for 4 at 7pm at Nopa."
+    assert result["status"] == "done"
+    assert result["answer"] == "Booked a table for 4 at 7pm at Nopa. Parking is free (I couldn't confirm this)."
+    assert [d["how"] for d in _settled(daemon)] == ["marked"]
 
 
-# decision: ORCH-309
-def test_a_retry_with_every_outcome_verified_fixes_the_answer_instead(daemon: RunningDaemon) -> None:
-    """ORCH-309: when every outcome condition is verified, only the answer can be wrong; a retry the checker chose
-    anyway becomes fix-only-the-answer (its edits applied, the unproven detail marked), never a worker redo."""
+# decision: ORCH-545
+def test_a_sentence_the_recheck_still_finds_is_marked_in_the_revised_answer(daemon: RunningDaemon) -> None:
+    said = "The store opens at 9. It has a café."
+    revised = "The store opens at 9. It has a café on the second floor."
+    install(daemon, [sup("task", "On it.", task("Find the store's hours"))], {
+        "worker": done(said),
+        "worker.verify": verdict(True, findings=(("It has a café.", "unsupported", "No page mentioned a café."),)),
+        "worker.fix": _fix(revised),
+        "worker.recheck": json.dumps({"findings": [{"quote": "It has a café on the second floor.",
+                                                    "kind": "unsupported", "evidence": "Still nothing about a café."}]})})
+    result = outcome(chat(daemon, "when does the store open"))
+    assert result["answer"] == "The store opens at 9. It has a café on the second floor (I couldn't confirm this)."
+
+
+# decision: ORCH-545
+def test_wording_alone_is_no_finding_and_costs_no_turn(daemon: RunningDaemon) -> None:
+    """An unnamed source or passive voice is not the checker's to judge: with no finding there is no fix turn, no
+    re-check and no mark; the answer stands as the worker wrote it."""
+    said = "The invoices were collected and saved to Desktop/invoices."
+    script = install(daemon, [sup("task", "On it.", task("Collect the invoices"))], {
+        "worker": done(said), "worker.verify": verdict(True)})
+    result = outcome(chat(daemon, "collect the invoices"))
+    assert script.calls("worker") == ["worker"] and script.calls("rechecker") == []
+    assert result["status"] == "done" and result["answer"] == said
+
+
+# decision: ORCH-309, ORCH-545
+def test_a_retry_with_every_outcome_verified_is_an_accept_with_its_findings_fixed(daemon: RunningDaemon) -> None:
+    """ORCH-309: when every outcome is verified only the answer can be wrong; a retry the checker chose anyway never
+    redoes the work: its findings go to the fix turn."""
     script = install(daemon, [sup("task", "On it.", task("Book a table for 4 at 7pm"))], {
         "worker": [done(BOOKED), done("Booked again.")],
-        "worker.verify": verdict(True, False, next="retry", edits=((" The restaurant confirmed by email.", ""),))})
+        "worker.verify": verdict(True, next="retry", instructions="Say it differently.", findings=(
+            (" The restaurant confirmed by email.", "contradicted", "No email was read."),)),
+        "worker.fix": _fix("Booked a table for 4 at 7pm at Nopa."), "worker.recheck": json.dumps({"findings": []})})
     result = outcome(chat(daemon, "book a table for 4 at 7pm"))
-    assert script.calls("worker") == ["worker"] and len(_checks(script)) == 1
+    assert script.calls("worker") == ["worker", "worker.fix"]
     assert result["status"] == "done" and result["answer"] == "Booked a table for 4 at 7pm at Nopa."
 
 
-# decision: ORCH-309
-def test_an_unverifiable_side_detail_is_marked_inline_and_the_task_is_done(daemon: RunningDaemon) -> None:
-    script = install(daemon, [sup("task", "On it.", task("Find the library's address"))], {
-        "worker": done("The library is at 100 Larkin St. It opens at 10am."),
-        "worker.verify": verdict(True, None, next="fix_answer",
-                                 edits=(("It opens at 10am.", "It opens at 10am (I couldn't confirm this)."),))})
-    result = outcome(chat(daemon, "where's the library"))
-    assert result["status"] == "done" and len(script.calls("worker")) == 1
-    assert result["answer"] == "The library is at 100 Larkin St. It opens at 10am (I couldn't confirm this)."
+# decision: ORCH-545, ORCH-307
+def test_an_unattended_run_gets_the_same_single_round(daemon: RunningDaemon, unattended: None) -> None:
+    script = install(daemon, [sup("task", "On it.", task("Find the library's hours"))], {
+        "worker": done("The library opens at 10am. It closes at 6pm."),
+        "worker.verify": verdict(True, findings=(("It closes at 6pm.", "unsupported", "Closing time wasn't shown."),)),
+        "worker.fix": [_fix("The library opens at 10am. It closes at 6pm, I think.")],
+        "worker.recheck": [json.dumps({"findings": [{"quote": "It closes at 6pm, I think.", "kind": "unsupported",
+                                                     "evidence": "Still stated."}]})]})
+    result = outcome(chat(daemon, "library hours?"))
+    assert script.calls("worker") == ["worker", "worker.fix"] and script.calls("rechecker") == ["worker.recheck"]
+    assert result["answer"] == "The library opens at 10am. It closes at 6pm, I think (I couldn't confirm this)."
 
 
-# decision: ORCH-309, PRM-323, PRM-326
-def test_a_checker_edit_that_rewrites_marks_its_text_and_one_that_adds_is_dropped(daemon: RunningDaemon) -> None:
-    """Freelance task 0218bb01: the checker's edits ADDED sentences ("Preview and Finder came to the front…") to the
-    answer. An edit may only remove its text or mark it inline; one that writes more is never applied and is journaled.
-    A rewrite marks the text it would have changed (PRM-326: all 12 recorded checker edits were rewrites, so dropping
-    them left unconfirmed claims bare); a pure addition leaves its text as it was (it wasn't disputed)."""
-    install(daemon, [sup("task", "On it.", task("Find the library's address"))], {
-        "worker": done("The library is at 100 Larkin St. It has 3 floors."),
-        "worker.verify": verdict(True, None, next="fix_answer", evidence="The floors weren't on the page",
-                                 edits=(("It has 3 floors.", "It appears to have several floors."),
-                                        ("100 Larkin St.", "100 Larkin St. Preview came to the front once.")))})
-    result = outcome(chat(daemon, "where's the library"))
-    assert result["status"] == "done"
-    assert result["answer"] == "The library is at 100 Larkin St. It has 3 floors (I couldn't confirm this)."
-    async def dropped() -> list[Any]:
-        return [(e.data["finds"], e.data["marked"]) for e in daemon.daemon.journal.of_kind("task.answer_edit_dropped")]
-    assert daemon.run(dropped()) == [(["It has 3 floors.", "100 Larkin St."], ["It has 3 floors."])]
-
-
-# decision: ORCH-309, PRM-326, ORCH-540, ORCH-541
-def test_a_contradicted_detail_no_edit_removed_goes_back_as_a_retry_with_the_evidence(daemon: RunningDaemon) -> None:
-    """Live task 794e3bd8 (owner 2026-11-05: "what correction message is this?? who added it??"): the checker failed
-    FERB's report condition and tried a pure addition, which code drops, so the evidence showed as "Correction: …".
-    Batch 3b journaled it instead, which left the contradicted detail standing unmarked (ORCH-309). Now, with no edit
-    that removed or marked anything, the next attempt rewrites the answer from the checker's evidence; never a
-    "Correction:" line or the checker's words in the answer."""
-    found = "Three of the five tools support offline mode."
-    fixed = "Two of the five tools support offline mode."
-    evidence = "The records show only two tools with an offline mode"
-    script = install(daemon, [sup("task", "On it.", task("Research offline support in the five tools"))], {
-        "worker": [done(found), done(fixed)],
-        "worker.verify": [verdict(True, False, next="fix_answer", evidence=evidence,
-                                  edits=((found, "I researched the five tools myself. " + found),)),
-                          verdict(True, True)]})
-    result = outcome(chat(daemon, "which of the five tools work offline?"))
-    assert len(script.calls("worker")) == 2
-    assert evidence in _context_of(script, "worker")              # the second attempt was told what the check found
-    assert result["status"] == "done" and result["answer"] == fixed and "correction" not in result
-    async def recorded() -> list[Any]:
-        return [(e.data["evidence"], e.data.get("retry")) for e in
-                daemon.daemon.journal.of_kind("task.report_condition_unmet")]
-    assert daemon.run(recorded()) == [(evidence, True)]
-
-
-# decision: ORCH-309, ORCH-540, ORCH-541
-def test_a_contradicted_detail_an_edit_removed_is_accepted(daemon: RunningDaemon) -> None:
-    """The same false report condition with an edit that removed the disputed sentence: the answer no longer states
-    it, so the task is done with no redo."""
-    script = install(daemon, [sup("task", "On it.", task("Book a table for 4 at 7pm"))], {
-        "worker": done(BOOKED),
-        "worker.verify": verdict(True, False, next="accept", evidence="No confirmation email was read",
-                                 edits=((" The restaurant confirmed by email.", ""),))})
-    result = outcome(chat(daemon, "book a table for 4 at 7pm"))
-    assert script.calls("worker") == ["worker"]
-    assert result["status"] == "done" and result["answer"] == "Booked a table for 4 at 7pm at Nopa."
-
-
-# decision: ORCH-309, ORCH-307, ORCH-541
-def test_an_unattended_run_that_cant_retry_ends_unconfirmed_without_checker_speak(daemon: RunningDaemon,
-                                                                                    unattended: None) -> None:
-    """A scheduled run whose answer the records keep contradicting runs out of attempts (ORCH-307: nobody to ask):
-    its verified outcome stands, done-unconfirmed, with code's own "Couldn't confirm" line, never the evidence."""
-    evidence = "The records show only two tools with an offline mode"
-    found = "Three of the five tools support offline mode."
-    script = install(daemon, [sup("task", "On it.", task("Research offline support in the five tools"))], {
-        "worker": [done(found) for _ in range(CHECK_IN_AFTER)],
-        "worker.verify": [verdict(True, False, next="retry", evidence=evidence) for _ in range(CHECK_IN_AFTER)]})
-    result = outcome(chat(daemon, "which of the five tools work offline?"))
-    assert len(script.calls("worker")) == CHECK_IN_AFTER
-    assert result["status"] == "done_unverified" and result["verified"] is False
-    first, line = result["answer"].split("\n\n")
-    assert first == found and line.startswith("Couldn't confirm:")
-    assert evidence not in result["answer"] and "Correction" not in result["answer"]
-
-
-# decision: ORCH-309, PRM-323
-def test_an_answer_that_leaves_out_a_result_goes_back_as_a_retry(daemon: RunningDaemon) -> None:
-    """P4's trade-off (owner 2026-11-05): with every outcome verified, a report condition found false with no edit
-    (the answer leaves out a result that matters, which an edit can't add) is a new attempt, not a checker rewrite."""
-    script = install(daemon, [sup("task", "On it.", task("Book a table for 4 at 7pm"))], {
-        "worker": [done("Booked."), done(BOOKED)],
-        "worker.verify": [verdict(True, False, next="retry", instructions="Say where and when the table is."),
-                          verdict(True, True)]})
-    result = outcome(chat(daemon, "book a table for 4 at 7pm"))
-    assert len(script.calls("worker")) == 2 and result["status"] == "done" and result["answer"] == BOOKED
-
-
-# decision: ORCH-309, ORCH-540
-def test_an_unconfirmed_detail_the_checker_left_unfixed_gets_the_one_line(daemon: RunningDaemon) -> None:
-    """The checker accepted while FERB's report condition stayed unknown: the outcome is verified (done), and the
-    unproven detail is marked by the one "Couldn't confirm" line, never by a redo. The line is code's own words with
-    the checker's how; its evidence (written for FERB, task 794e3bd8) stays in the record."""
-    evidence = "No record in span 3 shows the source account the answer names"
-    install(daemon, [sup("task", "On it.", task("Find the library's address"))], {
-        "worker": done("The library is at 100 Larkin St."),
-        "worker.verify": verdict(True, None, next="accept", evidence=evidence, how="Check the library's own page")})
-    result = outcome(chat(daemon, "where's the library"))
-    assert result["status"] == "done"
-    first, line = result["answer"].split("\n\n")
-    assert first == "The library is at 100 Larkin St." and line.startswith("Couldn't confirm:")
-    assert "(Check the library's own page)" in line and evidence not in result["answer"]
+# decision: ORCH-545, STORE-403
+def test_an_older_checker_reply_reads_as_findings_and_never_marks_a_rewrite() -> None:
+    """A checker reply in the shape before ORCH-545 (saved or in flight across the upgrade): fix_answer is an accept;
+    an edit that removed or marked its text is that text as a finding; a rewrite or an addition is dropped, unmarked
+    (the recorded voice rewrites of task 7d870ef5 and the inserted source of task 4be19c0f)."""
+    old = CheckerOutcome.model_validate({"results": [{"index": 0, "met": True, "evidence": "seen"}],
+                                         "next": "fix_answer", "answer_edits": [
+        {"find": "Checked Coursera", "replace": "I checked Coursera"},
+        {"find": "Saved the summary to `a.txt`.", "replace": "Saved the summary of `b.txt` to `a.txt`."},
+        {"find": " It rained.", "replace": ""},
+        {"find": "It opens at 10am.", "replace": "It opens at 10am (I couldn't confirm this)."}],
+        "missing": "", "instructions": "", "worker_type": None, "question": "", "reason": ""})
+    assert old.next == "accept"
+    assert [(f.quote, f.kind) for f in old.findings] == [(" It rained.", "contradicted"),
+                                                         ("It opens at 10am.", "unsupported")]
+    assert old.dropped_edits == ["Checked Coursera", "Saved the summary to `a.txt`."]
+    with pytest.raises(ValueError):           # the schema the checker answers in has no replacement text
+        check_final(json.dumps({"results": [], "next": "accept", "findings": [], "answer_edits": [], "missing": "",
+                                "instructions": "", "worker_type": None, "question": "", "reason": ""}),
+                    CHECKER_SCHEMA)
 
 
 # decision: ORCH-309

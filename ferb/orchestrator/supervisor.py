@@ -66,8 +66,10 @@ from ferb.orchestrator.names import shown_name
 from ferb.orchestrator.loops import (LOOP_ROUND, LoopRunner, LoopStore, look_only_round, loop_line,
                                      round_reason, short_label)
 from ferb.orchestrator.probes import MISSING, Probe, field_value, refusal, resolve_tool
-from ferb.orchestrator.schemas import (CHECKER_SCHEMA, QUESTION_SCHEMA, SUMMARY_SCHEMA, SUPERVISOR_SCHEMA, WORKER_SCHEMA,
-                                       AnswerQuestion, Check, CheckerOutcome, Condition, QuestionOutcome, SummaryOutcome,
+from ferb.orchestrator.answer_marks import settle
+from ferb.orchestrator.schemas import (CHECKER_SCHEMA, FIX_SCHEMA, QUESTION_SCHEMA, RECHECK_SCHEMA, SUMMARY_SCHEMA,
+                                       SUPERVISOR_SCHEMA, WORKER_SCHEMA, AnswerQuestion, Check, CheckerOutcome, Condition,
+                                       Finding, FixOutcome, QuestionOutcome, RecheckOutcome, SummaryOutcome,
                                        SupervisorOutcome, TaskSpec, WorkerReport, worker_schema)
 from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
@@ -104,16 +106,6 @@ LOOP_UNKNOWN = ("Something I did in the last round may or may not have gone thro
 WORKER = SINGLE                                  # the one worker's step id (task id "<tree>.worker")
 assert WORKER == "worker"
 
-# F4 live fixes (task 79bc5bfa): every check also judges the report the owner will see against the recorded evidence.
-# Code adds this condition and hands the checker the report; the checker judges it (rule 6). It is not an outcome
-# condition (ORCH-309): when only it isn't met, the checker fixes the answer (fix_answer), or the answer's one
-# "Couldn't confirm" line says what isn't confirmed; the work is never redone for it (`_next`).
-REPORT_CONDITION = Condition(
-    text="My report to you says only what the records support, names who did a part only when an agent, app or "
-         "person other than FERB did it, names its source and account in a few words, and leaves out nothing that "
-         "changes the result",
-    check=Check(kind="none", path=None, text=None, url_contains=None, site=None, expected=None), layer="outcome")
-
 # How long a message waits for the owner's front window before the plan goes on without it: a safety limit, kept at
 # ScreenCaptureKit's own 10 s (owner, 2026-11-03, DMN-520: a slow browser capture takes ~6 s and most messages need
 # over 2 s). The stalled first capture that held a "Hello" for 10 s is fixed at its cause (Vision warmed at start).
@@ -141,10 +133,11 @@ def watch_condition(met: bool | None) -> Condition:
 
 def checked_conditions(spec: TaskSpec, watch: bool = False, watch_met: bool | None = None) -> list[Condition]:
     """What a check judges: the planner's conditions, then (a watch's run) whether its condition holds as the worker
-    reported, then FERB's report condition, numbered last. None when the plan has none (no check runs then)."""
+    reported. None when the plan has none (no check runs then). The answer itself is checked only for sentences the
+    evidence contradicts or doesn't support (the checker's findings, ORCH-545), never as a condition."""
     if not spec.success_conditions:
         return []
-    return [*spec.success_conditions, *([watch_condition(watch_met)] if watch else []), REPORT_CONDITION]
+    return [*spec.success_conditions, *([watch_condition(watch_met)] if watch else [])]
 
 
 async def _value(result: Any) -> Any:
@@ -688,6 +681,9 @@ class _Tree:
     nothing_to_tell: bool = False        # a scheduled run's worker: it found nothing to tell and did nothing (dec. 17)
     # a check-in or runtime-switch question this step waited on when FERB restarted: asked again first (`_restored`)
     restored_wait: dict[str, Any] = field(default_factory=dict)
+    # ORCH-545: a fix round this step was in when FERB restarted (its saved answer and findings), settled by code first
+    restored_fix: dict[str, Any] = field(default_factory=dict)
+    answer_settled: bool = False         # this attempt's answer already had its one fix round (ORCH-545)
     watch: bool = False                  # a watch's run: its check judges watch_met; its start isn't published
     loop_action: str | None = None       # a loop round's worker: continue / finished / blocked (L31)
     probe: Any = None                    # and the probe it chose for between rounds (probes.Probe | None)
@@ -4024,6 +4020,8 @@ class Supervisor(WorkerRuns):
             # a check-in or runtime switch it waited on when FERB restarted is asked again as itself (`_restored`)
             restored = previous if previous.get('status') == 'paused' and \
                 previous.get('question_kind') in RESTORED_WAITS else {}
+            saved_fix = previous.get('fixing')
+            fixing: dict[str, Any] = saved_fix if isinstance(saved_fix, dict) else {}
             if previous.get('status') == 'paused' and not restored and tree.id not in self._pauses:
                 # it waited for the owner when FERB restarted: it pauses again and asks again (rule 9); a step saved
                 # before waits recorded their kind comes back this way too
@@ -4031,7 +4029,7 @@ class Supervisor(WorkerRuns):
                                               tuple(previous.get('options') or ()),
                                               str(previous.get('origin') or origins_.FERB))
             if single:
-                tree.restored_wait = dict(restored)
+                tree.restored_wait, tree.restored_fix = dict(restored), dict(fixing)
                 try:
                     out = await self._worker(tree, span)
                 except Exception as exc:
@@ -4066,7 +4064,7 @@ class Supervisor(WorkerRuns):
                     **self._answer_context(tree, step, answering, prior),
                     **({'requirement': 'Write one input_notes entry per input with the complete note and evidence '
                                        'references.'} if inputs else {})}))
-            member.restored_wait = dict(restored)
+            member.restored_wait, member.restored_fix = dict(restored), dict(fixing)
             self._tree_of[child.id] = member
             self.tasks.add(TaskRecord(child, self.clock.now(), span, tree.id), status='planned')
             await queue.put({'type': 'subtask', 'id': step.id, 'task_id': child.id, 'status': 'started', 'role': 'worker'})
@@ -4765,9 +4763,9 @@ class Supervisor(WorkerRuns):
 
     async def _loop_end_reached(self, member: _Tree, step: Step, out: Outcome, span: str,
                                 answers: list[Condition]) -> bool:
-        """A round reported the owner's end condition met: a separate check of that condition decides (V3, W4), with
-        FERB's report condition kept (fail-closed: the round's report must be true too, `checked_conditions`). A check
-        that can't run decides nothing: the loop goes on. When the loop is an answer step (ORCH-319), the same check
+        """A round reported the owner's end condition met: a separate check of that condition decides (V3, W4); its
+        findings about the round's answer get the one fix round (ORCH-545, `_judged`). A check that can't run decides
+        nothing: the loop goes on. When the loop is an answer step (ORCH-319), the same check
         also judges the task's conditions it answers (`answers`), as the removed final worker's check did; they never
         decide the loop's end, only whether its answer is confirmed."""
         end = Condition(text=step.end_when, owner_text=step.end_when, check=Check(
@@ -4775,11 +4773,10 @@ class Supervisor(WorkerRuns):
         results = await self._judged(member, out, [end, *answers], span)
         if results is None:
             return False
-        report = next((r for r in results if r.index == len(answers) + 1), None)
-        finished = all(r.met is True for r in results if r.index in (0, len(answers) + 1))
+        finished = any(r.index == 0 for r in results) and all(r.met is True for r in results if r.index == 0)
         if finished and answers:
             self._answer_checks[(member.id, step.id)] = self._answer_record(
-                [r for r in results if 1 <= r.index <= len(answers)], answers, report, offset=1)
+                [r for r in results if 1 <= r.index <= len(answers)], answers, offset=1)
         return finished
 
     async def _answer_check(self, member: _Tree, out: Outcome, answers: list[Condition],
@@ -4788,37 +4785,37 @@ class Supervisor(WorkerRuns):
         results = await self._judged(member, out, answers, span)
         if results is None:
             return {'verified': False, 'note': _clipped("the check couldn't run")}
-        report = next((r for r in results if r.index == len(answers)), None)
-        return self._answer_record([r for r in results if r.index < len(answers)], answers, report)
+        return self._answer_record([r for r in results if r.index < len(answers)], answers)
 
     async def _judged(self, member: _Tree, out: Outcome, conditions: list[Condition],
                       span: str) -> list[ConditionResult] | None:
-        """One check of `out` against `conditions` (and FERB's report condition, numbered last); None when it couldn't
-        run (journaled)."""
+        """One check of `out` against `conditions`; None when it couldn't run (journaled). Its findings about the answer
+        (nothing judged false) get the member's one fix round (ORCH-545), as an attempt's check's do."""
         spec = member.spec.model_copy(deep=True)
         spec.success_conditions = list(conditions)
         judge = dataclasses.replace(member, spec=spec, outcome=out, verification=[], confirmed={})
         try:
-            results, _ = await self.verify(judge, span)       # only its verdict counts here, not a next step
-            return results
+            results, checked = await self.verify(judge, span)  # its verdict and findings count, not a next step
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             self.journal.append('task.inspection_failed', {'task_id': member.worker.id,
                                                            'error': f'{type(exc).__name__}: {exc}'})
             return None
+        if checked is not None and checked.findings and out.status == 'done' and not member.stop and \
+                not any(r.met is False for r in results):
+            await self._settle_findings(member, member.worker, checked.findings, span)
+        return results
 
     @staticmethod
-    def _answer_record(results: list[ConditionResult], answers: list[Condition], report: ConditionResult | None,
-                       offset: int = 0) -> dict[str, Any]:
+    def _answer_record(results: list[ConditionResult], answers: list[Condition], offset: int = 0) -> dict[str, Any]:
         """What an answering loop's or conversation's end check confirmed, as a step output keeps it (`_adopt_saved`,
-        `_post_part`): verified when every condition it answers and the report hold; else the one "Couldn't confirm"
-        text. Indexed like the answered conditions."""
+        `_post_part`): verified when every condition it answers holds; else the one "Couldn't confirm" text. Indexed
+        like the answered conditions."""
         unmet = [answers[r.index - offset].owner_text or answers[r.index - offset].text for r in results
                  if r.met is not True]
-        verified = not unmet and len(results) == len(answers) and report is not None and report.met is True
-        note = "; ".join(unmet) or ("" if verified else (Supervisor._report_line(report) if report is not None
-                                                         else NOTHING_TO_CHECK))
+        verified = not unmet and len(results) == len(answers)
+        note = "; ".join(unmet) or ("" if verified else NOTHING_TO_CHECK)
         return {'verified': verified, 'note': _clipped(note) if note else '',
                 'verification': [ConditionResult(r.index - offset, r.text, r.met, r.path, r.evidence, r.how).as_dict()
                                  for r in results]}
@@ -4938,6 +4935,9 @@ class Supervisor(WorkerRuns):
         attempts = Attempts()
         tree.confirmed = {}
         retrying = False                     # the next attempt follows the checker's retry (ORCH-531: "retrying")
+        if tree.restored_fix:                # a restart came during the step's fix round: code settles it (ORCH-545)
+            saved, tree.restored_fix = tree.restored_fix, {}
+            return await self._restored_fix(tree, task, saved, span)
         if tree.restored_wait:               # asked when FERB restarted: the same question first
             again = await self._restored(tree, task, attempts, span)
             if isinstance(again, Outcome):
@@ -4970,6 +4970,9 @@ class Supervisor(WorkerRuns):
                     choice = await self._judge(tree, out, span)
                 except _RuntimeDown as exc:              # the checker's runtime hit the same kind of account fact
                     down = exc.down
+                if choice is not None and choice.findings and not tree.stop and not self._steered(tree):
+                    # ORCH-545: the worker fixes the quoted sentences once; else code removes or marks them
+                    await self._settle_findings(tree, task, choice.findings, span)
             if down is not None and not tree.stop:
                 switched = await self._service_down(tree, task, down)
                 if switched is None:
@@ -5033,23 +5036,18 @@ class Supervisor(WorkerRuns):
                 f"\nInstructions for this attempt: {choice.instructions}"
             retrying = True
             if attempts.failed_one():        # ORCH-307: the check-in before another attempt
-                report_only = choice.report_only and out.status == "done"
-                keep = await self._check_in(tree, task, attempts, {"answer": tree.owner_answer,
-                                                                   "artifacts": list(out.artifacts)}
-                                            if report_only else None)
+                keep = await self._check_in(tree, task, attempts)
                 if keep is None:
                     break
                 if keep is False:
-                    if report_only:
-                        return await self._report_unconfirmed(tree, out, span)
                     return Outcome(task.id, "failed", tree.stop_reason, out.artifacts, [])
                 instructions += keep
         return Outcome(task.id, "cancelled", tree.stop or STOPPED_BY_YOU, [], [])
 
     async def _report_unconfirmed(self, tree: _Tree, out: Outcome, span: str) -> Outcome:
-        """The attempts ran out while only the answer's report condition stood false and unfixed (a run nobody attends
-        can't be asked to go on; or the owner's No): the work's own outcome stands, done-unconfirmed, with the latest
-        answer and code's one "Couldn't confirm" line in the owner's terms (ORCH-309), never the checker's evidence."""
+        """STORE-403 only: a check-in saved before ORCH-545 by a build whose report-only retries reached it (ORCH-541),
+        answered No after the upgrade: the work's own outcome stands, done-unconfirmed, with that saved answer and code's
+        one "Couldn't confirm" line in the owner's terms (ORCH-309), never the checker's evidence."""
         tree.unconfirmed = REPORT_UNCONFIRMED
         tree.stands_unconfirmed = True
         tree.stop_reason = ''
@@ -5063,8 +5061,8 @@ class Supervisor(WorkerRuns):
     async def _restored(self, tree: _Tree, task: Task, attempts: Attempts, span: str) -> str | Outcome | None:
         """The check-in or runtime switch this step waited on when FERB restarted, asked again as itself (never as an
         owner pause, whose answers mean other things: a No to a check-in stops). What the first attempt is told, or the
-        step's end (a No, nobody there, stopped). A check-in after a report-only retry (ORCH-541) keeps that answer
-        across the restart: a No ends done-unconfirmed with it, as it would have before."""
+        step's end (a No, nobody there, stopped). A check-in an older build saved after a report-only retry (ORCH-541,
+        before ORCH-545) keeps that answer across the upgrade: a No ends done-unconfirmed with it (STORE-403)."""
         saved, tree.restored_wait = tree.restored_wait, {}
         if saved.get('question_kind') == 'check_in':
             attempts.failed = attempts.allowed = max(1, int(saved.get('attempts') or CHECK_IN_AFTER))
@@ -5104,6 +5102,7 @@ class Supervisor(WorkerRuns):
         tree.conversation_action = tree.loop_action = None
         tree.watch_met = tree.probe = None
         tree.nothing_to_tell = False
+        tree.answer_settled = False
 
     @staticmethod
     def _steered(tree: _Tree) -> bool:
@@ -5202,110 +5201,171 @@ class Supervisor(WorkerRuns):
 
     def _next(self, tree: _Tree, out: Outcome, checked: CheckerOutcome) -> "_Next":
         """The checker's choice, checked against its own verdicts (ORCH-309; code never judges content):
-        - accept / fix_answer / accept_unconfirmed apply the answer edits; the task is done when every outcome
-          condition is verified; it stands unconfirmed when one is still unknown and the worker reported done; any
-          outcome condition found false, or unfinished work with outcomes unknown, fails;
-        - an unproven detail of the answer (FERB's report condition not confirmed and not fixed by edits) is marked by
-          the one "Couldn't confirm" line, never by a redo;
-        - a detail the records contradict (FERB's report condition false) that no edit removed or marked would stand
-          unmarked (ORCH-309), so it is a retry with the checker's evidence as the next attempt's instructions
-          (`report_only`: when the attempts run out, the answer stands done-unconfirmed with code's line);
-        - a retry with every outcome verified becomes fix_answer, unless FERB's report condition is false and the checker
-          gave no edits: the answer leaves out or misstates a result that matters, which an edit can't add (P4), so a
-          new attempt writes it;
+        - accept / accept_unconfirmed: the task is done when every outcome condition is verified; it stands unconfirmed
+          when one is still unknown and the worker reported done; any outcome condition found false, or unfinished work
+          with outcomes unknown, fails;
+        - a retry with every outcome verified is an accept: only the answer can be wrong, which never costs a redo
+          (ORCH-309); the answer's wording is never judged (ORCH-545);
+        - with done work, the checker's findings (a sentence the evidence contradicts, or a guess stated as fact) go to
+          the worker's one fix turn (`_settle_findings`), never to a redo and never as checker text in the answer;
         - retry needs instructions (else what's missing, else the worker's reason); ask needs a question (else the
           worker's own); fail carries the checker's reason (else the worker's)."""
-        planned = len(tree.spec.success_conditions) + int(tree.watch)       # FERB's report condition comes after
+        planned = len(tree.spec.success_conditions) + int(tree.watch)
         outcome = [r for r in tree.verification if r.index < planned]
-        report = next((r for r in tree.verification if r.index == planned), None)
         action = checked.next
-        rewrite = report is not None and report.met is False and not checked.answer_edits
         verified = bool(planned) and len(outcome) == planned and all(r.met is True for r in outcome)
-        if action == "retry" and verified and not rewrite:
-            action = "fix_answer"        # ORCH-309: every outcome verified, so only the answer can be wrong: no redo
-        if action in ("accept", "fix_answer", "accept_unconfirmed"):
-            before = tree.owner_answer
-            unapplied = self._apply_edits(tree, checked)
+        if checked.dropped_edits:         # an older checker reply's rewrites and additions: never applied or marked
+            self.journal.append("task.answer_edit_dropped", {"task_id": tree.worker.id, "finds": checked.dropped_edits})
+        if action == "retry" and verified:
+            action = "accept"            # ORCH-309: every outcome verified, so only the answer can be wrong: no redo
+        if action in ("accept", "accept_unconfirmed"):
             refuted = [r for r in outcome if r.met is False]
             unknown = [r for r in outcome if r.met is not True]
             if refuted or (unknown and out.status != "done"):
                 why = checked.reason or ("" if refuted else tree.reason) or "; ".join(
                     f"{self._owner_text(tree, r)}: {r.evidence}" for r in (refuted or unknown))
                 return _Next("fail", reason=why)
-            if report is not None and report.met is False and tree.owner_answer == before:
-                # ORCH-309 (agent ruling, after ORCH-540): the records contradict a detail of the answer and no edit
-                # removed or marked anything (the only changes an edit may make, P4), so it would stand unmarked: the
-                # next attempt rewrites the answer from the checker's evidence (capped by ORCH-307's check-in; a run
-                # that can't go on ends done-unconfirmed with code's own line, `_report_unconfirmed`)
-                self.journal.append("task.report_condition_unmet", {"task_id": tree.worker.id,
-                                                                    "evidence": report.evidence, "fixed": False,
-                                                                    "retry": True})
-                instructions = "; ".join(t for t in (report.evidence.strip(), checked.instructions.strip()) if t)
-                return _Next("retry", instructions=instructions or tree.reason, missing=checked.missing.strip(),
-                             worker_type=checked.worker_type, report_only=True)
             lines = [self._owner_text(tree, r) + (f" ({r.how.rstrip('.')})" if r.how else "") for r in unknown]
-            fixed = action == "fix_answer" and bool(checked.answer_edits) and not unapplied
-            if report is not None and report.met is None and not fixed:
-                lines.append(self._report_line(report))
             tree.unconfirmed = "; ".join(line.strip().rstrip(".") for line in lines if line.strip())
-            if report is not None and report.met is not True:
-                # ORCH-540: what the check found against the answer's report condition is the checker's own evidence,
-                # kept in the record only (with whether its edits all applied); the owner's answer gets no
-                # "Correction:" line and no evidence in its "Couldn't confirm" line (ORCH-309). False: an edit removed
-                # or marked the disputed text.
-                self.journal.append("task.report_condition_unmet", {"task_id": tree.worker.id,
-                                                                    "evidence": report.evidence, "fixed": fixed}
-                                    | ({"unknown": True} if report.met is None else {}))
-            return _Next("accept_unconfirmed" if unknown else "accept")
+            findings = [f for f in checked.findings if f.quote.strip()] if out.status == "done" else []
+            return _Next("accept_unconfirmed" if unknown else "accept", findings=findings)
         if action == "retry":
             instructions = checked.instructions.strip() or checked.missing.strip() or tree.reason
             return _Next("retry", instructions=instructions, missing=checked.missing.strip(),
-                         worker_type=checked.worker_type, report_only=verified and rewrite)
+                         worker_type=checked.worker_type)
         if action == "ask":
             question = checked.question.strip() or tree.worker_question
             if question:
                 return _Next("ask", question=question)
         # without the checker's reason: the worker's own reason for not finishing, else what the check found of the
-        # outcome (never a done report's claim; the report condition's evidence is the checker's own, ORCH-540)
+        # outcome (never a done report's claim)
         found = "; ".join(f"{self._owner_text(tree, r)}: {r.evidence}" for r in outcome if r.met is not True)
         return _Next("fail", reason=checked.reason.strip() or tree.reason or found or NOT_ACCEPTED)
 
-    def _apply_edits(self, tree: _Tree, checked: CheckerOutcome) -> list[str]:
-        """The checker's exact edits to the worker's answer (fix_answer), each applied where its text appears; the ones
-        whose text isn't in the answer are returned (the answer keeps that part, and it is marked unconfirmed). An edit
-        that would write more than a removal or the inline marker (P4: the checker never adds sentences) is never
-        applied and is journaled (PRM-326): one whose replace keeps its text whole (a pure addition) leaves that text
-        as it is, since the checker didn't dispute it; one that changes or drops words of it marks that text inline
-        instead, once, so an unconfirmed claim never stays bare (ORCH-309)."""
-        unapplied, dropped, marked = [], [], []
-        for edit in checked.answer_edits:
-            if not removes_or_marks(edit.find, edit.replace):
-                dropped.append(edit.find)
-                if not edit.find.strip() or edit.find in edit.replace:
-                    continue                                 # a pure addition: the text stays as it was
-                if edit.find in tree.owner_answer:
-                    tree.owner_answer = mark_unconfirmed(tree.owner_answer, edit.find)
-                    marked.append(edit.find)
-                else:
-                    unapplied.append(edit.find)
-            elif edit.find and edit.find in tree.owner_answer:
-                tree.owner_answer = tree.owner_answer.replace(edit.find, edit.replace)
-            elif edit.find:
-                unapplied.append(edit.find)
-        if checked.answer_edits:
-            self.journal.append("task.answer_fixed", {"task_id": tree.worker.id, "edits": len(checked.answer_edits),
-                                                      "unapplied": len(unapplied), "dropped": len(dropped)})
-        if dropped:
-            self.journal.append("task.answer_edit_dropped", {"task_id": tree.worker.id, "finds": dropped,
-                                                             "marked": marked})
-        return unapplied
+    async def _settle_findings(self, tree: _Tree, task: Task, findings: list[Finding], span: str) -> None:
+        """ORCH-545 (owner, 2026-11-06): the checker quoted sentences of a done answer that the evidence contradicts or
+        doesn't support. The same worker gets ONE turn to fix only those sentences (`_fix_turn`: observe-only, no new
+        work, no action), and a short re-check judges only the revised answer against the same findings (`_recheck`).
+        When the fix turn fails, or the re-check still finds them, code removes (contradicted) or marks "(I couldn't
+        confirm this)" (unsupported) exactly the quoted sentences (answer_marks.settle): of the revised answer when the
+        re-check quoted it, else of the original. One round only, attended or not; a restart during it settles the
+        saved original by code (`_restored_fix`). Nothing of the checker's words reaches the answer."""
+        findings = [f for f in findings if f.quote.strip()]
+        if not findings or tree.answer_settled:
+            return
+        tree.answer_settled = True
+        original = tree.owner_answer
+        self.journal.append("task.answer_findings", {"task_id": task.id,
+                                                     "findings": [f.model_dump() for f in findings]})
+        self._keep_fixing(tree, task, original, findings)
+        revised = await self._fix_turn(tree, task, original, findings, span)
+        remaining = await self._recheck(tree, task, findings, revised, span) if revised is not None else None
+        if revised is not None and remaining == []:
+            tree.owner_answer, how = revised, "fixed"
+            done = settle(revised, [])
+        elif revised is not None and remaining and all(f.quote in revised for f in remaining):
+            done = settle(revised, [(f.quote, f.kind) for f in remaining])
+            tree.owner_answer, how = done.answer, "marked"
+        else:
+            done = settle(original, [(f.quote, f.kind) for f in findings])
+            tree.owner_answer, how = done.answer, "marked"
+        self.journal.append("task.answer_settled", {"task_id": task.id, "how": how, "removed": done.removed,
+                                                    "marked": done.marked, "missing": done.missing})
+        self._keep_fixing(tree, task, None, [])
 
-    @staticmethod
-    def _report_line(report: ConditionResult) -> str:
-        """FERB's report condition left unconfirmed, as the owner's "Couldn't confirm" text: code's own words and the
-        checker's how (how the owner could check it, written for them), never its evidence (ORCH-540)."""
-        how = (report.how or "").strip().rstrip(".")
-        return REPORT_UNCONFIRMED + (f" ({how})" if how else "")
+    def _fixing_step(self, tree: _Tree, task: Task) -> bool:
+        """Whether this attempt loop is a plan step's own worker (a single task's, or a step's), whose plan row can keep
+        a fix in progress across a restart; a loop round or conversation turn re-runs instead."""
+        return (task.id in (f"{tree.id}.{WORKER}", f"{tree.id}.step.{tree.step_id}")
+                and tree.step_id in self._plan_steps(tree.id))
+
+    def _keep_fixing(self, tree: _Tree, task: Task, answer: str | None, findings: list[Finding]) -> None:
+        """The fix in progress on the step's plan row (`answer` None: none any more), so a restart settles it by code."""
+        if not self._fixing_step(tree, task):
+            return
+        fixing = {} if answer is None else {'fixing': {
+            'answer': answer, 'findings': [f.model_dump() for f in findings],
+            'artifacts': list(tree.outcome.artifacts) if tree.outcome else [],
+            'verification': [r.as_dict() for r in tree.verification], 'unconfirmed': tree.unconfirmed}}
+        self.plans.finish(tree.id, tree.step_id, {'status': 'running', **fixing})
+
+    async def _restored_fix(self, tree: _Tree, task: Task, saved: dict[str, Any], span: str) -> Outcome:
+        """A restart came during the step's fix round (ORCH-545): the work and its check stand as saved, and code settles
+        the saved answer's quoted sentences (the round already began; it is never run twice, nor the work redone)."""
+        planned = len(tree.spec.success_conditions) + int(tree.watch)
+        tree.verification = [ConditionResult(int(r['index']), str(r.get('condition', '')), r.get('met'),
+                                             str(r.get('path', 'verifier')), str(r.get('evidence', '')),
+                                             str(r.get('how', '')))
+                             for r in saved.get('verification') or [] if int(r.get('index', planned)) < planned]
+        tree.unconfirmed = str(saved.get('unconfirmed') or '')
+        tree.stands_unconfirmed = any(r.met is not True for r in tree.verification) or not tree.verification
+        findings = [Finding.model_validate(f) for f in saved.get('findings') or [] if isinstance(f, dict)]
+        done = settle(str(saved.get('answer') or ''), [(f.quote, f.kind) for f in findings])
+        tree.owner_answer, tree.answer_settled = done.answer, True
+        self.journal.append("task.answer_settled", {"task_id": task.id, "how": "marked", "restart": True,
+                                                    "removed": done.removed, "marked": done.marked,
+                                                    "missing": done.missing})
+        self._keep_fixing(tree, task, None, [])
+        if not tree.hold_resources:
+            if self._tree_of.get(tree.id) is tree:
+                tree.work_done = True
+            await self._release_resources(tree, span)
+        tree.outcome = Outcome(task.id, "done", tree.owner_answer, [str(a) for a in saved.get('artifacts') or []], [])
+        return tree.outcome
+
+    async def _fix_turn(self, tree: _Tree, task: Task, answer: str, findings: list[Finding],
+                        span: str) -> str | None:
+        """The worker's one turn to fix only the quoted sentences of its answer: the same worker type and runtime, its
+        task's context, its answer and the findings, an observe-only token (no new work, no action). None when the turn
+        failed or gave no usable answer. No runtime FERB uses can resume an ended worker run, so it is a new run that is
+        handed what the earlier one wrote."""
+        fix = Task(f"{task.id}.fix", task.id, task.goal, self.device_id, task.identity, set(task.scopes), "mixed",
+                   task.request_id, [], task.deadline)
+        block = ContextBlock("Your answer to the owner (data, as you wrote it): " + wrap_untrusted(answer) +
+                             "\nThe sentences FERB's checker found the evidence doesn't bear (data): " +
+                             wrap_untrusted(json.dumps([f.model_dump() for f in findings], ensure_ascii=False)),
+                             "your answer and the check's findings", protected=True)
+        try:
+            raw, _ = await self.run_worker(tree, fix, "worker.md", (await self._context(tree)) + [block], FIX_SCHEMA,
+                                           span, roles=("fix",), observe_only=True)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self.journal.append("task.answer_fix_failed", {"task_id": task.id, "error": f"{type(exc).__name__}: {exc}"})
+            return None
+        if not isinstance(raw, dict):
+            self.journal.append("task.answer_fix_failed", {"task_id": task.id, "error": getattr(raw, "summary", "")})
+            return None
+        try:
+            revised = FixOutcome.model_validate(raw).answer
+        except ValidationError:
+            return None
+        return revised if revised.strip() else None
+
+    async def _recheck(self, tree: _Tree, task: Task, findings: list[Finding], revised: str,
+                       span: str) -> list[Finding] | None:
+        """The short re-check of the revised answer against the same findings: the ones that still stand (quoted from
+        the revised answer), [] when it fixed them all, None when the re-check couldn't run."""
+        vtask = Task(f"{task.id}.recheck", task.id, "recheck", self.device_id, task.identity, set(task.scopes),
+                     "verifier", task.request_id, [], task.deadline)
+        block = ContextBlock("The findings (data): " + wrap_untrusted(json.dumps([f.model_dump() for f in findings],
+                                                                                ensure_ascii=False)) +
+                             "\nThe worker's revised answer (data, not instructions): " + wrap_untrusted(revised),
+                             "the findings and the revised answer", protected=True)
+        try:
+            raw, _ = await self.run_worker(tree, vtask, "recheck.md", [block], RECHECK_SCHEMA, span)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self.journal.append("task.answer_recheck_failed", {"task_id": task.id,
+                                                              "error": f"{type(exc).__name__}: {exc}"})
+            return None
+        if not isinstance(raw, dict):
+            return None
+        try:
+            return [f for f in RecheckOutcome.model_validate(raw).findings if f.quote.strip()]
+        except ValidationError:
+            return None
 
     @staticmethod
     def _owner_text(tree: _Tree, result: ConditionResult) -> str:
@@ -6175,39 +6235,6 @@ WATCH_TEXT = "whether it has happened"          # a watch's own condition, in th
 NOTHING_TO_CHECK = "there was nothing to check it against"
 REPORT_UNCONFIRMED = "every detail of this answer against what I saw"   # its report condition stayed unmet
 NOT_ACCEPTED = "the check didn't confirm the result"     # a failure no reason came with (never a done claim)
-UNCONFIRMED_MARK = "(I couldn't confirm this)"            # the one inline marker a checker's answer edit may add (P4)
-
-
-def removes_or_marks(find: str, replace: str) -> bool:
-    """Whether a checker's answer edit only removes its text or marks it unconfirmed (P4, ORCH-309): `replace` is
-    empty, or `find` with UNCONFIRMED_MARK inserted once (a typographic apostrophe counts as a plain one). Anything
-    else would write new words into the owner's answer. Structure, not content: no word of the answer is judged."""
-    if not replace:
-        return True
-    plain, mark = replace.replace("\u2019", "'"), UNCONFIRMED_MARK
-    at = plain.find(mark)
-    if at < 0:
-        return False
-    rest = plain[:at] + plain[at + len(mark):]
-    target = find.replace("\u2019", "'")
-    return rest == target or (at > 0 and rest[:at - 1] + rest[at:] == target and plain[at - 1] == " ")
-
-
-def mark_unconfirmed(answer: str, find: str) -> str:
-    """The answer with the first occurrence of `find` marked inline with UNCONFIRMED_MARK, before its closing
-    punctuation ("It opens at 10am (I couldn't confirm this)."); unchanged when that occurrence is already marked
-    (PRM-326). Structure only: no word is judged."""
-    at = answer.find(find)
-    if at < 0:
-        return answer
-    end = at + len(find)
-    body = find.rstrip()
-    tail = len(body) - len(body.rstrip(".!?;:,"))
-    core, stop = body[:len(body) - tail].rstrip(), body[len(body) - tail:]
-    after = answer[at + len(core):].lstrip()
-    if after.replace("\u2019", "'").startswith(UNCONFIRMED_MARK):
-        return answer
-    return answer[:at] + core + " " + UNCONFIRMED_MARK + stop + find[len(body):] + answer[end:]
 UNCONFIRMED_CHARS = 300                          # the "Couldn't confirm" line stays one short line
 # The checker's code facts about how the work was done (ORCH-309) and what the task holds (ORCH-333)
 HOW_FACTS = ("FERB's code facts about how this work was done, measured by FERB's code from its own records (never the "
@@ -6237,7 +6264,7 @@ class _Next:
     worker_type: str | None = None
     question: str = ""
     reason: str = ""
-    report_only: bool = False        # a retry only because the answer's report condition was found false, unfixed
+    findings: list[Finding] = field(default_factory=list)   # accept: sentences of the answer the worker fixes once
 
 
 class _RuntimeDown(Exception):

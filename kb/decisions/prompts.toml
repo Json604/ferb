@@ -250,7 +250,7 @@ words = "agreee to all except exaplin me this"
 words_source = "The owner's approval of prompt edit P4 and its trade-off (2026-11-05); the exception was the answer box, a later batch"
 rule = "The checker's answer edits never add sentences: code drops (and journals) an edit that is neither a removal nor its own text with the inline marker \"(I couldn't confirm this)\". An answer that leaves out a result that matters goes back as a retry instead of the checker writing it in; an unproven detail still never costs a redo (ORCH-309)."
 why = "Freelance task 0218bb01: the checker's fix_answer edits added \"Preview and Finder came to the front…\" and \"No application… was sent\"."
-paths = ["ferb/orchestrator/prompts/verifier.md", "ferb/orchestrator/supervisor.py::removes_or_marks", "ferb/orchestrator/supervisor.py::Supervisor._apply_edits"]
+paths = ["ferb/orchestrator/prompts/verifier.md", "ferb/orchestrator/answer_marks.py::removes_or_marks", "ferb/orchestrator/schemas.py::CheckerOutcome"]
 live = ["LIVE-780"]
 
 [PRM-324]
@@ -304,20 +304,22 @@ live = ["LIVE-786"]
 title = "A checker edit that rewrites a claim marks it instead of leaving it bare"
 by = "agent"
 date = 2026-11-05
-status = "active"
+status = "superseded"
 rule = "Refines PRM-323's drop: an answer edit that is neither a removal nor its find with the inline marker is never applied and is journaled (task.answer_edit_dropped with `marked`). A pure addition (its replace keeps the find whole) leaves the text as it was. A rewrite (it changes or drops words of the find) marks the text's first occurrence inline with \"(I couldn't confirm this)\", once, before its closing punctuation. A find not in the answer changes nothing."
 why = "Owner's database, 2026-11-05: all 12 recorded checker edits (6 fix_answer verdicts of 26) were rewrites; dropping them left unconfirmed sentences unmarked, against ORCH-309. Coordinator-approved from the owner's P4 approval."
-paths = ["ferb/orchestrator/supervisor.py::Supervisor._apply_edits", "ferb/orchestrator/supervisor.py::mark_unconfirmed"]
+paths = ["ferb/orchestrator/answer_marks.py::mark_unconfirmed"]
+superseded_by = "ORCH-546"
 
 [PRM-327]
 title = "The checker's report condition follows PRM-322: who did a part only when it wasn't FERB"
 by = "agent"
 date = 2026-11-05
-status = "active"
+status = "superseded"
 rule = "FERB's report condition (REPORT_CONDITION and verifier.md) reads: the answer says only what the records support, names who did a part only when an agent, app or person other than FERB did it, names its source and account in a few words, and leaves out nothing that changes the result. interaction.md's named-doer rule says the same."
 why = "Live task 794e3bd8: the stale \"says who did each part\" made the checker fail an answer for not saying FERB did the research. Part of the owner-approved P3/P4 refinement (PRM-322, PRM-323)."
-paths = ["ferb/orchestrator/prompts/verifier.md", "ferb/orchestrator/supervisor.py::REPORT_CONDITION", "ferb/orchestrator/prompts/interaction.md"]
+paths = ["ferb/orchestrator/prompts/verifier.md", "ferb/orchestrator/prompts/interaction.md"]
 untestable = "Prompt text: TEST-500 keeps no wording tests; the owner's live check of a researched answer shows it."
+superseded_by = "PRM-330"
 
 [PRM-328]
 title = "The planner names what it makes; a timer is a timer"
@@ -328,3 +330,14 @@ rule = "The planner's schema has `name` (a plain string, \"\" unset, ORCH-330) o
 why = "ORCH-542 (owner, 2026-11-05): headings show a short name and a timer says it is one."
 paths = ["ferb/orchestrator/prompts/supervisor.md", "ferb/orchestrator/schemas.py::NAME_SCHEMA", "ferb/orchestrator/schemas.py::TIMER_SCHEMA"]
 untestable = "Prompt text: TEST-500 keeps no wording tests; the owner's live check LIVE-787 shows the names."
+
+[PRM-330]
+title = "verifier.md asks for findings, not a report condition; the fix and re-check prompts"
+by = "agent"
+date = 2026-11-06
+status = "active"
+supersedes = ["PRM-327"]
+rule = "verifier.md has no report condition: the worker's answer is checked only for a sentence the evidence contradicts or a guess stated as fact, each a finding (quote, kind, evidence); wording is never a finding and the checker never writes replacement text; accept carries any findings; fix_answer is gone. roles/fix.md gives the worker its one turn to fix only the quoted sentences, no new work or action. recheck.md judges only whether the revised answer still states each finding."
+why = "Owner ORCH-545 (2026-11-06). The exact old and new text is in the fixes8 report."
+paths = ["ferb/orchestrator/prompts/verifier.md", "ferb/orchestrator/prompts/roles/fix.md", "ferb/orchestrator/prompts/recheck.md"]
+untestable = "Prompt text: TEST-500 keeps no wording tests; the owner's live check shows the checker's findings."
