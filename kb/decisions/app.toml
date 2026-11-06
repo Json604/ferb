@@ -2629,3 +2629,24 @@ rule = "Implements APP-760. The window joins the notch's overlay space (NotchOve
 why = "Live probe, macOS 27.2: Control-arrow both ways and Mission Control in and out left it in the space, on no ordinary Space, at the same window-server bounds at every 20 ms sample. Activations within 1 s of a Space change (seen by notification or the Space showing) are that Space's own."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController", "ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift::NotchOverlaySpace", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
 live = ["LIVE-804"]
+
+[APP-762]
+title = "Timers flow like Apple's: set, running beside the camera, done with Stop and Repeat"
+by = "owner"
+date = 2026-11-06
+status = "active"
+words = "this timer anomation and normal popoup uio is bad and feels too empty too. search online about the apple timer ui, hwo it flows from teh satr and the end adn implement that"
+words_source = "Owner, 2026-11-06, about a screenshot of the compact timer arrival (\"⏱ Timer\" and \"Tea\" in a large empty black notch)"
+rule = "Refines APP-622, APP-627 and, only while a timer runs, APP-550's idle footprint. Like Apple's Clock app and Live Activities: the timer set in chat shows its name, a live monospaced countdown in a ring draining over its duration, its end time with a bell and Cancel; while it runs and FERB is closed, the closed notch shows a timer glyph and the countdown beside the camera (in the pill without a notch); at its end the arrival shows the name large, Done in the timer's orange in the full ring, when it was due, Stop and Repeat. Reminder arrivals get the same fuller layout with Done."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TimerViews.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift::ReminderCard", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+live = ["LIVE-805"]
+
+[APP-763]
+title = "How the timer flow is drawn and stays out of the notch's interaction"
+by = "agent"
+date = 2026-11-06
+status = "active"
+rule = "Implements APP-762. One orange accent (Palette.timer). The ring drains linearly, one tick a second animated over that second; digits change with a numeric transition; the done ring pulses once; Reduce Motion: no pulse, no drain animation, cross-fades. No Pause: FERB's timers can't pause. The live activity is a click-through overlay window beside the housing or the pill (middle clear), hidden while FERB is open, stepped back, asleep, dragging or showing an arrival; a running timer holds the pill up instead of its resting line (not on a full-screen Space). One notification sound, never a loop."
+why = "Apple HIG Live Activities and WWDC23 10194 for the flow; FERB's sound rules (APP-521, APP-532) win over Apple's looping alarm. A click-through window leaves press, drag, hover and yield exactly as APP-704..711 built them."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TimerViews.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TimerModel.swift", "ui/mac/FERBNotch/Sources/NotchCore/TimerClock.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift::PanelCoordinator.updateTimerActivity"]
+live = ["LIVE-805"]

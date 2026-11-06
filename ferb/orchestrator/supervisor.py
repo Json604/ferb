@@ -2861,7 +2861,8 @@ class Supervisor(WorkerRuns):
             events.append({"type": "timer", "text": line, "timer_id": t.id})
             # T-1055: the card's heading is its short name; its kind says timer or reminder
             cards.append(cards_.event("timer" if t.kind == "timer" else "reminder", t.id, t.label,
-                                      t.fire_at.isoformat(), line))
+                                      t.fire_at.isoformat(), line,
+                                      started=t.created_at.isoformat() if t.kind == "timer" and t.created_at else None))
         # L11: what happened to each side output is said by code, never by the planner (which wrote its reply before
         # code set or refused anything, after a repair naming each quote the check would refuse, ORCH-520): a refusal
         # never replaces the reply. A reply or question gets the lines (so they reach the conversation's history too); a

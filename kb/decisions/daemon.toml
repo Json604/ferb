@@ -696,3 +696,12 @@ rule = "setup.browsers profile rows (ProfileStatus.email), Pair all's plan (todo
 why = "HAND-424 (owner, 2026-11-05); AGENTS.md: a UI change that needs changed RPC replies is a daemon change recorded in kb."
 paths = ["ferb/act/browser/autoinstall.py::ProfileStatus", "ferb/device/extensions.py::browser_rows", "ferb/daemon/areas/browsers.py::Browsers._pair_all_events", "ferb/daemon/areas/browsers.py::Browsers._pair_one", "ferb/daemon/areas/browsers.py::Browsers._identity_find", "ferb/daemon/areas/about.py::About._about_document"]
 live = ["LIVE-791"]
+
+[DMN-547]
+title = "A timer's start reaches the app, and Repeat is one RPC"
+by = "agent"
+date = 2026-11-06
+status = "active"
+rule = "For APP-762. A timer's event card, its pending row (reminders.list) and its arrival card carry `started` (the timer row's created_at), so the app draws its ring over its duration. `timers.repeat {id}` (the app's role) starts the same timer again from now for the same duration, with its name and message, journals timer.repeated by the owner, and returns the new row; a reminder or a timer without a start is refused."
+why = "The ring and Repeat need the duration, which only the daemon's row knows; Repeat is the owner's own tap on a timer FERB already set: no model, no new words."
+paths = ["ferb/daemon/areas/schedules.py::Schedules._timers_repeat", "ferb/daemon/areas/schedules.py::Schedules._reminders_list", "ferb/clock/timers.py::Timer", "ferb/orchestrator/cards.py::event"]

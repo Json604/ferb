@@ -25,6 +25,10 @@ public struct ResultCard: Codable, Equatable {
     public var what: String?
     public var when: String?
     public var watch: String?
+    /// A timer's card (event or reminder): when it was set (APP-762), so its ring drains over its duration.
+    public var started: String?
+    /// A reminder card's timer (`timer_id`), else an event card's `id`: what Cancel and Repeat act on.
+    public var timerID: String?
     // note: a remembered item (state saved | proposed; corrected | forgotten after the owner acts on it here)
     public var itemID: String?
     public var text: String?
@@ -60,6 +64,7 @@ public struct ResultCard: Codable, Equatable {
         title = words("title"); due = words("due"); repeatRule = words("repeat"); nextRun = words("next_run")
         scheduleID = words("schedule_id"); until = words("until")
         kind = words("kind"); id = words("id"); what = words("what"); when = words("when"); watch = words("watch")
+        started = words("started"); timerID = words("timer_id") ?? words("id")
         itemID = words("item_id"); text = words("text"); state = words("state")
         amount = words("amount"); merchant = words("merchant"); site = words("site"); savedCard = words("card")
         recipient = words("recipient"); app = words("app"); account = words("account")
@@ -90,6 +95,9 @@ public struct ResultCard: Codable, Equatable {
     public var nextRunDate: Date? { LiveProgress.time(nextRun) }
     public var whenDate: Date? { LiveProgress.time(when) }
     public var untilDate: Date? { LiveProgress.time(until) }
+    public var startedDate: Date? { LiveProgress.time(started) }
+    /// When a timer ends: an event card's `when`, a reminder card's `due`.
+    public var timerEnds: Date? { type == "event" ? whenDate : dueDate }
 
     /// A reminder or event card for a timer (its row's kind, T-1055).
     public var isTimer: Bool { kind == "timer" }

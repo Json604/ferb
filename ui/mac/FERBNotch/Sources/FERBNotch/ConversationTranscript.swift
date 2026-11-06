@@ -341,7 +341,7 @@ private struct NoticeView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             ForEach(Array(CardLayout.above(notice.cards ?? []).enumerated()), id: \.offset) { _, card in
-                ReminderCard(card: card).padding(.trailing, 28)
+                ReminderCard(card: card, model: model).padding(.trailing, 28)
             }
             // A plain timer's entire message is already the reminder card's title.
             if !(notice.cards?.count == 1 && notice.cards?.first?.type == "reminder"
@@ -506,7 +506,7 @@ private struct AnswerView: View {
         if !turn.answer.isEmpty && turn.card == nil {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(CardLayout.above(cards).enumerated()), id: \.offset) { _, card in
-                    ReminderCard(card: card).padding(.trailing, 28)       // a reminder: FERB's text under it
+                    ReminderCard(card: card, model: model).padding(.trailing, 28)  // a reminder: FERB's text under it
                 }
                 FerbBubble {
                     VStack(alignment: .leading, spacing: 6) {

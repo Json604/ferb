@@ -21,7 +21,10 @@ more and a short one open, a check-in with only its buttons, a question in a row
 check with "Yes but the cheaper one" as a correction, a confirmed part unmarked and a really unconfirmed one with its
 "Couldn't confirm" line, the notch opening itself to the answer (file card, sites chip with the boxed "+2", inline
 links: hover them), a long answer with Show all, a file drop waiting in the composer until sent, a timer and a schedule
-with short names (the timer card says Timer) and the timer's compact arrival, Settings' shortcut and double-tap,
+with short names; the timer's flow like Apple's (APP-762): set in chat with its live countdown in a draining ring,
+"Ends" with a bell and Cancel, then FERB closed with the countdown beside the camera (in the pill without a notch),
+then its end on the notch with Done in the full ring, Stop and Repeat, Repeat starting it again; a reminder's arrival
+with its icon, title, due time and Done; Settings' shortcut and double-tap,
 profile names with their accounts (Settings → Browsers), window mode with Keep on top and Hide the pill, and "Updated
 to 0.27.1" once. It never calls a model, the real daemon, `~/.ferb` or the network. Each beat checks the UI state it
 leaves; failed checks show under the controls and in the log, and `PlaygroundPlayTests` runs every beat hermetically.

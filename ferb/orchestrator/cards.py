@@ -42,11 +42,12 @@ ACTING_KINDS = frozenset({*SEND_KINDS, Kind.PAY, Kind.SUBMIT, Kind.WRITE_FILE, K
 
 
 def event(kind: str, ident: str, what: str, when: str, line: str, repeat: str | None = None,
-          watch: str | None = None, until: str | None = None) -> dict[str, Any]:
-    """A reminder or schedule just set, from its stored row."""
+          watch: str | None = None, until: str | None = None, started: str | None = None) -> dict[str, Any]:
+    """A reminder or schedule just set, from its stored row; a timer's carries when it was set (`started`, APP-762),
+    so its ring drains over its duration."""
     return {"type": "event", "kind": kind, "id": ident, "what": what, "when": when, "line": line,
             **({"repeat": repeat} if repeat else {}), **({"watch": watch} if watch else {}),
-            **({"until": until} if until else {})}
+            **({"until": until} if until else {}), **({"started": started} if started else {})}
 
 
 def note(item_id: str, text: str, state: str, line: str) -> dict[str, Any]:

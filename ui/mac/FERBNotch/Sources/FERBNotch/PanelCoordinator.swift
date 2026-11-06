@@ -196,6 +196,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private var notchTakenRecheck: [DispatchWorkItem] = []
     private var dockingRevision: UUID?
     let magneticFieldPanel = NotchLightPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    /// The closed notch's timer live activity (APP-762): click-through, beside the camera housing or the pill.
+    let timerActivityPanel = NotchLightPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+                                             backing: .buffered, defer: false)
+    private var timerActivityGap: CGFloat = -1
+    private var timerActivityTick: Task<Void, Never>?
     private let magneticField = MagneticFieldView(frame: .zero)
     var magneticFieldPresentationEnabled = true
     private var magneticDocking = MagneticDocking()
@@ -598,6 +603,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     private func configureIndicator() {
+        defer { configureTimerActivity() }
         indicatorPanel.title = "FERB edge indicator"
         indicatorPanel.backgroundColor = .clear
         indicatorPanel.isOpaque = false
@@ -1560,13 +1566,15 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// On a full-screen app's Space a running task doesn't hold the pill up (D14).
     private func scheduleIndicatorRest() {
         guard !isDocked, indicatorRestTask == nil, !notchSurfaceVisible,
-              onFullScreenSpace || !model.taskItems.contains(where: \.isRunning) else { return }
+              onFullScreenSpace || (!model.taskItems.contains(where: \.isRunning) && model.soonestTimer() == nil)
+        else { return }
         indicatorRestTask = Task { [weak self, restWait] in
             do { try await restWait(.seconds(3)) } catch { return }
             guard let self, !Task.isCancelled else { return }
             self.indicatorRestTask = nil
             guard !self.model.expanded, !self.pointerIsInside,
-                  self.onFullScreenSpace || !self.model.taskItems.contains(where: \.isRunning) else { return }
+                  self.onFullScreenSpace || (!self.model.taskItems.contains(where: \.isRunning)
+                                             && self.model.soonestTimer() == nil) else { return }
             self.setIndicatorResting(true)
         }
     }
@@ -1845,7 +1853,81 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             self.statusRefreshQueued = false
             self.model.discardFinishedPreviews()
             self.updateStatusItem()
+            self.updateTimerActivity()
         }
+    }
+
+    // MARK: - The timer's live activity (APP-762)
+
+    /// How wide each side of the live activity is beside the camera housing or the pill.
+    static let timerEarWidth: CGFloat = 58
+
+    /// Where the closed notch's live activity draws, and the gap it leaves for the housing or the pill; nil when it
+    /// doesn't show: no timer running, FERB open (the notch or the sticky window), an arrival or a tour line on the
+    /// notch, FERB stepped back, the displays asleep, the pill hidden, a drag under way, or the pill on a side edge.
+    func timerActivityPlace() -> (frame: CGRect, gap: CGFloat)? {
+        guard model.soonestTimer() != nil, !model.expanded, model.compactContent == nil, !model.isYielded,
+              !screensAsleep, !pillHidden, indicatorDragPointer == nil, dockingRevision == nil, geometry != nil
+        else { return nil }
+        let ear = Self.timerEarWidth
+        if isDocked {
+            let housing = cutoutFrame
+            return (CGRect(x: housing.minX - ear, y: housing.minY, width: housing.width + 2 * ear,
+                           height: housing.height), housing.width)
+        }
+        guard indicatorEdge == .top || indicatorEdge == .bottom, indicatorControl?.isAttached != true else { return nil }
+        let pill = indicatorPanel.frame
+        return (CGRect(x: pill.minX - ear, y: pill.minY, width: pill.width + 2 * ear, height: pill.height), pill.width)
+    }
+
+    /// Shows, places or hides the live activity. A running timer holds the pill up instead of its resting line, like a
+    /// running task does (off a full-screen Space, D14), so the countdown can show inside it.
+    func updateTimerActivity() {
+        if model.soonestTimer() != nil, !isDocked, pillResting, !onFullScreenSpace, !model.expanded {
+            indicatorRestTask?.cancel()
+            indicatorRestTask = nil
+            setIndicatorResting(false)
+        }
+        guard let place = timerActivityPlace() else {
+            if timerActivityPanel.isVisible { timerActivityPanel.orderOut(nil) }
+            timerActivityTick?.cancel()
+            timerActivityTick = nil
+            return
+        }
+        if place.gap != timerActivityGap || timerActivityPanel.contentView == nil {
+            timerActivityGap = place.gap
+            timerActivityPanel.contentView = NSHostingView(rootView: TimerActivityView(
+                model: model, gap: place.gap, height: place.frame.height, pill: !isDocked))
+        }
+        if timerActivityPanel.frame != place.frame { timerActivityPanel.setFrame(place.frame, display: true) }
+        if !timerActivityPanel.isVisible {
+            timerActivityPanel.orderFrontRegardless()
+            if overlaySpace.isAttached {
+                overlaySpace.include(timerActivityPanel)
+                overlaySpace.ensure(timerActivityPanel)
+            }
+        }
+        // It ends by itself when the last timer runs out: look again once a second while it shows
+        if timerActivityTick == nil {
+            timerActivityTick = Task { [weak self] in
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                    self?.updateTimerActivity()
+                }
+            }
+        }
+    }
+
+    private func configureTimerActivity() {
+        timerActivityPanel.title = "FERB timer"
+        timerActivityPanel.backgroundColor = .clear
+        timerActivityPanel.isOpaque = false
+        timerActivityPanel.hasShadow = false
+        timerActivityPanel.hidesOnDeactivate = false
+        timerActivityPanel.isReleasedWhenClosed = false
+        timerActivityPanel.level = indicatorPanel.level
+        timerActivityPanel.collectionBehavior = Self.overlayBehavior
+        timerActivityPanel.animationBehavior = .none
     }
 
     private func updateStatusItem() {
@@ -2093,6 +2175,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     func tearDown() {
         isStarted = false
+        timerActivityTick?.cancel()
+        timerActivityTick = nil
+        timerActivityPanel.orderOut(nil)
         cancelMagneticInteraction()
         model.acknowledgement.dismiss()
         closeTaskActivity()

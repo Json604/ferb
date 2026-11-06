@@ -174,7 +174,10 @@ class Schedules:
             await self._notify(name, f"{t.message}{late}", urgent=True, category="reminder",
                                target={"kind": "reminder", "timer_id": str(t.id)}, ident=f"reminder:{t.id}",
                                card={"type": "reminder", "title": name, "kind": t.kind, "timer_id": str(t.id),
-                                     "due": t.fire_at.isoformat()})          # a reminder is for now
+                                     "due": t.fire_at.isoformat(),         # a reminder is for now
+                                     # a timer's start: its done alert shows its whole ring and repeats its duration
+                                     **({"started": named.created_at.isoformat()}
+                                        if t.kind == "timer" and named is not None and named.created_at else {})})
         except Exception:
             pass                                                     # chat, logs and the journal still have it
 
@@ -684,8 +687,22 @@ class Schedules:
     async def _reminders_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         assert self.timers is not None
         return {"pending": [{"id": t.id, "kind": t.kind, "at": t.fire_at.isoformat(), "message": t.message,
-                             "name": t.label}
+                             "name": t.label,
+                             # a timer's start (APP-762): the closed notch's live activity and its ring
+                             **({"started": t.created_at.isoformat()} if t.kind == "timer" and t.created_at else {})}
                             for t in self.timers.pending()]}
+
+    async def _timers_repeat(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """The done alert's Repeat (APP-762, owner 2026-11-06): the same timer again, for the same duration, from now,
+        with its name and message. The owner's own tap on a timer FERB already set: no model, no new words."""
+        assert self.timers is not None
+        t = self.timers.get(str(params.get("id") or ""))
+        if t is None or t.kind != "timer" or t.created_at is None or t.fire_at <= t.created_at:
+            raise FerbError(f"no timer {params.get('id')} to repeat")
+        again = self.timers.add("timer", self.clock.now() + (t.fire_at - t.created_at), t.message, name=t.name)
+        self._journal().append("timer.repeated", {"timer_id": again.id, "of": t.id, "by": "owner"})
+        return {"timer": again.id, "kind": "timer", "at": again.fire_at.isoformat(), "name": again.label,
+                "started": again.created_at.isoformat() if again.created_at else None, "message": again.message}
 
     async def _reminders_cancel(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         assert self.timers is not None

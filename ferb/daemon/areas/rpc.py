@@ -129,7 +129,7 @@ class Rpc:
             "schedules.change": self._schedules_change, "chat.status": self._chat_status,
             "results.ack": self._results_ack, "chat.attach": self._chat_attach, "setup.persona": self._setup_persona,
             "task.stop": self._task_stop, "reminders.list": self._reminders_list,
-            "reminders.cancel": self._reminders_cancel,
+            "reminders.cancel": self._reminders_cancel, "timers.repeat": self._timers_repeat,
             "memory.learning": self._memory_learning, "memory.list": self._memory_list,
             "memory.show": self._memory_show, "memory.add": self._memory_add, "memory.profile": self._memory_profile,
             "memory.edit": self._memory_edit, "memory.retract": self._memory_retract,

@@ -44,7 +44,8 @@ struct ResultCardView: View {
     var body: some View {
         switch card.type {
         case "reminder": ReminderCard(card: card)
-        case "event": EventCard(card: card)
+        case "event":
+            if card.isTimer { TimerSetCard(card: card, model: model) } else { EventCard(card: card) }
         case "note": NoteCard(card: card, model: model)
         case "payment": ExpenseRow(card: card)
         case "send": ContactCard(card: card)
@@ -121,10 +122,13 @@ enum CardTime {
 struct ReminderCard: View {
     let card: ResultCard
     var framed = true
+    /// For the arrival's and the timer's buttons (Done, Stop, Repeat); nil where nothing acts (a measurement).
+    var model: NotchModel? = nil
 
     var body: some View {
         Group {
-            if framed { CardSurface { details } }
+            if card.isTimer { TimerDoneView(card: card, model: model, framed: framed) }   // APP-762: the timer's end
+            else if framed { CardSurface { details } }
             else { arrivalDetails }
         }
     }
@@ -133,27 +137,39 @@ struct ReminderCard: View {
     /// says Reminder. The title is the short name, never the instruction.
     private var meta: (icon: String, text: String) { card.isTimer ? ("timer", "Timer") : ("bell.fill", "Reminder") }
 
-    /// The arrival fills the notch with two readable anchors: what arrived and when it is next due.
+    /// The arrival fills the notch (APP-762, as the timer's alert does): a tinted icon, the title large, when it was
+    /// due, the Repeats badge and the countdown when recorded (APP-627), and Done, which dismisses it (the chat keeps
+    /// its message, APP-622).
     private var arrivalDetails: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                CardMeta(icon: meta.icon, text: meta.text)
-                Spacer()
-                if card.repeatRule != nil { RepeatsBadge(rule: card.repeatRule) }
-            }
-            HStack(alignment: .top, spacing: 24) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(card.title ?? "Scheduled reminder")
-                        .font(.system(size: 24, weight: .semibold)).tracking(-0.5)
-                        .foregroundStyle(Palette.ink).fixedSize(horizontal: false, vertical: true)
-                    if let due = card.dueDate {
-                        Text("Due " + CardTime.day(due) + ", " + CardTime.time(due))
-                            .font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+        HStack(alignment: .top, spacing: 16) {
+            Image(systemName: meta.icon)
+                .font(.system(size: 17, weight: .semibold)).foregroundStyle(Palette.chatBlue)
+                .frame(width: 40, height: 40)
+                .background(Palette.chatBlue.opacity(0.18), in: Circle())
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    CardMeta(icon: meta.icon, text: meta.text)
+                    Spacer()
+                    if card.repeatRule != nil { RepeatsBadge(rule: card.repeatRule) }
+                }
+                HStack(alignment: .top, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(card.title ?? "Scheduled reminder")
+                            .font(.system(size: 24, weight: .semibold)).tracking(-0.5)
+                            .foregroundStyle(Palette.ink).fixedSize(horizontal: false, vertical: true)
+                        if let due = card.dueDate {
+                            Text("Due " + CardTime.day(due) + ", " + CardTime.time(due))
+                                .font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Button("Done") { model?.stopTimerAlert() }
+                            .buttonStyle(FerbButtonStyle(primary: true))
+                            .accessibilityLabel("Dismiss the reminder")
+                            .padding(.top, 2)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    if let target = card.countdown {
+                        CountdownLine(target: target, prominent: true).frame(width: 132, alignment: .trailing)
                     }
-                }.frame(maxWidth: .infinity, alignment: .leading)
-                if let target = card.countdown {
-                    CountdownLine(target: target, prominent: true).frame(width: 142, alignment: .trailing)
                 }
             }
         }

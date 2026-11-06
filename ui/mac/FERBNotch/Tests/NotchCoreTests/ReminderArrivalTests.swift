@@ -75,7 +75,8 @@ final class ReminderArrivalTests: XCTestCase {
         poster.receive(event)
         XCTAssertFalse(model.expanded)
         XCTAssertEqual(model.compactContent, .reminder(card: ResultCard(["type": "reminder", "title": "Water break",
-                                                                          "kind": "reminder"])!, text: "Get some water."))
+                                                                          "kind": "reminder", "timer_id": "water"])!,
+                                                       text: "Get some water."))     // its timer: Done, Stop, Repeat
         XCTAssertEqual(model.conversation.notices.count, 1)
         XCTAssertEqual(model.conversation.notices.first?.cards?.first?.type, "reminder")
         XCTAssertTrue(center.posted.isEmpty)

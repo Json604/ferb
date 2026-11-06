@@ -303,9 +303,10 @@ private struct IntroChoiceStyle: ButtonStyle {
 struct ReminderArrivalView: View {
     let card: ResultCard
     let text: String
+    var model: NotchModel? = nil
 
     var body: some View {
-        ReminderCard(card: card, framed: false)
+        ReminderCard(card: card, framed: false, model: model)
             .padding(.horizontal, 26).padding(.top, 16).padding(.bottom, 24)
     }
 }

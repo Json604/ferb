@@ -334,6 +334,10 @@ final class NotchModel: ObservableObject {
     /// Retain the compact content while the same native surface closes; never expose transcript mid-collapse.
     @Published private(set) var compactPlanDisplayText: String?
     @Published private(set) var compactReminderCard: ResultCard?
+    /// The owner's timers still running (`reminders.list`, APP-762): the closed notch's live activity shows the soonest.
+    @Published var runningTimers: [RunningTimer] = []
+    /// Timers the owner cancelled from their card here: the card says so instead of counting down.
+    @Published var cancelledTimers: Set<String> = []
     private var measuredReminder: (card: ResultCard, text: String, width: CGFloat, minute: Int, height: CGFloat)?
     func finishCompactPreviewDismissal() {
         if compactPlanText == nil { compactPlanDisplayText = nil }

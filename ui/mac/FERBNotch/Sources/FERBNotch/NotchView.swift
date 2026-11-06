@@ -22,7 +22,9 @@ struct NotchView: View {
                 } else if model.compactContent == .pulse {
                     Color.clear.frame(height: presentation.size.height)
                 } else if case .reminder(let card, let text)? = model.compactContent {
-                    ScrollView { ReminderArrivalView(card: card, text: text).allowsHitTesting(false) }
+                    // Its buttons (Done; a timer's Stop and Repeat, APP-762) take their own clicks; anywhere else opens
+                    // today's chat as before (APP-622, APP-624)
+                    ScrollView { ReminderArrivalView(card: card, text: text, model: model) }
                         .padding(.top, model.isNotchDocked ? model.cutoutHeight : 0)
                         .frame(height: presentation.size.height, alignment: .top)
                         .contentShape(Rectangle())

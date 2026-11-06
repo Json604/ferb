@@ -508,26 +508,70 @@ enum PlayScript {
                     ["type": "reply", "request_id": p.ids.drop,
                      "text": "Your trip notes say the train leaves at 9:10; the packing list has a charger and a rain jacket."]])
             }, check: { probe in probe.model.session.attachments.isEmpty ? nil : "the files didn't go with the message" }),
-            PlayBeat(caption: "Timers and schedules have short names; a timer says Timer", wait: 1.8, run: { p in
+            PlayBeat(caption: "Timer set: its name, a live countdown in its draining ring, Ends with a bell, Cancel",
+                     wait: 3.0, run: { p in
+                let tea = "play-\(p.ids.run)-tea"
+                p.workspace.playTimers[tea] = 10
+                p.workspace.playTimerNames[tea] = "Tea"
+                p.workspace.reminders.append(["id": tea, "kind": "timer", "name": "Tea", "message": "Your tea is ready.",
+                                              "at": PlaygroundSamples.time(600), "started": PlaygroundSamples.time(0)])
                 p.send("Set a 10 minute tea timer and a weekday morning brief", request: p.ids.timer, reply: [
                     ["type": "reply", "request_id": p.ids.timer, "text": "Done: a 10-minute timer and a weekday morning brief.",
-                     "cards": [["type": "event", "kind": "timer", "id": "play-tea", "what": "Tea",
-                                "when": PlaygroundSamples.time(600)],
+                     "cards": [["type": "event", "kind": "timer", "id": tea, "what": "Tea",
+                                "when": PlaygroundSamples.time(600), "started": PlaygroundSamples.time(0)],
                                ["type": "event", "kind": "schedule", "id": "play-brief", "what": "Morning brief",
                                 "when": PlaygroundSamples.next(hour: 9, weekdaysOnly: true), "repeat": "every weekday at 9 AM"]]]])
             }, check: { probe in
-                (probe.turn(probe.ids.timer)?.cards ?? []).contains { $0.isTimer } ? nil : "no timer card"
+                (probe.turn(probe.ids.timer)?.cards ?? []).contains { $0.isTimer && $0.started != nil }
+                    ? nil : "no timer card with its start"
             }),
-            PlayBeat(caption: "The timer arrives compact on the closed notch", wait: 2.4, run: { p in
+            PlayBeat(caption: "FERB closed: the countdown runs beside the camera (in the pill without a notch)",
+                     wait: 3.0, run: { p in
                 p.host?.closeNotch()
-                p.workspace.onNotification?(["id": "reminder:play-\(p.ids.run)-tea", "category": "reminder", "title": "Tea",
-                                             "body": "Your tea is ready.", "when_hidden": false,
-                                             "target": ["kind": "reminder", "timer_id": "play-\(p.ids.run)-tea"],
-                                             "card": ["type": "reminder", "title": "Tea", "kind": "timer",
-                                                      "timer_id": "play-\(p.ids.run)-tea"]])
+                await p.model.refreshRunningTimers()
             }, check: { probe in
-                probe.model.conversation.notices.contains { $0.id.hasSuffix("play-\(probe.ids.run)-tea") }
-                    ? nil : "the timer didn't arrive"
+                probe.model.soonestTimer() != nil && !probe.model.expanded ? nil : "no running timer for the live activity"
+            }),
+            PlayBeat(caption: "The timer ends: the name, Done in its full ring, Stop and Repeat", wait: 3.2, run: { p in
+                let tea = "play-\(p.ids.run)-tea"
+                p.workspace.reminders.removeAll { $0["id"] as? String == tea }
+                p.workspace.onNotification?(["id": "reminder:\(tea)", "category": "reminder", "title": "Tea",
+                                             "body": "Your tea is ready.", "when_hidden": false,
+                                             "target": ["kind": "reminder", "timer_id": tea],
+                                             "card": ["type": "reminder", "title": "Tea", "kind": "timer", "timer_id": tea,
+                                                      "due": PlaygroundSamples.time(0),
+                                                      "started": PlaygroundSamples.time(-600)]])
+            }, check: { probe in
+                guard probe.model.conversation.notices.contains(where: { $0.id.hasSuffix("play-\(probe.ids.run)-tea") })
+                else { return "the timer didn't arrive" }
+                return probe.model.chatInWindow || probe.model.compactReminderCard?.isTimer == true
+                    ? nil : "the done alert isn't on the notch"
+            }),
+            PlayBeat(caption: "Repeat starts the same timer again", wait: 2.4, run: { p in
+                p.model.repeatTimer("play-\(p.ids.run)-tea")
+                await p.workspace.state.pause(0.4)
+            }, check: { probe in
+                probe.model.runningTimers.contains { $0.id == "play-\(probe.ids.run)-tea-again" }
+                    ? nil : "Repeat didn't start the timer again"
+            }),
+            PlayBeat(caption: "A reminder arrives: its icon, title, when it was due and Done", wait: 3.0, run: { p in
+                p.host?.closeNotch()
+                let water = "play-\(p.ids.run)-water"
+                p.workspace.onNotification?(["id": "reminder:\(water)", "category": "reminder", "title": "Water break",
+                                             "body": "Take a break and get some water.", "when_hidden": false,
+                                             "target": ["kind": "reminder", "timer_id": water],
+                                             "card": ["type": "reminder", "title": "Water break", "kind": "reminder",
+                                                      "timer_id": water, "due": PlaygroundSamples.time(0)]])
+            }, check: { probe in
+                probe.model.conversation.notices.contains { $0.id.hasSuffix("play-\(probe.ids.run)-water") }
+                    ? nil : "the reminder didn't arrive"
+            }),
+            PlayBeat(caption: "Done dismisses it; the chat keeps the message", wait: 1.6, run: { p in
+                p.model.stopTimerAlert()
+            }, check: { probe in
+                (probe.model.chatInWindow || probe.model.compactPlanText == nil)
+                    && probe.model.conversation.notices.contains { $0.id.hasSuffix("play-\(probe.ids.run)-water") }
+                    ? nil : "the arrival stayed or its message went"
             }),
             PlayBeat(caption: "Settings: record a shortcut; double-tap right Option can be switched off", wait: 3.6, run: { p in
                 p.host?.showSettings(.notch)

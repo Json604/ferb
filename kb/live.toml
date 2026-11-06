@@ -3312,3 +3312,12 @@ request = "Switch Spaces with Control-arrow and a trackpad swipe, open and close
 pass = "Through every Space switch and Mission Control the window stays exactly where it is, never sliding out and back. The other app's window (Keep on top off), its menu, Settings, the picker and Quick Look each show above the window; the drop lands in the message box; clicking the window brings it back in front. With Keep on top on, other apps' windows never cover it but their menus still show."
 decisions = ["APP-760", "APP-761"]
 sitting = "after this change is installed"
+
+[LIVE-805]
+title = "A timer flows like Apple's, and a reminder's arrival is full"
+area = "app"
+surface = "FERB.app with this build in notch mode (then window mode), on the Mac with a notch (and a notchless display if at hand)"
+request = "Ask FERB for a 2 minute tea timer. Watch its card, close FERB and work for a minute, then wait for the end. Press Repeat once, then let it end again and press Stop. Then ask for a reminder in 1 minute and wait."
+pass = "The card shows Tea, a ticking countdown in a draining orange ring, Ends with a bell and Cancel. With FERB closed a timer glyph and the countdown sit beside the camera (in the pill without a notch); pressing, dragging and hovering it work as before. At the end one sound, the notch shows Tea large, Done in the full ring and Stop and Repeat; Repeat starts 2 minutes again, Stop dismisses; the chat keeps the message. The reminder arrives with its icon, title, due time and Done,."
+decisions = ["APP-762", "APP-763", "DMN-547"]
+sitting = "after this change is installed"

@@ -45,6 +45,7 @@ class Timer:
     state: str
     overdue_s: float | None = None
     name: str = ""               # T-1055: its short name (`timer_names`, migration 0060); "" for one made before
+    created_at: datetime | None = None   # when it was set: a timer's start, so its ring drains over its duration
 
     @property
     def label(self) -> str:
@@ -54,8 +55,10 @@ class Timer:
 
 
 def _row(r: Any) -> Timer:
+    keys = r.keys()
     return Timer(r["id"], r["kind"], datetime.fromisoformat(r["fire_at"]), r["message"], r["task_id"], r["request_id"],
-                 r["state"], r["overdue_s"], (r["name"] or "") if "name" in r.keys() else "")
+                 r["state"], r["overdue_s"], (r["name"] or "") if "name" in keys else "",
+                 datetime.fromisoformat(r["created_at"]) if "created_at" in keys and r["created_at"] else None)
 
 
 # a timer's row with its name (T-1055): get and pending read it; a claim hands the consumer the row without it

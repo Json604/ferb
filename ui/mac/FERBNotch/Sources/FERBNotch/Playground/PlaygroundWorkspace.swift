@@ -19,6 +19,9 @@ final class PlaygroundWorkspace {
     /// Play 0.27.1 (PlaygroundPlay): the owner messages it sends, answered in order, and its questions.
     var playTurns: [PlayFeed] = []
     var playApprovals: Set<String> = []
+    /// The play's timers: their minutes and names, for Repeat (`timers.repeat`).
+    var playTimers: [String: Double] = [:]
+    var playTimerNames: [String: String] = [:]
     var stopped = false
     var listeners: [UUID: AsyncThrowingStream<[String: Any], Error>.Continuation] = [:]
     var seenNotices: Set<String> = []
@@ -69,6 +72,15 @@ final class PlaygroundWorkspace {
         case "reminders.cancel":
             reminders.removeAll { $0["id"] as? String == params["id"] as? String }
             return ["ok": true]
+        case "timers.repeat":                    // APP-762: the same sample timer again, for its duration, from now
+            let id = params["id"] as? String ?? ""
+            let minutes = (playTimers[id] ?? 10) * 60
+            let again: [String: Any] = ["id": id + "-again", "kind": "timer", "name": playTimerNames[id] ?? "Timer",
+                                        "message": "Your timer is done.", "at": PlaygroundSamples.time(minutes),
+                                        "started": PlaygroundSamples.time(0)]
+            reminders.removeAll { $0["id"] as? String == id + "-again" }
+            reminders.append(again)
+            return again.merging(["timer": id + "-again"]) { $1 }
         case "notices.list": return ["notices": notices]
         case "attention.ack": seenNotices.formUnion(params["ids"] as? [String] ?? []); return ["ok": true]
         case "results.ack": seenResults.formUnion(params["task_ids"] as? [String] ?? []); return ["ok": true]

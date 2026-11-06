@@ -46,7 +46,8 @@ enum PlaygroundSamples {
     static var reminders: [[String: Any]] { [
         ["id": "sample-water", "kind": "reminder", "message": "Take a break and get some water", "name": "Water break", "at": time(1200)],
         ["id": "sample-review", "kind": "reminder", "message": "Review the launch mockups with Alex", "name": "Mockup review", "at": time(7200)],
-        ["id": "sample-timer", "kind": "timer", "message": "Focus session finished", "name": "25-minute focus timer", "at": time(1500)]
+        ["id": "sample-timer", "kind": "timer", "message": "Focus session finished", "name": "25-minute focus timer",
+         "at": time(1500), "started": time(0)]
     ] }
     static var notices: [[String: Any]] { [
         ["id": "sample-notice", "text": "The launch notes have changed since your last review.", "at": time(-1800), "shown": true],
