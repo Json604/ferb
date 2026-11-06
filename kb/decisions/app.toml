@@ -2646,7 +2646,7 @@ title = "How the timer flow is drawn and stays out of the notch's interaction"
 by = "agent"
 date = 2026-11-06
 status = "active"
-rule = "Implements APP-762. One orange accent (Palette.timer). The ring drains linearly, one tick a second animated over that second; digits change with a numeric transition; the done ring pulses once; Reduce Motion: no pulse, no drain animation, cross-fades. No Pause: FERB's timers can't pause. The live activity is a click-through overlay window beside the housing or the pill (middle clear), hidden while FERB is open, stepped back, asleep, dragging or showing an arrival; where it draws and when it holds the pill up: APP-766. One notification sound, never a loop."
+rule = "Implements APP-762. One orange accent (Palette.timer). The ring drains linearly, one tick a second animated over that second; digits change with a numeric transition; the done ring pulses once; Reduce Motion: no pulse, no drain animation, cross-fades. No Pause: FERB's timers can't pause. The live activity is a click-through overlay window (docked one notch shape, APP-771; beside the pill two ears), hidden while FERB is open, stepped back, asleep, dragging or showing an arrival; where it draws and when it holds the pill up: APP-766. One notification sound, never a loop."
 why = "Apple HIG Live Activities and WWDC23 10194 for the flow; FERB's sound rules (APP-521, APP-532) win over Apple's looping alarm. A click-through window leaves press, drag, hover and yield exactly as APP-704..711 built them."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TimerViews.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TimerModel.swift", "ui/mac/FERBNotch/Sources/NotchCore/TimerClock.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift::PanelCoordinator.updateTimerActivity"]
 live = ["LIVE-805"]
@@ -2722,3 +2722,14 @@ rule = "Implements APP-769. ResultCard.box: an event card's `id` (timer, reminde
 why = "The archive is what every chat draw reads (live, restored, history, window mode), so the rule sits where entries become views; the saved notices and turns stay for search, voice and older clients."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/CardBoxes.swift", "ui/mac/FERBNotch/Sources/NotchCore/ResultCard.swift::ResultCard.box", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TimerViews.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundPlay.swift"]
 live = ["LIVE-806"]
+
+[APP-771]
+title = "The closed notch's countdown is one connected notch shape"
+by = "owner"
+date = 2026-11-06
+status = "active"
+words = "this is not a connected notch."
+words_source = "Owner, 2026-11-06, about a screenshot of the closed notch while a timer ran: a black box with the timer glyph left of the camera and a black box with \"0:17\" right of it"
+rule = "Supersedes APP-763's \"middle clear\" for the docked live activity: while a timer runs and FERB is closed on a notched Mac, the glyph and the countdown sit in one black shape that grows out of the notch, the compact arrival's silhouette (NotchSurfaceShape) across both ears and the housing (black behind the camera is invisible), just the housing's height from the safe-area inset and the areas beside it, flush with its bottom edge, rounded only at its outer lower corners; no seam where it meets the housing. It stays click-through and under the handle; the pill case and APP-766 are unchanged."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TimerViews.swift::TimerActivityView", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift::PanelCoordinator.timerActivityPlace", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift::PanelCoordinator.updateTimerActivity"]
+live = ["LIVE-807"]

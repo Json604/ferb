@@ -1876,24 +1876,27 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// How wide each side of the live activity is beside the camera housing or the pill.
     static let timerEarWidth: CGFloat = 58
 
-    /// Where the closed notch's live activity draws, and the gap it leaves for the housing or the pill; nil when it
-    /// doesn't show: no timer running, FERB open (the notch or the sticky window), an arrival or a tour line on the
-    /// notch, FERB stepped back, the displays asleep, the pill hidden or resting as its thin line (APP-766), a drag or
-    /// docking under way, or the pill on a side edge.
-    func timerActivityPlace() -> (frame: CGRect, gap: CGFloat)? {
+    /// Where the closed notch's live activity draws, the gap it leaves for the housing or the pill, and the housing or
+    /// pill itself; nil when it doesn't show: no timer running, FERB open (the notch or the sticky window), an arrival or
+    /// a tour line on the notch, FERB stepped back, the displays asleep, the pill hidden or resting as its thin line
+    /// (APP-766), a drag or docking under way, or the pill on a side edge. Docked, it is one black notch shape across
+    /// the ears and the housing (APP-771): exactly the housing's height, flush with its bottom edge, widened on each
+    /// side by an ear and the shape's top shoulder.
+    func timerActivityPlace() -> (frame: CGRect, gap: CGFloat, housing: CGRect)? {
         guard model.soonestTimer() != nil, !model.expanded, model.compactContent == nil, !model.isYielded,
               !screensAsleep, !pillHidden, indicatorDragPointer == nil, dockingRevision == nil, geometry != nil
         else { return nil }
         let ear = Self.timerEarWidth
         if isDocked {
             let housing = cutoutFrame
-            return (CGRect(x: housing.minX - ear, y: housing.minY, width: housing.width + 2 * ear,
-                           height: housing.height), housing.width)
+            let side = ear + TimerActivityView.shoulder(height: housing.height)
+            return (housing.insetBy(dx: -side, dy: 0), housing.width, housing)
         }
         guard indicatorEdge == .top || indicatorEdge == .bottom, indicatorControl?.isAttached != true, !pillResting
         else { return nil }
         let pill = indicatorFrame                         // the pill's own place, not its window mid-animation
-        return (CGRect(x: pill.minX - ear, y: pill.minY, width: pill.width + 2 * ear, height: pill.height), pill.width)
+        return (CGRect(x: pill.minX - ear, y: pill.minY, width: pill.width + 2 * ear, height: pill.height), pill.width,
+                pill)
     }
 
     /// A running timer holds the undocked pill up instead of its resting line only where its countdown can draw beside
@@ -1939,7 +1942,14 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         }
         if timerActivityPanel.frame != place.frame { timerActivityPanel.setFrame(place.frame, display: true) }
         if !timerActivityPanel.isVisible {
-            timerActivityPanel.orderFrontRegardless()
+            // Under the handle, so what it draws at the camera still shows over the black that now runs behind the
+            // camera too (APP-771); the glow's window sits a level higher. Ordered in first, then kept in the overlay
+            // space, as orderInOverlay does.
+            if indicatorPanel.isVisible {
+                timerActivityPanel.order(.below, relativeTo: indicatorPanel.windowNumber)
+            } else {
+                timerActivityPanel.orderFrontRegardless()
+            }
             if overlaySpace.isAttached {
                 overlaySpace.include(timerActivityPanel)
                 overlaySpace.ensure(timerActivityPanel)

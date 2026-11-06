@@ -3330,3 +3330,12 @@ request = "Ask FERB for a 1 minute tea timer and wait for its end; press Repeat 
 pass = "At a tea timer's end the Tea box leaves its request (no empty bubble there) and shows at the bottom as the done box with Stop and Repeat, no \"is up\" bubble; after Repeat ends, the one Tea box is at the bottom again. A reminder's box at the bottom carries its words. A daily schedule's box shows only at its latest run, with the next run; each run's result stays. After a restart the same boxes, no replayed arrival; an earlier day shows its cards without countdowns or buttons."
 decisions = ["APP-768", "APP-769", "APP-770", "DMN-549"]
 sitting = "after this change is installed"
+
+[LIVE-807]
+title = "The closed notch's countdown grows out of the notch as one shape"
+area = "app"
+surface = "FERB.app with this build docked in the hardware notch, FERB closed"
+request = "Ask FERB for a 2 minute timer, close FERB and look at the notch while it counts down; press, drag and hover the notch; let a question arrive while it runs if one is handy."
+pass = "One black shape runs from the timer glyph, under the camera, to the countdown: no gap, seam, bite or step at the camera's edges, its bottom edge level with the notch's, rounded only at its two outer lower corners like the notch. Press, drag and hover work as before; the camera-edge glow still shows; on a notchless display the pill's ears look as before."
+decisions = ["APP-771"]
+sitting = "after this change is installed"

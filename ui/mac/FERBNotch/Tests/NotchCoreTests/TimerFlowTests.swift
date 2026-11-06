@@ -147,7 +147,14 @@ final class TimerFlowTests: XCTestCase {
         let place = try XCTUnwrap(coordinator.timerActivityPlace())
         XCTAssertTrue(coordinator.timerActivityPanel.isVisible)
         XCTAssertTrue(coordinator.timerActivityPanel.ignoresMouseEvents, "press, drag and hover stay the handle's")
-        XCTAssertEqual(place.frame.width, place.gap + 2 * PanelCoordinator.timerEarWidth)
+        // One connected shape (APP-771): the housing's own height, flush with its bottom edge, centred on it
+        let housing = place.housing
+        let shoulder = TimerActivityView.shoulder(height: housing.height)
+        XCTAssertEqual(place.frame.width, place.gap + 2 * (PanelCoordinator.timerEarWidth + shoulder))
+        XCTAssertEqual(place.gap, housing.width)
+        XCTAssertEqual(place.frame.minY, housing.minY)
+        XCTAssertEqual(place.frame.maxY, housing.maxY)
+        XCTAssertEqual(place.frame.midX, housing.midX, accuracy: 0.001)
         model.toggle(byPress: true)                                 // FERB open: the chat shows instead
         coordinator.updateTimerActivity()
         XCTAssertNil(coordinator.timerActivityPlace())
@@ -156,6 +163,36 @@ final class TimerFlowTests: XCTestCase {
         model.runningTimers = [RunningTimer(id: "tm-1", name: "Tea", started: Date(), ends: Date().addingTimeInterval(-1))]
         coordinator.updateTimerActivity()
         XCTAssertFalse(coordinator.timerActivityPanel.isVisible, "it ends with the timer")
+    }
+}
+
+/// The docked live activity is one black notch shape (APP-771, owner 2026-11-06: "this is not a connected notch.").
+@MainActor
+final class TimerShapeTests: XCTestCase {
+    // decision: APP-771
+    func testTheDockedCountdownIsOneShapeFlushWithTheHousingAndRoundedOnlyOutside() {
+        // This Mac's housing as NSScreen reported it (2026-11-06): safe-area top 32, the areas beside it end at 645.5
+        // and start at 824.5, so the housing is 179 x 32.
+        for height in [CGFloat(32), 38, 24] {
+            let ear = PanelCoordinator.timerEarWidth, shoulder = TimerActivityView.shoulder(height: height)
+            let rect = CGRect(x: 0, y: 0, width: 179 + 2 * (ear + shoulder), height: height)   // flipped: y 0 is the top
+            let path = TimerActivityView.shape(height: height).path(in: rect)
+            // no gap: black right under the housing's middle and its lower edges, down to its bottom edge
+            for x in [rect.midX, ear + shoulder + 1, rect.maxX - ear - shoulder - 1] {
+                XCTAssertTrue(path.contains(CGPoint(x: x, y: height - 0.5)), "a gap at x \(x), height \(height)")
+            }
+            // flush: the shape ends exactly at the housing's bottom edge and starts at the screen's top edge
+            XCTAssertEqual(path.boundingRect.maxY, height, accuracy: 0.01)
+            XCTAssertEqual(path.boundingRect.minY, 0, accuracy: 0.01)
+            // one piece: a horizontal line through the middle crosses black all the way between the outer edges
+            let body = stride(from: shoulder + 1, through: rect.maxX - shoulder - 1, by: 1)
+            XCTAssertTrue(body.allSatisfy { path.contains(CGPoint(x: $0, y: height / 2)) }, "a seam at height \(height)")
+            // rounded only at the outer lower corners: the very corner is outside, the top meets the screen edge
+            XCTAssertFalse(path.contains(CGPoint(x: shoulder + 0.5, y: height - 0.5)))
+            XCTAssertFalse(path.contains(CGPoint(x: rect.maxX - shoulder - 0.5, y: height - 0.5)))
+            XCTAssertEqual(path.boundingRect.minX, 0, accuracy: 0.01)
+            XCTAssertEqual(path.boundingRect.maxX, rect.maxX, accuracy: 0.01)
+        }
     }
 }
 

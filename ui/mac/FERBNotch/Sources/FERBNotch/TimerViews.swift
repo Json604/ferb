@@ -243,16 +243,29 @@ private struct TimerAlertButtons: View {
 }
 
 /// The closed notch's live activity (APP-762): while a timer runs and FERB is closed, the timer glyph on one side of the
-/// camera and the countdown on the other, on black that continues the camera housing; on a notchless Mac they sit on
-/// either side of the pill, which they lengthen. Drawn by a click-through window of its own and only beside the housing
-/// or the pill (the middle stays clear), so press, drag and hover reach the handle as before.
+/// camera and the countdown on the other. Docked it is one black shape that grows out of the notch (APP-771, owner
+/// 2026-11-06: "this is not a connected notch."): the notch's own silhouette (NotchSurfaceShape, as the compact reminder
+/// arrival draws it) across the ears and the housing, black behind the camera too, flush with the housing's bottom edge
+/// and rounded only at its outer lower corners; no seam where it meets the housing. On a notchless Mac the two ears sit
+/// on either side of the pill, which they lengthen (the middle stays clear). Drawn by a click-through window of its own
+/// under the handle, so press, drag, hover and the camera-edge glow reach the handle as before.
 struct TimerActivityView: View {
     @ObservedObject var model: NotchModel
-    /// The housing's or the pill's width in the middle, left clear.
+    /// The housing's or the pill's width in the middle.
     let gap: CGFloat
     let height: CGFloat
     /// Beside the pill: the outer ends are rounded like the pill's.
     var pill = false
+
+    /// The compact arrival's silhouette (expansion 1), eased only where the housing is too short for its shoulder and
+    /// lower corner together.
+    static func expansion(height: CGFloat) -> CGFloat { max(0, min(1, (height - 12) / 17)) }
+    /// How far the shape's concave top shoulder reaches out on each side, beyond the body.
+    static func shoulder(height: CGFloat) -> CGFloat { 10 * expansion(height: height) }
+    /// The one connected shape, in a frame as wide as the ears, the housing and both shoulders.
+    static func shape(height: CGFloat) -> NotchSurfaceShape {
+        NotchSurfaceShape(expansion: expansion(height: height), docked: true)
+    }
 
     var body: some View {
         TimelineView(.periodic(from: Date(), by: 1)) { context in
@@ -262,13 +275,15 @@ struct TimerActivityView: View {
                     Image(systemName: "timer")
                         .font(.system(size: min(15, height * 0.5), weight: .semibold)).foregroundStyle(Palette.timer)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(ear(leading: true))
+                        .background(pill ? AnyView(ear(leading: true)) : AnyView(Color.clear))
                     Color.clear.frame(width: gap)
                     TimerDigits(text: left, size: min(14, height * 0.48), tint: Palette.timer)
                         .lineLimit(1).minimumScaleFactor(0.7)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(ear(leading: false))
+                        .background(pill ? AnyView(ear(leading: false)) : AnyView(Color.clear))
                 }
+                .padding(.horizontal, pill ? 0 : Self.shoulder(height: height))
+                .background { if !pill { Self.shape(height: height).fill(.black) } }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Timer \(timer.name), \(left) left")
             }
@@ -277,14 +292,12 @@ struct TimerActivityView: View {
         .ignoresSafeArea()
     }
 
-    /// One side's black: square where it meets the housing or the pill, rounded at its outer end (the housing's lower
-    /// corner, or the pill's end).
+    /// Beside the pill, one side's black: square where it meets the pill, rounded at its outer end like the pill's.
     private func ear(leading: Bool) -> some View {
-        let r = pill ? height / 2 : height * 0.42
-        return UnevenRoundedRectangle(topLeadingRadius: pill && leading ? r : 0,
-                                      bottomLeadingRadius: leading ? r : 0,
-                                      bottomTrailingRadius: leading ? 0 : r,
-                                      topTrailingRadius: pill && !leading ? r : 0, style: .continuous)
+        let r = height / 2
+        return UnevenRoundedRectangle(topLeadingRadius: leading ? r : 0, bottomLeadingRadius: leading ? r : 0,
+                                      bottomTrailingRadius: leading ? 0 : r, topTrailingRadius: leading ? 0 : r,
+                                      style: .continuous)
             .fill(.black)
     }
 }
