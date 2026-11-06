@@ -204,6 +204,14 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
                 MainActor.assumeIsolated { self?.ownWindowsChanged() }
             })
         }
+        // A titled window moved or resized (over the window or off it, APP-774); the notch's borderless panels, which
+        // move every frame of their spring, never count
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                let titled = (note.object as? NSWindow)?.styleMask.contains(.titled) == true
+                MainActor.assumeIsolated { if titled { self?.ownWindowsChanged() } }
+            })
+        }
     }
 
     deinit {
@@ -266,8 +274,12 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
         NotchOverlap.windowServerRect(panel.frame, primaryDisplayHeight: NSScreen.screens.first?.frame.maxY ?? 0)
     }
 
-    /// A Space change: nothing moves; what holds the window back is read again on the Space showing now.
-    func spaceChanged() { evaluate() }
+    /// A Space change: nothing moves; what holds the window back is read again on the Space showing now (FERB's own
+    /// windows too: one left on the other Space no longer holds it back, APP-774).
+    func spaceChanged() {
+        evaluate()
+        ownWindowsChanged()
+    }
 
     private func startWatch() {
         guard fixed, watch == nil else { return }
@@ -317,21 +329,27 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
         return input
     }
 
-    /// Whether another of FERB's own windows the owner works in is showing: a titled one (Settings and the FERB
-    /// window, an alert, a file picker) or Quick Look's panel (untitled). Counted after the current event, so a closing
-    /// one has left the screen; structure only, never a window's title or content. The notch's own borderless panels
-    /// never count.
-    static func coveredByOwnWindow(_ windows: [(isChat: Bool, isTitled: Bool, isVisible: Bool)]) -> Bool {
-        windows.contains { !$0.isChat && $0.isTitled && $0.isVisible }
+    /// Whether another of FERB's own windows the owner works in is over the window: a titled one (Settings and the
+    /// FERB window, an alert, a file picker) or Quick Look's panel (untitled), showing on the Space the owner is on and
+    /// overlapping the window (`isHere`). One on another Space, or beside the window, needs nothing to step back: the
+    /// window stays floating and still (APP-774; owner 2026-11-06: stepped back for the FERB window open on another
+    /// Space, it slid on every Space switch). Counted after the current event, so a closing one has left the screen;
+    /// structure only, never a window's title or content. The notch's own borderless panels never count.
+    static func coveredByOwnWindow(_ windows: [(isChat: Bool, isTitled: Bool, isVisible: Bool, isHere: Bool)]) -> Bool {
+        windows.contains { !$0.isChat && $0.isTitled && $0.isVisible && $0.isHere }
     }
+
+    /// Whether one of FERB's windows shows on the Space the owner is on (tests stand in their own).
+    var onActiveSpace: (NSWindow) -> Bool = { $0.isOnActiveSpace }
 
     func ownWindowsChanged() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             let windows = NSApp.windows
+            let chat = self.panel.frame
             let facts = windows.map {
                 (isChat: $0 === self.panel, isTitled: $0.styleMask.contains(.titled) || $0 is QLPreviewPanel,
-                 isVisible: $0.isVisible)
+                 isVisible: $0.isVisible, isHere: $0.frame.intersects(chat) && self.onActiveSpace($0))
             }
             let covered = Self.coveredByOwnWindow(facts)
             guard covered != self.underOwnWindow else { return }

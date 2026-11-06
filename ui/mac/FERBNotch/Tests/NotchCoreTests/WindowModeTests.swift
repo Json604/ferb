@@ -42,7 +42,12 @@ final class WindowModeTests: XCTestCase {
         h.coordinator.applyChatHost()
     }
 
-    private func window(_ h: Harness) throws -> ChatWindowController { try XCTUnwrap(h.coordinator.chatWindow) }
+    /// The sticky window, its Space facts stood in: the test's own windows are on the Space showing.
+    private func window(_ h: Harness) throws -> ChatWindowController {
+        let window = try XCTUnwrap(h.coordinator.chatWindow)
+        window.onActiveSpace = { _ in true }
+        return window
+    }
 
     private func key(_ characters: String, flags: NSEvent.ModifierFlags = [], code: UInt16 = 0,
                      in window: NSWindow) throws -> NSEvent {
@@ -321,6 +326,7 @@ final class WindowModeTests: XCTestCase {
                                 styleMask: [.titled, .closable], backing: .buffered, defer: false)
         settings.isReleasedWhenClosed = false
         addTeardownBlock { settings.orderOut(nil) }
+        settings.setFrame(w.panel.frame, display: false)                // over the sticky window
         settings.orderFrontRegardless()
         w.ownWindowsChanged()
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
@@ -336,9 +342,72 @@ final class WindowModeTests: XCTestCase {
         h.coordinator.toggleByShortcut()                 // and opened again by the owner
         XCTAssertEqual(w.panel.level, .floating)
         // The notch's own borderless panels never count
-        XCTAssertFalse(ChatWindowController.coveredByOwnWindow([(isChat: true, isTitled: true, isVisible: true),
-                                                                 (isChat: false, isTitled: false, isVisible: true)]))
+        XCTAssertFalse(ChatWindowController.coveredByOwnWindow([(isChat: true, isTitled: true, isVisible: true,
+                                                                  isHere: true),
+                                                                 (isChat: false, isTitled: false, isVisible: true,
+                                                                  isHere: true)]))
         XCTAssertEqual(ChatWindowController.level(picker: false, ownWindow: false, handedOff: false), .floating)
+    }
+
+    /// Owner, 2026-11-06 (window mode): "the previous issue of settings and other options not openign nad close open
+    /// on space shift is back". The FERB window left open on another Space kept the sticky window stepped back (an
+    /// ordinary window that slid with every Space switch). Only one of FERB's windows on the Space showing and over
+    /// the sticky window steps it back; one elsewhere or beside it leaves it floating and still.
+    // decision: APP-774, APP-749
+    func testOnlyAFERBWindowOverItOnThisSpaceStepsItBack() throws {
+        let h = try harness(window: true)
+        h.coordinator.toggleByShortcut()
+        let w = try window(h)
+        let settings = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                                styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        settings.isReleasedWhenClosed = false
+        addTeardownBlock { settings.orderOut(nil) }
+        settings.setFrame(w.panel.frame, display: false)
+        settings.orderFrontRegardless()
+        var here = false                                       // left open on another Space
+        w.onActiveSpace = { _ in here }
+        w.ownWindowsChanged()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(w.panel.level, .floating, "a FERB window on another Space holds nothing back")
+        here = true                                            // the owner switches to its Space
+        w.spaceChanged()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(w.panel.level, .normal, "over it on this Space: it shows above the sticky window")
+        here = false                                           // and back to another Space
+        w.spaceChanged()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(w.panel.level, .floating, "the Space change reads FERB's windows again")
+        here = true                                            // on this Space but beside the window
+        let visible = (w.panel.screen ?? NSScreen.main!).visibleFrame
+        let corners = [CGRect(x: visible.minX, y: visible.minY, width: 120, height: 90),
+                       CGRect(x: visible.maxX - 120, y: visible.minY, width: 120, height: 90)]
+        let beside = try XCTUnwrap(corners.first { !$0.intersects(w.panel.frame) })
+        settings.setFrame(beside, display: false)
+        XCTAssertFalse(settings.frame.intersects(w.panel.frame))
+        w.ownWindowsChanged()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(w.panel.level, .floating, "beside it, nothing needs to step back")
+    }
+
+    /// FERB's window opens beside the sticky window where the screen has room, so the sticky window never has to step
+    /// back for it; with no room on either side, it stays where it was.
+    // decision: APP-774
+    func testFERBsWindowOpensBesideTheStickyWindowWhereThereIsRoom() {
+        let visible = CGRect(x: 0, y: 0, width: 1512, height: 944)
+        let min = CGSize(width: 880, height: 620)
+        let ferb = CGRect(x: 246, y: 92, width: 1020, height: 760)
+        let atRight = CGRect(x: 1040, y: 300, width: 446, height: 600)
+        let placed = AppWindowPresentation.beside(ferb, avoiding: atRight, in: visible, minSize: min)!
+        XCTAssertFalse(placed.intersects(atRight))
+        XCTAssertTrue(visible.contains(placed))
+        XCTAssertGreaterThanOrEqual(placed.width, min.width)
+        XCTAssertEqual(placed.maxX, atRight.minX - 12)                       // the side with room: the left
+        let atLeft = CGRect(x: 20, y: 300, width: 446, height: 600)
+        let right = AppWindowPresentation.beside(ferb, avoiding: atLeft, in: visible, minSize: min)!
+        XCTAssertEqual(right.minX, atLeft.maxX + 12)
+        XCTAssertTrue(visible.contains(right))
+        let middle = CGRect(x: 533, y: 300, width: 446, height: 600)         // no room on either side
+        XCTAssertNil(AppWindowPresentation.beside(ferb, avoiding: middle, in: visible, minSize: min))
     }
 
     // decision: APP-745, APP-748, APP-600

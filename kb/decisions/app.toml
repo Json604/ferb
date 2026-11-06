@@ -2755,3 +2755,13 @@ words_source = "Owner, 2026-11-06, about opening Settings from the notch and fro
 rule = "Refines APP-630 and APP-688. Opening Settings or any page of FERB's window (Tasks, Schedules, the profile menu's items), in notch mode and in window mode, leaves the owner and the window on the same Space: no Space switch; the window opens on the Space the owner is on, including over a full-screen app. Notch mode keeps working at least as well as before."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift"]
 live = ["LIVE-803"]
+
+[APP-774]
+title = "Only a FERB window over the sticky window on this Space steps it back"
+by = "agent"
+date = 2026-11-06
+status = "active"
+rule = "Refines APP-749, APP-761, APP-688 for APP-772/773. The sticky window steps back for FERB's own titled window (or Quick Look) only while it shows on the owner's Space and overlaps it; one elsewhere or beside it holds nothing back, and a Space change reads them again. FERB's window, brought on screen in window mode, opens beside the sticky window where a side has room for its minimum size. A FERB window still showing on another Space is ordered out first, so it comes back on the Space showing."
+why = "Owner, 2026-11-06, build 202611061406: \"the previous issue of settings and other options not openign nad close open on space shift is back\". Log: stepped back for the FERB window left on another Space; Settings switched Spaces to where it had been."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController", "ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+live = ["LIVE-808", "LIVE-803", "LIVE-804"]

@@ -44,6 +44,7 @@ final class WindowSpaceTests: XCTestCase {
         guard window.space?.isAttached == true else { throw XCTSkip("FERB's overlay space isn't available here") }
         window.windowList = { [unowned self] in self.rows }
         window.onAnotherSpace = { _ in false }
+        window.onActiveSpace = { _ in true }                 // the test's own windows are on the Space showing
         return Harness(defaults: defaults, model: model, coordinator: coordinator, window: window)
     }
 
@@ -98,6 +99,7 @@ final class WindowSpaceTests: XCTestCase {
                                 styleMask: [.titled, .closable], backing: .buffered, defer: false)
         settings.isReleasedWhenClosed = false
         addTeardownBlock { settings.orderOut(nil) }
+        settings.setFrame(h.window.panel.frame, display: false)          // over the sticky window
         settings.orderFrontRegardless()
         h.window.ownWindowsChanged()
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
@@ -127,6 +129,7 @@ final class WindowSpaceTests: XCTestCase {
                                 styleMask: [.titled, .closable], backing: .buffered, defer: false)
         settings.isReleasedWhenClosed = false
         addTeardownBlock { settings.orderOut(nil) }
+        settings.setFrame(h.window.panel.frame, display: false)          // over the sticky window
         settings.orderFrontRegardless()
         h.window.ownWindowsChanged()
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))

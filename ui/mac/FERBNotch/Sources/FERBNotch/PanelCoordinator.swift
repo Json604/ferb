@@ -377,6 +377,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     func start() {
         isStarted = true
+        // FERB's window opens beside the sticky window, never under it, where the screen has room (APP-774)
+        AppWindowPresentation.avoid = { [weak self] in
+            guard let self, self.model.chatInWindow, let window = self.chatWindow, window.isShown else { return nil }
+            return window.panel.frame
+        }
         model.connectDaemon()
         configureMenu()
         poster?.onReminder = { [weak self] item in

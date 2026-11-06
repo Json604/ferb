@@ -1,5 +1,6 @@
 import AppKit
 import Darwin
+import os
 
 /// A requested app window must appear where the owner is working, including over a full-screen app.
 /// AppKit can mark a regular window visible without assigning it a Space in that case (macOS 26).
@@ -17,6 +18,10 @@ enum AppWindowPresentation {
     /// FERB's activation (tests record it instead).
     static var activate: () -> Void = { NSApp.activate(ignoringOtherApps: true) }
 
+    /// The sticky window's frame while window mode shows it (PanelCoordinator sets it): a window brought on screen
+    /// opens beside it rather than over or under it, where the screen has room (APP-774).
+    static var avoid: () -> CGRect? = { nil }
+
     static func show(_ window: NSWindow) {
         // Ordering it in or making it key brings the window to the owner's Space instead of switching Spaces.
         window.collectionBehavior.insert(.moveToActiveSpace)
@@ -25,13 +30,40 @@ enum AppWindowPresentation {
         // with this window in front (APP-656).
         window.acceptsMouseMovedEvents = true
         if window.isMiniaturized { window.deminiaturize(nil) }
+        // Still showing on another Space (left open there): ordering a shown window front or activating FERB switched
+        // the owner to that Space (owner, 2026-11-06, both modes). Taken off the screen first, it comes back on the
+        // Space showing, as a window ordered in with moveToActiveSpace does (APP-774).
+        let elsewhere = window.isVisible && !window.isOnActiveSpace && !window.styleMask.contains(.fullScreen)
+        if elsewhere { window.orderOut(nil) }
+        if !window.isVisible, let chat = avoid(), window.frame.intersects(chat),
+           let screen = NSScreen.screens.first(where: { $0.frame.intersects(chat) }) ?? NSScreen.main,
+           let beside = beside(window.frame, avoiding: chat, in: screen.visibleFrame, minSize: window.minSize) {
+            window.setFrame(beside, display: false)
+        }
         window.orderFrontRegardless()
+        log.notice("FERB window shows (was on another Space \(elsewhere, privacy: .public)); on this Space \(window.isOnActiveSpace, privacy: .public)")
         if !window.isOnActiveSpace, !window.styleMask.contains(.fullScreen) { moveToActiveSpace(window) }
         // With its key window on this Space, activating FERB has no other Space to switch to.
         if window.canBecomeKey { window.makeKey() }
         activate()
         window.makeKeyAndOrderFront(nil)
     }
+
+    /// A frame for `frame` beside `chat` (left or right, whichever side has more room) inside `visible`, as wide and
+    /// tall as it was where that fits and never under `minSize`; nil when neither side has room (it then opens where
+    /// it was and the sticky window steps back for it, APP-749).
+    static func beside(_ frame: CGRect, avoiding chat: CGRect, in visible: CGRect, minSize: CGSize,
+                       gap: CGFloat = 12) -> CGRect? {
+        let right = visible.maxX - chat.maxX - gap, left = chat.minX - visible.minX - gap
+        let room = max(right, left)
+        guard room >= minSize.width, visible.height >= minSize.height else { return nil }
+        let width = min(frame.width, room), height = min(frame.height, visible.height)
+        let x = right >= left ? chat.maxX + gap : chat.minX - gap - width
+        let y = min(max(frame.minY, visible.minY), visible.maxY - height)
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    static let log = Logger(subsystem: "com.ferb.FERB", category: "spaces")
 
     /// Like the notch's optional SkyLight bridge, this operates only on a window owned by this process.
     /// It moves that window, never the owner's current Space, and leaves the ordinary window level intact.
