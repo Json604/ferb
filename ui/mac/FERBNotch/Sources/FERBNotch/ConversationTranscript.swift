@@ -251,7 +251,9 @@ private struct TurnView: View {
                 if let cards = turn.cards { ResultCardsView(cards: cards, turnID: turn.id, model: model) }
             }
             ForEach(Array((turn.parts ?? []).enumerated()), id: \.offset) { _, part in    // parts saved before cards
-                FerbBubble { MarkdownContent(part).equatable() }
+                if !part.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    FerbBubble { MarkdownContent(part).equatable() }
+                }
             }
             if let live = turn.liveLine { LiveLineView(progress: live) }
             // A question FERB asked stays here unless it was itself shown below.
@@ -508,22 +510,29 @@ private struct AnswerView: View {
                 ForEach(Array(CardLayout.above(cards).enumerated()), id: \.offset) { _, card in
                     ReminderCard(card: card, model: model).padding(.trailing, 28)  // a reminder: FERB's text under it
                 }
-                FerbBubble {
-                    VStack(alignment: .leading, spacing: 6) {
-                        // An answer taller than the chat area shows about half of it, the rest on Show all: the
-                        // same text (APP-719, APP-725). The threshold follows the height the owner set (APP-587).
-                        CollapsibleText(key: ExpansionState.key(turn: turn.id, item: "answer"),
-                                        kind: .answer(viewport: model.preferredTranscriptHeight),
-                                        target: TranscriptTarget.answer(turn: turn.id),
-                                        more: "Show all", model: model, whenCollapsed: collapsedLines) {
-                            MarkdownContent(CardLayout.strip(visibleParts.answer, cards),
-                                            note: split.note, lines: codeLines).equatable()
-                        }
-                        if turn.displayText != nil && turn.visibleAnswer != turn.answer {
-                            DisclosureGroup("Details") {
-                                MarkdownContent(fullParts.answer).equatable()
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }.font(.system(size: 11))
+                // Nothing left once the cards say their lines (a timer's "Timer set"): no empty bubble
+                let details = turn.displayText != nil && turn.visibleAnswer != turn.answer
+                let shown = CardLayout.bubble(visibleParts.answer, cards, note: split.note, lines: codeLines)
+                if shown != nil || details {
+                    FerbBubble {
+                        VStack(alignment: .leading, spacing: 6) {
+                            if let shown {
+                                // An answer taller than the chat area shows about half of it, the rest on Show all:
+                                // the same text (APP-719, APP-725). The threshold follows the height the owner set
+                                // (APP-587).
+                                CollapsibleText(key: ExpansionState.key(turn: turn.id, item: "answer"),
+                                                kind: .answer(viewport: model.preferredTranscriptHeight),
+                                                target: TranscriptTarget.answer(turn: turn.id),
+                                                more: "Show all", model: model, whenCollapsed: collapsedLines) {
+                                    MarkdownContent(shown, note: split.note, lines: codeLines).equatable()
+                                }
+                            }
+                            if details {
+                                DisclosureGroup("Details") {
+                                    MarkdownContent(fullParts.answer).equatable()
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }.font(.system(size: 11))
+                            }
                         }
                     }
                 }

@@ -2690,3 +2690,14 @@ rule = "Refines APP-761. NotchOverlaySpace.stepBack on a window that is ordered 
 why = "Review 2, finding 9, confirmed by a test (macOS 27.2): Settings opening while the sticky window was hidden made it leave the space ordered out, and shown again it was on no Space (invisible) until Settings closed."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift::NotchOverlaySpace.stepBack", "ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController.show"]
 live = ["LIVE-804"]
+
+[APP-768]
+title = "No empty FERB bubble: a reply its cards say whole draws none"
+by = "owner"
+date = 2026-11-06
+status = "active"
+words = "i get these emptyu bbubbles eveytime on a timer request fix this too"
+words_source = "Owner, 2026-11-06, about a chat where every timer request showed a small empty FERB bubble above the \"Timer\" card"
+rule = "FERB's chat never draws an empty bubble. A reply whose text is only the lines its cards stand for (a timer's \"Timer set\" line) shows its cards with no bubble; words beside those lines, a Couldn't confirm note, a code line or Details keep it. The same for a first reply whose plan line is left empty once the direct answer and the receipts drawn as cards are taken out, and for a saved part with no words."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/ResultCard.swift::CardLayout.bubble", "ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationTurn.firstReplySays", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::FirstReplyView"]
+live = ["LIVE-805"]

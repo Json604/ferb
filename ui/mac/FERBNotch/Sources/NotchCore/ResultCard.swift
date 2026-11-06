@@ -160,6 +160,16 @@ public enum CardLayout {
         return out.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// What FERB's bubble beside a turn's cards says: the text without the lines the cards stand for, or nil when
+    /// nothing is left and no note or line goes under it. A timer's reply is only its "Timer set" line, which its card
+    /// says, so it draws no empty bubble (owner 2026-11-06: "i get these emptyu bbubbles eveytime on a timer request").
+    public static func bubble(_ text: String, _ cards: [ResultCard], note: String?, lines: [String]) -> String? {
+        let shown = strip(text, cards)
+        let empty = shown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return empty && (note ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && lines.isEmpty
+            ? nil : shown
+    }
+
     /// Code's lines the cards don't stand for.
     public static func remaining(_ lines: [String], _ cards: [ResultCard]) -> [String] {
         let drop = Self.lines(cards)

@@ -122,6 +122,37 @@ final class TypedCardsTests: XCTestCase {
         XCTAssertEqual(try savedArchive(model).turns.first?.cards, shown.cards)
     }
 
+    // decision: APP-768
+    /// Owner 2026-11-06: "i get these emptyu bbubbles eveytime on a timer request". A timer's reply is only the line
+    /// its card stands for, so nothing is left for FERB's bubble: none is drawn. Words beside the line, a note or a
+    /// code line keep it. A first reply whose plan line was only the direct answer above a card draws none either.
+    func testAReplyThatIsOnlyItsCardsLinesDrawsNoBubble() throws {
+        let line = "⏱ Timer set: Tea — ends 10:41"
+        let timer = try XCTUnwrap(ResultCard(["type": "event", "kind": "timer", "id": "tm-1", "what": "Tea",
+                                              "when": "2026-11-06T10:41:00+00:00", "line": line]))
+        XCTAssertNil(CardLayout.bubble(line, [timer], note: nil, lines: []))
+        XCTAssertNil(CardLayout.bubble(line + "\n\n", [timer], note: " ", lines: []))
+        XCTAssertEqual(CardLayout.bubble("Done.\n" + line, [timer], note: nil, lines: []), "Done.")
+        XCTAssertEqual(CardLayout.bubble(line, [timer], note: "Couldn't confirm", lines: []), "")
+        XCTAssertEqual(CardLayout.bubble(line, [timer], note: nil, lines: ["(ran late)"]), "")
+        XCTAssertEqual(CardLayout.bubble("Okay.", [], note: nil, lines: []), "Okay.")
+
+        let model = makeModel()
+        let id = begin("what's 2+2 and research laptops", in: model)
+        model.receiveChatEvent(["type": "plan", "request_id": "R", "task_id": "T", "text": "4",
+            "plan_line": "4", "lines": [String](), "direct": [["part": "sum", "label": "2+2", "text": "4"]],
+            "card": ["request_id": "R", "done": 1, "total": 2, "rows": [
+                ["part": "sum", "label": "2+2", "state": "done", "direct": true, "text": "4"],
+                ["part": "laptops", "label": "Laptops", "state": "working"]]]], localID: id)
+        XCTAssertEqual(turn(id, model).shownPlanLine, "")
+        XCTAssertFalse(turn(id, model).firstReplySays)
+        let plain = makeModel()
+        let other = begin("research laptops", in: plain)
+        plain.receiveChatEvent(["type": "plan", "request_id": "R", "task_id": "T", "text": "I'll look.",
+                                "plan_line": "I'll look.", "lines": [String]()], localID: other)
+        XCTAssertTrue(turn(other, plain).firstReplySays)
+    }
+
     func testAnOutcomesCardsAndAFirstRepliesReceiptCardsAreKept() {
         let model = makeModel()
         let id = begin("check the gate and remind me in 10 minutes to stretch", in: model)

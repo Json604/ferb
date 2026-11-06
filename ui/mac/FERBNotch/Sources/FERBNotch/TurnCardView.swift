@@ -12,7 +12,9 @@ struct FirstReplyView: View {
     let turn: ConversationTurn
 
     var body: some View {
-        if let line = turn.shownPlanLine {
+        if !turn.firstReplySays {
+            EmptyView()                                     // nothing left to say: no empty bubble
+        } else if let line = turn.shownPlanLine {
             // a receipt drawn as its card (step 8e) isn't said again here; with a card, a part answered at once is only
             // its row (APP-755)
             let direct = turn.shownDirect, lines = turn.planLines ?? []
@@ -21,7 +23,7 @@ struct FirstReplyView: View {
                 NativeMessageText(MessageTextAttributes.joined(
                     direct.map { MarkdownTextAttributes.make($0, size: 12) }
                     + receipts.map { NativeMessageText($0).text }
-                    + [NativeMessageText(line).text]
+                    + (line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? [] : [NativeMessageText(line).text])
                     + lines.map { NativeMessageText($0, secondary: true).text }
                 ))
             }

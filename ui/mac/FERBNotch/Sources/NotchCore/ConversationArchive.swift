@@ -88,6 +88,18 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     public var shownDirect: [String] { card == nil ? (direct ?? []) : [] }
     public var shownPlanLine: String? { planLine.map(withoutDirect) }
     public var shownPlan: String? { plan.map(withoutDirect) }
+    /// Whether the first reply's bubble has words to show: a plan line left empty once the direct answer and the
+    /// receipts drawn as cards are taken out draws no bubble (owner 2026-11-06: "i get these emptyu bbubbles eveytime
+    /// on a timer request").
+    public var firstReplySays: Bool {
+        func says(_ text: String) -> Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if let line = shownPlanLine {
+            let receipts = CardLayout.remaining(receipts ?? [], receiptCards ?? [])
+            return (shownDirect + receipts + [line] + (planLines ?? [])).contains(where: says)
+        }
+        if let plan = shownPlan { return says(plan) }
+        return says(streamingPlan ?? "")
+    }
 
     private func withoutDirect(_ text: String) -> String {
         guard let card else { return text }
