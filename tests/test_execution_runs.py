@@ -427,9 +427,9 @@ def test_a_check_in_asked_before_a_restart_is_asked_again_and_no_stops(home: Any
         second.stop()
 
 
-# decision: ORCH-307, ORCH-541
+# decision: ORCH-307, ORCH-544
 def test_a_report_only_check_in_asked_again_after_a_restart_keeps_its_answer(home: Any, monkeypatch: Any) -> None:
-    """ORCH-541 across a restart: a check-in reached only because the records kept contradicting the answer (its
+    """ORCH-544 across a restart: a check-in reached only because the records kept contradicting the answer (its
     outcome verified) was asked again after a restart without that knowledge, so its No failed the task. Now the saved
     step keeps the latest answer, and No ends done-unconfirmed with it and code's own line, never the evidence."""
     monkeypatch.setattr("ferb.sanitize.images.recognize_text", lambda _image: [])

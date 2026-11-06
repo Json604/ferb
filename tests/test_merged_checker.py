@@ -5,9 +5,13 @@ daemon, gateway and scripted model."""
 import json
 from typing import Any
 
+import pytest
+
 from ferb.core.types import RuntimeEvent
 from ferb.orchestrator.attempts import CHECK_IN_AFTER
-from ferb.orchestrator.supervisor import RUNTIME_ASK
+from ferb.core.structured import check_final
+from ferb.orchestrator.schemas import CHECKER_SCHEMA, AnswerEdit
+from ferb.orchestrator.supervisor import RUNTIME_ASK, UNCONFIRMED_MARK, edit_answer
 from tests.conftest import (RunningDaemon, _context_of, answer_question, chat, done, install, outcome, report, sup,
                             task, cond, verdict)
 from tests.support.schedules import run
@@ -27,7 +31,7 @@ def test_a_report_only_problem_gets_its_answer_fixed_not_a_redo(daemon: RunningD
     script = install(daemon, [sup("task", "On it.", task("Book a table for 4 at 7pm"))], {
         "worker": done(BOOKED),
         "worker.verify": verdict(True, False, next="fix_answer",
-                                 edits=((" The restaurant confirmed by email.", ""),))})
+                                 edits=((" The restaurant confirmed by email.", "remove"),))})
     result = outcome(chat(daemon, "book a table for 4 at 7pm"))
     assert script.calls("worker") == ["worker"] and len(_checks(script)) == 1
     assert result["status"] == "done" and result["verified"] is True
@@ -40,7 +44,7 @@ def test_a_retry_with_every_outcome_verified_fixes_the_answer_instead(daemon: Ru
     anyway becomes fix-only-the-answer (its edits applied, the unproven detail marked), never a worker redo."""
     script = install(daemon, [sup("task", "On it.", task("Book a table for 4 at 7pm"))], {
         "worker": [done(BOOKED), done("Booked again.")],
-        "worker.verify": verdict(True, False, next="retry", edits=((" The restaurant confirmed by email.", ""),))})
+        "worker.verify": verdict(True, False, next="retry", edits=((" The restaurant confirmed by email.", "remove"),))})
     result = outcome(chat(daemon, "book a table for 4 at 7pm"))
     assert script.calls("worker") == ["worker"] and len(_checks(script)) == 1
     assert result["status"] == "done" and result["answer"] == "Booked a table for 4 at 7pm at Nopa."
@@ -51,45 +55,76 @@ def test_an_unverifiable_side_detail_is_marked_inline_and_the_task_is_done(daemo
     script = install(daemon, [sup("task", "On it.", task("Find the library's address"))], {
         "worker": done("The library is at 100 Larkin St. It opens at 10am."),
         "worker.verify": verdict(True, None, next="fix_answer",
-                                 edits=(("It opens at 10am.", "It opens at 10am (I couldn't confirm this)."),))})
+                                 edits=(("It opens at 10am.", "unconfirmed"),))})
     result = outcome(chat(daemon, "where's the library"))
     assert result["status"] == "done" and len(script.calls("worker")) == 1
     assert result["answer"] == "The library is at 100 Larkin St. It opens at 10am (I couldn't confirm this)."
 
 
-# decision: ORCH-309, PRM-323, PRM-326
-def test_a_checker_edit_that_rewrites_marks_its_text_and_one_that_adds_is_dropped(daemon: RunningDaemon) -> None:
-    """Freelance task 0218bb01: the checker's edits ADDED sentences ("Preview and Finder came to the front…") to the
-    answer. An edit may only remove its text or mark it inline; one that writes more is never applied and is journaled.
-    A rewrite marks the text it would have changed (PRM-326: all 12 recorded checker edits were rewrites, so dropping
-    them left unconfirmed claims bare); a pure addition leaves its text as it was (it wasn't disputed)."""
+# decision: ORCH-309, PRM-323, PRM-329
+def test_a_checker_edit_removes_or_marks_its_text_exactly_once(daemon: RunningDaemon) -> None:
+    """The checker names text and an action; FERB's code removes it or marks it "(I couldn't confirm this)" once
+    (PRM-329). It can't express a rewrite or an addition: the schema has no replacement text."""
     install(daemon, [sup("task", "On it.", task("Find the library's address"))], {
-        "worker": done("The library is at 100 Larkin St. It has 3 floors."),
+        "worker": done("The library is at 100 Larkin St. It has 3 floors. Parking is free."),
         "worker.verify": verdict(True, None, next="fix_answer", evidence="The floors weren't on the page",
-                                 edits=(("It has 3 floors.", "It appears to have several floors."),
-                                        ("100 Larkin St.", "100 Larkin St. Preview came to the front once.")))})
+                                 edits=(("It has 3 floors.", "unconfirmed"), ("It has 3 floors.", "unconfirmed"),
+                                        (" Parking is free.", "remove")))})
     result = outcome(chat(daemon, "where's the library"))
     assert result["status"] == "done"
     assert result["answer"] == "The library is at 100 Larkin St. It has 3 floors (I couldn't confirm this)."
-    async def dropped() -> list[Any]:
-        return [(e.data["finds"], e.data["marked"]) for e in daemon.daemon.journal.of_kind("task.answer_edit_dropped")]
-    assert daemon.run(dropped()) == [(["It has 3 floors.", "100 Larkin St."], ["It has 3 floors."])]
 
 
-# decision: ORCH-309, PRM-326, ORCH-540, ORCH-541
+# decision: ORCH-309, PRM-329
+def test_the_checker_schema_has_no_replacement_text() -> None:
+    edit = {"find": "It has 3 floors.", "action": "unconfirmed"}
+    base = {"results": [], "next": "fix_answer", "missing": "", "instructions": "", "worker_type": None, "question": "",
+            "reason": ""}
+    assert check_final(json.dumps(base | {"answer_edits": [edit]}), CHECKER_SCHEMA)
+    for bad in ({**edit, "replace": "It has several floors."}, {"find": "x", "replace": "y"},
+                {"find": "x", "action": "reword"}):
+        with pytest.raises(ValueError):
+            check_final(json.dumps(base | {"answer_edits": [bad]}), CHECKER_SCHEMA)
+
+
+# decision: ORCH-309, PRM-329
+def test_an_older_shape_edit_never_marks_a_rewrite_or_an_addition() -> None:
+    """The checker's recorded edits of 2026-11-05/06 (owner: "why couldnt it confirm thsi task??"): voice rewrites, an
+    added narration and an inserted source, each in the older {find, replace} shape. None removes or marks its text,
+    so each is dropped and nothing is marked; an older-shape removal or mark still applies as written."""
+    answer = ("Checked Coursera for the two assignments. The tracker was updated with both dates. Quiz 3 is visible "
+              "but locked until Monday. Saved the one-line summary to `Desktop/summary.txt`.")
+    old = [AnswerEdit(find="Checked Coursera", replace="I checked Coursera"),
+           AnswerEdit(find="The tracker was updated with both dates.", replace="I updated the tracker with both dates."),
+           AnswerEdit(find="visible but locked until Monday.",
+                      replace="visible but currently locked; they are due Monday."),
+           AnswerEdit(find="Quiz 3", replace="Quiz 3 (I researched it myself)"),
+           AnswerEdit(find="Saved the one-line summary to `Desktop/summary.txt`.",
+                      replace="Saved the one-line summary of `Desktop/imp mails.txt` to `Desktop/summary.txt`.")]
+    edited, unapplied, dropped, marked = edit_answer(answer, old)
+    assert edited == answer and UNCONFIRMED_MARK not in edited and not marked and not unapplied
+    assert dropped == [e.find for e in old]
+    still = [AnswerEdit(find=" Quiz 3 is visible but locked until Monday.", replace=""),
+             AnswerEdit(find="Checked Coursera for the two assignments.",
+                        replace="Checked Coursera for the two assignments (I couldn't confirm this).")]
+    edited, _, dropped, _ = edit_answer(answer, still)
+    assert not dropped and "Quiz 3" not in edited and edited.count(UNCONFIRMED_MARK) == 1
+
+
+# decision: ORCH-309, ORCH-540, ORCH-544
 def test_a_contradicted_detail_no_edit_removed_goes_back_as_a_retry_with_the_evidence(daemon: RunningDaemon) -> None:
     """Live task 794e3bd8 (owner 2026-11-05: "what correction message is this?? who added it??"): the checker failed
     FERB's report condition and tried a pure addition, which code drops, so the evidence showed as "Correction: …".
     Batch 3b journaled it instead, which left the contradicted detail standing unmarked (ORCH-309). Now, with no edit
     that removed or marked anything, the next attempt rewrites the answer from the checker's evidence; never a
-    "Correction:" line or the checker's words in the answer."""
+    "Correction:" line or the checker's words in the answer. (An edit that only adds words disputes nothing: PRM-329.)"""
     found = "Three of the five tools support offline mode."
     fixed = "Two of the five tools support offline mode."
     evidence = "The records show only two tools with an offline mode"
     script = install(daemon, [sup("task", "On it.", task("Research offline support in the five tools"))], {
         "worker": [done(found), done(fixed)],
         "worker.verify": [verdict(True, False, next="fix_answer", evidence=evidence,
-                                  edits=((found, "I researched the five tools myself. " + found),)),
+                                  edits=(("Six of the five tools support offline mode.", "remove"),)),
                           verdict(True, True)]})
     result = outcome(chat(daemon, "which of the five tools work offline?"))
     assert len(script.calls("worker")) == 2
@@ -101,20 +136,41 @@ def test_a_contradicted_detail_no_edit_removed_goes_back_as_a_retry_with_the_evi
     assert daemon.run(recorded()) == [(evidence, True)]
 
 
-# decision: ORCH-309, ORCH-540, ORCH-541
+# decision: ORCH-309, ORCH-540, ORCH-544, PRM-329
+def test_a_detail_left_out_of_a_confirmed_answer_stays_unmarked_with_no_redo(daemon: RunningDaemon) -> None:
+    """Owner 2026-11-06 ("why couldnt it confirm thsi task??"): the checker confirmed the saved summary and its one
+    line, failed only the report condition for leaving out the source file, and chose fix_answer with an edit that
+    inserted the source (the older shape: `test_an_older_shape_edit_never_marks_a_rewrite_or_an_addition`). Now it can
+    only remove or mark, and has nothing to remove or mark: the confirmed sentence is never marked "(I couldn't confirm
+    this)" and no worker reruns just to add the detail; the evidence is journaled (PRM-329)."""
+    said = "Saved the one-line summary to `Desktop/summary.txt`."
+    evidence = "The report names `Desktop/summary.txt` but omits the source, `Desktop/imp mails.txt`."
+    script = install(daemon, [sup("task", "On it.", task("Write a one-line summary of the email list"))], {
+        "worker": [done(said), done("Rewritten.")],
+        "worker.verify": verdict(True, False, next="fix_answer", evidence=evidence)})
+    result = outcome(chat(daemon, "summarize my email list into summary.txt"))
+    assert script.calls("worker") == ["worker"]
+    assert result["status"] == "done" and result["verified"] is True and result["answer"] == said
+    async def recorded() -> list[Any]:
+        return [(e.data["evidence"], e.data.get("omission"), e.data.get("retry")) for e in
+                daemon.daemon.journal.of_kind("task.report_condition_unmet")]
+    assert daemon.run(recorded()) == [(evidence, True, None)]
+
+
+# decision: ORCH-309, ORCH-540, ORCH-544
 def test_a_contradicted_detail_an_edit_removed_is_accepted(daemon: RunningDaemon) -> None:
     """The same false report condition with an edit that removed the disputed sentence: the answer no longer states
     it, so the task is done with no redo."""
     script = install(daemon, [sup("task", "On it.", task("Book a table for 4 at 7pm"))], {
         "worker": done(BOOKED),
         "worker.verify": verdict(True, False, next="accept", evidence="No confirmation email was read",
-                                 edits=((" The restaurant confirmed by email.", ""),))})
+                                 edits=((" The restaurant confirmed by email.", "remove"),))})
     result = outcome(chat(daemon, "book a table for 4 at 7pm"))
     assert script.calls("worker") == ["worker"]
     assert result["status"] == "done" and result["answer"] == "Booked a table for 4 at 7pm at Nopa."
 
 
-# decision: ORCH-309, ORCH-307, ORCH-541
+# decision: ORCH-309, ORCH-307, ORCH-544
 def test_an_unattended_run_that_cant_retry_ends_unconfirmed_without_checker_speak(daemon: RunningDaemon,
                                                                                     unattended: None) -> None:
     """A scheduled run whose answer the records keep contradicting runs out of attempts (ORCH-307: nobody to ask):

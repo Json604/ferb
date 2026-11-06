@@ -479,10 +479,11 @@ def verdict(*met: bool | None, next: str = "accept", edits: tuple[tuple[str, str
             instructions: str = "", worker_type: str | None = None, question: str = "", reason: str = "",
             evidence: str = "Scripted inspection", how: str | None = None) -> str:
     """The merged checker's answer (step 8b): one result per condition in order (FERB's report condition, numbered
-    last, is filled in met=True by `complete_report_verdict` unless given), and its next step."""
+    last, is filled in met=True by `complete_report_verdict` unless given), and its next step. `edits` are (find,
+    action) pairs, action "remove" or "unconfirmed" (PRM-329)."""
     return json.dumps({"results": [{"index": i, "met": m, "evidence": evidence, "how": how if m is None else None}
                                    for i, m in enumerate(met)],
-                       "next": next, "answer_edits": [{"find": f, "replace": r} for f, r in edits],
+                       "next": next, "answer_edits": [{"find": f, "action": a} for f, a in edits],
                        "missing": missing, "instructions": instructions, "worker_type": worker_type,
                        "question": question, "reason": reason})
 
