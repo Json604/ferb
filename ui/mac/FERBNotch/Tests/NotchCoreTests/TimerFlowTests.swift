@@ -158,3 +158,101 @@ final class TimerFlowTests: XCTestCase {
         XCTAssertFalse(coordinator.timerActivityPanel.isVisible, "it ends with the timer")
     }
 }
+
+/// The live activity and the edge pill (APP-766, review 2 findings 3-5), driven through the real PanelCoordinator on a
+/// notchless layout (the pill on an edge); notifications are posted in this process only.
+@MainActor
+final class TimerPillTests: XCTestCase {
+    private var fullScreen = false
+
+    private func coordinator(edge: String = "top") throws -> (NotchModel, PanelCoordinator) {
+        _ = NSApplication.shared
+        guard let screen = NSScreen.screens.first else { throw XCTSkip("Needs a display") }
+        let defaults = scratchDefaults()
+        defaults.set(edge, forKey: "notch.indicatorEdge")
+        if let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
+            defaults.set(id.intValue, forKey: "notch.indicatorDisplayID")
+        }
+        let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
+        model.setHoverEnabled(false)
+        let coordinator = PanelCoordinator(model: model, defaults: defaults, overlaySpace: NotchOverlaySpace(available: false))
+        coordinator.cameraHousing = { _ in (0, nil, nil) }
+        coordinator.fullScreenSpace = { [unowned self] _ in self.fullScreen }
+        coordinator.missionControlShowing = { _ in false }
+        coordinator.activeSpace = { 1 }
+        coordinator.hoverWait = { _ in }
+        coordinator.restWait = { _ in }
+        let away = CGPoint(x: screen.frame.midX, y: screen.frame.midY)
+        coordinator.pointerLocation = { away }
+        coordinator.updateScreen()
+        coordinator.observeWorkspace()
+        addTeardownBlock { coordinator.tearDown() }
+        XCTAssertFalse(model.isNotchDocked)
+        return (model, coordinator)
+    }
+
+    private func settle(_ seconds: TimeInterval = 0.1) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+
+    private func tea(_ model: NotchModel) {
+        model.runningTimers = [RunningTimer(id: "tm-1", name: "Tea", started: Date(), ends: Date().addingTimeInterval(3600))]
+    }
+
+    // decision: APP-766, APP-763
+    func testTheCountdownComesBackByItselfAfterADropAndADisplayWake() throws {
+        let (model, coordinator) = try coordinator()
+        tea(model)
+        coordinator.updateTimerActivity()
+        XCTAssertTrue(coordinator.timerActivityPanel.isVisible)
+        let control = try XCTUnwrap(coordinator.indicatorControl)
+        let pill = coordinator.indicatorPanel.frame
+        control.onDragBegan?(CGPoint(x: pill.midX, y: pill.midY))
+        settle(1.2)                                         // the drag hides it (its 1 s look stops while hidden)
+        XCTAssertFalse(coordinator.timerActivityPanel.isVisible, "drawn while the pill is dragged")
+        control.onDragEnded?(CGPoint(x: pill.midX, y: pill.midY))
+        settle()
+        XCTAssertTrue(coordinator.timerActivityPanel.isVisible, "the countdown didn't come back after the drop")
+        let center = NSWorkspace.shared.notificationCenter
+        center.post(name: NSWorkspace.screensDidSleepNotification, object: nil)
+        settle(1.2)
+        XCTAssertFalse(coordinator.timerActivityPanel.isVisible, "drawn while the displays sleep")
+        center.post(name: NSWorkspace.screensDidWakeNotification, object: nil)
+        settle()
+        XCTAssertTrue(coordinator.timerActivityPanel.isVisible, "the countdown didn't come back after the wake")
+    }
+
+    // decision: APP-766, APP-735
+    func testNothingIsDrawnAroundThePillsRestingLine() throws {
+        let (model, coordinator) = try coordinator()
+        tea(model)
+        coordinator.updateTimerActivity()
+        XCTAssertTrue(coordinator.timerActivityPanel.isVisible)
+        fullScreen = true                                   // a full-screen app's Space: the pill rests (D14)
+        coordinator.activeSpace = { 2 }
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
+        settle()
+        XCTAssertTrue(coordinator.pillResting)
+        XCTAssertNil(coordinator.timerActivityPlace())
+        XCTAssertFalse(coordinator.timerActivityPanel.isVisible, "black ears around the 5 pt resting line")
+    }
+
+    // decision: APP-766, APP-763
+    func testATimerHoldsThePillUpOnlyWhereItsCountdownDrawsAndItsEndLetsItRest() async throws {
+        let (side, onSide) = try coordinator(edge: "left")
+        await onSide.indicatorRestTask?.value
+        XCTAssertTrue(onSide.pillResting)
+        tea(side)
+        onSide.updateTimerActivity()
+        XCTAssertTrue(onSide.pillResting, "on a side edge nothing can draw: the timer doesn't hold the pill up")
+        XCTAssertFalse(onSide.timerActivityPanel.isVisible)
+        let (model, coordinator) = try coordinator()
+        await coordinator.indicatorRestTask?.value
+        tea(model)
+        coordinator.updateTimerActivity()
+        XCTAssertFalse(coordinator.pillResting, "on the top edge the timer holds the pill up for its countdown")
+        model.receiveTimerChange(["timer_id": "tm-1", "kind": "timer", "state": "cancelled"])   // cancelled elsewhere
+        coordinator.updateTimerActivity()
+        await coordinator.indicatorRestTask?.value
+        XCTAssertTrue(coordinator.pillResting, "the timer ended: the pill rests again by itself")
+        XCTAssertFalse(coordinator.timerActivityPanel.isVisible)
+    }
+}

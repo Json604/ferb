@@ -201,6 +201,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                                              backing: .buffered, defer: false)
     private var timerActivityGap: CGFloat = -1
     private var timerActivityTick: Task<Void, Never>?
+    private var timerActivityQueued = false
+    /// A running timer held the pill up at the last look (APP-766): when it no longer does, the pill rests by itself.
+    private var timerHeldPill = false
     private let magneticField = MagneticFieldView(frame: .zero)
     var magneticFieldPresentationEnabled = true
     private var magneticDocking = MagneticDocking()
@@ -636,6 +639,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             if !interruptedFusion { self.setIndicatorResting(false, animated: false) }
             self.presentation.stop()
             self.indicatorDragPointer = point
+            self.queueTimerActivity()
             self.indicatorDragFrame = self.indicatorFrame
             self.dragPreferredSize = self.model.surfaceSize
             self.panelDragFrame = self.panel.frame
@@ -883,6 +887,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         pointerIsInside = false
         updateScreen()
         updatePointer()
+        queueTimerActivity()
     }
 
     private func startMagneticClock(on screen: NSScreen) {
@@ -1041,6 +1046,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         magneticDocking.cancel(at: CACurrentMediaTime())
         magneticSample = magneticDocking.current
         cancelMagneticEffects()
+        queueTimerActivity()
     }
 
     func cancelMagneticEffects() {
@@ -1064,6 +1070,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         updateScreen()
         presentation.backdrop.magneticJoin = nil
         updatePointer()
+        queueTimerActivity()
     }
 
     private func distance(_ point: CGPoint, to rect: CGRect) -> CGFloat {
@@ -1166,6 +1173,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                                                height: model.cutoutHeight + 24)), display: true)
         pointerIsInside = false
         present(animate: false, requestFocus: false, caller: "updateScreen")
+        queueTimerActivity()
     }
 
     /// The window over the handle's topmost point row, which the window server would give the menu bar: docked, the
@@ -1230,6 +1238,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         panel.resetCursorRects()
         updateTracerVisibility()
         updateYieldWatch()
+        queueTimerActivity()                    // the countdown comes back by itself (APP-766)
     }
 
     @objc func screensDidSleep() {
@@ -1237,6 +1246,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         model.acknowledgement.dismissTransient()
         screensAsleep = true
         updateYieldWatch()
+        queueTimerActivity()
     }
 
     @objc private func applicationActivated(_ notification: Notification) {
@@ -1288,6 +1298,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             indicatorRestTask = nil
             setIndicatorResting(true)
         }
+        queueTimerActivity()
     }
 
     /// A full-screen app's Space shows on FERB's display.
@@ -1335,6 +1346,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                 placeEdgeRow()
             }
             updateStatusItem()
+            queueTimerActivity()
         }
         if moved { present(animate: false, requestFocus: false, caller: "chat host") }
     }
@@ -1545,6 +1557,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         }
         if indicatorControl?.isAttached != true { orderInOverlay(indicatorPanel) }
         placeEdgeRow()
+        queueTimerActivity()
     }
 
     /// The pill's home-indicator line on its edge, centred where the pill is.
@@ -1563,10 +1576,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         }
     }
 
-    /// On a full-screen app's Space a running task doesn't hold the pill up (D14).
+    /// On a full-screen app's Space a running task doesn't hold the pill up (D14); a running timer holds it up only
+    /// where its countdown can draw (`timerHoldsPill`, APP-766).
     private func scheduleIndicatorRest() {
         guard !isDocked, indicatorRestTask == nil, !notchSurfaceVisible,
-              onFullScreenSpace || (!model.taskItems.contains(where: \.isRunning) && model.soonestTimer() == nil)
+              onFullScreenSpace || (!model.taskItems.contains(where: \.isRunning) && !timerHoldsPill)
         else { return }
         indicatorRestTask = Task { [weak self, restWait] in
             do { try await restWait(.seconds(3)) } catch { return }
@@ -1574,7 +1588,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             self.indicatorRestTask = nil
             guard !self.model.expanded, !self.pointerIsInside,
                   self.onFullScreenSpace || (!self.model.taskItems.contains(where: \.isRunning)
-                                             && self.model.soonestTimer() == nil) else { return }
+                                             && !self.timerHoldsPill) else { return }
             self.setIndicatorResting(true)
         }
     }
@@ -1864,7 +1878,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     /// Where the closed notch's live activity draws, and the gap it leaves for the housing or the pill; nil when it
     /// doesn't show: no timer running, FERB open (the notch or the sticky window), an arrival or a tour line on the
-    /// notch, FERB stepped back, the displays asleep, the pill hidden, a drag under way, or the pill on a side edge.
+    /// notch, FERB stepped back, the displays asleep, the pill hidden or resting as its thin line (APP-766), a drag or
+    /// docking under way, or the pill on a side edge.
     func timerActivityPlace() -> (frame: CGRect, gap: CGFloat)? {
         guard model.soonestTimer() != nil, !model.expanded, model.compactContent == nil, !model.isYielded,
               !screensAsleep, !pillHidden, indicatorDragPointer == nil, dockingRevision == nil, geometry != nil
@@ -1875,19 +1890,42 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             return (CGRect(x: housing.minX - ear, y: housing.minY, width: housing.width + 2 * ear,
                            height: housing.height), housing.width)
         }
-        guard indicatorEdge == .top || indicatorEdge == .bottom, indicatorControl?.isAttached != true else { return nil }
-        let pill = indicatorPanel.frame
+        guard indicatorEdge == .top || indicatorEdge == .bottom, indicatorControl?.isAttached != true, !pillResting
+        else { return nil }
+        let pill = indicatorFrame                         // the pill's own place, not its window mid-animation
         return (CGRect(x: pill.minX - ear, y: pill.minY, width: pill.width + 2 * ear, height: pill.height), pill.width)
     }
 
-    /// Shows, places or hides the live activity. A running timer holds the pill up instead of its resting line, like a
-    /// running task does (off a full-screen Space, D14), so the countdown can show inside it.
+    /// A running timer holds the undocked pill up instead of its resting line only where its countdown can draw beside
+    /// it: on the top or bottom edge, the pill shown, off a full-screen Space (D14) (APP-766).
+    private var timerHoldsPill: Bool {
+        model.soonestTimer() != nil && !isDocked && (indicatorEdge == .top || indicatorEdge == .bottom)
+            && !pillHidden && !onFullScreenSpace
+    }
+
+    /// Something the live activity depends on changed (a drop, docking, the displays, a Space, the pill's rest): look
+    /// again once the change has landed, once per turn of the run loop.
+    private func queueTimerActivity() {
+        guard !timerActivityQueued else { return }
+        timerActivityQueued = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.timerActivityQueued = false
+            self.updateTimerActivity()
+        }
+    }
+
+    /// Shows, places or hides the live activity. A running timer holds the pill up where its countdown can draw
+    /// (`timerHoldsPill`); when it ends or is cancelled, the pill is free to rest again by itself.
     func updateTimerActivity() {
-        if model.soonestTimer() != nil, !isDocked, pillResting, !onFullScreenSpace, !model.expanded {
+        let holds = timerHoldsPill
+        if holds, pillResting, !model.expanded, indicatorDragPointer == nil, dockingRevision == nil {
             indicatorRestTask?.cancel()
             indicatorRestTask = nil
             setIndicatorResting(false)
         }
+        if timerHeldPill, !holds { scheduleIndicatorRest() }
+        timerHeldPill = holds
         guard let place = timerActivityPlace() else {
             if timerActivityPanel.isVisible { timerActivityPanel.orderOut(nil) }
             timerActivityTick?.cancel()
