@@ -18,11 +18,12 @@ final class WindowSpaceTests: XCTestCase {
 
     private var rows: [ScreenWindow] = []
 
-    private func harness(keepOnTop: Bool = false) throws -> Harness {
+    /// `focus`: the test clicks or needs keyboard focus, which only an unlocked session gives.
+    private func harness(keepOnTop: Bool = false, focus: Bool = true) throws -> Harness {
         _ = NSApplication.shared
         guard NSScreen.screens.first != nil else { throw XCTSkip("Needs a display") }
         // Clicks and keyboard focus need an unlocked session (a locked screen keeps every window from becoming key)
-        if (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool == true {
+        if focus, (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool == true {
             throw XCTSkip("The screen is locked")
         }
         let defaults = scratchDefaults()
@@ -117,6 +118,28 @@ final class WindowSpaceTests: XCTestCase {
         assertSteppedBack(h, "a file shown in Finder")
         h.window.show(focus: true)                         // the owner comes back to the window
         assertFixed(h, "the owner came back")
+    }
+
+    /// Review 2, finding 9: Settings opening while the window is hidden makes it step back while ordered out; leaving
+    /// the space then put it on no Space, so showing it again showed nothing. It leaves once it shows, onto the Space
+    /// showing, as a file drag's window does.
+    // decision: APP-767, APP-761
+    func testAWindowThatStepsBackWhileHiddenShowsOnTheCurrentSpace() throws {
+        let h = try harness(focus: false)                  // Space membership only: runs on a locked screen too
+        h.window.hide()
+        let settings = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                                styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        settings.isReleasedWhenClosed = false
+        addTeardownBlock { settings.orderOut(nil) }
+        settings.orderFrontRegardless()
+        h.window.ownWindowsChanged()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(h.window.steppedBack, "Settings shows: the hidden window steps back")
+        h.window.show(focus: false)
+        assertSteppedBack(h, "shown again while Settings shows")
+        let active = try XCTUnwrap(WindowServerSpaces.activeSpace())
+        XCTAssertTrue(place(h)?.ordinary.contains(active) == true,
+                      "on no Space when it showed again: \(String(describing: place(h)?.ordinary))")
     }
 
     /// Another app's menu or popover over the window: it steps one layer back so the menu shows, and comes back when

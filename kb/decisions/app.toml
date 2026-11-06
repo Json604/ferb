@@ -2625,7 +2625,7 @@ title = "The sticky window lives in FERB's fixed overlay space and steps back li
 by = "agent"
 date = 2026-11-06
 status = "active"
-rule = "Implements APP-760. The window joins the notch's overlay space (NotchOverlaySpace.stepForward) and steps back to the normal level in the ordinary stack (stepBack) while FERB's picker, own titled windows or Quick Look show, after a hand-off, while another process's menu, popover or floating window is over it (polled every 250 ms, the notch's rules), and with Keep on top off while an app the owner brought forward has a window over it. A file drag holds it out. Without the space: Keep on top's level, as before."
+rule = "Implements APP-760. The window lives in the notch's overlay space and steps back to the normal level in the ordinary stack while FERB's picker, titled windows or Quick Look show, after a hand-off, while another process's menu, popover or floating window is over it (250 ms poll), or, with Keep on top off, while a window of an app the owner brought forward overlaps it at all; a file drag holds it out. Trade-off: stepped back, it is an ordinary all-Spaces window and slides with the desktop on a Space switch, rejoining the space after it (owner's choice pending, review 2)."
 why = "Live probe, macOS 27.2: Control-arrow both ways and Mission Control in and out left it in the space, on no ordinary Space, at the same window-server bounds at every 20 ms sample. Activations within 1 s of a Space change (seen by notification or the Space showing) are that Space's own."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController", "ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift::NotchOverlaySpace", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
 live = ["LIVE-804"]
@@ -2680,3 +2680,13 @@ rule = "Refines APP-763. The live activity is looked at again (once per run-loop
 why = "Review 2, findings 3-5: the countdown stayed hidden after a drag, docking or wake until an unrelated model change; on a full-screen Space black ears were drawn around the 5 pt resting line; a timer held the pill up on a side edge where nothing draws and could leave it up after the timer ended."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift::PanelCoordinator.updateTimerActivity", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift::PanelCoordinator.timerActivityPlace"]
 live = ["LIVE-805"]
+
+[APP-767]
+title = "A window that steps back while hidden leaves the overlay space when it shows"
+by = "agent"
+date = 2026-11-06
+status = "active"
+rule = "Refines APP-761. NotchOverlaySpace.stepBack on a window that is ordered out only marks it away; the window leaves the space when it shows (ChatWindow.show calls stepBack again), onto the ordinary Spaces and, if on none, the Space showing, as a file drag's window does (APP-742). A visible window leaves at once, and only while the space still lists it."
+why = "Review 2, finding 9, confirmed by a test (macOS 27.2): Settings opening while the sticky window was hidden made it leave the space ordered out, and shown again it was on no Space (invisible) until Settings closed."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift::NotchOverlaySpace.stepBack", "ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController.show"]
+live = ["LIVE-804"]

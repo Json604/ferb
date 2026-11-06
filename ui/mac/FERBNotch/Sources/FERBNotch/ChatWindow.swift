@@ -246,7 +246,8 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
         if !panel.isVisible { place() }
         panel.orderFrontRegardless()
         applyPlace()
-        if fixed && !steppedBack { space?.stepForward(panel) }
+        // in the space, or, stepped back (perhaps while it was hidden), out of it on the Space showing (APP-767)
+        if fixed { if steppedBack { space?.stepBack(panel) } else { space?.stepForward(panel) } }
         if focus { panel.makeKey() }
         startWatch()
     }

@@ -183,7 +183,7 @@ final class NotchOverlaySpace {
         if heldOut.contains(where: { $0 === window }) {
             // Held out for a file drag. A window that was ordered out when the drag began leaves now, once it shows:
             // leaving while ordered out put it on no Space when it came back in (live, macOS 27.2: no drag reached it).
-            if window.isVisible, membership(of: window)?.member == true { leaveForDrag(window) }
+            if window.isVisible, membership(of: window)?.member == true { leaveOntoSpaces(window) }
             return false
         }
         guard let place = membership(of: window), !place.member || !place.ordinary.isEmpty else { return false }
@@ -211,11 +211,13 @@ final class NotchOverlaySpace {
 
     /// A window that lives in the space (the sticky window, APP-760) steps back into the ordinary window stack, as the
     /// panel does when FERB yields (`leave`), and stays out until `stepForward`. A window not yet ours is adopted first.
+    /// Leaving while ordered out puts a window on no Space when it next shows (macOS 27.2, as for a drag): a hidden
+    /// window only counts as away here and leaves when it shows, through `stepBack` again from its `show` (APP-767).
     func stepBack(_ window: NSWindow) {
         guard space != 0 else { return }
         if !windows.contains(where: { $0 === window }) { windows.append(window) }
         if !away.contains(where: { $0 === window }) { away.append(window) }
-        leave(window)
+        if window.isVisible, membership(of: window)?.member == true { leaveOntoSpaces(window) }
     }
 
     /// The window comes back into the space (adopted first when it isn't ours yet); whether the space lists it.
@@ -279,15 +281,15 @@ final class NotchOverlaySpace {
         guard space != 0 else { return }
         for window in windows where !heldOut.contains(where: { $0 === window }) {
             heldOut.append(window)
-            if window.isVisible { leaveForDrag(window) }        // the others leave when they show (`ensure`)
+            if window.isVisible { leaveOntoSpaces(window) }     // the others leave when they show (`ensure`)
         }
         Self.spacesLog.notice("A file drag: \(windows.map(\.windowNumber), privacy: .public) leave the overlay space")
     }
 
-    /// Out of the space and on the ordinary Spaces, where drags reach it. A window ordered in while in the space and
-    /// then left is on no Space at all (probed on macOS 27.2: no drag reaches it; one visible when it left is on all
-    /// of them), so it is put on the Space showing.
-    private func leaveForDrag(_ window: NSWindow) {
+    /// Out of the space and on the ordinary Spaces (where drags reach it, and where a window that stepped back shows).
+    /// A window ordered in while in the space and then left is on no Space at all (probed on macOS 27.2: no drag reaches
+    /// it; one visible when it left is on all of them), so it is put on the Space showing.
+    private func leaveOntoSpaces(_ window: NSWindow) {
         leave(window)
         guard WindowServerSpaces.spaces(ofWindow: window.windowNumber).isEmpty, let addWindows,
               let active = WindowServerSpaces.activeSpace() else { return }
