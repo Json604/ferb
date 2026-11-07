@@ -1484,7 +1484,7 @@ def test_a_stuck_look_holds_its_tab_only_until_its_deadline() -> None:
       return {late, skipped: await Promise.race([skipped, gaveUp]), next: await Promise.race([next, gaveUp]),
               calls: [calls[4].length, new Set(calls[4]).size, calls[5].length, calls[6].length]};
     })()''')
-    assert out["next"] == {"top": "top", "viewport": [0, 0, 10, 10], "items": []}, out
+    assert out["next"] == {"top": "top", "viewport": [0, 0, 10, 10], "items": [], "whole": True}, out
     assert "withheld" in out["skipped"]["r"] and out["skipped"]["after"] < 1000, out    # not the stuck look's 2 s
     assert "withheld" in out["late"], out
     assert out["calls"] == [4, 2, 1, 0]          # a skipped look never touches the page; the next one runs whole
