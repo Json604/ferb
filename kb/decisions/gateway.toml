@@ -462,3 +462,12 @@ status = "active"
 rule = "Texts give value forms: tokens, grouped values (digit groups joined by single spaces) and spellings (no separators or case; the owner's digits without grouping separators, never across letters; a phone's national 0 form). A token only inside a grouped value is a part (GATE-516). A URL piece, decoded up to twice more, matches by itself, a spelling, a grouped value in it, or several words written so around a whole value; all groups in separate pieces match. Order, owner and same-site rules apply. Unchanged: one value amid other words; a postcode alone still asks."
 why = "The sink-rule corpus found 21 whole values leaving unasked (a spaced phone or an address in one query value, regrouped IBANs, amounts, digits-only ids, double encoding). All 21 are now caught, with no new question on the corpus or on the replay of the owner's database since 11-04."
 paths = ["ferb/policy/confirm.py::_value_forms", "ferb/policy/confirm.py::_spellings", "ferb/policy/confirm.py::_phrase", "ferb/policy/confirm.py::_private_hits", "ferb/policy/confirm.py::_decoded_again"]
+
+[GATE-518]
+title = "Two or more neighbouring groups of a grouped value are a whole value; one group alone is a part"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "Refines GATE-516 and GATE-517 (the coordinator's ruling). In a grouped value, every run of two or more neighbouring groups is a whole value: sent spaced, joined, or each group in its own piece in the value's order, and after a leading + its groups with a 0 or without (the national number is the whole phone; a compact +number tries country codes of 1-3 digits). Only one group sent alone is a part. Groups are never joined across letters, a time or decimal (13:27, 4.5) ends a group, and groups together shorter than MIN_LEN are no value. Matched in linear time per text."
+why = "Greedy grouping made a whole value look like a part beside another number: \"Call me on 98200 22222 2026\" let 9820022222 leave unasked, and so did 7700 900123. Corpus: 9 new scenarios ask, misses stay the 13 of T-1007; owner-DB replay: no change."
+paths = ["ferb/policy/confirm.py::_in_runs", "ferb/policy/confirm.py::_spans", "ferb/policy/confirm.py::_grouped", "ferb/policy/confirm.py::_private_hits"]

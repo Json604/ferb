@@ -336,15 +336,16 @@ def _fine_tokens(text: str) -> set[str]:
 # One group of a grouped value (a phone's, an IBAN's or a card's digit groups): letters and digits holding a digit, a
 # leading + kept. A grouped value is two or more groups joined by single spaces on one line.
 _GROUP = r"\+?[^\W_]*\d[^\W_]*"
-_RUN = re.compile(rf"(?<![\w+\-./@%])({_GROUP}(?: {_GROUP})+)(?![\w\-/@%])")
+# not glued to a word, a path or a time/decimal (13:27, 4.5): `07 Nov 2026 13:27` holds no grouped value
+_RUN = re.compile(rf"(?<![\w+\-./@%:,])({_GROUP}(?: {_GROUP})+)(?![\w\-/@%]|[.:,]\d)")
 _GROUPED_DIGITS = re.compile(r"\d+(?:[\s.,\-]+\d+)+")   # digit groups split only by grouping separators
 
 
 def _spellings(value: str, digits: bool = False) -> set[str]:
-    """Other ways the same whole value is written (Step A, GATE-516): its letters and digits with every separator
-    and case dropped (`+44 7700 900123`, `+44-7700-900123`, `447700900123`; `4,312.75`, `4312.75`, `431275`;
-    `DE00 1234 …`) and, for an international phone number, its national form with a leading 0. With `digits` (a
-    value of the owner's data), also its digits alone where grouping separators split them (`ORD-48213-7731` →
+    """Other ways the same whole value is written (GATE-517): its letters and digits with every separator and case
+    dropped (`+44 7700 900123`, `+44-7700-900123`, `447700900123`; `4,312.75`, `4312.75`, `431275`; `DE00 1234 …`)
+    and, for an international phone number, its national number with and without a leading 0. With `digits` (a value
+    of the owner's data), also its digits alone where grouping separators split them (`ORD-48213-7731` →
     `482137731`; never across letters: `s6e35` has none). Only forms holding a digit. Shape only (rule 4)."""
     out: set[str] = set()
     skeleton = "".join(c for c in value if c.isalnum())
@@ -354,25 +355,26 @@ def _spellings(value: str, digits: bool = False) -> set[str]:
         out |= {j for m in _GROUPED_DIGITS.finditer(value)
                 if len(j := "".join(c for c in m.group(0) if c.isdigit())) >= provenance.MIN_LEN}
     if value.lstrip().startswith("+") and skeleton.isdigit() and len(skeleton) >= provenance.DESTINATION_PHONE_DIGITS:
-        out |= {"0" + skeleton[k:] for k in (1, 2, 3)}       # +44 7700 900123 → 07700 900123 (country codes: 1-3)
+        # the national number is the whole phone (GATE-518), with or without its 0: +447700900456 → 07700900456,
+        # 7700900456. The country code's length isn't known (1-3 digits), so each is tried
+        out |= {form for k in (1, 2, 3) for form in ("0" + skeleton[k:], skeleton[k:])}
     return out
 
 
 def _value_forms(text: str, coarse: Iterable[str] | None = None) -> frozenset[str]:
-    """Every form a whole value of `text` (lowercased) can take in an address or a form: its tokens (coarse: whole
-    emails, hosts, paths; fine: values embedded in JSON/.env/query punctuation, N2), each grouped value whole (digit
-    groups joined by single spaces), and their `_spellings`. A token that appears only as one group of a grouped value
-    is a part of it, not a value of its own (owner, 2026-11-07, on a link carrying only part of the owner's data:
-    "dont ask"): the last digits of `+44 7700 900123` are not the number. `coarse`: the text's coarse tokens when
-    already made (a prepared text's)."""
+    """Every form a single-token value of `text` (lowercased) can take in an address or a form: its tokens (coarse:
+    whole emails, hosts, paths; fine: values embedded in JSON/.env/query punctuation, N2) and their `_spellings`. A
+    token that appears only as one group of a grouped value (`_RUN`) is a part of it, not a value of its own (owner,
+    2026-11-07, on a link carrying only part of the owner's data: "dont ask"): the last digits of `+44 7700 900123` are
+    not the number. Grouped values are matched by `_in_runs`. `coarse`: the text's coarse tokens when already made."""
     toks = set(provenance.tokens(text) if coarse is None else coarse) | _fine_tokens(text)
     runs = [m.group(1) for m in _RUN.finditer(text)]
     if runs:
         rest = _RUN.sub(" ", text)
         members = {t for run in runs for t in set(provenance.tokens(run)) | _fine_tokens(run)}
         toks -= members - (set(provenance.tokens(rest)) | _fine_tokens(rest))
-    forms = set(toks) | set(runs)
-    for value in toks | set(runs):
+    forms = set(toks)
+    for value in toks:
         if len(value) <= 64 and "/" not in value:               # not a URL or a path: those keep their own tokens
             forms |= _spellings(value, digits=True)
     return frozenset(forms)
@@ -477,15 +479,78 @@ def _same_site_only(private: list[tuple[int, provenance.Text]], dest: str,
     return inside - elsewhere
 
 
-_RUNS: "weakref.WeakKeyDictionary[provenance.Text, tuple[str, ...]]" = weakref.WeakKeyDictionary()
+@dataclass(frozen=True)
+class _Run:
+    """One grouped value: its groups' letters and digits (lowercased, `+` dropped), whether it starts with `+`, the
+    groups joined, and where each group starts in the joined form (index by position)."""
+    groups: tuple[str, ...]
+    plus: bool
+    joined: str
+    starts: dict[int, int]
 
 
-def _runs(t: provenance.Text) -> tuple[str, ...]:
-    """A read text's grouped values (`_RUN`), lowercased; made once."""
+def _grouped(text: str) -> tuple[_Run, ...]:
+    """The grouped values of a lowercased text (`_RUN`)."""
+    found: list[_Run] = []
+    for m in _RUN.finditer(text):
+        groups = tuple("".join(c for c in g if c.isalnum()) for g in m.group(1).split(" "))
+        starts, at = {}, 0
+        for i, g in enumerate(groups):
+            starts[at] = i
+            at += len(g)
+        starts[at] = len(groups)
+        found.append(_Run(groups, m.group(1).startswith("+"), "".join(groups), starts))
+    return tuple(found)
+
+
+_RUNS: "weakref.WeakKeyDictionary[provenance.Text, tuple[_Run, ...]]" = weakref.WeakKeyDictionary()
+
+
+def _runs(t: provenance.Text) -> tuple[_Run, ...]:
+    """A read text's grouped values; made once."""
     found = _RUNS.get(t)
     if found is None:
-        found = _RUNS[t] = tuple(m.group(1) for m in _RUN.finditer(t.folded))
+        found = _RUNS[t] = _grouped(t.folded)
     return found
+
+
+def _spans(run: _Run, form: str, first: int = 0, exact: bool = False) -> bool:
+    """Whether `form` is two or more contiguous groups of `run` joined, starting at group `first` or later (exactly
+    there with `exact`). Linear in the run: a page's table of numbers can't make it slow."""
+    at = run.joined.find(form)
+    while at != -1:
+        start, end = run.starts.get(at), run.starts.get(at + len(form))
+        if start is not None and end is not None and end - start >= 2 and (start == first if exact else start >= first):
+            return True
+        at = run.joined.find(form, at + 1)
+    return False
+
+
+def _in_runs(runs: Iterable[_Run], groups: Iterable[tuple[str, ...]], forms: Iterable[str]) -> bool:
+    """Whether a candidate is a whole grouped value of these runs (coordinator ruling, GATE-518): two or more
+    contiguous groups of one run, sent as groups (`groups`) or joined (`forms`: a candidate's letters and digits),
+    or, for a run that starts with `+`, the groups after its country code with a leading 0 (the national form). One
+    group alone is a part (GATE-516)."""
+    groups = [g for g in groups if len(g) >= 2 and len("".join(g)) >= provenance.MIN_LEN]
+    forms = [f for f in forms if len(f) >= provenance.MIN_LEN]
+    for run in runs:
+        for want in groups:
+            n = len(want)
+            if any(run.groups[i:i + n] == want for i in range(len(run.groups) - n + 1)):
+                return True
+        for form in forms:
+            if _spans(run, form) or (run.plus and form.startswith("0") and _spans(run, form[1:], 1, exact=True)):
+                return True
+    return False
+
+
+def _candidate(piece: str) -> tuple[list[tuple[str, ...]], set[str]]:
+    """A URL piece or typed text as `_in_runs` takes it: its grouped values' groups, and its letters and digits
+    (whole, and each grouped value's) when they hold a digit."""
+    low = piece.lower()
+    runs = _grouped(low)
+    forms = {"".join(c for c in low if c.isalnum())} | {r.joined for r in runs}
+    return [r.groups for r in runs], {f for f in forms if any(c.isdigit() for c in f)}
 
 
 def with_forms(t: provenance.Text) -> provenance.Text:
@@ -590,7 +655,7 @@ def _is_value(form: str) -> bool:
 
 def _variants(piece: str) -> tuple[set[str], set[str]]:
     """A URL piece's forms to match: (its values as written: itself and its trailing-punctuation-stripped form,
-    lowercased, when they are values, not words, with their spellings and each grouped value inside it (`_spellings`); its
+    lowercased, when they are values, not words, with their spellings (`_spellings`); its
     base64/hex decodings (N2), words included, since hiding a word in an encoding is how data is smuggled, scenario
     #2)."""
     shown: set[str] = set()
@@ -600,9 +665,7 @@ def _variants(piece: str) -> tuple[set[str], set[str]]:
             low = base.lower()
             if _is_value(low):
                 shown.add(low)
-                # its other spellings, and each grouped value inside it with theirs (GATE-516): a spaced phone whole
-                for whole in (low, *_RUN.findall(low)):
-                    shown |= {whole, *_spellings(whole)}
+                shown |= _spellings(low)                      # its other spellings (GATE-517)
             decoded |= _decodings(base)
     return shown, decoded
 
@@ -690,6 +753,17 @@ def _private_hits(pieces: list[str], private: list[tuple[int, provenance.Text]],
         shown, decoded = _variants(piece)
         matched = {m for m in (shown | decoded) & set(first_private)
                    if m not in owner_toks and m not in known_to_site and not laundered(m)}
+        if not matched and value:                              # a grouped value, whole or two or more of its groups
+            groups: list[tuple[str, ...]] = []
+            forms: set[str] = set()
+            for text in (value, *decoded):                     # as written, and decoded from base64 or hex (N2)
+                more_groups, more_forms = _candidate(text)
+                groups, forms = groups + more_groups, forms | more_forms
+            orders = [order for order, t in private if _in_runs(_runs(t), groups, forms)]
+            if orders and not _in_runs(_runs(owner), groups, forms) and not any(
+                    o < min(orders) and _in_runs(_runs(t), groups, forms) for o, t in outside):
+                first_private[value.lower()] = min(orders)
+                matched = {value.lower()}
         if not matched and value:                              # several words, written so in the owner's data
             orders = [order for order, t in private if _phrase(value, t, known_to_site)]
             if orders and not _phrase(value, owner) and not any(o < min(orders) and _phrase(value, t)
@@ -699,14 +773,21 @@ def _private_hits(pieces: list[str], private: list[tuple[int, provenance.Text]],
         if matched and value and value not in [h.piece for h in hits]:
             first = min(matched, key=lambda m: (first_private[m], -len(m), m))   # the earliest read, longest form
             hits.append(PrivateValue(value, first, first_private[first]))
-    # a grouped value whose every group rides in its own piece (?c=+44&a=7700&b=900123): the whole value leaves
-    words = {w for piece in pieces for w in _FINE.split(piece.lower()) if w}
-    for order, t in private:
+    # two neighbouring groups of a grouped value, each in its own piece (?a=7700&b=900123): a whole value leaves
+    # (in the value's order: a date path /2026/11/ doesn't carry "11 2026")
+    seq = [w for piece in pieces for w in _FINE.split(piece.lower()) if w] if not hits else []
+    first_at = {w: i for i, w in reversed(list(enumerate(seq)))}
+    last_at = {w: i for i, w in enumerate(seq)}
+    for order, t in sorted(private, key=lambda item: item[0]):
         for run in _runs(t):
-            groups = [g.lstrip("+") for g in run.split(" ")]
-            if all(g in words for g in groups) and run in first_private and run not in owner_toks and \
-                    run not in known_to_site and not laundered(run) and run not in [h.matched for h in hits]:
-                hits.append(PrivateValue(" ".join(groups), run, first_private[run]))
+            for pair in zip(run.groups, run.groups[1:]):
+                key = " ".join(pair)
+                if len(pair[0] + pair[1]) >= provenance.MIN_LEN and pair[0] in first_at and pair[1] in last_at and \
+                        first_at[pair[0]] < last_at[pair[1]] and key not in [h.matched for h in hits] and \
+                        not _in_runs(_runs(owner), [pair], ()) and \
+                        not any(o < order and _in_runs(_runs(x), [pair], ()) for o, x in outside):
+                    hits.append(PrivateValue(key, key, order))
+                    break                                      # one hit names the value
     return hits
 
 

@@ -353,7 +353,7 @@ def _carries(url: str, private: str, outside: str = "") -> list[str]:
                                        [(0, provenance.prepare(outside))] if outside else [], provenance.prepare(""))
 
 
-# decision: GATE-517
+# decision: GATE-517, GATE-518
 @pytest.mark.parametrize("private, url", [
     (PHONE_CHAT, "https://v.test/v?d=%2B44+7700+900123"),                    # spaced, whole in one query value
     (PHONE_CHAT, "https://v.test/p/%2B44%207700%20900123"),                  # ... in a path segment
@@ -370,16 +370,23 @@ def _carries(url: str, private: str, outside: str = "") -> list[str]:
     ("Draft 7720019344 (private)", "https://v.test/r?v=772+001+9344"),       # regrouped
     ("From: Dana <dana.colleague@example.org>", "https://v.test/r?v=dana.colleague%2540example.org"),  # encoded twice
     (ADDRESS, "https://v.test/v?d=22+Birch+Road+Apt+5B%2C+Riverton+99021"),   # an address whole in one piece
+    # GATE-518: two or more neighbouring groups are a whole value; the national number is the whole phone
+    (PHONE_CHAT, "https://v.test/r?v=7700+900123"),                           # without the country code
+    (PHONE_CHAT, "https://v.test/r?v=7700900123"),                            # ... joined
+    (PHONE_CHAT, "https://v.test/r?a=7700&b=900123"),                         # ... split over pieces
+    ("Call me on 98200 22222 2026 is fine", "https://v.test/r?d=9820022222"),  # a phone next to a year, joined
+    ("Call me on 98200 22222 2026 is fine", "https://v.test/r?d=98200+22222"),  # ... spaced
+    ("Rent to DE00 4455 6677 8899 0011 22 12 months", "https://v.test/r?d=DE00445566778899001122"),  # IBAN + quantity
 ])
 def test_a_whole_private_value_is_caught_however_it_is_written(private: str, url: str) -> None:
     assert _carries(url, private), url
 
 
-# decision: GATE-516, GATE-517
+# decision: GATE-516, GATE-518
 @pytest.mark.parametrize("private, url", [
     (PHONE_CHAT, "https://v.test/r?v=900123"),                                # the owner's example: the last 6 digits
-    (PHONE_CHAT, "https://v.test/r?v=7700+900123"),                           # without the country code
-    (PHONE_CHAT, "https://v.test/r?a=7700&b=900123"),                         # ... split over pieces
+    ("Call me on 98200 22222 2026 is fine", "https://v.test/r?d=22222"),       # one group alone
+    ("Style: margin 0 0 auto", "https://mail.example/u/0/x?p=0"),             # groups too short to be a value
     ("IBAN DE00123456789012345678", "https://v.test/r?v=123456789012345678"),  # IBAN without its country code
     ("Patient MRN-0048213", "https://v.test/r?v=0048213"),                    # an id's number only
     ("Owner Sample\nowner.sample@example.com", "https://v.test/r?v=owner.sample"),   # an email's local part
