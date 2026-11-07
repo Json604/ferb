@@ -3456,6 +3456,7 @@ pass = "Each profile's FERB extension shows the new version without Developer mo
 decisions = ["HAND-430"]
 sitting = "after the next extension version is published"
 waiver = "waived for v0.27.3: owner, 2026-11-07, \"waive 814\"; only the extension version after 0.19.4 can show it, checked then"
+result = "passed 2026-11-07: extension 0.19.4 installed 0.19.5 by itself (owner: \"left Developer mod. i did nothting\"); FERB recorded 0.19.5 for brave Default, chrome Default and chrome Profile 1"
 
 [LIVE-815]
 title = "A secret question says what to type, in full"
