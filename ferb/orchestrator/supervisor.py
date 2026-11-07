@@ -1404,8 +1404,8 @@ class Supervisor(WorkerRuns):
             if out.kind != "task" or out.task is None:
                 status = "done" if out.kind == "reply" else "needs_user"
                 # in the schedule's conversation, so the next run (and its chat.history) has this answer
-                self._record_reply(turn, "clarify" if out.kind == "clarify" else "reply", self.gateway.redact(out.text),
-                                   {origins_.INFERRED} | turn.turn_origins)
+                await self._record_reply(turn, "clarify" if out.kind == "clarify" else "reply",
+                                         self.gateway.redact(out.text), {origins_.INFERRED} | turn.turn_origins)
                 return {"task_id": request_id, "request_id": request_id, "status": status, "answer": out.text,
                         "goal": sched.request, "name": sched.label}
             if sched.run_scope is not None:
@@ -2226,7 +2226,7 @@ class Supervisor(WorkerRuns):
         else:
             text = couldnt("start that", failure, self.gateway.redact)
         text = self.gateway.redact(text)
-        self._record_reply(turn, "reply", text, {origins_.FERB})
+        await self._record_reply(turn, "reply", text, {origins_.FERB})
         turn.release()
         yield {"type": "reply", "text": text, "status": "failed", **extra}
 
@@ -2358,7 +2358,7 @@ class Supervisor(WorkerRuns):
             if ends_in_reply and out.text.strip():   # one message: FERB's word on the answer opens the planner's reply
                 turn.acknowledged = said
             else:                          # a stop, correction or task follows: its own line first
-                self._record_reply(turn, "reply", said, {origins_.FERB})
+                await self._record_reply(turn, "reply", said, {origins_.FERB})
                 yield {"type": "reply", "text": said}
         if out.control is not None:
             async for event in self._control(turn, out):
@@ -2393,7 +2393,7 @@ class Supervisor(WorkerRuns):
             extra = {**(extra or {}), "cards": self._said_cards(effects.cards)}
         written = made or ({origins_.FERB} if by == origins_.FERB and not effects.lines else
                            {origins_.INFERRED} | turn.turn_origins)
-        self._record_reply(turn, kind, said, written)
+        await self._record_reply(turn, kind, said, written)
         if kind == "clarify":                          # the owner's answer will continue this request
             turn.session.pending, turn.session.asked, turn.session.payload = turn.typed, text, turn.payload
             self.continuity.save_pending(turn.session.id, turn.typed, text, turn.payload)
@@ -2402,7 +2402,7 @@ class Supervisor(WorkerRuns):
         turn.release()
         yield {"type": kind, "text": said, **(extra or {})}
 
-    def _record_reply(self, turn: _Turn, kind: str, text: str, made: set[str]) -> None:
+    async def _record_reply(self, turn: _Turn, kind: str, text: str, made: set[str]) -> None:
         """The one reply recorder: FERB's reply or question in the conversation record (the next turns' history),
         always with its origin (`made`: what wrote it; no list of the rows it was written from, step 12a); a question
         also records its kind (fix list: so "few questions" can be measured)."""
@@ -2411,8 +2411,8 @@ class Supervisor(WorkerRuns):
             data["question_kind"] = "which" if made == {origins_.FERB, origins_.INFERRED} else "clarify"
         # GATE-519: the kinds of what wrote it and the owner's values its own text holds, never every label it saw;
         # FERB's own words (code-written) hold none
-        data[carried.PROVENANCE] = carried.derive(text, turn.shown, made) if made != {origins_.FERB} else \
-            {"kinds": [origins_.FERB], "values": {}}
+        data[carried.PROVENANCE] = await asyncio.to_thread(carried.derive, text, turn.shown, made) \
+            if made != {origins_.FERB} else {"kinds": [origins_.FERB], "values": {}}   # off the loop (DMN-13)
         self.journal.append(f"chat.{kind}", data, origin=origins_.join(origins_.kinds(made)))
         if turn.decided is not None:       # FERB's work from the planner's decision to its first reply (ORCH-525)
             after = self.spans.start("planner.reply", task_id=None, input={"role": "supervisor",
@@ -2533,7 +2533,7 @@ class Supervisor(WorkerRuns):
                     yield event
                 return
             if not settled:                    # a retry still waits for the stop it needs (fix list, Intake)
-                self._record_reply(turn, "reply", RETRY_SETTLING, {origins_.FERB})
+                await self._record_reply(turn, "reply", RETRY_SETTLING, {origins_.FERB})
                 turn.release()
                 yield {"type": "reply", "text": RETRY_SETTLING}
                 await self._settled(control.task_id, ids, None)
@@ -3445,7 +3445,8 @@ class Supervisor(WorkerRuns):
                           None))
             self.journal.append(SUMMARY_KIND, {"session_id": conversation, "text": text,
                                                "covered": [e.handle for e in folded], "source_refs": refs,
-                                               carried.PROVENANCE: carried.derive(text, shown, made)},
+                                               carried.PROVENANCE: await asyncio.to_thread(carried.derive, text, shown,
+                                                                                           made)},
                                 origin=origins_.join(origins_.kinds(made)))
             self.settle_identity("a chat's running summary folded")    # MEM-429: this chat's prefix changes anyway
             self.spans.finish(span, output={"text": final, "folded": len(folded)})
@@ -3709,11 +3710,16 @@ class Supervisor(WorkerRuns):
             # records an end the planner, chat or learning would later read as how it ended, and nothing of the
             # task-end clean-up runs (its change records, which startup keeps for it, and its desktop summary)
             suspended = self._suspending and (tree.outcome is None or tree.stop == SHUT_DOWN)
+            stored: dict[str, Any] | None = None
             try:
                 if self.on_task_finish is not None and not suspended:
                     await asyncio.shield(self.on_task_finish(tree_id))
+                if not suspended:                   # the answer's stored values, made off the loop (DMN-13)
+                    answer = str(self.gateway.redact(self._final(tree))["answer"])
+                    stored = await asyncio.shield(asyncio.to_thread(
+                        carried.derive, answer, self._tree_shown(tree_id), origins_.split(self._task_made(tree_id))))
             finally:
-                final = self._finish_tree(tree, root_span, request_id, suspended)
+                final = self._finish_tree(tree, root_span, request_id, suspended, stored)
         if not suspended:                    # no outcome for a suspended plan: no result, no "while you were away"
             yield final
 
@@ -3919,7 +3925,8 @@ class Supervisor(WorkerRuns):
         part = card.part_of(step_id) if card is not None else None
         return (card, part) if card is not None and part is not None else None
 
-    def _finish_tree(self, tree: _Tree, root_span: Any, request_id: str, suspended: bool) -> dict[str, Any]:
+    def _finish_tree(self, tree: _Tree, root_span: Any, request_id: str, suspended: bool,
+                     stored: dict[str, Any] | None = None) -> dict[str, Any]:
         """The one finish of a task tree, however it ended: its outcome recorded once (`task.answer`, `task.outcome`,
         `task.finished`, its rows' statuses), or, suspended by a shutdown, nothing but its plan marked to resume. Then
         its live state goes, and its episode is recorded. Generator closure and cancellation skip ordinary result flow;
@@ -3943,7 +3950,8 @@ class Supervisor(WorkerRuns):
             made = self._task_made(tree_id)                         # model-written (MP2), its sources' kinds
             self.journal.append("task.answer", {"task_id": tree_id, "request_id": request_id,
                                                 "status": final["status"], "text": final["answer"],
-                                                carried.PROVENANCE: carried.derive(
+                                                # made off the loop by run_tree; here only if that was cut short
+                                                carried.PROVENANCE: stored if stored is not None else carried.derive(
                                                     str(final["answer"]), self._tree_shown(tree_id),
                                                     origins_.split(made))}
                                 | ({"watch_met": final["watch_met"]} if "watch_met" in final else {})
