@@ -250,3 +250,41 @@ console.log(JSON.stringify({{hook: p.PAGE_HOOK, token: p.FERB_TOKEN, bind: p.BIN
     assert out["enters"] == [True, False, True, False]
     from ferb.act.browser.ext_protocol import READS
     assert out["reads"] == sorted(READS)
+
+
+# decision: HAND-430
+def test_a_held_store_update_installs_once_nothing_is_in_flight_and_only_once() -> None:
+    """Chrome installs an extension update only while the extension is idle; FERB's open line keeps it running, so a
+    downloaded update waited for a browser restart (profiles on 0.19.0 with 0.19.3 published, 2026-11-07)."""
+    out = worker(r'''
+(async () => {
+  let reloads = 0;
+  chrome.runtime.reload = () => { reloads++; };
+  storeUpdate = '0.19.4';
+  activeCommands = 1;
+  const whileBusy = await applyStoreUpdate();
+  activeCommands = 0;
+  const whenIdle = await applyStoreUpdate();
+  const again = await applyStoreUpdate();
+  return [whileBusy, whenIdle, again, reloads];
+})()''')
+    assert out == [False, True, False, 1]
+
+
+# decision: HAND-430
+def test_the_store_is_asked_early_only_when_ferb_refused_an_older_extension_once_per_minimum() -> None:
+    out = worker(r'''
+(async () => {
+  let asked = 0;
+  chrome.runtime.getManifest = () => ({version: '0.19.0'});
+  chrome.runtime.requestUpdateCheck = async () => { asked++; return {status: 'update_available'}; };
+  requiredRelease = null;
+  const notRefused = await askStoreForUpdate();
+  requiredRelease = {protocol: 21, version: '0.18.0'};
+  const alreadyNewer = await askStoreForUpdate();
+  requiredRelease = {protocol: 21, version: '0.19.3'};
+  const behind = await askStoreForUpdate();
+  const twice = await askStoreForUpdate();
+  return [notRefused, alreadyNewer, behind, twice, asked];
+})()''')
+    assert out == [None, None, "update_available", None, 1]

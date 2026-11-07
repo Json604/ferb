@@ -18,6 +18,10 @@ let refused = null;
 let requiredRelease = null;          // structured daemon compatibility facts, never inferred from error prose
 let activeCommands = 0;
 let updateCheck = null;
+// A Web Store update Chrome downloaded but holds: Chrome installs an update only while the extension is idle, and the
+// open line to FERB keeps it running, so without this it waited for a browser restart (HAND-430)
+let storeUpdate = null;
+let earlyCheckFor = null;              // the minimum version an early store check was asked for (once each)
 let handshakeTimer = null;
 const resultTransfers = new Map();
 const commandTransfers = new Map();
@@ -351,6 +355,36 @@ async function checkExtensionUpdate() {
   return updateCheck;
 }
 
+// HAND-430: install a Web Store update Chrome holds as soon as no FERB work is in flight, through the same safe reload
+// as a local bundle (task tabs survive it; one attempt per version, never a loop). Busy now: try again in a minute.
+async function applyStoreUpdate() {
+  if (!storeUpdate) return false;
+  if (busy()) { setTimeout(() => applyStoreUpdate().catch(() => {}), 60000); return false; }
+  const attempt = `${chrome.runtime.getManifest().version}->store ${storeUpdate}`;
+  const {ferbUpdateAttempt} = await chrome.storage.local.get('ferbUpdateAttempt');
+  if (ferbUpdateAttempt === attempt) return false;     // that reload already happened and didn't take: never loop
+  await chrome.storage.local.set({ferbUpdateAttempt: attempt});
+  await connectionStatus('updating', 'Installing FERB extension ' + storeUpdate);
+  if (busy()) { await chrome.storage.local.set({ferbUpdateAttempt: null}); return applyStoreUpdate(); }
+  chrome.runtime.reload();
+  return true;
+}
+
+chrome.runtime.onUpdateAvailable.addListener((details) => {
+  storeUpdate = String((details && details.version) || 'new');
+  applyStoreUpdate().catch(e => console.warn('FERB store update:', String(e.message || e)));
+});
+
+// HAND-430: FERB refused this extension as older than its minimum: the one case FERB knows an update exists, so ask the
+// store now instead of waiting for Chrome's next check (Google: only "when you know an update is available")
+async function askStoreForUpdate() {
+  if (!requiredRelease || earlyCheckFor === requiredRelease.version ||
+      !newerVersion(requiredRelease.version, chrome.runtime.getManifest().version)) return null;
+  earlyCheckFor = requiredRelease.version;
+  try { return (await chrome.runtime.requestUpdateCheck()).status || null; }
+  catch (e) { console.warn('FERB store check:', String(e.message || e)); return null; }
+}
+
 // Busy for a reload: a command running, a download held, a gesture, or (only while a connection could drive it) a
 // debugger session. Refused or disconnected, an attached tab drives nothing, and its records survive the reload.
 function busy() {
@@ -439,6 +473,7 @@ async function onDaemon(m) {
       typeof m.minimum_version === 'string' && /^\d+(?:\.\d+){0,3}$/.test(m.minimum_version)
       ? {protocol: m.required_protocol, version: m.minimum_version} : null;
     await connectionStatus('refused', refused);
+    await askStoreForUpdate();
     await checkExtensionUpdate(); return;
   }
   if (m.type === "cmd") {
@@ -510,7 +545,10 @@ async function awake(tabId) {
 async function onCommand(m) {
   activeCommands++;
   try { await executeCommand(m); }
-  finally { activeCommands--; }
+  finally {
+    activeCommands--;
+    if (storeUpdate && !activeCommands) applyStoreUpdate().catch(() => {});   // HAND-430: the work it waited for ended
+  }
 }
 
 async function executeCommand(m) {

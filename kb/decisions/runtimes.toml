@@ -269,3 +269,12 @@ status = "active"
 rule = "When Codex compresses a run's conversation (a completed contextCompaction item, RUN-414), the adapter reports one `compacted` event with the context size the last usage report gave (context_tokens_before) and the model's window, when known; the shared run loop records it as a `model.compacted` span under that call's span, which `ferb trace --full` shows. Trace only: nothing else changes (no checker fact, no behaviour)."
 why = "Owner, 2026-11-05, asking whether a long task can be cut off mid-way; agreed fix: \"write a line in the trace when Codex compresses a task's memory\". The item carries only its id, so the size is the latest usage report's."
 paths = ["ferb/runtimes/codex_stream.py", "ferb/orchestrator/worker.py", "ferb/core/types.py::RuntimeEvent"]
+
+[RUN-426]
+title = "Codex's own resource listings pass the item gate; everything else outside FERB still stops"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "In a Codex run, an mcpToolCall item from server `codex` whose tool is list_mcp_resources or list_mcp_resource_templates is let through without a violation. read_mcp_resource and every other tool not FERB's still stop the run (RUN-405)."
+why = "FERB's bridge is Codex's only server and offers no resources, so a listing returns nothing. Live 2026-11-07 a final check stopped on it and the task lost its confirmation. Owner agreed 2026-11-07."
+paths = ["ferb/runtimes/codex_stream.py::events", "ferb/runtimes/codex_exec.py"]

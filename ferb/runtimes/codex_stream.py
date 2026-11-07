@@ -651,6 +651,7 @@ async def _check_catalog(run: RunHandle) -> None:
 
 
 async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
+    from ferb.runtimes.codex_exec import RESOURCE_LISTS
     state = run.state
     phases: dict[str, str | None] = {}
     final = ''
@@ -708,7 +709,11 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                     # a FERB tool this run was given (a worker's, or a planner's lookups: RUN-415)
                     mcp_allowed = (kind == 'mcpToolCall' and item.get('server') == 'ferb'
                         and f"mcp__ferb.{item.get('tool')}" in runtime.allowed)
-                    if kind not in {'agentMessage', 'userMessage', 'reasoning', 'plan', 'contextCompaction'} and not mcp_allowed:
+                    # RUN-426: Codex's own resource listing, answered by FERB's bridge with nothing
+                    listing = (kind == 'mcpToolCall' and item.get('server') == 'codex'
+                        and item.get('tool') in RESOURCE_LISTS)
+                    if (kind not in {'agentMessage', 'userMessage', 'reasoning', 'plan', 'contextCompaction'}
+                            and not mcp_allowed and not listing):
                         # what Codex tried, for the trace: the item kind and, for a tool, which tool on which server
                         tool, server = item.get('tool'), item.get('server')
                         state['violation'] = {f'{server}.{tool}' if tool else str(kind)}

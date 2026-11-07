@@ -98,6 +98,11 @@ MCP_TOOL_TIMEOUT_S = 7 * 24 * 3600
 CODEX_USER = "codex-user"
 BASE_TOOLS = frozenset({"list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource", "tool_search",
                         "request_user_input", "apply_patch"})
+# RUN-426: Codex's own lookups that only list what the connected tool servers offer as resources. FERB's bridge (the
+# only server: apps and plugins are off) offers tools and no resources, so a call lists nothing; it passes the item gate
+# instead of stopping the run (live 2026-11-07: a final check stopped on codex.list_mcp_resources). Reading a resource
+# (read_mcp_resource) and every other tool still stop it.
+RESOURCE_LISTS = frozenset({"list_mcp_resources", "list_mcp_resource_templates"})
 
 
 def codex_home(ferb_home: Path) -> Path | None:

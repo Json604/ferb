@@ -3444,3 +3444,12 @@ request = "Ask FERB to turn one of the resumes it made (an .html file) into a PD
 pass = "Two new PDFs appear, readable, matching the resume and the page. No \"Google Chrome quit unexpectedly\" box, no Chrome window coming forward, and the tab FERB used for the resume closes by itself. A page with a password or card field is refused with a plain reason."
 decisions = ["HAND-427", "HAND-428"]
 sitting = "after this change is installed"
+
+[LIVE-814]
+title = "A new FERB extension version installs by itself, without Developer mode"
+area = "hands"
+surface = "Chrome and Brave profiles paired with FERB, after the next extension version is published"
+request = "Don't touch chrome://extensions. Leave the browser open for a few hours (or a day) after the store shows the new version."
+pass = "Each profile's FERB extension shows the new version without Developer mode, Update or a browser restart, and FERB tasks in that profile keep working through the change."
+decisions = ["HAND-430"]
+sitting = "after the next extension version is published"

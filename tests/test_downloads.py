@@ -298,9 +298,9 @@ def test_protocol_and_extension_versions_move_together() -> None:
     js = subprocess.run([_node(), "-e", f"console.log(require({json.dumps(str(EXT / 'protocol.js'))}).FERB_PROTOCOL)"],
                         capture_output=True, text=True, timeout=20).stdout.strip()
     # Protocol 21 (step 12e: the sound event's muted_reason; protocol 20's 512 KiB download parts, popup_refused, every
-    # dropped save reported) moves with the minimum at 0.19.0; the shipped bundle is 0.19.3 (HAND-427: `pdf` added, no
-    # protocol change, so every installed FERB keeps working with it); protocol 18's tabGroups stays
-    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (21, 21, "0.19.0", "0.19.3")
+    # dropped save reported) moves with the minimum at 0.19.0; the shipped bundle is 0.19.4 (HAND-427's `pdf` in 0.19.3,
+    # HAND-430's held store updates in 0.19.4; no protocol change, so every installed FERB keeps working with it); protocol 18's tabGroups stays
+    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (21, 21, "0.19.0", "0.19.4")
     assert "tabGroups" in manifest["permissions"]
     assert "downloads" not in manifest["permissions"]            # the debugger's Fetch domain needs no new permission
 

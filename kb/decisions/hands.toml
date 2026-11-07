@@ -814,3 +814,13 @@ rule = "The shell profile denies process-exec of <Applications folder>[/<one sub
 why = "Owner 2026-11-07 asked for the suggested fixes. A GUI app can't run without the window server (HAND-243); Chrome --headless from the shell crashed on the owner's screen 2026-11-04..07."
 paths = ["ferb/act/shell/sandbox.py::Sandbox._profile", "ferb/act/shell/tools.py::_scope_note"]
 live = ["LIVE-813"]
+
+[HAND-430]
+title = "The extension installs a held store update when idle, and asks the store early when too old"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "Extension 0.19.4: on runtime.onUpdateAvailable it reloads itself once no command, held download, gesture or driven debugger is in flight (retrying each minute and after each command; one attempt per version). When FERB refuses it as older than the minimum, it calls runtime.requestUpdateCheck once per minimum version. No protocol change."
+why = "Chrome installs an update only when the extension is idle; FERB's open native port keeps it running, so updates waited for a browser restart (profiles on 0.19.0 with 0.19.3 published). Owner agreed 2026-11-07."
+paths = ["extensions/chromium/background.js::applyStoreUpdate", "extensions/chromium/background.js::askStoreForUpdate"]
+live = ["LIVE-814"]
