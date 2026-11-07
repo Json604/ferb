@@ -91,7 +91,8 @@ def _segments(r: Read) -> list[dict[str, Any]]:
             out.append({"ref": "entry:owner", "kinds": [origin.OWNER], "len": len(entry), "whole": True})
             continue
         made = {origin.INFERRED, origin.PRIVATE} | outside
-        stored = carried.derive(entry, [({origin.FERB}, CLOCK)], made)
+        earlier = [({origin.PRIVATE}, r.where)] if r.kind == "history" and r.where else []
+        stored = carried.derive(entry, [({origin.FERB}, CLOCK), *earlier], made)
         out.append({"ref": "entry:ferb", "kinds": sorted(made), "len": len(entry), "values": stored["values"]})
     return out
 
@@ -209,7 +210,10 @@ class _Run:
                            self.form, self.send, self.mail, self.post]
         for i, r in enumerate(x for x in self.s.reads if x.phase == "run"):
             if r.kind in ("private", "signed_in", "outside"):
-                cap = FakeCap(f"probe.read{i}", "read", {"probe"}, reads=_read_sources(r), content={"text": r.text})
+                # a page read carries its address, as the browser tools' results do (GATE-528's page scope)
+                page = {"url": r.where} if r.where.startswith(("http://", "https://")) else {}
+                cap = FakeCap(f"probe.read{i}", "read", {"probe"}, reads=_read_sources(r),
+                              content={"text": r.text} | page)
                 caps.append(cap)
                 self.readers.append(cap)
         d = self.d.daemon

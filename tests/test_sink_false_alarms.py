@@ -81,7 +81,7 @@ def _open(daemon: RunningDaemon, grant: Any, url: str) -> tuple[dict[str, Any], 
 
 # ---------- the URL check (S4, L4) ----------
 
-# decision: GATE-506, GATE-507
+# decision: GATE-506, GATE-507, GATE-528
 def test_a_value_read_only_from_the_destinations_own_page_goes_back_to_it_unasked(daemon: RunningDaemon) -> None:
     """Past bug (G2, live 2026-10-18): a class id read from the owner's signed-in page on a site asked "your own data in
     the address (149496)" when FERB opened that same site with it. The site already had it; another host still asks,
@@ -92,7 +92,8 @@ def test_a_value_read_only_from_the_destinations_own_page_goes_back_to_it_unaske
     async def record() -> None:
         spans = daemon.daemon.spans
         page = spans.start("tool.call", task_id=grant.task_id, input={"tool": "browser.snapshot", "kind": "read"})
-        spans.finish(page, output={"text": "Assignment 5560731 due Friday"},
+        spans.finish(page, output={"text": "Assignment 5560731 due Friday",       # the page it was read on (GATE-528)
+                                   "url": "https://www.class.example/problems/5560731/statement"},
                      origin="external:web:www.class.example,private")
     daemon.run(record())
     same, none = _open(daemon, grant, "https://www.class.example/problems/5560731")

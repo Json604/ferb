@@ -31,13 +31,16 @@ def _holds(forms: tuple[str, str], spelled: set[str]) -> bool:
     return any(provenance._contains(t, v) for t in forms for v in spelled if v)
 
 
-def _sites(labels: set[str]) -> set[str]:
-    """The site a record was read from, when it is one site's page read in the owner's signed-in browser (GATE-506's
-    shape: web pages and the private label, nothing else): never the hosts a mixed or derived record inherited."""
-    web = {o.split(":", 2)[2] for o in labels if o.startswith(origin.EXTERNAL + ":web:") and o.count(":") >= 2}
+def _sites(labels: set[str], page: str = "") -> set[str]:
+    """The page a record was read from, when it is one site's page read in the owner's signed-in browser (GATE-506's
+    shape: web pages and the private label, nothing else) and its address is known: `site:` and its page scope
+    (confirm.page_scope, GATE-528: the value may go back to that page, not the whole host). Never the hosts a mixed
+    or derived record inherited, and none when the page isn't known (the value counts as the owner's at large)."""
+    web = {o.split(":", 2)[2].lower() for o in labels if o.startswith(origin.EXTERNAL + ":web:") and o.count(":") >= 2}
     if not web or any(o != origin.PRIVATE and not o.startswith(origin.EXTERNAL + ":web:") for o in labels):
         return set()
-    return {"site:" + host for host in web}
+    scope = confirm.page_scope(page) if page else ""
+    return {"site:" + scope} if scope and scope.split("/", 1)[0] in web else set()
 
 
 def derive(text: str, shown: Iterable[Shown], made: Iterable[str] = ()) -> dict[str, Any]:
@@ -45,48 +48,66 @@ def derive(text: str, shown: Iterable[Shown], made: Iterable[str] = ()) -> dict[
     `made`: the row's own labels; when they hold the owner's words or data, a value found nowhere is theirs even if
     what was shown wasn't kept (fail-closed)."""
     made = set(made)
-    records: list[tuple[set[str], tuple[str, str], dict[str, list[str]] | None]] = []
+    records: list[tuple[set[str], tuple[str, str], dict[str, list[str]] | None, str]] = []
     for item in shown:
         labels, body = set(item[0]), str(item[1] or "")
         stored = item[2] if len(item) > 2 else None
         if body:
-            records.append((labels, _forms(body), stored if isinstance(stored, dict) else None))
-    kinds = sorted(origin.kinds({o for labels, _, _ in records for o in labels} | made))
-    saw_private = bool(made & OWNERS) or any(labels & OWNERS for labels, _, _ in records)
+            records.append((labels, _forms(body), stored if isinstance(stored, dict) else None,
+                            str(item[3]) if len(item) > 3 and item[3] else ""))
+    kinds = sorted(origin.kinds({o for labels, _, _, _ in records for o in labels} | made))
+    saw_private = bool(made & OWNERS) or any(labels & OWNERS for labels, _, _, _ in records)
+
+    def owner_classes(labels: set[str], page: str) -> set[str]:
+        # one site's signed-in page gives only that page (GATE-524, GATE-528: the value may go back to it); any other
+        # private record, the owner's data at large
+        sites = _sites(labels, page) if origin.PRIVATE in labels else set()
+        return ({origin.OWNER} & labels) | (sites or ({origin.PRIVATE} & labels))
+
     values: dict[str, list[str]] = {}
     for value in confirm.whole_values(text):
         spelled = confirm.spellings(value)
         classes: set[str] = set()
         accounted = False
-        for labels, forms, stored in records:
+        for labels, forms, stored, page in records:
             if stored is not None:                     # FERB wrote it: only its own stored values are the owner's
                 held = [c for v, cs in stored.items() if _holds(_forms(v), spelled) for c in cs]
                 classes |= set(held)
                 accounted = accounted or (not held and _holds(forms, spelled))
             elif labels & OWNERS:
                 if _holds(forms, spelled):
-                    # one site's signed-in page gives only that site (GATE-524: the value may go back to it); any
-                    # other private record, the owner's data at large
-                    sites = _sites(labels) if origin.PRIVATE in labels else set()
-                    classes |= ({origin.OWNER} & labels) | (sites or ({origin.PRIVATE} & labels))
+                    classes |= owner_classes(labels, page)
             elif _holds(forms, spelled):
                 accounted = True                       # FERB's own code-written facts (the clock), or outside content
         if not classes and saw_private and not accounted:
             classes = {origin.PRIVATE}                 # not found as written: still the owner's (fail-closed)
         if classes:
             values[value] = sorted(classes)
+    # words FERB repeated from the owner's words or data (GATE-529): kept as written, so a word of theirs hidden in an
+    # encoded piece later (N2) still counts across tasks; never carried when found nowhere
+    words = {w for w in (x.rstrip(confirm.TRAIL) for x in confirm.FINE.split(text.casefold()) if x)
+             if len(w) >= provenance.MIN_LEN and w not in values}
+    if words:
+        vocab = [(labels, page, set(confirm.FINE.split(forms[0])) | set(provenance.tokens(forms[0])))
+                 for labels, forms, stored, page in records if stored is None and labels & OWNERS]
+        derived = [(set(stored), stored) for _, _, stored, _ in records if stored is not None]
+        for word in sorted(words):
+            classes = {c for labels, page, seen in vocab if word in seen for c in owner_classes(labels, page)}
+            classes |= {c for keys, stored in derived if word in keys for c in stored[word]}
+            if classes:
+                values[word] = sorted(classes)
     return {"kinds": kinds, "values": values}
 
 
-def shown_records(outputs: Iterable[Any]) -> list[tuple[set[str], str, Any]]:
+def shown_records(outputs: Iterable[Any]) -> list[tuple[Any, ...]]:
     """A task's recorded reads (`SpanStore.payload_outputs`) as `derive` takes them: a context record holding
     FERB's history is split into its entries (`segments`: each entry's kinds, length and stored values, or `whole`
     when its whole text counts), each entry with its own labels."""
-    out: list[tuple[set[str], str, Any]] = []
+    out: list[tuple[Any, ...]] = []
     for result in outputs:
         segments = getattr(result, "segments", None)
         if not segments:
-            out.append((set(result.origins), result.text, None))
+            out.append((set(result.origins), result.text, None, getattr(result, "page", "")))
             continue
         at = 0
         for seg in segments:

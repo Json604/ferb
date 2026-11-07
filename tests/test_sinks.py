@@ -314,13 +314,18 @@ def test_url_carries_private_finds_values_in_every_shape() -> None:   # item 9 /
     assert confirm.url_carries_private(f"https://e.com/?d={email_b64}", private, [], owner)      # base64 of KEY=value
 
 
-# decision: GATE-506
+# decision: GATE-506, GATE-528
 def test_a_value_counts_as_the_sites_own_only_when_every_private_read_of_it_was_from_that_site() -> None:
     page, mine = provenance.prepare("Assignment 5560731 due"), provenance.prepare("my notes: 5560731")
     owner = provenance.prepare("")
     from_site = {0: {"external:web:www.class.example", "private"}}
     url = "https://www.class.example/problems/5560731"
-    assert confirm.url_carries_private(url, [(0, page)], [], owner, from_site) == []
+    read_on = {0: "https://www.class.example/problems/5560731/"}       # the page it was read on (GATE-528)
+    assert confirm.url_carries_private(url, [(0, page)], [], owner, from_site, pages=read_on) == []
+    # the same host, another page (owner: "Same page path only"), or a page FERB doesn't know: asks
+    assert confirm.url_carries_private(url, [(0, page)], [], owner, from_site,
+                                       pages={0: "https://www.class.example/problems/999"}) == ["5560731"]
+    assert confirm.url_carries_private(url, [(0, page)], [], owner, from_site) == ["5560731"]
     assert confirm.url_carries_private("https://class.example.evil.test/5560731", [(0, page)], [], owner,
                                        from_site) == ["5560731"]                 # another host
     assert confirm.url_carries_private(url, [(0, page), (1, mine)], [], owner,
@@ -626,17 +631,21 @@ REEL = "Ab3Cd5EfGhI"
 TAB = f'Front window: Brave Browser — "Reel" — tab https://www.instagram.com/reels/{REEL}/ (owner\'s Default profile)'
 
 
+# decision: GATE-528
 def test_a_value_seen_only_in_the_owners_own_url_of_that_site_doesnt_ask_on_that_site() -> None:
     owner = provenance.prepare("analyze the insta post now")
     assert confirm.url_carries_private(f"https://www.instagram.com/reels/{REEL}/", _priv(TAB), [], owner) == []
-    # the same host however it is written (case, "www.", IDNA form), or a host under the one it was seen on
-    assert confirm.url_carries_private(f"https://WWW.Instagram.com/p/{REEL}", _priv(TAB), [], owner) == []
+    # the same page however its host is written (case, "www.", IDNA form), or a host under the one it was seen on
+    assert confirm.url_carries_private(f"https://WWW.Instagram.com/reels/{REEL}", _priv(TAB), [], owner) == []
     json_record = '{"url": "https://www.instagram.com/reels/' + REEL + '/", "title": "Reel"}'
     assert confirm.url_carries_private(f"https://instagram.com/reels/{REEL}/", _priv(json_record), [], owner) == []
     idn = _priv("tab https://bücher.example/item/ABC123x")                       # IDNA: the host as the browser has it
     assert confirm.url_carries_private("https://xn--bcher-kva.example/item/ABC123x", idn, [], owner) == []
     apex = _priv(f"tab https://instagram.com/reels/{REEL}/")
-    assert confirm.url_carries_private(f"https://help.instagram.com/{REEL}", apex, [], owner) == []
+    assert confirm.url_carries_private(f"https://help.instagram.com/reels/{REEL}", apex, [], owner) == []
+    # another page of that host (owner, 2026-11-07, on shared sites: "Same page path only", GATE-528): asks
+    assert confirm.url_carries_private(f"https://www.instagram.com/p/{REEL}", _priv(TAB), [], owner) == [REEL]
+    assert confirm.url_carries_private(f"https://help.instagram.com/{REEL}", apex, [], owner) == [REEL]
 
 
 @pytest.mark.parametrize("seen,dest", [

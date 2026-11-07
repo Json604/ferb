@@ -363,6 +363,8 @@ def _spellings(value: str, digits: bool = False) -> set[str]:
 
 
 _YEAR = re.compile(r"(?:19|20)\d\d")
+LONG_VALUE = 6                       # GATE-530: a value this long counts inside a longer piece too
+_EMAIL_SHAPE = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
 
 
 def is_year(value: str) -> bool:
@@ -378,9 +380,10 @@ def _value_forms(text: str, coarse: Iterable[str] | None = None) -> frozenset[st
     2026-11-07, on a link carrying only part of the owner's data: "dont ask"): the last digits of `+44 7700 900123` are
     not the number. Grouped values are matched by `_in_runs`. `coarse`: the text's coarse tokens when already made."""
     toks = set(provenance.tokens(text) if coarse is None else coarse) | _fine_tokens(text)
-    runs = [m.group(1) for m in _RUN.finditer(text)]
-    if runs:
-        rest = _RUN.sub(" ", text)
+    spans = [m.span(1) for m in _RUN.finditer(text) if _one_value(m.group(1))]
+    if spans:
+        runs = [text[a:b] for a, b in spans]
+        rest = "".join(text[b:a] for (_, b), (a, _) in zip([(0, 0), *spans], [*spans, (len(text), 0)]))
         members = {t for run in runs for t in set(provenance.tokens(run)) | _fine_tokens(run)}
         toks -= members - (set(provenance.tokens(rest)) | _fine_tokens(rest))
     forms = set(toks)
@@ -460,6 +463,34 @@ def _host_had_it(seen: str, dest: str) -> bool:
     return dest in (seen, bare, "www." + bare) or dest.endswith("." + seen)
 
 
+def page_scope(url: str) -> str:
+    """Where on a site a value was seen (owner, 2026-11-07, on shared sites: "Same page path only"): the host and the
+    page's path through its first segment that holds a value (an id: a document's, a profile's, a post's), else the
+    whole path; always starting with "/" after the host. `docs.google.com/document/d/1aB3x/edit` gives
+    `docs.google.com/document/d/1ab3x`, `www.scaler.com/academy/mentee-dashboard` the whole path. "" when the address
+    can't be read (GATE-528)."""
+    parsed = urls.parse(url if "://" in url else "https://" + url)
+    if parsed is None or not parsed.host:
+        return ""
+    kept: list[str] = []
+    for seg in (unquote_plus(x).casefold() for x in parsed.path.split("/") if x):
+        kept.append(seg)
+        if _is_value(seg):
+            break
+    return parsed.host.rstrip(".") + "/" + "/".join(kept)
+
+
+def _in_scope(scope: str, dest: str, dest_path: str) -> bool:
+    """Whether an address (its host `dest`, its path) is on the page a value was seen on (`page_scope`): a host that
+    one covers (`_host_had_it`) and a path that starts, segment by segment, with that page's (GATE-528)."""
+    host, sep, path = scope.partition("/")
+    if not sep or not _host_had_it(host, dest):
+        return False                                        # no page known (an older record): never in scope
+    want = [x for x in path.split("/") if x]
+    have = [unquote_plus(x).casefold() for x in dest_path.split("/") if x]
+    return have[:len(want)] == want
+
+
 def _read_from(labels: set[str], dest: str) -> bool:
     """Whether a record was read from `dest`'s own site (GATE-506): its outside labels are all web pages of hosts `dest`
     covers (`_host_had_it`), at least one, and nothing else but the private label (the owner's signed-in page there).
@@ -471,25 +502,31 @@ def _read_from(labels: set[str], dest: str) -> bool:
 
 def _same_site_only(private: list[tuple[int, provenance.Text]], dest: str,
                     origins: dict[int, set[str]] | None = None,
-                    sites: dict[int, frozenset[str]] | None = None) -> set[str]:
+                    sites: dict[int, frozenset[str]] | None = None, dest_path: str = "",
+                    pages: dict[int, str] | None = None) -> set[str]:
     """The tokens of the owner's own data whose every occurrence is inside a URL whose host `dest` covers
     (`_host_had_it`), or in a record read from `dest`'s own site (`_read_from`, GATE-506: the owner's signed-in page
     there, live 2026-10-18: a class id read from www.scaler.com's own page, sent back to www.scaler.com): a value that
     host already had, such as a reel's id in the owner's tab of that reel. A token also found anywhere else in private
-    text (another host's URL or page, a file, plain text) isn't one. Shape and provenance only (rule 6)."""
+    text (another host's URL or page, a file, plain text) isn't one. Since GATE-528 (owner: "Same page path only")
+    the destination must also be on the page the value was seen on (`page_scope`: the link's, the page record's
+    `pages`, or FERB's conversation's stored `sites`), not just its host: on a shared site a stranger's page is the
+    same host. Shape and provenance only (rule 6)."""
     inside: set[str] = set()
     elsewhere: set[str] = set()
     for order, t in private:
         if origins is not None and _read_from(origins.get(order, set()), dest):
-            inside |= _toks(t)
-            continue
-        read_on = (sites or {}).get(id(t))               # values FERB's conversation stored as read on these sites
+            page = (pages or {}).get(order, "")
+            if page and _in_scope(page_scope(page), dest, dest_path):
+                inside |= _toks(t)
+                continue                                  # another page of that site: its links decide, as below
+        read_on = (sites or {}).get(id(t))               # values FERB's conversation stored as read on these pages
         if read_on:
-            (inside if all(_host_had_it(h.lower().rstrip("."), dest) for h in read_on) else elsewhere).update(_toks(t))
+            (inside if all(_in_scope(scope, dest, dest_path) for scope in read_on) else elsewhere).update(_toks(t))
             continue
         links, rest = _url_parts(t)
-        for host, forms in links:
-            if _host_had_it(host, dest):
+        for scope, forms in links:
+            if _in_scope(scope, dest, dest_path):
                 inside |= forms
             else:
                 elsewhere |= forms
@@ -507,10 +544,24 @@ class _Run:
     starts: dict[int, int]
 
 
+def _one_value(run: str) -> bool:
+    """Whether digit groups joined by single spaces look like one grouped value, as a phone's, an IBAN's or a card's do
+    (GATE-527): every group but a leading +country code holds 2 to 6 letters and digits, and the longest is at most
+    twice the shortest. A complete value standing next to another number (`account 12345678 3 days`, `OTP 482193 5`,
+    `07700900123 07700900456`) is not one: each stays a value of its own. Shape only (rule 4)."""
+    groups = ["".join(c for c in g if c.isalnum()) for g in run.split(" ")]
+    if run.startswith("+"):
+        groups = groups[1:]
+    sizes = [len(g) for g in groups]
+    return len(sizes) >= 2 and min(sizes) >= 2 and max(sizes) <= 6 and max(sizes) <= 2 * min(sizes)
+
+
 def _grouped(text: str) -> tuple[_Run, ...]:
-    """The grouped values of a lowercased text (`_RUN`)."""
+    """The grouped values of a lowercased text (`_RUN` runs that `_one_value` takes for one value)."""
     found: list[_Run] = []
     for m in _RUN.finditer(text):
+        if not _one_value(m.group(1)):
+            continue
         groups = tuple("".join(c for c in g if c.isalnum()) for g in m.group(1).split(" "))
         starts, at = {}, 0
         for i, g in enumerate(groups):
@@ -573,16 +624,14 @@ def _candidate(piece: str) -> tuple[list[tuple[str, ...]], set[str]]:
 
 def whole_values(text: str) -> list[str]:
     """The owner-data-shaped whole values a text holds, lowercased, in order (for stored provenance, GATE-519): each
-    token that is a value (`_is_value`, at least MIN_LEN, not only a group of a grouped value) holding a digit, an @ or
-    an address's ://, and each grouped value as written. Words, and words in markdown or slashes (`**Note:**`,
-    `and/or`), are never values."""
+    token that is a value (`_is_value`, at least MIN_LEN, not only a group of a grouped value: `kartikey/stealth-launch`,
+    `bluefalcon!` included, GATE-529) and each grouped value as written. Plain words are never values."""
     low = text.lower()
     forms = _value_forms(low)
     groups = {g for run in _grouped(low) for g in run.groups}
     seen: dict[str, None] = {}
     for tok in [*provenance.tokens(low), *(x.rstrip(_TRAIL) for x in _FINE.split(low) if x)]:
-        if len(tok) >= provenance.MIN_LEN and _is_value(tok) and tok in forms and tok.lstrip("+") not in groups and \
-                (any(c.isdigit() for c in tok) or "@" in tok or "://" in tok):
+        if len(tok) >= provenance.MIN_LEN and _is_value(tok) and tok in forms and tok.lstrip("+") not in groups:
             seen.setdefault(tok, None)
     for m in _RUN.finditer(low):
         seen.setdefault(m.group(1), None)
@@ -607,18 +656,19 @@ _URL_PARTS: "weakref.WeakKeyDictionary[provenance.Text, _UrlParts]" = weakref.We
 
 
 def _url_parts(t: provenance.Text) -> tuple[tuple[tuple[str, frozenset[str]], ...], frozenset[str]]:
-    """A read text's URLs, each with its host and value forms, and the value forms of the rest of it; made once."""
+    """A read text's URLs, each with the page it names (`page_scope`) and its value forms, and the value forms of the
+    rest of it; made once."""
     found = _URL_PARTS.get(t)
     if found is None:
         links: list[tuple[str, frozenset[str]]] = []
         rest, cut = [], 0
-        found = [(m, m.group(0)) for m in _URL_IN_TEXT.finditer(t.folded)]
-        found += [(m, "https://" + m.group(0)) for m in _HOST_PATH_IN_TEXT.finditer(t.folded)
-                  if not any(a.start() <= m.start() < a.end() for a, _ in found)]
-        for m, address in sorted(found, key=lambda item: item[0].start()):
+        matches = [(m, m.group(0)) for m in _URL_IN_TEXT.finditer(t.folded)]
+        matches += [(m, "https://" + m.group(0)) for m in _HOST_PATH_IN_TEXT.finditer(t.folded)
+                    if not any(a.start() <= m.start() < a.end() for a, _ in matches)]
+        for m, address in sorted(matches, key=lambda item: item[0].start()):
             parsed = urls.parse(address.rstrip(_TRAIL))
             if parsed is not None and parsed.host and m.start() >= cut:
-                links.append((parsed.host, _value_forms(m.group(0))))
+                links.append((page_scope(address.rstrip(_TRAIL)), _value_forms(m.group(0))))
                 rest.append(t.folded[cut:m.start()])
                 cut = m.end()
         rest.append(t.folded[cut:])
@@ -726,15 +776,18 @@ class PrivateValue:
 
 def url_carries_private(url: str, private: list[tuple[int, provenance.Text]],
                         outside: list[tuple[int, provenance.Text]], owner: provenance.Text,
-                        origins: dict[int, set[str]] | None = None) -> list[str]:
+                        origins: dict[int, set[str]] | None = None,
+                        sites: dict[int, frozenset[str]] | None = None,
+                        pages: dict[int, str] | None = None) -> list[str]:
     """`url_private_values`, as the pieces that would leave."""
-    return [v.piece for v in url_private_values(url, private, outside, owner, origins)]
+    return [v.piece for v in url_private_values(url, private, outside, owner, origins, sites, pages)]
 
 
 def url_private_values(url: str, private: list[tuple[int, provenance.Text]],
                        outside: list[tuple[int, provenance.Text]], owner: provenance.Text,
                        origins: dict[int, set[str]] | None = None,
-                       sites: dict[int, frozenset[str]] | None = None) -> list[PrivateValue]:
+                       sites: dict[int, frozenset[str]] | None = None,
+                       pages: dict[int, str] | None = None) -> list[PrivateValue]:
     """The sink rule for navigation (S4, SQ6, carried item 8, Q8, N1, L4): the pieces of `url` that are a token of the
     owner's own data (a private tool result) and are not the owner's typed words and were not already public. Only a
     value counts, never an ordinary word (`_is_value`), unless it is hidden in base64/hex: the words of FERB's context
@@ -751,7 +804,8 @@ def url_private_values(url: str, private: list[tuple[int, provenance.Text]],
     if not private:
         return []
     dest = urls.parse(url)
-    known_to_site = _same_site_only(private, dest.host, origins, sites) if dest is not None and dest.host else set()
+    known_to_site = _same_site_only(private, dest.host, origins, sites, dest.path, pages) \
+        if dest is not None and dest.host else set()
     hits = _private_hits(_url_pieces(url), private, outside, owner, known_to_site)
     if not hits:
         return []
@@ -787,14 +841,22 @@ def _first_seen_in_link(url: str, hit: "PrivateValue", private: list[tuple[int, 
     for order, t in private:
         if order != hit.first_read or not any(_positions(t.folded, w.casefold(), False) for w in want):
             continue                                          # not the record (or the part of it) that holds it
-        # as the text has it, and with its spaces taken out: a page can show a long link broken over a line
-        # ("https://forms.gle/ X8d9…") right before the link itself
-        for folded, whole in ((t.folded, True), (re.sub(r"\s+", "", t.folded), False)):
-            found = [at for form in dict.fromkeys(w.casefold() for w in want) for at in _positions(folded, form, whole)]
-            if found and any(start <= min(found) < end for start, end in _link_spans(url, folded)):
-                return True
-        return False                                          # first seen elsewhere, or in another form
+        # the link as the text has it, or broken by a space or a line break inside its own extent: a page can show a
+        # long link wrapped over a line ("https://forms.gle/ X8d9…") right before the link itself (GATE-521, F5)
+        found = [at for form in dict.fromkeys(w.casefold() for w in want) for at in _positions(t.folded, form)]
+        spans = _link_spans(url, t.folded) + _broken_link_spans(url, t.folded)
+        return bool(found) and any(start <= min(found) < end for start, end in spans)
     return False
+
+
+def _broken_link_spans(url: str, folded: str) -> list[tuple[int, int]]:
+    """Where `url` appears in a read text with whitespace inside its own extent (a long link the page wrapped), never
+    joining text before or after it."""
+    chars = url.casefold()
+    if not chars:
+        return []
+    pattern = re.compile(r"\s*".join(re.escape(c) for c in chars))
+    return [m.span() for m in pattern.finditer(folded) if any(c.isspace() for c in m.group(0))]
 
 
 def _positions(folded: str, needle: str, whole: bool = True) -> list[int]:
@@ -840,6 +902,18 @@ def _private_hits(pieces: list[str], private: list[tuple[int, provenance.Text]],
         fp = first_private[tok]
         return any(tok in toks for order, toks in outside_toks if order < fp)
 
+    # GATE-530 (owner, 2026-11-07: "Catch it, 6+ chars"): a value of at least LONG_VALUE letters and digits counts
+    # inside a longer piece too (x12345678, 12345678zz); indexed by its first LONG_VALUE characters
+    long_index: dict[str, list[tuple[str, str]]] = {}
+    for tok in first_private:
+        if "://" in tok or not _is_value(tok) or is_year(tok):
+            continue
+        skel = "".join(c for c in tok if c.isalnum())
+        # a number, a code with a digit, or an email address: never a word in quotes or markdown (`**settings`)
+        if len(skel) >= LONG_VALUE and (any(c.isdigit() for c in skel) or _EMAIL_SHAPE.search(tok)):
+            long_index.setdefault(skel[:LONG_VALUE], []).append((skel, tok))
+    long_runs = [(order, run.joined) for order, t in private for run in _runs(t) if len(run.joined) >= LONG_VALUE]
+
     hits: list[PrivateValue] = []
     for piece in pieces:
         value = piece.strip()
@@ -847,6 +921,18 @@ def _private_hits(pieces: list[str], private: list[tuple[int, provenance.Text]],
         shown, decoded = _variants(piece)
         matched = {m for m in (shown | decoded) & set(first_private)
                    if m not in owner_toks and m not in known_to_site and not laundered(m) and not is_year(m)}
+        if not matched and value:                              # a long value inside a longer piece (GATE-530)
+            for skel in {"".join(c for c in x if c.isalnum()) for x in (value.lower(), *decoded)}:
+                windows = {skel[i:i + LONG_VALUE] for i in range(len(skel) - LONG_VALUE + 1)}
+                matched |= {tok for w in windows for whole, tok in long_index.get(w, ()) if whole in skel and
+                            tok not in owner_toks and tok not in known_to_site and not laundered(tok)}
+                runs_in = [order for order, joined in long_runs if joined in skel]
+                if runs_in and not matched:
+                    key = value.lower()
+                    first_private[key] = min(runs_in)
+                    if not _in_runs(_runs(owner), (), [skel]) and not any(
+                            o < min(runs_in) and _in_runs(_runs(x), (), [skel]) for o, x in outside):
+                        matched = {key}
         if not matched and value:                              # a grouped value, whole or two or more of its groups
             groups: list[tuple[str, ...]] = []
             forms: set[str] = set()
@@ -1469,3 +1555,6 @@ def line(needs: list[Need], call: str, why: str, typed: str = "") -> str:
     if why:
         text += f' Reason given: "{why}".'
     return text + " Go ahead?"
+
+
+FINE, TRAIL = _FINE, _TRAIL          # for stored provenance (carried.derive): the same splitting as the sink

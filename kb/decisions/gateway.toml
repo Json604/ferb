@@ -549,3 +549,50 @@ status = "active"
 rule = "For GATE-506's same-site rule, an address written without its scheme in what FERB read (dotted host labels, then a path: www.macworld.com/article/666646/..., as FERB's own notes record a visit) counts as a link of that host, like one with https://. A value seen only inside such addresses of the destination's host gives that site nothing new."
 why = "Owner-DB replay after T-1007 (GATE-525): one new question opened a macworld article whose id FERB's learned how-note held only inside its own record of visiting that page, written without https://."
 paths = ["ferb/policy/confirm.py::_url_parts"]
+
+[GATE-527]
+title = "A complete value next to another number stays a value; only one grouped value's groups are parts"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "Refines GATE-516/517/518 (sink review F1). Digit groups joined by single spaces are one grouped value only when every group but a leading +country code holds 2 to 6 letters and digits and the longest is at most twice the shortest (a phone's, an IBAN's or a card's groups). Only then is one group alone a part. A complete value next to another number (account 12345678 3 days, OTP 482193 5, 07700900123 07700900456) stays a value of its own."
+why = "Sink review F1 (2026-11-07): the greedy grouping made six complete values next to an unrelated number leave unasked, URL and form, where 811d9904 asked. 6 is kept for UK phones' 6-digit groups, so +44 7700 900123's 900123 alone stays a part."
+paths = ["ferb/policy/confirm.py::_one_value", "ferb/policy/confirm.py::_value_forms"]
+
+[GATE-528]
+title = "A value may go back only to the page it was read on, not anywhere on that host"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "Same page path only (Recommended)"
+words_source = "Owner 2026-11-07, asked: the rule \"a value can go back to the site it came from\" covers the whole site; on shared sites a stranger's page is the same site. Narrower there?"
+rule = "Refines GATE-506, GATE-524 and GATE-526. The same-site exemption needs the destination on the page the value was seen on, not just its host: the page is its host and its path through the first path segment holding an id (confirm.page_scope: docs.example/d/<id>, a profile, a post), else the whole path; the destination's path must start with it. A value seen where no page is known (an older record) gets no exemption."
+paths = ["ferb/policy/confirm.py::page_scope", "ferb/policy/confirm.py::_in_scope", "ferb/policy/carried.py::_sites"]
+
+[GATE-529]
+title = "FERB's own replies keep every value they repeat, and the owner's words they repeat"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "Refines GATE-519 (sink review F2). carried.derive stores every value-shaped token of a row's text (owner-sample/stealth-launch, not only tokens with a digit, @ or ://), and also each word of at least MIN_LEN found as written in the owner's words or data the writer saw, with that record's classes, so a word of the owner's hidden in an encoded piece later (N2) still counts across tasks."
+why = "Sink review F2: values without a digit and the owner's words lost the guard once they reached a task only through FERB's history."
+paths = ["ferb/policy/carried.py::derive", "ferb/policy/confirm.py::whole_values"]
+
+[GATE-530]
+title = "A value of 6 or more characters counts inside a longer piece"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "Catch it, 6+ chars (Recommended)"
+words_source = "Owner 2026-11-07, asked: a page can get your number out by adding one character (x12345678); should FERB also catch your value hidden inside a longer piece?"
+rule = "In the sink (an address or a form), one of the owner's values of at least 6 letters and digits counts when it stands inside a longer piece too (x12345678, 12345678zz, a_12345678, a value amid other words), compared over the piece's letters and digits, a grouped value whole included. Shorter values, words and years keep whole-piece matching."
+paths = ["ferb/policy/confirm.py::_private_hits"]
+
+[GATE-531]
+title = "The link rule's broken-link view stays inside the link's own extent"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "Refines GATE-521 (sink review F5). A link a page wrapped with a space or line break inside it still counts as that link, but only where the whitespace falls inside the link's own extent: text before or after it is never joined into the link."
+why = "Sink review F5: the earlier view removed every space in the page, so text ending in a link prefix right before a value could join into the link once F3 matches values inside longer pieces."
+paths = ["ferb/policy/confirm.py::_broken_link_spans"]

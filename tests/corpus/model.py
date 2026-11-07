@@ -12,7 +12,8 @@ Read kinds (`Read.kind`), in the owner's terms; the harness maps each to how FER
                  ("email:<id>", "message:<chat>")
   signed_in      a page in the owner's signed-in profile (`where` a URL) or a message in their own mail app
                  ("mail:<id>"): both the owner's data and outside content
-  history        FERB's conversation carried from earlier tasks (`carried_from`: outside hosts earlier tasks read)
+  history        FERB's conversation carried from earlier tasks (`carried_from`: outside hosts earlier tasks read;
+                 `where`, optional: the private text an earlier task read and FERB's entries were written from)
   memory         a memory fact FERB looked up (`carried_from` as above; empty: a fact FERB observed itself)
   schedule_run   a schedule's earlier run's answer, shown to this run (`carried_from` as above)
   visit          FERB itself opens `where` (an outbound step earlier in the same task, e.g. a search it was allowed)

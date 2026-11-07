@@ -44,6 +44,7 @@ class PayloadOutput:
     offset: int = 0
     next_offset: int | None = None
     segments: list[dict[str, Any]] | None = None   # a context record's entries, each with its stored values (GATE-519)
+    page: str = ""                                 # the page a browser result was read from (its `url`, GATE-528)
 
 
 class SpanStore:
@@ -230,6 +231,8 @@ class SpanStore:
             tool = inp.get('tool', '')
             payload: Any = body
             if isinstance(body, dict):
+                if row['kind'] == 'tool.call' and isinstance(body.get('url'), str):
+                    result.page = body['url']
                 if row['kind'] == 'context.exposure':
                     payload = body.get('payload', body.get('text', ''))
                     if isinstance(body.get('segments'), list):

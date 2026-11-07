@@ -405,6 +405,7 @@ class OutsideTexts:
     # a stored record of FERB's conversation (its `segments`): only its owner's words and stored values (GATE-522), and
     # apart, the values read only on some sites' own pages, by those sites (GATE-524)
     owners: dict[int, list[tuple[frozenset[str], provenance.Text]]] = field(default_factory=dict)
+    pages: dict[int, str] = field(default_factory=dict)          # the page each browser result was read from
     ready_owners: dict[int, list[tuple[frozenset[str], provenance.Text]]] = field(default_factory=dict)
     preparing: asyncio.Lock = field(default_factory=asyncio.Lock)     # one off-loop preparation per tree at a time
 
@@ -860,6 +861,8 @@ class Gateway:
             if result.text:
                 text = known.ready.pop(result.rowid) if result.rowid in known.ready else provenance.prepare(result.text)
                 known.payloads[result.rowid] = (result.origins, text)
+                if result.page:
+                    known.pages[result.rowid] = result.page
                 if result.segments:                      # GATE-522: FERB's conversation, by its stored values
                     known.owners[result.rowid] = known.ready_owners.pop(result.rowid, None) or \
                         _owner_parts(result.text, result.segments)
@@ -1246,7 +1249,7 @@ class Gateway:
         owner_text = provenance.prepare(words + "\n" + "\n".join(self.spans.owner_answers(root)))
         private, outside_only = await self._sink_texts_ready(root)   # N1: span-ordered; a followed link read first
         values = confirm.url_private_values(url, private, outside_only, owner_text, self._sink_origins(root),
-                                            self._site_texts(root))
+                                            self._site_texts(root), self._outside.setdefault(root, OutsideTexts()).pages)
         if not values:
             return None
         first = values[0]
