@@ -76,7 +76,7 @@ struct TaskActivityBubble: View {
         let radius = max(CGFloat(48), CGFloat(remaining.count) * 12)
         let diameter = radius * 2 + 44
         return ZStack {
-            Circle().fill(.regularMaterial).overlay(Circle().stroke(.white.opacity(0.16), lineWidth: 1))
+            FerbGlass().clipShape(Circle()).overlay(Circle().stroke(.white.opacity(0.16), lineWidth: 1))
                 .frame(width: diameter, height: diameter)
             Circle().stroke(.white.opacity(0.13), lineWidth: 1)
                 .frame(width: radius * 2 - 4, height: radius * 2 - 4)
@@ -123,7 +123,7 @@ struct TaskActivityBubble: View {
         }
         .padding(.horizontal, 11).padding(.vertical, 8)
         .frame(width: 322, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 13))
+        .ferbGlass(in: RoundedRectangle(cornerRadius: 13))
         .overlay(RoundedRectangle(cornerRadius: 13).stroke(.white.opacity(0.12), lineWidth: 1))
         .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
     }
@@ -194,7 +194,7 @@ struct DetachedTaskActivityView: View {
                 }
                 .padding(15)
                 .background(WindowDragArea())                    // APP-782: any empty part of the card moves it
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                .ferbGlass(in: RoundedRectangle(cornerRadius: 16))
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.14), lineWidth: 1))
             }
         }

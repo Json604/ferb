@@ -167,7 +167,7 @@ struct ConversationTranscript: View {
             Label(title, systemImage: systemImage)
                 .font(.system(size: 10, weight: .medium))
                 .padding(.horizontal, 10).padding(.vertical, 6)
-                .background(.regularMaterial, in: Capsule())
+                .ferbGlass(in: Capsule())                                  // APP-785
         }
         .buttonStyle(.plain)
         .padding(.trailing, 9).padding(.bottom, 7)

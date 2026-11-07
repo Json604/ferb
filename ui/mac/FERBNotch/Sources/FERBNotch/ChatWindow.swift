@@ -549,13 +549,13 @@ private struct ChatWindowBackdrop: View {
     }
 
     private struct VisualEffect: NSViewRepresentable {
-        func makeNSView(context: Context) -> NSVisualEffectView {
-            let view = NSVisualEffectView()
+        func makeNSView(context: Context) -> FerbGlassView {      // APP-785: progressive, heavy at the top
+            let view = FerbGlassView()
             view.material = .hudWindow
             view.blendingMode = .behindWindow
             view.state = .active
             return view
         }
-        func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+        func updateNSView(_ view: FerbGlassView, context: Context) {}
     }
 }

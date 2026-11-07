@@ -51,7 +51,8 @@ private final class NotchTintView: NSView {
 
 /// Frost and its black tint are one native background. Both are updated together
 /// from the presentation clock; SwiftUI only draws the controls above them.
-final class NotchBackdropView: NSVisualEffectView {
+/// APP-785: its frost is FERB's progressive blur (FerbGlassView), heavy at the top edge.
+final class NotchBackdropView: FerbGlassView {
     private let tint = NotchTintView()
     private let attachmentFill = CAShapeLayer()
     private let shoulderFill = CAShapeLayer()

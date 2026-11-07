@@ -53,7 +53,7 @@ struct InstructionBubble: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
         .background(Color(white: 0.1, opacity: 0.78), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .ferbGlass(in: RoundedRectangle(cornerRadius: 12, style: .continuous))   // APP-785
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.12)))
         .accessibilityElement(children: .combine)
     }

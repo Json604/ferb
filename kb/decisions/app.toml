@@ -2875,3 +2875,14 @@ words_source = "Owner, 2026-11-07; reproduced in window mode: the window became 
 rule = "Every keyboard shortcut that opens FERB (double-tap, the owner's own combination) leaves typing in the text box, in the notch and in the sticky window. A focus request that arrives before the text box's window is key (the window's first open) is kept and taken as soon as that window becomes key."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatInput.swift::ChatTextView"]
 live = ["LIVE-811"]
+
+[APP-785]
+title = "FERB's glass uses a progressive blur, heavy at the outer edge"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "i didnt notice much int eh blur version btu yeah its safe to ship"
+words_source = "Owner, 2026-11-07, after the local trial; asked for every blur \"like this\" (a progressive blur \"that spreads hte ui under it\") and chose the progressive look"
+rule = "Refines APP-551's frost. The notch panel, the sticky chat window and the app window blur what is behind them progressively: about twice macOS's frost at the top edge, easing to about a quarter of that toward the content, never clear. The composer, pills and bubbles get an even heavy blur. macOS's private variableBlur filter replaces its gaussian one; where it isn't there, or Reduce Transparency is on, macOS's own frost stays."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ProgressiveBlur.swift"]
+untestable = "How it looks: the owner's eye on the installed app; the tests check the filter swap and the mask's shape."

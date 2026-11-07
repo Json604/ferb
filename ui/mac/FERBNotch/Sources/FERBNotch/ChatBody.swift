@@ -194,7 +194,7 @@ struct ChatBodyView: View {
                 .padding(.horizontal, 7)
                 .frame(minHeight: 36)
             }
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .ferbGlass(in: RoundedRectangle(cornerRadius: 12))          // APP-785: the even heavy smear
             .overlay {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(.white.opacity(composerFocused ? 0.065 : 0.04))
