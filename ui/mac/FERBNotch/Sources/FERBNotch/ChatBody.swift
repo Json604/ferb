@@ -110,9 +110,11 @@ struct ChatBodyView: View {
                 }.frame(height: 28)
             }
             if let localSettingReply = model.localSettingReply {
-                Label(localSettingReply, systemImage: "checkmark.circle.fill")
-                    .font(.system(size: 11)).foregroundStyle(Palette.green)
-                    .textSelection(.enabled)
+                // chat text draws through FERB's own text view (APP-788)
+                HStack(alignment: .top, spacing: 5) {
+                    Image(systemName: "checkmark.circle.fill").font(.system(size: 11)).foregroundStyle(Palette.green)
+                    NativeMessageText(localSettingReply, size: 11, color: Palette.greenText)
+                }
             }
             if !model.visibleEntries.isEmpty || !model.inlineQuestions.isEmpty {
                 ConversationTranscript(entries: model.visibleEntries, questions: model.inlineQuestions, model: model)
@@ -121,7 +123,7 @@ struct ChatBodyView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             if let error = model.promptError {
-                Text(error).font(.system(size: 11)).foregroundStyle(Palette.amber).textSelection(.enabled)
+                NativeMessageText(error, size: 11, color: Palette.amberText)
             }
             if let line = model.introLine {
                 // The tour goes on in the open chat (its preview, its controls): FERB's line above the composer.

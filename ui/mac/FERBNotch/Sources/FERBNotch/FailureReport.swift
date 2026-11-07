@@ -154,8 +154,7 @@ struct ReportRow: View {
                 }
             }
             if let line = state?.line {
-                Text(line).textSelection(.enabled)
-                    .font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                NativeMessageText(line, size: 10, secondary: true)     // FERB's own text view (APP-788)
             }
         }
     }

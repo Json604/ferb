@@ -2908,3 +2908,14 @@ words_source = "Owner, 2026-11-07, about the reply that flashed in the closed no
 rule = "Refines APP-622/624's planning preview for tasks: the closed notch no longer streams a task's reply (plan_delta), since the daemon may still withdraw it; it shows the reply when the plan event arrives, then for six seconds as before. A withdrawn reply no longer blocks the accepted one from showing. Plain answers are unchanged (they open the chat)."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift::NotchModel.receiveChatEvent"]
 live = ["LIVE-812"]
+
+[APP-788]
+title = "All chat text draws through FERB's own text view, so the notch's reveal redraws it"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "also im again encounterng the text getting invisible in UI. this i faced eariler too, idk how it came back. / when i clcik over it it comes back, i noticed it in normal ferb replies too."
+words_source = "Owner, FERB 0.27.3, 2026-11-07 17:45, with a screenshot: a task card's failed row (\"Secure login setup\") showed its label but an empty body until clicked"
+rule = "Every selectable text in the chat (card rows of every state, the card footer, an answer's own lines, typed cards, question cards, the chat's notes and activity lines) draws through NativeMessageText/MessageTextView, never SwiftUI's selectable Text, so the reveal refresh (textRenderGeneration) redraws every glyph after the notch opens. A collapsed text (APP-721) is clipped and faded by its own text view, which takes no clicks in its hidden part; CollapsibleText adds no SwiftUI clip or mask. Fonts, sizes and colours stay as they were."
+why = "SwiftUI draws selectable Text as an AppKitTextInteractionView whose glyphs sit in a sublayer the reveal refresh never reaches; a click redraws it. 758ce419 fixed this once; its guard was deleted and 68c423e8 (APP-718..723) brought SwiftUI text and a SwiftUI mask back into card rows."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NativeMessageText.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::CollapsibleText"]

@@ -99,8 +99,8 @@ struct CardChip: View {
 private struct CardTitle: View {
     let text: String
     var body: some View {
-        Text(verbatim: text).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Palette.ink)
-            .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+        // chat text draws through FERB's own text view (APP-788)
+        NativeMessageText(text, size: 13.5, bold: true).fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -196,8 +196,7 @@ struct ReminderCard: View {
                 CardMeta(icon: meta.icon, text: meta.text)
                 CardTitle(text: card.title ?? "Scheduled reminder")
                 if let words {
-                    Text(verbatim: words).font(.system(size: 12)).foregroundStyle(Palette.ink)
-                        .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                    NativeMessageText(words, size: 12).fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(spacing: 5) {
                     if let due = card.dueDate {
@@ -322,15 +321,24 @@ struct NoteCard: View {
                         .help("Correct or forget this").accessibilityLabel("Correct or forget this")
                     }
                 }
-                Text(verbatim: card.text ?? "")
-                    .font(.system(size: 12.5)).foregroundStyle(card.state == "forgotten" ? Palette.secondary : Palette.ink)
-                    .strikethrough(card.state == "forgotten")
-                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                NativeMessageText(said).fixedSize(horizontal: false, vertical: true)
                 if open && Self.actionable(card.state) { actions }
             }
         }
         .contentShape(Rectangle())
         .onTapGesture { if Self.actionable(card.state) && editing == nil { open = true } }
+    }
+
+    /// Its words in FERB's own text view (APP-788): a forgotten fact secondary and struck through.
+    private var said: NSAttributedString {
+        let forgotten = card.state == "forgotten"
+        let text = NSMutableAttributedString(attributedString: NativeMessageText(card.text ?? "", size: 12.5,
+                                                                                 secondary: forgotten).text)
+        if forgotten {
+            text.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue,
+                              range: NSRange(location: 0, length: text.length))
+        }
+        return text
     }
 
     @ViewBuilder private var actions: some View {

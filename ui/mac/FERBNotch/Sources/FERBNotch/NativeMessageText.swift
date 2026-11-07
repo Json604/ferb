@@ -6,24 +6,39 @@ extension NSAttributedString.Key {
     static let messageBlockFill = NSAttributedString.Key("FERBMessageBlockFill")
 }
 
-/// One native selection surface per message, using FERB's owned glyph renderer.
+private struct MessageTextShownHeightKey: EnvironmentKey {
+    static let defaultValue: CGFloat? = nil
+}
+extension EnvironmentValues {
+    /// While CollapsibleText is collapsed: how much of its text shows, faded at the bottom (APP-721). The text view
+    /// clips and fades itself, so no SwiftUI clip or mask wraps chat text (APP-788).
+    var messageTextShownHeight: CGFloat? {
+        get { self[MessageTextShownHeightKey.self] }
+        set { self[MessageTextShownHeightKey.self] = newValue }
+    }
+}
+
+/// One native selection surface per message, using FERB's owned glyph renderer. All chat text draws through it, never
+/// SwiftUI's selectable `Text`, so the notch's reveal refresh reaches every glyph (APP-788).
 struct NativeMessageText: NSViewRepresentable {
     let text: NSAttributedString
     @Environment(\.selectableTextGeneration) private var generation
+    @Environment(\.messageTextShownHeight) private var shownHeight
 
     init(_ text: NSAttributedString) { self.text = text }
 
     init(_ source: String, size: CGFloat = 12, secondary: Bool = false,
          markdown: Bool = false, bold: Bool = false, monospaced: Bool = false,
-         alignment: NSTextAlignment = .left) {
+         alignment: NSTextAlignment = .left, color: NSColor? = nil) {
         text = MessageTextAttributes.make(source, size: size, secondary: secondary,
                                          markdown: markdown, bold: bold, monospaced: monospaced,
-                                         alignment: alignment)
+                                         alignment: alignment, color: color)
     }
 
     func makeNSView(context: Context) -> MessageTextView { MessageTextView() }
     func updateNSView(_ view: MessageTextView, context: Context) {
         view.update(text, generation: generation)
+        view.shownHeight = shownHeight
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: MessageTextView, context: Context) -> CGSize? {
         nsView.measuredSize(width: proposal.width)
@@ -40,11 +55,13 @@ enum MessageTextAttributes {
         return result
     }
 
+    /// `color` replaces the label colours (a failed row's red, a note's amber); links keep theirs.
     static func make(_ source: String, size: CGFloat, secondary: Bool, markdown: Bool,
-                     bold: Bool, monospaced: Bool, alignment: NSTextAlignment) -> NSAttributedString {
+                     bold: Bool, monospaced: Bool, alignment: NSTextAlignment,
+                     color: NSColor? = nil) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = alignment
-        let color = (secondary ? NSColor.secondaryLabelColor : NSColor.labelColor)
+        let color = color ?? (secondary ? NSColor.secondaryLabelColor : NSColor.labelColor)
         func attributes(_ intent: InlinePresentationIntent? = nil) -> [NSAttributedString.Key: Any] {
             let code = monospaced || intent?.contains(.code) == true
             var font = code ? NSFont.monospacedSystemFont(ofSize: monospaced ? size : 11, weight: .regular)
@@ -78,6 +95,11 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
     private var linkAreas: [NSTrackingArea] = []
     private var measuredWidths: [CGFloat: CGSize] = [:]
     private(set) var displayRefreshCount = 0
+    /// Collapsed (APP-721): only this much of the text shows, its last part fading out; the rest is neither drawn nor
+    /// clickable. Nil: all of it.
+    var shownHeight: CGFloat? {
+        didSet { if shownHeight != oldValue { refreshGlyphDisplay() } }
+    }
 
     init() {
         let storage = NSTextStorage()
@@ -89,6 +111,7 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
         container.widthTracksTextView = false
         container.heightTracksTextView = false
         super.init(frame: .zero, textContainer: container)
+        wantsLayer = true                                  // its own backing: a collapsed fade erases only its pixels
         isEditable = false
         isSelectable = true
         drawsBackground = false
@@ -164,6 +187,34 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
             }
         }
         super.draw(dirtyRect)
+        if let shownHeight { fadeOut(below: shownHeight) }
+    }
+
+    /// The collapsed look (APP-721): the last 38 % of the shown height fades out and nothing below it draws. Erased in
+    /// this view's own backing, so no SwiftUI clip or mask wraps the text (APP-788).
+    private func fadeOut(below shown: CGFloat) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        let start = shown * 0.62
+        context.saveGState()
+        context.setBlendMode(.destinationOut)
+        if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceGray(),
+                                     colors: [CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 1)] as CFArray,
+                                     locations: [0, 1]) {
+            context.saveGState()
+            context.clip(to: CGRect(x: bounds.minX, y: start, width: bounds.width, height: shown - start))
+            // flipped: y grows downwards, so the fade runs from `start` down to `shown`
+            context.drawLinearGradient(gradient, start: CGPoint(x: 0, y: start), end: CGPoint(x: 0, y: shown), options: [])
+            context.restoreGState()
+        }
+        context.setFillColor(CGColor(gray: 0, alpha: 1))
+        context.fill(CGRect(x: bounds.minX, y: shown, width: bounds.width, height: max(0, bounds.maxY - shown)))
+        context.restoreGState()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // The part a collapsed text doesn't show takes no clicks: Show more sits there.
+        if let shownHeight, let superview, convert(point, from: superview).y > shownHeight { return nil }
+        return super.hitTest(point)
     }
 
     private func refreshGlyphDisplay() {

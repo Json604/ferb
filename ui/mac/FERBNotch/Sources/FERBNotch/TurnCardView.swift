@@ -162,14 +162,21 @@ struct TurnCardView: View {
         let lines = CardLayout.remaining(card.lines, turn.cards ?? [])
         return VStack(alignment: .leading, spacing: 4) {
             if let headline = card.headline { Text(headline).font(.system(size: 12)).foregroundStyle(Palette.ink) }
-            (Text(card.line ?? "").fontWeight(.semibold).foregroundStyle(Palette.ink)
-                + Text(lines.isEmpty ? "" : "   " + lines.joined(separator: "   ")).foregroundStyle(Palette.secondary))
-                .font(.system(size: 11.5))
-                .textSelection(.enabled)
+            // FERB's own text view, never SwiftUI's selectable Text: the reveal refresh reaches it (APP-788)
+            NativeMessageText(Self.footerText(line: card.line, lines: lines))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 11).padding(.top, 8).padding(.bottom, 5)
         .overlay(alignment: .top) { Rectangle().fill(.white.opacity(0.07)).frame(height: 1) }
+    }
+
+    /// The footer's done line in semibold, code's lines after it in secondary, one selectable text.
+    static func footerText(line: String?, lines: [String]) -> NSAttributedString {
+        let said = NSMutableAttributedString(attributedString: NativeMessageText(line ?? "", size: 11.5, bold: true).text)
+        if !lines.isEmpty {
+            said.append(NativeMessageText("   " + lines.joined(separator: "   "), size: 11.5, secondary: true).text)
+        }
+        return said
     }
 }
 
@@ -206,13 +213,9 @@ struct CardRowView: View {
             case .previewRunning:
                 Text("Preview: as if working…").font(.system(size: 12)).foregroundStyle(.tertiary)
             case .failed:
-                collapsible {
-                    Text(verbatim: row.text ?? "Couldn't do it.").font(.system(size: 12)).foregroundStyle(Palette.redSoft)
-                        .textSelection(.enabled)
-                }
+                collapsible { NativeMessageText(row.text ?? "Couldn't do it.", color: Palette.redSoftText) }
             case .wontRun:
-                Text(display.words ?? "").font(.system(size: 12)).foregroundStyle(Palette.redSoft)
-                    .textSelection(.enabled)
+                NativeMessageText(display.words ?? "", color: Palette.redSoftText)
             case .done, .updated:
                 if let text = row.text { collapsible { MarkdownContent(text).equatable() } }
             case .needsYou, .paused:
@@ -329,14 +332,10 @@ struct CollapsibleText<Content: View>: View {
                 .onPreferenceChange(NaturalTextHeight.self) { height in
                     if abs(height - natural) > 0.5 { natural = height }
                 }
+                // Collapsed, the text view itself shows only the clamp and fades out (APP-721); open, nothing clips or
+                // masks it. One view either way, so selection and the reveal refresh keep working (APP-788).
+                .environment(\.messageTextShownHeight, collapsed ? clamp : nil)
                 .frame(height: collapsed ? clamp : nil, alignment: .top)
-                .clipped()
-                .mask {
-                    LinearGradient(stops: [.init(color: .black, location: 0),
-                                           .init(color: .black, location: collapsed ? 0.62 : 1),
-                                           .init(color: collapsed ? .clear : .black, location: 1)],
-                                   startPoint: .top, endPoint: .bottom)
-                }
             if collapsed, let whenCollapsed { whenCollapsed }
             if collapsible {
                 Button(collapsed ? more : "Show less") { model.toggleExpanded(key, target: target) }
@@ -371,12 +370,9 @@ struct AnswerLinesView: View {
     let lines: [String]
 
     var body: some View {
-        if let note {
-            (Text("Couldn't confirm: ").fontWeight(.semibold).foregroundStyle(Palette.amber)
-                + Text(note).foregroundStyle(Palette.secondary)).font(.system(size: 11.5)).textSelection(.enabled)
-        }
-        ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-            Text(verbatim: line).font(.system(size: 11)).foregroundStyle(Palette.secondary).textSelection(.enabled)
+        // the same text the open answer ends with (MarkdownContent's annotations), in FERB's own text view (APP-788)
+        if note != nil || !lines.isEmpty {
+            NativeMessageText(MarkdownTextAttributes.annotations(note: note, lines: lines))
         }
     }
 }

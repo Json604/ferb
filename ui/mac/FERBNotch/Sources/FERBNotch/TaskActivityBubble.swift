@@ -184,9 +184,12 @@ struct DetachedTaskActivityView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 8) {
                             ForEach(task.activity) { item in
-                                Label(item.title, systemImage: item.symbol)
-                                    .font(.system(size: 11)).textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                // chat text draws through FERB's own text view (APP-788)
+                                HStack(alignment: .top, spacing: 6) {
+                                    Image(systemName: item.symbol).font(.system(size: 11))
+                                    NativeMessageText(item.title, size: 11)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             if task.activity.isEmpty { Text("Starting task…").font(.system(size: 11)).foregroundStyle(Palette.secondary) }
                         }

@@ -38,23 +38,23 @@ struct ApprovalView: View {
                 // GATE-513 (refining GATE-225): one question in plain words, why FERB asks under it, and the exact
                 // thing approved in its own code box. A long question or exact part (a command, rule 6) stays fully
                 // shown in a capped-height block that scrolls, never behind a click.
-                ApprovalText(text: approval.visibleReason, font: .system(size: 12.5, weight: .semibold))
+                ApprovalText(text: approval.visibleReason, size: 12.5, bold: true)
                 if let detail = approval.detail {
-                    ApprovalText(text: detail, font: .system(size: 11.5), secondary: true)
+                    ApprovalText(text: detail, size: 11.5, secondary: true)
                 }
                 if let exact = approval.exact { ExactBox(text: exact) }
             } else {
                 MarkdownContent(approval.visibleReason).equatable().font(.system(size: 12, weight: inRow ? .medium : .regular))
             }
             if let why = approval.why {                // the task's reason, its own words, smaller (2026-10-27)
-                Text(verbatim: why).font(.system(size: 11)).foregroundStyle(Palette.secondary)
-                    .textSelection(.enabled)
+                // chat text draws through FERB's own text view (APP-788)
+                NativeMessageText(why, size: 11, secondary: true)
             }
             if !approval.evidence.isEmpty {
                 DisclosureGroup("App-use evidence") {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(Array(approval.evidence.enumerated()), id: \.offset) { _, line in
-                            Text(line).font(.system(size: 11)).textSelection(.enabled)
+                            NativeMessageText(line, size: 11, secondary: true)
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }.font(.system(size: 11)).foregroundStyle(Palette.secondary)
@@ -166,14 +166,16 @@ private struct QuestionChrome: ViewModifier {
     }
 }
 
-/// FERB's own words on a question card, word for word and selectable; a long one scrolls in a capped block.
+/// FERB's own words on a question card, word for word and selectable in FERB's own text view (APP-788); a long one
+/// scrolls in a capped block.
 private struct ApprovalText: View {
     let text: String
-    let font: Font
+    let size: CGFloat
+    var bold = false
     var secondary = false
     var body: some View {
-        let line = Text(verbatim: text).font(font).foregroundStyle(secondary ? Palette.secondary : Palette.ink)
-            .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+        let line = NativeMessageText(text, size: size, secondary: secondary, bold: bold)
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
         if text.count > ApprovalLayout.longQuestionChars {
             ScrollView(.vertical) { line }.frame(maxHeight: ApprovalLayout.longQuestionHeight)
@@ -188,8 +190,7 @@ private struct ApprovalText: View {
 struct ExactBox: View {
     let text: String
     var body: some View {
-        let shown = Text(verbatim: text).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Palette.ink)
-            .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+        let shown = NativeMessageText(text, size: 11.5, monospaced: true).fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 9).padding(.vertical, 7)
         Group {
             if text.count > ApprovalLayout.longQuestionChars || text.split(separator: "\n").count > 6 {

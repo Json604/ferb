@@ -11,6 +11,10 @@ enum Palette {
     /// Answers in steps (APP-300, the approved mock's colours): a failed row's words, a paused row, an updated row.
     static let redSoft = Color(.sRGB, red: 1, green: 0.48, blue: 0.5, opacity: 1)
     static let chatBlue = Color.accentColor
+    /// The same colours for chat text drawn by FERB's own text view (NativeMessageText, APP-788).
+    static let redSoftText = NSColor(redSoft)
+    static let amberText = NSColor(amber)
+    static let greenText = NSColor(green)
 
     static func taskColor(_ phase: SessionPhase) -> Color {
         switch phase {
