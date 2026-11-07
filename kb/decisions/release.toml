@@ -215,9 +215,22 @@ untestable = "The release itself; REL-2's tests keep the two version strings equ
 title = "FERB 0.27.1: the update after the first release"
 by = "owner"
 date = 2026-11-04
-status = "active"
+status = "superseded"
+superseded_by = "REL-417"
 words = "do all these, give me to test on local adn then ship the update"
 words_source = "The owner's go for the planner silence guard, the notch drag fix and removing the per-call sign-in check, tested locally before shipping."
 rule = "The version is 0.27.1 (ferb/__init__.py, pyproject.toml, uv.lock), tagged v0.27.1 and published as the GitHub release whose appcast offers the update to installed copies, after the owner's local test. REL-415's 0.27.0 stays the first release."
+paths = ["pyproject.toml", "ferb/__init__.py"]
+untestable = "The release itself; REL-2's tests keep the version strings equal and refuse a .dev release."
+
+[REL-417]
+title = "FERB 0.27.2: browsing in the owner's profile when FERB has none"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "do all the above and then we push this update"
+words_source = "The owner's go, 2026-11-07, for APP-777/778 (FERB asks once which of the owner's profiles it browses in) and shipping it as an update."
+rule = "The version is 0.27.2 (ferb/__init__.py, pyproject.toml, uv.lock), tagged v0.27.2 and published as the GitHub release whose appcast offers the update to installed copies. REL-415's 0.27.0 stays the first release."
+supersedes = ["REL-416"]
 paths = ["pyproject.toml", "ferb/__init__.py"]
 untestable = "The release itself; REL-2's tests keep the version strings equal and refuse a .dev release."
