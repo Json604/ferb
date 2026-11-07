@@ -66,7 +66,8 @@ class HiddenInput:
         ap = self.gw.state.approvals.question(ask, question, [])
         ap.kind = "owner_secret"
         ap.summary = self.gw._one_line(secret_summary(target, remember, shown, username, source, field))
-        ap.detail = self.gw._one_line(secret_detail(target, remember, shown) + ((" " + paying) if paying else ""))
+        ap.detail = self.gw._one_line(secret_detail(target, remember, shown))
+        ap.exact = self.gw._one_line(paying) if paying else ""   # GATE-204: the payment it serves, in its own box
         self.gw.publish("approval.requested", {"approval_id": ap.id, "kind": ap.kind,
                      "capability": ask.capability, "reason": question, "task_id": ctx.task_id,
                      "summary": ap.summary} | card_parts(ap))
@@ -156,7 +157,8 @@ class HiddenInput:
         ap = self.gw.state.approvals.question(ask, question, [])
         ap.kind = "owner_login_code"
         ap.summary = self.gw._one_line(login_code_summary(origin))
-        ap.detail = self.gw._one_line(LOGIN_CODE_DETAIL + ((" " + paying) if paying else ""))
+        ap.detail = self.gw._one_line(LOGIN_CODE_DETAIL)
+        ap.exact = self.gw._one_line(paying) if paying else ""   # GATE-204: the payment this code approves, boxed
         self.gw.publish("approval.requested", {"approval_id": ap.id, "capability": ask.capability, "kind": ap.kind,
                                             "reason": question, "task_id": ctx.task_id, "summary": ap.summary}
                         | card_parts(ap))

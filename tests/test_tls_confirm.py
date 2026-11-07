@@ -32,7 +32,10 @@ def test_the_live_pip_command_asks_with_the_exact_command_and_a_no_runs_nothing(
     assert r["is_error"] and sh.calls == 0 and again["is_error"]
     [asked] = owner.asked
     expected = QUESTION.format(command=_one_line(LIVE), host="pypi.org or files.pythonhosted.org")
-    assert expected in asked.reason and asked.summary == expected
+    assert expected in asked.reason                                          # the record keeps the full question
+    assert asked.summary == "Run this with certificate checks turned off?"    # GATE-513: the card's parts
+    assert asked.exact == _one_line(LIVE)                                    # the exact command, word for word
+    assert asked.detail == "It skips the check that the site is really pypi.org or files.pythonhosted.org."
     assert "already said no" in again["content"]["error"]
 
 
@@ -58,7 +61,10 @@ def test_a_command_with_no_named_site_says_so(daemon: RunningDaemon) -> None:
     owner = Answers(daemon, granted=True, choice=2)
     gateway_tool_call(daemon, grant, "probe.shell", text="PYTHONHTTPSVERIFY=0 python3 fetch.py")
     owner.stop()
-    assert owner.asked[0].summary.endswith("this skips the check that each site it reaches is really that site.")
+    ap = owner.asked[0]                                     # GATE-513: the question, its why line, the exact command
+    assert ap.summary == "Run this with certificate checks turned off?"
+    assert ap.detail == "It skips the check that each site it reaches is really that site."
+    assert ap.exact == "PYTHONHTTPSVERIFY=0 python3 fetch.py"
 
 
 def test_the_real_shell_runs_nothing_after_a_no(daemon: RunningDaemon, tmp_path: Path) -> None:
@@ -80,4 +86,5 @@ def test_an_applescript_do_shell_script_that_turns_checks_off_asks_too(daemon: R
     r = gateway_tool_call(daemon, grant, "probe.script", text='do shell script "curl -k https://example.com -o /tmp/a"')
     owner.stop()
     assert r["is_error"] and script.calls == 0 and len(owner.asked) == 1
-    assert "skips the check that the site is really example.com." in owner.asked[0].summary
+    assert "skips the check that the site is really example.com." in owner.asked[0].detail   # GATE-513
+    assert 'curl -k https://example.com' in owner.asked[0].exact
