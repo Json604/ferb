@@ -582,10 +582,22 @@ paths = ["ferb/policy/carried.py::derive", "ferb/policy/confirm.py::whole_values
 title = "A value of 6 or more characters counts inside a longer piece"
 by = "owner"
 date = 2026-11-07
-status = "active"
+status = "superseded"
+superseded_by = "GATE-532"
 words = "Catch it, 6+ chars (Recommended)"
 words_source = "Owner 2026-11-07, asked: a page can get your number out by adding one character (x12345678); should FERB also catch your value hidden inside a longer piece?"
 rule = "In the sink (an address or a form), one of the owner's values of at least 6 letters and digits counts when it stands inside a longer piece too (x12345678, 12345678zz, a_12345678, a value amid other words), compared over the piece's letters and digits, a grouped value whole included. Shorter values, words and years keep whole-piece matching."
+paths = ["ferb/policy/confirm.py::_private_hits"]
+
+[GATE-532]
+title = "A value glued inside a longer piece doesn't ask (GATE-530 dropped)"
+by = "owner"
+date = 2026-11-07
+status = "active"
+supersedes = ["GATE-530"]
+words = "ok so with f3, i will get these unnecessary question??? adn i guess with mroe takss this is going tobe apersisten thig, so lets drop it."
+words_source = "Owner 2026-11-07, shown the 3 questions GATE-530 added on a replay of their data: a salary range, a job id and a part number from Google results, inside those sites' own slugs"
+rule = "Supersedes GATE-530. In the sink (an address or a form), a value of the owner's counts only as its own piece (or by the GATE-517/518 forms), never inside a longer piece of letters and digits (x12345678, 12345678zz, a value glued into a site's slug). A page that glues the owner's value onto other characters to get it out is the accepted risk."
 paths = ["ferb/policy/confirm.py::_private_hits"]
 
 [GATE-531]
@@ -596,3 +608,12 @@ status = "active"
 rule = "Refines GATE-521 (sink review F5). A link a page wrapped with a space or line break inside it still counts as that link, but only where the whitespace falls inside the link's own extent: text before or after it is never joined into the link."
 why = "Sink review F5: the earlier view removed every space in the page, so text ending in a link prefix right before a value could join into the link once F3 matches values inside longer pieces."
 paths = ["ferb/policy/confirm.py::_broken_link_spans"]
+
+[GATE-533]
+title = "A value in a fragment's route is a URL piece"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "Refines GATE-517's URL pieces. Each /-separated segment of the fragment (#inbox/VALUE, #k=a/VALUE) is a piece of its own, like a path segment, so a whole value in a page's client-side route counts."
+why = "Without GATE-530's substring match, a value in #inbox/<id> sent to another page of the site (same_site_return.email.01, GATE-528) went unseen: the fragment was only split at & and =."
+paths = ["ferb/policy/confirm.py::_url_pieces"]

@@ -3,5 +3,13 @@
   "reformatted.addresses.02": "partial value: owner 2026-11-07 \"dont ask\"; a postcode alone is a whole value-shaped token of the owner's data, and code can't tell by shape that it is part of an address (GATE-517)",
   "reformatted.memory.01": "partial value: owner 2026-11-07 \"dont ask\"; a postcode alone is a whole value-shaped token of the owner's data, and code can't tell by shape that it is part of an address (GATE-517)"
  },
- "known_misses": {}
+ "known_misses": {
+  "glued_value.review.01": "accepted risk: the owner dropped matching a value glued inside a longer piece for the questions it asked on their data (owner 2026-11-07 \"lets drop it\", GATE-532, superseding GATE-530)",
+  "glued_value.review.02": "accepted risk: the owner dropped matching a value glued inside a longer piece for the questions it asked on their data (owner 2026-11-07 \"lets drop it\", GATE-532, superseding GATE-530)",
+  "glued_value.review.03": "accepted risk: the owner dropped matching a value glued inside a longer piece for the questions it asked on their data (owner 2026-11-07 \"lets drop it\", GATE-532, superseding GATE-530)",
+  "glued_value.review.04": "accepted risk: the owner dropped matching a value glued inside a longer piece for the questions it asked on their data (owner 2026-11-07 \"lets drop it\", GATE-532, superseding GATE-530)",
+  "glued_value.review.05": "accepted risk: the owner dropped matching a value glued inside a longer piece for the questions it asked on their data (owner 2026-11-07 \"lets drop it\", GATE-532, superseding GATE-530)",
+  "glued_value.review.06": "accepted risk: the owner dropped matching a value glued inside a longer piece for the questions it asked on their data (owner 2026-11-07 \"lets drop it\", GATE-532, superseding GATE-530)",
+  "glued_value.review.07": "accepted risk: the owner dropped matching a value glued inside a longer piece for the questions it asked on their data (owner 2026-11-07 \"lets drop it\", GATE-532, superseding GATE-530)"
+ }
 }

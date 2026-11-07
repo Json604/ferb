@@ -363,8 +363,6 @@ def _spellings(value: str, digits: bool = False) -> set[str]:
 
 
 _YEAR = re.compile(r"(?:19|20)\d\d")
-LONG_VALUE = 6                       # GATE-530: a value this long counts inside a longer piece too
-_EMAIL_SHAPE = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
 
 
 def is_year(value: str) -> bool:
@@ -700,7 +698,7 @@ def _value_labels(host: str) -> list[str]:
 def _url_pieces(url: str) -> list[str]:
     """The pieces of a URL a value could ride in: userinfo, the host labels left of the registrable domain, each path
     segment (percent-decoded) with its `;` parameters and file extension stripped, each query name and value, and the
-    fragment whole and split. Parsed as the browser will (ferb/policy/urls.py); pieces are `unquote_plus`-decoded."""
+    fragment whole and split (by &, = and its route's /). Parsed as the browser will (ferb/policy/urls.py); pieces are `unquote_plus`-decoded."""
     parts = urls.parse(url)
     if parts is None:
         return []
@@ -723,7 +721,8 @@ def _url_pieces(url: str) -> list[str]:
     frag = unquote_plus(parts.fragment)
     pieces.append(frag)
     for pair in frag.split("&"):                               # #k=VALUE and #VALUE
-        pieces += pair.split("=")
+        for kv in pair.split("="):
+            pieces += [kv] + (kv.split("/") if "/" in kv else [])   # a page's own route: #inbox/VALUE
     return pieces + [again for piece in pieces for again in _decoded_again(piece)]
 
 
@@ -902,18 +901,6 @@ def _private_hits(pieces: list[str], private: list[tuple[int, provenance.Text]],
         fp = first_private[tok]
         return any(tok in toks for order, toks in outside_toks if order < fp)
 
-    # GATE-530 (owner, 2026-11-07: "Catch it, 6+ chars"): a value of at least LONG_VALUE letters and digits counts
-    # inside a longer piece too (x12345678, 12345678zz); indexed by its first LONG_VALUE characters
-    long_index: dict[str, list[tuple[str, str]]] = {}
-    for tok in first_private:
-        if "://" in tok or not _is_value(tok) or is_year(tok):
-            continue
-        skel = "".join(c for c in tok if c.isalnum())
-        # a number, a code with a digit, or an email address: never a word in quotes or markdown (`**settings`)
-        if len(skel) >= LONG_VALUE and (any(c.isdigit() for c in skel) or _EMAIL_SHAPE.search(tok)):
-            long_index.setdefault(skel[:LONG_VALUE], []).append((skel, tok))
-    long_runs = [(order, run.joined) for order, t in private for run in _runs(t) if len(run.joined) >= LONG_VALUE]
-
     hits: list[PrivateValue] = []
     for piece in pieces:
         value = piece.strip()
@@ -921,18 +908,6 @@ def _private_hits(pieces: list[str], private: list[tuple[int, provenance.Text]],
         shown, decoded = _variants(piece)
         matched = {m for m in (shown | decoded) & set(first_private)
                    if m not in owner_toks and m not in known_to_site and not laundered(m) and not is_year(m)}
-        if not matched and value:                              # a long value inside a longer piece (GATE-530)
-            for skel in {"".join(c for c in x if c.isalnum()) for x in (value.lower(), *decoded)}:
-                windows = {skel[i:i + LONG_VALUE] for i in range(len(skel) - LONG_VALUE + 1)}
-                matched |= {tok for w in windows for whole, tok in long_index.get(w, ()) if whole in skel and
-                            tok not in owner_toks and tok not in known_to_site and not laundered(tok)}
-                runs_in = [order for order, joined in long_runs if joined in skel]
-                if runs_in and not matched:
-                    key = value.lower()
-                    first_private[key] = min(runs_in)
-                    if not _in_runs(_runs(owner), (), [skel]) and not any(
-                            o < min(runs_in) and _in_runs(_runs(x), (), [skel]) for o, x in outside):
-                        matched = {key}
         if not matched and value:                              # a grouped value, whole or two or more of its groups
             groups: list[tuple[str, ...]] = []
             forms: set[str] = set()
