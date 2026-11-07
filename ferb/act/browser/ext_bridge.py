@@ -1927,6 +1927,33 @@ class _TabDriver:
             return jpeg
         return painted(jpeg, v)
 
+    async def pdf(self, tab: TabRef, landscape: bool = False) -> bytes:
+        """T-1065, HAND-427: the tab as Chrome prints it (extension 0.19.3's `pdf`), fetched in parts like a
+        screenshot. Nothing paints over a PDF, so the extension withholds a page with a password, code or card field
+        anywhere in it: Refused, saying why."""
+        import base64
+        from ferb.act.browser.ext_protocol import PDF_EXTENSION_VERSION, version_ok
+        t = self._tab(tab)
+        running = str(getattr(t.bridge, "version", "") or "")
+        if not version_ok(running, PDF_EXTENSION_VERSION):     # HAND-428: only a PDF needs the newer extension
+            raise Refused(f"the FERB extension in this profile is {running or 'an older version'}; making a PDF needs "
+                          f"{PDF_EXTENSION_VERSION} or later. Chrome updates it by itself; the owner can also update it "
+                          "now at chrome://extensions (Developer mode, Update)")
+        v = await t.bridge.call("pdf", {"tab_id": t.chrome_id, "landscape": bool(landscape)})
+        if v.get("withheld"):
+            raise Refused(f"no PDF of this page: {str(v['withheld'])[:300]}")
+        if "data" in v:
+            data = str(v["data"])
+        else:
+            parts = []
+            for i in range(int(v.get("parts", 0))):
+                parts.append(str((await t.bridge.call("pdf_part", {"tab_id": t.chrome_id, "part": i}))["data"]))
+            data = "".join(parts)
+        pdf = base64.b64decode(data)
+        if not pdf.startswith(b"%PDF-"):
+            raise Refused("the browser didn't return a PDF for this page")
+        return pdf
+
     def masking(self, tab: TabRef) -> str:
         """How the latest screenshot of this tab had its secret fields found, when worth saying ("" otherwise)."""
         return self._tab(tab).masking

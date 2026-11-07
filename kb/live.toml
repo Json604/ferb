@@ -3435,3 +3435,12 @@ request = "Run a task that makes FERB ask: for example, ask it to run a command 
 pass = "Each question reads right the first time: what FERB wants to do in plain words, a line saying why it asks and what a Yes allows, and the exact command, address or recipient in its own code box. No code font for the whole question and no internal names like browser.snapshot. Yes and No still do what they did. While FERB is still working out its reply, the chat shows it typing, never nothing."
 decisions = ["GATE-513", "GATE-514", "GATE-225", "APP-786"]
 sitting = "after this change is installed"
+
+[LIVE-813]
+title = "FERB makes a PDF through the browser, with no crash box"
+area = "hands"
+surface = "FERB.app with this build; Chrome with FERB's extension 0.19.3 (chrome://extensions shows the version)"
+request = "Ask FERB to turn one of the resumes it made (an .html file) into a PDF on your Desktop, and to save a web page it opened as a PDF."
+pass = "Two new PDFs appear, readable, matching the resume and the page. No \"Google Chrome quit unexpectedly\" box, no Chrome window coming forward, and the tab FERB used for the resume closes by itself. A page with a password or card field is refused with a plain reason."
+decisions = ["HAND-427", "HAND-428"]
+sitting = "after this change is installed"

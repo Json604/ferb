@@ -145,6 +145,11 @@ def version_tuple(v: str) -> tuple[int, ...]:
     return tuple(out)
 
 
+# T-1065, HAND-428: the extension's `pdf` (HAND-427) needs this version; the connection minimum stays where it is, so a
+# profile Chrome hasn't updated yet keeps working for everything else and is told to update only for a PDF
+PDF_EXTENSION_VERSION = "0.19.3"
+
+
 def version_ok(v: str, minimum: str = MIN_EXTENSION_VERSION) -> bool:
     return version_tuple(v) >= version_tuple(minimum)
 

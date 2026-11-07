@@ -292,6 +292,32 @@ def atomic_text(p: Path, text: str, closed: Callable[[Path], str | None] | None 
     return Written()
 
 
+def new_file(p: Path, data: bytes, closed: Callable[[Path], str | None] | None = None) -> None:
+    """Create `p` with `data`, never replacing anything (T-1065: a PDF FERB made): inside one opened folder that
+    `closed` checks as macOS opened it (the protection lists), with O_EXCL, so an existing file, a link or a folder
+    there refuses (PathRefused) and nothing is written. A write that fails part way removes the part written."""
+    try:
+        folder = os.open(p.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    except OSError as e:
+        raise PathRefused(f"FERB couldn't open the folder for {p.name} ({e.strerror or e}); nothing was written") from None
+    try:
+        _check_in(folder, p.name, closed)
+        try:
+            fd = os.open(p.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644,
+                         dir_fd=folder)
+        except FileExistsError:
+            raise PathRefused(f"{p} already exists; FERB never overwrites it, so nothing was written") from None
+        try:
+            _write_all(fd, data)
+        except OSError:
+            os.close(fd)
+            os.unlink(p.name, dir_fd=folder)
+            raise
+        os.close(fd)
+    finally:
+        os.close(folder)
+
+
 def _write_check(ctx: ToolContext) -> Callable[[Path], str | None] | None:
     check = ctx.path_closed
     return (lambda path: check(path, "write")) if check is not None else None

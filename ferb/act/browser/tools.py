@@ -535,6 +535,111 @@ class BrowserScreenshot(_Base):
         return ToolResult(out, read_sources=sources, image=jpeg)
 
 
+PDF_HTML_MAX = 5 * 1024 * 1024      # an HTML file FERB prints (T-1065): a document, never a site's worth of data
+# The one-time page an HTML file is shown through: nothing runs and nothing loads from anywhere (inline styles and
+# data: images and fonts only), so the file can only be drawn, in the owner's own browser profile too
+PDF_PAGE_POLICY = ("default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; "
+                   "base-uri 'none'; form-action 'none'")
+
+
+async def _serve_once(html: bytes) -> tuple[str, Any]:
+    """An HTML file at a one-time address on this Mac only (127.0.0.1, an unguessable path, PDF_PAGE_POLICY), for the
+    browser to draw; any other path gets 404. Returns the address and the server, which the caller closes."""
+    import secrets
+    token = secrets.token_urlsafe(24)
+
+    async def answer(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            line = (await asyncio.wait_for(reader.readline(), 5)).decode("latin-1").split()
+            while (await asyncio.wait_for(reader.readline(), 5)) not in (b"\r\n", b"\n", b""):
+                pass                                   # the request's headers: nothing in them changes the answer
+            ok = len(line) >= 2 and line[0] == "GET" and line[1] == f"/{token}.html"
+            body = html if ok else b"not found"
+            head = (f"HTTP/1.1 {'200 OK' if ok else '404 Not Found'}\r\n"
+                    f"Content-Type: {'text/html; charset=utf-8' if ok else 'text/plain'}\r\n"
+                    f"Content-Length: {len(body)}\r\nContent-Security-Policy: {PDF_PAGE_POLICY}\r\n"
+                    "Cache-Control: no-store\r\nConnection: close\r\n\r\n")
+            writer.write(head.encode("latin-1") + body)
+            await writer.drain()
+        except (asyncio.TimeoutError, OSError, UnicodeError):
+            pass
+        finally:
+            writer.close()
+    server = await asyncio.start_server(answer, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    return f"http://127.0.0.1:{port}/{token}.html", server
+
+
+class BrowserPdf(_Base):
+    """T-1065, HAND-427: a page as a PDF, printed by the browser itself (extension 0.19.3), saved as a new file."""
+    verb = "pdf"
+    creates_new_only = True                            # it only ever creates a new file: an existing path refuses
+    blurb = ("Save a page as a PDF, printed by {whose} itself, to a new .pdf `path` (an existing file is never "
+             "overwritten). Either a `tab` of this task, or `html_path`: an HTML file (for example a resume you wrote) "
+             "shown to the browser through a one-time local page where nothing runs and nothing loads from the web, so "
+             "put its CSS inline and images as data: URIs. A page with a password, code or card field anywhere in it "
+             "can't be made a PDF (nothing paints over a PDF). This is the way to make a PDF: never start a browser or "
+             "another app from the shell (it can't run there and crashes on the owner's screen).")
+
+    class Input(BaseModel):
+        path: str = Field(description="New .pdf file to create; an existing file is never overwritten")
+        tab: str | None = Field(None, description="Tab id from open (e.g. t1); or give html_path instead")
+        html_path: str | None = Field(None, description="An .html file to print instead of a tab")
+        landscape: bool = Field(False, description="Landscape pages instead of portrait")
+
+        @model_validator(mode="after")
+        def _one_source(self) -> "BrowserPdf.Input":
+            if bool(self.tab) == bool(self.html_path):
+                raise ValueError("give exactly one of tab or html_path")
+            if not self.path.lower().endswith(".pdf"):
+                raise ValueError("path must end in .pdf")
+            return self
+
+    def _scopes(self) -> set[str]:
+        return {self.family.read, "fs:write"}
+
+    def file_paths(self, args: Any) -> list[tuple[str, FileAccess]]:
+        return [(args.path, "write")] + ([(args.html_path, "read")] if args.html_path else [])   # rule 10
+
+    def describe(self, args: Any) -> ActionSpec:
+        return ActionSpec("write_file", Target(site=self._site(args) if args.tab else None, path=args.path))
+
+    def locks(self, args: BaseModel) -> list[str]:
+        return super().locks(args) if getattr(args, "tab", None) else []
+
+    async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
+        from ferb.act.fs.files import PathRefused, new_file, resolve, write_check
+        out = resolve(args.path, ctx, False)
+        if args.tab:
+            tab = self.driver.owned_by(args.tab, ctx.task_id)
+            pdf = await self.driver.pdf(tab, args.landscape)               # type: ignore[attr-defined]
+            sources: tuple[tuple[str, str], ...] = (("web", self.driver.tab_url(tab.tab_id) or ""),)
+        else:
+            source = resolve(args.html_path, ctx, True)
+            html = await asyncio.to_thread(source.read_bytes)
+            if len(html) > PDF_HTML_MAX:
+                raise Refused(f"{args.html_path} is over {PDF_HTML_MAX // (1024 * 1024)} MB; FERB prints documents, "
+                              "not that much")
+            url, server = await _serve_once(html)
+            tab = None
+            try:
+                tab = await self.driver.open_for(url, ctx.task_id)          # type: ignore[attr-defined]
+                pdf = await self.driver.pdf(tab, args.landscape)           # type: ignore[attr-defined]
+            finally:
+                if tab is not None:
+                    try:
+                        await self.driver.close(tab)                       # type: ignore[attr-defined]
+                    except Exception:
+                        pass                                               # the task's clean-up closes it otherwise
+                server.close()
+            sources = (("file", str(source)),)
+        try:
+            await asyncio.to_thread(new_file, out, pdf, write_check(ctx))
+        except PathRefused as e:
+            raise Refused(str(e)) from None
+        return ToolResult({"path": str(out), "bytes": len(pdf)}, read_sources=sources)
+
+
 class BrowserRecord(_Base):
     verb = 'record'
     target_args = ("path",)                            # Target.path, normalized by the gateway (P19 hash)

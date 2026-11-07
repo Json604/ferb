@@ -794,3 +794,13 @@ words = "lets not do anything now in ferb app - but lets update the extension, y
 words_source = "Owner, 2026-11-07: tasks ran Chrome --headless from FERB's sandboxed shell to make PDFs; it crashed there (no window server) and macOS showed \"quit unexpectedly\""
 rule = "Extension 0.19.3 adds `pdf` and `pdf_part`: Chrome prints the tab (Page.printToPDF, exactly printBackground, preferCSSPageSize and landscape), as a read, split into parts like a screenshot. Nothing paints over a PDF, so a page with a password, code or card field anywhere, or whose fields can't be found, is withheld. Protocol stays 21 so every installed FERB keeps working. The owner publishes it; then the app adds the PDF tool and raises the minimum."
 paths = ["extensions/chromium/background.js", "extensions/chromium/protocol.js", "extensions/chromium/manifest.json"]
+
+[HAND-428]
+title = "Only the PDF tool needs extension 0.19.3; the connection minimum stays 0.19.0"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "Implements HAND-427's app half (T-1065) without its last step: browser.pdf / ferb_browser.pdf check the profile's extension version and ask for 0.19.3 only for a PDF; MIN_EXTENSION_VERSION stays 0.19.0, so a profile Chrome hasn't updated yet keeps browsing. An HTML file prints through a one-time 127.0.0.1 page under a policy that runs and loads nothing; the PDF is a new file (O_EXCL) under the protection lists."
+why = "Raising the minimum refuses every not-yet-updated profile for all browsing (live 2026-11-01..04: days of that); only the PDF needs the new command."
+paths = ["ferb/act/browser/tools.py::BrowserPdf", "ferb/act/browser/ext_bridge.py::_TabDriver.pdf", "ferb/act/browser/ext_protocol.py"]
+live = ["LIVE-813"]
