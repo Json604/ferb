@@ -303,8 +303,9 @@ def from_task_lines(text: str) -> str:
 
 
 def shown_origins(labels: Iterable[str]) -> str:
-    """The outside sources in the owner's terms, the first SHOWN named and the rest counted."""
-    items = list(dict.fromkeys(shown_origin(o) for o in sorted(set(labels))))
+    """The outside sources in the owner's terms, the first SHOWN named and the rest counted: those that name what
+    was read (a page's host) before kinds only (what reached FERB's history from outside, T-1007)."""
+    items = list(dict.fromkeys(shown_origin(o) for o in sorted(set(labels), key=lambda o: (o.count(":") < 2, o))))
     if len(items) <= SHOWN:
         return "; ".join(items)
     return "; ".join(items[:SHOWN]) + f"; and {len(items) - SHOWN} more"
@@ -361,6 +362,15 @@ def _spellings(value: str, digits: bool = False) -> set[str]:
     return out
 
 
+_YEAR = re.compile(r"(?:19|20)\d\d")
+
+
+def is_year(value: str) -> bool:
+    """A plain year, 1900-2099, alone: never the owner's private value (owner, 2026-11-07: "Years don't count").
+    Only a year: every other number (a code, a PIN, card digits, a phone) still counts (GATE-523)."""
+    return bool(_YEAR.fullmatch(value))
+
+
 def _value_forms(text: str, coarse: Iterable[str] | None = None) -> frozenset[str]:
     """Every form a single-token value of `text` (lowercased) can take in an address or a form: its tokens (coarse:
     whole emails, hosts, paths; fine: values embedded in JSON/.env/query punctuation, N2) and their `_spellings`. A
@@ -409,7 +419,7 @@ def _phrase(piece: str, t: provenance.Text, known_to_site: set[str] = set()) -> 
     words = [x for x in _FINE.split(piece.lower()) if x]
     seq, forms = _sequence(t)
     if len(words) < 2 or not any(len(w) >= provenance.MIN_LEN and _is_value(w) and w in forms and
-                                 w not in known_to_site for w in words):
+                                 w not in known_to_site and not is_year(w) for w in words):
         return False
     n = len(words)
     return any(seq[i:i + n] == tuple(words) for i, x in enumerate(seq) if x == words[0])
@@ -434,6 +444,9 @@ def _decodings(piece: str) -> set[str]:
 
 
 _URL_IN_TEXT = re.compile(r"[a-z][a-z0-9+.-]*://[^\s\"'<>\[\]{}|\\^`]+")   # a URL's extent inside read text (shape)
+# an address written without its scheme (`www.macworld.com/article/666646/…`, as FERB's own notes record a visit): a
+# host of dotted labels, then a path
+_HOST_PATH_IN_TEXT = re.compile(r"(?<![\w@./:-])(?:[a-z0-9-]+\.)+[a-z]{2,}/[^\s\"'<>\[\]{}|\\^`()]*")
 
 
 def _host_had_it(seen: str, dest: str) -> bool:
@@ -457,7 +470,8 @@ def _read_from(labels: set[str], dest: str) -> bool:
 
 
 def _same_site_only(private: list[tuple[int, provenance.Text]], dest: str,
-                    origins: dict[int, set[str]] | None = None) -> set[str]:
+                    origins: dict[int, set[str]] | None = None,
+                    sites: dict[int, frozenset[str]] | None = None) -> set[str]:
     """The tokens of the owner's own data whose every occurrence is inside a URL whose host `dest` covers
     (`_host_had_it`), or in a record read from `dest`'s own site (`_read_from`, GATE-506: the owner's signed-in page
     there, live 2026-10-18: a class id read from www.scaler.com's own page, sent back to www.scaler.com): a value that
@@ -468,6 +482,10 @@ def _same_site_only(private: list[tuple[int, provenance.Text]], dest: str,
     for order, t in private:
         if origins is not None and _read_from(origins.get(order, set()), dest):
             inside |= _toks(t)
+            continue
+        read_on = (sites or {}).get(id(t))               # values FERB's conversation stored as read on these sites
+        if read_on:
+            (inside if all(_host_had_it(h.lower().rstrip("."), dest) for h in read_on) else elsewhere).update(_toks(t))
             continue
         links, rest = _url_parts(t)
         for host, forms in links:
@@ -594,9 +612,12 @@ def _url_parts(t: provenance.Text) -> tuple[tuple[tuple[str, frozenset[str]], ..
     if found is None:
         links: list[tuple[str, frozenset[str]]] = []
         rest, cut = [], 0
-        for m in _URL_IN_TEXT.finditer(t.folded):
-            parsed = urls.parse(m.group(0).rstrip(_TRAIL))
-            if parsed is not None and parsed.host:
+        found = [(m, m.group(0)) for m in _URL_IN_TEXT.finditer(t.folded)]
+        found += [(m, "https://" + m.group(0)) for m in _HOST_PATH_IN_TEXT.finditer(t.folded)
+                  if not any(a.start() <= m.start() < a.end() for a, _ in found)]
+        for m, address in sorted(found, key=lambda item: item[0].start()):
+            parsed = urls.parse(address.rstrip(_TRAIL))
+            if parsed is not None and parsed.host and m.start() >= cut:
                 links.append((parsed.host, _value_forms(m.group(0))))
                 rest.append(t.folded[cut:m.start()])
                 cut = m.end()
@@ -712,7 +733,8 @@ def url_carries_private(url: str, private: list[tuple[int, provenance.Text]],
 
 def url_private_values(url: str, private: list[tuple[int, provenance.Text]],
                        outside: list[tuple[int, provenance.Text]], owner: provenance.Text,
-                       origins: dict[int, set[str]] | None = None) -> list[PrivateValue]:
+                       origins: dict[int, set[str]] | None = None,
+                       sites: dict[int, frozenset[str]] | None = None) -> list[PrivateValue]:
     """The sink rule for navigation (S4, SQ6, carried item 8, Q8, N1, L4): the pieces of `url` that are a token of the
     owner's own data (a private tool result) and are not the owner's typed words and were not already public. Only a
     value counts, never an ordinary word (`_is_value`), unless it is hidden in base64/hex: the words of FERB's context
@@ -729,7 +751,7 @@ def url_private_values(url: str, private: list[tuple[int, provenance.Text]],
     if not private:
         return []
     dest = urls.parse(url)
-    known_to_site = _same_site_only(private, dest.host, origins) if dest is not None and dest.host else set()
+    known_to_site = _same_site_only(private, dest.host, origins, sites) if dest is not None and dest.host else set()
     hits = _private_hits(_url_pieces(url), private, outside, owner, known_to_site)
     if not hits:
         return []
@@ -763,8 +785,8 @@ def _first_seen_in_link(url: str, hit: "PrivateValue", private: list[tuple[int, 
     anywhere else (a file, FERB's conversation, a page that showed it plainly first) is the owner's, and asks."""
     want = [hit.matched, quote(hit.matched, safe=""), quote_plus(hit.matched)]
     for order, t in private:
-        if order != hit.first_read:
-            continue
+        if order != hit.first_read or not any(_positions(t.folded, w.casefold(), False) for w in want):
+            continue                                          # not the record (or the part of it) that holds it
         # as the text has it, and with its spaces taken out: a page can show a long link broken over a line
         # ("https://forms.gle/ X8d9…") right before the link itself
         for folded, whole in ((t.folded, True), (re.sub(r"\s+", "", t.folded), False)):
@@ -824,7 +846,7 @@ def _private_hits(pieces: list[str], private: list[tuple[int, provenance.Text]],
         # the owner-word exclusion is per matched form, so a typed word inside a decoded blob can't excuse the rest
         shown, decoded = _variants(piece)
         matched = {m for m in (shown | decoded) & set(first_private)
-                   if m not in owner_toks and m not in known_to_site and not laundered(m)}
+                   if m not in owner_toks and m not in known_to_site and not laundered(m) and not is_year(m)}
         if not matched and value:                              # a grouped value, whole or two or more of its groups
             groups: list[tuple[str, ...]] = []
             forms: set[str] = set()

@@ -510,3 +510,42 @@ status = "active"
 rule = "For a stored record of FERB's conversation (a context exposure with per-entry segments, GATE-519) the sink's list of the owner's data takes each entry whose whole text counts (the owner's messages, notices, older rows) when its kinds are the owner's words or data, and of each entry FERB wrote only its stored values. FERB's prose around them, such as the date its clock wrote, is not the owner's data. Records without segments count as before. An earlier message's value is the owner's data in a later task, whatever else the chat held."
 why = "T-1007 phase 3: the whole conversation counted whenever any entry was private, so a year FERB's clock wrote asked (task 702a1a4c); and an earlier owner message counted only when some other entry was private (S4)."
 paths = ["ferb/policy/carried.py::sink_text", "ferb/daemon/gateway.py::Gateway._sink_texts"]
+
+[GATE-523]
+title = "A plain year is never the owner's private value"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "Years don't count (Recommended)"
+words_source = "Owner 2026-11-07, asked: \"Should a plain year (1900–2099) never count as your data? Every other number (OTPs, PINs, card digits, phones) keeps asking.\""
+rule = "In the sink (an address or a form), a plain year alone (four digits, 1900-2099) is never one of the owner's private values. Every other number still counts, a full date included; there is no other short-number threshold. A private number that only looks like a year is the accepted residual."
+paths = ["ferb/policy/confirm.py::is_year"]
+
+[GATE-524]
+title = "A value may go back to the site it was read on, even through the chat"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "Let it go back (Recommended)"
+words_source = "Owner 2026-11-07, asked: \"Should FERB let a value go back to the site it came from, even through the chat?\""
+rule = "Refines GATE-506 per value. A value FERB's conversation stored as read only on sites' own signed-in pages (its classes are those sites only) does not ask when sent back to an address those sites cover; sent anywhere else, or also stored as the owner's data at large, it still asks. A site's signed-in page gives a value only that site's class."
+paths = ["ferb/policy/carried.py::sink_parts", "ferb/policy/confirm.py::_same_site_only"]
+
+[GATE-525]
+title = "Outside content that reached FERB's history or memory counts as outside content read"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "record yes."
+words_source = "Owner 2026-11-07, asked to record the 11-03 answer \"yes yes yes\" to: outside content that reached history or memory counts as outside read, so a later private send asks"
+rule = "Outside content that reached FERB's history, summary, memory or a schedule's earlier run counts as outside content read: the outside kinds of any record given to a task's models make the task count, so a later task sending the owner's private data asks first. A schedule made in such a turn starts its runs as having read outside content. Which values are the owner's (GATE-522) is unchanged."
+paths = ["ferb/store/spans.py::SpanStore.outside_exposure_origins", "ferb/orchestrator/supervisor.py::Supervisor._sink_origins_for_new_schedule"]
+
+[GATE-526]
+title = "An address written without its scheme counts as a link of its host for the same-site rule"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "For GATE-506's same-site rule, an address written without its scheme in what FERB read (dotted host labels, then a path: www.macworld.com/article/666646/..., as FERB's own notes record a visit) counts as a link of that host, like one with https://. A value seen only inside such addresses of the destination's host gives that site nothing new."
+why = "Owner-DB replay after T-1007 (GATE-525): one new question opened a macworld article whose id FERB's learned how-note held only inside its own record of visiting that page, written without https://."
+paths = ["ferb/policy/confirm.py::_url_parts"]

@@ -3512,13 +3512,12 @@ class Supervisor(WorkerRuns):
     def _sink_origins_for_new_schedule(self, turn: _Turn) -> set[str]:
         """The sink rule's request origins a schedule made in this turn records for its runs (S4, L4): what the
         request carries itself (the owner's message and what it carried: pasted text, a clarify's earlier text), the
-        context given to its planner whose stored origin is outside content, and `inferred` (the planner wrote the
-        scheduled request). FERB's own memory, history and device facts are not outside content, whatever they
-        inherited, so a scheduled run doesn't start as having read outside content because the turn that made it saw
-        FERB's own context. Its labels (MP2) stay the turn's."""
+        outside kinds of the context given to its planner, FERB's own history, summary and memory included when
+        outside content reached them (T-1007, GATE-525: its runs start as having read outside content), and
+        `inferred` (the planner wrote the scheduled request)."""
         read = [origins_.split(e["origin"]) for e in turn.exposures]
         return ({origins_.INFERRED} | set(turn.message_origin or {origins_.external("unlabeled")}) |
-                {o for labels in read if origins_.stored_outside(labels) for o in labels})
+                {origins_.kind(o) for labels in read for o in labels if origins_.is_external(o)})
 
     def _schedule_sink_origins(self, schedule_id: str) -> set[str]:
         """A scheduled run's request origins for the sink rule (S4, L4), as `_sink_origins_for_new_schedule` recorded

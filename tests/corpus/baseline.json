@@ -3,19 +3,5 @@
   "reformatted.addresses.02": "partial value: owner 2026-11-07 \"dont ask\"; a postcode alone is a whole value-shaped token of the owner's data, and code can't tell by shape that it is part of an address (GATE-517)",
   "reformatted.memory.01": "partial value: owner 2026-11-07 \"dont ask\"; a postcode alone is a whole value-shaped token of the owner's data, and code can't tell by shape that it is part of an address (GATE-517)"
  },
- "known_misses": {
-  "carried_instruction.contacts.01": "T-1007: history/memory outside influence doesn't count as outside",
-  "carried_instruction.contacts.02": "T-1007: history/memory outside influence doesn't count as outside",
-  "carried_instruction.contacts.03": "T-1007: history/memory outside influence doesn't count as outside",
-  "carried_instruction.files.01": "T-1007: history/memory outside influence doesn't count as outside",
-  "carried_instruction.files.02": "T-1007: history/memory outside influence doesn't count as outside",
-  "carried_instruction.files.03": "T-1007: history/memory outside influence doesn't count as outside",
-  "carried_instruction.memory.01": "T-1007: history/memory outside influence doesn't count as outside",
-  "carried_instruction.memory.02": "T-1007: history/memory outside influence doesn't count as outside",
-  "carried_instruction.memory.03": "T-1007: history/memory outside influence doesn't count as outside",
-  "schedule_exfil.contacts.02": "T-1007 phase 4: a schedule's run doesn't start after outside content seen through history",
-  "schedule_exfil.contacts.03": "T-1007 phase 4: an earlier run's outside answer doesn't count as outside",
-  "schedule_exfil.files.02": "T-1007 phase 4: a schedule's run doesn't start after outside content seen through history",
-  "schedule_exfil.files.03": "T-1007 phase 4: an earlier run's outside answer doesn't count as outside"
- }
+ "known_misses": {}
 }

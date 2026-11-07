@@ -26,7 +26,8 @@ HISTORY = ("Conversation so far (oldest first; the last entry is the most recent
            "[Full source: chat.history entry_id=e1a2b3c4d5e6]\n"
            "[c2] (Mon 13 Oct 10:02) FERB (task result, done): Saved Ichiran to your list.\n"
            "[Full source: chat.history task_id=t9f8e7d6c5b4]")
-INHERITED = "external:download,external:paste,external:web:news.example,inferred,owner,private"
+# its labels as FERB stores them since GATE-519: the kinds of what its entries were made from
+INHERITED = "external:download,external:paste,external:web,inferred,owner,private"
 # FERB's recent-activity block (context_layers.recent_activity): the owner's own browsing, FERB's schema keys.
 ACTIVITY = ('[{"app": "Google Chrome", "bundle_id": "com.google.Chrome", "title": "Contact",'
             ' "url": "https://mysite.example/about-us/"}]')
@@ -132,17 +133,30 @@ def test_a_real_private_value_to_a_host_nobody_named_still_asks_naming_only_what
     assert result["is_error"] and browser.calls == 0 and len(questions) == 1
     q = questions[0]["question"]
     assert f'send it "{EMAIL}", which this task read from' in q
-    # the outside content named is the page the task read, not what FERB's history was once made from
-    assert "after this task read outside content (the web page on mysite.example)" in q
-    for inherited in ("downloaded file", "text you pasted", "news.example", "more"):
-        assert inherited not in q
+    # the page the task read by its host; what reached FERB's history from outside counts too (T-1007, GATE-525),
+    # by its kinds only, never a host it inherited
+    assert "after this task read outside content (" in q and "the web page on mysite.example" in q
+    assert "news.example" not in q
 
 
-def test_ferbs_own_memory_and_history_do_not_taint_a_tree(daemon: RunningDaemon) -> None:
-    """Only FERB's own context was given to the models: no outside content was read, so a private value in a URL is
-    not a sink. The owner's data and the labels history inherited are all there; nothing outside was read."""
+# decision: GATE-525
+def test_history_outside_influence_counts_as_outside_read(daemon: RunningDaemon) -> None:
+    """T-1007 (owner, 2026-11-03 "yes yes yes", 2026-11-07 "record yes"): outside content that reached FERB's history
+    is outside content read, so a later task that reads only the owner's data and opens an address carrying it asks.
+    Replaces the guard that asserted history never counted."""
     grant, browser = browser_grant(daemon, FERB_BROWSER, "open my client's page", [])
     _expose(daemon, grant.task_id, HISTORY + f"\nOwner: my client is {EMAIL}", INHERITED)
+    _expose(daemon, grant.task_id, f"Client contact {EMAIL}", "private")              # memory FERB observed
+    result, questions = _open(daemon, grant, f"https://crm.example/?u={EMAIL}")
+    assert result["is_error"] and browser.calls == 0 and len(questions) == 1
+    assert "a web page" in questions[0]["question"]                    # named by kind: history keeps no host
+
+
+def test_ferbs_own_context_without_outside_influence_does_not_taint_a_tree(daemon: RunningDaemon) -> None:
+    """Only FERB's own context, nothing outside in it: no outside content was read, so a private value in a URL is
+    not a sink."""
+    grant, browser = browser_grant(daemon, FERB_BROWSER, "open my client's page", [])
+    _expose(daemon, grant.task_id, HISTORY + f"\nOwner: my client is {EMAIL}", "inferred,owner,private")
     _expose(daemon, grant.task_id, f"Client contact {EMAIL}", "private")              # memory FERB observed
     _expose(daemon, grant.task_id, "Display 1: 2560x1440; Safari, Mail running", "private")   # device facts
     result, questions = _open(daemon, grant, f"https://crm.example/?u={EMAIL}")
@@ -159,13 +173,15 @@ def test_context_whose_stored_origin_is_outside_still_taints(daemon: RunningDaem
     assert "the web page on mysite.example" in questions[0]["question"]
 
 
+# decision: GATE-525
 def test_a_post_after_only_ferbs_own_context_is_not_a_sink(daemon: RunningDaemon) -> None:
-    """S4(a): a send to a place with no recipient asks only after outside content was read. FERB's own history is
-    not outside content; an outside page read by the task is."""
+    """S4(a): a send to a place with no recipient asks only after outside content was read. FERB's own history with
+    nothing outside in it is not; an outside page read by the task is, and so is history outside content reached
+    (T-1007: `test_history_outside_influence_counts_as_outside_read`)."""
     post = FakeCap("probe.post", "post", {"probe"})
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("post my notes"), [_private_file(), _web(), post])
     gateway_tool_call(daemon, grant, "probe.file")
-    _expose(daemon, grant.task_id, HISTORY, INHERITED)
+    _expose(daemon, grant.task_id, HISTORY, "inferred,owner,private")
     owner = Answers(daemon, granted=False, choice=2)
     try:
         quiet = gateway_tool_call(daemon, grant, "probe.post", site="paste.example", text="notes")

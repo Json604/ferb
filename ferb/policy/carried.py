@@ -65,7 +65,10 @@ def derive(text: str, shown: Iterable[Shown], made: Iterable[str] = ()) -> dict[
                 accounted = accounted or (not held and _holds(forms, spelled))
             elif labels & OWNERS:
                 if _holds(forms, spelled):
-                    classes |= (OWNERS & labels) | (_sites(labels) if origin.PRIVATE in labels else set())
+                    # one site's signed-in page gives only that site (GATE-524: the value may go back to it); any
+                    # other private record, the owner's data at large
+                    sites = _sites(labels) if origin.PRIVATE in labels else set()
+                    classes |= ({origin.OWNER} & labels) | (sites or ({origin.PRIVATE} & labels))
             elif _holds(forms, spelled):
                 accounted = True                       # FERB's own code-written facts (the clock), or outside content
         if not classes and saw_private and not accounted:
@@ -94,12 +97,14 @@ def shown_records(outputs: Iterable[Any]) -> list[tuple[set[str], str, Any]]:
     return out
 
 
-def sink_text(payload: str, segments: Iterable[dict[str, Any]]) -> str:
+def sink_parts(payload: str, segments: Iterable[dict[str, Any]]) -> tuple[str, dict[frozenset[str], str]]:
     """What of a stored record of FERB's conversation is the owner's data for the sink (GATE-522): each entry whose
     whole text counts (the owner's own messages, notices, rows from before stored provenance) when it is the owner's
     words or data, and of each entry FERB wrote only the values it stored. FERB's own prose around them (a date its
-    clock wrote, a page's words it repeated) is not the owner's data."""
+    clock wrote, a page's words it repeated) is not the owner's data. Values stored as read only on one or more
+    sites' own signed-in pages come apart, by those sites (GATE-524: they may go back to them)."""
     kept: list[str] = []
+    by_site: dict[frozenset[str], list[str]] = {}
     at = 0
     for seg in segments:
         size = int(seg.get("len", 0))
@@ -109,5 +114,16 @@ def sink_text(payload: str, segments: Iterable[dict[str, Any]]) -> str:
             if set(seg.get("kinds", [])) & OWNERS:
                 kept.append(piece)
         elif isinstance(seg.get("values"), dict):
-            kept += [str(v) for v in seg["values"]]
-    return "\n".join(kept)
+            for value, classes in seg["values"].items():
+                sites = frozenset(str(c)[5:] for c in classes if str(c).startswith("site:"))
+                if sites and len(sites) == len(classes):
+                    by_site.setdefault(sites, []).append(str(value))
+                else:
+                    kept.append(str(value))
+    return "\n".join(kept), {sites: "\n".join(values) for sites, values in by_site.items()}
+
+
+def sink_text(payload: str, segments: Iterable[dict[str, Any]]) -> str:
+    """`sink_parts`, every value together (for a reader that needs no sites)."""
+    main, by_site = sink_parts(payload, segments)
+    return "\n".join([main, *by_site.values()]).strip("\n")

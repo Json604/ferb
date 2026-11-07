@@ -169,15 +169,14 @@ class SpanStore:
         return {o for row in rows for o in origin.split(row['origin'])}
 
     def outside_exposure_origins(self, root_id: str) -> set[str]:
-        """The origins of the context given to this tree's models that counts as outside content read (L4): a context
-        exposure whose stored origin is outside content (`origin.stored_outside`; one recorded without an origin is
-        unlabeled, so it counts). FERB's own memory, history and device facts hold a label of their own beside the
-        ones they inherited, so they never make a tree count as having read outside content."""
+        """The outside labels of the context given to this tree's models: every context exposure's (one recorded
+        without an origin is unlabeled, so it counts). Outside content that reached FERB's own history, summary,
+        memory or a schedule's earlier run counts as outside content read (T-1007, GATE-525; owner: "record yes"):
+        its kinds say so, since GATE-519 without the hosts it came from."""
         where, params = self._tree_where(root_id)
         rows = self._db.conn.execute(f"SELECT {_RECORDED} AS origin FROM spans WHERE kind='context.exposure' AND {where}",
                                      (origin.external('unlabeled'), *params))
-        stored = [origin.split(row['origin']) for row in rows]
-        return {o for labels in stored if origin.stored_outside(labels) for o in labels}
+        return {o for row in rows for o in origin.split(row['origin']) if origin.is_external(o)}
 
     def task_origins(self, root_id: str) -> set[str]:
         """Every origin recorded on this task tree's request (its root task span), tool results and context

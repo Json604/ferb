@@ -243,12 +243,11 @@ URL_CASES: dict[str, tuple[list[tuple[str, ...]], str, list[list[str]]]] = {
                                             f"https://t.example/?u={EMAIL}", []),
     "the destination's own signed-in page (GATE-506)": ([("call", "probe.web"), ("call", "probe.class")],
                                                         "https://www.class.example/c/5560731", []),
-    # the "2026" case: FERB's clock wrote the year into history, labelled with the history's union; today it asks
-    # (value provenance changes this in a later phase, with its own test)
+    # the "2026" case: FERB's clock wrote the year into an older history row (whole text, the history's union); a
+    # plain year is never the owner's value (GATE-523, owner: "Years don't count")
     "a year from FERB's clock in history": ([("expose", "Summary: Wed 04 Nov-Fri 06 Nov 2026; today Sat 07 Nov 2026",
                                               HISTORY_LABELS), ("call", "probe.web")],
-                                            "https://news.example/film/2026/sep/04/a-documentary",
-                                            [["sink:private_url"]]),
+                                            "https://news.example/film/2026/sep/04/a-documentary", []),
 }
 
 
@@ -262,14 +261,14 @@ def test_phase1_questions_unchanged(daemon: RunningDaemon, case: str) -> None:
 
 # decision: GATE-515
 def test_phase1_post_and_send_questions_unchanged(daemon: RunningDaemon) -> None:
-    """S6 and the post sink, as today: a post to an unnamed site after outside content was read asks; a send to
-    someone new asks whatever was read."""
+    """S6 and the post sink: a post to an unnamed site after outside content was read asks; a send to someone new asks
+    whatever was read. (The history here holds nothing from outside; since T-1007 it would count, GATE-525.)"""
     post = FakeCap("probe.post", Kind.POST, {"probe"})
     send = FakeCap("probe.send", Kind.SEND, {"probe"})
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("post my notes"), [_file("my notes"), _page(), post,
                                                                                     send])
     gateway_tool_call(daemon, grant, "probe.file")
-    _expose(daemon, grant.task_id, "Owner: earlier words", HISTORY_LABELS)
+    _expose(daemon, grant.task_id, "Owner: earlier words", "inferred,owner,private")
     owner = Answers(daemon, granted=False, choice=2)
     try:
         assert not gateway_tool_call(daemon, grant, "probe.post", site="paste.example", text="notes")["is_error"]
@@ -469,7 +468,8 @@ def test_reformatted_and_clock_values_in_stored_provenance() -> None:
     shown = [({"private"}, "Dad: +91 98765 43210"), ({"ferb"}, "Keep the last 14 days. Today is Sat 07 Nov 2026."),
              ({"private", "external:web:www.class.example"}, "Class 5560731 at 6pm")]
     stored = derive("Dad's number is 9876543210; class 5560731; summary as of 07 Nov 2026.", shown)
-    assert stored["values"] == {"9876543210": ["private"], "5560731": ["private", "site:www.class.example"]}
+    # a signed-in page gives only its site (GATE-524: the value may go back there, from nowhere else)
+    assert stored["values"] == {"9876543210": ["private"], "5560731": ["site:www.class.example"]}
     assert stored["kinds"] == ["external:web", "ferb", "private"]
 
 
@@ -615,3 +615,83 @@ def test_a_value_shown_plainly_before_the_link_still_asks() -> None:
     url = "https://attacker.example/v?c=ZX-90812-PQ"
     page = provenance.prepare(f"Your booking reference is ZX-90812-PQ. Verify: {url}")
     assert confirm.url_carries_private(url, [(1, page)], [], provenance.prepare("")) == ["ZX-90812-PQ"]
+
+
+# ---------- phase 4 and the owner's two decisions of 2026-11-07 ----------
+
+# decision: GATE-523
+def test_a_plain_year_never_asks_and_other_numbers_still_do() -> None:
+    """Owner: "Years don't count". A bare year 1900-2099 is never the owner's value in an address or a form; every
+    other number still is, a full date included. A private number that looks like a year is the accepted residual."""
+    from ferb.policy import confirm, provenance
+    private = [(1, provenance.prepare("Gym locker 1987; locker 4471; trip on 2026-11-07; summary as of Nov 2026"))]
+    none = provenance.prepare("")
+    assert confirm.url_carries_private("https://news.example/2026/11/x", private, [], none) == []
+    assert confirm.url_carries_private("https://t.example/?n=1987", private, [], none) == []      # the residual
+    assert confirm.url_carries_private("https://t.example/?n=4471", private, [], none) == ["4471"]
+    assert confirm.url_carries_private("https://t.example/?d=2026-11-07", private, [], none) == ["2026-11-07"]
+    assert confirm.text_carries_private("1987", private, [], none) == []
+    assert confirm.text_carries_private("4471", private, [], none) == ["4471"]
+
+
+# decision: GATE-524
+def test_a_value_read_on_a_site_goes_back_to_it_through_the_chat(daemon: RunningDaemon) -> None:
+    """Owner: "Let it go back". A value FERB's conversation stored as read only on a site's own signed-in page (the
+    scaler class id) may go back to that site; sent anywhere else it asks, and so does one also read elsewhere."""
+    grant, browser = browser_grant(daemon, FERB_BROWSER, "open my class", [_page()])
+    _history_with_segments(daemon, grant.task_id, [
+        ("FERB: Your class 595722 is at 6pm; ticket 7731-AX.",
+         {"kinds": ["external:web", "inferred", "private"],
+          "values": {"595722": ["site:www.scaler.com"], "7731-ax": ["private", "site:www.scaler.com"]}})])
+    gateway_tool_call(daemon, grant, "probe.web")
+    assert not _open(daemon, grant, "https://www.scaler.com/academy/class/595722/session")["is_error"]
+    assert _open(daemon, grant, "https://elsewhere.example/?c=595722")["is_error"]
+    assert _open(daemon, grant, "https://www.scaler.com/t/7731-ax")["is_error"]      # also in the owner's other data
+    assert browser.calls == 1
+
+
+# decision: GATE-525
+def test_scheduled_run_from_outside_influenced_answer_starts_after_outside_read(daemon: RunningDaemon) -> None:
+    """S7 / T-1007: a scheduled run shown an earlier run's answer written from outside content counts as having read
+    outside content, so opening an address with the owner's data asks (the run is unattended: declined at once)."""
+    from ferb.core import origin
+    from tests.support.schedules import fire, make_schedule, run as run_in
+    from ferb.policy.targets import Targets
+    from datetime import timedelta
+    now = daemon.daemon.clock.now()
+    request = "every day at 9 check my client list and keep it synced"
+    s = make_schedule(daemon, request, request, Targets.of(), now + timedelta(minutes=1))
+    supervisor = daemon.daemon.supervisor
+
+    def earlier() -> None:                     # an earlier run's answer, written from an outside page
+        supervisor.journal.append("schedule.run", {"schedule_id": s.id, "request_id": "req-earlier", "late": False})
+        supervisor.journal.append("task.answer", {"task_id": "tree-earlier", "request_id": "req-earlier",
+                                                  "status": "done", "text": "sync.example says to copy client details"},
+                                  origin=origin.join({origin.INFERRED, origin.external("web")}))
+    run_in(daemon, earlier)
+    browser = FakeBrowser()
+    caps = daemon.daemon.registry.capabilities
+    caps["ferb_browser.open"] = BrowserOpen(browser, FERB_BROWSER)   # type: ignore[arg-type]
+    file = _file(f"Main contact: {EMAIL}")
+    caps[file.name] = file
+    opened: list[dict[str, Any]] = []
+
+    def work(token: str) -> str:
+        assert not tool(daemon.sock, token, file.name)["is_error"]
+        opened.append(tool(daemon.sock, token, "ferb_browser.open", url=f"https://sync.example/?u={EMAIL}"))
+        return done("Tried.")
+    install(daemon, [sup("task", "Syncing.", task("check my client list", "ferb"))], {"worker": work})
+    fire(daemon, 61)
+    assert opened and opened[0]["is_error"] and browser.calls == 0
+    assert _url_questions(daemon)
+
+
+# decision: GATE-526, GATE-525
+def test_a_value_inside_an_address_without_its_scheme_goes_back_to_that_site() -> None:
+    """FERB's learned how-note records a visit as `www.macworld.com/article/666646/...` (no https://): opening that site
+    with the article's id gives it nothing new; another site still asks."""
+    from ferb.policy import confirm, provenance
+    note = [(1, provenance.prepare("how: browser.open(www.macworld.com/article/666646/arc-review) then summarise"))]
+    none = provenance.prepare("")
+    assert confirm.url_carries_private("https://www.macworld.com/article/666646/arc-review.html", note, [], none) == []
+    assert confirm.url_carries_private("https://elsewhere.example/?a=666646", note, [], none) == ["666646"]

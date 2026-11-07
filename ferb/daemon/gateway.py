@@ -375,6 +375,14 @@ def without_excluded_hosts(origins: set[str], excluded: Callable[[str], bool]) -
             for o in origins}
 
 
+def _owner_parts(payload: str, segments: list[dict[str, Any]]) -> list[tuple[frozenset[str], provenance.Text]]:
+    """A stored record of FERB's conversation as the sink's owner-data parts (`carried.sink_parts`), prepared: the
+    owner's words and values (no sites), then each site-only group."""
+    main, by_site = carried.sink_parts(payload, segments)
+    return [(frozenset(), confirm.with_forms(provenance.prepare(main)))] + \
+        [(sites, confirm.with_forms(provenance.prepare(text))) for sites, text in by_site.items()]
+
+
 def origin_line(origins: set[str]) -> str:
     """The origin label a model sees under a tool result (S3)."""
     text = "Origin: " + origin.join(origins)
@@ -394,9 +402,10 @@ class OutsideTexts:
     joined_files: dict[str, list[tuple[int, set[str], provenance.Text]]] = field(default_factory=dict)
     pasted: list[tuple[str, provenance.Text]] | None = None    # the request's pasted parts, prepared once (MP2)
     ready: dict[int, provenance.Text] = field(default_factory=dict)   # payloads prepared off the loop, not yet used
-    # a stored record of FERB's conversation (its `segments`): only its owner's words and stored values (GATE-522)
-    owners: dict[int, provenance.Text] = field(default_factory=dict)
-    ready_owners: dict[int, provenance.Text] = field(default_factory=dict)
+    # a stored record of FERB's conversation (its `segments`): only its owner's words and stored values (GATE-522), and
+    # apart, the values read only on some sites' own pages, by those sites (GATE-524)
+    owners: dict[int, list[tuple[frozenset[str], provenance.Text]]] = field(default_factory=dict)
+    ready_owners: dict[int, list[tuple[frozenset[str], provenance.Text]]] = field(default_factory=dict)
     preparing: asyncio.Lock = field(default_factory=asyncio.Lock)     # one off-loop preparation per tree at a time
 
 
@@ -754,9 +763,9 @@ class Gateway:
         return True, ""
 
     def _outside_read(self, root: str) -> list[str]:
-        """The outside content this tree read, sorted (S3, S4, L4): the external labels of its tool results and of the
-        request's own parts, and of the context given to its models whose stored origin is outside. FERB's own memory,
-        history and device facts don't count, whatever they inherited from what they were made from."""
+        """The outside content this tree read, sorted (S3, S4, L4): the external labels of its tool results, of the
+        request's own parts, and of the context given to its models, FERB's own history, summary and memory included
+        when outside content reached them (T-1007, GATE-525)."""
         spans = self.spans
         read = spans.tool_origins(root) | spans.outside_exposure_origins(root) | spans.request_origins(root)
         return sorted(o for o in read if origin.is_external(o))
@@ -852,8 +861,8 @@ class Gateway:
                 text = known.ready.pop(result.rowid) if result.rowid in known.ready else provenance.prepare(result.text)
                 known.payloads[result.rowid] = (result.origins, text)
                 if result.segments:                      # GATE-522: FERB's conversation, by its stored values
-                    known.owners[result.rowid] = known.ready_owners.pop(result.rowid, None) or provenance.prepare(
-                        carried.sink_text(result.text, result.segments))
+                    known.owners[result.rowid] = known.ready_owners.pop(result.rowid, None) or \
+                        _owner_parts(result.text, result.segments)
             if result.path:
                 known.file_chunks.setdefault(result.path, {})[result.rowid] = result
                 changed.add(result.path)
@@ -878,10 +887,12 @@ class Gateway:
         results.sort(key=lambda item: item[0])
         # the owner's data: a record that holds it (its private label), whole; a stored record of FERB's conversation,
         # only its entries' owner words and stored values, whatever labels its entries inherited (GATE-522)
-        private = [(rowid, known.owners[rowid]) if rowid in known.owners else (rowid, text)
-                   for rowid, labels, text in results
-                   if (rowid in known.owners and known.owners[rowid].folded) or
-                   (rowid not in known.owners and origin.PRIVATE in labels)]
+        private: list[tuple[int, provenance.Text]] = []
+        for rowid, labels, text in results:
+            if rowid in known.owners:
+                private += [(rowid, part) for _, part in known.owners[rowid] if part.folded]
+            elif origin.PRIVATE in labels:
+                private.append((rowid, text))
         outside_only = [(rowid, text) for rowid, labels, text in results
                         if origin.PRIVATE not in labels and any(origin.is_external(label) for label in labels)]
         return private, outside_only
@@ -899,8 +910,7 @@ class Gateway:
             if fresh:
                 def prepare() -> tuple[dict[int, provenance.Text], dict[int, provenance.Text]]:
                     full = {r.rowid: confirm.with_forms(provenance.prepare(r.text)) for r in fresh}
-                    owners = {r.rowid: confirm.with_forms(provenance.prepare(carried.sink_text(r.text, r.segments)))
-                              for r in fresh if r.segments}
+                    owners = {r.rowid: _owner_parts(r.text, r.segments) for r in fresh if r.segments}
                     return full, owners
                 full, owners = await asyncio.to_thread(prepare)
                 known.ready.update(full)
@@ -1235,7 +1245,8 @@ class Gateway:
         words = request.words if request is not None else ""
         owner_text = provenance.prepare(words + "\n" + "\n".join(self.spans.owner_answers(root)))
         private, outside_only = await self._sink_texts_ready(root)   # N1: span-ordered; a followed link read first
-        values = confirm.url_private_values(url, private, outside_only, owner_text, self._sink_origins(root))
+        values = confirm.url_private_values(url, private, outside_only, owner_text, self._sink_origins(root),
+                                            self._site_texts(root))
         if not values:
             return None
         first = values[0]
@@ -1245,6 +1256,12 @@ class Gateway:
                                                       "source": self._read_as(root, first.first_read),
                                                       "read": confirm.shown_origins(outside_labels)},
                             destinations=(("host", host),))
+
+    def _site_texts(self, root: str) -> dict[int, frozenset[str]]:
+        """The owner values FERB's conversation stored as read only on some sites' own pages, by `id` of their prepared
+        text, with those sites (GATE-524): such a value may go back to them."""
+        known = self._outside.setdefault(root, OutsideTexts())
+        return {id(part): sites for parts in known.owners.values() for sites, part in parts if sites}
 
     def _sink_origins(self, root: str) -> dict[int, set[str]]:
         """Each source record's labels by span order, as `_sink_texts` last read them (GATE-506: a value read only from

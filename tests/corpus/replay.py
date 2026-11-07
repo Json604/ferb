@@ -104,15 +104,13 @@ def _read_label(where: str) -> str:
 
 
 def _schedule_request_origins(make: list[Read]) -> set[str]:
-    """supervisor._sink_origins_for_new_schedule: `inferred`, the owner's message, and the making turn's context whose
-    stored origin is outside content (FERB's own history and memory don't count, whatever they inherited)."""
+    """supervisor._sink_origins_for_new_schedule: `inferred`, the owner's message, and the outside kinds of the making
+    turn's context, FERB's own history and memory included when outside content reached them (T-1007, GATE-525)."""
     found = {origin.INFERRED, origin.OWNER}
     for r in make:
         if r.kind in ("owner_words", "owner_paste"):
             continue
-        labels = _carried_labels(r)
-        if origin.stored_outside(labels):
-            found |= labels
+        found |= {origin.kind(o) for o in _carried_labels(r) if origin.is_external(o)}
     return found
 
 
