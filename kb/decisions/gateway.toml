@@ -443,3 +443,22 @@ status = "active"
 rule = "History lines (task answers, FERB's replies and questions written from outside content, notices) show origin.shown: the stored labels, except that a record with more than one outside label shows each outside kind once (external:web), never the hosts and senders it inherited; one outside label keeps its detail. A tool result's footer names what the tool itself read with its detail, and labels passed through from FERB's records (chat.history, memory.read, task.evidence) that way. Outside entries stay marked and quoted as data. Display only: stored labels and every check are unchanged."
 why = "T-1007 phase 1. Replay over a copy of the owner's database (837 calls since 11-04): inherited label lists were 66% of the planner's input; shown origins cut its context 64% with zero changed questions (9 of 9 recorded sink questions reproduced)."
 paths = ["ferb/core/origin.py::brief", "ferb/orchestrator/supervisor.py::Supervisor._timeline", "ferb/daemon/gateway.py::footer_origins"]
+
+[GATE-516]
+title = "A link carrying only part of the owner's data doesn't ask"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "dont ask"
+words_source = "Owner, 2026-11-07, asked: \"Should FERB ask when a link carries only part of your data, for example the last 6 digits of your phone?\""
+rule = "The sink question is not asked for an address or form that carries only part of one of the owner's private values (for example the last 6 digits of their phone); the whole value still asks, however it is written."
+paths = ["ferb/policy/confirm.py::_value_forms"]
+
+[GATE-517]
+title = "The URL and form sink match a whole private value in any spelling; a part of one is not a value"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "Texts give value forms: tokens, grouped values (digit groups joined by single spaces) and spellings (no separators or case; the owner's digits without grouping separators, never across letters; a phone's national 0 form). A token only inside a grouped value is a part (GATE-516). A URL piece, decoded up to twice more, matches by itself, a spelling, a grouped value in it, or several words written so around a whole value; all groups in separate pieces match. Order, owner and same-site rules apply. Unchanged: one value amid other words; a postcode alone still asks."
+why = "The sink-rule corpus found 21 whole values leaving unasked (a spaced phone or an address in one query value, regrouped IBANs, amounts, digits-only ids, double encoding). All 21 are now caught, with no new question on the corpus or on the replay of the owner's database since 11-04."
+paths = ["ferb/policy/confirm.py::_value_forms", "ferb/policy/confirm.py::_spellings", "ferb/policy/confirm.py::_phrase", "ferb/policy/confirm.py::_private_hits", "ferb/policy/confirm.py::_decoded_again"]

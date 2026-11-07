@@ -32,9 +32,10 @@ import binascii
 import json
 import re
 import unicodedata
+import weakref
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Iterable
-from urllib.parse import unquote_plus
+from urllib.parse import unquote, unquote_plus
 
 import idna
 
@@ -332,10 +333,84 @@ def _fine_tokens(text: str) -> set[str]:
     return {t for t in _FINE.split(text.lower()) if len(t) >= provenance.MIN_LEN}
 
 
-def _toks(t: provenance.Text) -> set[str]:
-    """A read text's tokens for the URL check: the coarse tokens (whole emails, hosts, paths) and the fine tokens
-    (values embedded in JSON/.env/query punctuation), combined (N2)."""
-    return set(t.tokens) | _fine_tokens(t.folded)
+# One group of a grouped value (a phone's, an IBAN's or a card's digit groups): letters and digits holding a digit, a
+# leading + kept. A grouped value is two or more groups joined by single spaces on one line.
+_GROUP = r"\+?[^\W_]*\d[^\W_]*"
+_RUN = re.compile(rf"(?<![\w+\-./@%])({_GROUP}(?: {_GROUP})+)(?![\w\-/@%])")
+_GROUPED_DIGITS = re.compile(r"\d+(?:[\s.,\-]+\d+)+")   # digit groups split only by grouping separators
+
+
+def _spellings(value: str, digits: bool = False) -> set[str]:
+    """Other ways the same whole value is written (Step A, GATE-516): its letters and digits with every separator
+    and case dropped (`+44 7700 900123`, `+44-7700-900123`, `447700900123`; `4,312.75`, `4312.75`, `431275`;
+    `DE00 1234 …`) and, for an international phone number, its national form with a leading 0. With `digits` (a
+    value of the owner's data), also its digits alone where grouping separators split them (`ORD-48213-7731` →
+    `482137731`; never across letters: `s6e35` has none). Only forms holding a digit. Shape only (rule 4)."""
+    out: set[str] = set()
+    skeleton = "".join(c for c in value if c.isalnum())
+    if len(skeleton) >= provenance.MIN_LEN and any(c.isdigit() for c in skeleton):
+        out.add(skeleton)
+    if digits:
+        out |= {j for m in _GROUPED_DIGITS.finditer(value)
+                if len(j := "".join(c for c in m.group(0) if c.isdigit())) >= provenance.MIN_LEN}
+    if value.lstrip().startswith("+") and skeleton.isdigit() and len(skeleton) >= provenance.DESTINATION_PHONE_DIGITS:
+        out |= {"0" + skeleton[k:] for k in (1, 2, 3)}       # +44 7700 900123 → 07700 900123 (country codes: 1-3)
+    return out
+
+
+def _value_forms(text: str, coarse: Iterable[str] | None = None) -> frozenset[str]:
+    """Every form a whole value of `text` (lowercased) can take in an address or a form: its tokens (coarse: whole
+    emails, hosts, paths; fine: values embedded in JSON/.env/query punctuation, N2), each grouped value whole (digit
+    groups joined by single spaces), and their `_spellings`. A token that appears only as one group of a grouped value
+    is a part of it, not a value of its own (owner, 2026-11-07, on a link carrying only part of the owner's data:
+    "dont ask"): the last digits of `+44 7700 900123` are not the number. `coarse`: the text's coarse tokens when
+    already made (a prepared text's)."""
+    toks = set(provenance.tokens(text) if coarse is None else coarse) | _fine_tokens(text)
+    runs = [m.group(1) for m in _RUN.finditer(text)]
+    if runs:
+        rest = _RUN.sub(" ", text)
+        members = {t for run in runs for t in set(provenance.tokens(run)) | _fine_tokens(run)}
+        toks -= members - (set(provenance.tokens(rest)) | _fine_tokens(rest))
+    forms = set(toks) | set(runs)
+    for value in toks | set(runs):
+        if len(value) <= 64 and "/" not in value:               # not a URL or a path: those keep their own tokens
+            forms |= _spellings(value, digits=True)
+    return frozenset(forms)
+
+
+# Each read text's forms, made once and kept while the text is (the gateway keeps a task's prepared texts)
+_FORMS: "weakref.WeakKeyDictionary[provenance.Text, frozenset[str]]" = weakref.WeakKeyDictionary()
+_SEQUENCES: "weakref.WeakKeyDictionary[provenance.Text, tuple[str, ...]]" = weakref.WeakKeyDictionary()
+
+
+def _toks(t: provenance.Text) -> frozenset[str]:
+    """A read text's value forms for the URL and form checks (`_value_forms`), made once per text."""
+    found = _FORMS.get(t)
+    if found is None:
+        found = _FORMS[t] = _value_forms(t.folded, t.tokens)
+    return found
+
+
+def _sequence(t: provenance.Text) -> tuple[tuple[str, ...], frozenset[str]]:
+    """A read text's fine tokens in order (every length, for `_phrase`), and its value forms."""
+    seq = _SEQUENCES.get(t)
+    if seq is None:
+        seq = _SEQUENCES[t] = tuple(x for x in _FINE.split(t.folded) if x)
+    return seq, _toks(t)
+
+
+def _phrase(piece: str, t: provenance.Text, known_to_site: set[str] = set()) -> bool:
+    """Whether a piece of several words is written in `t` word for word, holding a whole value of `t` (a token of at
+    least MIN_LEN that is a value and not only a group of a grouped value) that the destination doesn't already have
+    (`known_to_site`): an address placed whole in one query value (`22 Birch Road Apt 5B, Riverton 99021`). A value
+    inside other words of a piece is not matched alone (GATE-516)."""
+    words = [x for x in _FINE.split(piece.lower()) if x]
+    seq, forms = _sequence(t)
+    if len(words) < 2 or not any(len(w) >= provenance.MIN_LEN and _is_value(w) and w in forms and
+                                 w not in known_to_site for w in words):
+        return False
+    n = len(words)
+    return any(seq[i:i + n] == tuple(words) for i, x in enumerate(seq) if x == words[0])
 
 
 def _decodings(piece: str) -> set[str]:
@@ -390,18 +465,56 @@ def _same_site_only(private: list[tuple[int, provenance.Text]], dest: str,
     elsewhere: set[str] = set()
     for order, t in private:
         if origins is not None and _read_from(origins.get(order, set()), dest):
-            inside |= set(provenance.tokens(t.folded)) | _fine_tokens(t.folded)
+            inside |= _toks(t)
             continue
+        links, rest = _url_parts(t)
+        for host, forms in links:
+            if _host_had_it(host, dest):
+                inside |= forms
+            else:
+                elsewhere |= forms
+        elsewhere |= rest
+    return inside - elsewhere
+
+
+_RUNS: "weakref.WeakKeyDictionary[provenance.Text, tuple[str, ...]]" = weakref.WeakKeyDictionary()
+
+
+def _runs(t: provenance.Text) -> tuple[str, ...]:
+    """A read text's grouped values (`_RUN`), lowercased; made once."""
+    found = _RUNS.get(t)
+    if found is None:
+        found = _RUNS[t] = tuple(m.group(1) for m in _RUN.finditer(t.folded))
+    return found
+
+
+def with_forms(t: provenance.Text) -> provenance.Text:
+    """`t` with its value forms and URL parts made now (the gateway calls it off the event loop, DMN-13)."""
+    _toks(t)
+    _url_parts(t)
+    _runs(t)
+    return t
+
+
+_URL_PARTS: "weakref.WeakKeyDictionary[provenance.Text, tuple[tuple[tuple[str, frozenset[str]], ...], frozenset[str]]]" \
+    = weakref.WeakKeyDictionary()
+
+
+def _url_parts(t: provenance.Text) -> tuple[tuple[tuple[str, frozenset[str]], ...], frozenset[str]]:
+    """A read text's URLs, each with its host and value forms, and the value forms of the rest of it; made once."""
+    found = _URL_PARTS.get(t)
+    if found is None:
+        links: list[tuple[str, frozenset[str]]] = []
         rest, cut = [], 0
         for m in _URL_IN_TEXT.finditer(t.folded):
             parsed = urls.parse(m.group(0).rstrip(_TRAIL))
-            if parsed is not None and parsed.host and _host_had_it(parsed.host, dest):
-                inside |= set(provenance.tokens(m.group(0))) | _fine_tokens(m.group(0))
+            if parsed is not None and parsed.host:
+                links.append((parsed.host, _value_forms(m.group(0))))
                 rest.append(t.folded[cut:m.start()])
                 cut = m.end()
         rest.append(t.folded[cut:])
-        elsewhere |= set(provenance.tokens(" ".join(rest))) | _fine_tokens(" ".join(rest))
-    return inside - elsewhere
+        found = _URL_PARTS[t] = (tuple(links), _value_forms(" ".join(rest)))
+    return found
 
 
 def _value_labels(host: str) -> list[str]:
@@ -452,7 +565,16 @@ def _url_pieces(url: str) -> list[str]:
     pieces.append(frag)
     for pair in frag.split("&"):                               # #k=VALUE and #VALUE
         pieces += pair.split("=")
-    return pieces
+    return pieces + [again for piece in pieces for again in _decoded_again(piece)]
+
+
+def _decoded_again(piece: str) -> list[str]:
+    """A piece percent-encoded more than once (`%2540` → `%40` → `@`), decoded again, at most twice more (GATE-516)."""
+    out: list[str] = []
+    while "%" in piece and len(out) < 2 and (nxt := unquote(piece)) != piece:
+        out.append(nxt)
+        piece = nxt
+    return out
 
 
 _WORD_JOINERS = frozenset(".-_'\u2019")                   # inside words, names and file names: index.html, about-us
@@ -468,14 +590,19 @@ def _is_value(form: str) -> bool:
 
 def _variants(piece: str) -> tuple[set[str], set[str]]:
     """A URL piece's forms to match: (its values as written: itself and its trailing-punctuation-stripped form,
-    lowercased, when they are values, not words; its base64/hex decodings (N2), words included, since hiding a word
-    in an encoding is how data is smuggled, scenario #2)."""
+    lowercased, when they are values, not words, with their spellings and each grouped value inside it (`_spellings`); its
+    base64/hex decodings (N2), words included, since hiding a word in an encoding is how data is smuggled, scenario
+    #2)."""
     shown: set[str] = set()
     decoded: set[str] = set()
     for base in (piece.strip(), piece.strip().rstrip(_TRAIL)):
         if len(base) >= provenance.MIN_LEN:
-            if _is_value(base.lower()):
-                shown.add(base.lower())
+            low = base.lower()
+            if _is_value(low):
+                shown.add(low)
+                # its other spellings, and each grouped value inside it with theirs (GATE-516): a spaced phone whole
+                for whole in (low, *_RUN.findall(low)):
+                    shown |= {whole, *_spellings(whole)}
             decoded |= _decodings(base)
     return shown, decoded
 
@@ -563,9 +690,23 @@ def _private_hits(pieces: list[str], private: list[tuple[int, provenance.Text]],
         shown, decoded = _variants(piece)
         matched = {m for m in (shown | decoded) & set(first_private)
                    if m not in owner_toks and m not in known_to_site and not laundered(m)}
+        if not matched and value:                              # several words, written so in the owner's data
+            orders = [order for order, t in private if _phrase(value, t, known_to_site)]
+            if orders and not _phrase(value, owner) and not any(o < min(orders) and _phrase(value, t)
+                                                                  for o, t in outside):
+                first_private[value.lower()] = min(orders)
+                matched = {value.lower()}
         if matched and value and value not in [h.piece for h in hits]:
             first = min(matched, key=lambda m: (first_private[m], -len(m), m))   # the earliest read, longest form
             hits.append(PrivateValue(value, first, first_private[first]))
+    # a grouped value whose every group rides in its own piece (?c=+44&a=7700&b=900123): the whole value leaves
+    words = {w for piece in pieces for w in _FINE.split(piece.lower()) if w}
+    for order, t in private:
+        for run in _runs(t):
+            groups = [g.lstrip("+") for g in run.split(" ")]
+            if all(g in words for g in groups) and run in first_private and run not in owner_toks and \
+                    run not in known_to_site and not laundered(run) and run not in [h.matched for h in hits]:
+                hits.append(PrivateValue(" ".join(groups), run, first_private[run]))
     return hits
 
 

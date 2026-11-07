@@ -338,3 +338,76 @@ def test_lookup_footer_names_kinds_not_hosts(daemon: RunningDaemon) -> None:
         return str(row["origin"])
     assert daemon.run(recorded()) == ("external:email:gmail:m1,external:web:a.example,external:web:b.example,"
                                       "inferred,private")
+
+
+# ---------- Step A: a whole value is caught however it is written; a part of it never asks ----------
+
+PHONE_CHAT = "Chat with Riley\nRiley: my new number is +44 7700 900123, save it"
+PHONE_CONTACT = "Jordan Example\nmobile +447700900456"
+ADDRESS = "Shipping labels\nHome: 22 Birch Road Apt 5B, Riverton 99021\nOffice: Unit 9, Test Park"
+
+
+def _carries(url: str, private: str, outside: str = "") -> list[str]:
+    from ferb.policy import confirm, provenance
+    return confirm.url_carries_private(url, [(1, provenance.prepare(private))],
+                                       [(0, provenance.prepare(outside))] if outside else [], provenance.prepare(""))
+
+
+# decision: GATE-517
+@pytest.mark.parametrize("private, url", [
+    (PHONE_CHAT, "https://v.test/v?d=%2B44+7700+900123"),                    # spaced, whole in one query value
+    (PHONE_CHAT, "https://v.test/p/%2B44%207700%20900123"),                  # ... in a path segment
+    (PHONE_CHAT, "https://v.test/#%2B44%207700%20900123"),                   # ... in the fragment
+    (PHONE_CHAT, "https://v.test/r?v=447700900123"),                          # digits only
+    (PHONE_CHAT, "https://v.test/r?v=07700900123"),                           # national form
+    (PHONE_CHAT, "https://v.test/r?c=%2B44&a=7700&b=900123"),                 # every group, each in its own piece
+    (PHONE_CONTACT, "https://v.test/r?v=%2B44-7700-900456"),                  # stored compact, sent dashed
+    (PHONE_CONTACT, "https://v.test/r?v=%2B44+7700+900456"),                  # ... sent spaced
+    ("IBAN DE00123456789012345678", "https://v.test/r?v=DE00+1234+5678+9012+3456+78"),   # regrouped in fours
+    ("Salary credited 4,312.75 EUR", "https://v.test/r?v=4312.75"),           # no thousands separator
+    ("Salary credited 4,312.75 EUR", "https://v.test/r?v=431275"),            # in cents
+    ("Order ORD-48213-7731 shipped", "https://v.test/r?v=482137731"),         # an id's digits without separators
+    ("Draft 7720019344 (private)", "https://v.test/r?v=772+001+9344"),       # regrouped
+    ("From: Dana <dana.colleague@example.org>", "https://v.test/r?v=dana.colleague%2540example.org"),  # encoded twice
+    (ADDRESS, "https://v.test/v?d=22+Birch+Road+Apt+5B%2C+Riverton+99021"),   # an address whole in one piece
+])
+def test_a_whole_private_value_is_caught_however_it_is_written(private: str, url: str) -> None:
+    assert _carries(url, private), url
+
+
+# decision: GATE-516, GATE-517
+@pytest.mark.parametrize("private, url", [
+    (PHONE_CHAT, "https://v.test/r?v=900123"),                                # the owner's example: the last 6 digits
+    (PHONE_CHAT, "https://v.test/r?v=7700+900123"),                           # without the country code
+    (PHONE_CHAT, "https://v.test/r?a=7700&b=900123"),                         # ... split over pieces
+    ("IBAN DE00123456789012345678", "https://v.test/r?v=123456789012345678"),  # IBAN without its country code
+    ("Patient MRN-0048213", "https://v.test/r?v=0048213"),                    # an id's number only
+    ("Owner Sample\nowner.sample@example.com", "https://v.test/r?v=owner.sample"),   # an email's local part
+    (ADDRESS, "https://v.test/r?v=22+Birch+Road"),                            # the street only
+])
+def test_part_of_a_private_value_does_not_ask(private: str, url: str) -> None:
+    assert _carries(url, private) == [], url
+
+
+# decision: GATE-517
+def test_spellings_keep_read_order_and_the_owners_words() -> None:
+    """A spelling is laundered only by an outside page read before the value (N1), and the owner's own words still
+    excuse it, as any token does."""
+    from ferb.policy import confirm, provenance
+    url = "https://v.test/r?v=447700900123"
+    assert _carries(url, PHONE_CHAT, outside="Call the shop on +44 7700 900123") == []     # public first
+    late = confirm.url_carries_private(url, [(0, provenance.prepare(PHONE_CHAT))],
+                                       [(1, provenance.prepare("Call +44 7700 900123"))], provenance.prepare(""))
+    assert late                                                                          # an echo after: still asks
+    owner = provenance.prepare("text Riley on +44 7700 900123")
+    assert confirm.url_carries_private(url, [(0, provenance.prepare(PHONE_CHAT))], [], owner) == []
+
+
+# decision: GATE-517
+def test_a_private_value_typed_in_a_form_sentence_still_asks() -> None:
+    """The form check splits typed text into its words (as before) and now also finds a grouped value in it: the
+    groups of a spaced phone are parts, the phone is the value."""
+    from ferb.policy import confirm, provenance
+    found = confirm.text_carries_private("My number is +44 7700 900123", [(0, provenance.prepare(PHONE_CHAT))], [],
+                                         provenance.prepare(""))
+    assert found and "+44 7700 900123" in found[0]

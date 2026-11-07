@@ -888,7 +888,7 @@ class Gateway:
                      if r.text and r.rowid not in known.ready]
             if fresh:
                 known.ready.update(await asyncio.to_thread(
-                    lambda: {rowid: provenance.prepare(text) for rowid, text in fresh}))
+                    lambda: {rowid: confirm.with_forms(provenance.prepare(text)) for rowid, text in fresh}))
             return self._sink_texts(root)
 
     # ---------- the pipeline ----------
