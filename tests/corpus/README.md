@@ -27,7 +27,8 @@ questions.
 - `action`: one outbound action: a browser open or navigate, a form typed and submitted, a message or email send, or a
   post. `schedule: true` makes it a schedule's later run (unattended).
 - `expected`: `ask` or `no_ask`, with a one-line `reason`. This is the verdict the owner's decisions want, not what the
-  code does today.
+  code does today. A link carrying only part of the owner's value (`generate.PARTIAL`: a local part, a postcode, an
+  id's digits) is `no_ask` (owner, 2026-11-07: "dont ask"); a whole value reformatted, spaced or encoded is `ask`.
 - `secret`: the owner's value at stake, as its source holds it. `approved_hosts`: hosts the owner approved earlier.
 - `known_today`: why today's code is known to get it wrong (the year in FERB's summary, copied links, T-1007).
 
