@@ -304,10 +304,10 @@ extension NotchModel {
             switch event["type"] as? String {
             case "plan_delta":
                 // The sticky window shows the plan line in the chat; the notch shows no compact preview then (APP-745).
+                // APP-787: the closed notch never shows a task's reply while it streams: the daemon may still withdraw
+                // it (a plan sent back for repair, `plan_abort`). It shows the reply once FERB accepted it (`plan`).
                 if expanded || chatInWindow { acknowledgement.suppress(turn: localID) }
-                else { acknowledgement.append(event["text"] as? String ?? "", turn: localID) }
-            case "plan_abort": acknowledgement.abort(turn: localID)
-            case "plan_end": acknowledgement.complete(turn: localID)
+            case "plan_abort", "plan_end": break      // nothing streamed into the closed notch, so nothing to withdraw
             case "plan":
                 if expanded || chatInWindow { acknowledgement.suppress(turn: localID) }
                 else if let text = event["text"] as? String, text != previousPlan {

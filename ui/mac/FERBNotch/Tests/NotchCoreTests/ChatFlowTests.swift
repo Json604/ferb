@@ -236,6 +236,24 @@ final class ChatFlowTests: XCTestCase {
         XCTAssertFalse(restored.turns[0].isVerified)
     }
 
+    // decision: APP-787
+    func testTheClosedNotchShowsATasksReplyOnlyOnceFERBAcceptedIt() {
+        // Owner 2026-11-07: a reply the planner withdrew (its plan sent back for repair) flashed in the closed notch;
+        // "make sure tha tthis also doesnt show in the temo acknowledgement notch response for the task".
+        let model = makeModel()
+        let task = begin("fill both applications", in: model)
+        model.collapse()
+        model.receiveChatEvent(["type": "plan_delta", "request_id": "req-t", "at": Contract.at,
+                                "text": "I'm filling both now."], localID: task)
+        XCTAssertNil(model.acknowledgement.text, "a streaming task reply never reaches the closed notch")
+        model.receiveChatEvent(["type": "plan_abort", "request_id": "req-t", "at": Contract.at,
+                                "reason": "The provisional plan needs correction."], localID: task)
+        XCTAssertNil(model.acknowledgement.text)
+        model.receiveChatEvent(Contract.plan("req-t", task: "task-1", text: "I'm filling both, leaving them unsubmitted."),
+                               localID: task)
+        XCTAssertEqual(model.acknowledgement.text, "I'm filling both, leaving them unsubmitted.")   // the accepted reply
+    }
+
     // decision: APP-714, APP-578
     func testASteeringTurnsOneReplyShowsOnce() {
         // Live 2026-11-04: a message that corrected a running task streamed the planner's sentence as a plan line

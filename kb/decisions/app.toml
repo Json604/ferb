@@ -2897,3 +2897,14 @@ words_source = "Owner, 2026-11-07, with a screenshot at 11:44:42: the planner's 
 rule = "When the reply FERB was streaming is withdrawn (the planner sends its plan back for repair), the turn shows FERB still replying (the typing dots) until the real reply arrives; the withdrawn words are not shown again, since the repaired plan may say otherwise."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationArchive.abortPlanStream"]
 live = ["LIVE-812"]
+
+[APP-787]
+title = "The closed notch shows a task's reply only once FERB accepted it"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "oh ok, make sure tha tthis also doesnt show in the temo acknowledgement notch response for the task."
+words_source = "Owner, 2026-11-07, about the reply that flashed in the closed notch and was then withdrawn for repair (APP-786)"
+rule = "Refines APP-622/624's planning preview for tasks: the closed notch no longer streams a task's reply (plan_delta), since the daemon may still withdraw it; it shows the reply when the plan event arrives, then for six seconds as before. A withdrawn reply no longer blocks the accepted one from showing. Plain answers are unchanged (they open the chat)."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift::NotchModel.receiveChatEvent"]
+live = ["LIVE-812"]
