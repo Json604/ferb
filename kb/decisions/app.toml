@@ -2886,3 +2886,14 @@ words_source = "Owner, 2026-11-07, after the local trial; asked for every blur \
 rule = "Refines APP-551's frost. The notch panel, the sticky chat window and the app window blur what is behind them progressively: about twice macOS's frost at the top edge, easing to about a quarter of that toward the content, never clear. The composer, pills and bubbles get an even heavy blur. macOS's private variableBlur filter replaces its gaussian one; where it isn't there, or Reduce Transparency is on, macOS's own frost stays."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ProgressiveBlur.swift"]
 untestable = "How it looks: the owner's eye on the installed app; the tests check the filter swap and the mask's shape."
+
+[APP-786]
+title = "A reply the planner withdraws leaves FERB visibly replying, never nothing"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "the ferb reply to taks doesnt show, it did appear in teh short time notch, but i cant see it in teh nothc chat. its s ui error i thnk , FIX THIS"
+words_source = "Owner, 2026-11-07, with a screenshot at 11:44:42: the planner's first plan broke a rule and was repaired (task.repair), 18 s with nothing under the owner's message"
+rule = "When the reply FERB was streaming is withdrawn (the planner sends its plan back for repair), the turn shows FERB still replying (the typing dots) until the real reply arrives; the withdrawn words are not shown again, since the repaired plan may say otherwise."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationArchive.abortPlanStream"]
+live = ["LIVE-812"]

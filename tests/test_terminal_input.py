@@ -323,7 +323,7 @@ def test_the_live_sequence_asks_first_and_a_yes_types_once_and_sends_its_return(
     assert ax.landed == [("term108", "type codex"), ("term108", "key ENTER")]     # once each, in FERB's terminal
     asked = _questions(daemon)[1:]                                                # after the menu's question
     assert len(asked) == 1 and asked[0]["confirm"][0]["rule"] == confirm.TERMINAL_INPUT and asked[0]["answer"] == YES
-    assert owner.summaries[1:] == ['Run this in the terminal "Terminal 108, zsh Use ⌥F1 for…" in Code (window '
+    assert owner.summaries[1:] == ['Run this command in Code (terminal "Terminal 108, zsh Use ⌥F1 for…", window '
                                    '"FERB")?']
     assert owner.exacts[1:] == ['codex']                                          # the exact input, in its box
     assert '"codex"' in asked[0]["question"] and "xterm" in asked[0]["question"]
@@ -383,7 +383,7 @@ def test_a_return_ferb_did_not_type_for_asks_and_says_what_it_runs(daemon: Runni
     finally:
         owner.stop()
     assert out["is_error"] and ax.landed == []
-    assert owner.summaries == ['Press Return in the terminal "Terminal 57, claude Use ⌥F1 f…" in Code (window "FERB")?']
+    assert owner.summaries == ['Press Return in Code (terminal "Terminal 57, claude Use ⌥F1 f…", window "FERB")?']
 
 
 def test_the_editor_needs_no_question(daemon: RunningDaemon, monkeypatch: Any) -> None:
@@ -403,8 +403,8 @@ def test_a_menu_paste_into_the_focused_terminal_asks_with_the_clipboards_text(da
     finally:
         owner.stop()
     assert not out["is_error"], out
-    assert owner.summaries == ['Paste this into the terminal "Terminal 108, zsh Use ⌥F1 for…" in Code (window '
-                               '"FERB") and press Return?']
+    assert owner.summaries == ['Paste this into Code (terminal "Terminal 108, zsh Use ⌥F1 for…", window "FERB") and '
+                               'press Return?']
     assert owner.exacts == ['codex']                                              # the clipboard's text, in its box
     assert ax.landed == [("term108", "paste")]
 
@@ -431,7 +431,7 @@ def test_typing_into_a_web_terminal_asks_and_a_yes_covers_its_return(bd: Any) ->
     finally:
         owner.stop()
     assert [q["answer"] for q in _questions(d)] == [YES, NO]                      # the second Return asked: No
-    assert owner.summaries[0] == 'Run this in the terminal in the page on shop.example?'
+    assert owner.summaries[0] == 'Run this command in the page on shop.example?'
     assert owner.exacts[0] == 'gcloud config list'
     assert again["is_error"] and "the owner said no" in again["content"]["error"]
     sent = [(a["kind"], a["text"]) for a in ext.acts]

@@ -251,12 +251,10 @@ def _escape(daemon: Any, tmp_path: Any, rule: str, choice: int = 2) -> list[Any]
 
 
 @pytest.mark.parametrize('rule, want', [
-    ('read:~/Library/Application Support/Google/Chrome',
-     "FERB wants to read ~/Library/Application Support/Google/Chrome for this task (normally off-limits: a private "
-     "store FERB stays out of)."),
-    ('write:~/.zshrc', "FERB wants to change ~/.zshrc once (normally off-limits: FERB never changes it on its own)."),
-    ('trustd', "FERB wants to let one command use macOS's certificate service, trustd (normally off: it reaches "
-               "certificate addresses outside FERB's proxy)."),
+    ('read:~/Library/Application Support/Google/Chrome',                    # GATE-513: the card's question
+     "Read ~/Library/Application Support/Google/Chrome for this task?"),
+    ('write:~/.zshrc', "Change ~/.zshrc once?"),
+    ('trustd', "Let one command use macOS's certificate service?"),
 ])
 def test_the_escape_question_says_what_ferb_wants_and_the_rule_it_lifts(daemon: Any, tmp_path: Any, rule: str,
                                                                        want: str) -> None:
@@ -271,8 +269,7 @@ def test_the_escape_question_says_what_ferb_wants_and_the_rule_it_lifts(daemon: 
 def test_the_admin_escape_and_its_password_question_each_say_what_they_are(daemon: Any, tmp_path: Any) -> None:
     asked = _escape(daemon, tmp_path, 'admin', choice=1)                    # Yes, then no password: cancelled
     assert [ap.summary for ap in asked] == [
-        "FERB wants to run one command as administrator (sudo), with your Mac password (normally off-limits: FERB's "
-        "shell never uses admin rights).",
+        "Run one command as administrator (sudo)?",
         "FERB needs your Mac password for the one command you just approved."]
     assert asked[1].detail == "Type it below. FERB passes it only to that command and doesn't save it."   # GATE-513
     assert asked[1].kind == 'owner_admin_password'
@@ -335,7 +332,7 @@ def test_a_confirmation_card_carries_the_facts_that_decide_it_and_no_tool_ids(da
         ([_need('floor:pay', amount='₹248.75', merchant='Zomato', site='zomato.com', account='', recipients='')],
          "₹248.75 to Zomato", ''),
         ([confirm.bulk_delete('/Users/k/old', {'path': '/Users/k/old', 'files': 3, 'directories': 1, 'bytes': 2048,
-                                                'paths': ['/Users/k/old/', '/Users/k/old/a']})], "/Users/k/old · 3 files",
+                                                'paths': ['/Users/k/old/', '/Users/k/old/a']})], "3 files in 1 folder",
          ''),
         ([_need('floor:new_recipient', recipients='bob@x.com', verb='sends to')], "bob@x.com", 'Report attached'),
     ]
@@ -382,7 +379,8 @@ def test_a_code_confirmation_carries_its_one_question_to_the_app_and_the_step_on
     want = "Send to bob@x.com?"                                                     # GATE-513: the plain question
     [ap] = answers.asked
     assert ap.summary == want and want != ap.reason
-    assert ap.detail == "You haven't named this person to FERB before." and ap.exact == "To: bob@x.com"
+    assert ap.detail == ("You haven't named this person to FERB before. A Yes lets FERB send to this person from now "
+                         "on.") and ap.exact == "To: bob@x.com"
     assert ap.why == '(from the task) FERB: it is fine'                            # its own line, marked (D33)
     assert 'mail.send to bob@x.com' in ap.reason and 'it is fine' in ap.reason     # the audit record keeps the step
     assert 'mail.send' not in ap.summary and not ap.from_task                      # the card never shows it

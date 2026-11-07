@@ -555,6 +555,9 @@ public struct ConversationArchive: Codable, Equatable {
     public mutating func abortPlanStream(id: UUID) {
         guard let index = turns.firstIndex(where: { $0.id == id }) else { return }
         turns[index].streamingPlan = nil
+        // APP-786: the streamed reply was withdrawn (the planner is repairing its plan): until the real one comes, the
+        // turn shows FERB still replying (the typing dots), never nothing under the owner's message
+        if turns[index].plan == nil, turns[index].status == "working" { turns[index].awaitingReply = true }
     }
 
     /// A newer picture of a turn's card merges into the one shown; another turn's card replaces it.

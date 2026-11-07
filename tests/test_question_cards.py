@@ -50,9 +50,9 @@ def test_every_rule_has_a_plain_question_with_its_facts_and_with_none(rule: str)
 # decision: GATE-513
 def test_the_overleaf_question_reads_plainly_with_the_address_in_its_box() -> None:
     made = confirm.card([_need("sink:private_url", RULES["sink:private_url"])])
-    assert made.question == ("Open this page on www.overleaf.com? Its address includes something FERB read on "
-                             "mail.google.com.")
-    assert made.detail == 'FERB found "ceae41" there, and opening the page sends it to www.overleaf.com.'
+    assert made.question == 'Send "ceae41" to www.overleaf.com by opening this page?'
+    assert made.detail == ("FERB read it on mail.google.com, and the page's address carries it. A Yes also lets FERB "
+                           "open www.overleaf.com in later tasks.")              # what the Yes allows (GATE-205)
     assert made.exact == "https://www.overleaf.com/latex/templates/ceae41"
 
 
@@ -62,8 +62,9 @@ def test_several_needs_make_one_question_with_every_exact_part() -> None:
                          _need("sink:outside_value", {"what": "recipient", "value": "rahul@example.com",
                                                       "origin": "an email"})], typed='"see you at 5"')
     assert made.question == "Send to rahul@example.com?"
-    assert "Send to this recipient?" in made.detail and 'Text last typed there: ""see you at 5""' in made.detail
-    assert made.exact.split("\n") == ["To: rahul@example.com", "rahul@example.com · found in an email"]
+    assert "Send to this address, which came from something FERB read?" in made.detail
+    assert 'Text last typed there: ""see you at 5""' in made.detail
+    assert made.exact.split("\n") == ["To: rahul@example.com", "rahul@example.com"]
 
 
 def _ask(daemon: RunningDaemon, needs: list[confirm.Need]) -> Any:
@@ -103,7 +104,9 @@ def test_the_app_gets_the_why_line_and_the_exact_part(daemon: RunningDaemon, mon
     ap = _ask(daemon, [_need("floor:new_recipient", RULES["floor:new_recipient"])])
     event = next(e for e in published if e["approval_id"] == ap.id)
     assert (event["summary"], event["detail"], event["exact"]) == (
-        "Send to rahul@example.com?", "You haven't named this person to FERB before.", "To: rahul@example.com")
+        "Send to rahul@example.com?",
+        "You haven't named this person to FERB before. A Yes lets FERB send to this person from now on.",
+        "To: rahul@example.com")
 
 
 # decision: GATE-513
@@ -123,3 +126,19 @@ def test_a_payments_code_question_says_what_it_pays() -> None:
     question, why, exact = otp_card("secure.bank.example", unread)
     assert question == "For secure.bank.example: FERB needs the OTP for the payment you approved (₹248.75 to Orderly)."
     assert why.startswith("FERB couldn't read the amount on this page.")
+
+
+# decision: GATE-514
+# decision: GATE-205
+@pytest.mark.parametrize("rule, values, destinations", [
+    ("floor:new_recipient", RULES["floor:new_recipient"], (("email", "rahul@example.com"),)),
+    ("sink:new_destination", RULES["sink:new_destination"], (("host", "forms.example.com"),)),
+    ("sink:private_url", RULES["sink:private_url"], (("host", "www.overleaf.com"),)),
+    ("sink:outside_value", RULES["sink:outside_value"], (("phone", "4417 1234 5678"),)),
+])
+def test_a_yes_that_makes_a_destination_known_for_good_says_so(rule: str, values: dict[str, str],
+                                                               destinations: tuple[tuple[str, str], ...]) -> None:
+    """The fresh review's main finding: a Yes to these makes the person or site known for good (SQ6, GATE-205,
+    Gateway._known_from), so the card must say what the Yes allows, not only what happens now."""
+    made = confirm.card([confirm.Need(rule, rule + ":k", values, destinations=destinations)])
+    assert "from now on" in made.detail or "in later tasks" in made.detail, made

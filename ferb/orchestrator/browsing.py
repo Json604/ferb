@@ -7,13 +7,13 @@ NONE = "None"                        # the question's last option: no profile; w
 KIND = "browsing"                    # its `memory_questions.kind`
 ASKED = "owner_profile_asked"        # [browsing] key: the owner answered the question (a profile, or None)
 
-QUESTION = ("FERB doesn't have a browser profile of its own. Which of your profiles should it use for web work, like "
-            "searches? It works there in the background, as you: its searches show in that profile's history and "
+QUESTION = ("Which of your browser profiles should FERB use for web work, like searches? FERB doesn't have one of "
+            "its own. It works there in the background, as you: its searches show in that profile's history and "
             "sites see your accounts there. Anything risky still asks you first. With None, web tasks are slower and "
             "less reliable. You can change this anytime in Settings → Browsers.")
 GONE = "The profile FERB used for web work, {label}, isn't there any more. "
 CHOSEN = "FERB will do its web work in {label} from now on. You can change it in Settings → Browsers."
-NONE_CHOSEN = ("OK: FERB won't use any of your profiles for web work. Some tasks will be much slower and less "
+NONE_CHOSEN = ("Done: FERB won't use any of your profiles for web work. Some tasks will be much slower and less "
                "reliable: without a browser, FERB fetches pages directly, and pages that need JavaScript, a sign-in "
                "or a bot check can't be read that way. You can pick a profile anytime in Settings → Browsers.")
 NO_BROWSER_RUN = ("This run had no browser: you haven't picked which of your profiles FERB uses for web work, so it "

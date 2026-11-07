@@ -424,3 +424,13 @@ words_source = "Owner, 2026-11-07, approving the shown rewrites of FERB's own qu
 rule = "Refines GATE-225's card. Each of FERB's own questions (confirmations, passwords, login codes, the Mac password) is a plain question in the normal font, a line saying why FERB asks, and the exact thing approved (command, address, value, path, amount) in a code box; no tool names. A password question still starts with its place. A kind without new words keeps today's sentence; a card that can't be built asks with today's line. The full question stays in the record."
 paths = ["ferb/policy/confirm.py::card", "ferb/daemon/hidden_input.py", "ui/mac/FERBNotch/Sources/FERBNotch/ApprovalView.swift"]
 live = ["LIVE-812"]
+
+[GATE-514]
+title = "Question cards say what a Yes allows, from a fresh review of their wording"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "For GATE-513, after the owner asked a fresh agent to review the wording: a card whose Yes makes a person or site known for good (SQ6, GATE-205) says so; sharing data names the value sent; a new site says the task read your own data; the code box holds only the value (its source goes in the why); terminal cards name the app once and say a Yes covers one input; payments say they take money, and a different bank amount says it differs."
+why = "A card that hides what a Yes allows misleads, which GATE-225 forbids; the rest makes the most-seen cards read on first look."
+paths = ["ferb/policy/confirm.py::_card", "ferb/policy/confirm.py::_terminal_card"]
+live = ["LIVE-812"]
