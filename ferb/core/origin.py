@@ -47,6 +47,27 @@ def join(origins: Iterable[str]) -> str:
     return ",".join(sorted({o for o in origins if o}))
 
 
+def kind(o: str) -> str:
+    """A label without its detail: `external:web:example.com` → `external:web`; any other label as it is."""
+    return ":".join(o.split(":")[:2]) if is_external(o) else o
+
+
+def brief(origins: Iterable[str]) -> set[str]:
+    """A record's origins as a model is shown them (rule 9: whether outside content went into it, and the owner's
+    private data): each label as stored, except that a record holding more than one outside label (FERB's own record
+    that inherited what it was made from) shows each outside kind once (`external:web`), never the hosts and senders
+    it inherited. One outside label keeps its detail (a page's host, a message's app). Display only: what is stored,
+    and every check, keeps the full labels."""
+    items = {o for o in origins if o}
+    outside = {o for o in items if is_external(o)}
+    return (items - outside) | {kind(o) for o in outside} if len(outside) > 1 else items
+
+
+def shown(origins: Iterable[str]) -> str:
+    """`brief`, joined as a label line."""
+    return join(brief(origins))
+
+
 def split(text: str | None) -> set[str]:
     return {o for o in (text or "").split(",") if o}
 

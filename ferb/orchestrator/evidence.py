@@ -319,7 +319,7 @@ def recorded_calls(spans: SpanStore, task_id: str, root_id: str, observes: Calla
         role = "observation" if observes(name) else "action"
         earlier = run <= earlier_runs
         # the origin's kinds only (external:web, private): a label's detail (a host) is outside text, kept in the record
-        labels = sorted({":".join(o.split(":")[:2]) for o in origin.recorded(row["origin"], row["output"] is not None)})
+        labels = sorted({origin.kind(o) for o in origin.recorded(row["origin"], row["output"] is not None)})
         facts = [f"{name} ({f'{kind}, ' if kind else ''}{role}) at {row['started_at']}",
                  "origin " + ", ".join(labels) if labels else "", "failed" if row["error"] is not None else "",
                  "no result recorded" if row["output"] is None and row["error"] is None else ""]

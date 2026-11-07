@@ -3246,14 +3246,14 @@ class Supervisor(WorkerRuns):
                 # string, so its text can't start a line in this history's own format (review I4, MP2)
                 short = _short_report(said, bool(data.get("index")))
                 who += (f" (task {data.get('task_id')} result, {data.get('status')}"
-                        f"{'; short form' if short != said else ''}; origin {entry.origin})")
+                        f"{'; short form' if short != said else ''}; origin {origins_.shown(held)})")
                 said = as_data(short)
             elif entry.kind in ("chat.reply", "chat.clarify") and any(origins_.is_external(o) for o in held):
-                who += f" (origin {entry.origin})"                  # FERB's words written from outside content
+                who += f" (origin {origins_.shown(held)})"          # FERB's words written from outside content
                 said = as_data(said)
             refs: tuple[str, ...] = ()
             if entry.kind == "chat.notice":                    # L10: what FERB noticed, quotes with their own origin
-                who += f" (noticed; origin {entry.origin})"
+                who += f" (noticed; origin {origins_.shown(held)})"
                 said = json.dumps({"text": said, "quotes": data.get("quotes", [])})
                 refs = tuple(notice_sources(self.journal.db, str(data.get("id", ""))))   # the rows it came from
             timeline.append(_Entry(entry.at, f"({entry.at.astimezone():%a %d %b %H:%M}) {who}: " + said,

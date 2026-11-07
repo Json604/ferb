@@ -209,7 +209,7 @@ def test_the_developer_block_is_the_recorded_context_with_every_label(daemon: Ru
     after = block.split(task_line, 1)[1].lstrip("\n").split("\n", 1)[0]
     assert after.startswith("[Full source: chat.history entry_id=")    # its source, one fetch away
     assert PASTED in block and '<untrusted-data id="' not in block.split(PASTED)[0][-200:]   # the owner's words
-    assert "(noticed; origin ferb,external:notification:WhatsApp)" in block and NOTICE_QUOTE in block
+    assert "(noticed; origin external:notification:WhatsApp,ferb)" in block and NOTICE_QUOTE in block
     # what changes every turn stays in the user turn: the situation and the owner's new message
     assert said.startswith("Layer 2 — ") and "Layer 5 — owner's complete new message:" in said   # live facts first
     assert "Layer 2 —" not in block and "owner's complete new message" not in block

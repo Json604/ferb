@@ -434,3 +434,12 @@ rule = "For GATE-513, after the owner asked a fresh agent to review the wording:
 why = "A card that hides what a Yes allows misleads, which GATE-225 forbids; the rest makes the most-seen cards read on first look."
 paths = ["ferb/policy/confirm.py::_card", "ferb/policy/confirm.py::_terminal_card"]
 live = ["LIVE-812"]
+
+[GATE-515]
+title = "A model sees a record's origins with each inherited outside kind once, never the label list"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "History lines (task answers, FERB's replies and questions written from outside content, notices) show origin.shown: the stored labels, except that a record with more than one outside label shows each outside kind once (external:web), never the hosts and senders it inherited; one outside label keeps its detail. A tool result's footer names what the tool itself read with its detail, and labels passed through from FERB's records (chat.history, memory.read, task.evidence) that way. Outside entries stay marked and quoted as data. Display only: stored labels and every check are unchanged."
+why = "T-1007 phase 1. Replay over a copy of the owner's database (837 calls since 11-04): inherited label lists were 66% of the planner's input; shown origins cut its context 64% with zero changed questions (9 of 9 recorded sink questions reproduced)."
+paths = ["ferb/core/origin.py::brief", "ferb/orchestrator/supervisor.py::Supervisor._timeline", "ferb/daemon/gateway.py::footer_origins"]

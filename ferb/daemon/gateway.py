@@ -177,6 +177,15 @@ def result_origins(read_sources: tuple[tuple[str, str], ...], declared: str | No
     return {origin.external("unlabeled")} if kind in READING_KINDS else {origin.FERB}
 
 
+def footer_origins(read_sources: tuple[tuple[str, str], ...], origins: set[str]) -> set[str]:
+    """The origins a result's footer names (GATE-515): what the tool itself read with its detail (a page's host), and
+    the labels it passed through from FERB's stored records (`origin` read sources: chat.history, memory.read,
+    task.evidence) as `origin.brief` shows a record, each inherited outside kind once. Display only: the call's
+    recorded origin keeps every label."""
+    passed = {origin.from_read_source(k, i) for k, i in read_sources if k == "origin"}
+    return (origins - passed) | origin.brief(origins & passed)
+
+
 def ask_origins(answer: dict[str, Any]) -> set[str]:
     """owner.ask: the owner's answer is the owner's words; the orchestrator's answer is inferred; no answer is FERB's."""
     if answer.get("declined") or answer.get("error"):
@@ -1730,7 +1739,7 @@ class Gateway:
                           | ({"screen": screen} if screen else {}),
                           error=content.get("error") if result.is_error else None, origins=origins)
         self._observed(name, spec, action, grant, "failed" if result.is_error else "done")
-        out = reply(content, result.is_error, origins, redacted=True)
+        out = reply(content, result.is_error, footer_origins(result.read_sources, origins), redacted=True)
         if result.image is not None and not result.is_error:     # to the model; kept above, never in a span or log
             out["image"] = {"mime": "image/jpeg", "data": base64.b64encode(result.image).decode()}
         if intent_id and not result.is_error and caller_left() and self.tasks.get(grant.task_id) is not None:
