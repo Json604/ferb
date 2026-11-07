@@ -62,4 +62,5 @@ console.log(JSON.stringify({{
     out = json.loads(subprocess.run([_node(), "-e", script], capture_output=True, text=True, timeout=20).stdout)
     assert out == {"ok": True, "stream": False, "header": False, "protocol": 21, "ops": True, "reads": True}
     manifest = json.loads((EXT / "manifest.json").read_text())
-    assert manifest["version"] == "0.19.3"
+    from ferb.act.browser.ext_protocol import PDF_EXTENSION_VERSION, version_ok
+    assert PDF_EXTENSION_VERSION == "0.19.3" and version_ok(manifest["version"], PDF_EXTENSION_VERSION)   # pdf since 0.19.3
