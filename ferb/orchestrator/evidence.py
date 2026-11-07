@@ -45,14 +45,15 @@ def record_origins(record: dict[str, Any], task_origins: set[str]) -> set[str]:
     content = record.get("kind") in ("tool.call", "context.source", "context.exposure")
     recorded = origin.recorded(record.get("origin"), has_output) if content else origin.split(record.get("origin"))
     marked = {origin.external("paste")} if WRAPPER in json.dumps(record, ensure_ascii=False) else set()
+    inherited = origin.kinds(task_origins)           # what it was made from, by kind: never re-grown hosts (GATE-519)
     if record.get("kind") == "tool.call":
-        return recorded | {origin.INFERRED} | task_origins
+        return recorded | {origin.INFERRED} | inherited
     if record.get("kind") == "task":
-        return recorded | {origin.OWNER} | marked | {origin.INFERRED} | task_origins
+        return recorded | {origin.OWNER} | marked | {origin.INFERRED} | inherited
     if recorded:
         return recorded
     if record.get("kind") == "worker":
-        return {origin.INFERRED} | task_origins
+        return {origin.INFERRED} | inherited
     return {origin.FERB} | marked
 
 

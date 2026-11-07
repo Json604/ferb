@@ -80,7 +80,7 @@ from ferb.orchestrator.worker import (BUG, ConnectionNotice, ImageRefused, Inval
 from ferb.runtimes.catalog import label
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy import blocked as blocked_
-from ferb.policy import confirm, provenance
+from ferb.policy import carried, confirm, provenance
 from ferb.policy.rules import ActionRequest
 from ferb.policy.sites import sites_contacted
 from ferb.orchestrator.leftovers import leftover_lines
@@ -350,7 +350,8 @@ def _exposure_output(record: dict[str, Any]) -> dict[str, Any]:
     """A context exposure's stored output: the text shown and its S4 payload; for the conversation (no `text`), the
     payload alone, so a task never keeps the chat twice (final review M7)."""
     payload = record.get('payload', record['text'])
-    return {'payload': payload} if record['text'] is None else {'text': record['text'], 'payload': payload}
+    out = {'payload': payload} if record['text'] is None else {'text': record['text'], 'payload': payload}
+    return out | ({'segments': record['segments']} if record.get('segments') else {})
 
 
 def _carries_more(out: SupervisorOutcome) -> bool:
@@ -459,6 +460,7 @@ class _Turn:
     screen: dict[str, Any] | None = None       # the front window at send (L12); None when none was taken
     schedule_previous: dict[str, Any] | None = None
     turn_origins: set[str] = field(default_factory=set)          # what its planner saw (S3)
+    shown: list[tuple[set[str], str, Any]] = field(default_factory=list)   # (labels, text, values) it saw (GATE-519)
     exposures: list[dict[str, Any]] = field(default_factory=list)
     looked: int = 0                  # the last planner lookup carried into `exposures` (its span rowid, ORCH-516)
     assembly: Assembly | None = None
@@ -652,6 +654,26 @@ class _Entry:
     kind: str = "task"         # the journal kind, or "task" for a task row
     refs: tuple[str, ...] = ()  # what else the entry cites: a notice's source rows (L10), so derived work traces to them
     opens: bool = False        # an owner message that opens an exchange (one read with an earlier message doesn't)
+    values: dict[str, list[str]] | None = None   # a derived entry's stored owner values (GATE-519); None: whole text
+
+
+def _stored_values(kind: str, data: dict[str, Any]) -> dict[str, list[str]] | None:
+    """A derived row's stored owner values (GATE-519); None for the owner's own message, a notice and a row from
+    before stored provenance: their whole text counts."""
+    stored = data.get(carried.PROVENANCE)
+    if kind in ("chat.message", "chat.notice") or not isinstance(stored, dict) or \
+            not isinstance(stored.get("values"), dict):
+        return None
+    return {str(k): [str(c) for c in v] for k, v in stored["values"].items() if isinstance(v, list)}
+
+
+def _segment(block: ContextBlock, labels: set[str]) -> dict[str, Any]:
+    """One shown record's place in a stored exposure (GATE-519): its handle, kinds, its payload's length, and its
+    stored owner values, or `whole` when its whole text counts (the owner's words, a notice, an older row)."""
+    payload = block.text if block.payload is None else block.payload
+    ref = block.source_refs[0] if block.source_refs else block.reference
+    return {"ref": ref, "kinds": sorted(origins_.kinds(labels)), "len": len(payload)} | (
+        {"values": block.values} if block.values is not None else {"whole": True})
 
 
 def _entry_payload(kind: str, data: dict[str, Any]) -> str:
@@ -1899,7 +1921,7 @@ class Supervisor(WorkerRuns):
                              or self._paused_words(tree_id, step.id)
                              or f'I paused keeping this going: {short_label(step.goal)}.').split())
         return (confirm.task_question(printable(words)), [LOOP_STOP],
-                origins_.join({origins_.INFERRED} | self.spans.task_origins(tree_id)))
+                self._task_made(tree_id))
 
     def _loop_facts(self, tree_id: str) -> list[dict[str, Any]]:
         """Each running loop of this tree as the planner's task status shows it (L31): its goal, state and rounds; a
@@ -2387,7 +2409,11 @@ class Supervisor(WorkerRuns):
         data: dict[str, Any] = {"session_id": turn.session.id, "request_id": turn.request_id, "text": text}
         if kind == "clarify":
             data["question_kind"] = "which" if made == {origins_.FERB, origins_.INFERRED} else "clarify"
-        self.journal.append(f"chat.{kind}", data, origin=origins_.join(made))
+        # GATE-519: the kinds of what wrote it and the owner's values its own text holds, never every label it saw;
+        # FERB's own words (code-written) hold none
+        data[carried.PROVENANCE] = carried.derive(text, turn.shown, made) if made != {origins_.FERB} else \
+            {"kinds": [origins_.FERB], "values": {}}
+        self.journal.append(f"chat.{kind}", data, origin=origins_.join(origins_.kinds(made)))
         if turn.decided is not None:       # FERB's work from the planner's decision to its first reply (ORCH-525)
             after = self.spans.start("planner.reply", task_id=None, input={"role": "supervisor",
                                                                           "request_id": turn.request_id, "kind": kind})
@@ -2936,7 +2962,7 @@ class Supervisor(WorkerRuns):
                                         "type what you want scheduled in this chat and I'll set it up")
             else:
                 line, schedule_card = self.on_schedule(out.schedule, words, request_id,
-                                                       {origins_.INFERRED} | turn.turn_origins,
+                                                       {origins_.INFERRED} | origins_.kinds(turn.turn_origins),
                                                        self._sink_origins_for_new_schedule(turn))
             changed.append(line)
             events.append({"type": "timer", "text": changed[-1]})
@@ -3082,6 +3108,8 @@ class Supervisor(WorkerRuns):
                 given = [(block, made) for block, (_, made) in zip(ctx, sourced) if block.text]
                 turn.turn_origins = {o for (block, made), seen in zip(given, assembly.shown)
                                      if seen or not block.history for o in made}
+                turn.shown = [(set(made), block.text, block.values) for (block, made), seen in zip(given, assembly.shown)
+                              if seen or not block.history]
             self._lookups_read(turn)       # and what it looked up, each result with its recorded origins (S3, S4)
             clocked.mark("ferb_after")
             # cached input tokens per turn (L28): the provider's count, next to the turn it belongs to
@@ -3155,6 +3183,7 @@ class Supervisor(WorkerRuns):
                 turn.exposures.append({"text": text, "origin": origins_.join(made), "source_refs": [],
                                        "reference": "a lookup by this request's planner (its tool call in the trace)",
                                        "payload": text})
+                turn.shown.append((set(made), text, None))
                 turn.looked = rowid
 
     def _question_task(self, ap: Any) -> str:
@@ -3202,9 +3231,10 @@ class Supervisor(WorkerRuns):
                        _within_tokens(str(summary.data.get("text", "")), SUMMARY_TOKENS))
             refs, made = (ENTRY + summary.id,), origins_.split(summary.origin)
         return [(ContextBlock('Layer 5 — conversation:\n' + header, "chat.history", protected=True, cache=True,
-                              source_refs=refs, payload=str(summary.data.get("text", "")) if summary else ""), made),
+                              source_refs=refs, payload=str(summary.data.get("text", "")) if summary else "",
+                              values=_stored_values(SUMMARY_KIND, summary.data) if summary else None), made),
                 *[(ContextBlock(e.text, e.reference, cache=True, history=True, source_refs=(e.handle, *e.refs),
-                                payload=e.payload),
+                                payload=e.payload, values=e.values),
                    e.origins) for e in entries]], ages
 
     async def _memory_blocks(self, message: str, *, focus: str = '') -> list[tuple[ContextBlock, set[str]]]:
@@ -3259,7 +3289,8 @@ class Supervisor(WorkerRuns):
             timeline.append(_Entry(entry.at, f"({entry.at.astimezone():%a %d %b %H:%M}) {who}: " + said,
                                    _entry_payload(entry.kind, data), f"chat.history entry_id={entry.id}", True,
                                    origins_.split(entry.origin), ENTRY + entry.id, entry.kind, refs,
-                                   entry.kind == "chat.message" and not data.get("read_with")))
+                                   entry.kind == "chat.message" and not data.get("read_with"),
+                                   _stored_values(entry.kind, data)))
         covered = self._covered(summary)
         ages: dict[str, datetime] = {}
         shown: list[_Entry] = []
@@ -3273,10 +3304,19 @@ class Supervisor(WorkerRuns):
             shown.append(dataclasses.replace(item, text=f"{tag}{item.text}\n[Full source: {item.reference}]"))
         return shown, ages
 
+    def _task_made(self, tree_id: str) -> str:
+        """A row the task's models wrote (its answer, a step's notes, a loop's round): model-written, with the kinds of
+        what the task read, never every host and sender it inherited (MP2, GATE-519)."""
+        return origins_.join({origins_.INFERRED} | origins_.kinds(self.spans.task_origins(tree_id)))
+
+    def _tree_shown(self, tree_id: str) -> list[tuple[set[str], str, Any]]:
+        """What the task's models were shown, as `carried.derive` takes it: each tool result and context record with
+        its labels; a record of FERB's history split into its entries, each with its own stored values (GATE-519)."""
+        return carried.shown_records(self.spans.payload_outputs(tree_id))
+
     def _task_line_origins(self, task_id: str) -> set[str]:
         """A task's planner-written goal and recorded state, with what that task was given (S3, MP2)."""
-        inherited: set[str] = self.spans.task_origins(task_id)
-        return {origins_.INFERRED} | inherited
+        return {origins_.INFERRED} | origins_.kinds(self.spans.task_origins(task_id))
 
     def _request_origins(self, request_id: str) -> set[str]:
         """The stored origins of the owner's chat message(s) for a request (its lead's and those read with it)."""
@@ -3394,9 +3434,19 @@ class Supervisor(WorkerRuns):
             made = {origins_.INFERRED} | {o for e in copied for o in e.origins} | \
                 (origins_.split(previous.origin) if previous else set())
             refs = sorted({e.handle for e in copied} | ({ENTRY + previous.id} if previous else set()))
+            # what it was shown (GATE-519): each entry's own text, the summary before it, and FERB's own words (its
+            # bounds with today's date, the entries' times and speakers), which hold no owner value
+            shown: list[tuple[set[str], str, Any]] = [(e.origins, e.payload, e.values) for e in copied]
+            if previous is not None:
+                shown.append((origins_.split(previous.origin), str(previous.data.get("text", "")),
+                              _stored_values(SUMMARY_KIND, previous.data)))
+            shown.append(({origins_.FERB}, "\n".join([str(_summary_blocks(None, [], self.clock.now())[0].text),
+                                                      *(f"({e.at.astimezone():%a %d %b %H:%M})" for e in copied)]),
+                          None))
             self.journal.append(SUMMARY_KIND, {"session_id": conversation, "text": text,
-                                               "covered": [e.handle for e in folded], "source_refs": refs},
-                                origin=origins_.join(made))
+                                               "covered": [e.handle for e in folded], "source_refs": refs,
+                                               carried.PROVENANCE: carried.derive(text, shown, made)},
+                                origin=origins_.join(origins_.kinds(made)))
             self.settle_identity("a chat's running summary folded")    # MEM-429: this chat's prefix changes anyway
             self.spans.finish(span, output={"text": final, "folded": len(folded)})
             return len(folded)
@@ -3567,7 +3617,8 @@ class Supervisor(WorkerRuns):
             for kind, value in known.from_words(request.words):
                 known.record(kind, value, "named", request_id=request_id)
         # The worker sees the whole request payload in a protected block: derived labels inherit its origins (MP2).
-        self.spans.set_origin(root_span.id, origins_.join(origins or {origins_.external("unlabeled")}))
+        # its planner turn's kinds, never every host that turn's history inherited (GATE-519)
+        self.spans.set_origin(root_span.id, origins_.join(origins_.kinds(origins or {origins_.external("unlabeled")})))
         self.tasks.add(TaskRecord(root, now, root_span.id, tree_id))
         self.tasks.add(TaskRecord(worker, now, root_span.id, tree_id), status="planned")
         if conversation_id is not None:
@@ -3589,7 +3640,7 @@ class Supervisor(WorkerRuns):
         self._tree_of[worker.id] = tree
         if len(spec.parts) > 1:      # ORCH-319: several asks, one card; its events go on the task's line and the bus
             tree.card = Card(self.journal, tree_id, request_id, spec.parts, partial(self._part_event, tree_id),
-                             lambda: origins_.join({origins_.INFERRED} | self.spans.task_origins(tree_id)))
+                             lambda: self._task_made(tree_id))
         # HAND-204: the folders the planner resolved are the only visible folders its commands may change
         self.gateway.task_folders[tree_id] = tuple(spec.folders)
         if spec.keep_tabs_open:                      # HAND-201: the owner asked to keep its tabs open
@@ -3889,9 +3940,12 @@ class Supervisor(WorkerRuns):
             from ferb.orchestrator.language import internal_terms
             if terms := internal_terms(final['answer']):
                 self.journal.append('language.audit', {'task_id': tree_id, 'terms': terms})
-            made = origins_.join({origins_.INFERRED} | self.spans.task_origins(tree_id))   # model-written (MP2)
+            made = self._task_made(tree_id)                         # model-written (MP2), its sources' kinds
             self.journal.append("task.answer", {"task_id": tree_id, "request_id": request_id,
-                                                "status": final["status"], "text": final["answer"]}
+                                                "status": final["status"], "text": final["answer"],
+                                                carried.PROVENANCE: carried.derive(
+                                                    str(final["answer"]), self._tree_shown(tree_id),
+                                                    origins_.split(made))}
                                 | ({"watch_met": final["watch_met"]} if "watch_met" in final else {})
                                 | ({"index": True} if "card" in final else {}),
                                 origin=made)
@@ -4169,7 +4223,7 @@ class Supervisor(WorkerRuns):
                 atomic_text(path, json.dumps(self.gateway.redact(output), ensure_ascii=False, indent=2), closed)
                 output['notes_file'] = str(path)
                 self.journal.append('plan.step', {'task_id': tree.id, 'step': step.id, **output},
-                                    origin=origins_.join({origins_.INFERRED} | self.spans.task_origins(tree.id)))
+                                    origin=self._task_made(tree.id))
                 self._post_part(tree, step.id, member, status, output)
                 await queue.put({'type': 'subtask', 'id': step.id, 'task_id': child.id,
                                  'status': status, 'summary': out.summary, 'role': 'worker'})
@@ -4702,7 +4756,7 @@ class Supervisor(WorkerRuns):
             self.spans.finish(round_span, output=result | {'probe': probe.model_dump() if probe else None})
             self.journal.append('loop.round', {'task_id': tree.id, 'step': step.id, 'number': cause.get('number'),
                                                **result},
-                                origin=origins_.join({origins_.INFERRED} | self.spans.task_origins(tree.id)))
+                                origin=self._task_made(tree.id))
             # the corrections this round's worker took: delivered while it ran, or read as an attempt began
             return result | {'probe': probe, 'steers_seen': member.result_revision}
 
@@ -4770,7 +4824,7 @@ class Supervisor(WorkerRuns):
             try:
                 # a pause quotes the round's own words: model-written from what the task read (MP2)
                 self.journal.append('loop.notice', {'task_id': tree.id, 'step': step.id, 'text': text},
-                                    origin=origins_.join({origins_.INFERRED} | self.spans.task_origins(tree.id)))
+                                    origin=self._task_made(tree.id))
                 if self.on_loop_notice is not None:
                     # a back-off notice is code-written (FERB); a pause quotes the round's words (FERB + INFERRED)
                     await self.on_loop_notice(tree.id, step.id, text,
@@ -5117,7 +5171,7 @@ class Supervisor(WorkerRuns):
                 tree.owner_question = choice.question
                 if tree.asks_in_place:       # "needs the owner": the step pauses here and asks; nobody there declines
                     wait = _Wait(tree.id, choice.question, (),
-                                 origins_.join({origins_.INFERRED} | self.spans.task_origins(tree.id)))
+                                 self._task_made(tree.id))
                     reply = await self._wait_for_owner(tree, task, wait, step_id=tree.step_id)
                     if reply.kind in ('answer', 'steer'):
                         tree.owner_question = ''
@@ -5710,7 +5764,7 @@ class Supervisor(WorkerRuns):
             parts.append(self._schedule_block(tree, root.schedule_facts))
         attempts = None
         if tree.reports:             # model-written from what the attempts read (MP2), as task.evidence labels them
-            reports_origin = origins_.join({origins_.INFERRED} | self.spans.task_origins(tree.id))
+            reports_origin = self._task_made(tree.id)
             attempts = len(parts)
             parts.append(self._source_block(tree, "Previous attempts (data)", wrap_untrusted(json.dumps(tree.reports)),
                                             reports_origin))
@@ -5811,13 +5865,17 @@ class Supervisor(WorkerRuns):
                 history.append(block)
                 continue
             records.append({'text': block.text, 'origin': block.origin, 'source_refs': list(block.source_refs),
-                            'reference': block.reference, 'payload': block.text if block.payload is None else block.payload})
+                            'reference': block.reference, 'payload': block.text if block.payload is None else block.payload}
+                           | ({'segments': [_segment(block, origins_.split(block.origin))]}
+                              if block.values is not None else {}))
         if history:
             records[records.index({})] = {
                 'text': None,                     # the payload alone: the entries' own texts (M7)
-                'origin': origins_.join({o for b in history for o in origins_.split(b.origin)}),
+                # each entry's kinds, never every host its entries inherited (GATE-519); per entry: `segments`
+                'origin': origins_.join(origins_.kinds({o for b in history for o in origins_.split(b.origin)})),
                 'source_refs': sorted({ref for b in history for ref in b.source_refs}), 'reference': 'chat.history',
-                'payload': '\n\n'.join(b.text if b.payload is None else b.payload for b in history)}
+                'payload': '\n\n'.join(b.text if b.payload is None else b.payload for b in history),
+                'segments': [_segment(b, origins_.split(b.origin)) for b in history]}
         if tree is None:
             turn = self._turns.get(task.request_id)
             if turn is None:                  # not a planning turn (attention, the running summary): nothing to carry

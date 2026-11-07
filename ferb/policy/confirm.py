@@ -553,6 +553,29 @@ def _candidate(piece: str) -> tuple[list[tuple[str, ...]], set[str]]:
     return [r.groups for r in runs], {f for f in forms if any(c.isdigit() for c in f)}
 
 
+def whole_values(text: str) -> list[str]:
+    """The owner-data-shaped whole values a text holds, lowercased, in order (for stored provenance, GATE-519): each
+    token that is a value (`_is_value`, at least MIN_LEN, not only a group of a grouped value) holding a digit, an @ or
+    an address's ://, and each grouped value as written. Words, and words in markdown or slashes (`**Note:**`,
+    `and/or`), are never values."""
+    low = text.lower()
+    forms = _value_forms(low)
+    groups = {g for run in _grouped(low) for g in run.groups}
+    seen: dict[str, None] = {}
+    for tok in [*provenance.tokens(low), *(x.rstrip(_TRAIL) for x in _FINE.split(low) if x)]:
+        if len(tok) >= provenance.MIN_LEN and _is_value(tok) and tok in forms and tok.lstrip("+") not in groups and \
+                (any(c.isdigit() for c in tok) or "@" in tok or "://" in tok):
+            seen.setdefault(tok, None)
+    for m in _RUN.finditer(low):
+        seen.setdefault(m.group(1), None)
+    return list(seen)
+
+
+def spellings(value: str) -> set[str]:
+    """`value` and its other spellings as the sink matches them (`_spellings`, with the owner's digit forms)."""
+    return {value} | _spellings(value, digits=True)
+
+
 def with_forms(t: provenance.Text) -> provenance.Text:
     """`t` with its value forms and URL parts made now (the gateway calls it off the event loop, DMN-13)."""
     _toks(t)

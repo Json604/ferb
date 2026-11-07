@@ -284,11 +284,11 @@ def test_phase1_post_and_send_questions_unchanged(daemon: RunningDaemon) -> None
 
 # ---------- phase 1: the model sees a short origin, never the inherited label list ----------
 
-# decision: GATE-515
+# decision: GATE-515, GATE-519
 def test_history_lines_print_no_label_lists(daemon: RunningDaemon) -> None:
-    """Each task's answer inherits the labels of everything its task was shown, the earlier history included, so its
-    stored origin grows with every task. The planner's history line shows each outside kind once (and still marks the
-    entry as outside data); what is stored keeps every label."""
+    """Each task's answer is made from everything its task was shown, the earlier history included. The planner's
+    history line shows each outside kind once and still marks the entry as outside data (GATE-515); since GATE-519 the
+    stored origin itself is kinds, so it never grows with the hosts of earlier tasks."""
     caps = daemon.daemon.registry.capabilities
     workers: list[Callable[[str], str]] = []
     for host in ("a.example", "b.example", "c.example"):
@@ -306,16 +306,16 @@ def test_history_lines_print_no_label_lists(daemon: RunningDaemon) -> None:
     chat(daemon, "hi")
     planner = [r for _, key, r in script.requests if key == "supervisor"][-1]
     lines = {h: next(x for x in planner.context.split("\n") if f"The {h}.example page has news." in x) for h in "abc"}
-    assert "external:web:a.example" in lines["a"]                  # one outside source keeps its host
-    for h in "bc":                                                   # inherited ones show the kind once
-        label = lines[h].split(": ", 1)[0]
+    for h in "abc":                                                  # each shows the kind, quoted as data
+        label, said = lines[h].split(": ", 1)
         assert "origin " in label and "external:web" in label and "external:web:" not in label, label
+        assert said.startswith('"')
 
-    async def stored() -> str:
+    async def stored() -> list[str]:
         rows = daemon.daemon.db.conn.execute("SELECT origin FROM journal WHERE kind = 'task.answer' ORDER BY seq")
-        return str(list(rows)[-1]["origin"])
-    last = daemon.run(stored())
-    assert all(f"external:web:{h}.example" in last for h in "abc")   # storage is unchanged
+        return [str(r["origin"]) for r in rows]
+    answers = daemon.run(stored())
+    assert len(answers) == 3 and all("external:web" in a and "external:web:" not in a for a in answers)
 
 
 # decision: GATE-515
@@ -418,3 +418,110 @@ def test_a_private_value_typed_in_a_form_sentence_still_asks() -> None:
     found = confirm.text_carries_private("My number is +44 7700 900123", [(0, provenance.prepare(PHONE_CHAT))], [],
                                          provenance.prepare(""))
     assert found and "+44 7700 900123" in found[0]
+
+
+# ---------- phase 2: stored provenance (shadow): kinds, and the owner's values a row's own text holds ----------
+
+def _history_segments(daemon: RunningDaemon, task_id: str) -> list[dict[str, Any]]:
+    async def go() -> list[dict[str, Any]]:
+        rows = daemon.daemon.db.conn.execute(
+            "SELECT output_json, origin FROM spans WHERE kind = 'context.exposure' AND task_id = ? AND "
+            "json_extract(input_json, '$.reference') = 'chat.history'", (task_id,)).fetchall()
+        assert len(rows) == 1                                       # the conversation is one read (M7)
+        return json.loads(rows[0]["output_json"])["segments"]        # type: ignore[no-any-return]
+    return daemon.run(go())    # type: ignore[no-any-return]
+
+
+def _journal(daemon: RunningDaemon, kind: str) -> list[Any]:
+    async def go() -> list[Any]:
+        return daemon.daemon.db.conn.execute("SELECT data_json, origin FROM journal WHERE kind = ? ORDER BY seq",
+                                             (kind,)).fetchall()
+    return daemon.run(go())    # type: ignore[no-any-return]
+
+
+# decision: GATE-519
+def test_reply_carries_the_private_value_it_repeats_in_storage(daemon: RunningDaemon) -> None:
+    """S2, stored: the answer that quoted the file's value keeps that value (private) in its provenance and its kinds
+    in its origin; the next task's one history read holds each entry's place, the answer with its values and the
+    owner's messages whole."""
+    _two_turns(daemon, "What's my client's email in clients.txt?", _file(f"Main contact: {EMAIL}"),
+               f"Your client's email is {EMAIL}.", f"https://tracker.example/?u={EMAIL}")
+    [first, second] = _journal(daemon, "task.answer")
+    stored = json.loads(first["data_json"])["provenance"]
+    assert stored["values"] == {EMAIL: ["private"]} and "private" in stored["kinds"]
+    assert ":" not in first["origin"].replace("external:", "")      # kinds only: no host or sender detail
+
+    async def tree() -> str:
+        return str(daemon.daemon.db.conn.execute("SELECT task_id FROM spans WHERE kind = 'task' ORDER BY rowid DESC "
+                                                 "LIMIT 1").fetchone()[0])
+    segments = _history_segments(daemon, daemon.run(tree()))
+    answer = [s for s in segments if s.get("values")]
+    assert answer and answer[0]["values"] == {EMAIL: ["private"]}
+    assert any(s.get("whole") and s["kinds"] == ["owner"] for s in segments)   # the owner's own message
+
+
+# decision: GATE-519
+def test_reformatted_and_clock_values_in_stored_provenance() -> None:
+    """S3: a value the writer reformatted is found in nothing it was shown, so it is carried as the owner's
+    (fail-closed). The year FERB's own clock wrote (the summary's bound, ferb-only) is not the owner's, and a value read
+    on a signed-in page keeps that page's site."""
+    from ferb.policy.carried import derive
+    shown = [({"private"}, "Dad: +91 98765 43210"), ({"ferb"}, "Keep the last 14 days. Today is Sat 07 Nov 2026."),
+             ({"private", "external:web:www.class.example"}, "Class 5560731 at 6pm")]
+    stored = derive("Dad's number is 9876543210; class 5560731; summary as of 07 Nov 2026.", shown)
+    assert stored["values"] == {"9876543210": ["private"], "5560731": ["private", "site:www.class.example"]}
+    assert stored["kinds"] == ["external:web", "ferb", "private"]
+
+
+# decision: GATE-519
+def test_a_value_an_earlier_derived_row_held_as_not_the_owners_stays_so() -> None:
+    """A derived record gives only its own stored values: a value its text holds that it didn't store (FERB's clock's
+    year in the summary) isn't the owner's in what is written from it; one it stored keeps its class."""
+    from ferb.policy.carried import derive
+    summary = ({"inferred", "private", "owner"}, "As of Sat 07 Nov 2026 the owner's locker code is LK-4471-Q9.",
+               {"lk-4471-q9": ["owner"]})
+    stored = derive("It's 2026; your locker code is LK-4471-Q9.", [summary, ({"private"}, "device facts")])
+    assert stored["values"] == {"lk-4471-q9": ["owner"]}
+
+
+# decision: GATE-519
+def test_derived_labels_stay_bounded(daemon: RunningDaemon) -> None:
+    """25 tasks, each reading a different site, then "hi": the reply's stored origin holds kinds only, so it stays
+    small however much the conversation has read (12 is a test bound, not a cap)."""
+    caps = daemon.daemon.registry.capabilities
+    workers: list[Callable[[str], str]] = []
+    for i in range(25):
+        page = _page(f"News number {i}", f"https://site{i}.example/news", f"probe.site{i}")
+        caps[page.name] = page
+
+        def read(token: str, name: str = page.name, i: int = i) -> str:
+            assert not tool(daemon.sock, token, name)["is_error"]
+            return done(f"Site {i} has news.")
+        workers.append(read)
+    install(daemon, [sup("task", "Reading.", task(f"read site {i}", "ferb")) for i in range(25)] +
+            [sup("reply", "Hi.")], {"worker": workers})
+    for i in range(25):
+        assert outcome(chat(daemon, f"Read the news on site{i}.example."))["status"] == "done"
+    chat(daemon, "hi")
+    reply = _journal(daemon, "chat.reply")[-1]
+    labels = reply["origin"].split(",")
+    assert len(labels) <= 12 and not any(o.startswith("external:web:") for o in labels), labels
+
+
+# decision: GATE-519
+def test_legacy_history_rows_count_whole_text_private(daemon: RunningDaemon) -> None:
+    """S12: a FERB entry stored before stored provenance (no `provenance`) is one whole segment of the history read:
+    its whole text keeps counting, as before."""
+    async def legacy() -> None:
+        daemon.daemon.supervisor.journal.append("chat.message", {"session_id": "s1", "request_id": "old-1",
+                                                                 "text": "my locker code is LK-4471-Q9"},
+                                                origin="owner")
+        daemon.daemon.supervisor.journal.append("chat.reply", {"session_id": "s1", "request_id": "old-1",
+                                                               "text": "Noted LK-4471-Q9."},
+                                                origin="external:web:old.example,inferred,private")
+    daemon.run(legacy())
+    install(daemon, [sup("task", "Doing.", task("inspect", "ferb"))], {"worker": done("done")})
+    result = outcome(chat(daemon, "Inspect now."))
+    segments = _history_segments(daemon, result["task_id"])
+    old = [s for s in segments if s["kinds"] == ["external:web", "inferred", "private"]]
+    assert old and old[0].get("whole") is True and "values" not in old[0]

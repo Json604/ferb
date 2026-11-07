@@ -105,11 +105,12 @@ def test_readers_pass_stored_origins_through() -> None:
     assert record_origins(failed, set()) == {"inferred"}              # no output: nothing came back
     owner_ask = {"kind": "tool.call", "origin": "owner", "input": {"tool": "owner.ask", "args": {"question": "q"}}}
     assert record_origins(owner_ask, {"external:memory"}) == {"owner", "inferred", "external:memory"}  # not only owner
-    assert record_origins({"kind": "worker"}, {"external:web:a.com"}) == {"inferred", "external:web:a.com"}
+    # what a record inherits from its task is kept by kind (GATE-519): never the hosts it was made from
+    assert record_origins({"kind": "worker"}, {"external:web:a.com"}) == {"inferred", "external:web"}
     wrapped = 'sum this <untrusted-data id="ab12">x</untrusted-data id="ab12">'
     assert record_origins({"kind": "task", "input_preview": wrapped}, set()) == {"owner", "external:paste", "inferred"}
     assert record_origins({"kind": "task", "input_preview": "say hi"}, {"external:web:a.com"}) == \
-        {"owner", "inferred", "external:web:a.com"}                  # the owner's request + a model-written summary
+        {"owner", "inferred", "external:web"}                        # the owner's request + a model-written summary
     assert record_origins({"kind": "disturbance.summary"}, set()) == {"ferb"}
 
 
@@ -282,10 +283,12 @@ def test_task_evidence_passes_recorded_origins_through(daemon: RunningDaemon, mo
         parsed = evidence.Input(**args)
         return await evidence.run(parsed, _ctx()), parsed
     listed, args = daemon.run(read())
-    assert _label(evidence, args, listed) == {"external:web:example.com", "private", "inferred", "owner"}
+    # a call's own result keeps its host; what it inherits from the task is kept by kind (GATE-519)
+    assert _label(evidence, args, listed) == {"external:web:example.com", "external:web", "private", "inferred",
+                                              "owner"}
     span = next(r["id"] for r in listed.content["records"] if r["tool"] == "probe.web")
     one, args = daemon.run(read(span_id=span))                    # its result, plus arguments written from the task
-    assert _label(evidence, args, one) == {"external:web:example.com", "inferred", "private"}
+    assert _label(evidence, args, one) == {"external:web:example.com", "external:web", "inferred", "private"}
 
     def unused(root_id: str) -> set[str]:
         raise AssertionError("the task's origins are read only when a returned record inherits them")

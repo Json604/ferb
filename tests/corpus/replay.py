@@ -7,10 +7,11 @@ FERB carries between tasks (its conversation, memory, a schedule's earlier run, 
 request is marked unattended, so a question FERB asks is recorded (an owner.ask span marked `ferb_question`, with the
 rules it confirms) and declined at once: nothing waits, nothing is answered Yes, nothing becomes known.
 
-What is approximate (README, "Approximations"): `_carried_labels` and `_schedule_request_origins` mirror how today's
-supervisor labels derived records (union of everything the writer saw) and how a schedule's run starts; when the labels
-redesign changes that storage, those two functions are the only coupling to update. Everything else is behaviour seen
-through `Gateway.call`."""
+What is approximate (README, "Approximations"): `_carried_labels` and `_schedule_request_origins` mirror how the
+supervisor labels derived records (since GATE-519: the kinds of everything the writer saw, never its hosts and
+senders) and how a schedule's run starts; they are the only coupling to that storage. The per-entry `segments` a
+history read now also stores are not read by the gateway yet (phase 3 updates this harness to write them). Everything
+else is behaviour seen through `Gateway.call`."""
 from __future__ import annotations
 
 import json
@@ -54,9 +55,9 @@ def _host(url: str) -> str:
 
 
 def _carried_labels(r: Read) -> set[str]:
-    """How today's supervisor labels a record carried from earlier work: the union of everything its writer saw
-    (supervisor._context_exposure joins the conversation's labels; replies and summaries inherit the turn's)."""
-    outside = {_web(h) for h in r.carried_from}
+    """How the supervisor labels a record carried from earlier work: the kinds of everything its writer saw
+    (GATE-519: supervisor._context_exposure joins the conversation's kinds; replies and summaries keep the turn's)."""
+    outside = origin.kinds(_web(h) for h in r.carried_from)
     if r.kind == "history" or (r.kind == "ferb_fact" and r.via != "facts"):
         return {origin.OWNER, origin.FERB, origin.INFERRED, origin.PRIVATE} | outside
     if r.kind == "ferb_fact":

@@ -43,6 +43,7 @@ class PayloadOutput:
     path: str = ""
     offset: int = 0
     next_offset: int | None = None
+    segments: list[dict[str, Any]] | None = None   # a context record's entries, each with its stored values (GATE-519)
 
 
 class SpanStore:
@@ -232,6 +233,8 @@ class SpanStore:
             if isinstance(body, dict):
                 if row['kind'] == 'context.exposure':
                     payload = body.get('payload', body.get('text', ''))
+                    if isinstance(body.get('segments'), list):
+                        result.segments = body['segments']
                 elif tool == 'fs.read':
                     payload = body.get('text', '')
                     result.path = str(body.get('path') or inp.get('args', {}).get('path') or '')

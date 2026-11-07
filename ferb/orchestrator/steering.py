@@ -289,7 +289,8 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
         exposure = supervisor.spans.start('context.exposure', task_id=tree.id,
             input={'source_refs': [source_ref], 'reference': 'owner correction', 'revision': revision})
         supervisor.spans.finish(exposure, output={'text': message},
-            origin=origin.join(made | shown | (turn.turn_origins if turn is not None else set()) | {origin.INFERRED}))
+            origin=origin.join(made | shown | (origin.kinds(turn.turn_origins) if turn is not None else set())
+                               | {origin.INFERRED}))
         supervisor.journal.append('task.steered', {'task_id': tree.id, 'session_id': session_id,
             'request_id': request_id, 'revision': revision, 'source_ref': source_ref})
         active = [(runtime, run) for runtime, run in list(supervisor._worker_runs.values())

@@ -483,7 +483,8 @@ def test_the_planner_gets_the_front_window_block_and_its_image_with_every_messag
         assert "<untrusted-data" in block                             # the window's content is data (MP2)
         assert request.images == (ModelImage(JPEG, "ev-" + rid),)
     reply = journal(daemon, "chat.reply")[-1]
-    assert "external:web:www.youtube.com" in reply.origin             # the answer was written from that page
+    # the answer was written from a page: stored by kind (GATE-519); the front window's own record keeps the host
+    assert "external:web" in reply.origin.split(",")
 
 
 def test_a_withheld_image_still_gives_the_planner_the_facts(daemon: RunningDaemon) -> None:

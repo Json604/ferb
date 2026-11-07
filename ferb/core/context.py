@@ -184,6 +184,7 @@ class ContextBlock:
     payload: str | None = None  # source data without presentation/catalogue metadata; None preserves legacy text
     history: bool = False    # one conversation entry: filled newest-first after the protected blocks, never with gaps
     fold: str = ""           # one run of optional blocks (its retrieval route): its lowest markers fold into a note
+    values: Any = None       # a derived record's stored owner values (carried.derive, GATE-519); None: a source's
 
 
 @dataclass(frozen=True)

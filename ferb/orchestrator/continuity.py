@@ -189,7 +189,7 @@ class Continuity:
             return []
         out = []
         for row in self.candidates(conversation):
-            made = origin.join({origin.INFERRED} | self.task_origins(row["task_id"]))   # model-written (MP2)
+            made = origin.join({origin.INFERRED} | origin.kinds(self.task_origins(row["task_id"])))   # MP2, GATE-519
             out.append({"id": row["task_id"], "kind": "task", "data": row, "origin": made})
         return out
 

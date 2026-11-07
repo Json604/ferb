@@ -176,7 +176,9 @@ def test_a_tasks_conversation_exposure_stores_the_shown_entries_once(daemon):
             "SELECT output_json FROM spans WHERE kind='context.exposure' AND task_id=? "
             "AND json_extract(input_json, '$.reference') = 'chat.history'", (result["task_id"],))]
     [stored] = daemon.run(history())
-    assert set(stored) == {"payload"}
+    # the payload once, beside each entry's place and stored values, never a second copy of its text (GATE-519)
+    assert set(stored) == {"payload", "segments"}
+    assert all(set(seg) <= {"ref", "kinds", "len", "values", "whole"} for seg in stored["segments"])
     assert "First owner words." in stored["payload"] and "First answer text." in stored["payload"]
 
 

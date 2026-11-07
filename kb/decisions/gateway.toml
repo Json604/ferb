@@ -471,3 +471,12 @@ status = "active"
 rule = "Refines GATE-516 and GATE-517 (the coordinator's ruling). In a grouped value, every run of two or more neighbouring groups is a whole value: sent spaced, joined, or each group in its own piece in the value's order, and after a leading + its groups with a 0 or without (the national number is the whole phone; a compact +number tries country codes of 1-3 digits). Only one group sent alone is a part. Groups are never joined across letters, a time or decimal (13:27, 4.5) ends a group, and groups together shorter than MIN_LEN are no value. Matched in linear time per text."
 why = "Greedy grouping made a whole value look like a part beside another number: \"Call me on 98200 22222 2026\" let 9820022222 leave unasked, and so did 7700 900123. Corpus: 9 new scenarios ask, misses stay the 13 of T-1007; owner-DB replay: no change."
 paths = ["ferb/policy/confirm.py::_in_runs", "ferb/policy/confirm.py::_spans", "ferb/policy/confirm.py::_grouped", "ferb/policy/confirm.py::_private_hits"]
+
+[GATE-519]
+title = "Rows FERB writes from what it was shown store kinds and the owner's values their own text holds"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "A reply, question, task answer, summary, step note, part or task root stores its sources' kinds (origin.kinds), never their hosts and senders; replies, answers and summaries also store, in their JSON, each owner value their text holds with its classes (carried.derive: owner, private, site:host). A value found only in FERB's code-written facts (its clock) or outside content isn't carried; one found nowhere is private. A history read stores per-entry segments. Readers pass kinds of what records inherited. Shadow: the sink reads labels and payloads as before."
+why = "T-1007 phase 2. Derived rows stored the union of every label their writer saw (about 2.8k characters each, re-fed every turn). Simulated on the owner's database: journal origin bytes 419,606 to 14,986 (provenance 19,363); no question changed."
+paths = ["ferb/policy/carried.py::derive", "ferb/core/origin.py::kinds", "ferb/orchestrator/supervisor.py::Supervisor._record_reply", "ferb/orchestrator/supervisor.py::Supervisor._task_made", "ferb/orchestrator/evidence.py::record_origins"]

@@ -52,6 +52,12 @@ def kind(o: str) -> str:
     return ":".join(o.split(":")[:2]) if is_external(o) else o
 
 
+def kinds(origins: Iterable[str]) -> set[str]:
+    """Each label as its kind (`kind`): what a record made from others stores (GATE-519), never the hosts and senders
+    its sources name. The class of every label is kept, so every check reads the same bits."""
+    return {kind(o) for o in origins if o}
+
+
 def brief(origins: Iterable[str]) -> set[str]:
     """A record's origins as a model is shown them (rule 9: whether outside content went into it, and the owner's
     private data): each label as stored, except that a record holding more than one outside label (FERB's own record
