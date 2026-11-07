@@ -130,11 +130,11 @@ Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait"
              "wake_close", "frame_origin", "fill", "read_source", "window_secrets", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
              "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media", "rest", "show_tab",
-             "adopt_tab", "mute_tab", "popup_refused"]
+             "adopt_tab", "mute_tab", "popup_refused", "pdf", "pdf_part"]
 # Commands that never change the page (protocol.js READ_OPS): one that fails or times out is a known failure.
 READS: frozenset[str] = frozenset({"list_tabs", "snapshot", "wait", "screenshot", "screenshot_part", "record_frame",
                                    "frame_origin", "read_source", "window_secrets", "find", "result_part", "ping",
-                                   "point"})
+                                   "point", "pdf", "pdf_part"})
 
 
 def version_tuple(v: str) -> tuple[int, ...]:

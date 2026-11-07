@@ -3425,3 +3425,4 @@ request = "While a task runs, dictate for 15 seconds (right Command + Option, or
 pass = "Dictation keeps listening until you stop, then the words are in the box. Tasks opens at the chat's height and stays open. After the shortcut your typing lands in the text box in both modes. The activity window follows the drag; its close button and preview still work."
 decisions = ["APP-781", "APP-782", "APP-783", "APP-784"]
 sitting = "after this change is installed"
+result = "passed 2026-11-07 (trial build 202611070449): owner: yes every fix is working"

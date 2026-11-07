@@ -588,3 +588,11 @@ status = "open"
 why = "Security run T-1058: hover (on by default) opens FERB and makes its panel key (PanelCoordinator.focusVisibleInput); nothing in ui/ checks IsSecureEventInputEnabled, so the rest of a password being typed elsewhere can land in FERB's composer. Window mode and the shortcut are unaffected."
 decisions = ["APP-745", "APP-740"]
 ask = "While you're typing into a password field somewhere, should hovering over FERB open it without moving your typing into FERB (you'd click its box to type)?"
+
+[T-1065]
+title = "Use the extension's PDF: a browser PDF tool, the worker told, the minimum raised to 0.19.3"
+area = "hands"
+kind = "build"
+status = "blocked"
+why = "HAND-427: once the owner says the store serves extension 0.19.3: a browser tool saving a tab FERB opened as a PDF (the gateway's file rules), the worker told to make PDFs that way, never an app run from the shell; MIN_EXTENSION_VERSION to 0.19.3; an app update."
+decisions = ["HAND-427"]

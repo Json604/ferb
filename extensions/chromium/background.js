@@ -784,7 +784,9 @@ async function readMaskState(tabId) {
     const key = `frame|${top.documentId}|${c.id}`, child = linked(c);
     items.push(child ? {key, rect: box, paint: !isClean(child), child: child.documentId} : {key, rect: box, paint: true});
   }
-  return {top: top.documentId, viewport: top.viewport, items};
+  // whole: the whole document (not only what the viewport shows) holds no secret field and no frame that might: what a
+  // PDF of the tab needs, since nothing paints over a PDF (extension 0.19.3, `pdf`)
+  return {top: top.documentId, viewport: top.viewport, items, whole: isClean(top)};
 }
 
 // ---------- the debugger session: attached on a task tab's first action, kept for its life ----------
@@ -2062,6 +2064,31 @@ const commands = {
     if (data.length <= SHOT_PART) return {data, ...extra};
     const id = crypto.randomUUID(); st.recordFrame = {id, data};
     return {parts:Math.ceil(data.length/SHOT_PART), capture_id:id, ...extra};
+  },
+  // Extension 0.19.3 (protocol 21, added only: an older FERB never asks for it): the tab as a PDF, as Chrome prints it
+  // (Page.printToPDF: backgrounds on, the page's own page size when it sets one), for a document FERB makes from a page
+  // it opened. A read. Nothing paints over a PDF, so a page with a password, code or card field anywhere in it, or one
+  // whose secret fields can't be found, is withheld (L13). Split into parts like a screenshot.
+  async pdf({ tab_id, landscape, _timeout_ms }) {
+    const deadline = Date.now() + _timeout_ms;
+    await arm(tab_id);
+    const state = await maskState(tab_id, deadline);
+    if (state.withheld) return {withheld: state.withheld};
+    if (!state.whole) return {withheld: "the page has a password, code or card field, and nothing can paint over it in a PDF"};
+    const { data } = await cdp(tab_id, "Page.printToPDF", { printBackground: true, preferCSSPageSize: true,
+                                                            landscape: landscape === true });
+    const st = tabState(tab_id);
+    if (data.length <= SHOT_PART) { st.pdf = null; return { data }; }
+    st.pdf = data;
+    return { parts: Math.ceil(data.length / SHOT_PART), size: data.length };
+  },
+  async pdf_part({ tab_id, part }) {
+    const st = TABS.get(tab_id);
+    if (!st || st.pdf == null || !Number.isInteger(part) || part < 0 || part * SHOT_PART >= st.pdf.length)
+      throw new Error("no pdf to continue");
+    const data = st.pdf.slice(part * SHOT_PART, (part + 1) * SHOT_PART);
+    if ((part + 1) * SHOT_PART >= st.pdf.length) st.pdf = null;
+    return { data };
   },
   async screenshot_part({ tab_id, part }) {
     const st = TABS.get(tab_id);

@@ -10,6 +10,8 @@
 // Protocol 21 (extension 0.19.0, HAND-213): a `sound` tab event says who last changed the tab's mute
 // (`muted_reason`, the browser's mutedInfo.reason: user / capture / extension), so the owner's own mute is never a
 // disturbance fact.
+// Extension 0.19.3 keeps protocol 21 (FERB refuses any other number, so a bump would stop every installed FERB until it
+// updates): it only adds `pdf` and `pdf_part` (Page.printToPDF), which an older FERB never sends.
 const FERB_PROTOCOL = 21;
 const FERB_HOST = "com.ferb.native_host";
 
@@ -17,7 +19,7 @@ const FERB_HOST = "com.ferb.native_host";
 // read) is a known failure, never "outcome unknown" (P19 is for consequential actions). `dialog` without a decision
 // only reads too (background.js `outcomeOf`). Mirrored by ext_protocol.READS.
 const READ_OPS = new Set(["list_tabs", "snapshot", "wait", "screenshot", "screenshot_part", "record_frame",
-  "frame_origin", "read_source", "window_secrets", "find", "result_part", "ping", "point"]);
+  "frame_origin", "read_source", "window_secrets", "find", "result_part", "ping", "point", "pdf", "pdf_part"]);
 // Daemon messages that carry an HMAC (pairing key, this connection's hello nonce, a strictly increasing counter):
 // the extension acts on no other kind of daemon message (refused / pairing_required / paired change no page).
 const DAEMON_SIGNED = new Set(["welcome", "cmd"]);
@@ -154,6 +156,9 @@ const CDP_ALLOW = {
   // screenshot on request; jpeg so it fits the 1 MB native-messaging line.
   "Page.captureScreenshot": (p) => (!p.format || ["png", "jpeg"].includes(p.format))
     && (p.quality === undefined || (Number.isInteger(p.quality) && p.quality >= 1 && p.quality <= 100)),
+  // a PDF of the tab (extension 0.19.3, `pdf`): exactly these three settings, nothing that loads or runs anything
+  "Page.printToPDF": (p) => p.printBackground === true && p.preferCSSPageSize === true
+    && typeof p.landscape === "boolean" && Object.keys(p).length === 3,
   // the AX fallback for canvas / ARIA pages, with rects per node.
   "Accessibility.getFullAXTree": (p) => (p.depth === undefined || (Number.isInteger(p.depth) && p.depth > 0))
     && (p.frameId === undefined || typeof p.frameId === "string") && Object.keys(p).every(k => ["depth", "frameId"].includes(k)),
@@ -192,6 +197,7 @@ function _stampQuery(q) {                    // exactly one upload stamp: [<STAM
 }
 const CDP_RETURN_FIELDS = {                 // filtered return fields (only these keys leave the sendCommand wrapper)
   "Page.captureScreenshot": ["data"],
+  "Page.printToPDF": ["data"],
   "Accessibility.getFullAXTree": ["nodes"],
   "DOM.getBoxModel": ["model"],
   "Page.getFrameTree": ["frameTree"],
@@ -336,7 +342,7 @@ const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait"
              "wake_close", "frame_origin", "fill", "read_source", "window_secrets", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
              "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media", "rest", "show_tab",
-             "adopt_tab", "mute_tab", "popup_refused"];
+             "adopt_tab", "mute_tab", "popup_refused", "pdf", "pdf_part"];
 
 // Whether a key press puts text into the focused field (a character without ⌘/⌃/⌥, Space, or a paste): such a press
 // into a secret field is refused, as typing is; Return, Tab, Escape, arrows and other shortcuts still go (kb area hands

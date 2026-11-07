@@ -784,3 +784,13 @@ rule = "For APP-777/778. One daemon function (_browsing) decides from config and
 why = "The owner's identity path is the tested one; a FERB worker reaching the owner's browser would bypass identity checks."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._browse_as", "ferb/daemon/areas/browsers.py::Browsers._browsing", "ferb/act/browser/resolver.py"]
 live = ["LIVE-809"]
+
+[HAND-427]
+title = "The extension prints a tab to PDF; FERB uses it only after the store serves it"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "lets not do anything now in ferb app - but lets update the extension, you give me the zip i tell when its publishjed and tehn you chagne ferb app code and then we publish its code."
+words_source = "Owner, 2026-11-07: tasks ran Chrome --headless from FERB's sandboxed shell to make PDFs; it crashed there (no window server) and macOS showed \"quit unexpectedly\""
+rule = "Extension 0.19.3 adds `pdf` and `pdf_part`: Chrome prints the tab (Page.printToPDF, exactly printBackground, preferCSSPageSize and landscape), as a read, split into parts like a screenshot. Nothing paints over a PDF, so a page with a password, code or card field anywhere, or whose fields can't be found, is withheld. Protocol stays 21 so every installed FERB keeps working. The owner publishes it; then the app adds the PDF tool and raises the minimum."
+paths = ["extensions/chromium/background.js", "extensions/chromium/protocol.js", "extensions/chromium/manifest.json"]
