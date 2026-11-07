@@ -1084,7 +1084,8 @@ def card(needs: list[Need], typed: str = "") -> Card:
     rules = frozenset(n.rule for n in needs)
     said = {n.values.get("covers") for n in needs if n.rule == BULK}
     cards: list[Card] = []
-    for n in needs:
+    # typing into a terminal leads: its exact command is what the Yes runs (rule 6), whatever else it also covers
+    for n in sorted(needs, key=lambda need: need.rule != TERMINAL_INPUT):
         if n.rule in said:
             continue
         made = _card(n, rules)

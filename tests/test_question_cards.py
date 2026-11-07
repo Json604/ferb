@@ -142,3 +142,16 @@ def test_a_yes_that_makes_a_destination_known_for_good_says_so(rule: str, values
     Gateway._known_from), so the card must say what the Yes allows, not only what happens now."""
     made = confirm.card([confirm.Need(rule, rule + ":k", values, destinations=destinations)])
     assert "from now on" in made.detail or "in later tasks" in made.detail, made
+
+
+# decision: GATE-514
+def test_a_question_that_types_into_a_terminal_leads_with_the_command() -> None:
+    """Live 2026-11-07: one question covered deleting for good, Terminal coming forward and typing `rm -f …`; the card
+    must lead with the command the Yes runs, not with the delete."""
+    made = confirm.card([_need("floor:delete_permanent", {"path": "the four Swiggy PDFs", "place": "Terminal"}),
+                         _need(confirm.FOREGROUND, {"app": "Terminal"}),
+                         _need(confirm.TERMINAL_INPUT, {"app": "Terminal", "text": '"rm -f -- a.pdf"', "enter": "yes",
+                                                        "surface": "a terminal app"})])
+    assert made.question == "Run this command in Terminal?"
+    assert made.exact.split("\n")[0] == "rm -f -- a.pdf"
+    assert "Delete this for good?" in made.detail and "Let FERB use your screen in Terminal" in made.detail
