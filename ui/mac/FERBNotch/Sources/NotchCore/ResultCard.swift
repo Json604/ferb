@@ -53,8 +53,17 @@ public struct ResultCard: Codable, Equatable {
     // page (step 12c): a FERB window page to open, with its filter (the memory import's notice: Memory, imported_from)
     public var page: String?
     public var importedFrom: String?
+    // event (T-1066): a schedule changed in place: its timing and instructions before (`was_*`) and its instructions now
+    public var changed: Bool = false
+    public var wasRepeat: String?
+    public var wasRequest: String?
+    public var request: String?
+    // schedules (T-1066): the owner's schedules as FERB's records hold them, drawn by the daemon's code
+    public var count: Int?
+    public var schedules: [ScheduleListRow]?
 
-    public static let types: Set<String> = ["reminder", "event", "note", "payment", "send", "link", "file", "page"]
+    public static let types: Set<String> = ["reminder", "event", "note", "payment", "send", "link", "file", "page",
+                                            "schedules"]
 
     public init?(_ value: Any?) {
         guard let value = value as? [String: Any], let type = value["type"] as? String, Self.types.contains(type) else {
@@ -72,6 +81,10 @@ public struct ResultCard: Codable, Equatable {
         recipient = words("recipient"); app = words("app"); account = words("account")
         host = words("host"); path = words("path"); name = words("name")
         page = words("page")
+        changed = value["changed"] as? Bool ?? false
+        wasRepeat = words("was_repeat"); wasRequest = words("was_request"); request = words("request")
+        count = value["count"] as? Int
+        schedules = (value["schedules"] as? [Any]).map { $0.compactMap { ScheduleListRow($0) } }
         importedFrom = ((value["filter"] as? [String: Any])?["imported_from"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         // A card with nothing to show isn't one.
         switch type {
@@ -82,6 +95,7 @@ public struct ResultCard: Codable, Equatable {
         case "payment": if amount == nil && merchant == nil { return nil }
         case "event": if what == nil { return nil }
         case "page": if page == nil { return nil }
+        case "schedules": if schedules == nil { return nil }
         default: break
         }
     }
@@ -142,13 +156,35 @@ public struct ResultCard: Codable, Equatable {
     }
 }
 
+/// One of the owner's schedules on a schedules card (T-1066): its name, the timing FERB's code wrote from its saved
+/// rule, its state and its next run (none while paused).
+public struct ScheduleListRow: Codable, Equatable {
+    public let id: String
+    public let name: String
+    public let repeatRule: String
+    public let state: String
+    public let nextRun: String?
+    public let until: String?
+    public let watch: String?
+
+    public init?(_ value: Any?) {
+        guard let value = value as? [String: Any], let id = value["id"] as? String, let name = value["name"] as? String,
+              let rule = value["repeat"] as? String else { return nil }
+        self.id = id; self.name = name; repeatRule = rule
+        state = value["state"] as? String ?? "active"
+        nextRun = value["next_run"] as? String; until = value["until"] as? String; watch = value["watch"] as? String
+    }
+
+    public var nextRunDate: Date? { LiveProgress.time(nextRun) }
+}
+
 /// How the notch places a turn's cards, and the text left when the lines they stand for are left out.
 public enum CardLayout {
     /// Cards drawn above FERB's text (a scheduled run's reminder: the text goes under it).
     public static func above(_ cards: [ResultCard]) -> [ResultCard] { cards.filter { $0.type == "reminder" } }
     /// Cards drawn one per surface under the text, in the daemon's order.
     public static func below(_ cards: [ResultCard]) -> [ResultCard] {
-        cards.filter { ["event", "note", "payment", "send"].contains($0.type) }
+        cards.filter { ["event", "note", "payment", "send", "schedules"].contains($0.type) }
     }
     public static func links(_ cards: [ResultCard]) -> [ResultCard] { cards.filter { $0.type == "link" } }
     public static func files(_ cards: [ResultCard]) -> [ResultCard] { cards.filter { $0.type == "file" } }

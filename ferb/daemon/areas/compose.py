@@ -141,7 +141,9 @@ class Compose:
             schedules=ports.SchedulePort(
                 timers=self.timers, on_schedule=self._schedule_create,
                 on_schedule_change=self._schedule_change_from_chat,
-                on_reminder_cancel=self._reminder_cancel_from_chat, schedule_live=self._schedule_live),
+                on_reminder_cancel=self._reminder_cancel_from_chat, schedule_live=self._schedule_live,
+                on_schedule_edit=self._schedule_edit_from_chat, schedule_problems=self._schedule_problems,
+                schedules_card=self._schedules_card),
             environment=ports.EnvironmentPort(
                 environment=self._environment, live_facts=self._live_facts, availability=self._availability,
                 apps=self._installed_apps,

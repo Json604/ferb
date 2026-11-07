@@ -41,6 +41,32 @@ final class TypedCardsTests: XCTestCase {
         XCTAssertNil(ResultCard.list([["type": "hologram"]]))
     }
 
+    // decision: APP-789
+    /// T-1066: the owner's schedules as the daemon's records hold them, and a schedule changed in place.
+    func testTheSchedulesCardAndAChangedSchedulesCardDecode() throws {
+        let cards = try XCTUnwrap(ResultCard.list([
+            ["type": "schedules", "count": 2, "line": "🗓 Your schedules (2): Visa checks — every 360 minutes; Notes",
+             "schedules": [["id": "sc-1", "name": "Visa checks", "repeat": "every 360 minutes", "state": "active",
+                            "next_run": "2026-11-08T00:30:00+00:00"],
+                           ["id": "sc-2", "name": "Notes", "repeat": "every day at 09:00", "state": "paused"],
+                           ["name": "no id"]]],
+            ["type": "schedules", "count": 0, "line": "🗓 You have no schedules.", "schedules": [Any]()],
+            ["type": "event", "kind": "schedule", "id": "sc-1", "what": "Visa checks", "line": "🗓 Changed: Visa checks",
+             "repeat": "every 360 minutes", "changed": true, "was_repeat": "every day at 05:20",
+             "was_request": "check at 5:20", "request": "check every 6 hours"],
+        ]))
+        XCTAssertEqual(cards.map(\.type), ["schedules", "schedules", "event"])
+        XCTAssertEqual(cards[0].schedules?.map(\.name), ["Visa checks", "Notes"])     // a row without an id isn't one
+        XCTAssertEqual(cards[0].schedules?[0].nextRunDate, LiveProgress.time("2026-11-08T00:30:00+00:00"))
+        XCTAssertNil(cards[0].schedules?[1].nextRun)
+        XCTAssertEqual(cards[1].schedules, [])
+        XCTAssertTrue(cards[2].changed)
+        XCTAssertEqual(cards[2].wasRepeat, "every day at 05:20")
+        XCTAssertEqual(cards[2].request, "check every 6 hours")
+        XCTAssertEqual(CardLayout.below(cards).map(\.type), ["schedules", "schedules", "event"])
+        XCTAssertEqual(CardLayout.strip("Here they are.\n🗓 You have no schedules.", [cards[1]]), "Here they are.")
+    }
+
     // decision: APP-700
     /// Live 2026-11-04: three link chips ("example.com", "github.com", "history") under one answer. Link cards
     /// show as the sites row: the first site, "+2", and the list of all of them behind it.

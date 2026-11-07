@@ -13,7 +13,8 @@ from tests.conftest import FakeRuntime, RunningDaemon, Script
 
 def planner_answer(kind: str, text: str, task: dict[str, Any] | None = None) -> str:
     return json.dumps({"kind": kind, "answer_question": None, "task": task, "control": None, "remember": [],
-                       "timers": [], "schedule": None, "schedule_changes": [], "reminder_cancels": [], "forget": [],
+                       "timers": [], "schedules": [], "schedule_changes": [], "show_schedules": False,
+                       "reminder_cancels": [], "forget": [],
                        "conversation_changes": [], "text": text})
 
 

@@ -351,3 +351,12 @@ rule = "Refines PRM-330. verifier.md says in one line that FERB takes the checke
 why = "Review of fixes8, finding 4: the prompt told the checker to leave findings empty for accept_unconfirmed while code used them, so a contradicted sentence could stand unmarked against ORCH-309."
 paths = ["ferb/orchestrator/prompts/verifier.md"]
 untestable = "Prompt text: TEST-500 keeps no wording tests; tests/test_merged_checker.py guards the code side."
+
+[PRM-332]
+title = "supervisor.md: several schedules, times, random windows, edits and show_schedules"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "For ORCH-550. supervisor.md says: schedules is a list, one per schedule asked for; scheduling happens only there and in schedule_changes, never in a task (a part they answer has direct \"\"); times and random fill several times a day; the request names only times it runs at, which code checks; an edit changes a schedule in place instead of cancel and new; show_schedules shows FERB's list, and questions about schedules are answered only from the facts' schedule list."
+untestable = "Prompt text: TEST-500 keeps no wording tests; tests/test_schedule_timing.py guards the code side."
+paths = ["ferb/orchestrator/prompts/supervisor.md"]

@@ -11,6 +11,7 @@ from ferb.act.fs.files import normalize_path
 from ferb.core import origin as origin_
 from ferb.core.errors import FerbError
 from ferb.daemon.server import Session
+from ferb.orchestrator.schedules import WATCH_SAID, until_said
 from ferb.orchestrator.worker import reason
 
 
@@ -216,7 +217,7 @@ class Schedules:
         `origins`: what the turn that wrote the scheduled request was given; its runs inherit them (S3, MP2).
         `request_origins`: what that request itself carried, its runs' request origins for the sink rule (S4, L4).
         Returns the owner's line and, for a schedule set, its event card from the stored row (step 8e)."""
-        from ferb.orchestrator.schedules import RUN_SCOPE, WATCH_SAID, Rule, ScheduleError, scope_said, until_said
+        from ferb.orchestrator.schedules import RUN_SCOPE, TIMING, WATCH_SAID, ScheduleError, scope_said, until_said
         from ferb.policy.targets import Targets
         from ferb.memory.items import quoted
         from ferb.policy import blocked as blocked_
@@ -233,21 +234,13 @@ class Schedules:
                                     f"“{spec.request}” isn't scheduled",
                                     "say when it should stop and I'll set it up"), None
         try:
-            from ferb.clock.when import end_at, resolve, when_present
             now = self.clock.now()
-            present = bool(getattr(spec, "when_active", False))                 # ORCH-317: when they're at the Mac
-            return_after = None
-            if present:
-                first, return_after = when_present(spec.when, spec.repeat, now, spec.every_minutes)
-            else:
-                first = resolve(spec.when, now)                                 # code computes the date, not the model
-            until = end_at(ends.when(), now) if ends is not None else None      # and the end (ORCH-320)
-            rule = Rule.build(spec.repeat, first, spec.weekday, spec.every_minutes, when_active=present)
-            if present and spec.repeat in ("daily", "weekdays", "weekly") and spec.when.time is None:
-                # due from the start of a day its rule names: the first such day from the one `when` gave
-                first = rule.next_after(first - timedelta(seconds=1), first) or first
-            if first <= now:                    # "when I'm back at my Mac", said now: due now, fires at their return
-                first = now + timedelta(seconds=1)
+            plan = self._schedule_plan(spec, now)
+            rule, first, return_after, until, timing = plan.rule, plan.first, plan.return_after, plan.until, plan.timing
+            if plan.missing:                    # T-1066: its words claim a time its rule doesn't run at
+                self._journal().append("schedule.refused", {"why": "request names times the rule doesn't run at",
+                                                            "times": plan.missing})
+                return self._untrue_times_line(spec, plan), None
             t = spec.targets
             recorded = Targets.of(
                 t.apps, t.sites, [normalize_path(p, str(self.home / "workspace")) for p in t.paths],
@@ -262,14 +255,16 @@ class Schedules:
                                                           for f in run_scope["folders"] if f.strip()))
             s = self.schedules.add(spec.request, own_words,
                                    recorded.to_json() | ({"standing_sends": scopes} if scopes else {})
-                                   | ({RUN_SCOPE: self.redact(run_scope)} if run_scope is not None else {}), rule,
+                                   | ({RUN_SCOPE: self.redact(run_scope)} if run_scope is not None else {})
+                                   | ({TIMING: timing.to_json()} if timing is not None else {}), rule,
                                    first, spec.watch, until, name=str(getattr(spec, "name", "") or ""))
         except (ScheduleError, ValueError) as e:
             return f"I couldn't schedule that: {e}.", None
+        first = plan.booked                 # T-1066: its first run, its timing's earlier times included
         t = self._book(s, first, return_after=return_after)
         self.schedules.set_timer(s.id, t.id, first)
         # the statement the owner is shown: each run's grant (`schedule:<id>`) links back to these recorded scopes
-        self._journal().append("schedule.created", {"schedule_id": s.id, "request": s.request, "rule": rule.describe(),
+        self._journal().append("schedule.created", {"schedule_id": s.id, "request": s.request, "rule": s.when_said(),
                                                     "request_id": request_id, "standing_sends": scopes,
                                                     "not_recorded": unnamed, "watch": s.watch,
                                                     "until": s.until.isoformat() if s.until else None,
@@ -280,8 +275,8 @@ class Schedules:
         local = first.astimezone()
         at = f"{local:%a %d %b}" if rule.when_active and (local.hour, local.minute) == (0, 0) else \
             f"{local:%a %d %b %H:%M}"                    # ORCH-317: due from a day's start, held for the owner
-        if rule.repeat != "none":
-            when = f"{rule.describe()}, first on {at}"
+        if rule.repeat != "none" or s.timing is not None:
+            when = f"{s.when_said()}, first on {at}"
         elif not rule.when_active:
             when = f"on {at}"
         elif return_after is not None and return_after <= now + timedelta(seconds=1):
@@ -292,7 +287,8 @@ class Schedules:
                                            WATCH_SAID[s.watch]) if part)
         from ferb.orchestrator import cards
         card = cards.event("schedule", s.id, s.label, first.isoformat(), said,
-                           repeat=rule.describe() if rule.repeat != "none" else None, watch=WATCH_SAID[s.watch] or None,
+                           repeat=s.when_said() if rule.repeat != "none" or s.timing else None,
+                           watch=WATCH_SAID[s.watch] or None,
                            until=s.until.isoformat() if s.until else None)
         from ferb.orchestrator.plans import SendScope
         from ferb.policy import confirm
@@ -317,6 +313,48 @@ class Schedules:
             # APP-777: its runs can't ask, so FERB asks now, while the owner is here, which of their profiles it uses
             self._browsing(True, request_id)
         return said, card
+
+    def _schedule_plan(self, spec: Any, now: datetime) -> Any:
+        """A new schedule worked out by code (T-1066: its first run, end and several daily times), its random
+        times seeded afresh."""
+        from ferb.orchestrator.schedules import plan_new
+        return plan_new(spec, now, self.ids.new_id())
+
+    @staticmethod
+    def _untrue_times_line(spec: Any, plan: Any) -> str:
+        """T-1066 (owner: "where is honesty"): a schedule whose words name a time its saved rule never runs at isn't
+        made or changed; FERB says so plainly, with the times it would run at."""
+        from ferb.orchestrator.schedules import said_list
+        named = said_list(plan.missing)
+        return (f"I didn't save “{plan.schedule.label}”: its instructions say {named}, but it would run "
+                f"{plan.schedule.when_said()}. Tell me again exactly when it should run.")
+
+    def _schedule_problems(self, entry: Any) -> list[str]:
+        """What code finds wrong with a new or changed schedule before the planner's reply stands (T-1066), told back
+        for repair: timing code can't work out, or a clock time its request names that it would never run at."""
+        from ferb.orchestrator.schedules import ScheduleError, plan_edit
+        now = self.clock.now()
+        new = hasattr(entry, "when")
+        if not new and getattr(entry, "action", "") != "edit":
+            return []
+        what = f"schedule {entry.request[:60]!r}" if new else f"schedule_changes {entry.id!r}"
+        try:
+            if new:
+                plan = self._schedule_plan(entry, now)
+            else:
+                old = self.schedules.get(str(entry.id))
+                if old is None or old.state not in ("active", "paused"):
+                    return [f"{what}: there's no active or paused schedule with that id to edit."]
+                if not str(entry.request).strip() and not entry.timing.repeat:
+                    return [f"{what}: an edit changes its request, its timing or both."]
+                plan = plan_edit(old, str(entry.request), entry.timing, now, "check")
+        except (ScheduleError, ValueError) as e:
+            return [f"{what}: {e}."]
+        if plan.missing:
+            return [f"{what}: its request names {', '.join(plan.missing)}, but its saved timing would run "
+                    f"{plan.schedule.when_said()}. Every clock time a schedule's request names must be a time it runs "
+                    f"at (when, times, random) or its end: set the timing to every time the owner asked for."]
+        return []
 
     def _schedule_scopes(self, stated: list[Any], own_words: str,
                          request_id: str) -> tuple[list[dict[str, Any]], list[str]]:
@@ -402,6 +440,70 @@ class Schedules:
             return "There's no active schedule like that to change."
         return self._schedule_change(ch.id, ch.action)
 
+    def _schedule_edit_from_chat(self, ch: Any, own_words: str, request_id: str, origins: set[str],
+                                 request_origins: set[str] | None = None) -> tuple[str, dict[str, Any] | None]:
+        """T-1066: an active or paused schedule changed in place, on the owner's quoted words: its instructions, its
+        timing or both, with the same id, runs and history. Code works out the new timing, checks its words against
+        it as for a new schedule, books its next run and says what changed (old → new) in a line and a card. What every
+        run uses (ORCH-313) and its standing scope stay as recorded; `origins` and `request_origins` join the ones its
+        runs already carry (the request was rewritten from this turn)."""
+        from ferb.memory.items import quoted
+        from ferb.orchestrator import cards
+        from ferb.orchestrator.schedules import TIMING, WATCH_SAID, ScheduleError, plan_edit, until_said
+        from ferb.policy import blocked as blocked_
+        if not quoted(own_words, ch.quote):
+            return blocked_.blocked(blocked_.CHANGES, blocked_.NOT_IN_WORDS, "no schedule was changed",
+                                    "say which schedule should change and how"), None
+        old = self.schedules.get(str(ch.id))
+        if old is None or old.state not in ("active", "paused"):
+            return "There's no active schedule like that to change.", None
+        if not str(ch.request).strip() and not ch.timing.repeat:
+            return "I didn't change that schedule — could you say again what should change?", None
+        now = self.clock.now()
+        try:
+            plan = plan_edit(old, str(ch.request), ch.timing, now, self.ids.new_id())
+        except (ScheduleError, ValueError) as e:
+            return f"I didn't change “{old.label}”: {e}.", None
+        if plan.missing:
+            self._journal().append("schedule.refused", {"schedule_id": old.id, "why": "request names times the rule "
+                                                        "doesn't run at", "times": plan.missing})
+            return self._untrue_times_line(ch, plan), None
+        retimed = bool(ch.timing.repeat)
+        targets = None                          # a new timing replaces the old one in its recorded JSON
+        if retimed:
+            targets = {k: v for k, v in old.targets.items() if k != TIMING} | (
+                {TIMING: plan.timing.to_json()} if plan.timing is not None else {})
+        self.schedules.edit(old.id, plan.schedule.request if plan.schedule.request != old.request else None,
+                            plan.rule if retimed else None, plan.first if retimed else None, targets, own_words)
+        renamed = " ".join(str(getattr(ch, "name", "") or "").split())
+        if renamed:
+            self.schedules.set_name(old.id, renamed)
+        if retimed and old.state == "active":
+            if old.timer_id:
+                self.timers.cancel(old.timer_id)
+            booked = self._book(plan.schedule, plan.booked)
+            self.schedules.set_timer(old.id, booked.id, plan.booked)
+        s = self.schedules.get(old.id)
+        assert s is not None
+        before, after = old.when_said(), s.when_said()
+        self._journal().append("schedule.edited", {"schedule_id": s.id, "request_id": request_id,
+                                                   "before": {"request": old.request, "rule": before},
+                                                   "after": {"request": s.request, "rule": after}}
+                               | ({"request_origins": sorted(request_origins)} if request_origins else {}),
+                               origin=origin_.join(origins))
+        nxt = f"; next run {s.next_run.astimezone():%a %d %b %H:%M}" if s.state == "active" and s.next_run else \
+            ("; it stays paused" if s.state == "paused" else "")
+        timing = f"now {after} (was {before})" if after != before else f"still {after}"
+        line = ", ".join(part for part in (f"🗓 Changed: {s.label} — {timing}{nxt}",
+                                           until_said(s.until) if s.until else "", WATCH_SAID[s.watch]) if part)
+        said = line + (f"\nIts instructions now: {s.request}" if s.request != old.request else "")
+        card = cards.event("schedule", s.id, s.label, s.next_run.isoformat() if s.next_run else "", line,
+                           repeat=after, watch=WATCH_SAID[s.watch] or None,
+                           until=s.until.isoformat() if s.until else None) | {
+            "changed": True, **({"was_repeat": before} if before != after else {}),
+            **({"was_request": old.request, "request": s.request} if s.request != old.request else {})}
+        return said, card
+
     def _schedule_set_end(self, sid: str, ends: Any) -> str:
         """ORCH-320: an active or paused schedule gets the end the owner's words give it (code works out the time);
         a booked run after it is cancelled and the schedule ends now."""
@@ -483,8 +585,9 @@ class Schedules:
             self._withdraw_schedule_scope(sid, action)
         elif action == "resume":
             self.schedules.set_state(sid, "active")
-            nxt = s.next_after(max(self.clock.now(), s.first_run - timedelta(seconds=1))) \
-                if s.rule.repeat != "none" else (s.next_run if s.next_run and s.next_run > self.clock.now() else None)
+            now = self.clock.now()
+            nxt = s.next_after(max(now, s.first_run - timedelta(seconds=1))) if s.rule.repeat != "none" else \
+                (s.next_run if s.next_run and s.next_run > now else s.next_after(now))    # once: a later time today
             if nxt is None:
                 self.schedules.set_state(sid, "done")
                 return f"{s.label} has no future runs left."
@@ -647,7 +750,7 @@ class Schedules:
         assert s is not None
         active = s.state == "active"
         return {"type": "reminder", "schedule_id": sid, "title": s.label, "kind": "schedule", "due": due.isoformat(),
-                **({"repeat": s.rule.describe()} if s.rule.repeat != "none" else {}),
+                **({"repeat": s.when_said()} if s.rule.repeat != "none" or s.timing else {}),
                 **({"next_run": s.next_run.isoformat()} if s.next_run is not None and active else {}),
                 **({"until": s.until.isoformat()} if s.until is not None and active else {})}
 
@@ -689,12 +792,56 @@ class Schedules:
         return True
 
     async def _schedules_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        return {"schedules": [{"id": s.id, "request": s.request, "name": s.label, "rule": s.rule.describe(),
+        return {"schedules": [{"id": s.id, "request": s.request, "name": s.label, "rule": s.when_said(),
                                "state": s.state,
                                "next_run": s.next_run.isoformat() if s.next_run else None, "failures": s.failures,
                                "until": s.until.isoformat() if s.until else None,
                                "watch": s.watch, "last_result": self._schedule_last_result(s.id)}
                               for s in self._listed_schedules()]}
+
+    def _schedule_rows(self) -> list[dict[str, Any]]:
+        """The owner's current schedules as FERB's records hold them (T-1066, owner: "where is honesty in ferb stating
+        how many schedules are there and not from jsut its memory"): each one's name, the timing code renders from its
+        saved rule, its end, its watch, its state and its next run. The planner's list and the schedules card both read
+        this, so what FERB says about schedules comes from here, never from the conversation."""
+        rows = []
+        for s in self._listed_schedules():
+            rows.append({"id": s.id, "name": s.label, "repeat": s.when_said(),
+                         "state": "done; its last run is under way" if s.state == "done" else s.state,
+                         "next_run": s.next_run.isoformat() if s.next_run is not None and s.state == "active" else None,
+                         "until": s.until.isoformat() if s.until else None, "watch": WATCH_SAID[s.watch] or None,
+                         "request": s.request})
+        return rows
+
+    def _schedule_facts(self) -> list[str]:
+        """The planner's list of the owner's schedules (T-1066): a count and one line per schedule, from FERB's
+        records, marked as the truth to answer any question about schedules from."""
+        rows = self._schedule_rows()
+        states = {state: sum(r["state"] == state for r in rows) for state in dict.fromkeys(r["state"] for r in rows)}
+        count = f"{len(rows)} ({', '.join(f'{n} {state}' for state, n in states.items())})" if rows else "none"
+        lines = [f"The owner's schedules, from FERB's records (the truth: answer anything about schedules, how many "
+                 f"there are and when they run, only from this list, never from the conversation): {count}"]
+        for r in rows:
+            nxt = (f"next run {datetime.fromisoformat(r['next_run']).astimezone():%a %d %b %Y %H:%M}" if r["next_run"]
+                   else "no next run booked")
+            extra = "".join(f", {part}" for part in (
+                until_said(datetime.fromisoformat(r["until"])) if r["until"] else "", r["watch"] or "") if part)
+            lines.append(f"- Schedule {r['id']} “{r['name']}” ({r['state']}): runs {r['repeat']}{extra}; {nxt}; "
+                         f"instructions: {r['request']}")
+        return lines
+
+    def _schedules_card(self) -> tuple[str, dict[str, Any]]:
+        """The owner's schedules as a card (T-1066), drawn by code from FERB's records when the planner shows them:
+        the count, and each one's name, timing, state and next run; with the one line of code it stands for."""
+        rows = self._schedule_rows()
+        if rows:
+            line = f"🗓 Your schedules ({len(rows)}): " + "; ".join(f"{r['name']} — {r['repeat']}"
+                                                                  + ("" if r["state"] == "active" else f" ({r['state']})")
+                                                                  for r in rows)
+        else:
+            line = "🗓 You have no schedules."
+        return line, {"type": "schedules", "count": len(rows), "line": line,
+                      "schedules": [{k: v for k, v in r.items() if k != "request" and v is not None} for r in rows]}
 
     def _schedule_last_result(self, sid: str) -> dict[str, Any] | None:
         """A schedule's latest finished run as the owner was told it (L34 Phase E): the result of the root task a

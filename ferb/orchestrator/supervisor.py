@@ -37,7 +37,7 @@ from ferb.core.types import Identity, ModelImage, Outcome, RunHandle, Span, Task
 from ferb.daemon.auth import RunGrant, RunTokens
 from ferb.daemon.gateway import DESTINATION_HELP, EFFECT_HELP, FsRoots, Gateway, Observer, observes
 from ferb.daemon.questions import card_flags
-from ferb.memory.items import CAPTURE_TOLD, capture, query_terms, quoted
+from ferb.memory.items import CAPTURE_TOLD, capture, owner_span_at, query_terms, quoted
 from ferb.memory.journal import Journal, JournalEntry
 from ferb.memory.lineage import ENTRY, REQUEST_REFERENCE, TASK
 from ferb.orchestrator.context_layers import target_words
@@ -240,6 +240,15 @@ def _overlap(a: str, b: str) -> bool:
     return a in b or b in a
 
 
+def _overlaps(words: str, quote: str, other: str) -> bool:
+    """Two quotes share some of the owner's words in `words`: a part of one (quotes of several messages are joined by
+    blank lines) sits where a part of the other does."""
+    def spans(q: str) -> list[tuple[int, int]]:
+        return [span for part in re.split(r"\n[ \t]*\n", q) if part.strip()
+                and (span := owner_span_at(words, part)) is not None]
+    return any(a < d and c < b for a, b in spans(quote) for c, d in spans(other))
+
+
 def _quoted(names: list[str]) -> str:
     """Model-written names on one line, each in quotes."""
     return ", ".join("“" + " ".join(name.split()) + "”" for name in names)
@@ -358,7 +367,8 @@ def _carries_more(out: SupervisorOutcome) -> bool:
     """Whether a planner turn carries anything besides an answer: a control (stop, retry, continue), a new
     task, or a side output (memory, reminders, schedules, conversation changes)."""
     return bool(out.control is not None or (out.kind == "task" and out.task is not None) or out.remember or
-                out.forget or out.timers or out.schedule is not None or out.schedule_changes or out.reminder_cancels or
+                out.forget or out.timers or out.schedules or out.schedule_changes or out.show_schedules or
+                out.reminder_cancels or
                 out.conversation_changes)
 
 
@@ -975,6 +985,9 @@ class Supervisor(WorkerRuns):
         self.on_schedule: Callable[[Any, str, str, set[str], set[str]], tuple[str, dict[str, Any] | None]] = \
             schedules.on_schedule
         self.on_schedule_change: Callable[[Any, str], str] = schedules.on_schedule_change
+        self.on_schedule_edit: Callable[..., tuple[str, dict[str, Any] | None]] = schedules.on_schedule_edit
+        self.schedule_problems: Callable[[Any], list[str]] = schedules.schedule_problems
+        self.schedules_card: Callable[[], tuple[str, dict[str, Any]]] = schedules.schedules_card
         self.on_reminder_cancel: Callable[[Any, str], str] = schedules.on_reminder_cancel
         self.schedule_live: Callable[[str], bool] = schedules.schedule_live
         self.typed_behind_memory: Callable[[str], list[str]] = memory.typed_behind_memory
@@ -1234,12 +1247,12 @@ class Supervisor(WorkerRuns):
         for it in out.timers:
             if not _asked(said, turn.typed, str(it.quote)):
                 tell(f"timer {it.message!r}", str(it.quote))
-        if out.schedule is not None:
-            _, refused = self._schedule_words(turn, out.schedule)
+        for i, sched in enumerate(out.schedules):
+            _, refused = self._schedule_words(turn, sched)
             if refused == "quote":
-                tell("schedule", str(out.schedule.quote))
-            elif refused == "until" and out.schedule.until is not None:
-                tell("schedule until", out.schedule.until.quote)
+                tell(f"schedules[{i}]", str(sched.quote))
+            elif refused == "until" and sched.until is not None:
+                tell(f"schedules[{i}] until", sched.until.quote)
         quotes = [(f"schedule_changes {ch.id!r}", ch.quote) for ch in out.schedule_changes] + \
             [(f"schedule_changes {ch.id!r} until", ch.until.quote) for ch in out.schedule_changes if ch.until] + \
             [(f"reminder_cancels {rc.id!r}", rc.quote) for rc in out.reminder_cancels] + \
@@ -1250,7 +1263,29 @@ class Supervisor(WorkerRuns):
         if problems:
             problems.append("Quote the owner's exact words for each of these, or leave it out; your text says only what "
                             "will actually happen, never that something was set, saved, changed or restored.")
+        # T-1066: each new or edited schedule's timing works and its request names only times it runs at; told back
+        # once like a quote, then refused when applied, said plainly (never failing the turn)
+        for entry in [*out.schedules, *(ch for ch in out.schedule_changes if ch.action == "edit")]:
+            problems.extend(self.schedule_problems(entry))
         return problems
+
+    def _unbacked_parts(self, turn: "_Turn", out: SupervisorOutcome) -> list[str]:
+        """T-1066: a part the planner says this turn's own entries answer (direct "") must be one an entry of this
+        turn stands for: a memory, reminder, schedule or schedule change entry whose quote is (part of) the same words
+        of the owner's as the part's quote. Otherwise its ask reaches no one: a worker has no schedule or reminder
+        tool, so schedule work handed to a task never happens (live 2026-11-07: random morning checks given to a
+        worker). Where the quotes sit in the owner's words is structure, not meaning."""
+        if out.task is None or not any(part.direct == "" for part in out.task.parts):
+            return []
+        quotes = [str(e.quote) for e in [*out.remember, *out.forget, *out.timers, *out.schedules,
+                                          *out.schedule_changes, *out.reminder_cancels]]
+        said = [s.words for s in self._said_in_chat(turn)]
+        return [f"part {part.id}: direct \"\" says an entry of this turn answers it, but no remember, timers, "
+                f"schedules or schedule_changes entry quotes its words. Scheduling and reminders happen only through "
+                f"those entries (a worker can't make or change a schedule): add the entry, or answer the part with a "
+                f"step." for part in out.task.parts
+                if part.direct == "" and not any(_overlaps(words, part.quote, quote) for words in said
+                                                 for quote in quotes)]
 
     def _targets(self, spec: TaskSpec) -> Targets:
         """The task's targets with paths in the form the gateway uses."""
@@ -1313,8 +1348,7 @@ class Supervisor(WorkerRuns):
                 problems.extend(f"part {part.id}: its quote must be the owner's own words from this message or their "
                                 f"recent messages in this chat: {json.dumps(part.quote, ensure_ascii=False)}"
                                 for part in task_.parts if self._owner_said(turn, part.quote) is None)
-        if candidate.schedule is not None:  # ORCH-313: what every run uses is checked as a task's is
-            sched = candidate.schedule
+        for sched in candidate.schedules:   # ORCH-313: what every run uses is checked as a task's is
             if sched.worker_type and sched.worker_type not in (types := self.worker_types()):
                 problems.append(f"schedule worker_type {sched.worker_type!r} isn't one of the worker types available "
                                 f"now: {', '.join(types)}.")
@@ -1323,6 +1357,7 @@ class Supervisor(WorkerRuns):
             if broad:
                 problems.append("schedule folders must each name one specific folder, never the whole disk, the home "
                                 "folder, /Volumes or iCloud Drive itself: " + json.dumps(broad))
+        problems.extend(self._unbacked_parts(turn, candidate))
         if candidate.task and candidate.task.plan:
             plan = candidate.task.plan
             paths = list(dict.fromkeys(normalize_path(p, self.workspace) for p in [*plan.input_paths, *turn.input_paths]))
@@ -1373,7 +1408,7 @@ class Supervisor(WorkerRuns):
         ran_before = {"ran_at": previous["ran_at"], "status": previous["status"],
                       "later_runs_without_answer": previous["skipped"]} if previous else None
         note = "\n\n" + load_prompt(self._approach() + "/scheduled.md") + "\nSchedule facts (data): " + json.dumps({
-            "rule": sched.rule.describe(), "watch": sched.watch, "late": late, "overdue_s": overdue_s,
+            "rule": sched.when_said(), "watch": sched.watch, "late": late, "overdue_s": overdue_s,
             **({"retry_of_failed_run": True} if retry else {}),
             "consecutive_failures": sched.failures,
             # D30: the standing scope the owner was shown when making the schedule, in force for every run
@@ -1382,7 +1417,7 @@ class Supervisor(WorkerRuns):
             "previous_run": ran_before} | watched | recorded_run)
         # what the run's worker reads of them (its role blocks name them): the watch's last report, the previous run
         # with its answer (data, with that answer's origins), the recorded scope
-        worker_facts = {"rule": sched.rule.describe(), "watch": sched.watch, **watched, **recorded_run,
+        worker_facts = {"rule": sched.when_said(), "watch": sched.watch, **watched, **recorded_run,
                         "previous_run": ran_before and {**ran_before, "answer": str(previous["entry"].data.get(
                             "text", "")), "answer_origin": previous["entry"].origin}}
         session = ChatSession(SCHEDULE_SESSION + sched.id)
@@ -2952,17 +2987,17 @@ class Supervisor(WorkerRuns):
         # never replaces the reply. A reply or question gets the lines (so they reach the conversation's history too); a
         # task's turn sends refusals as events, and its outcome carries every line (clients may show those events only
         # in passing).
-        if out.schedule is not None:                            # the planner wrote the scheduled request from its turn
-            words, unquoted_part = self._schedule_words(turn, out.schedule)
+        made = {origins_.INFERRED} | origins_.kinds(turn.turn_origins)     # what wrote a scheduled request
+        for sched in out.schedules:                            # the planner wrote each scheduled request from its turn
+            words, unquoted_part = self._schedule_words(turn, sched)
             schedule_card = None
             if unquoted_part:                                   # the quote check, before the schedules port
                 self.journal.append("schedule.refused", {"why": f"{unquoted_part} words not in the owner's words"})
                 line = blocked_.blocked(blocked_.REMINDERS if unquoted_part == "quote" else blocked_.END_DATE, recent,
-                                        f"{_quoted([out.schedule.request])} isn't scheduled",
+                                        f"{_quoted([sched.request])} isn't scheduled",
                                         "type what you want scheduled in this chat and I'll set it up")
             else:
-                line, schedule_card = self.on_schedule(out.schedule, words, request_id,
-                                                       {origins_.INFERRED} | origins_.kinds(turn.turn_origins),
+                line, schedule_card = self.on_schedule(sched, words, request_id, made,
                                                        self._sink_origins_for_new_schedule(turn))
             changed.append(line)
             events.append({"type": "timer", "text": changed[-1]})
@@ -2974,9 +3009,23 @@ class Supervisor(WorkerRuns):
             if held is not None and ch.until is not None and not quoted(words, ch.until.quote):
                 more = self._owner_said(turn, ch.until.quote)
                 words += "\n" + more.words if more is not None else ""
-            changed.append(self.on_schedule_change(ch, words) if held is not None else blocked_.blocked(
-                blocked_.CHANGES, recent, "no schedule was changed", "say which schedule should change and how"))
+            change_card = None
+            if held is None:
+                line = blocked_.blocked(blocked_.CHANGES, recent, "no schedule was changed",
+                                        "say which schedule should change and how")
+            elif ch.action == "edit":                           # T-1066: changed in place, old → new
+                line, change_card = self.on_schedule_edit(ch, words, request_id, made,
+                                                          self._sink_origins_for_new_schedule(turn))
+            else:
+                line = self.on_schedule_change(ch, words)
+            changed.append(line)
             events.append({"type": "timer", "text": changed[-1]})
+            if change_card is not None:
+                cards.append(change_card)
+        if out.show_schedules:          # T-1066: the owner's schedules as FERB's records hold them, after this turn's
+            line, card = self.schedules_card()                  # own changes, drawn by code
+            changed.append(line)
+            cards.append(card)
         refused = [("timer", line) for line in [_not_set(unset), *map(_already_set, existing)] if line] + \
             [("memory", line) for line in [_not_saved(unsaved)] if line] + stopped
         side_lines = (saved + changed
@@ -3345,8 +3394,8 @@ class Supervisor(WorkerRuns):
         """A scheduled run's request: what the turn that made the schedule was written from, as recorded on its
         schedule.created row (always holding `inferred`, since the planner wrote the request). A row recorded without
         that label (before F3, or by a schedule made outside chat) is unlabeled."""
-        held = {o for e in self.journal.of_kind("schedule.created", "schedule_id", schedule_id)
-                for o in origins_.split(e.origin)}
+        held = {o for kind in ("schedule.created", "schedule.edited")    # an edit's request was written in its turn
+                for e in self.journal.of_kind(kind, "schedule_id", schedule_id) for o in origins_.split(e.origin)}
         return held if origins_.INFERRED in held else {origins_.external("unlabeled")}
 
     def _summary(self, conversation: str) -> JournalEntry | None:
@@ -3523,7 +3572,8 @@ class Supervisor(WorkerRuns):
         """A scheduled run's request origins for the sink rule (S4, L4), as `_sink_origins_for_new_schedule` recorded
         them on its schedule.created row; a row recorded without them (before L4) gives every label the turn saw
         (`_schedule_origins`): fail-closed."""
-        rows = self.journal.of_kind("schedule.created", "schedule_id", schedule_id)
+        rows = [*self.journal.of_kind("schedule.created", "schedule_id", schedule_id),
+                *self.journal.of_kind("schedule.edited", "schedule_id", schedule_id)]     # T-1066: and its edits'
         recorded = [e.data.get("request_origins") for e in rows]
         if rows and all(isinstance(r, list) and r for r in recorded):
             return {str(o) for r in recorded if isinstance(r, list) for o in r}

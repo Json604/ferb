@@ -3466,3 +3466,12 @@ request = "Ask FERB to sign in somewhere that asks a security question (or any p
 pass = "The card's heading is short and starts with the site. Under it you can read the page's own words for the field (for example the whole security question) and the name FERB will save it under, nothing cut off at 40 characters. Typing the answer fills it as before."
 decisions = ["GATE-520", "GATE-513"]
 sitting = "after this change is installed"
+
+[LIVE-816]
+title = "Schedules: several times, random windows, an edit, a list FERB can't misstate"
+area = "orchestration"
+surface = "FERB.app with this build; a harmless schedule (for example checking a public page)"
+request = "Ask for one schedule that runs every 6 hours from 6 am plus 2 random times between 5 and 8 am; then ask to change it to daily at 5:20 and 7:10 am; then ask \"how many schedules do I have and when do they run?\". Also ask for two schedules in one message."
+pass = "The first card says every 360 minutes plus 2 at random times between 05:00 and 08:00, with the next run shown. The change keeps one schedule and shows what it was and what it is now. The answer to how many comes with a card listing each schedule, its times and next run, matching Settings → Schedules & Reminders. Two schedules asked in one message are both made."
+decisions = ["ORCH-550", "ORCH-551", "ORCH-552", "ORCH-554", "APP-789"]
+sitting = "after this change is installed"

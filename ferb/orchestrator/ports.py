@@ -40,6 +40,11 @@ class SchedulePort:
     on_schedule_change: Callable[[Any, str], str]
     on_reminder_cancel: Callable[[Any, str], str]
     schedule_live: Callable[[str], bool]                # whether a schedule's runs may still hold its scope (D30)
+    # T-1066: a schedule edited in place (as on_schedule: a line and its card), what code finds wrong with a new or
+    # edited schedule (told back for repair), and the owner's schedules as a card from FERB's records
+    on_schedule_edit: Callable[[Any, str, str, set[str], set[str]], tuple[str, dict[str, Any] | None]]
+    schedule_problems: Callable[[Any], list[str]]
+    schedules_card: Callable[[], tuple[str, dict[str, Any]]]
 
 
 @dataclass(frozen=True)

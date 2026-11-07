@@ -25,11 +25,23 @@ one (every schedule made before) runs until stopped.
 A schedule records what every run uses (ORCH-313): its folders, whose identity, the worker type, the
 owner's browser profile and the account, resolved by the turn that made it and stated then (`run_scope`, kept in its
 recorded targets as `run_scope`). Each run's task uses those, never re-guessed; a schedule made before has none, and its
-runs plan them as before."""
+runs plan them as before.
+
+A schedule can run several times a day (T-1066, owner 2026-11-07: "build all five"): fixed clock times beside its
+rule's own, and N runs a day at random times in a window, drawn afresh each day from a stored seed and the date, so the
+next run is always known (`Timing`). They follow the rule's days (every day for daily and "every N minutes", Monday to
+Friday for weekdays, the rule's weekday for weekly, the first run's day for a one-time schedule). The timing is kept in
+the schedule's recorded JSON (`TIMING`), never in its rule, so an older FERB still reads the rule and starts. Runs never
+overlap (the daemon skips a run while the previous one is under way) and an until_met watch ends the whole schedule.
+
+What a schedule says it does is checked by code (`missing_times`): every clock time its request names must be one of
+the times its saved rule runs at (or a window's or its end's), so no request claims runs the rule doesn't make."""
 
 import json
-from dataclasses import dataclass
-from datetime import datetime, time, timedelta, timezone
+import random
+import re
+from dataclasses import dataclass, fields
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -83,6 +95,104 @@ def watch_met(status: Any, met: Any) -> bool:
 
 class ScheduleError(ValueError):
     pass
+
+
+CLOCK = re.compile(r"\s*([01]?\d|2[0-3]):([0-5]\d)\s*")
+DAY_MINUTES = 24 * 60
+TIMING = "timing"                   # the key of a schedule's several daily times (T-1066) in its recorded JSON
+
+
+def clock_minutes(text: str) -> int:
+    """"HH:MM" (24-hour) as minutes after midnight; ScheduleError for anything else."""
+    m = CLOCK.fullmatch(str(text))
+    if not m:
+        raise ScheduleError(f"a time of day must be HH:MM (24-hour), not {text!r}")
+    return int(m[1]) * 60 + int(m[2])
+
+
+def hhmm(minutes: int) -> str:
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+def said_list(items: list[str]) -> str:
+    """"a", "a and b", "a, b and c"."""
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def _field(item: Any, key: str) -> Any:
+    return item[key] if isinstance(item, dict) else getattr(item, key)
+
+
+@dataclass(frozen=True)
+class Window:
+    """`count` runs a day at random times from `start` to `end` (HH:MM, both included, `start` before `end`)."""
+    count: int
+    start: str
+    end: str
+
+
+@dataclass(frozen=True)
+class Timing:
+    """A schedule's runs a day beside its rule's own (T-1066): fixed clock times (`times`: every fixed time of the day,
+    the rule's own included) and random times in windows, drawn afresh each day from `seed` and the date (never the
+    same minute as another run that day), so the next run is always known. `start`: the first local day they count on
+    (ISO date). Stored in the schedule's recorded JSON under TIMING, never in its rule."""
+    times: tuple[str, ...] = ()
+    windows: tuple[Window, ...] = ()
+    seed: str = ""
+    start: str = ""
+
+    @classmethod
+    def build(cls, times: Any, windows: Any, seed: str, start: date, own: int | None) -> "Timing | None":
+        """From the planner's fields (`windows`: objects with count, start and end). `own`: the minute its rule itself
+        runs at each day (daily, weekdays, weekly, once), kept among the fixed times; None for "every N minutes".
+        None when there is nothing beside the rule's own. ScheduleError for a time that isn't HH:MM or a window that
+        can't hold its count."""
+        fixed = {clock_minutes(t) for t in times or ()}
+        made = []
+        for w in windows or ():
+            count, first, last = int(_field(w, "count")), clock_minutes(_field(w, "start")), \
+                clock_minutes(_field(w, "end"))
+            if count <= 0:
+                raise ScheduleError("a number of random times must be positive")
+            if last <= first:
+                raise ScheduleError(f"random times need a window that starts before it ends, not "
+                                    f"{hhmm(first)}-{hhmm(last)}")
+            if count > last - first + 1:
+                raise ScheduleError(f"{count} random times don't fit between {hhmm(first)} and {hhmm(last)}")
+            made.append(Window(count, hhmm(first), hhmm(last)))
+        if not fixed - {own} and not made:
+            return None
+        kept = sorted(fixed | ({own} if own is not None else set()))
+        return cls(tuple(hhmm(m) for m in kept), tuple(made), seed, start.isoformat())
+
+    @classmethod
+    def of(cls, data: Any) -> "Timing | None":
+        """A stored timing; None for a schedule without one (every schedule made before T-1066)."""
+        if not isinstance(data, dict):
+            return None
+        try:
+            return cls(tuple(hhmm(clock_minutes(t)) for t in data.get("times") or ()),
+                       tuple(Window(int(w["count"]), str(w["start"]), str(w["end"])) for w in data.get("windows") or ()),
+                       str(data.get("seed") or ""), str(data.get("start") or ""))
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    def to_json(self) -> dict[str, Any]:
+        return {"times": list(self.times), "windows": [dict(w.__dict__) for w in self.windows], "seed": self.seed,
+                "start": self.start}
+
+    def picks(self, day: date, taken: set[int]) -> list[int]:
+        """The random minutes of `day`: per window, drawn from the seed and the date alone (the same every time it is
+        asked), never a minute another run of the day has (`taken`, the fixed ones; each pick joins it)."""
+        out: list[int] = []
+        used = set(taken)
+        for i, w in enumerate(self.windows):
+            pool = [m for m in range(clock_minutes(w.start), clock_minutes(w.end) + 1) if m not in used]
+            chosen = random.Random(f"{self.seed}:{day.isoformat()}:{i}").sample(pool, min(w.count, len(pool)))
+            used |= set(chosen)
+            out += chosen
+        return sorted(out)
 
 
 @dataclass(frozen=True)
@@ -176,20 +286,253 @@ class Schedule:
         scope = self.targets.get(RUN_SCOPE)
         return dict(scope) if isinstance(scope, dict) else None
 
+    @property
+    def timing(self) -> Timing | None:
+        """Its several daily times (T-1066); None for a schedule with only its rule's own."""
+        return Timing.of(self.targets.get(TIMING))
+
     def describe(self) -> str:
-        """Its rule, its end and what kind of watch it is (if it is one), in plain words."""
-        return ", ".join(part for part in (self.rule.describe(), until_said(self.until) if self.until else "",
+        """Its timing, its end and what kind of watch it is (if it is one), in plain words."""
+        return ", ".join(part for part in (self.when_said(), until_said(self.until) if self.until else "",
                                            WATCH_SAID[self.watch]) if part)
 
+    def when_said(self) -> str:
+        """When it runs, written by code from its saved rule and timing only (T-1066), never from its request."""
+        timing, rule = self.timing, self.rule
+        if timing is None:
+            return rule.describe()
+        if rule.repeat == "every":
+            said = f"every {rule.every_minutes} minutes"
+            if timing.times:
+                said += f", and at {said_list(list(timing.times))} each day"
+        elif rule.repeat == "none":
+            said = f"once, at {said_list(list(timing.times or (rule.at,)))}"
+        else:
+            days = {"daily": "every day", "weekdays": "weekdays"}.get(rule.repeat) or \
+                f"every {DAYS[rule.weekday or 0].capitalize()}"
+            said = f"{days} at {said_list(list(timing.times or (rule.at,)))}"
+        if timing.windows:
+            each = {"none": "", "daily": " each day", "every": " each day"}.get(rule.repeat, " each of those days")
+            said += ", plus " + said_list([f"{w.count} at random times between {w.start} and {w.end}"
+                                      for w in timing.windows]) + each
+        return said + (", when you're at your Mac" if rule.when_active else "")
+
     def next_after(self, after: datetime) -> datetime | None:
-        """Its first run strictly after `after` (its rule from its first run), none past its end."""
-        nxt = self.rule.next_after(after, self.first_run)
+        """Its first run strictly after `after` (its rule from its first run, and its timing's times), none past its
+        end."""
+        nxt = self._next(after)
         return None if nxt is None or (self.until is not None and nxt > self.until) else nxt
 
     def ends_after(self, after: datetime) -> bool:
         """Its end, not its rule, leaves it no run after `after`: it has run its course (ORCH-320)."""
-        return self.until is not None and self.rule.next_after(after, self.first_run) is not None and \
-            self.next_after(after) is None
+        return self.until is not None and self._next(after) is not None and self.next_after(after) is None
+
+    def _next(self, after: datetime) -> datetime | None:
+        nxt = self.rule.next_after(after, self.first_run)
+        extra = self._extra_after(after)
+        return extra if extra is not None and (nxt is None or extra < nxt) else nxt
+
+    def _zone(self) -> ZoneInfo:
+        return ZoneInfo(self.rule.tz)
+
+    def runs_on(self, day: date) -> bool:
+        """Whether its rule runs on this local day: every day (daily, every N minutes), Monday to Friday (weekdays),
+        its weekday (weekly), its first run's day (once)."""
+        rule = self.rule
+        return (rule.repeat in ("daily", "every") or (rule.repeat == "weekdays" and day.weekday() < 5)
+                or (rule.repeat == "weekly" and day.weekday() == rule.weekday)
+                or (rule.repeat == "none" and day == self.first_run.astimezone(self._zone()).date()))
+
+    def _rule_minutes(self, day: date) -> set[int]:
+        """The minutes of `day` its rule itself runs at (local)."""
+        zone, rule = self._zone(), self.rule
+        if rule.repeat == "every" and rule.every_minutes:
+            start = datetime.combine(day, time(0, 0), tzinfo=zone).astimezone(timezone.utc)
+            end = datetime.combine(day + timedelta(days=1), time(0, 0), tzinfo=zone).astimezone(timezone.utc)
+            step = timedelta(minutes=rule.every_minutes)
+            at = self.first_run if start <= self.first_run else \
+                self.first_run + -(-(start - self.first_run) // step) * step
+            out = set()
+            while at < end:
+                local = at.astimezone(zone)
+                out.add(local.hour * 60 + local.minute)
+                at += step
+            return out
+        if rule.repeat == "none":
+            first = self.first_run.astimezone(zone)
+            return {first.hour * 60 + first.minute} if first.date() == day else set()
+        return {clock_minutes(rule.at)} if self.runs_on(day) else set()
+
+    def _extra_minutes(self, day: date, timing: Timing) -> list[int]:
+        """Its timing's minutes of `day`: the fixed times and that day's random picks (never a minute another run of
+        the day has)."""
+        fixed = {clock_minutes(t) for t in timing.times}
+        return sorted(fixed | set(timing.picks(day, fixed | self._rule_minutes(day))))
+
+    def _extra_after(self, after: datetime) -> datetime | None:
+        timing = self.timing
+        if timing is None:
+            return None
+        zone = self._zone()
+        start = date.fromisoformat(timing.start) if timing.start else self.first_run.astimezone(zone).date()
+        day = max(after.astimezone(zone).date(), start)
+        for _ in range(9):
+            if self.runs_on(day):
+                for m in self._extra_minutes(day, timing):
+                    at = datetime.combine(day, time(m // 60, m % 60), tzinfo=zone).astimezone(timezone.utc)
+                    if at > after:
+                        return at
+            day += timedelta(days=1)
+        return None
+
+    def run_minutes(self) -> set[int]:
+        """Every minute of the day it can run at, or that bounds a run (a window's start and end, its end's time): what
+        a clock time in its request may name (`missing_times`)."""
+        zone = self._zone()
+        day = self.first_run.astimezone(zone).date()
+        out = {m for i in range(8) for m in self._rule_minutes(day + timedelta(days=i))}
+        if self.rule.repeat not in ("every", "none"):
+            out.add(clock_minutes(self.rule.at))
+        timing = self.timing
+        if timing is not None:
+            out |= {clock_minutes(t) for t in timing.times}
+            out |= {clock_minutes(x) for w in timing.windows for x in (w.start, w.end)}
+        if self.until is not None:
+            end = self.until.astimezone(zone)
+            out.add(end.hour * 60 + end.minute)
+        return out
+
+
+# A clock time as written: "5:20 AM", "6 am", "7.10pm", "12 PM" (12-hour, with a.m. or p.m.) or "18:00", "6:00" (a
+# 24-hour HH:MM; one of 1-11 may also be its p.m. time). Shape only: which number is a time, never what it's about
+_CLOCK_SAID = re.compile(r"(?<![\w:.])(\d{1,2})(?:[:.](\d{2}))?\s*([ap])(?:\.\s*m\.|\s*m\b)"
+                         r"|(?<![\w:.])([01]?\d|2[0-3]):([0-5]\d)(?![\d:])", re.IGNORECASE)
+
+
+def said_times(text: str) -> list[tuple[str, set[int]]]:
+    """Each clock time written in `text`, with the minutes of the day it can be."""
+    out = []
+    for m in _CLOCK_SAID.finditer(text):
+        if m[3]:
+            hour, minute = int(m[1]), int(m[2] or 0)
+            if not 1 <= hour <= 12 or minute > 59:
+                continue
+            out.append((m[0].strip(), {(hour % 12 + (12 if m[3].lower() == "p" else 0)) * 60 + minute}))
+        else:
+            hour, minute = int(m[4]), int(m[5])
+            out.append((m[0], {hour * 60 + minute} | ({(hour + 12) * 60 + minute} if 1 <= hour <= 11 else set())))
+    return out
+
+
+def missing_times(request: str, runs: set[int]) -> list[str]:
+    """The clock times `request` names that its schedule never runs at (T-1066, owner: "where is honesty"): a request
+    may say only times its saved rule and timing make."""
+    return list(dict.fromkeys(said for said, can_be in said_times(request) if not can_be & runs))
+
+
+@dataclass(frozen=True)
+class Plan:
+    """A schedule as code worked it out from the planner's fields (T-1066), before anything is saved."""
+    rule: Rule
+    first: datetime                  # its rule's first run (the anchor of "every N minutes")
+    booked: datetime                 # its first run: the earlier of that and its timing's first time
+    return_after: datetime | None    # ORCH-317: a return to the Mac must come after this
+    until: datetime | None
+    timing: Timing | None
+    schedule: Schedule               # as it would stand (its words and its times)
+    missing: list[str]               # clock times its request names that it never runs at
+
+
+def _own_minute(rule: Rule) -> int | None:
+    return None if rule.repeat == "every" else clock_minutes(rule.at)
+
+
+def _on_sequence(rule: Rule, first: datetime, times: list[str]) -> list[str]:
+    """`times` without those "every N minutes" from its first run already makes every day."""
+    n = rule.every_minutes or 0
+    if rule.repeat != "every" or not n or DAY_MINUTES % n:
+        return list(times)
+    local = first.astimezone(ZoneInfo(rule.tz))
+    anchor = local.hour * 60 + local.minute
+    return [t for t in times if (clock_minutes(t) - anchor) % n]
+
+
+def _planned(request: str, rule: Rule, first: datetime, until: datetime | None, timing: Timing | None,
+             now: datetime, old: Schedule | None = None, return_after: datetime | None = None) -> Plan:
+    targets = {k: v for k, v in (old.targets if old is not None else {}).items() if k != TIMING} | \
+        ({TIMING: timing.to_json()} if timing is not None else {})
+    s = Schedule(old.id if old is not None else "", request, old.own_words if old is not None else "", targets, rule,
+                 None, None, old.state if old is not None else "active", 0, first,
+                 old.watch if old is not None else "none", None, until, old.name if old is not None else "")
+    extra = s._extra_after(now)
+    booked = extra if extra is not None and extra < first else first
+    return Plan(rule, first, booked, return_after, until, timing, s, missing_times(request, s.run_minutes()))
+
+
+def plan_new(spec: Any, now: datetime, seed: str) -> Plan:
+    """A new schedule from the planner's fields: code computes its first run, its end and its timing (the times of
+    day beside `when`'s, the random windows); WhenError or ScheduleError (ValueErrors) say what doesn't work."""
+    from ferb.clock.when import end_at, resolve, when_present
+    present = bool(getattr(spec, "when_active", False))                 # ORCH-317: when they're at the Mac
+    return_after = None
+    if present:
+        first, return_after = when_present(spec.when, spec.repeat, now, spec.every_minutes)
+    else:
+        first = resolve(spec.when, now)                                 # code computes the date, not the model
+    ends = getattr(spec, "until", None)
+    until = end_at(ends.when(), now) if ends is not None else None      # and the end (ORCH-320)
+    rule = Rule.build(spec.repeat, first, spec.weekday, spec.every_minutes, when_active=present)
+    if present and spec.repeat in ("daily", "weekdays", "weekly") and spec.when.time is None:
+        # due from the start of a day its rule names: the first such day from the one `when` gave
+        first = rule.next_after(first - timedelta(seconds=1), first) or first
+    if first <= now:                    # "when I'm back at my Mac", said now: due now, fires at their return
+        first = now + timedelta(seconds=1)
+    zone = ZoneInfo(rule.tz)
+    # its other times count from the day `when` named, else from today
+    named = any(v is not None for v in (spec.when.day, spec.when.date, spec.when.in_days))
+    start = (first if named else now).astimezone(zone).date()
+    timing = Timing.build(_on_sequence(rule, first, list(getattr(spec, "times", []) or [])),
+                          getattr(spec, "random", []) or [], seed, start, _own_minute(rule))
+    return _planned(spec.request, rule, first, until, timing, now, return_after=return_after)
+
+
+def plan_edit(old: Schedule, request: str, timing_spec: Any, now: datetime, seed: str) -> Plan:
+    """A schedule changed in place (T-1066): its new instructions (`request`, "" keeps them) and its new timing
+    (`timing_spec.repeat` "" keeps it). A new timing starts from now: "every N minutes" from its first time (times[0])
+    or from now, the other rules at their times; its end and its watch stay."""
+    words = request.strip() or old.request
+    repeat = str(getattr(timing_spec, "repeat", "") or "")
+    if not repeat:
+        return _planned(words, old.rule, old.first_run, old.until, old.timing, now, old)
+    zone = ZoneInfo(old.rule.tz)
+    local_now = now.astimezone(zone)
+    times = [hhmm(clock_minutes(t)) for t in getattr(timing_spec, "times", []) or []]
+
+    def next_at(t: str) -> datetime:
+        m = clock_minutes(t)
+        at = datetime.combine(local_now.date(), time(m // 60, m % 60), tzinfo=zone)
+        return (at if at > local_now else at + timedelta(days=1)).astimezone(timezone.utc)
+    every = int(getattr(timing_spec, "every_minutes", 0) or 0)
+    weekday = str(getattr(timing_spec, "weekday", "") or "") or None
+    if repeat == "every":
+        first = next_at(times[0]) if times else now + timedelta(minutes=every)
+        rule = Rule.build(repeat, first, None, every or None, zone, old.rule.when_active)
+    else:
+        if not times:
+            raise ScheduleError("say the time of day it runs")
+        probe = Schedule("", words, "", {}, Rule.build(repeat, min(next_at(t) for t in times), weekday, None, zone),
+                         None, None, "active", 0, min(next_at(t) for t in times))
+        # the soonest of its times on a day its rule runs (a one-time change: the soonest of its times)
+        first = min(at for i in range(8) for day in [local_now.date() + timedelta(days=i)]
+                    if repeat == "none" or probe.runs_on(day) for t in times
+                    for at in [datetime.combine(day, time(clock_minutes(t) // 60, clock_minutes(t) % 60), tzinfo=zone)
+                               .astimezone(timezone.utc)] if at > now)
+        rule = Rule.build(repeat, first, weekday, None, zone, old.rule.when_active)
+    old_timing = old.timing
+    timing = Timing.build(_on_sequence(rule, first, times), getattr(timing_spec, "random", []) or [],
+                          old_timing.seed if old_timing is not None and old_timing.seed else seed,
+                          local_now.date(), _own_minute(rule))
+    return _planned(words, rule, first, old.until, timing, now, old)
 
 
 class Schedules:
@@ -199,7 +542,9 @@ class Schedules:
     def _row(self, r: Any) -> Schedule:
         rule = json.loads(r["rule_json"])
         first = datetime.fromisoformat(rule.pop("first"))
-        return Schedule(r["id"], r["request"], r["own_words"], json.loads(r["intent_json"]), Rule(**rule),
+        known = {f.name for f in fields(Rule)}        # a key a newer FERB added is left for it
+        return Schedule(r["id"], r["request"], r["own_words"], json.loads(r["intent_json"]),
+                        Rule(**{k: v for k, v in rule.items() if k in known}),
                         datetime.fromisoformat(r["next_run"]) if r["next_run"] else None, r["timer_id"], r["state"],
                         int(r["failures"]), first, r["watch"],
                         None if r["last_reported_met"] is None else bool(r["last_reported_met"]),
@@ -227,6 +572,27 @@ class Schedules:
         s = self.get(sid)
         assert s is not None
         return s
+
+    def edit(self, sid: str, request: str | None = None, rule: Rule | None = None, first: datetime | None = None,
+             targets: dict[str, Any] | None = None, own_words: str = "") -> None:
+        """Changes a schedule in place (T-1066): same id, runs and history. `request`: its new instructions; `rule`
+        with `first` (its new first run, its anchor) and `targets` (its recorded JSON with the new timing): its new
+        timing; `own_words`: the owner's words for the change, added to the words it rests on."""
+        sets, args = [], []
+        if request is not None:
+            sets.append("request = ?")
+            args.append(request)
+        if rule is not None and first is not None:
+            sets.append("rule_json = ?")
+            args.append(json.dumps(rule.__dict__ | {"first": first.astimezone(timezone.utc).isoformat()}))
+        if targets is not None:
+            sets.append("intent_json = ?")
+            args.append(json.dumps(targets))
+        if own_words.strip():
+            sets.append("own_words = own_words || ?")
+            args.append("\n" + own_words)
+        if sets:
+            self.db.conn.execute(f"UPDATE schedules SET {', '.join(sets)} WHERE id = ?", (*args, sid))
 
     def set_until(self, sid: str, until: datetime) -> None:
         """Its end (ORCH-320), replacing any earlier one."""

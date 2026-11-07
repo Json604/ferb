@@ -877,3 +877,49 @@ status = "active"
 rule = "Refines APP-755's exact-match removal. The planner's copy of a part answered at once is taken out of the plan line only where a whole line or paragraph is exactly that answer (whitespace around it ignored), in the daemon (supervisor.without_whole) and in the app for live and restored turns (ConversationTurn.withoutWhole); never as text inside other words, so a short answer like \"4\" or \"Yes\" never cuts a word out of the plan line."
 why = "Review of fixes8, finding 7: \"I'll compare the 4 laptops\" lost its \"4\" (Python, first occurrence) or left a double space (Swift, every occurrence)."
 paths = ["ferb/orchestrator/supervisor.py::without_whole", "ferb/orchestrator/supervisor.py::Supervisor._plan_event", "ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationTurn"]
+
+[ORCH-550]
+title = "Schedules: several times a day, random windows, edits in place, several per message, honest by code"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "build all five. also where is honesty in ferb stating how many schedules are there and not from jsut its memory???"
+words_source = "Owner 2026-11-07, asked: Build these schedule changes now (several times per schedule, random times in a window, edit in place, several schedules per message, code-checked honest descriptions)?"
+rule = "One schedule may run at several clock times a day and at N random times a day in a window (fresh each day, its next run always known), with an interval too. A schedule's instructions and timing can be changed in place (same id and history; the card shows old and new). One message can make several schedules. Code checks a schedule's words against its saved timing and writes every timing line from it. Each planner turn gets FERB's list of the schedules from its records, and FERB shows that list as a card."
+paths = ["ferb/orchestrator/schedules.py", "ferb/daemon/areas/schedules.py", "ferb/orchestrator/schemas.py::SCHEDULE_SCHEMA"]
+
+[ORCH-551]
+title = "A schedule's words may name only clock times its saved timing runs at"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "For ORCH-550. Every clock time written in a new or edited schedule's request (5:20 AM, 6 am, 7.10pm, 18:00; HH:MM 1-11 may be a.m. or p.m.) must be a minute its saved timing runs at: its rule's own times (each run of \"every N minutes\" over a week), its fixed times, a random window's start or end, or its end's time. Otherwise it goes back to the planner once (with the side entries' quote problems), then is refused when applied with a plain line naming the times and when it would run. Shape only, never what a time is about."
+why = "Live 2026-11-07: a schedule saved as daily 05:20 said six checks a day in its request and in FERB's replies."
+paths = ["ferb/orchestrator/schedules.py::missing_times", "ferb/daemon/areas/schedules.py::Schedules._schedule_problems", "ferb/orchestrator/supervisor.py::Supervisor._side_quote_problems"]
+
+[ORCH-552]
+title = "Several times a day and random windows live beside the rule; an edit changes a schedule in place"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "For ORCH-550. The planner's schedule has times (HH:MM) and random [{count, start, end}]; they follow the rule's days. Random minutes come from the schedule's stored seed and the date, never another run's minute. The timing is kept under `timing` in the schedule's recorded JSON (intent_json), never in rule_json, so an older FERB reads the rule alone and starts. schedule_changes `edit` sets request and/or timing (repeat \"\" keeps it; times[0] starts an interval) on an active or paused schedule, keeping its id, runs, end, watch and recorded scope; journaled schedule.edited."
+why = "No migration (an older build refuses a newer schema, STORE-3), and an older build's Rule(**rule_json) fails on a new key; a seed makes each day's random times fixed, so the next run is known."
+paths = ["ferb/orchestrator/schedules.py::Timing", "ferb/orchestrator/schedules.py::plan_new", "ferb/orchestrator/schedules.py::plan_edit", "ferb/daemon/areas/schedules.py::Schedules._schedule_edit_from_chat"]
+
+[ORCH-553]
+title = "A part answered by this turn's entries needs an entry that quotes its words"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "For ORCH-550. A task's part with direct \"\" (answered by this turn's memory, reminder or schedule entry) must share some of the owner's words with the quote of a remember, forget, timers, schedules, schedule_changes or reminder_cancels entry of the same turn (their places in the owner's message overlap). Otherwise the plan goes back for repair: scheduling happens only in those entries, and a worker has no schedule tool."
+why = "Live 2026-11-07: the random morning checks were marked answered by the turn's schedule, which didn't have them, and their timing went to a worker that couldn't make or change a schedule."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._unbacked_parts"]
+
+[ORCH-554]
+title = "The planner's schedule list and the schedules card come from FERB's records"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "For ORCH-550. Every planner turn's live facts start with the owner's schedules from the database: a count by state, then per schedule its id, name, state, the timing code renders from its rule, its end and watch, its next run and its instructions, marked as the only source for anything about schedules. The planner's show_schedules (a plain boolean) makes code add a schedules card and its line, built from the same rows after the turn's own schedule changes."
+why = "Live 2026-11-07: asked how many schedules there were, FERB answered \"six checks daily\" from the conversation, not from the rule."
+paths = ["ferb/daemon/areas/schedules.py::Schedules._schedule_rows", "ferb/daemon/areas/schedules.py::Schedules._schedule_facts", "ferb/daemon/areas/schedules.py::Schedules._schedules_card"]

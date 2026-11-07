@@ -259,10 +259,8 @@ class Environment:
         before it stays cacheable): the schedules and reminders, and the owner's paired browser profiles as FERB can
         use them now. `owner_state=False` (the intro's preview, `Supervisor.preview`): only the browser profiles, a
         capability the plan needs; the owner's schedules and reminders stay out."""
-        lines: list[str] = []
-        for sc in (self._listed_schedules() if self.schedules is not None and owner_state else []):
-            state = "done; its last run is under way" if sc.state == "done" else sc.state
-            lines.append(f"- Schedule {sc.id} ({state}) “{sc.label}”: {sc.request} — {sc.describe()}")
+        # T-1066: the owner's schedules as FERB's records hold them, counted, marked as the truth
+        lines: list[str] = self._schedule_facts() if self.schedules is not None and owner_state else []
         for t in (self.timers.pending(("reminder", "timer")) if self.timers is not None and owner_state else []):
             lines.append(f"- {t.kind.capitalize()} {t.id} “{t.label}”: {t.message} — "
                          f"{t.fire_at.astimezone():%a %d %b %Y %H:%M}")

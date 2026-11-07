@@ -724,3 +724,12 @@ status = "active"
 rule = "For APP-769/APP-770. A timer's arrival card (the reminder banner's `card`) carries `repeat_of`: the first timer of its Repeat chain (timer_repeats followed back, DMN-548), absent for a timer no Repeat started. The app draws a timer and its repeats as one box."
 why = "Only the daemon's rows know the chain after a restart; carried on the stored card, the box is chosen from the saved chat alone."
 paths = ["ferb/daemon/areas/schedules.py::Schedules._first_of"]
+
+[DMN-550]
+title = "A schedules card and a changed schedule's event card"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "For ORCH-550. A reply may carry a card {type schedules, count, line, schedules: [{id, name, repeat, state, next_run, until, watch}]} (repeat: code's timing words). An edit's event card is the schedule's event card plus changed true, was_repeat when its timing changed, and was_request and request when its instructions changed. schedules.list's rule, the event, run and reminder cards' repeat and schedule.created's rule are the schedule's whole timing (when_said). No new RPC."
+why = "The owner reads counts and times drawn by code; an older app leaves an unknown card type out and still shows its line."
+paths = ["ferb/daemon/areas/schedules.py::Schedules._schedules_card", "ferb/orchestrator/ports.py::SchedulePort"]

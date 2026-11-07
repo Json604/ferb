@@ -59,6 +59,7 @@ struct ResultCardView: View {
         case "note": NoteCard(card: card, model: model)
         case "payment": ExpenseRow(card: card)
         case "send": ContactCard(card: card)
+        case "schedules": SchedulesCard(card: card)
         default: EmptyView()
         }
     }
@@ -273,8 +274,10 @@ struct EventCard: View {
         CardSurface {
             VStack(alignment: .leading, spacing: 7) {
                 CardMeta(icon: card.isTimer ? "timer" : card.kind == "reminder" ? "alarm" : "calendar",
-                         text: card.isTimer ? "Timer set" : card.kind == "reminder" ? "Reminder set" : "Scheduled")
+                         text: card.isTimer ? "Timer set" : card.kind == "reminder" ? "Reminder set"
+                            : card.changed ? "Schedule changed" : "Scheduled")
                 CardTitle(text: card.what ?? "")
+                if card.changed { ScheduleChangeLines(card: card) }
                 HStack(spacing: 5) {
                     if let when = card.whenDate {
                         CardChip(icon: "calendar", text: CardTime.day(when))
@@ -290,6 +293,62 @@ struct EventCard: View {
                         .font(.system(size: 10.5)).foregroundStyle(Palette.secondary)
                 }
                 if live, let target = card.countdown { CountdownLine(target: target) }
+            }
+        }
+    }
+}
+
+/// A schedule changed in place (T-1066): what it was and what it is now, as FERB's code wrote both from its records.
+private struct ScheduleChangeLines: View {
+    let card: ResultCard
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if let was = card.wasRepeat {
+                line("Was", was)
+                line("Now", card.repeatRule ?? "")
+            }
+            if let was = card.wasRequest {
+                line("Instructions were", was)
+                line("Instructions now", card.request ?? "")
+            }
+        }
+    }
+
+    private func line(_ label: String, _ text: String) -> some View {
+        (Text(verbatim: label + ": ").fontWeight(.semibold) + Text(verbatim: text))
+            .font(.system(size: 10.5)).foregroundStyle(Palette.secondary).lineLimit(3)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// The owner's schedules (T-1066, owner: "where is honesty in ferb stating how many schedules are there"): the
+/// count and each one's name, timing, state and next run, all from FERB's records, so they can't be misstated.
+struct SchedulesCard: View {
+    let card: ResultCard
+
+    var body: some View {
+        let rows = card.schedules ?? []
+        CardSurface {
+            VStack(alignment: .leading, spacing: 8) {
+                CardMeta(icon: "calendar", text: rows.isEmpty ? "No schedules"
+                         : rows.count == 1 ? "1 schedule" : "\(rows.count) schedules")
+                ForEach(rows, id: \.id) { row in
+                    VStack(alignment: .leading, spacing: 3) {
+                        CardTitle(text: row.name)
+                        Text(verbatim: row.repeatRule.prefix(1).capitalized + row.repeatRule.dropFirst()
+                             + (row.watch.map { ", " + $0 } ?? ""))
+                            .font(.system(size: 10.5)).foregroundStyle(Palette.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 5) {
+                            if row.state != "active" { CardChip(icon: "pause.circle", text: row.state) }
+                            if let next = row.nextRunDate {
+                                CardChip(icon: "calendar", text: CardTime.day(next))
+                                CardChip(icon: "clock", text: CardTime.time(next))
+                            }
+                        }
+                    }
+                }
             }
         }
     }

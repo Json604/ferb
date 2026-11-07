@@ -2919,3 +2919,12 @@ words_source = "Owner, FERB 0.27.3, 2026-11-07 17:45, with a screenshot: a task 
 rule = "Every selectable text in the chat (card rows of every state, the card footer, an answer's own lines, typed cards, question cards, the chat's notes and activity lines) draws through NativeMessageText/MessageTextView, never SwiftUI's selectable Text, so the reveal refresh (textRenderGeneration) redraws every glyph after the notch opens. A collapsed text (APP-721) is clipped and faded by its own text view, which takes no clicks in its hidden part; CollapsibleText adds no SwiftUI clip or mask. Fonts, sizes and colours stay as they were."
 why = "SwiftUI draws selectable Text as an AppKitTextInteractionView whose glyphs sit in a sublayer the reveal refresh never reaches; a click redraws it. 758ce419 fixed this once; its guard was deleted and 68c423e8 (APP-718..723) brought SwiftUI text and a SwiftUI mask back into card rows."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NativeMessageText.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::CollapsibleText"]
+
+[APP-789]
+title = "The notch draws the schedules card and a schedule's change"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "For ORCH-550 and DMN-550. A schedules card shows its count (\"No schedules\", \"1 schedule\", \"N schedules\") and per schedule its name, the daemon's timing words (and watch), a state chip when not active and its next run's day and time chips. An event card with changed shows \"Schedule changed\" with Was/Now timing lines and the instructions before and after when they changed. Both stand for their line like every typed card."
+why = "Functional only; the owner polishes the look."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/ResultCard.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift::SchedulesCard"]

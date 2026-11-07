@@ -132,10 +132,16 @@ TIMER_SCHEMA = _obj({"when": WHEN_SCHEMA, "message": {"type": "string"}, "quote"
                      "when_active": WHEN_ACTIVE_SCHEMA, "name": NAME_SCHEMA,
                      # a countdown the owner asked for ("a 5-minute timer") is a timer; anything else a reminder
                      "kind": {"type": "string", "enum": ["reminder", "timer"]}})
+# T-1066: random runs a day in a window (count, from start to end, HH:MM); no union types (ORCH-330)
+RANDOM_TIMES_SCHEMA = {"type": "array", "items": _obj({"count": {"type": "integer"}, "start": {"type": "string"},
+                                                       "end": {"type": "string"}})}
 SCHEDULE_SCHEMA = _obj({
     "request": {"type": "string"}, "name": NAME_SCHEMA, "when": WHEN_SCHEMA,
     "repeat": {"type": "string", "enum": ["none", "daily", "weekdays", "weekly", "every"]},
-    "weekday": _nullable("string"), "every_minutes": _nullable("integer"), "quote": {"type": "string"},
+    "weekday": _nullable("string"), "every_minutes": _nullable("integer"),
+    # T-1066: every other clock time of day it runs at (HH:MM, beside when's own), and random runs in a window
+    "times": _strings(), "random": RANDOM_TIMES_SCHEMA,
+    "quote": {"type": "string"},
     "targets": TARGETS_SCHEMA,
     # D30: the scopes the runs may send within without asking, stated when the schedule is made (an owner turn)
     "standing_sends": {"type": "array", "items": SEND_SCOPE_SCHEMA},
@@ -149,9 +155,16 @@ SCHEDULE_SCHEMA = _obj({
     "folders": _strings(), "identity": {"type": "string", "enum": ["owner", "ferb"]},
     "worker_type": {"type": "string"}, "profile": {"type": "string"}, "account": {"type": "string"},
 })
+# T-1066: an edit's new timing; repeat "" keeps the schedule's timing (unused fields "", 0 or [])
+SCHEDULE_TIMING_SCHEMA = _obj({"repeat": {"type": "string", "enum": ["", "none", "daily", "weekdays", "weekly",
+                                                                     "every"]},
+                               "times": _strings(), "every_minutes": {"type": "integer"},
+                               "weekday": {"type": "string"}, "random": RANDOM_TIMES_SCHEMA})
 SCHEDULE_CHANGE_SCHEMA = _obj({"id": {"type": "string"},
-                               "action": {"type": "string", "enum": ["cancel", "pause", "resume", "set_end"]},
+                               "action": {"type": "string", "enum": ["cancel", "pause", "resume", "set_end", "edit"]},
                                "quote": {"type": "string"},
+                               # edit only (T-1066): its new instructions ("" keeps them) and its new timing
+                               "request": {"type": "string"}, "timing": SCHEDULE_TIMING_SCHEMA,
                                # set_end only: the new end, in the owner's words (else null)
                                "until": {"anyOf": [{"type": "null"}, SCHEDULE_UNTIL_SCHEMA]},
                                # a new short name for it, written only when this change renames it; "" keeps its name
@@ -172,8 +185,10 @@ SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
                   "supersedes": _strings()})]},
     "remember": {"type": "array", "items": REMEMBER_SCHEMA},
     "timers": {"type": "array", "items": TIMER_SCHEMA},
-    "schedule": {"anyOf": [{"type": "null"}, SCHEDULE_SCHEMA]},
+    "schedules": {"type": "array", "items": SCHEDULE_SCHEMA},          # T-1066: several in one message
     "schedule_changes": {"type": "array", "items": SCHEDULE_CHANGE_SCHEMA},
+    # T-1066: the owner asked about their schedules; code shows its list of them, from FERB's records
+    "show_schedules": {"type": "boolean"},
     "reminder_cancels": {"type": "array", "items": REMINDER_CHANGE_SCHEMA},
     # memory review I2: a forget the owner asked for in chat, by the id the planner was shown; code asks Yes/No first
     "forget": {"type": "array", "items": _obj({"item_id": {"type": "string"}, "quote": {"type": "string"}})},
@@ -401,10 +416,22 @@ class SupervisorOutcome(BaseModel):
     remember: list[Remember] = []
     forget: list["ForgetRequest"] = []
     timers: list["TimerRequest"] = []
-    schedule: "ScheduleRequest | None" = None
+    schedules: list["ScheduleRequest"] = []
     schedule_changes: list["ScheduleChange"] = []
+    show_schedules: bool = False             # T-1066: code shows the owner's schedules from its records
     reminder_cancels: list["ReminderCancel"] = []
     conversation_changes: list["ConversationChange"] = []
+
+    @model_validator(mode="before")
+    @classmethod
+    def _one_schedule(cls, data: Any) -> Any:
+        """An answer written for the earlier schema's single `schedule` (T-1066: `schedules`) is read as a list."""
+        if isinstance(data, dict) and "schedule" in data:
+            one = data["schedule"]
+            data = {k: v for k, v in data.items() if k != "schedule"}
+            if one is not None:
+                data["schedules"] = [*(data.get("schedules") or []), one]
+        return data
 
     @model_validator(mode="after")
     def complete_action_plan(self) -> "SupervisorOutcome":
@@ -412,6 +439,23 @@ class SupervisorOutcome(BaseModel):
                                     any(not c.text.strip() for c in self.task.success_conditions)):
             raise ValueError("A new task needs nonempty success_conditions describing the requested outcome")
         return self
+
+
+class RandomTimes(BaseModel):
+    """T-1066: `count` runs a day at random times from `start` to `end` (HH:MM); code draws them each day."""
+    count: int
+    start: str
+    end: str
+
+
+class ScheduleTiming(BaseModel):
+    """T-1066: an edit's new timing, as for a new schedule but without a first day: repeat "" keeps the old one;
+    times[0] starts "every N minutes"."""
+    repeat: Literal["", "none", "daily", "weekdays", "weekly", "every"] = ""
+    times: list[str] = []
+    every_minutes: int = 0
+    weekday: str = ""
+    random: list[RandomTimes] = []
 
 
 class ScheduleRequest(BaseModel):
@@ -422,6 +466,8 @@ class ScheduleRequest(BaseModel):
     repeat: Literal["none", "daily", "weekdays", "weekly", "every"]
     weekday: str | None = None
     every_minutes: int | None = None
+    times: list[str] = []        # T-1066: its other clock times each day (HH:MM); a spec written before has none
+    random: list[RandomTimes] = []   # T-1066: random runs a day in a window
     quote: str
     targets: TargetsSpec = TargetsSpec()
     standing_sends: list[SendScope] = []   # stated now, with the owner here; a run can't add to them (D30)
@@ -445,8 +491,10 @@ class ScheduleRequest(BaseModel):
 
 class ScheduleChange(BaseModel):
     id: str
-    action: Literal["cancel", "pause", "resume", "set_end"]
+    action: Literal["cancel", "pause", "resume", "set_end", "edit"]
     quote: str
+    request: str = ""                      # edit (T-1066): its new instructions; "" keeps them
+    timing: ScheduleTiming = ScheduleTiming()   # edit: its new timing; repeat "" keeps it
     until: ScheduleUntil | None = None     # set_end: the new end in the owner's words
     name: str = ""                         # a new short name this change gives it; "" keeps its name (T-1055)
 

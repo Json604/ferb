@@ -48,7 +48,8 @@ def test_a_schedule_needs_the_owners_words_and_a_future_first_run(daemon: Runnin
                                     now + timedelta(days=1)),
                      schedule_reply(daemon, "back up notes.md", "back up notes.md", now + timedelta(days=1)),
                      unsaid, unsaid,               # words the owner never wrote: told back once (ORCH-520), refused
-                     schedule_reply(daemon, "write report.md", "write report.md now", now - timedelta(hours=1))])
+                     # a first run in the past: told back once (T-1066), then refused when applied
+                     *[schedule_reply(daemon, "write report.md", "write report.md now", now - timedelta(hours=1))] * 2])
     first = [e["text"] for e in chat(daemon, "tomorrow at 9 write report.md") if e["type"] == "timer"]
     assert first and first[0].startswith("🗓 Scheduled: ")              # plain words, no id (L11)
     pasted = [e["text"] for e in chat(daemon, 'tomorrow ```back up notes.md```') if e["type"] == "timer"]
