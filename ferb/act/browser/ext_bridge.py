@@ -1937,8 +1937,10 @@ class _TabDriver:
         running = str(getattr(t.bridge, "version", "") or "")
         if not version_ok(running, PDF_EXTENSION_VERSION):     # HAND-428: only a PDF needs the newer extension
             raise Refused(f"the FERB extension in this profile is {running or 'an older version'}; making a PDF needs "
-                          f"{PDF_EXTENSION_VERSION} or later. Chrome updates it by itself; the owner can also update it "
-                          "now at chrome://extensions (Developer mode, Update)")
+                          f"{PDF_EXTENSION_VERSION} or later. Don't start a browser or app from the shell instead (it can't "
+                          "run there and crashes on the owner's screen). Tell the owner: "
+                          "their browser updates the extension by itself, or they can update it now on its extensions "
+                          "page (Developer mode, Update); then ask again")
         v = await t.bridge.call("pdf", {"tab_id": t.chrome_id, "landscape": bool(landscape)})
         if v.get("withheld"):
             raise Refused(f"no PDF of this page: {str(v['withheld'])[:300]}")

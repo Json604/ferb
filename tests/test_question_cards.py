@@ -155,3 +155,16 @@ def test_a_question_that_types_into_a_terminal_leads_with_the_command() -> None:
     assert made.question == "Run this command in Terminal?"
     assert made.exact.split("\n")[0] == "rm -f -- a.pdf"
     assert "Delete this for good?" in made.detail and "Let FERB use your screen in Terminal" in made.detail
+
+
+# decision: GATE-514
+def test_a_card_names_a_running_app_by_its_name_never_its_bundle_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Live 2026-11-07: "Let FERB use your screen in com.google.Chrome for this task?"."""
+    from ferb.act.mac import apps
+    chrome = apps.RunningApp("com.google.Chrome", "Google Chrome", 42, False)
+    monkeypatch.setattr(apps, "find", lambda name: chrome if name in ("com.google.Chrome", "pid:42") else None)
+    made = confirm.card([_need(confirm.FOREGROUND, {"app": "com.google.Chrome"})])
+    assert made.question == "Let FERB use your screen in Google Chrome for this task?"
+    assert "com.google" not in made.detail
+    assert confirm.app_label("pid:42") == "Google Chrome" and confirm.app_label("Terminal") == "Terminal"
+    assert confirm.app_label("docs.google.com") == "docs.google.com"               # a site stays as written

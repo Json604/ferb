@@ -85,8 +85,25 @@ NESTED_SANDBOX = ("A program can't start its own macOS sandbox inside FERB's she
                   "Codex CLI needs its sandbox off: --sandbox danger-full-access (measured working), or "
                   "--dangerously-bypass-approvals-and-sandbox only when the owner asked for no approvals.")
 # What the shell profile keeps out beyond files and network (measured, F5a Task 2 fix round 1); shown to agents
+# HAND-429: an installed app's own program (/Applications/X.app/Contents/MacOS/X, one folder deep at most, as
+# /Applications/Utilities/Terminal.app) never starts from the shell: a GUI app can't run without the window server
+# and Launch Services (denied above), and it crashed on the owner's screen (Chrome --headless, 2026-11-04..07, the
+# "quit unexpectedly" box). Programs inside a bundle elsewhere (python.org's Python.app in /Library/Frameworks, an
+# app's helper bundles below its Contents) are untouched.
+APP_FOLDERS = (Path("/Applications"), Path("/System/Applications"))
+APP_REFUSED = ("an app's own program (inside an .app in an Applications folder) can't start from FERB's shell: it has "
+               "no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser "
+               "tools; another app: the mac tools), or tell the owner what's missing.")
+
+
+def _app_program_rx(folder: Path) -> str:
+    """The SBPL regex of an app's own program directly in `folder`, or in one subfolder of it."""
+    return "^" + _rx(folder) + r"(/[^/]+)?/[^/]+[.]app/Contents/MacOS/"
+
+
 NO_APPS = ("FERB's shell can't open apps or URLs on the owner's screen, send Apple Events to other apps, or start "
-           "background jobs (launchd); FERB's browser and Mac tools (mac.applescript included) do that.")
+           "background jobs (launchd); FERB's browser and Mac tools (mac.applescript included) do that. "
+           "An installed app's own program can't start from the shell either: " + APP_REFUSED.split(": ", 1)[1])
 # What the network rules and FERB's proxy mean for a command (F5a Task 3, measured); shown to agents
 NETWORK_FACT = ("Commands reach any remote host without asking, only through FERB's proxy "
                 "(HTTPS_PROXY/HTTP_PROXY are set; programs that ignore them, "
@@ -307,6 +324,9 @@ class Sandbox:
             lines.append("(deny lsopen)")
             lines += [f'(deny mach-lookup (global-name "{name}"))' for name in APP_SERVICES]
             lines.append("(deny mach-lookup " + " ".join(f'(global-name "{n}")' for n in WINDOW_SERVER) + ")")
+            homes = (*APP_FOLDERS, self.protection.home / "Applications")
+            lines.append("(deny process-exec " + " ".join(f'(regex #"{_app_program_rx(f)}")' for h in homes
+                                                         for f in _data_forms(h)) + ")")
         else:                                    # measured: an event to any other app fails before it is sent (-600)
             lines += list(APPS_LOCKDOWN)
             lines.append("(deny appleevent-send)")

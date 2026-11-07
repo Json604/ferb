@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from ferb.act.shell import guard
 from ferb.act.shell.manager import ProcHandle, ShellManager
 from ferb.act.shell.proxy import DEST_REFUSED_NO
-from ferb.act.shell.sandbox import NESTED_SANDBOX, NETWORK_FACT, NO_APPS, SCOPE_FACT, SCOPE_REFUSED
+from ferb.act.shell.sandbox import APP_REFUSED, NESTED_SANDBOX, NETWORK_FACT, NO_APPS, SCOPE_FACT, SCOPE_REFUSED
 from ferb.core.errors import Refused
 from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext, ToolResult
 from ferb.policy.protection import Protection
@@ -53,7 +53,7 @@ def _scope_note(out: dict[str, Any], failed: bool) -> None:
     instead (HAND-203). A fact about the result, never a judgment of the command: other sandbox rules refuse
     with the same words, so it says what the scope means rather than claiming it was the cause."""
     if failed and _EPERM in str(out.get("output") or ""):
-        out["sandbox_note"] = SCOPE_REFUSED
+        out["sandbox_note"] = SCOPE_REFUSED + " Also, " + APP_REFUSED     # HAND-429: same words from macOS
 
 
 def _stopped_note(out: dict[str, Any], stopped: str | None) -> None:

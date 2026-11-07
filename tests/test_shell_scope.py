@@ -110,7 +110,7 @@ def test_a_refused_write_tells_the_worker_why_and_what_to_do(daemon: RunningDaem
     daemon.daemon.shells.sandbox.protection = daemon.daemon.protection      # type: ignore[union-attr]
     g = task(daemon, "scope", Identity.OWNER, SHELL)
     r = call(daemon, g, "shell.run", command=f"echo x > '{home}/Documents/a.txt'")
-    assert r["is_error"] and r["content"]["sandbox_note"] == SCOPE_REFUSED
+    assert r["is_error"] and r["content"]["sandbox_note"].startswith(SCOPE_REFUSED)   # HAND-429 adds the app reason
     assert "file tools" in SCOPE_REFUSED and "which folder" in SCOPE_REFUSED
     assert "visible folders" in daemon.daemon.registry.capabilities["shell.run"].description
     # the task's folders reach the command's profile from the gateway (step 8 sets them from the planner)
@@ -129,6 +129,31 @@ def test_commands_cant_reach_the_window_server_and_still_run_git_and_python(tmp_
     assert found and all(rc != 0 for rc in found.values()), found
     assert _ok(sb, f"cd '{ferb}/workspace' && git init -q r && cd r && git status --short && python3 -c 'print(2)'")
     assert "windowserver" not in sb.profile(apps=True)                       # measured for the shell only
+
+
+# decision: HAND-429
+def test_an_installed_apps_own_program_never_starts_from_the_shell(tmp_path: Path) -> None:
+    """Live 2026-11-07: a task ran Google Chrome.app/Contents/MacOS/Google Chrome --headless from the shell, where a GUI
+    app has no window server, and macOS showed "Google Chrome quit unexpectedly" on the owner's screen."""
+    home, ferb = _home(tmp_path)
+
+    def program(at: Path) -> Path:
+        at.parent.mkdir(parents=True)
+        at.write_text("#!/bin/sh\necho ran\n")
+        at.chmod(0o755)
+        return at
+    app = program(home / "Applications" / "Fake Browser.app" / "Contents" / "MacOS" / "Fake Browser")
+    deeper = program(home / "Applications" / "Utilities" / "Tool.app" / "Contents" / "MacOS" / "Tool")
+    helper = program(home / "Applications" / "Host.app" / "Contents" / "Helpers" / "Inner.app" / "Contents" / "MacOS" / "inner")
+    framework = program(home / "Library" / "Frameworks" / "Py.framework" / "Python.app" / "Contents" / "MacOS" / "Python")
+    sb = Sandbox(Protection(home, ferb, [], [], []), tmp_path / "profiles", listeners=lambda: set())
+    for refused in (app, deeper):
+        r = _run(sb, f"'{refused}' --headless")
+        assert r.returncode != 0 and "ran" not in r.stdout, (refused, r.stdout, r.stderr)
+    for runs in (helper, framework):                          # a bundle's helpers and python.org's Python.app run
+        assert _run(sb, f"'{runs}'").stdout.strip() == "ran", runs
+    assert _ok(sb, "git --version && python3 -c 'print(2)'")
+    assert "Contents/MacOS/" not in sb.profile(apps=True)        # AppleScript's profile already runs only osascript
 
 
 # decision: HAND-217

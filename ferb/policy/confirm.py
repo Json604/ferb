@@ -166,6 +166,24 @@ def app_key(app: str) -> str:
     return found.bundle_id.casefold() if found is not None else clean(app)
 
 
+_BUNDLE_ID = re.compile(r"(?:[A-Za-z0-9-]+\.){2,}[A-Za-z0-9-]+|pid:\d+")
+
+
+def app_label(app: str) -> str:
+    """An app as the owner knows it (live 2026-11-07: a card said "com.google.Chrome"): a bundle id or `pid:N` that
+    names exactly one running app becomes that app's name; anything else, a site among them, stays as written.
+    Display only: keys use `app_key`."""
+    text = app.strip()
+    if not _BUNDLE_ID.fullmatch(text):
+        return app
+    from ferb.act.mac import apps
+    try:
+        found = apps.find(text)
+    except Exception:                                    # the running-app list can't be read: as written
+        found = None
+    return found.name if found is not None and found.name else app
+
+
 def key(*parts: object) -> str:
     """A need's key: the rule and the exact values one answer covers, unambiguous (JSON of the tuple)."""
     return json.dumps(parts, ensure_ascii=False)
@@ -1088,6 +1106,10 @@ def card(needs: list[Need], typed: str = "") -> Card:
     for n in sorted(needs, key=lambda need: need.rule != TERMINAL_INPUT):
         if n.rule in said:
             continue
+        # every card names an app by its name, never its bundle id (the values here are display only)
+        named = {k: app_label(v) for k, v in n.values.items() if k in ("app", "place") and isinstance(v, str)}
+        if any(named[k] != n.values[k] for k in named):
+            n = replace(n, values={**n.values, **named})
         made = _card(n, rules)
         if made is None:
             try:

@@ -804,3 +804,13 @@ rule = "Implements HAND-427's app half (T-1065) without its last step: browser.p
 why = "Raising the minimum refuses every not-yet-updated profile for all browsing (live 2026-11-01..04: days of that); only the PDF needs the new command."
 paths = ["ferb/act/browser/tools.py::BrowserPdf", "ferb/act/browser/ext_bridge.py::_TabDriver.pdf", "ferb/act/browser/ext_protocol.py"]
 live = ["LIVE-813"]
+
+[HAND-429]
+title = "An installed app's own program never starts from FERB's shell"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "The shell profile denies process-exec of <Applications folder>[/<one subfolder>]/<name>.app/Contents/MacOS/* for /Applications, /System/Applications and ~/Applications (and their Data-volume forms). Bundles elsewhere (python.org's Python.app) and an app's nested helper bundles still run. The shell's description and its refusal note say why and what to use instead; the PDF tool's old-extension refusal says not to start a browser from the shell."
+why = "Owner 2026-11-07 asked for the suggested fixes. A GUI app can't run without the window server (HAND-243); Chrome --headless from the shell crashed on the owner's screen 2026-11-04..07."
+paths = ["ferb/act/shell/sandbox.py::Sandbox._profile", "ferb/act/shell/tools.py::_scope_note"]
+live = ["LIVE-813"]
