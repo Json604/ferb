@@ -588,3 +588,27 @@ status = "open"
 why = "Security run T-1058: hover (on by default) opens FERB and makes its panel key (PanelCoordinator.focusVisibleInput); nothing in ui/ checks IsSecureEventInputEnabled, so the rest of a password being typed elsewhere can land in FERB's composer. Window mode and the shortcut are unaffected."
 decisions = ["APP-745", "APP-740"]
 ask = "While you're typing into a password field somewhere, should hovering over FERB open it without moving your typing into FERB (you'd click its box to type)?"
+
+[T-1066]
+title = "Discuss, then build: editable schedules, several per message, random times, honest descriptions"
+area = "orchestration"
+kind = "question"
+status = "open"
+why = "Visa schedule 2026-11-07: no random times, one schedule per message, no edit (schemas.py:137,152,175); FERB gave it to a worker that couldn't, then claimed six daily checks for a once-daily rule. Owner: \"yes but first for discussion and then build\"."
+ask = "Which schedule abilities to add (edit instructions and times, several per message, random times in a window, stop related schedules together), and confirm: FERB describes a schedule only from its saved rule, checked by code."
+
+[T-1067]
+title = "Review prompts and FERB's claims: never state an outcome its records don't show"
+area = "prompts"
+kind = "question"
+status = "open"
+why = "Owner 2026-11-07: \"even if happend ferb shoudl not lie. ig thsi traces back to our open task of assessing all the promtps\". With T-1040/T-1054: find prompt rules that let the model overstate; code checks for key claims; owner approves wording."
+ask = "Approve the review plan, then each proposed prompt wording and claim check."
+
+[T-1068]
+title = "Plan real-model tests of everyday tasks: quality over quantity, researched from real use"
+area = "tests"
+kind = "question"
+status = "open"
+why = "Owner 2026-11-07: \"real mdoel calls on a vast variety of tasksk ... covering the ones that are makjor first BUT ensuring ours is qualitative rather tahn quanitty\". Plan first; owner-controlled surfaces (rule 16); before/after changes."
+ask = "Approve the plan: which tasks, what quality measures, which surfaces."
