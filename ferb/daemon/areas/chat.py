@@ -9,7 +9,7 @@ from typing import Any, AsyncIterator
 from ferb.act.fs.files import normalize_path
 from ferb.core import origin as origin_
 from ferb.core.errors import FerbError, Refused
-from ferb.daemon.questions import card_flags
+from ferb.daemon.questions import card_flags, card_parts
 from ferb.daemon.server import Session
 from ferb.orchestrator import acks
 from ferb.orchestrator.continuity import RESERVED_SESSIONS
@@ -78,6 +78,7 @@ class Chat:
                     **({"summary": ap.summary} if ap.summary else {}),
                     **({"from_task": True} if ap.from_task else {}),
                     **({"why": ap.why} if getattr(ap, "why", "") else {}),
+                    **card_parts(ap),
                     **({"source_task_id": ap.task_id} if ap.task_id else {}),
                     **({"part": ap.part} if ap.part else {}),
                     **({"runtime_switch": ap.runtime_switch} if ap.runtime_switch else {}),

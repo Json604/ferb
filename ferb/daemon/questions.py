@@ -33,6 +33,8 @@ class Approval:
     summary: str = ""                         # FERB's own question in one line, written by code (P27, D33, GATE-225)
     from_task: bool = False                   # a task's (model-written) question: the app tags it (D33, GATE-225)
     why: str = ""                             # the task's reason, shown smaller under the question (2026-10-27)
+    detail: str = ""                          # GATE-513: why FERB asks, one plain line under the question
+    exact: str = ""                           # GATE-513: the exact thing approved (command, address, value), boxed
     taken: bool = False                       # its answer reached the call that waited for it
     key: str = ""                             # what a retry of the same call matches (the asker's own words)
     task_id: str = ""                         # the task that asked: only its own retry may wait on it (rule 5)
@@ -57,6 +59,11 @@ class Approval:
         if self.options_only or self.capability in OWN_CHECKS:
             return None
         return int(text) if text.isdecimal() and 1 <= int(text) <= len(self.options) else None
+
+
+def card_parts(ap: Approval) -> dict[str, Any]:
+    """GATE-513: the card's why line and exact part, when it has them (`approval.requested` and `chat.status`)."""
+    return ({"detail": ap.detail} if ap.detail else {}) | ({"exact": ap.exact} if ap.exact else {})
 
 
 def card_flags(ap: Approval) -> dict[str, Any]:

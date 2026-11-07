@@ -34,19 +34,15 @@ struct ApprovalView: View {
                     .background(.white.opacity(0.07), in: Capsule())
                     .accessibilityLabel("Question from the task")
             }
-            if approval.plainText {                  // FERB's own question: verbatim, monospaced, no Markdown (D31)
-                // One question, no Details (GATE-225): a long one (an exact command, rule 6) stays fully shown in a
-                // capped-height block that scrolls, never behind a click.
-                if approval.visibleReason.count > ApprovalLayout.longQuestionChars {
-                    ScrollView(.vertical) {
-                        Text(verbatim: approval.visibleReason).font(.system(size: 12, design: .monospaced))
-                            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(maxHeight: ApprovalLayout.longQuestionHeight)
-                } else {
-                    Text(verbatim: approval.visibleReason).font(.system(size: 12, design: .monospaced))
-                        .textSelection(.enabled)
+            if approval.plainText {                  // FERB's own question: verbatim, never Markdown (D31)
+                // GATE-513 (refining GATE-225): one question in plain words, why FERB asks under it, and the exact
+                // thing approved in its own code box. A long question or exact part (a command, rule 6) stays fully
+                // shown in a capped-height block that scrolls, never behind a click.
+                ApprovalText(text: approval.visibleReason, font: .system(size: 12.5, weight: .semibold))
+                if let detail = approval.detail {
+                    ApprovalText(text: detail, font: .system(size: 11.5), secondary: true)
                 }
+                if let exact = approval.exact { ExactBox(text: exact) }
             } else {
                 MarkdownContent(approval.visibleReason).equatable().font(.system(size: 12, weight: inRow ? .medium : .regular))
             }
@@ -167,6 +163,43 @@ private struct QuestionChrome: ViewModifier {
                 }
                 .padding(.trailing, 28)
         }
+    }
+}
+
+/// FERB's own words on a question card, word for word and selectable; a long one scrolls in a capped block.
+private struct ApprovalText: View {
+    let text: String
+    let font: Font
+    var secondary = false
+    var body: some View {
+        let line = Text(verbatim: text).font(font).foregroundStyle(secondary ? Palette.secondary : Palette.ink)
+            .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        if text.count > ApprovalLayout.longQuestionChars {
+            ScrollView(.vertical) { line }.frame(maxHeight: ApprovalLayout.longQuestionHeight)
+        } else {
+            line
+        }
+    }
+}
+
+/// GATE-513: the exact thing the owner approves, in a code box: the same font as code in answers, word for word,
+/// selectable, scrolling when long rather than hiding any of it.
+struct ExactBox: View {
+    let text: String
+    var body: some View {
+        let shown = Text(verbatim: text).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Palette.ink)
+            .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 9).padding(.vertical, 7)
+        Group {
+            if text.count > ApprovalLayout.longQuestionChars || text.split(separator: "\n").count > 6 {
+                ScrollView(.vertical) { shown }.frame(maxHeight: ApprovalLayout.longQuestionHeight)
+            } else {
+                shown
+            }
+        }
+        .background(.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityLabel("Exactly: " + text)
     }
 }
 

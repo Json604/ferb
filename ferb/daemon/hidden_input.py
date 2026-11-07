@@ -13,6 +13,7 @@ from typing import Any, Literal
 from ferb.core.errors import Refused
 from ferb.core.types import ToolContext
 from ferb.daemon.auth import RunGrant
+from ferb.daemon.questions import card_parts
 from ferb.policy import payments, provenance, urls
 from ferb.policy.rules import ActionRequest
 from ferb.sanitize.dictionary import ordinary_word
@@ -64,11 +65,11 @@ class HiddenInput:
                             request_id=ctx.request_id, task_scopes=ctx.scopes, effect="edit")
         ap = self.gw.state.approvals.question(ask, question, [])
         ap.kind = "owner_secret"
-        ap.summary = self.gw._one_line(secret_summary(target, remember, shown, username, source, field) +
-                                       ((" · " + paying) if paying else ""))
+        ap.summary = self.gw._one_line(secret_summary(target, remember, shown, username, source, field))
+        ap.detail = self.gw._one_line(secret_detail(target, remember, shown) + ((" " + paying) if paying else ""))
         self.gw.publish("approval.requested", {"approval_id": ap.id, "kind": ap.kind,
                      "capability": ask.capability, "reason": question, "task_id": ctx.task_id,
-                     "summary": ap.summary})
+                     "summary": ap.summary} | card_parts(ap))
         grant = RunGrant(ctx.task_id, ctx.worker_id, ctx.scopes, ctx.identity, float("inf"))
         delivered = False
         try:
@@ -154,9 +155,11 @@ class HiddenInput:
         question = login_code_question(origin) + ((" " + paying) if paying else "")
         ap = self.gw.state.approvals.question(ask, question, [])
         ap.kind = "owner_login_code"
-        ap.summary = self.gw._one_line(login_code_summary(origin) + ((" · " + paying) if paying else ""))
+        ap.summary = self.gw._one_line(login_code_summary(origin))
+        ap.detail = self.gw._one_line(LOGIN_CODE_DETAIL + ((" " + paying) if paying else ""))
         self.gw.publish("approval.requested", {"approval_id": ap.id, "capability": ask.capability, "kind": ap.kind,
-                                            "reason": question, "task_id": ctx.task_id, "summary": ap.summary})
+                                            "reason": question, "task_id": ctx.task_id, "summary": ap.summary}
+                        | card_parts(ap))
         grant = RunGrant(ctx.task_id, ctx.worker_id, ctx.scopes, ctx.identity, float("inf"))
         try:
             state = await self.gw._wait_answer(grant, ap.id)
@@ -175,10 +178,10 @@ class HiddenInput:
         question = "Enter your Mac password for the approved command (hidden; Enter cancels)."
         ap = self.gw.state.approvals.question(ask, question, [])
         ap.kind = "owner_admin_password"
-        ap.summary = ADMIN_SUMMARY
+        ap.summary, ap.detail = ADMIN_SUMMARY, ADMIN_DETAIL
         self.gw.publish("approval.requested", {"approval_id": ap.id, "capability": ask.capability,
                                             "kind": ap.kind, "reason": question, "task_id": grant.task_id,
-                                            "summary": ap.summary})
+                                            "summary": ap.summary} | card_parts(ap))
         delivered = False
         try:
             state = await self.gw._wait_answer(grant, ap.id)
@@ -269,28 +272,40 @@ def secret_summary(target: str, remember: str | None, app: str | None = None, us
     account = _account(username or "")
     whose = f"{_site(username_place)} " if username_place else ""
     account = f" ({whose}account: {account})" if account else ""
+    # GATE-513: a plain question, still with the place first (re-review R1), and `secret_detail` under it
     if remember:
         name = shown_name(remember)
-        what = f"“{name}”" if name else "a saved secret"
-        return f"For {place} only{account}: {what} · saved in your Mac's Keychain"
+        what = f"your “{name}”" if name else "a saved secret of yours"
+        return f"For {place} only{account}: FERB needs {what}."
     # live 2026-10-27: "a password or private answer" for a card's CVV and a bank's OTP; the page's own label for the
     # field says which (page text, quoted as the page's words; display only)
     label = " ".join((field or "").split())
     label = label if len(label) <= 60 else label[:59].rstrip() + "…"
     if label:
-        return f"For {place}{account}: the page's “{label}” field — used once, not saved"
-    return f"For {place}{account}: a password or private answer — used once, not saved"
+        return f"For {place}{account}: FERB needs what goes in the page's “{label}” field."
+    return f"For {place}{account}: FERB needs a password or private answer."
+
+
+def secret_detail(target: str, remember: str | None, app: str | None = None) -> str:
+    """GATE-513: what happens to what the owner types into the secret question, in one plain line."""
+    if remember:
+        return (f"Type it below. FERB fills it in without seeing it, and saves it in your Mac's Keychain for "
+                f"{secret_place(target, app)} only.")
+    return "Type it below. FERB fills it in without seeing it. It's used once and not saved."
 
 
 def login_code_summary(origin: str) -> str:
     """The login-code question in one line (P27): the origin's host first (a code word before it would read its port
     or a number in it as a code), then what it is. A host whose own name holds a code label before a code-shaped port
     (otp.example.com:8443) still loses that port to redaction (review M4)."""
-    return f"For {_site(origin)}: a login code — used once"
+    return f"For {_site(origin)}: FERB needs a login code."
 
 
-ADMIN_SUMMARY = ("Your Mac password, for the one command you just approved. FERB passes it only to that command and "
-                 "doesn't save it.")
+LOGIN_CODE_DETAIL = "Type it below. FERB fills it in only there, and it's used once."   # GATE-513
+
+
+ADMIN_DETAIL = "Type it below. FERB passes it only to that command and doesn't save it."   # GATE-513
+ADMIN_SUMMARY = "FERB needs your Mac password for the one command you just approved."
 
 
 def login_code_question(origin: str) -> str:

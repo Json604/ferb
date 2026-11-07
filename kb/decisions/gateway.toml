@@ -413,3 +413,14 @@ status = "active"
 rule = "Approval.option_for counts an option's number only for a task's own question. FERB's own checks (questions.OWN_CHECKS, the same five as steering.FERB_CHECKS: confirmation, P19 retry, conversation scope, forget, downloads cap) and FERB's check-ins (options_only) take only an option's own words, in chat.answer, in the box (chat.correct) and in chat; a typed \"1\" there is words: refused on the card (\"Pick Yes or No.\"), a correction in the box, never a Yes. Buttons (chat.approve with a choice) are unchanged."
 why = "Security run T-1058: a \"1\" typed on a payment's card or in its box was read as option 1, Yes, and the payment ran, against GATE-510, ORCH-536 and ORCH-537 (only an option's exact words). The number form is left from the removed CLI chat (DMN-1); no FERB text numbers its options."
 paths = ["ferb/daemon/questions.py::Approval.option_for"]
+
+[GATE-513]
+title = "FERB's question cards: the question in plain words, why it asks, the exact part in a code box"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "ok this looks good, do it."
+words_source = "Owner, 2026-11-07, approving the shown rewrites of FERB's own questions (after: \"they still dont make sense on first read\"; and on fallbacks: \"ok then that is good\")"
+rule = "Refines GATE-225's card. Each of FERB's own questions (confirmations, passwords, login codes, the Mac password) is a plain question in the normal font, a line saying why FERB asks, and the exact thing approved (command, address, value, path, amount) in a code box; no tool names. A password question still starts with its place. A kind without new words keeps today's sentence; a card that can't be built asks with today's line. The full question stays in the record."
+paths = ["ferb/policy/confirm.py::card", "ferb/daemon/hidden_input.py", "ui/mac/FERBNotch/Sources/FERBNotch/ApprovalView.swift"]
+live = ["LIVE-812"]

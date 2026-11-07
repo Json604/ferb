@@ -11,6 +11,11 @@ public struct DaemonApproval: Identifiable, Equatable {
     /// The task's reason, shown smaller under the question (owner 2026-10-27: "just ask simply what you want with a small
     /// reason below").
     public let why: String?
+    /// FERB's own question's why line (GATE-513): plain words under the question, from the daemon's code.
+    public let detail: String?
+    /// The exact thing the owner approves (GATE-513): a command, an address, a value, a path, an amount; the card shows
+    /// it in its own code box, word for word.
+    public let exact: String?
     /// A task's (model-written) question: the card draws a small "from the task" tag (D33, GATE-225). Structural,
     /// from the daemon's flag, never read from the text.
     public let fromTask: Bool
@@ -57,6 +62,8 @@ public struct DaemonApproval: Identifiable, Equatable {
         summary = value["summary"] as? String
         fromTask = value["from_task"] as? Bool ?? false
         why = (value["why"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        detail = (value["detail"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        exact = (value["exact"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         options = value["options"] as? [String] ?? []
         title = value["title"] as? String
         evidence = value["evidence"] as? [String] ?? []

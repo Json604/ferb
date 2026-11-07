@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import XCTest
 @testable import FERBNotch
 @testable import NotchCore
@@ -834,5 +835,35 @@ private final class StatusRPC: DaemonRPCTransport {
             for event in events { continuation.yield(event) }
             if method == "chat.send" { continuation.finish() }
         }
+    }
+}
+
+/// FERB's question cards (GATE-513): the daemon's why line and exact part reach the card, which draws the exact part
+/// in its own code box, word for word.
+@MainActor
+final class QuestionCardPartsTests: XCTestCase {
+    // decision: GATE-513
+    func testTheCardTakesTheWhyLineAndTheExactPartAndBoxesTheExactPart() throws {
+        let approval = try XCTUnwrap(DaemonApproval([
+            "approval_id": "ap-1", "capability": "ferb.confirm", "kind": "owner_question", "task_id": "t-1",
+            "reason": "FERB: this would type 'ls -la' … Go ahead?", "options": ["Yes", "No"],
+            "summary": "Run this in the terminal in Terminal?",
+            "detail": "FERB types it and presses Return.", "exact": "ls -la"]))
+        XCTAssertEqual(approval.visibleReason, "Run this in the terminal in Terminal?")
+        XCTAssertEqual(approval.detail, "FERB types it and presses Return.")
+        XCTAssertEqual(approval.exact, "ls -la")
+        XCTAssertTrue(approval.plainText)
+        let older = try XCTUnwrap(DaemonApproval(["approval_id": "ap-2", "summary": "Send to bob@x.com?",
+                                                  "detail": "", "exact": ""]))
+        XCTAssertNil(older.detail)
+        XCTAssertNil(older.exact)
+
+        let model = NotchModel(preferences: scratchDefaults())
+        let host = NSHostingView(rootView: ApprovalView(model: model, approval: approval).frame(width: 360))
+        host.frame = CGRect(x: 0, y: 0, width: 360, height: 300)
+        host.layoutSubtreeIfNeeded()
+        let fitted = host.fittingSize
+        XCTAssertGreaterThan(fitted.height, 60, "the question, its why line and the box all draw")
+        XCTAssertEqual(String(describing: ExactBox(text: "ls -la").text), "ls -la")
     }
 }

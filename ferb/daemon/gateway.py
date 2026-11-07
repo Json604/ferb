@@ -68,7 +68,7 @@ from ferb.core.interfaces import Capability, Clock
 from ferb.core.types import ActionFacts, Target, ToolContext, EscapeGrant, TerminalGrant, TerminalInput
 from ferb.daemon.auth import RunGrant
 from ferb.daemon.call_hooks import CallHooks, error_name, on_screen  # noqa: F401 (tests import it from here)
-from ferb.daemon.questions import card_flags
+from ferb.daemon.questions import card_flags, card_parts
 from ferb.daemon.hidden_input import (ADMIN_SUMMARY, HiddenInput, _account, _site, _unfilled, login_code_question,  # noqa: F401
                                       login_code_summary, secret_place, secret_question, secret_summary, shown_name)
 from ferb.daemon.server import caller_left
@@ -1214,8 +1214,9 @@ class Gateway:
         if not values:
             return None
         first = values[0]
+        shown_url = url if len(url) <= 300 else url[:299] + "…"      # GATE-513: the address, for the card's box
         return confirm.Need("sink:private_url", key, {"destination": host, "value": first.piece,
-                                                      "matched": first.matched,
+                                                      "matched": first.matched, "url": shown_url,
                                                       "source": self._read_as(root, first.first_read),
                                                       "read": confirm.shown_origins(outside_labels)},
                             destinations=(("host", host),))
@@ -1843,6 +1844,28 @@ class Gateway:
         control characters (its facts can hold a page's or an app's text)."""
         return self._squash(printable(self.redact({"s": text})["s"]), keep_spaces)
 
+    def _set_card(self, ap: Any, needs: list[confirm.Need], typed: str, terminal: bool) -> None:
+        """GATE-513: the card's question in plain words, why FERB asks, and the exact part for its code box, each
+        redacted and without control characters (the exact part keeps its lines, and a terminal's its spaces). If the
+        card can't be built, the question keeps today's one line (`confirm.summary`): it is always asked, never blank."""
+        try:
+            made = confirm.card(needs, typed)
+            ap.summary = self._one_line(made.question)
+            ap.detail = self._one_line(made.detail)
+            ap.exact = "\n".join(self._one_line(line, terminal) for line in made.exact.split("\n") if line.strip())
+        except Exception as e:                                       # display only: never stops the question
+            self.journal_problem("confirm.card_failed", {"rules": [n.rule for n in needs], "error": error_name(e)})
+            ap.summary, ap.detail, ap.exact = self._summary_line(needs, typed, terminal), "", ""
+        if not ap.summary:
+            ap.summary = self._summary_line(needs, typed, terminal)
+
+    def _summary_line(self, needs: list[confirm.Need], typed: str, terminal: bool) -> str:
+        """Today's one line (`confirm.summary`), or, if even that can't be written, a plain question: never blank."""
+        try:
+            return self._one_line(confirm.summary(needs, typed), terminal)
+        except Exception:
+            return "FERB needs your OK to go ahead with this step."
+
     def _ferb_line(self, needs: list[confirm.Need], call: str, why: str, typed: str = "") -> str:
         """FERB's question as the owner reads it: one paragraph (the call and the task's reason can't open one of
         their own, P19's rule), no terminal control characters, the text a send carries and the reason quoted and
@@ -1901,13 +1924,13 @@ class Gateway:
         ap.corrects = True          # GATE-510: its card also takes the owner's words for this task, as a correction
         if new:     # the card's one question (GATE-225): the facts that decide it, never the step or the raw call
             shown_typed = quoted(self.redact({"t": typed})["t"]) if typed.strip() else ""
-            ap.summary = self._one_line(confirm.summary(needs, shown_typed),
-                                        any(n.rule == confirm.TERMINAL_INPUT for n in needs))
+            terminal = any(n.rule == confirm.TERMINAL_INPUT for n in needs)
+            self._set_card(ap, needs, shown_typed, terminal)
             ap.why = self._one_line(confirm.reason_line(quoted(self.redact({"w": why})["w"]) if why.strip() else ""))
             self.publish("approval.requested", {"approval_id": ap.id, "capability": CONFIRM_ASK,
                                                 "kind": "owner_question", "reason": text, "options": options,
                                                 "task_id": grant.task_id, "summary": ap.summary, "why": ap.why}
-                         | card_flags(ap))
+                         | card_parts(ap) | card_flags(ap))
         self.observer.tool_call(grant, done=False)
         try:
             state = await self._wait_answer(grant, ap.id)

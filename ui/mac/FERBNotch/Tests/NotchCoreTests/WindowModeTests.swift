@@ -67,6 +67,10 @@ final class WindowModeTests: XCTestCase {
 
     // decision: APP-784
     func testTheShortcutOpensWithTheTextBoxFocusedInBothModes() throws {
+        // keyboard focus needs an unlocked session (a locked screen keeps every window from becoming key)
+        if (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool == true {
+            throw XCTSkip("The screen is locked")
+        }
         for windowMode in [false, true] {
             let h = try harness(window: windowMode)
             h.coordinator.toggleByShortcut()

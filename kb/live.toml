@@ -3426,3 +3426,12 @@ pass = "Dictation keeps listening until you stop, then the words are in the box.
 decisions = ["APP-781", "APP-782", "APP-783", "APP-784"]
 sitting = "after this change is installed"
 result = "passed 2026-11-07 (trial build 202611070449): owner: yes every fix is working"
+
+[LIVE-812]
+title = "FERB's questions read plainly, with the exact part in a code box"
+area = "gateway"
+surface = "FERB.app with this build"
+request = "Run a task that makes FERB ask: for example, ask it to run a command in a terminal, to email someone you've never mentioned, or to fill a password it hasn't saved."
+pass = "Each question reads right the first time: what FERB wants to do in plain words, a line saying why it asks, and the exact command, address or recipient in its own code box. No code font for the whole question and no internal names like browser.snapshot. Yes and No still do what they did."
+decisions = ["GATE-513", "GATE-225"]
+sitting = "after this change is installed"
