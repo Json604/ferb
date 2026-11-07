@@ -3416,3 +3416,12 @@ pass = "Every button and the whole sites box show the pointing hand and visibly 
 decisions = ["APP-779", "APP-780", "APP-753"]
 sitting = "after this change is installed"
 result = "passed 2026-11-07 v0.27.2 (build 202611070357): owner: pass"
+
+[LIVE-811]
+title = "Dictation during a task, Tasks height, the shortcut's focus, dragging the activity window"
+area = "app"
+surface = "FERB.app with this build, notch and window mode, while a task runs"
+request = "While a task runs, dictate for 15 seconds (right Command + Option, or the mic). Click View tasks in the notch chat. Close FERB, open it with your shortcut (double-tap or your own combination) in notch mode and in window mode, and type at once. Detach a running task's activity and drag it by an empty part of its card."
+pass = "Dictation keeps listening until you stop, then the words are in the box. Tasks opens at the chat's height and stays open. After the shortcut your typing lands in the text box in both modes. The activity window follows the drag; its close button and preview still work."
+decisions = ["APP-781", "APP-782", "APP-783", "APP-784"]
+sitting = "after this change is installed"

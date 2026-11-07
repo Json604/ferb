@@ -146,3 +146,35 @@ final class WindowHeaderClickTests: XCTestCase {
         XCTAssertEqual(window.panel.frame.origin, NSPoint(x: start.x - 40, y: start.y - 30))
     }
 }
+
+/// The detached task activity window (APP-782, owner 2026-11-07: "im not able to drag the preview window when extracted
+/// form te h chat - it shoudl be draggable, it was"): FERB's overlay space moves no window by the window server, so its
+/// card drags it itself.
+@MainActor
+final class ActivityWindowDragTests: XCTestCase {
+    // decision: APP-782
+    func testTheDetachedActivityWindowFollowsADragOfItsCard() throws {
+        let model = NotchModel(preferences: scratchDefaults())
+        model.runningTasks["t-1"] = "Swiggy tailored resumes"
+        let taskID = try XCTUnwrap(model.taskItems.first { $0.isRunning }?.id)
+        let panel = TaskActivityPanel(model: model, taskID: taskID) {}
+        XCTAssertFalse(panel.isMovable, "no window-server drag: it can't move windows in FERB's overlay space")
+        let content = try XCTUnwrap(panel.contentView)
+        content.layoutSubtreeIfNeeded()
+        func drags(_ view: NSView) -> [WindowDragArea.DragView] {
+            (view as? WindowDragArea.DragView).map { [$0] } ?? view.subviews.flatMap(drags)
+        }
+        let drag = try XCTUnwrap(drags(content).first, "the card has a drag area")
+        var pointer = NSPoint(x: 300, y: 300)
+        drag.pointer = { pointer }
+        let start = panel.frame.origin
+        let event = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [],
+                                                     timestamp: 0, windowNumber: panel.windowNumber, context: nil,
+                                                     eventNumber: 0, clickCount: 1, pressure: 1))
+        drag.mouseDown(with: event)
+        pointer = NSPoint(x: 350, y: 280)
+        drag.mouseDragged(with: event)
+        XCTAssertEqual(panel.frame.origin, NSPoint(x: start.x + 50, y: start.y - 20))
+        drag.mouseUp(with: event)
+    }
+}

@@ -56,8 +56,12 @@ struct ChatInput: NSViewRepresentable {
         if context.coordinator.focusRequest != model.focusRequest {
             context.coordinator.focusRequest = model.focusRequest
             // The question field the owner chose to answer keeps focus over the composer.
-            if model.bodyVisible, model.canCompose, model.questionFocus == nil, view.window?.isKeyWindow == true {
-                view.window?.makeFirstResponder(view)
+            if model.bodyVisible, model.canCompose, model.questionFocus == nil {
+                // APP-784: a window opened just now (the sticky window's first open by shortcut) isn't key yet, or
+                // the field isn't in it yet: the request waits for that window to become key instead of being lost
+                view.focusWhenKey()
+            } else {
+                view.pendingFocus = false
             }
         }
     }
@@ -86,6 +90,42 @@ struct ChatInput: NSViewRepresentable {
 }
 
 final class ChatTextView: NSTextView {
+    /// APP-784: a focus request that came before its window was key: taken when the window becomes key.
+    var pendingFocus = false
+    private var keyObserver: NSObjectProtocol?
+
+    /// Takes keyboard focus now when its window is key; otherwise as soon as it is.
+    func focusWhenKey() {
+        if let window, window.isKeyWindow {
+            pendingFocus = false
+            window.makeFirstResponder(self)
+        } else {
+            pendingFocus = true
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
+        keyObserver = nil
+        guard let window else { return }
+        keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window,
+                                                             queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.pendingFocus else { return }
+                self.focusWhenKey()
+            }
+        }
+        if pendingFocus { focusWhenKey() }
+    }
+
+    deinit { if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) } }
+
+    override func resignFirstResponder() -> Bool {
+        pendingFocus = false
+        return super.resignFirstResponder()
+    }
+
     var pasteboard: NSPasteboard = .general
     var submit: (() -> Void)?
     var didPaste: ((String, NSRange) -> Void)?

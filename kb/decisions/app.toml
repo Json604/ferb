@@ -2831,3 +2831,47 @@ words_source = "Owner, 2026-11-07, with a screen recording of hovering the sites
 rule = "Refines APP-753/756. The sites box shows the pointing hand and brightens anywhere on it; a click on it opens the one site, or the list of all; the site name and +N keep their own clicks. Every hover area matches where the pointer is after a layout or scroll change, so a box that moved under a still pointer (the newest answer as the chat follows it) shows its hover and hand without a wiggle; another window over it at the pointer means not hovered."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ArtifactPreview.swift::VisitedSitesView", "ui/mac/FERBNotch/Sources/FERBNotch/HoverSource.swift::HoverSourceView"]
 live = ["LIVE-810"]
+
+[APP-781]
+title = "Dictation keeps listening while a task runs"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "another bug i think i noticed whole a task is running: i cant use the dictation feature, it opens listens for a seconds or 2 adn shuts down itslef, ive tried several times."
+words_source = "Owner, 2026-11-07, on 0.27.2: the microphone kept capturing (87 s in the log) while the listening screen ended"
+rule = "While the owner dictates, no path brings a running task into the composer (NotchSession.resumeBackendTask does nothing while listening): the status refresh did, ending listening while the microphone ran on unseen. Once dictation ends, the running task shows again and the dictated words stay in the box."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/NotchSession.swift::NotchSession.resumeBackendTask"]
+live = ["LIVE-811"]
+
+[APP-782]
+title = "The detached task activity window drags by its card"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "im not able to drag the preview window when extracted form te h chat - it shoudl be draggable, it was, fix this."
+words_source = "Owner, 2026-11-07, about the window Detach activity opens (TaskActivityPanel)"
+rule = "Refines APP-759 for the detached task activity window: it lives in FERB's overlay space, where the window server moves nothing, so any empty part of its card drags it (WindowDragArea, as the chat window's header). Its close button, the live preview and the activity text keep their own clicks."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift::TaskActivityPanel"]
+live = ["LIVE-811"]
+
+[APP-783]
+title = "Tasks in the chat is the chat's own height"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "laso i think the tasks section in ferb chat window is not the same length of the chat, cuase when i click view tasks, it opens tasks but since its heoght is hsorter thatn thatn the chat notch it closes - they should be of the same heiguht"
+words_source = "Owner, 2026-11-07, about View tasks in the notch chat"
+rule = "The Tasks page inside the chat is exactly the chat's height (the transcript height the owner set plus its header and composer), not a fixed 320 points, so opening it from View tasks never shrinks the notch out from under the pointer and a hover-out never closes it."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.bodyHeight"]
+live = ["LIVE-811"]
+
+[APP-784]
+title = "Opening FERB by a keyboard shortcut focuses the text box"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "another bug: on open of ferb chat with keyboard shortcuts, it does auto focusses on text chat, it shoudl"
+words_source = "Owner, 2026-11-07; reproduced in window mode: the window became key but its text box never took the focus"
+rule = "Every keyboard shortcut that opens FERB (double-tap, the owner's own combination) leaves typing in the text box, in the notch and in the sticky window. A focus request that arrives before the text box's window is key (the window's first open) is kept and taken as soon as that window becomes key."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatInput.swift::ChatTextView"]
+live = ["LIVE-811"]

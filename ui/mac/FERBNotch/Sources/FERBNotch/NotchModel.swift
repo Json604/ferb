@@ -499,7 +499,9 @@ final class NotchModel: ObservableObject {
 
     var bodyHeight: CGFloat { min(requestedBodyHeight, max(0, availableSurfaceSize.height - cutoutHeight)) }
     private var requestedBodyHeight: CGFloat {
-        if showingTasks { return 320 }
+        // APP-783: Tasks is exactly the chat's height, so opening it from "View tasks" never shrinks the notch out from
+        // under the pointer (a hover-out closed it)
+        if showingTasks { return chatTranscriptHeight + conversationChromeHeight }
         if showingSources { return 250 }
         if session.phase != .listening && !showingActivity {
             return (visibleEntries.isEmpty && inlineQuestions.isEmpty ? min(31, chatTranscriptHeight) : chatTranscriptHeight) + conversationChromeHeight

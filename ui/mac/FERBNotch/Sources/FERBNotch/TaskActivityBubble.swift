@@ -140,7 +140,9 @@ final class TaskActivityPanel: NSPanel {
         backgroundColor = .clear
         isOpaque = false
         hasShadow = true
-        isMovableByWindowBackground = true
+        // APP-782: it lives in FERB's overlay space, where the window server moves nothing (APP-759): its card drags it
+        // itself (WindowDragArea), as the chat window's header does
+        isMovable = false
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
         level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
@@ -153,7 +155,7 @@ final class TaskActivityPanel: NSPanel {
     }
 }
 
-private struct DetachedTaskActivityView: View {
+struct DetachedTaskActivityView: View {
     @ObservedObject var model: NotchModel
     let taskID: String
     let onClose: () -> Void
@@ -191,6 +193,7 @@ private struct DetachedTaskActivityView: View {
                     }
                 }
                 .padding(15)
+                .background(WindowDragArea())                    // APP-782: any empty part of the card moves it
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.14), lineWidth: 1))
             }

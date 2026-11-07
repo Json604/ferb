@@ -158,6 +158,9 @@ public struct NotchSession {
     }
 
     public mutating func resumeBackendTask(_ taskID: String, goal: String) {
+        // APP-781: the owner is dictating: a running task is never brought into the listening composer (the status
+        // refresh did, ending listening while the microphone ran on); it shows once dictation ends
+        guard phase != .listening else { return }
         guard backendTaskID != taskID || activeTaskID == nil else { return }
         backendTaskID = taskID
         activeTaskID = UUID()

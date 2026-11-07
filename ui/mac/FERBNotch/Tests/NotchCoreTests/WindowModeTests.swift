@@ -65,6 +65,21 @@ final class WindowModeTests: XCTestCase {
         return url
     }
 
+    // decision: APP-784
+    func testTheShortcutOpensWithTheTextBoxFocusedInBothModes() throws {
+        for windowMode in [false, true] {
+            let h = try harness(window: windowMode)
+            h.coordinator.toggleByShortcut()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            let host: NSWindow = windowMode ? try window(h).panel : h.notchPanel
+            XCTAssertTrue(host.isKeyWindow, "\(windowMode ? "window" : "notch"): its window takes the keys")
+            XCTAssertTrue(host.firstResponder is ChatTextView,
+                          "\(windowMode ? "window" : "notch"): typing goes to the text box (\(String(describing: host.firstResponder)))")
+            h.coordinator.toggleByShortcut()
+            h.coordinator.tearDown()
+        }
+    }
+
     // decision: APP-745, APP-550
     func testInNotchModeNoWindowIsEverCreatedAndTheNotchOpensAsBefore() throws {
         let h = try harness()
