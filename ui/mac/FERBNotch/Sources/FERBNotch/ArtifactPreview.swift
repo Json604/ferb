@@ -326,12 +326,21 @@ struct VisitedSitesView: View {
         }
         .font(.system(size: 10))
         .padding(.horizontal, 8).padding(.vertical, 4)
-        .cardHover($hovered, capsule: true, label: "sites")
+        // APP-780: the whole box is one target: the hand anywhere on it, and a click on it (not on the name or "+N",
+        // which keep their own) opens the one site, or the list of all
+        .contentShape(Capsule())
+        .onTapGesture { open() }
+        .cardHover($hovered, link: true, capsule: true, label: "sites")
         .padding(.leading, leading)
         .onChange(of: model.expanded) { _, visible in if !visible { listOpen = false } }
         .onChange(of: model.previewDismissalRevision) { _, _ in listOpen = false }
         .onChange(of: sites.all) { _, _ in listOpen = false }
         .onDisappear { listOpen = false }
+    }
+
+    /// A click on the box: the one site, else the list of all.
+    func open() {
+        if sites.remainingCount > 0 { listOpen = true } else { _ = model.openSite(sites.inline) }
     }
 
     private var list: some View {

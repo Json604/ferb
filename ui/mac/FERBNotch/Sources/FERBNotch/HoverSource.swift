@@ -74,8 +74,28 @@ final class HoverSourceView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override var acceptsFirstResponder: Bool { false }
 
+    /// APP-780: whether the pointer is over this view now: inside its visible part, with its own window the topmost one
+    /// at the pointer (another window or a popover over it means not). Pure, for the test.
+    static func pointerInside(_ point: CGPoint, shown: CGRect, topWindow: Int, ownWindow: Int) -> Bool {
+        topWindow == ownWindow && !shown.isEmpty && shown.contains(point)
+    }
+
+    /// APP-780: AppKit reports entering and leaving only when the pointer moves. A view that moved, scrolled or was rebuilt
+    /// under a still pointer (the newest answer, as the chat follows it to the bottom) is matched to where the pointer
+    /// really is, so its colour and the hand are right without a wiggle.
+    func syncToPointer() {
+        guard let window, window.isVisible, !isHiddenOrHasHiddenAncestor else { return }
+        let screen = NSEvent.mouseLocation
+        let top = NSWindow.windowNumber(at: screen, belowWindowWithWindowNumber: 0)
+        let point = convert(window.convertPoint(fromScreen: screen), from: nil)
+        let inside = Self.pointerInside(point, shown: bounds.intersection(visibleRect), topWindow: top,
+                                        ownWindow: window.windowNumber)
+        if inside != hovered { set(inside) }
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
+        defer { syncToPointer() }
         if let area { removeTrackingArea(area) }
         // only an openable thing asks for cursor updates: a plain card under a link must never put the arrow back
         var options: NSTrackingArea.Options = [.activeAlways, .mouseEnteredAndExited, .mouseMoved, .inVisibleRect]
@@ -89,6 +109,7 @@ final class HoverSourceView: NSView {
     override func layout() {
         super.layout()
         logArea()
+        syncToPointer()
     }
 
     /// Where it shows on screen, for a live check of the hover (numbers only, debug level; nothing when hidden).

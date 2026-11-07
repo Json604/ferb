@@ -94,13 +94,20 @@ struct FerbButtonStyle: ButtonStyle {
             .frame(minHeight: 28)
             .background {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(.white.opacity((primary ? 0.085 : (quiet ? 0 : 0.045)) + (hovered ? 0.045 : 0)))
+                    .fill(.white.opacity(HoverLook.buttonFill(primary: primary, quiet: quiet, hovered: hovered && enabled)))
             }
             .opacity(enabled ? (configuration.isPressed ? 0.65 : 1) : 0.35)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
             .animation(reduceMotion ? .easeOut(duration: 0.1) : .spring(duration: 0.18, bounce: 0.08), value: configuration.isPressed)
-            .animation(.easeOut(duration: 0.12), value: hovered)
-            .onHover { hovered = $0 }
+            // APP-779: the AppKit hover source (APP-753): SwiftUI's onHover never fires in FERB's non-activating panels,
+            // so the hover colour and the pointing hand come from it; clicks pass through it to the button
+            .overlay {
+                HoverArea(pointing: enabled, label: "button") { inside in
+                    withAnimation(HoverLook.duration(reduceMotion: reduceMotion).map { .easeOut(duration: $0) }) {
+                        hovered = inside
+                    }
+                }
+            }
             .contentShape(RoundedRectangle(cornerRadius: 9))
     }
 }

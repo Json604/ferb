@@ -3405,3 +3405,13 @@ request = "Ask FERB a question it has to look up on the web (\"how many moons do
 pass = "The first web question asks once, listing your profiles with their accounts and None; the task waits, then searches in background tabs of the profile you picked and answers quickly. The next web question doesn't ask. With None, FERB says it will be slower and less reliable and explains why when asked."
 decisions = ["APP-777", "APP-778", "HAND-426", "APP-1"]
 sitting = "after this change is installed"
+result = "passed 2026-11-07 v0.27.2 (build 202611070330): owner: pass but jsut fix the ui"
+
+[LIVE-810]
+title = "Buttons and the sites box show the hand and change colour under the pointer"
+area = "app"
+surface = "FERB.app with this build, notch and window mode; a chat whose latest answers have a sites box"
+request = "Hover the option buttons of a FERB question (or Send and Stop), then the sites box of the newest answer and an older one: on the site name, on the +N, and on the box's empty part. Click the box's empty part. Ask something new and, while the answer arrives under a still pointer, look at the box under it."
+pass = "Every button and the whole sites box show the pointing hand and visibly brighten, every time; a click on the box opens the site, or the list when there are several. A box that moved under the still pointer shows its hover without moving the mouse. Nothing else changed: file cards, links in answers and the notch's handle behave as before."
+decisions = ["APP-779", "APP-780", "APP-753"]
+sitting = "after this change is installed"

@@ -2809,3 +2809,25 @@ words_source = "Owner, 2026-11-07, answering the agent's points on APP-777 (poin
 rule = "Refines APP-777 for schedules. A new schedule whose runs browse as FERB asks APP-777's question when it is made, while the owner is there. A scheduled run never waits for it: with no pick yet, or the picked profile gone (deleted, so FERB can't see it), the run goes without a browser and its answer says so; the next time the owner is there FERB asks again."
 paths = ["ferb/daemon/areas/schedules.py", "ferb/daemon/areas/browsers.py::Browsers._browsing"]
 live = ["LIVE-809"]
+
+[APP-779]
+title = "FERB's buttons show the pointing hand and a clear hover colour"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "pass but jsut fix the ui. on the selection boxes the pointer doesnt change and idk if the color changed or not - it should"
+words_source = "Owner, 2026-11-07, about the browsing question's option buttons in build 202611070330 (LIVE-809 passed)"
+rule = "Refines APP-753 for buttons. Every FERB button (FerbButtonStyle: a question's options, Send, Stop and the rest) shows the pointing hand while enabled and brightens clearly under the pointer, by the same step a file card does, through the AppKit hover source that works in FERB's non-activating panels. Disabled buttons show neither."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/VisualComponents.swift::FerbButtonStyle", "ui/mac/FERBNotch/Sources/NotchCore/HoverLook.swift"]
+live = ["LIVE-810"]
+
+[APP-780]
+title = "The sites box is one target, and hover follows the pointer when content moves"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "another issue i wanna flag out and you to fix is a UI bug. see the video and youll know too: in the lates response of ferb when i hover on the sute box, it doesnt change color nor pointer most of the times and in above boxe toop pointer only chage on exact text where t elink is an d not the box it is in - this all is a really bad UI thing. i want you to fix this wihotuh breaking other things. also state what did you change and where"
+words_source = "Owner, 2026-11-07, with a screen recording of hovering the sites boxes of the two latest answers"
+rule = "Refines APP-753/756. The sites box shows the pointing hand and brightens anywhere on it; a click on it opens the one site, or the list of all; the site name and +N keep their own clicks. Every hover area matches where the pointer is after a layout or scroll change, so a box that moved under a still pointer (the newest answer as the chat follows it) shows its hover and hand without a wiggle; another window over it at the pointer means not hovered."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ArtifactPreview.swift::VisitedSitesView", "ui/mac/FERBNotch/Sources/FERBNotch/HoverSource.swift::HoverSourceView"]
+live = ["LIVE-810"]

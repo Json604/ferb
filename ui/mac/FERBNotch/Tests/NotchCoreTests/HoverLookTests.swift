@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import XCTest
 @testable import FERBNotch
 @testable import NotchCore
@@ -17,6 +18,51 @@ final class HoverLookTests: XCTestCase {
         XCTAssertNotNil(HoverLook.duration(reduceMotion: false))
         XCTAssertEqual(HoverLook.overflow(2), "+2")
         XCTAssertNil(HoverLook.overflow(0))
+    }
+
+    // decision: APP-779
+    func testFERBsButtonsBrightenClearlyUnderThePointerAndShowTheHand() throws {
+        for (primary, quiet) in [(true, false), (false, false), (false, true)] {
+            let rest = HoverLook.buttonFill(primary: primary, quiet: quiet, hovered: false)
+            XCTAssertGreaterThanOrEqual(HoverLook.buttonFill(primary: primary, quiet: quiet, hovered: true) - rest,
+                                        HoverLook.fill(hovered: true) - HoverLook.fill(hovered: false) - 1e-9)   // a card's step
+        }
+        // the button style tracks the pointer with the AppKit hover source, the one that works in FERB's panels
+        let host = NSHostingView(rootView: Button("Work") {}.buttonStyle(FerbButtonStyle()))
+        host.frame = CGRect(x: 0, y: 0, width: 120, height: 40)
+        host.layoutSubtreeIfNeeded()
+        func sources(_ view: NSView) -> [HoverSourceView] {
+            (view as? HoverSourceView).map { [$0] } ?? view.subviews.flatMap(sources)
+        }
+        let found = try XCTUnwrap(sources(host).first)
+        XCTAssertTrue(found.pointing)
+    }
+
+    // decision: APP-780
+    func testTheSitesBoxIsOneTargetWithTheHandAnywhereOnIt() throws {
+        let model = NotchModel(preferences: scratchDefaults())
+        let host = NSHostingView(rootView: VisitedSitesView(sites: VisitedSites(hosts: ["a.example", "b.example"]),
+                                                            model: model))
+        host.frame = CGRect(x: 0, y: 0, width: 300, height: 40)
+        host.layoutSubtreeIfNeeded()
+        func sources(_ view: NSView) -> [HoverSourceView] {
+            (view as? HoverSourceView).map { [$0] } ?? view.subviews.flatMap(sources)
+        }
+        let box = try XCTUnwrap(sources(host).first { $0.label == "sites" })
+        XCTAssertTrue(box.pointing)                                   // the box, not only the name, shows the hand
+    }
+
+    // decision: APP-780
+    func testAViewThatMovedUnderAStillPointerMatchesWhereThePointerIs() {
+        let shown = CGRect(x: 0, y: 0, width: 100, height: 20)
+        XCTAssertTrue(HoverSourceView.pointerInside(CGPoint(x: 50, y: 10), shown: shown, topWindow: 7, ownWindow: 7))
+        XCTAssertFalse(HoverSourceView.pointerInside(CGPoint(x: 150, y: 10), shown: shown, topWindow: 7, ownWindow: 7))
+        // another window (a popover, another app) over it at the pointer: not hovered
+        XCTAssertFalse(HoverSourceView.pointerInside(CGPoint(x: 50, y: 10), shown: shown, topWindow: 9, ownWindow: 7))
+        XCTAssertFalse(HoverSourceView.pointerInside(CGPoint(x: 0, y: 0), shown: .zero, topWindow: 7, ownWindow: 7))
+        let loose = HoverSourceView(frame: shown)                     // no window: nothing changes
+        loose.syncToPointer()
+        XCTAssertFalse(loose.hovered)
     }
 
     // decision: APP-753, APP-756, APP-757
