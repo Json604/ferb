@@ -23,6 +23,7 @@ enum AppWindowPresentation {
     static var avoid: () -> CGRect? = { nil }
 
     static func show(_ window: NSWindow) {
+        adopt(window)
         // Ordering it in or making it key brings the window to the owner's Space instead of switching Spaces.
         window.collectionBehavior.insert(.moveToActiveSpace)
         // While FERB is the active app, pointer moves go to FERB itself, which the notch's global monitor never sees:
@@ -48,6 +49,108 @@ enum AppWindowPresentation {
         activate()
         window.makeKeyAndOrderFront(nil)
         follow(window)
+    }
+
+    // MARK: - A shown window's menus open on the Space showing (APP-790)
+
+    /// The windows shown here. macOS may still count FERB as living on another Space (the one an earlier activation
+    /// switched to, APP-775) after one of them was moved to the owner's Space, and then orders every menu FERB opens
+    /// onto that other Space, out of sight: a picker's or menu's click "does nothing" (owner, 2026-11-07: Settings →
+    /// AI's Provider picker; the window server put each of its menus on Space 3 while the owner and the window were on
+    /// 2896). A menu opened from one of these windows is moved to the Space showing, as the window itself was.
+    private static let shownWindows = NSHashTable<NSWindow>.weakObjects()
+    /// FERB's menus on screen now (a picker's list, a menu, a context menu): its windows at the pop-up menu level, a
+    /// level no other FERB window uses (tests stand in their own).
+    static var menuWindows: () -> [NSWindow] = {
+        NSApp.windows.filter { $0.isVisible && $0.level >= .popUpMenu }
+    }
+    /// The window whose press or key opened the menu that began tracking.
+    static var menuOrigin: () -> NSWindow? = { NSApp.currentEvent?.window ?? NSApp.keyWindow }
+    /// Whether a menu window is on the Space showing, and its move there (tests stand in their own).
+    static var menuIsHere: (NSWindow) -> Bool = { $0.isOnActiveSpace }
+    static var bringMenuHere: (NSWindow) -> Void = { moveToActiveSpace($0) }
+    /// How long after a press in a shown window its menu may still appear (a picker opens it on the press), in case
+    /// macOS posts no menu tracking for it.
+    static let pressWatch: TimeInterval = 1
+    private static var openMenus: Set<ObjectIdentifier> = []
+    private static var watchUntil: Date?
+    private static var menuWatch: Timer?
+    private static var menuObservers: [NSObjectProtocol] = []
+    private static var pressMonitor: Any?
+
+    /// Whether a menu opened from this window is brought to the Space showing.
+    static func isShown(_ window: NSWindow) -> Bool { shownWindows.contains(window) }
+    /// Whether FERB is looking for a shown window's menus now.
+    static var watchingMenus: Bool { menuWatch != nil }
+
+    /// Counts the window as shown here and follows its menus: while a menu that began tracking from it is open, and
+    /// for a moment after a press in it, any FERB menu not on the Space showing is moved there.
+    static func adopt(_ window: NSWindow) {
+        shownWindows.add(window)
+        guard menuObservers.isEmpty else { return }
+        let center = NotificationCenter.default
+        menuObservers.append(center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil,
+                                                queue: nil) { note in
+            guard let menu = note.object as AnyObject? else { return }
+            let id = ObjectIdentifier(menu)
+            MainActor.assumeIsolated { menuBegan(id) }
+        })
+        menuObservers.append(center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil,
+                                                queue: nil) { note in
+            guard let menu = note.object as AnyObject? else { return }
+            let id = ObjectIdentifier(menu)
+            MainActor.assumeIsolated { menuEnded(id) }
+        })
+        pressMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { event in
+            MainActor.assumeIsolated { if let window = event.window { pressed(in: window) } }
+            return event
+        }
+    }
+
+    static func menuBegan(_ menu: ObjectIdentifier) {
+        guard let origin = menuOrigin(), isShown(origin) else {
+            watchUntil = nil                          // another window's menu (the notch's) stays where macOS put it
+            menuWatchTick()
+            return
+        }
+        openMenus.insert(menu)
+        watchMenus()
+    }
+
+    static func menuEnded(_ menu: ObjectIdentifier) {
+        openMenus.remove(menu)
+        menuWatchTick()
+    }
+
+    static func pressed(in window: NSWindow) {
+        guard isShown(window) else { return }
+        watchUntil = now().addingTimeInterval(pressWatch)
+        watchMenus()
+    }
+
+    private static func watchMenus() {
+        keepMenusHere()
+        guard menuWatch == nil else { return }
+        // In the common modes, so it also runs while a menu tracks the pointer.
+        let timer = Timer(timeInterval: 0.05, repeats: true) { _ in MainActor.assumeIsolated { menuWatchTick() } }
+        RunLoop.main.add(timer, forMode: .common)
+        menuWatch = timer
+    }
+
+    /// One look: the menus come to the Space showing; the watch ends once no menu is open and the press's moment is over.
+    static func menuWatchTick() {
+        if !openMenus.isEmpty || watchUntil != nil { keepMenusHere() }
+        guard openMenus.isEmpty, watchUntil.map({ now() >= $0 }) ?? true else { return }
+        watchUntil = nil
+        menuWatch?.invalidate()
+        menuWatch = nil
+    }
+
+    private static func keepMenusHere() {
+        for menu in menuWindows() where !menuIsHere(menu) {
+            log.notice("FERB menu \(menu.windowNumber, privacy: .public) was on another Space: brought to the Space showing")
+            bringMenuHere(menu)
+        }
     }
 
     // MARK: - Following a Space switch FERB's activation makes (APP-775)

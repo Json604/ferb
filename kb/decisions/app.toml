@@ -2928,3 +2928,15 @@ status = "active"
 rule = "For ORCH-550 and DMN-550. A schedules card shows its count (\"No schedules\", \"1 schedule\", \"N schedules\") and per schedule its name, the daemon's timing words (and watch), a state chip when not active and its next run's day and time chips. An event card with changed shows \"Schedule changed\" with Was/Now timing lines and the instructions before and after when they changed. Both stand for their line like every typed card."
 why = "Functional only; the owner polishes the look."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/ResultCard.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift::SchedulesCard"]
+
+[APP-790]
+title = "Every menu FERB's window opens shows on the Space the owner is on"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "nothign happens on clicking it, is there onyl anthropic option???"
+words_source = "Owner, FERB 0.27.3, 2026-11-07 23:56, with a screenshot of Settings → AI, Other ways to connect: the Provider picker showing Anthropic"
+rule = "A menu opened from a window FERB brings to the owner's Space (Settings and every page of FERB's window: a picker's list, a Menu, a context menu) shows on the Space showing. While it is open, and for a second after a press in that window, any FERB menu macOS ordered onto another Space is moved to the Space showing, as the window was (APP-688, APP-775). The notch's and the sticky window's menus stay where macOS puts them."
+why = "Each picker click opened its menu, but the window server put every one on Space 3 (\"window 11bdb joined space 3\") while the owner and the window, moved there by FERB, were on 2896: invisible, so the click looked like nothing."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift"]
+untestable = "Where the window server puts a menu: the owner's live check on the installed app (the Provider picker in Settings → AI opens on the Space showing); the tests check the move and its triggers."
