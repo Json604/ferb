@@ -2787,3 +2787,25 @@ words_source = "Owner, 2026-11-06, asked whether the closed notch's countdown (i
 rule = "Confirms APP-762/763/771: while a timer runs and FERB is closed, the countdown draws beside the camera as one notch shape, covering the menu bar icons next to the notch for as long as it runs, as Apple's live activity does. It is not limited to when FERB is open."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TimerViews.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift::PanelCoordinator.updateTimerActivity"]
 live = ["LIVE-807"]
+
+[APP-777]
+title = "Without FERB's own profile, FERB asks once which of the owner's profiles it browses in"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "if ferb gmail is given at start fo setup thats good adn ferb will use that\nif ferb profile is not setup during setup adn never in the user's lifetime - ferb asks one time to user that since they've not given ferba  profile which should ferb use to these tasks - \n1. user selects none: then ferb gives warnign that ok but this will mean that some tasks will be really slow and not realiable - which if asked further ferb gives the correct descritopn why.\n2. user selects yes - then taht profile si stored in the ferb placeholder so its always used. it can be chaanged if user wants too"
+words_source = "Owner, 2026-11-07 (after \"so lets make it like this:\"), after a web question ran without a browser because FERB had no profile of its own"
+rule = "Refines APP-1. FERB's own account set up: FERB browses in it. If not, the first time a task would browse as FERB, FERB asks the owner once which of their profiles (each with its account) to use, or None. A profile is kept as browsing.owner_profile and used, as the owner, from then on; Settings → Browsers changes it. None: FERB says some tasks get much slower and less reliable, and the planner's facts say why, so FERB can explain when asked."
+paths = ["ferb/daemon/areas/browsers.py::Browsers._browsing", "ferb/orchestrator/supervisor.py::Supervisor._browse_as"]
+live = ["LIVE-809"]
+
+[APP-778]
+title = "A schedule asks when it is made; a run that can't browse goes the slow way and says so"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "yes to all. but for #3 wont it ask ahead cause this scheduled run needs a browser?? also lets say if it had one and this run is going on smoothly btu i delte that profile and  ferb cant see it so it ask me to add one as you suggested but since its a scheduld run and wait time is less - its goes the slow route and tells. - so yeah i agree with 3 too."
+words_source = "Owner, 2026-11-07, answering the agent's points on APP-777 (point 3: a scheduled run can't wait for the question)"
+rule = "Refines APP-777 for schedules. A new schedule whose runs browse as FERB asks APP-777's question when it is made, while the owner is there. A scheduled run never waits for it: with no pick yet, or the picked profile gone (deleted, so FERB can't see it), the run goes without a browser and its answer says so; the next time the owner is there FERB asks again."
+paths = ["ferb/daemon/areas/schedules.py", "ferb/daemon/areas/browsers.py::Browsers._browsing"]
+live = ["LIVE-809"]

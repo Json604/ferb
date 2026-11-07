@@ -61,6 +61,13 @@ class Resolver:
         chosen = self.owner_default() if ferb is None else None
         if chosen is not None and chosen in paired:
             return Choice(chosen[0], chosen[1], "the owner's chosen profile for browsing (FERB has no profile of its own)")
+        if chosen is not None and chosen in {(p.browser, p.folder) for p in self.known()}:
+            # APP-777: the owner picked it for FERB's web work, and it isn't paired yet: pairing it is the next step
+            p = next(p for p in self.known() if (p.browser, p.folder) == chosen)
+            account = f", signed in as {p.email}" if p.email else ""
+            raise NeedsOwner(f"the owner picked {p.browser} profile '{p.display_name}' ({p.browser}/{p.folder}{account}) "
+                             f"for FERB's web work and it isn't paired with FERB yet: pair it with browser_pair "
+                             f"profile={p.browser}/{p.folder} (FERB asks the owner once)")
         if not paired:
             raise NeedsOwner("no browser profile is paired with FERB yet: pick the owner's profile from browser_profiles "
                              "and pair it with browser_pair (FERB asks the owner once)")

@@ -172,6 +172,11 @@ class Environment:
         prof = self._identity_profile()
         if prof is not None and self.identity_browser is None:   # FERB's own browser is part of this FERB
             problems["ferb_browser"] = "not paired yet"
+        elif prof is None and "browser:act" in registered:       # APP-777: where FERB's web work goes instead
+            from ferb.orchestrator import browsing
+            found = self._browsing(False, "")
+            problems["ferb_browser"] = (browsing.CHOSEN_FACT.format(label=found.get("label", "")) if found.get("as_owner")
+                                        else browsing.NONE_FACT if found.get("declined") else browsing.UNASKED_FACT)
         # Not open right now is fine: FERB opens its own profile when a task needs it (the owner's report, 2026-09-30)
         perms = self._fresh.get(self._permissions)      # TCC checks: kept fresh off the loop, not asked per call
         if registered & {"mac:read", "mac:act"} and not perms.get("accessibility", True):

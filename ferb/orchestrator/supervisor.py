@@ -71,6 +71,7 @@ from ferb.orchestrator.schemas import (CHECKER_SCHEMA, FIX_SCHEMA, QUESTION_SCHE
                                        SUPERVISOR_SCHEMA, WORKER_SCHEMA, AnswerQuestion, Check, CheckerOutcome, Condition,
                                        Finding, FixOutcome, QuestionOutcome, RecheckOutcome, SummaryOutcome,
                                        SupervisorOutcome, TaskSpec, WorkerReport, worker_schema)
+from ferb.orchestrator import browsing
 from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
 from ferb.orchestrator.worker import (BUG, ConnectionNotice, ImageRefused, InvalidAnswer, Overflowed, ServiceDown,
@@ -698,6 +699,9 @@ class _Tree:
     restored_wait: dict[str, Any] = field(default_factory=dict)
     # ORCH-545: a fix round this step was in when FERB restarted (its saved answer and findings), settled by code first
     restored_fix: dict[str, Any] = field(default_factory=dict)
+    # APP-777: the planner chose FERB, which has no browser profile of its own, so the task works as the owner in the
+    # profile they picked (`_browse_as`)
+    as_owner: bool = False
     answer_settled: bool = False         # this attempt's answer already had its one fix round (ORCH-545)
     watch: bool = False                  # a watch's run: its check judges watch_met; its start isn't published
     loop_action: str | None = None       # a loop round's worker: continue / finished / blocked (L31)
@@ -879,6 +883,8 @@ class Supervisor(WorkerRuns):
         self.on_loop_rest: Callable[[str, bool], Awaitable[None]] | None = browser.on_loop_rest
         # HAND-201: the owner asked to keep a task's tabs (at its end they leave the group and stay open)
         self.keep_tabs_open: Callable[[str], None] = browser.keep_tabs_open
+        # APP-777: where a task FERB runs as itself browses while FERB has no profile of its own (`_browse_as`)
+        self.browsing: Callable[[bool, str], dict[str, Any]] = browser.browsing
         self._resting: set[str] = set()          # loop task ids between rounds (L31): `loop_resting`
         # L34 Phase G: open until an update's hold; a new tree and a loop's next round wait on it, and the shutdown
         # that follows the hold cancels them (a loop's round then runs after the restart, L31)
@@ -2508,13 +2514,64 @@ class Supervisor(WorkerRuns):
         async for event in self._resume(turn, out, conversation):
             yield event
 
+    async def _browse_as(self, tree: _Tree) -> None:
+        """APP-777 (refining APP-1): a task the planner gave to FERB, while FERB has no browser profile of its own,
+        works as the owner in the profile they picked, through the owner's own browser tools: before its first worker
+        starts, its worker, its steps and their conversations become the owner's. Not picked yet, with the owner here:
+        FERB's one question (`browsing`), the task waiting (paused) until it is answered or stopped. Nobody here (a
+        scheduled run), or no answer: it goes on without a browser and says why. The owner's None: as itself, and the
+        first time FERB says what that costs."""
+        if tree.spec.identity != "ferb":
+            return
+        attended = not self._unattended(tree.worker)
+        found = self.browsing(attended, tree.worker.request_id)
+        asked = found.get("ask")
+        if asked:
+            await self._await_browsing(tree, str(asked))
+            if self._stopped(tree):
+                return
+            found = self.browsing(False, tree.worker.request_id)   # asked once per task: no answer goes on as is
+        if found.get("as_owner"):
+            tree.spec.identity = "owner"
+            for step in tree.spec.plan.steps if tree.spec.plan else []:
+                if step.conversation is not None and step.conversation.identity == "ferb":
+                    step.conversation.identity = "owner"
+            tree.worker.identity, tree.as_owner = Identity.OWNER, True
+            self.tasks.set_identity(tree.worker.id, Identity.OWNER.value)
+            self.journal.append("task.browses_as_owner", {"task_id": tree.id})
+            if asked:
+                tree.side_lines.append(browsing.CHOSEN.format(label=found.get("label", "")))
+        elif found.get("declined") and asked:
+            tree.side_lines.append(browsing.NONE_CHOSEN)
+        elif found.get("note"):
+            tree.side_lines.append(str(found["note"]))
+
+    async def _await_browsing(self, tree: _Tree, approval_id: str) -> None:
+        """The task shows paused while FERB's browsing question waits; the answer is applied once, by whichever of its
+        paths saw it first (the card, chat, or here). A stop leaves the question open for the next task."""
+        self._set_status(tree.worker.id, "paused")
+        self._set_status(tree.id, "paused")
+        try:
+            while not self._stopped(tree):
+                ap = self.state.approvals.get(approval_id)
+                if ap is None or ap.state != "pending":
+                    if ap is not None:
+                        self.question_answered(ap)
+                    return
+                await asyncio.sleep(self.gateway.hold_poll_s)
+        finally:
+            if not tree.stop:
+                self._set_status(tree.worker.id, "planned")
+                self._set_status(tree.id, "running")
+
     def _kept_unchanged(self, tree: _Tree, spec: TaskSpec | None) -> list[str]:
         """What a correction asked of a running task that code can't apply mid-task (fix list: never silently dropped):
         whose account it uses, and its plan's steps. Said in the reply; a retry with the new task applies them."""
         if spec is None:
             return []
         lines = []
-        if spec.identity != tree.spec.identity:
+        # APP-777: the planner's "ferb" for a task that browses as the owner (FERB has no profile) is no change
+        if spec.identity != tree.spec.identity and not (tree.as_owner and spec.identity == "ferb"):
             lines.append(KEPT_IDENTITY.format(who="you" if tree.spec.identity == "owner" else "FERB"))
         if spec.plan is not None and tree.spec.plan is not None and spec.plan.steps != tree.spec.plan.steps:
             lines.append(KEPT_PLAN)
@@ -3565,6 +3622,7 @@ class Supervisor(WorkerRuns):
                 stated += "\n" + self.gateway.redact(work_in(spec.folders))
             yield self._plan_event(tree, text, stated, restored)
             self._record_planner_reads(tree, root_span.id, request_id)    # big writes after the plan line (L28)
+            await self._browse_as(tree)             # APP-777: before any worker of the tree starts
             if self.on_task_start is not None:      # the baseline sample still comes before any worker acts
                 await self.on_task_start(tree_id)
             queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()

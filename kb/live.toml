@@ -3396,3 +3396,12 @@ pass = "One black shape runs from the timer glyph, under the camera, to the coun
 decisions = ["APP-771"]
 sitting = "after this change is installed"
 waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
+
+[LIVE-809]
+title = "FERB asks once which of your profiles it browses in, then searches there"
+area = "hands"
+surface = "FERB.app with this build, FERB's own Google account not set up, Settings → Browsers' profile for FERB left empty"
+request = "Ask FERB a question it has to look up on the web (\"how many moons does Saturn have now?\"). Answer its question with one of your profiles. Then ask another web question. Later, pick None in a fresh try (clear the profile in Settings) and ask once more \"why is it slow?\"."
+pass = "The first web question asks once, listing your profiles with their accounts and None; the task waits, then searches in background tabs of the profile you picked and answers quickly. The next web question doesn't ask. With None, FERB says it will be slower and less reliable and explains why when asked."
+decisions = ["APP-777", "APP-778", "HAND-426", "APP-1"]
+sitting = "after this change is installed"

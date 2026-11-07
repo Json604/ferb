@@ -774,3 +774,13 @@ words = "ok keep it. btu it only shows in fodler tasks, right??? also is it code
 words_source = "Owner, 2026-11-06, about the plan's folder line written by code (work_in)"
 rule = "Refines HAND-204's wording: code's folder line under the plan line reads \"Working in ~/Desktop.\" (the same list, the home folder shown as ~), not \"I'll work in …\". It shows only when the task has folders. Saved history keeps the text it was saved with."
 paths = ["ferb/orchestrator/supervisor.py::work_in"]
+
+[HAND-426]
+title = "Browsing as the owner is the owner's identity, decided by code before the first worker"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "For APP-777/778. One daemon function (_browsing) decides from config and pairing facts; every route (task, plan step, scheduled or restored run) applies it in run_tree before any worker: the worker, its steps' conversations and the task row become the owner's, so the owner's browser tools and checks apply unchanged. The question is FERB's own check outside any task (memory_questions, kind browsing): option words only, applied once by whichever path sees the answer; a restart drops it and the next need asks."
+why = "The owner's identity path is the tested one; a FERB worker reaching the owner's browser would bypass identity checks."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._browse_as", "ferb/daemon/areas/browsers.py::Browsers._browsing", "ferb/act/browser/resolver.py"]
+live = ["LIVE-809"]

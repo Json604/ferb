@@ -9,6 +9,7 @@ from ferb.core import origin
 from ferb.core.errors import Unsupported
 from ferb.core.types import RunHandle
 from ferb.daemon.gateway import CONFIRM_ASK, RETRY_ASK
+from ferb.orchestrator.browsing import BROWSING_ASK, KIND as BROWSING_KIND
 from ferb.orchestrator.names import shown_name
 from ferb.orchestrator.plans import SendScope
 from ferb.policy.confirm import from_task_lines
@@ -22,14 +23,17 @@ DOWNLOADS_ASK = 'downloads.delete'           # HAND-211: delete the oldest downl
 # FERB's own questions outside any task, by `memory_questions.kind` (before any ':'): their capability and options. A
 # forget (permanent deletion, rule 5; MEM-12 removed the Keep / Edit / Drop and Retire / Keep questions) and the
 # downloads folder's cap (permanent deletion, HAND-211)
+# and which of the owner's profiles FERB browses in while it has none of its own (APP-777: its options are the owner's
+# profiles and None, given when it is asked)
 MEMORY_QUESTIONS: dict[str, tuple[str, tuple[str, ...]]] = {'forget': (FORGET_ASK, ('Yes', 'No')),
-                                                            'downloads': (DOWNLOADS_ASK, ('Yes', 'No'))}
+                                                            'downloads': (DOWNLOADS_ASK, ('Yes', 'No')),
+                                                            BROWSING_KIND: (BROWSING_ASK, ())}
 # None of them asks for a secret, so their own words never hide an answer or a chat message as a password question's
 # would; secret classes are still hidden (rule 14)
 MEMORY_ASKS = frozenset(capability for capability, _ in MEMORY_QUESTIONS.values())
 # FERB's own consequential checks: answered only by one of their options in plain words (Yes or No), never by a
 # correction's words (L3)
-FERB_CHECKS = frozenset({CONFIRM_ASK, RETRY_ASK, CONVERSATION_ASK, FORGET_ASK, DOWNLOADS_ASK})
+FERB_CHECKS = frozenset({CONFIRM_ASK, RETRY_ASK, CONVERSATION_ASK, FORGET_ASK, DOWNLOADS_ASK, BROWSING_ASK})
 # Checks whose typed answer on the card (`chat.answer`) must be one of their options (GATE-510: "Pick Yes or No."). A
 # question's own `options_only` flag (FERB's check-ins, ORCH-536) is checked beside it.
 OPTION_ONLY: frozenset[str] = FERB_CHECKS

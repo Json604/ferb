@@ -565,22 +565,25 @@ class MemoryGlue:
         self._ask_owner("forget:" + target[0], target[1], reason, "memory-forget-" + request_id)
         return reason + "\nAnswer Yes or No."
 
-    def _ask_owner(self, kind: str, ident: str, reason: str, request_id: str, approval_id: str | None = None) -> None:
-        """FERB's one question about memory: a forget's Yes / No (permanent deletion asks, rule 5), a FERB check (one of
-        its options answers it, in chat or with the notch's buttons). `_question_answered` does what the answer asks.
+    def _ask_owner(self, kind: str, ident: str, reason: str, request_id: str, approval_id: str | None = None,
+                   options: list[str] | None = None) -> str:
+        """FERB's own question outside any task: a forget's Yes / No (permanent deletion asks, rule 5), the downloads
+        cap, which profile FERB browses in (APP-777, `options`: the owner's profiles and None). A FERB check: one of
+        its options answers it, in chat or with the notch's buttons. `_question_answered` does what the answer asks.
         It is kept in `memory_questions` until it is answered, so a restart asks it again (`_restore_memory_questions`;
-        rule 9)."""
+        rule 9). Its id."""
         from ferb.core.types import Identity
         from ferb.orchestrator.steering import MEMORY_QUESTIONS
         from ferb.policy.rules import ActionRequest
-        capability, options = MEMORY_QUESTIONS[kind.split(":", 1)[0]]
+        capability, fixed = MEMORY_QUESTIONS[kind.split(":", 1)[0]]
         action = ActionRequest(capability, "owner_question", Identity.OWNER, frozenset(), "", "", request_id,
                                frozenset())
-        ap = self.state.approvals.question(action, reason, list(options), approval_id)
+        ap = self.state.approvals.question(action, reason, list(options if options is not None else fixed), approval_id)
         self._memory_questions().keep(ap.id, kind, ident, reason, request_id, self.clock.now().isoformat())
         self._owner_followups[ap.id] = (kind, ident)
         self._publish("approval.requested", {"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind,
                                              "reason": ap.reason, "task_id": None, "options": list(ap.options)})
+        return ap.id
 
     def _memory_questions(self) -> Any:
         from ferb.memory.questions import MemoryQuestions
@@ -609,7 +612,9 @@ class MemoryGlue:
         questions = self._memory_questions()
         questions.drop_kinds(GONE_QUESTIONS)
         for row in questions.waiting():
-            if row["kind"].startswith("downloads:"):
+            if row["kind"] == "browsing":
+                gone = True                              # APP-777: the next task that needs it asks, with fresh profiles
+            elif row["kind"].startswith("downloads:"):
                 gone = False                             # the downloads folder's cap: asked again as it was
             elif row["kind"] == "forget:learning":
                 gone = self.learning is None or self.learning.get(row["target"]) is None
@@ -629,6 +634,8 @@ class MemoryGlue:
         what, ident = followup
         if what.startswith("downloads:"):
             return self._downloads_answered(ap, ident)
+        if what == "browsing":
+            return self._browsing_answered(ap, ident)
         from ferb.memory.items import MemoryRefused
         if not (ap.state == "granted" and ap.choice == "Yes"):
             return "Kept: nothing was forgotten."

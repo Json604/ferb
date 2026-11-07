@@ -103,6 +103,11 @@ class TaskTree:
                              "WHERE id = ?", (status, json.dumps(outcome) if outcome is not None else None,
                                               at or self.now().isoformat(), task_id))
 
+    def set_identity(self, task_id: str, identity: str) -> None:
+        """Whose accounts a task row works as, changed before its worker starts (APP-777: FERB browses as the owner)."""
+        if self.db is not None:
+            self.db.conn.execute("UPDATE tasks SET identity = ? WHERE id = ?", (identity, task_id))
+
     def remove(self, task_id: str) -> None:
         self._tasks.pop(task_id, None)
 

@@ -27,7 +27,7 @@ def question_kind(capability: str, kind: str) -> str:
     if kind in ("owner_login_code", "owner_admin_password", "owner_secret"):
         return "secret"
     return {CONFIRM_ASK: "confirm", RETRY_ASK: "retry", CONVERSATION_ASK: "conversation_scope", "plan.ask": "task",
-            DOWNLOADS_ASK: "downloads",
+            DOWNLOADS_ASK: "downloads", "browsing.choose": "browsing",
             "owner.ask": "task", "loop.ask": "loop", "runtime.switch": "runtime_switch"}.get(
         capability, "memory" if capability in MEMORY_ASKS else capability)
 
@@ -155,7 +155,7 @@ class Compose:
                 disturbance=self.disturbance, disturbance_context=self.disturbance.context, changes=self.changes),
             browser=ports.BrowserPort(
                 browser_context=self._browser_context, task_tabs=self._task_tabs, on_loop_rest=self._loop_rest,
-                keep_tabs_open=self._keep_tabs_open),
+                keep_tabs_open=self._keep_tabs_open, browsing=self._browsing),
             notify=ports.NotifyPort(
                 on_loop_notice=self._loop_notice,
                 on_resumed_outcome=self._resumed_outcome,          # a resumed scheduled run reports to its schedule

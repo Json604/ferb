@@ -77,6 +77,9 @@ class BrowserPort:
     task_tabs: Callable[[str], list[dict[str, Any]]]    # the tabs a task holds now, redacted
     on_loop_rest: Callable[[str, bool], Awaitable[None]]   # a loop's round ends (True) or starts (False) (L31)
     keep_tabs_open: Callable[[str], None]               # the owner asked to keep this task's tabs open (hands dec. 3)
+    # APP-777: (owner here, request id) -> where a task FERB runs as itself browses while FERB has no profile of its own:
+    # {} as before, {"as_owner", "label"}, {"declined"}, {"note"} for a run nobody attends, or {"ask": question id}
+    browsing: Callable[[bool, str], dict[str, Any]]
 
 
 @dataclass(frozen=True)

@@ -2,6 +2,7 @@
 browser RPCs. Must not choose a profile for a task: agents do."""
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable
 
@@ -12,6 +13,7 @@ from ferb.act.browser.pairing import Pairings
 from ferb.act.browser.resolver import Resolver
 from ferb.act.browser.tools import FERB_BROWSER, IdentityDriver
 from ferb.act.mac.driver import WebSecrets, same_title
+from ferb.core import origin as origin_
 from ferb.core.errors import FerbError
 from ferb.core.types import Identity
 from ferb.daemon.server import Session
@@ -168,6 +170,67 @@ class Browsers:
         FERB.app; APP-1), else None."""
         browser, _, folder = str(self.config.get("browsing", "owner_profile", "") or "").partition("/")
         return (browser, folder) if browser and folder else None
+
+    def _browsing_profiles(self) -> list[Any]:
+        """The owner's profiles FERB knows now (discovered, plus paired ones it can't read: HAND-407), without FERB's
+        own: what the browsing question offers."""
+        ferb = self._identity_profile()
+        paired = [(b.browser, b.folder) for b in (self.pairings.all() if self.pairings else [])]
+        return [p for p in browser_profiles.with_paired(self._fresh_profiles(), paired)
+                if (p.browser, p.folder) != ferb]
+
+    def _browsing(self, attended: bool, request_id: str) -> dict[str, Any]:
+        """APP-777 (refining APP-1): where a task FERB runs as itself browses. FERB's own profile set up: as before
+        ({}). Else the owner's pick (`browsing.owner_profile`) while it is still there: as the owner ({"as_owner",
+        "label"}). Else the owner chose None ({"declined"}). Else, asked once in FERB's lifetime: with the owner here,
+        FERB's one question ({"ask": its id}, the open one when there is one); a run nobody attends goes without a
+        browser and says why ({"note"}). Profiles FERB can't see at all leave nothing to offer ({})."""
+        from ferb.orchestrator import browsing
+        if self._identity_profile() is not None:
+            return {}
+        chosen, known = self._owner_browsing_profile(), self._browsing_profiles()
+        if chosen is not None and (not known or any((p.browser, p.folder) == chosen for p in known)):
+            return {"as_owner": True, "label": browser_profiles.shown(browser_profiles.named(known, *chosen))}
+        gone = browser_profiles.shown(browser_profiles.named(known, *chosen)) if chosen is not None else ""
+        if not gone and self.config.get("browsing", browsing.ASKED, False):
+            return {"declined": True}
+        if not known:
+            return {}
+        if not attended:
+            return {"note": browsing.GONE_RUN.format(label=gone) if gone else browsing.NO_BROWSER_RUN}
+        for approval_id, (kind, _) in self._owner_followups.items():
+            ap = self.state.approvals.get(approval_id)
+            if kind == browsing.KIND and ap is not None and ap.state == "pending":
+                return {"ask": approval_id}             # one question at a time, whichever task or schedule asked
+        options = {browser_profiles.shown(p): f"{p.browser}/{p.folder}" for p in known}
+        reason = (browsing.GONE.format(label=gone) if gone else "") + browsing.QUESTION
+        return {"ask": self._ask_owner(browsing.KIND, json.dumps({"options": options}), reason,
+                                       f"browsing-{self.clock.now().strftime('%Y%m%dT%H%M%S')}",
+                                       options=[*options, browsing.NONE])}
+
+    def _browsing_answered(self, ap: Any, ident: str) -> str:
+        """The owner's answer to the browsing question: a profile is stored as `browsing.owner_profile` through the
+        settings path and used from now on; None stores no profile; either way FERB never asks again unless that
+        profile goes. Skipped or set aside: nothing is stored, and the next task that needs it asks. A line for the
+        owner."""
+        from ferb.daemon import settings
+        from ferb.orchestrator import browsing
+        if ap.state != "granted" or not ap.choice:
+            return ""
+        try:
+            options = dict(json.loads(ident).get("options") or {})
+        except (TypeError, ValueError, AttributeError):
+            options = {}
+        if ap.choice == browsing.NONE:
+            profile, line = "", browsing.NONE_CHOSEN
+        elif ap.choice in options:
+            profile, line = str(options[ap.choice]), browsing.CHOSEN.format(label=ap.choice)
+        else:
+            return ""
+        settings.write(self.config, "browsing.owner_profile", profile)
+        self.config.set("browsing", browsing.ASKED, True)
+        self._journal().append("browsing.chosen", {"profile": profile}, origin=origin_.OWNER)
+        return line
 
     def _identity_profile(self) -> tuple[str, str] | None:
         folder = self.config.get("identity", "profile")

@@ -297,7 +297,14 @@ class Schedules:
         from ferb.orchestrator.plans import SendScope
         from ferb.policy import confirm
         if s.run_scope is not None:          # ORCH-313: stated now, so the owner can correct it
-            said += "\n" + confirm.from_task_lines(scope_said(s.run_scope))
+            shown = dict(s.run_scope)
+            if shown.get("identity") == "ferb" and self._identity_profile() is None:
+                # APP-777: with no profile of its own, its runs browse as the owner in their pick: said as that
+                chosen = self._owner_browsing_profile()
+                if chosen is not None and self._browsing(False, request_id).get("as_owner"):
+                    from ferb.act.browser.profiles import named
+                    shown |= {"identity": "owner", "profile": named(self._browsing_profiles(), *chosen).display_name}
+            said += "\n" + confirm.from_task_lines(scope_said(shown))
         if scopes:
             said += "\n" + confirm.from_task_lines("Each run will send these without asking each time:\n" + "\n".join(
                 "- " + SendScope.model_validate(scope).line() for scope in scopes))
@@ -306,6 +313,9 @@ class Schedules:
                 "These weren't recorded, because their destination isn't in words you typed (now, or when you told me "
                 "to remember it). In each run they get FERB's usual checks, and a send that asks can't be answered "
                 "with nobody there, so it's reported not done:\n" + "\n".join("- " + line for line in unnamed))
+        if (s.run_scope or {}).get("identity") == "ferb":
+            # APP-777: its runs can't ask, so FERB asks now, while the owner is here, which of their profiles it uses
+            self._browsing(True, request_id)
         return said, card
 
     def _schedule_scopes(self, stated: list[Any], own_words: str,

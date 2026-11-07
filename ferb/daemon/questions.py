@@ -11,11 +11,12 @@ from typing import Any, Literal
 
 from ferb.policy.rules import ActionRequest
 
-# FERB's own consequential checks, by capability (steering.FERB_CHECKS names the same five): a confirmation, a P19
-# retry, a delegated conversation's scope, a forget and the downloads cap. Like FERB's check-ins (`options_only`), only
+# FERB's own consequential checks, by capability (steering.FERB_CHECKS names the same six): a confirmation, a P19
+# retry, a delegated conversation's scope, a forget, the downloads cap and which profile FERB browses in (APP-777). Like FERB's check-ins (`options_only`), only
 # an option's own words answer them (GATE-510, ORCH-536, ORCH-537), never its number: a "1" typed in a safety check's
 # box or in chat is words, not a Yes.
-OWN_CHECKS = frozenset({"ferb.confirm", "ferb.retry", "conversation.approve", "memory.forget", "downloads.delete"})
+OWN_CHECKS = frozenset({"ferb.confirm", "ferb.retry", "conversation.approve", "memory.forget", "downloads.delete",
+                        "browsing.choose"})
 
 
 @dataclass
