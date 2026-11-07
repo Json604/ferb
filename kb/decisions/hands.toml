@@ -824,3 +824,14 @@ rule = "Extension 0.19.4: on runtime.onUpdateAvailable it reloads itself once no
 why = "Chrome installs an update only when the extension is idle; FERB's open native port keeps it running, so updates waited for a browser restart (profiles on 0.19.0 with 0.19.3 published). Owner agreed 2026-11-07."
 paths = ["extensions/chromium/background.js::applyStoreUpdate", "extensions/chromium/background.js::askStoreForUpdate"]
 live = ["LIVE-814"]
+
+[HAND-431]
+title = "An unpaired extension points at the app's Pair all, never a command"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "yes fix the pair wording in next ext version - update adn the 0.19.4's auto update will be chekced too"
+words_source = "Owner, 2026-11-07, after the reinstall trace found the status naming `ferb browsers pair`, a developer command (rule 13)"
+rule = "Extension 0.19.5: the pairing_required status reads \"Not paired with FERB yet: open FERB, then Settings → Browsers → Pair all\". No protocol change. Publishing 0.19.5 is also LIVE-814's run: 0.19.4's self-update should install it unattended."
+paths = ["extensions/chromium/background.js::onDaemon"]
+live = ["LIVE-814"]

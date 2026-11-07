@@ -288,3 +288,14 @@ def test_the_store_is_asked_early_only_when_ferb_refused_an_older_extension_once
   return [notRefused, alreadyNewer, behind, twice, asked];
 })()''')
     assert out == [None, None, "update_available", None, 1]
+
+
+# decision: HAND-431
+def test_an_unpaired_extension_points_at_the_apps_pair_all_never_a_command() -> None:
+    """Owner, 2026-11-07: the status named `ferb browsers pair`, a developer command users don't have (rule 13)."""
+    out = worker(r'''
+(async () => {
+  await onDaemon({type: 'pairing_required'});
+  return (await chrome.storage.session.get('ferbConnection')).ferbConnection;
+})()''')
+    assert out["state"] == "pairing_required" and "Pair all" in out["error"] and "ferb " not in out["error"]

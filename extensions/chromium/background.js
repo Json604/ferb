@@ -444,7 +444,7 @@ async function onDaemon(m) {
   }
   if (m.type === "pairing_required") {
     clearTimeout(handshakeTimer); gen = null; requiredRelease = null;
-    await connectionStatus('pairing_required', 'This extension has no pairing; run ferb browsers pair for its profile');
+    await connectionStatus('pairing_required', 'Not paired with FERB yet: open FERB, then Settings → Browsers → Pair all');
     return;
   }
   if (m.type === "paired" && m.key) {
