@@ -380,7 +380,7 @@ def test_the_first_sign_in_on_a_form_names_the_account_through_the_tasks_typed_s
     ap = asked(daemon)
     try:
         shown = " (bookslots.com account: Asha Rao)" if linked else ""
-        assert ap.summary == f"For {_site(place)} only{shown}: FERB needs your “password”."
+        assert ap.summary == f"For {_site(place)} only{shown}: FERB needs a secret to save."
         assert ("Account: Asha Rao (saved for bookslots.com)." in ap.reason) == linked
     finally:
         daemon.call_soon(daemon.daemon.state.approvals.resolve, ap.id, False)
@@ -410,7 +410,7 @@ def test_a_login_saved_in_a_task_with_two_typed_sites_links_neither(daemon: Any,
     waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(ctx, google, remember="password"),
                                                daemon.loop)
     ap = asked(daemon)
-    assert ap.summary == "For accounts.google.com only: FERB needs your “password”."
+    assert ap.summary == "For accounts.google.com only: FERB needs a secret to save."
     daemon.call_soon(daemon.daemon.state.approvals.resolve, ap.id, True, None, "hidden-canary-1")
     assert waiting.result(5) == "hidden-canary-1"
     store = OwnerSecrets(daemon.daemon.home)

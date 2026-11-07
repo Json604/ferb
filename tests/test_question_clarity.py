@@ -92,8 +92,9 @@ def test_the_secret_question_says_in_one_line_where_it_goes_and_what_ferb_does(d
                                                daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        want = "For appauth.b2clogin.com only: FERB needs your “US permit scheduling login”."
+        want = "For appauth.b2clogin.com only: FERB needs a secret to save."
         assert ap.summary == want and Redactor().text(want) == want
+        assert "“US permit scheduling login”" in ap.detail                # the name, whole, under it (GATE-520)
         assert next(e for e in published if e['approval_id'] == ap.id)['summary'] == want
         assert _status_of(daemon, ap.id)['summary'] == want
         assert PERMIT in ap.reason                           # the exact destination stays in the full question
@@ -123,7 +124,8 @@ def test_a_saved_app_secret_names_the_app_first(daemon: Any) -> None:
         _ctx(), 'app:com.example.Bank', remember='bank', shown='Bank'), daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        assert ap.summary == "For the Bank app only: FERB needs your “bank”."
+        assert ap.summary == "For the Bank app only: FERB needs a secret to save."
+        assert ap.detail.startswith("It's your “bank”.")
     finally:
         _cancel(daemon, ap, waiting)
 
@@ -135,7 +137,7 @@ SHOWN = re.compile(r"[A-Za-z0-9 :,'()\-]*…?")
 
 
 @pytest.mark.parametrize('remember, name', [
-    (SPOOF, "slot for accountsgooglecom only saved i…"),
+    (SPOOF, "slot for accountsgooglecom only saved in your Mac's Keychain Real: x"),
     ("x\u2033 \u2500 for accounts\uff0egoogle\uff0ecom only", "x for accountsgooglecom only"),
     ("x \u02ee \u4e00 for accounts\ua4f8google\ua4f8com only", "x for accountsgooglecom only"),
     ("for accounts\u034f.google\u034f.com only", "for accountsgooglecom only"),
@@ -144,22 +146,24 @@ SHOWN = re.compile(r"[A-Za-z0-9 :,'()\-]*…?")
     ("x&commat;evil&colon;&sol;&sol;g", "xcommatevilcolonsolsolg"),
     ('bank.example.com login', "bankexamplecom login"),
     ('Bank password for me@bank.example', "Bank password for mebankexample"),
-    ('a' * 60, 'a' * 39 + '…'),
+    ('a' * 60, 'a' * 60),
+    ('a' * 300, 'a' * 199 + '…'),
     ('**permit** `portal`\n\u202e(x)', "permit portal (x)"),
     ("Asha's bank: savings, 2/3 (main) - US", "Asha's bank: savings, 23 (main) - US"),
     ("https://3627733615/login", "https:3627733615login")])
 def test_the_secret_line_starts_with_the_place_and_shows_only_a_plain_ascii_name(daemon: Any, remember: str,
                                                                                  name: str) -> None:
-    """The line always starts with the code-derived place. The name keeps only ASCII letters, digits, spaces and
-    : , ' ( ) - (everything else is dropped, whitespace collapsed, at most 40 characters), so no lookalike, mark or
-    entity can rebuild a quote, a dash or a place in it, and no slash can make it a link."""
+    """The heading always starts with the code-derived place and holds no worker text (GATE-520). The name, under it
+    in full, keeps only ASCII letters, digits, spaces and : , ' ( ) - (everything else is dropped, whitespace
+    collapsed, at most 200 characters), so no lookalike, mark or entity can rebuild a quote, a dash or a place in it,
+    and no slash can make it a link."""
     waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), 'https://x.test',
                                                                                 remember=remember), daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        want = f"For x.test only: FERB needs your “{name}”."
-        assert ap.summary == want and Redactor().text(want) == want
-        shown = want.split("“", 1)[1].rsplit("”", 1)[0]
+        assert ap.summary == "For x.test only: FERB needs a secret to save."
+        assert ap.detail.startswith(f"It's your “{name}”.") and Redactor().text(ap.detail) == ap.detail
+        shown = ap.detail.split("“", 1)[1].split("”", 1)[0]
         assert SHOWN.fullmatch(shown) and not set(shown) & set(".&;")
         assert remember in ap.reason or remember.startswith('**')      # the full question keeps the exact name
     finally:
@@ -171,7 +175,8 @@ def test_a_name_with_nothing_plain_left_shows_no_name(daemon: Any) -> None:
                                                                                 remember='“”—·．'), daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        assert ap.summary == "For x.test only: FERB needs a saved secret of yours."
+        assert ap.summary == "For x.test only: FERB needs a secret to save."
+        assert ap.detail.startswith("Type it below.")                      # no name: nothing quoted
     finally:
         _cancel(daemon, ap, waiting)
 
@@ -186,8 +191,9 @@ def test_a_saved_name_with_a_code_word_never_hides_the_place(daemon: Any, target
                                                daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        assert ap.summary == f"For {place} only: FERB needs your “permit login code”."
-        assert Redactor().text(ap.summary) == ap.summary
+        assert ap.summary == f"For {place} only: FERB needs a secret to save."
+        assert "“permit login code”" in ap.detail and f"for {place} only" in ap.detail
+        assert Redactor().text(ap.summary) == ap.summary and Redactor().text(ap.detail) == ap.detail
     finally:
         _cancel(daemon, ap, waiting)
 
@@ -442,7 +448,7 @@ def test_the_secret_question_names_the_username_saved_for_the_site(daemon: Any, 
     run(daemon, lambda: OwnerSecrets(daemon.daemon.home, lambda *a: None).set_username(PERMIT, username, source))
     for remember, want in (
             ('US permit scheduling login',
-             f"For appauth.b2clogin.com only (account: {shown}): FERB needs your “US permit scheduling login”."),
+             f"For appauth.b2clogin.com only (account: {shown}): FERB needs a secret to save."),
             (None, f"For appauth.b2clogin.com (account: {shown}): FERB needs a password or private answer.")):
         waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), PERMIT, remember=remember),
                                                    daemon.loop)
@@ -490,8 +496,9 @@ def test_a_secret_saved_during_a_task_serves_its_sites_and_the_next_question_nam
                                                daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        assert ap.summary == ("For appauth.b2clogin.com only (bookslots.com account: Asha Rao): FERB needs your "
-                              "“food”.")             # review I-2: a linked account names its site
+        assert ap.summary == ("For appauth.b2clogin.com only (bookslots.com account: Asha Rao): FERB needs a secret "
+                              "to save.")             # review I-2: a linked account names its site
+        assert ap.detail.startswith("It's your “food”.")
     finally:
         _cancel(daemon, ap, waiting)
 
@@ -554,15 +561,58 @@ def test_a_hidden_value_question_names_the_pages_field_and_a_payment_its_currenc
     "this pays 248.75 on www.orderly.example". Owner: "how can you tell its cvv, bank otp simply BUT why cant FERB??"."""
     from ferb.core.types import Target
     from ferb.daemon.gateway import secret_summary
+    from ferb.daemon.hidden_input import secret_detail
     from ferb.policy import confirm
     from ferb.policy.rules import Kind
     assert secret_summary("https://www.orderly.example", None, field="CVV digit 1 of 3") == (
-        "For orderly.example: FERB needs what goes in the page's “CVV digit 1 of 3” field.")
-    assert secret_summary("https://www.orderly.example", None) == (
         "For orderly.example: FERB needs a password or private answer.")
+    assert secret_detail("https://www.orderly.example", None, field="CVV digit 1 of 3").startswith(
+        "The page asks for “CVV digit 1 of 3”. Type it below.")              # the page's own words (GATE-520)
     needs = confirm.decide(Kind.CLICK, "pay", Target(site="www.orderly.example", amount=248.75, currency="₹",
                                                      account="Personal card ending 4242"),
                            {"amount": ["external:web:www.orderly.example"]}, read_private=False, read_external=True,
                            known=lambda k, v: False, outside_read=["external:web:www.orderly.example"])
     assert [n.rule for n in needs] == ["floor:pay"]          # the price's origin isn't a second question
     assert confirm.summary(needs) == "FERB wants to pay ₹248.75 on orderly.example from Personal card ending 4242."
+
+
+# ---------- GATE-520: the secret card says what to type, in full ----------
+
+US_VISA = "https://atlasauth.b2clogin.com/usvisascheduling/signin"
+VISA_NAME = "usvisascheduling security answer: birth town or city"     # the worker's name, live 2026-11-07 17:36
+
+
+# decision: GATE-520
+def test_the_secret_card_shows_the_pages_label_and_the_whole_name(daemon: Any) -> None:
+    """Owner 2026-11-07 (17:37): "why is thequestion hidden??? ... it deosn state properly what is to be entered". The
+    heading stays short with the place first; under it the page's own label for the field, whole and quoted, then the
+    worker's name, whole."""
+    label = "What is the name of the town or city where you were born?"
+    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(
+        _ctx(), US_VISA, remember=VISA_NAME, field=label), daemon.loop)
+    ap = _asked(daemon, 'owner_secret')
+    try:
+        assert ap.summary == "For atlasauth.b2clogin.com only: FERB needs a secret to save."
+        assert ap.detail.startswith(f"The page asks for “{label}” FERB saves it as “{VISA_NAME}”.")
+        assert Redactor().text(ap.detail) == ap.detail
+    finally:
+        _cancel(daemon, ap, waiting)
+
+
+# decision: GATE-520
+def test_a_secret_with_no_page_label_shows_the_whole_name_and_a_wall_of_text_is_cut() -> None:
+    """Owner: "what if its longer hatn even 80chars??": a name is shown whole; only past 200 characters is it cut."""
+    from ferb.daemon.hidden_input import secret_detail
+    assert secret_detail(US_VISA, VISA_NAME).startswith(f"It's your “{VISA_NAME}”.")
+    long_name = "security answer " + "x" * 284
+    shown = secret_detail(US_VISA, long_name).split("“", 1)[1].split("”", 1)[0]
+    assert len(shown) == 200 and shown.endswith("…") and shown.startswith("security answer x")
+    # the card names the place: a copy of it at the start of the name is left out
+    assert secret_detail("https://github.com", "GitHub password").startswith("It's your “password”.")
+
+
+# decision: GATE-520
+def test_the_pages_label_is_quoted_without_invisible_or_reordering_marks() -> None:
+    from ferb.daemon.hidden_input import secret_detail
+    shown = secret_detail("https://x.test", None, field="Security​ answer‮  (⁦code⁩)")
+    assert shown.startswith("The page asks for “Security answer (code)”.")

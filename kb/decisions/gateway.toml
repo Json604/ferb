@@ -480,3 +480,14 @@ status = "active"
 rule = "A reply, question, task answer, summary, step note, part or task root stores its sources' kinds (origin.kinds), never their hosts and senders; replies, answers and summaries also store, in their JSON, each owner value their text holds with its classes (carried.derive: owner, private, site:host). A value found only in FERB's code-written facts (its clock) or outside content isn't carried; one found nowhere is private. A history read stores per-entry segments. Readers pass kinds of what records inherited. Shadow: the sink reads labels and payloads as before."
 why = "T-1007 phase 2. Derived rows stored the union of every label their writer saw (about 2.8k characters each, re-fed every turn). Simulated on the owner's database: journal origin bytes 419,606 to 14,986 (provenance 19,363); no question changed."
 paths = ["ferb/policy/carried.py::derive", "ferb/core/origin.py::kinds", "ferb/orchestrator/supervisor.py::Supervisor._record_reply", "ferb/orchestrator/supervisor.py::Supervisor._task_made", "ferb/orchestrator/evidence.py::record_origins"]
+
+[GATE-520]
+title = "The secret question says what to type: the page's own label and the AI's whole name for it"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "ok fix it, but what if its longer hatn even 80chars??"
+words_source = "Owner, 2026-11-07 17:37, on a secret card that hid what to type: \"why is thequestion hidden??? ... it deosn state properly what is to be entered\"; then on the fix"
+rule = "Refines GATE-513 for FERB's secret question. The heading stays short and generic with the place first. Under it, the page's own label for the field says what to type, whole and quoted as the page's words (printable, invisible and reordering marks dropped); with no label, the AI's name for it does. The AI's name is shown whole (its character allowlist kept), without a leading copy of the place, cut only past 200 characters. Workers are asked for short names."
+paths = ["ferb/daemon/hidden_input.py::secret_summary", "ferb/daemon/hidden_input.py::secret_detail", "ferb/daemon/hidden_input.py::shown_name"]
+live = ["LIVE-815"]

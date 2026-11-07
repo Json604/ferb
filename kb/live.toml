@@ -3456,3 +3456,12 @@ pass = "Each profile's FERB extension shows the new version without Developer mo
 decisions = ["HAND-430"]
 sitting = "after the next extension version is published"
 waiver = "waived for v0.27.3: owner, 2026-11-07, \"waive 814\"; only the extension version after 0.19.4 can show it, checked then"
+
+[LIVE-815]
+title = "A secret question says what to type, in full"
+area = "gateway"
+surface = "FERB.app with this build; a site that asks a security question or a password FERB hasn't saved"
+request = "Ask FERB to sign in somewhere that asks a security question (or any password it hasn't saved) and let it ask you."
+pass = "The card's heading is short and starts with the site. Under it you can read the page's own words for the field (for example the whole security question) and the name FERB will save it under, nothing cut off at 40 characters. Typing the answer fills it as before."
+decisions = ["GATE-520", "GATE-513"]
+sitting = "after this change is installed"

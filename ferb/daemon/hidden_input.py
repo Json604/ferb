@@ -66,7 +66,7 @@ class HiddenInput:
         ap = self.gw.state.approvals.question(ask, question, [])
         ap.kind = "owner_secret"
         ap.summary = self.gw._one_line(secret_summary(target, remember, shown, username, source, field))
-        ap.detail = self.gw._one_line(secret_detail(target, remember, shown))
+        ap.detail = self.gw._one_line(secret_detail(target, remember, shown, field))
         ap.exact = self.gw._one_line(paying) if paying else ""   # GATE-204: the payment it serves, in its own box
         self.gw.publish("approval.requested", {"approval_id": ap.id, "kind": ap.kind,
                      "capability": ask.capability, "reason": question, "task_id": ctx.task_id,
@@ -235,18 +235,41 @@ def _site(target: str) -> str:
 
 
 # How the worker's proposed name for a saved secret is shown (review I1, re-review R1): only ASCII letters, digits,
-# spaces and : , ' ( ) -, whitespace collapsed, at most NAME_SHOWN characters. An allowlist, so no lookalike
-# punctuation, letter that looks like a dot, invisible mark or HTML entity (the notch renders Markdown) can rebuild a
-# quote, a dash or a place inside it, and no slash can make it a link (`https://3627733615/x`, re-review). Formatting, never a judgement of what the name means (R2).
-NAME_SHOWN = 40
+# spaces and : , ' ( ) -, whitespace collapsed. An allowlist, so no lookalike punctuation, letter that looks like a dot,
+# invisible mark or HTML entity (the notch renders Markdown) can rebuild a quote, a dash or a place inside it, and no
+# slash can make it a link (`https://3627733615/x`, re-review). Formatting, never a judgement of what the name means
+# (R2). Shown whole under the card's question since GATE-520 (owner, 2026-11-07: "what if its longer hatn even
+# 80chars??"); NAME_SHOWN only stops a wall of text.
+NAME_SHOWN = 200
 _NAME_DROPPED = re.compile(r"[^A-Za-z0-9 :,'()\-]")
 
 
-def shown_name(remember: str) -> str:
-    """The saved name as the one-line question shows it: any whitespace a space, every other character outside the
-    allowlist dropped, whitespace collapsed, clipped with "…" ("" when nothing plain is left)."""
+def shown_name(remember: str, place: str = "") -> str:
+    """The saved name as the card shows it: any whitespace a space, every other character outside the allowlist
+    dropped, whitespace collapsed, clipped with "…" past NAME_SHOWN ("" when nothing plain is left). A leading copy of
+    the card's `place` (its host, or one of its labels: "usvisascheduling", "github") is left out: the card names the
+    place itself (GATE-520)."""
     name = " ".join(_NAME_DROPPED.sub("", " ".join(remember.split())).split())
+    if place:
+        host = place.casefold().removeprefix("www.").removeprefix("the ").removesuffix(" app")
+        forms = {_NAME_DROPPED.sub("", host), *(label for label in re.split(r"[.\s]", host) if len(label) > 2)}
+        for form in sorted((f for f in forms if f), key=len, reverse=True):
+            rest = name[len(form):]
+            if name.casefold().startswith(form) and rest[:1] in (" ", ":", ",", "-") and rest.strip(" :,-"):
+                name = rest.strip(" :,-")
+                break
     return name if len(name) <= NAME_SHOWN else name[:NAME_SHOWN - 1].rstrip() + "…"
+
+
+LABEL_SHOWN = 300                                # a page's own label for the field: whole, only a wall of text cut
+
+
+def _page_label(field: str | None) -> str:
+    """The page's own label for the field, as the card quotes it (page text: data, never instructions): printable, one
+    line, without invisible or reordering characters, cut only past LABEL_SHOWN."""
+    text = " ".join(printable(field or "").split())
+    text = " ".join("".join(c for c in text if unicodedata.category(c) not in _ACCOUNT_DROPPED).split())
+    return text if len(text) <= LABEL_SHOWN else text[:LABEL_SHOWN - 1].rstrip() + "…"
 
 
 ACCOUNT_SHOWN = 64
@@ -272,37 +295,36 @@ def secret_place(target: str, app: str | None = None) -> str:
 
 def secret_summary(target: str, remember: str | None, app: str | None = None, username: str | None = None,
                    username_place: str | None = None, field: str | None = None) -> str:
-    """The owner secret question in one line (P27; owner, 2026-10-24: "just state what is this for"). It always starts
-    with the place from the code-derived target (an origin's host, or the app: its name as macOS reports it, else its
-    bundle id), so no other text comes before it (re-review R1); then the account, when a username is saved for that
-    place (L36 §5, ruling C1: after the place), naming the site it was saved for when it came through a link
-    (`username_place`, review I-2: "bank.example account: …"); then what the value is for: the worker's
-    proposed name, cleaned by `shown_name`, in quotes, only ever as the name it is saved under; and whether it is
-    kept."""
+    """The owner secret question's short heading (P27; owner, 2026-10-24: "just state what is this for"). It always
+    starts with the place from the code-derived target (an origin's host, or the app: its name as macOS reports it,
+    else its bundle id), so no other text comes before it (re-review R1); then the account, when a username is saved
+    for that place (L36 §5, ruling C1: after the place), naming the site it was saved for when it came through a link
+    (`username_place`, review I-2: "bank.example account: …"); then a generic what. Which value goes in, and the name
+    it is saved under, are in `secret_detail` in full (GATE-520: no worker or page text in the heading)."""
     place = secret_place(target, app)
     account = _account(username or "")
     whose = f"{_site(username_place)} " if username_place else ""
     account = f" ({whose}account: {account})" if account else ""
-    # GATE-513: a plain question, still with the place first (re-review R1), and `secret_detail` under it
     if remember:
-        name = shown_name(remember)
-        what = f"your “{name}”" if name else "a saved secret of yours"
-        return f"For {place} only{account}: FERB needs {what}."
-    # live 2026-10-27: "a password or private answer" for a card's CVV and a bank's OTP; the page's own label for the
-    # field says which (page text, quoted as the page's words; display only)
-    label = " ".join((field or "").split())
-    label = label if len(label) <= 60 else label[:59].rstrip() + "…"
-    if label:
-        return f"For {place}{account}: FERB needs what goes in the page's “{label}” field."
+        return f"For {place} only{account}: FERB needs a secret to save."
     return f"For {place}{account}: FERB needs a password or private answer."
 
 
-def secret_detail(target: str, remember: str | None, app: str | None = None) -> str:
-    """GATE-513: what happens to what the owner types into the secret question, in one plain line."""
+def secret_detail(target: str, remember: str | None, app: str | None = None, field: str | None = None) -> str:
+    """GATE-513, GATE-520: what to type and what happens to it, under the heading. First the page's own label for the
+    field, whole, quoted as the page's words (live 2026-10-27: a card's CVV, a bank's OTP; owner 2026-11-07: "it
+    deosn state properly what is to be entered"); with none, the worker's name for it (`shown_name`, whole); then the
+    name it is saved under, and whether it is kept."""
+    place = secret_place(target, app)
+    label = _page_label(field)
+    name = shown_name(remember, place) if remember else ""
+    what = (f"The page asks for “{label}”{'' if label[-1] in '.?!…' else '.'} " if label else
+            f"It's your “{name}”. " if name else "")
     if remember:
-        return (f"Type it below. FERB fills it in without seeing it, and saves it in your Mac's Keychain for "
-                f"{secret_place(target, app)} only.")
-    return "Type it below. FERB fills it in without seeing it. It's used once and not saved."
+        saved = f"FERB saves it as “{name}”. " if label and name else ""
+        return (f"{what}{saved}Type it below. FERB fills it in without seeing it, and saves it in your Mac's Keychain "
+                f"for {place} only.")
+    return f"{what}Type it below. FERB fills it in without seeing it. It's used once and not saved."
 
 
 def login_code_summary(origin: str) -> str:

@@ -919,8 +919,9 @@ class BrowserSecret(BrowserLoginCode):
     blurb = ("Fill an exact field from hidden owner input or an owner-saved Keychain handle. Any secret type, "
              "including split OTP boxes. If login_code cannot classify visible split boxes, pass their exact "
              "snapshot IDs in split_elements, in code order, with element set to the first ID. This needs no "
-             "numeric or maxlength attributes. The model never receives the value. remember proposes a handle; the "
-             "hidden owner prompt explicitly asks to save it for this HTTPS origin. Card details (number, security "
+             "numeric or maxlength attributes. The model never receives the value. remember proposes a handle: a short "
+             "name of what it is, a few words without the site (\"security answer: birth town\"); the hidden owner "
+             "prompt shows the page's own label for the field and explicitly asks to save it for this HTTPS origin. Card details (number, security "
              "code, expiry) go into a page only this way, never typed; a saved card detail fills only its own kind of "
              "card field.")
 
