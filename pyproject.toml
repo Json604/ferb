@@ -1,6 +1,6 @@
 [project]
 name = "ferb"
-version = "0.27.2"
+version = "0.27.3"
 description = "FERB: personal agent runtime for macOS"
 requires-python = ">=3.12,<3.13"
 license = "Apache-2.0"
