@@ -3415,3 +3415,4 @@ request = "Hover the option buttons of a FERB question (or Send and Stop), then 
 pass = "Every button and the whole sites box show the pointing hand and visibly brighten, every time; a click on the box opens the site, or the list when there are several. A box that moved under the still pointer shows its hover without moving the mouse. Nothing else changed: file cards, links in answers and the notch's handle behave as before."
 decisions = ["APP-779", "APP-780", "APP-753"]
 sitting = "after this change is installed"
+result = "passed 2026-11-07 v0.27.2 (build 202611070357): owner: pass"
