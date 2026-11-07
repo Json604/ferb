@@ -3435,6 +3435,7 @@ request = "Run a task that makes FERB ask: for example, ask it to run a command 
 pass = "Each question reads right the first time: what FERB wants to do in plain words, a line saying why it asks and what a Yes allows, and the exact command, address or recipient in its own code box. No code font for the whole question and no internal names like browser.snapshot. Yes and No still do what they did. While FERB is still working out its reply, the chat shows it typing, never nothing."
 decisions = ["GATE-513", "GATE-514", "GATE-225", "APP-786"]
 sitting = "after this change is installed"
+result = "passed 2026-11-07 on build 202611070749: owner, \"812, 813 pass\" (question cards seen live, e.g. the variety.com address card)"
 
 [LIVE-813]
 title = "FERB makes a PDF through the browser, with no crash box"
@@ -3444,6 +3445,7 @@ request = "Ask FERB to turn one of the resumes it made (an .html file) into a PD
 pass = "Two new PDFs appear, readable, matching the resume and the page. No \"Google Chrome quit unexpectedly\" box, no Chrome window coming forward, and the tab FERB used for the resume closes by itself. A page with a password or card field is refused with a plain reason."
 decisions = ["HAND-427", "HAND-428"]
 sitting = "after this change is installed"
+result = "passed 2026-11-07 on build 202611070749: owner, \"812, 813 pass\" (after updating the extension in every browser)"
 
 [LIVE-814]
 title = "A new FERB extension version installs by itself, without Developer mode"
@@ -3453,3 +3455,4 @@ request = "Don't touch chrome://extensions. Leave the browser open for a few hou
 pass = "Each profile's FERB extension shows the new version without Developer mode, Update or a browser restart, and FERB tasks in that profile keep working through the change."
 decisions = ["HAND-430"]
 sitting = "after the next extension version is published"
+waiver = "waived for v0.27.3: owner, 2026-11-07, \"waive 814\"; only the extension version after 0.19.4 can show it, checked then"
