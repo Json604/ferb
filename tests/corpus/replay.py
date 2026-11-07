@@ -73,6 +73,29 @@ def _carried_labels(r: Read) -> set[str]:
     raise ValueError(r.kind)
 
 
+# FERB's own clock as its context shows it (labelled `ferb`): what a summary or reply is written beside
+CLOCK = "Now: Saturday 2026-11-07 10:42. Today is Sat 07 Nov 2026."
+
+
+def _segments(r: Read) -> list[dict[str, Any]]:
+    """The per-entry segments the supervisor stores with a conversation read (GATE-519): an owner's message whole
+    (kinds owner); an entry FERB wrote (a reply, a summary) with the owner values its own text holds, as
+    carried.derive finds them beside FERB's clock (the earlier task's own reads aren't in this scenario, so a value
+    it repeats is found nowhere and carried, fail-closed, as the owner's)."""
+    from ferb.policy import carried
+    outside = origin.kinds(_web(h) for h in r.carried_from)
+    entries = [r.text] if r.kind == "ferb_fact" else r.text.split("\n\n")
+    out: list[dict[str, Any]] = []
+    for entry in entries:
+        if entry.startswith("Owner:"):
+            out.append({"ref": "entry:owner", "kinds": [origin.OWNER], "len": len(entry), "whole": True})
+            continue
+        made = {origin.INFERRED, origin.PRIVATE} | outside
+        stored = carried.derive(entry, [({origin.FERB}, CLOCK)], made)
+        out.append({"ref": "entry:ferb", "kinds": sorted(made), "len": len(entry), "values": stored["values"]})
+    return out
+
+
 def _read_label(where: str) -> str:
     if where.startswith(("email:", "message:")):
         kind, _, ident = where.partition(":")
@@ -209,11 +232,13 @@ class _Run:
             return d.tokens.validate(token)
         self.grant = self.d.run(go())
 
-    def expose(self, text: str, labels: set[str], reference: str, payload_only: bool = False) -> None:
+    def expose(self, text: str, labels: set[str], reference: str, payload_only: bool = False,
+               segments: list[dict[str, Any]] | None = None) -> None:
         async def go() -> None:
             spans = self.d.daemon.spans
             span = spans.start("context.exposure", task_id=TASK, input={"source_refs": [], "reference": reference})
-            spans.finish(span, output={"payload": text} if payload_only else {"text": text, "payload": text},
+            output = {"payload": text} if payload_only else {"text": text, "payload": text}
+            spans.finish(span, output=output | ({"segments": segments} if segments else {}),
                          origin=origin.join(labels))
         self.d.run(go())
 
@@ -291,7 +316,7 @@ class _Run:
                 facts = json.dumps({"app": "Google Chrome", "title": r.text, "url": r.where})
                 self.expose(facts, labels, "front window at send")
             elif r.kind == "history" or (r.kind == "ferb_fact" and r.via != "facts"):
-                self.expose(r.text, labels, "chat.history", payload_only=True)
+                self.expose(r.text, labels, "chat.history", payload_only=True, segments=_segments(r))
             elif r.kind == "ferb_fact":
                 self.expose(r.text, labels, "facts")
             elif r.kind == "memory":

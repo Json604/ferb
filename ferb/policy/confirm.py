@@ -35,7 +35,7 @@ import unicodedata
 import weakref
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Iterable
-from urllib.parse import unquote, unquote_plus
+from urllib.parse import quote, quote_plus, unquote, unquote_plus
 
 import idna
 
@@ -584,8 +584,8 @@ def with_forms(t: provenance.Text) -> provenance.Text:
     return t
 
 
-_URL_PARTS: "weakref.WeakKeyDictionary[provenance.Text, tuple[tuple[tuple[str, frozenset[str]], ...], frozenset[str]]]" \
-    = weakref.WeakKeyDictionary()
+_UrlParts = tuple[tuple[tuple[str, frozenset[str]], ...], frozenset[str]]
+_URL_PARTS: "weakref.WeakKeyDictionary[provenance.Text, _UrlParts]" = weakref.WeakKeyDictionary()
 
 
 def _url_parts(t: provenance.Text) -> tuple[tuple[tuple[str, frozenset[str]], ...], frozenset[str]]:
@@ -737,7 +737,56 @@ def url_private_values(url: str, private: list[tuple[int, provenance.Text]],
     seen_url = {url.casefold(), url.replace("\\", "/").casefold()}
     if any(order < earliest and any(u in t.folded for u in seen_url) for order, t in outside):
         return []                                             # a followed link, read before the private value
+    if all(_first_seen_in_link(url, h, private) for h in hits):
+        return []                                             # the owner's C' link rule (GATE-521)
     return hits
+
+
+def _link_spans(url: str, folded: str) -> list[tuple[int, int]]:
+    """Where `url` appears in a read text, as written or inside another address (a redirect wrapper's `?q=` holds it
+    as written or percent-encoded): (start, end) of each occurrence."""
+    spans: list[tuple[int, int]] = []
+    for form in dict.fromkeys(f.casefold() for f in (url, url.replace("\\", "/"), quote(url, safe=""),
+                                                     quote(url, safe=":/"), quote_plus(url))):
+        at = folded.find(form)
+        while at != -1:
+            spans.append((at, at + len(form)))
+            at = folded.find(form, at + 1)
+    return spans
+
+
+def _first_seen_in_link(url: str, hit: "PrivateValue", private: list[tuple[int, provenance.Text]]) -> bool:
+    """The owner's link rule (GATE-521, owner 2026-11-07: "open withouth asking"): the value's first sighting in what
+    the task read privately (the record it was first read from, its first place there) is inside this same link, as
+    written or wrapped: a link opened exactly as a signed-in page showed it (Gmail, a search result) gives that site
+    nothing new, even when the page echoes the address after it. Read order still decides: a value first read
+    anywhere else (a file, FERB's conversation, a page that showed it plainly first) is the owner's, and asks."""
+    want = [hit.matched, quote(hit.matched, safe=""), quote_plus(hit.matched)]
+    for order, t in private:
+        if order != hit.first_read:
+            continue
+        # as the text has it, and with its spaces taken out: a page can show a long link broken over a line
+        # ("https://forms.gle/ X8d9…") right before the link itself
+        for folded, whole in ((t.folded, True), (re.sub(r"\s+", "", t.folded), False)):
+            found = [at for form in dict.fromkeys(w.casefold() for w in want) for at in _positions(folded, form, whole)]
+            if found and any(start <= min(found) < end for start, end in _link_spans(url, folded)):
+                return True
+        return False                                          # first seen elsewhere, or in another form
+    return False
+
+
+def _positions(folded: str, needle: str, whole: bool = True) -> list[int]:
+    """Where `needle` stands in a read text: whole (not inside a longer word or number), or anywhere (`whole` False:
+    a text with its spaces taken out has no word edges left to trust)."""
+    out: list[int] = []
+    at = folded.find(needle) if needle else -1
+    while at != -1:
+        end = at + len(needle)
+        edges = (at == 0 or not folded[at - 1].isalnum()) and (end == len(folded) or not folded[end].isalnum())
+        if not whole or edges:
+            out.append(at)
+        at = folded.find(needle, at + 1)
+    return out
 
 
 def text_carries_private(text: str, private: list[tuple[int, provenance.Text]],

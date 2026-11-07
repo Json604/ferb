@@ -92,3 +92,22 @@ def shown_records(outputs: Iterable[Any]) -> list[tuple[set[str], str, Any]]:
             out.append((labels, result.text[at:at + size], None if seg.get("whole") else seg.get("values") or {}))
             at += size + 2                             # entries are joined by a blank line (`_context_exposure`)
     return out
+
+
+def sink_text(payload: str, segments: Iterable[dict[str, Any]]) -> str:
+    """What of a stored record of FERB's conversation is the owner's data for the sink (GATE-522): each entry whose
+    whole text counts (the owner's own messages, notices, rows from before stored provenance) when it is the owner's
+    words or data, and of each entry FERB wrote only the values it stored. FERB's own prose around them (a date its
+    clock wrote, a page's words it repeated) is not the owner's data."""
+    kept: list[str] = []
+    at = 0
+    for seg in segments:
+        size = int(seg.get("len", 0))
+        piece = payload[at:at + size]
+        at += size + 2                                 # entries are joined by a blank line
+        if seg.get("whole"):
+            if set(seg.get("kinds", [])) & OWNERS:
+                kept.append(piece)
+        elif isinstance(seg.get("values"), dict):
+            kept += [str(v) for v in seg["values"]]
+    return "\n".join(kept)

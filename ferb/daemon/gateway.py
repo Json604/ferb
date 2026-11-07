@@ -75,7 +75,7 @@ from ferb.daemon.server import caller_left
 from ferb.identity.owner_secrets import CARD_KINDS
 from ferb.orchestrator.ledger import BadTransition, DuplicateUnresolved, Ledger, LedgerRow
 from ferb.orchestrator.tree import ExecutionState, TaskTree
-from ferb.policy import confirm, payments, provenance, terminal as terminals
+from ferb.policy import carried, confirm, payments, provenance, terminal as terminals
 from ferb.policy.destinations import Confirmations, KnownDestinations
 from ferb.policy.escape import escape_key
 from ferb.policy.protection import FERB_APP, FERB_SERVICE, FERB_STATE, NEVER_LIFTED, READ, Protection
@@ -394,6 +394,9 @@ class OutsideTexts:
     joined_files: dict[str, list[tuple[int, set[str], provenance.Text]]] = field(default_factory=dict)
     pasted: list[tuple[str, provenance.Text]] | None = None    # the request's pasted parts, prepared once (MP2)
     ready: dict[int, provenance.Text] = field(default_factory=dict)   # payloads prepared off the loop, not yet used
+    # a stored record of FERB's conversation (its `segments`): only its owner's words and stored values (GATE-522)
+    owners: dict[int, provenance.Text] = field(default_factory=dict)
+    ready_owners: dict[int, provenance.Text] = field(default_factory=dict)
     preparing: asyncio.Lock = field(default_factory=asyncio.Lock)     # one off-loop preparation per tree at a time
 
 
@@ -848,6 +851,9 @@ class Gateway:
             if result.text:
                 text = known.ready.pop(result.rowid) if result.rowid in known.ready else provenance.prepare(result.text)
                 known.payloads[result.rowid] = (result.origins, text)
+                if result.segments:                      # GATE-522: FERB's conversation, by its stored values
+                    known.owners[result.rowid] = known.ready_owners.pop(result.rowid, None) or provenance.prepare(
+                        carried.sink_text(result.text, result.segments))
             if result.path:
                 known.file_chunks.setdefault(result.path, {})[result.rowid] = result
                 changed.add(result.path)
@@ -870,7 +876,12 @@ class Gateway:
         results = [(rowid, labels, text) for rowid, (labels, text) in known.payloads.items()]
         results.extend(item for joined in known.joined_files.values() for item in joined)
         results.sort(key=lambda item: item[0])
-        private = [(rowid, text) for rowid, labels, text in results if origin.PRIVATE in labels]
+        # the owner's data: a record that holds it (its private label), whole; a stored record of FERB's conversation,
+        # only its entries' owner words and stored values, whatever labels its entries inherited (GATE-522)
+        private = [(rowid, known.owners[rowid]) if rowid in known.owners else (rowid, text)
+                   for rowid, labels, text in results
+                   if (rowid in known.owners and known.owners[rowid].folded) or
+                   (rowid not in known.owners and origin.PRIVATE in labels)]
         outside_only = [(rowid, text) for rowid, labels, text in results
                         if origin.PRIVATE not in labels and any(origin.is_external(label) for label in labels)]
         return private, outside_only
@@ -883,12 +894,17 @@ class Gateway:
         prepared, by `_sink_texts`. One preparation per tree at a time, so a concurrent navigation waits for it."""
         known = self._outside.setdefault(root, OutsideTexts())
         async with known.preparing:
-            fresh = [(r.rowid, r.text) for r in self.spans.payload_outputs(root, known.payload_floor,
-                                                                            seen=known.payload_seen)
+            fresh = [r for r in self.spans.payload_outputs(root, known.payload_floor, seen=known.payload_seen)
                      if r.text and r.rowid not in known.ready]
             if fresh:
-                known.ready.update(await asyncio.to_thread(
-                    lambda: {rowid: confirm.with_forms(provenance.prepare(text)) for rowid, text in fresh}))
+                def prepare() -> tuple[dict[int, provenance.Text], dict[int, provenance.Text]]:
+                    full = {r.rowid: confirm.with_forms(provenance.prepare(r.text)) for r in fresh}
+                    owners = {r.rowid: confirm.with_forms(provenance.prepare(carried.sink_text(r.text, r.segments)))
+                              for r in fresh if r.segments}
+                    return full, owners
+                full, owners = await asyncio.to_thread(prepare)
+                known.ready.update(full)
+                known.ready_owners.update(owners)
             return self._sink_texts(root)
 
     # ---------- the pipeline ----------

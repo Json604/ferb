@@ -409,8 +409,8 @@ title = "Build the origin split: results carry what they were made from; influen
 area = "gateway"
 kind = "build"
 status = "open"
-why = "Owner \"yes yes yes\" (2026-11-03): history/memory outside content counts as outside read. Design (value provenance + first-sighting link rule, phases 0-4): kb/local/origin-tags.md (untracked). Owner 2026-11-07 \"build all\": every phase, one release, once the replay passes. Phase 1 done (GATE-515)."
-decisions = ["GATE-202", "GATE-515"]
+why = "Owner \"yes yes yes\" (2026-11-03): history/memory outside content counts as outside read. Design (value provenance + first-sighting link rule, phases 0-4): kb/local/origin-tags.md (untracked). Owner 2026-11-07 \"build all\": every phase, one release, once the replay passes. Phases 1-3 done."
+decisions = ["GATE-202", "GATE-515", "GATE-519", "GATE-521", "GATE-522"]
 
 [T-1025]
 title = "Should a year or a short plain number in an address count as the owner's data?"

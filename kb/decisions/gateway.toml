@@ -491,3 +491,22 @@ words_source = "Owner, 2026-11-07 17:37, on a secret card that hid what to type:
 rule = "Refines GATE-513 for FERB's secret question. The heading stays short and generic with the place first. Under it, the page's own label for the field says what to type, whole and quoted as the page's words (printable, invisible and reordering marks dropped); with no label, the AI's name for it does. The AI's name is shown whole (its character allowlist kept), without a leading copy of the place, cut only past 200 characters. Workers are asked for short names."
 paths = ["ferb/daemon/hidden_input.py::secret_summary", "ferb/daemon/hidden_input.py::secret_detail", "ferb/daemon/hidden_input.py::shown_name"]
 live = ["LIVE-815"]
+
+[GATE-521]
+title = "A link opened exactly as a page FERB read showed it, its values first seen in that link, doesn't ask"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "open withouth asking"
+words_source = "Owner 2026-11-07, asked: \"When FERB opens a link exactly as it appeared on a page it read (incl. your Gmail), and every value in it first appeared inside that same link, open without asking?\""
+rule = "Refines GATE-506 for the URL sink. When FERB opens an address exactly as it appeared on a page it read (a signed-in page such as Gmail included, also inside a redirect wrapper, written or percent-encoded, or echoed after it), and every owner value in it was first seen, in read order, inside that same link, no question is asked. A value first read anywhere else (a file, FERB's conversation, a page showing it plainly first) still asks."
+paths = ["ferb/policy/confirm.py::_first_seen_in_link", "ferb/policy/confirm.py::_link_spans"]
+
+[GATE-522]
+title = "The sink reads FERB's conversation by its stored values; the owner's earlier words count"
+by = "agent"
+date = 2026-11-07
+status = "active"
+rule = "For a stored record of FERB's conversation (a context exposure with per-entry segments, GATE-519) the sink's list of the owner's data takes each entry whose whole text counts (the owner's messages, notices, older rows) when its kinds are the owner's words or data, and of each entry FERB wrote only its stored values. FERB's prose around them, such as the date its clock wrote, is not the owner's data. Records without segments count as before. An earlier message's value is the owner's data in a later task, whatever else the chat held."
+why = "T-1007 phase 3: the whole conversation counted whenever any entry was private, so a year FERB's clock wrote asked (task 702a1a4c); and an earlier owner message counted only when some other entry was private (S4)."
+paths = ["ferb/policy/carried.py::sink_text", "ferb/daemon/gateway.py::Gateway._sink_texts"]

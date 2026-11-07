@@ -1,32 +1,7 @@
 {
  "false_questions": {
-  "clock_in_url.schedules.03": "FERB's clock text rides in the private conversation label",
-  "clock_in_url.schedules.04": "FERB's clock text rides in the private conversation label",
-  "clock_in_url.search.01": "FERB's clock text rides in the private conversation label",
-  "clock_in_url.search.03": "FERB's clock text rides in the private conversation label",
-  "clock_in_url.search.04": "FERB's clock text rides in the private conversation label",
-  "copied_link.email.02": "C': the signed-in page is private, so its links are never followed links",
-  "copied_link.email.03": "C': the signed-in page is private, so its links are never followed links",
-  "copied_link.email.05": "C': the signed-in page is private, so its links are never followed links",
-  "copied_link.email.06": "C': the signed-in page is private, so its links are never followed links",
-  "copied_link.email.08": "C': the signed-in page is private, so its links are never followed links",
-  "copied_link.email.09": "C': the signed-in page is private, so its links are never followed links",
-  "copied_link.news.01": "T-1025: the link's year is also in FERB's clock line in the conversation summary",
-  "copied_link.news.02": "C': the signed-in page is private, so its links are never followed links",
-  "copied_link.news.03": "C': the signed-in page is private, so its links are never followed links",
-  "copied_link.search.01": "T-1025: the link's year is also in FERB's clock line in the conversation summary",
-  "copied_link.search.02": "C': the signed-in page is private, so its links are never followed links",
-  "copied_link.search.03": "C': the signed-in page is private, so its links are never followed links",
-  "copied_link.social.02": "C': the signed-in page is private, so its links are never followed links",
-  "copied_link.social.03": "C': the signed-in page is private, so its links are never followed links",
-  "copied_link.work.02": "C': the signed-in page is private, so its links are never followed links",
-  "copied_link.work.03": "C': the signed-in page is private, so its links are never followed links",
   "reformatted.addresses.02": "partial value: owner 2026-11-07 \"dont ask\"; a postcode alone is a whole value-shaped token of the owner's data, and code can't tell by shape that it is part of an address (GATE-517)",
-  "reformatted.memory.01": "partial value: owner 2026-11-07 \"dont ask\"; a postcode alone is a whole value-shaped token of the owner's data, and code can't tell by shape that it is part of an address (GATE-517)",
-  "year_in_url.news.03": "T-1025: FERB's clock year in the summary counts as private",
-  "year_in_url.news.05": "T-1025: FERB's clock year in the summary counts as private",
-  "year_in_url.news.09": "T-1025: FERB's clock year in the summary counts as private",
-  "year_in_url.news.11": "T-1025: FERB's clock year in the summary counts as private"
+  "reformatted.memory.01": "partial value: owner 2026-11-07 \"dont ask\"; a postcode alone is a whole value-shaped token of the owner's data, and code can't tell by shape that it is part of an address (GATE-517)"
  },
  "known_misses": {
   "carried_instruction.contacts.01": "T-1007: history/memory outside influence doesn't count as outside",

@@ -661,12 +661,20 @@ def test_the_same_value_sent_to_another_site_still_asks() -> None:
     assert confirm.url_carries_private(f"https://instagram.com.attacker.example/{REEL}", _priv(TAB), [], owner)
 
 
+# decision: GATE-506, GATE-521
 def test_a_value_also_in_plain_private_text_still_asks_on_that_site() -> None:
+    """A value the owner's plain text held first is theirs: opening the site's link with it asks. Since the owner's link
+    rule (GATE-521: "open withouth asking"), a value whose first sighting is inside that same link is the site's own,
+    whatever the owner's data shows of it later; read order decides."""
     owner = provenance.prepare("analyze the insta post now")
-    both = _priv(TAB, f"notes: my private code is {REEL}")
-    assert confirm.url_carries_private(f"https://www.instagram.com/reels/{REEL}/", both, [], owner) == [REEL]
-    same_text = _priv(TAB + f" and my code {REEL}")
-    assert confirm.url_carries_private(f"https://www.instagram.com/reels/{REEL}/", same_text, [], owner) == [REEL]
+    url = f"https://www.instagram.com/reels/{REEL}/"
+    notes_first = _priv(f"notes: my private code is {REEL}", TAB)
+    assert confirm.url_carries_private(url, notes_first, [], owner) == [REEL]
+    code_first = _priv(f"my code {REEL}, and " + TAB)
+    assert confirm.url_carries_private(url, code_first, [], owner) == [REEL]
+    link_first = _priv(TAB, f"notes: my private code is {REEL}")
+    assert confirm.url_carries_private(url, link_first, [], owner) == []
+    assert confirm.url_carries_private(url, _priv(TAB + f" and my code {REEL}"), [], owner) == []
 
 
 def test_the_live_reel_case_opens_without_a_question(daemon: RunningDaemon) -> None:
