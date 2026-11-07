@@ -104,3 +104,22 @@ def test_the_app_gets_the_why_line_and_the_exact_part(daemon: RunningDaemon, mon
     event = next(e for e in published if e["approval_id"] == ap.id)
     assert (event["summary"], event["detail"], event["exact"]) == (
         "Send to rahul@example.com?", "You haven't named this person to FERB before.", "To: rahul@example.com")
+
+
+# decision: GATE-513
+# decision: GATE-204
+def test_a_payments_code_question_says_what_it_pays() -> None:
+    """Owner, 2026-11-07: "otp needed to pay x on y". The place first (re-review R1), then the payment the bank page
+    shows; when FERB couldn't read it, the payment the owner approved, and that it couldn't."""
+    from datetime import datetime, timezone
+    from ferb.policy.payments import Approval, otp_card
+    at = datetime(2026, 11, 7, tzinfo=timezone.utc)
+    read = Approval(cid="c1", chain="t1", host="orderly.example", amount="₹248.75", merchant="Orderly", at=at,
+                    bank_amount="INR 248.75", bank_merchant="ORDERLY")
+    question, why, exact = otp_card("secure.bank.example", read)
+    assert question == "For secure.bank.example: FERB needs the OTP to pay INR 248.75 to ORDERLY."
+    assert exact == "INR 248.75 → ORDERLY · secure.bank.example" and "used once" in why
+    unread = Approval(cid="c1", chain="t1", host="orderly.example", amount="₹248.75", merchant="Orderly", at=at)
+    question, why, exact = otp_card("secure.bank.example", unread)
+    assert question == "For secure.bank.example: FERB needs the OTP for the payment you approved (₹248.75 to Orderly)."
+    assert why.startswith("FERB couldn't read the amount on this page.")

@@ -202,6 +202,21 @@ def need(facts: PayFacts, values: dict[str, str], approved: Approval | None = No
     return confirm.Need(confirm.ALWAYS["pay"], k, shown, fresh=True)
 
 
+def otp_card(site: str, a: Approval) -> tuple[str, str, str]:
+    """GATE-513 (owner 2026-11-07: "otp needed to pay x on y"): a code asked on a payment's page says in its question
+    what it pays: the amount and merchant that page shows (code read them), else the payment the owner approved, and
+    that this page's couldn't be read. (question, why line, exact part); the place stays first (re-review R1)."""
+    if a.bank_amount:
+        paid = a.bank_amount + (f" to {a.bank_merchant}" if a.bank_merchant else "")
+        return (f"For {site}: FERB needs the OTP to pay {paid}.",
+                "Type it below. FERB fills it in only there, and it's used once.",
+                a.bank_amount + (f" → {a.bank_merchant}" if a.bank_merchant else "") + f" · {site}")
+    approved = (a.amount or UNREAD) + (f" to {a.merchant}" if a.merchant else "")
+    return (f"For {site}: FERB needs the OTP for the payment you approved ({approved}).",
+            "FERB couldn't read the amount on this page. Type the code below: FERB fills it in only there, and it's "
+            "used once.", (a.amount or UNREAD) + (f" → {a.merchant}" if a.merchant else "") + f" · {site}")
+
+
 def otp_line(a: Approval | None) -> str:
     """What an OTP (or card detail) question on a payment's later page repeats: the amount and merchant that page shows
     when code read them, else the payment the owner approved and that this page's couldn't be read."""

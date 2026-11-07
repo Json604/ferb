@@ -125,18 +125,23 @@ class HiddenInput:
         typed = self._login_sites(ctx, target)
         return typed if len({h.removeprefix("www.") for h in typed}) == 1 else []
 
-    def _payment_line(self, ctx: ToolContext, target: str, exact: bool) -> str:
-        """GATE-204: a code or secret asked on the bank page of a payment the owner approved in this task repeats what
-        the bank page shows (amount and merchant, when code read them); "" when no approved payment is that page's."""
+    def _payment(self, ctx: ToolContext, target: str, exact: bool) -> Any:
+        """The payment the owner approved in this task whose bank page this is, else None (GATE-204)."""
         parsed = urls.parse(target)
         host = parsed.host if parsed is not None and parsed.host else ""
         if not host:
-            return ""
+            return None
         tree = (self.gw.tasks.tree_of(ctx.task_id) or ctx.task_id).split(".", 1)[0]
         found = self.gw.payments.for_otp(tree, host)
         if found is None or (exact and found.bank_host != host):
-            return ""
-        return payments.otp_line(found)
+            return None
+        return found
+
+    def _payment_line(self, ctx: ToolContext, target: str, exact: bool) -> str:
+        """GATE-204: a code or secret asked on the bank page of a payment the owner approved in this task repeats what
+        the bank page shows (amount and merchant, when code read them); "" when no approved payment is that page's."""
+        found = self._payment(ctx, target, exact)
+        return payments.otp_line(found) if found is not None else ""
 
     def release(self, value: str) -> None:
         from ferb.sanitize.redact import Redactor
@@ -156,9 +161,13 @@ class HiddenInput:
         question = login_code_question(origin) + ((" " + paying) if paying else "")
         ap = self.gw.state.approvals.question(ask, question, [])
         ap.kind = "owner_login_code"
-        ap.summary = self.gw._one_line(login_code_summary(origin))
-        ap.detail = self.gw._one_line(LOGIN_CODE_DETAIL)
-        ap.exact = self.gw._one_line(paying) if paying else ""   # GATE-204: the payment this code approves, boxed
+        payment = self._payment(ctx, origin, exact=False)
+        if payment is not None:     # GATE-204, GATE-513: the code says in its question which payment it approves
+            summary, detail, exact = payments.otp_card(_site(origin), payment)
+        else:
+            summary, detail, exact = login_code_summary(origin), LOGIN_CODE_DETAIL, ""
+        ap.summary, ap.detail, ap.exact = (self.gw._one_line(summary), self.gw._one_line(detail),
+                                           self.gw._one_line(exact) if exact else "")
         self.gw.publish("approval.requested", {"approval_id": ap.id, "capability": ask.capability, "kind": ap.kind,
                                             "reason": question, "task_id": ctx.task_id, "summary": ap.summary}
                         | card_parts(ap))
