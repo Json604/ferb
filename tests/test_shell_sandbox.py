@@ -301,7 +301,10 @@ def test_the_apps_profile_differs_only_by_the_app_rules_and_keeps_every_other_de
     sb = Sandbox(Protection(home, ferb, [], [], []), tmp_path / "p", listeners=lambda: {9999})   # fixed: comparable
     shell_only = set(sb.profile().splitlines()) - set(sb.profile(apps=True).splitlines())
     assert shell_only == {*(f'(deny mach-lookup (global-name "{n}"))' for n in APP_SERVICES),
-                          "(deny mach-lookup " + " ".join(f'(global-name "{n}")' for n in WINDOW_SERVER) + ")"}
+                          "(deny mach-lookup " + " ".join(f'(global-name "{n}")' for n in WINDOW_SERVER) + ")",
+                          *(line for line in sb.profile().splitlines()          # HAND-429: no installed app's program
+                            if line.startswith("(deny process-exec (regex"))}
+    assert any("Applications" in line for line in shell_only if "process-exec" in line)
     # D31 review round 1: Apple Events reach only the app the call names (none named: none); round 2 (N7): no app
     # launch or document open (lsopen) and no program but osascript itself, so `do shell script` can't run
     lockdown = {"(deny process-exec)", '(allow process-exec (literal "/usr/bin/osascript"))'}
