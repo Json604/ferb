@@ -45,6 +45,23 @@ final class NotchDismissalTests: XCTestCase {
         XCTAssertEqual(model.session.activeTaskID, taskID)
     }
 
+    // decision: APP-798
+    /// Owner 2026-11-08: "idk if htats the correct fix or will it malfuntion other thigns. but why overcomplicate
+    /// eveyrhitng/?? its just ui - boxes, just fix them ." A press in Settings with the notch closed changes nothing
+    /// (no presentation change that reorders the notch's windows mid-drag); with the notch open it still closes it.
+    func testAPressInAnotherFERBWindowClosesOnlyWhatShows() {
+        let model = NotchModel()
+        var changes = 0
+        model.onPresentationChange = { _ in changes += 1 }
+        model.pressedInAnotherFERBWindow()
+        XCTAssertEqual(changes, 0)
+        model.expand()
+        changes = 0
+        model.pressedInAnotherFERBWindow()
+        XCTAssertFalse(model.expanded)
+        XCTAssertEqual(changes, 1)
+    }
+
     // decision: APP-558, APP-743
     func testVoiceHoldsTheChatOpenUntilItEnds() {
         let model = NotchModel()

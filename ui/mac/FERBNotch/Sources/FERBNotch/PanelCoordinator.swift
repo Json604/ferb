@@ -446,7 +446,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             // was clicked (the text input, a button).
             if event.window === self.panel && self.model.isYielded { self.beginInteraction() }
             if event.window !== self.panel && !self.pointerIsOverSurface {
-                self.model.dismissAutomatically()
+                self.model.pressedInAnotherFERBWindow()
             }
             return event
         }) { eventMonitors.append(monitor) }

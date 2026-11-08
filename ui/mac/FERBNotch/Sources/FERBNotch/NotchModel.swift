@@ -585,6 +585,13 @@ final class NotchModel: ObservableObject {
         collapse()
     }
 
+    /// A press in another FERB window (Settings, Tasks…) closes only what shows (the open notch, a compact line, a
+    /// reminder's arrival: APP-624 unchanged). A closed notch has nothing to close: closing it anyway reordered FERB's
+    /// notch windows during the press, and the window server then refused that window's title-bar drag (APP-798).
+    func pressedInAnotherFERBWindow() {
+        if surfaceVisible { dismissAutomatically() }
+    }
+
     /// Starts yielding for a reason. Yielding to an app under FERB's surface applies only while the tour's line shows
     /// (APP-642), and another app's windows never hide FERB while the owner is dictating.
     func beginYield(_ reason: NotchYieldReason) {

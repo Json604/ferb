@@ -3015,3 +3015,15 @@ words_source = "Owner 2026-11-08, asked: a fresh window (FERB not in the Dock ye
 rule = "Refines APP-796: when FERB isn't already in the Dock (or active), opening its window or an alert shows it in front on the owner's Space without activating FERB; keyboard focus waits for the owner's click. FERB never activates in a way that can switch Spaces."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift"]
 live = ["LIVE-821"]
+
+[APP-798]
+title = "A press in another FERB window closes only what the notch shows, so that window drags again"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "idk if htats the correct fix or will it malfuntion other thigns. but why overcomplicate eveyrhitng/?? its just ui - boxes, just fix them ."
+words_source = "Owner 2026-11-08, on the FERB window (Settings) that couldn't be dragged by its title bar, told the proposed minimal fix"
+rule = "A press in FERB's other windows (Settings, Tasks) closes the notch only when it shows something (open, a compact line, a reminder's arrival: APP-624 unchanged). With the notch closed the press changes nothing, so FERB no longer reorders the notch's windows mid-press, which made the window server refuse every title-bar drag of that window."
+why = "Logs 2026-11-08 13:15 (and 11-07 23:56): each refused drag ('no client initiated window drag trait gesture') came 3 ms after a no-op dismiss of the closed notch that ordered its panels out and in."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.pressedInAnotherFERBWindow", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+untestable = "Whether the window server starts the drag is the owner's live check on the installed app; the test checks the press decision."
