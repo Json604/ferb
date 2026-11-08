@@ -71,7 +71,7 @@ def check_stated(provider: str, body: dict[str, Any], schema: dict[str, Any]) ->
     if provider == "anthropic":
         assert "format" not in body.get("output_config", {}) and body["output_config"]["effort"] == "low"
         system = body["system"][-1]
-        assert system["cache_control"] == {"type": "ephemeral"} and system["text"].startswith("FERB instructions")
+        assert system["cache_control"] == {"type": "ephemeral", "ttl": "1h"} and system["text"].startswith("FERB instructions")
         assert stated_schema(system["text"]) == schema
         assert json.dumps(body).count('"cache_control"') <= 4
     elif provider == "openai":

@@ -954,7 +954,7 @@ def test_anthropic_api_planner_call_carries_the_image_after_the_cached_text() ->
     body = AnthropicProvider().begin(request(), [], {"type": "object"}, "low", "k")["body"]
     content = body["messages"][0]["content"]
     assert [c["type"] for c in content] == ["text", "text", "image"]
-    assert content[0]["cache_control"] == {"type": "ephemeral"}       # the cacheable prefix is unchanged
+    assert content[0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}   # the cacheable prefix is unchanged
     assert content[2]["source"] == {"type": "base64", "media_type": "image/jpeg", "data": B64}
 
 

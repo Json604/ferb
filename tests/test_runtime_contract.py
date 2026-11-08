@@ -44,10 +44,10 @@ CASES = {
 
 
 def check_anthropic_first(body: dict) -> None:
-    assert body["system"][0] == {"type": "text", "text": "FERB instructions", "cache_control": {"type": "ephemeral"}}
+    assert body["system"][0] == {"type": "text", "text": "FERB instructions", "cache_control": {"type": "ephemeral", "ttl": "1h"}}
     content = body["messages"][0]["content"]
     assert [b["text"] for b in content] == ["device facts", "history", "memory", "message"]
-    assert content[1]["cache_control"] == {"type": "ephemeral"} and "cache_control" not in content[2]
+    assert content[1]["cache_control"] == {"type": "ephemeral", "ttl": "1h"} and "cache_control" not in content[2]
     assert body["output_config"]["format"] == {"type": "json_schema", "schema": SCHEMA}
     assert json.dumps(body).count('"cache_control"') <= 4
     assert body["max_tokens"] > 0 and body["cache_control"] == {"type": "ephemeral"}

@@ -39,6 +39,10 @@ VERSION = "2023-06-01"
 MAX_TOKENS = 32000
 NO_EFFORT = ("claude-haiku-4-5",)
 CACHE = {"type": "ephemeral"}
+# RUN-436 (owner 2026-11-08, "Mine: history at 1h too"): FERB's instructions (tools and system) and the stable context,
+# conversation history included, are cached for an hour; only the automatic tail breakpoint keeps the 5-minute TTL.
+# Anthropic requires a longer TTL's breakpoint before a shorter one's, which this order keeps.
+CACHE_1H = {"type": "ephemeral", "ttl": "1h"}
 # L28: each model's documented limits (context window, max output on the synchronous Messages API), checked 2026-10-14
 # on https://platform.claude.com/docs/en/about-claude/models/overview (Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5) and
 # https://platform.claude.com/docs/en/models/haiku-4-5/overview (Haiku 4.5, legacy). Facts, not FERB choices.
@@ -87,13 +91,13 @@ class AnthropicProvider:
               cache_key: str) -> dict[str, Any]:
         content: list[dict[str, Any]] = [{"type": "text", "text": p} for p in request.parts]
         if 0 < request.cacheable <= len(content):
-            content[request.cacheable - 1]["cache_control"] = CACHE
+            content[request.cacheable - 1]["cache_control"] = CACHE_1H
         content += [{"type": "image", "source": {"type": "base64", "media_type": i.mime, "data": i.base64()}}
                     for i in request.images]                       # after the text: the cached prefix stays (L12)
         body: dict[str, Any] = {"model": self.model, "max_tokens": MAX_TOKENS, "cache_control": CACHE,
                                 "messages": [{"role": "user", "content": content}]}
         if request.system:
-            body["system"] = [{"type": "text", "text": request.system, "cache_control": CACHE}]
+            body["system"] = [{"type": "text", "text": request.system, "cache_control": CACHE_1H}]
         if tools:
             body["tools"] = [{"name": t.name, "description": t.description, "input_schema": t.schema} for t in tools]
             body["tool_choice"] = {"type": "auto"}
@@ -107,7 +111,13 @@ class AnthropicProvider:
         return {"body": body}
 
     def http(self, state: dict[str, Any]) -> tuple[str, dict[str, str], dict[str, Any]]:
-        return URL, {"anthropic-version": VERSION, "content-type": "application/json"}, state["body"]
+        body = state["body"]
+        # the API refuses an explicit breakpoint on the request's last block whose TTL differs from the automatic one's:
+        # while the 1h stable-context marker is the last block (the first call, no image), it covers the tail itself
+        last = (body.get("messages") or [{}])[-1].get("content")
+        if isinstance(last, list) and last and isinstance(last[-1], dict) and last[-1].get("cache_control") == CACHE_1H:
+            body = {k: v for k, v in body.items() if k != "cache_control"}
+        return URL, {"anthropic-version": VERSION, "content-type": "application/json"}, body
 
     def stream_http(self, state: dict[str, Any]) -> tuple[str, dict[str, str], dict[str, Any]]:
         url, headers, body = self.http(state)
@@ -173,7 +183,7 @@ class AnthropicProvider:
         if system:
             system[-1]["text"] += "\n\n" + statement
         else:
-            body["system"] = [{"type": "text", "text": statement, "cache_control": CACHE}]
+            body["system"] = [{"type": "text", "text": statement, "cache_control": CACHE_1H}]
 
     def add_results(self, state: dict[str, Any], turn: Turn, results: list[ToolOutcome]) -> None:
         blocks = []

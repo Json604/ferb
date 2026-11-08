@@ -368,3 +368,21 @@ words = "yes lets run a few same tasks on codex, claude code, anthropic api key,
 words_source = "Owner 2026-11-08, asked: Build and run the real-call provider check (T-1069) now on your Anthropic key, before the 35-task run, and before every future release?"
 rule = "Settings → AI's Check runs the same small set of real calls (planner, tools, worker, checker, a picture) on whichever connection is in use, costing cents, and shows each result; the owner runs it on Codex, Claude, the Anthropic, OpenAI and Gemini keys, and before every release."
 paths = ["ferb/daemon/areas/runtimes.py::Runtimes._runtimes_check_calls", "ui/mac/FERBNotch/Sources/FERBNotch/FERBWindowStore.swift"]
+
+[RUN-436]
+title = "Anthropic API cache: instructions and history at 1 hour, the tail at 5 minutes"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "Mine: history at 1h too (Recommended)"
+words_source = "Owner 2026-11-08, answering \"Anthropic API caching: which setup?\" (one of three options)"
+rule = "On the Anthropic API, FERB's instructions (tools and system) and the stable context, conversation history included, are cached with the 1-hour TTL; only the automatic tail breakpoint keeps the 5-minute TTL. Each call's usage records its cache writes by TTL and its cache reads, and 1-hour writes are priced at 2x input."
+paths = ["ferb/runtimes/anthropic_api.py::CACHE_1H", "ferb/runtimes/prices.py::Price"]
+
+[RUN-437]
+title = "1-hour markers come first; the 5-minute tail is left off while the 1-hour marker is the last block"
+by = "agent"
+date = 2026-11-08
+status = "active"
+rule = "For RUN-436. The system block (and RUN-427's stated-format block) and content[cacheable-1] carry {ephemeral, ttl 1h}; the top-level automatic breakpoint stays 5 minutes, after them, as the API requires. A request whose last block is that 1h marker is sent without the top-level field (the API refuses a differing TTL there). Usage gains cache_write_5m_tokens and cache_write_1h_tokens (from usage.cache_creation; no split: all 5m); Price.cache_write_1h prices the 1h part."
+paths = ["ferb/runtimes/anthropic_api.py::AnthropicProvider.http", "ferb/runtimes/usage.py::from_anthropic", "ferb/runtimes/usage.py::cost_usd"]
