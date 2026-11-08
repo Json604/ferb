@@ -81,13 +81,14 @@ def collect(client: Client, turn: dict[str, Any]) -> dict[str, Any]:
         if got.get("episode"):
             episodes.append({k: got["episode"].get(k) for k in ("task_id", "status", "verified", "answer", "seconds")})
     nodes = sorted(spans.values(), key=lambda n: n["started_at"])
-    usage = {k: 0 for k in USAGE_KEYS}
+    usage = {k: 0 for k in USAGE_KEYS} | {"calls_without_cache_write_count": 0}   # RUN-438: unknown, not zero
     cost, unpriced = 0.0, set()
     for n in nodes:
         if n["kind"] == "model.usage":
             out = n.get("output") or {}
             for k in USAGE_KEYS:
                 usage[k] += int(out.get(k) or 0)
+            usage["calls_without_cache_write_count"] += out.get("cache_write_reported") is False
             if out.get("cost_usd") is None:
                 unpriced.add(str(out.get("model") or "?"))
             else:

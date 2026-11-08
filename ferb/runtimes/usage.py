@@ -22,9 +22,13 @@ class Usage:
     cost_usd: float | None           # None when the model has no listed price
     cost_basis: str                  # "provider" (the runtime reported it) | "price_table" | "unknown"
     billing: str                     # "api" (billed per token) | "subscription" (cost is the API-equivalent estimate)
-    # RUN-436: Anthropic's cache writes by TTL (cache_write_tokens is their sum; a provider without the split: all 5m)
+    # RUN-436: Anthropic's cache writes by TTL (their sum is cache_write_tokens; Anthropic without the split: all 5m;
+    # other providers: both 0)
     cache_write_5m_tokens: int = 0
     cache_write_1h_tokens: int = 0
+    # RUN-438: whether the provider's usage reports cache writes at all (Gemini's implicit cache doesn't): False means
+    # cache_write_tokens is unknown, not zero
+    cache_write_reported: bool = True
 
 
 def cost_usd(model: str, input_tokens: int, cached: int, cache_write: int, output: int, day: str | None = None,
@@ -44,8 +48,11 @@ def cost_usd(model: str, input_tokens: int, cached: int, cache_write: int, outpu
 
 
 def _make(model: str, inp: int, cached: int, write: int, out: int, reasoning: int, billing: str,
-          provider_cost: float | None = None, write_1h: int = 0) -> Usage:
-    split = {"cache_write_5m_tokens": write - min(write_1h, write), "cache_write_1h_tokens": min(write_1h, write)}
+          provider_cost: float | None = None, write_1h: int = 0, by_ttl: bool = False,
+          write_reported: bool = True) -> Usage:
+    split: dict[str, Any] = {"cache_write_reported": write_reported}
+    if by_ttl:
+        split |= {"cache_write_5m_tokens": write - min(write_1h, write), "cache_write_1h_tokens": min(write_1h, write)}
     if provider_cost is not None:
         return Usage(model, inp, cached, write, out, reasoning, float(provider_cost), "provider", billing, **split)
     cost = cost_usd(model, inp, cached, write, out, cache_write_1h=write_1h)
@@ -58,27 +65,34 @@ def _int(d: dict[str, Any], key: str) -> int:
 
 
 def from_openai(model: str, usage: dict[str, Any], billing: str) -> Usage:
+    """RUN-438: reads (input_tokens_details.cached_tokens) and writes (its cache_write_tokens, reported on GPT-5.6+
+    with explicit breakpoints; absent: not reported)."""
     details = usage.get("input_tokens_details") or {}
     out = usage.get("output_tokens_details") or {}
     return _make(model, _int(usage, "input_tokens"), _int(details, "cached_tokens"), _int(details, "cache_write_tokens"),
-                 _int(usage, "output_tokens"), _int(out, "reasoning_tokens"), billing)
+                 _int(usage, "output_tokens"), _int(out, "reasoning_tokens"), billing,
+                 write_reported="cache_write_tokens" in details)
 
 
 def from_codex(model: str, usage: dict[str, Any]) -> Usage:
     """Codex's turn.completed usage (OpenAI meaning: input includes cached, output includes reasoning)."""
     return _make(model, _int(usage, "input_tokens"), _int(usage, "cached_input_tokens"),
                  _int(usage, "cache_write_input_tokens"), _int(usage, "output_tokens"),
-                 _int(usage, "reasoning_output_tokens"), "subscription")
+                 _int(usage, "reasoning_output_tokens"), "subscription",
+                 write_reported="cache_write_input_tokens" in usage)
 
 
 def from_anthropic(model: str, usage: dict[str, Any], billing: str, provider_cost: float | None = None) -> Usage:
     read, write = _int(usage, "cache_read_input_tokens"), _int(usage, "cache_creation_input_tokens")
     by_ttl = usage.get("cache_creation") if isinstance(usage.get("cache_creation"), dict) else {}
     return _make(model, _int(usage, "input_tokens") + read + write, read, write, _int(usage, "output_tokens"), 0,
-                 billing, provider_cost, _int(by_ttl, "ephemeral_1h_input_tokens"))
+                 billing, provider_cost, _int(by_ttl, "ephemeral_1h_input_tokens"), by_ttl=True,
+                 write_reported="cache_creation_input_tokens" in usage)
 
 
 def from_gemini(model: str, meta: dict[str, Any], billing: str) -> Usage:
+    """RUN-438: implicit cache hits (cachedContentTokenCount) are the reads; Gemini reports no cache writes."""
     thoughts = _int(meta, "thoughtsTokenCount")
     return _make(model, _int(meta, "promptTokenCount") + _int(meta, "toolUsePromptTokenCount"),
-                 _int(meta, "cachedContentTokenCount"), 0, _int(meta, "candidatesTokenCount") + thoughts, thoughts, billing)
+                 _int(meta, "cachedContentTokenCount"), 0, _int(meta, "candidatesTokenCount") + thoughts, thoughts, billing,
+                 write_reported=False)
