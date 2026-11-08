@@ -179,31 +179,37 @@ struct APIKeyCard: View {
 struct ModelRow: View {
     @ObservedObject var model: SetupModel
     let runtime: String
+    /// A role's own model (APP-793, owner: "is it not smart based on the service connected adn show its option + a
+    /// text field???"): the same picker, plus the connection's model; nil for the connection's own row.
+    var role: String? = nil
     @State private var list: ModelList?
     @State private var choice = ""
     @State private var typed = ""
     @State private var line: String?
     @State private var busy = false
     private static let other = "\u{0}other"
+    private static let connection = "\u{0}connection"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Model").font(.system(size: 12))
+                Text(role.map(RoleCopy.label) ?? "Model").font(.system(size: 12))
+                    .frame(width: role == nil ? nil : 80, alignment: .leading)
                 Picker("Model", selection: $choice) {
-                    ForEach(list?.models ?? [], id: \.self) { Text($0).tag($0) }
+                    if role != nil { Text("The connection's model (\(list?.current ?? ""))").tag(Self.connection) }
+                    ForEach(list?.options(for: role) ?? [], id: \.self) { Text($0).tag($0) }
                     Text("Other…").tag(Self.other)
                 }.labelsHidden()
                 if choice == Self.other {
                     TextField("Model id, e.g. claude-opus-5-5", text: $typed).onSubmit(save)
                 }
                 Button(busy ? "Checking…" : "Use") { save() }
-                    .disabled(busy || chosen.isEmpty || chosen == list?.current)
+                    .disabled(busy || (chosen.isEmpty && choice != Self.connection) || chosen == list?.current(for: role))
             }
-            if let current = list?.current, !current.isEmpty {
+            if role == nil, let current = list?.current, !current.isEmpty {
                 Text("In use: \(current)").font(.system(size: 11)).foregroundStyle(.secondary)
             }
-            if let problem = list?.problem {
+            if role == nil, let problem = list?.problem {
                 Text("No model list from the provider (\(problem)). You can type a model id under Other….")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
@@ -213,63 +219,47 @@ struct ModelRow: View {
     }
 
     private var chosen: String {
-        (choice == Self.other ? typed : choice).trimmingCharacters(in: .whitespacesAndNewlines)
+        switch choice {
+        case Self.other: return typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        case Self.connection: return ""
+        default: return choice
+        }
     }
 
     private func load() async {
         list = await model.models(runtime)
-        if let current = list?.current { choice = current.isEmpty ? Self.other : current }
+        guard let list else { return }
+        let mine = list.current(for: role)
+        choice = mine.isEmpty ? (role == nil ? Self.other : Self.connection) : mine
     }
 
     private func save() {
         let picked = chosen
-        guard !picked.isEmpty else { return }
+        guard !picked.isEmpty || role != nil else { return }
         busy = true
         Task {
-            line = await model.setModel(runtime, picked)
+            line = await model.setModel(runtime, picked, role: role)
             await load()
             busy = false
         }
     }
 }
 
-/// Advanced (RUN-429, owner: "One model, roles optional"): a model for one role on the connection in use; empty uses the
-/// connection's model.
+/// Advanced (RUN-432, APP-793): a model for one role on the connection in use, picked as the connection's model is;
+/// the connection's model when none is chosen.
 struct RoleModelsView: View {
     @ObservedObject var model: SetupModel
     let runtime: String
-    @State private var list: ModelList?
-    @State private var typed: [String: String] = [:]
-    @State private var line: String?
 
     var body: some View {
         DisclosureGroup("Advanced: a model for each role") {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
                 ForEach(["orchestrator", "worker", "checker"], id: \.self) { role in
-                    HStack {
-                        Text(RoleCopy.label(role)).frame(width: 110, alignment: .leading)
-                        TextField(list?.current ?? "", text: binding(role)).onSubmit { save(role) }
-                        Button("Save") { save(role) }
-                    }
+                    ModelRow(model: model, runtime: runtime, role: role)
                 }
-                Text("Empty uses the connection's model.").font(.system(size: 11)).foregroundStyle(.secondary)
-                if let line { Text(line).font(.system(size: 11)).textSelection(.enabled) }
             }.padding(.top, 6)
         }
         .font(.system(size: 12)).tint(.white.opacity(0.6))
-        .task {
-            list = await model.models(runtime)
-            typed = list?.roles ?? [:]
-        }
-    }
-
-    private func binding(_ role: String) -> Binding<String> {
-        Binding(get: { typed[role] ?? "" }, set: { typed[role] = $0 })
-    }
-
-    private func save(_ role: String) {
-        let picked = (typed[role] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        Task { line = await model.setModel(runtime, picked, role: role) }
     }
 }
 

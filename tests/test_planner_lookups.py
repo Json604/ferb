@@ -95,8 +95,8 @@ def test_a_planner_call_makes_at_most_its_lookups(daemon: RunningDaemon) -> None
     results: list[dict[str, Any]] = []
 
     def loop(token: str) -> str:
-        for _ in range(PLANNER_LOOKUPS + 2):
-            results.append(tool(daemon.sock, token, "memory.read"))
+        for i in range(PLANNER_LOOKUPS + 2):
+            results.append(tool(daemon.sock, token, "memory.read", query=f"topic {i}"))
         return json.dumps({"kind": "reply", "answer_question": None, "task": None, "control": None, "remember": [],
                            "timers": [], "schedule": None, "schedule_changes": [], "reminder_cancels": [],
                            "forget": [], "conversation_changes": [], "text": "Nothing found."})
@@ -104,6 +104,32 @@ def test_a_planner_call_makes_at_most_its_lookups(daemon: RunningDaemon) -> None
     chat(daemon, "what do you remember about me?")
     assert [r["is_error"] for r in results] == [False] * PLANNER_LOOKUPS + [True, True]
     assert "lookups" in json.dumps(results[-1]["content"])
+
+
+# decision: ORCH-557, ORCH-516
+def test_a_repeated_lookup_is_answered_from_the_first_and_a_spent_turn_gets_a_last_call(daemon: RunningDaemon) -> None:
+    """Live 2026-11-08 08:49: memory.read {"query": "model"} ten times, then "the model ended without an answer" and the
+    turn failed. A repeat with the same arguments is answered from the first call, said so, without counting; a call
+    that spent every lookup and failed gets one last call with no tools and what the lookups found."""
+    from ferb.core.types import RuntimeEvent
+    seen: list[dict[str, Any]] = []
+
+    def repeat(token: str) -> str:
+        seen.append(tool(daemon.sock, token, "memory.read", query="model"))
+        seen.append(tool(daemon.sock, token, "memory.read", query="model"))
+        for i in range(PLANNER_LOOKUPS):
+            tool(daemon.sock, token, "memory.read", query=f"other {i}")
+        return "not json: the model ended without an answer"
+    script = install(daemon, [repeat, json.dumps({"kind": "reply", "task": None, "text": "You use the model in the "
+                                                  "facts."})])
+    events = chat(daemon, "what model are you using???")
+    assert seen[1]["content"]["same_as_your_earlier_call"] is True
+    assert seen[1]["content"]["result"] == seen[0]["content"]
+    calls = _planner_calls(script)
+    assert len(calls) == 2 and calls[1][2] == []                  # the last call: no tools offered
+    assert "your lookups for this message are used up" in calls[1][0]
+    assert any(e["type"] == "reply" and "facts" in e["text"] for e in events)
+    assert "The AI FERB uses now, from its settings" in calls[0][0]   # the model per role, from records
 
 
 # decision: ORCH-516

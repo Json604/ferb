@@ -943,3 +943,12 @@ words = "no, just random. adn then ferb sayz htat this is it. if user wants then
 words_source = "Owner 2026-11-08, asked: minimum gap between a random-time run and your fixed runs (so random checks aren't skipped while another run is going)?"
 rule = "Refines ORCH-550. A schedule's random times are drawn in their window with no minimum gap from its other runs (only never the same minute, as built). FERB says what it set (its timing, first and next run); the owner changes it by asking. Nothing more is added."
 paths = ["ferb/orchestrator/schedules.py::Timing.picks"]
+
+[ORCH-557]
+title = "A planner's repeated lookup gets its earlier answer; spent lookups end in one tool-free call"
+by = "agent"
+date = 2026-11-08
+status = "active"
+rule = "Refines ORCH-516. A lookup repeating an earlier call's tool and arguments in the same planner call gets that call's result back, marked as the same and told looking again won't change it; it isn't run again but still counts. A planner call that used all PLANNER_LOOKUPS and then failed gets one last call with no tools, given what its lookups found. Every planner turn's live facts start with the AI FERB uses now, per role, from its settings (connection and model), to answer from."
+why = "Live 2026-11-08 08:49, claude-sonnet-5-5: \"what model are you using???\" made memory.read {\"query\": \"model\"} ten times, each empty, then \"the model ended without an answer\" failed the turn; FERB's own settings held the answer."
+paths = ["ferb/daemon/gateway.py::Gateway.call", "ferb/orchestrator/supervisor.py::Supervisor._supervise", "ferb/daemon/areas/environment.py::Environment._live_facts", "ferb/daemon/areas/about.py::About._models"]

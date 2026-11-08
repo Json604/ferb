@@ -3502,3 +3502,12 @@ request = "For each of the five connections in turn: Use it in Settings → AI, 
 pass = "Each check shows six lines (planner call, tool call with no arguments, tool call with arguments, worker call, checker call, a picture) with pass or fail, the model, the typed form, time, tokens and cost, and a total of a few cents; a failure shows the provider's own words. The saved keys are moved without asking you for them again (at most one Keychain prompt per key)."
 decisions = ["RUN-434", "RUN-435", "GATE-543"]
 sitting = "after this change is installed"
+
+[LIVE-820]
+title = "Planner answers which model; role pickers; another app's shortcut with Settings open"
+area = "app"
+surface = "FERB.app with this build, Settings → AI on an API key or Claude connection"
+request = "Ask FERB \"what model are you using?\". In Settings → AI → Advanced, pick a worker model from the list, then Other… with a typed id. With Settings open and in front, press your clipboard app's shortcut."
+pass = "FERB names the connection and model per role from its settings, with no failed turn. Each role row shows the connection's models, the connection's own model and Other…; a bad id is refused and the old one stays. The clipboard app opens while Settings is open, unless you clicked into a key field."
+decisions = ["ORCH-557", "APP-793", "APP-794", "APP-795"]
+sitting = "after this change is installed"

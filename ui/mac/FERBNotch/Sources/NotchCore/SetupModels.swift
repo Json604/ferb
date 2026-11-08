@@ -340,6 +340,15 @@ public struct ModelList: Equatable {
 
     /// What the picker shows for a model: the list's own entry, else "Other…" (typed).
     public func listed(_ model: String) -> Bool { models.contains(model) }
+
+    /// The model a role runs on this connection: its own, else "" (the connection's) (APP-793); nil: the connection's.
+    public func current(for role: String?) -> String { role.map { roles[$0] ?? "" } ?? current }
+
+    /// The picker's models for a role: the connection's list, with a role's own typed model in it too.
+    public func options(for role: String?) -> [String] {
+        let mine = current(for: role)
+        return mine.isEmpty || models.contains(mine) ? models : [mine] + models
+    }
 }
 
 /// `runtimes.check_calls`' reply (T-1069): one line per call shape FERB really makes, and the total cost.

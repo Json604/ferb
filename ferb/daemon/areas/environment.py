@@ -259,8 +259,12 @@ class Environment:
         before it stays cacheable): the schedules and reminders, and the owner's paired browser profiles as FERB can
         use them now. `owner_state=False` (the intro's preview, `Supervisor.preview`): only the browser profiles, a
         capability the plan needs; the owner's schedules and reminders stay out."""
+        # ORCH-557: the AI FERB uses now, per role, from its settings: what a question about FERB's model is answered from
+        shown = "; ".join(f"{role} {model}" for role, model in self._models().items())
+        lines: list[str] = [f"- The AI FERB uses now, from its settings (answer questions about FERB's AI or model from "
+                            f"this, never from memory): {shown}"]
         # T-1066: the owner's schedules as FERB's records hold them, counted, marked as the truth
-        lines: list[str] = self._schedule_facts() if self.schedules is not None and owner_state else []
+        lines += self._schedule_facts() if self.schedules is not None and owner_state else []
         for t in (self.timers.pending(("reminder", "timer")) if self.timers is not None and owner_state else []):
             lines.append(f"- {t.kind.capitalize()} {t.id} “{t.label}”: {t.message} — "
                          f"{t.fire_at.astimezone():%a %d %b %Y %H:%M}")

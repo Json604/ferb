@@ -166,6 +166,9 @@ PLANNER_TOOLS = frozenset({"memory.read", "chat.history", "task.evidence", "trai
 PLANNER_SCOPES = frozenset({"task:read", "trail:read"})
 PLANNER_LOOKUPS = 10
 LOOKUPS = ".lookups"                # a planner turn's lookup record: its request id with this suffix (no task row)
+# ORCH-557: the last call of a turn whose lookups are used up: no tool, and what they found
+LOOKUPS_SPENT_NOTE = ("Layer 6 — your lookups for this message are used up; no tool is offered now. What they found "
+                      "(data, as returned):")
 RECENT_EXCHANGES = 20               # owner decision: the last 20 exchanges, always, never folded or dropped
 RECENT_CONVERSATION_TOKENS = 15_000  # with FOLD_CHUNK_TOKENS, a whole tail past both folds what lies beyond the 20
 FOLD_CHUNK_TOKENS = 20_000          # the unfolded tail folds once it holds this much beyond them; one summary call
@@ -3035,7 +3038,8 @@ class Supervisor(WorkerRuns):
 
     async def _supervise(self, turn: _Turn, repair: list[str] | None = None, *,
                          emit: Callable[[dict[str, Any]], None] | None = None,
-                         notify: Callable[[dict[str, Any]], None] | None = None) -> SupervisorOutcome:
+                         notify: Callable[[dict[str, Any]], None] | None = None,
+                         lookups_spent: bool = False) -> SupervisorOutcome:
         """One planner call (L28). Its blocks are ordered most-stable first, so the provider caches the prefix (decision
         4, target design 5): its instructions (with the facts that hold across turns), the stable device facts, FERB's
         running summary of the older chat, every entry after it (append-only: at least the last RECENT_EXCHANGES
@@ -3051,7 +3055,8 @@ class Supervisor(WorkerRuns):
         if prep is None:
             prep = _Prepare(self.spans, self.clock, turn.request_id, repair=bool(repair))
         try:
-            lookups = self._lookup_tools(turn)
+            # ORCH-557: after a call that spent its lookups and failed, one last call with no tools and what they found
+            lookups = [] if lookups_spent else self._lookup_tools(turn)
             rt = self.make_runtime("orchestrator", mode="supervisor", tool_names=lookups, schema=SUPERVISOR_SCHEMA)
             prep.steps.mark("runtime")
             session = turn.session
@@ -3101,6 +3106,12 @@ class Supervisor(WorkerRuns):
                 state.append((ContextBlock('Layer 6 — plan repair:\n' + load_prompt(self._approach() + "/repair.md")
                                            + "\n" + json.dumps(repair), "plan validation", protected=True),
                               {origins_.FERB}))
+            if lookups_spent:
+                found = self.spans.tool_outputs(turn.request_id + LOOKUPS)
+                state.append((ContextBlock(LOOKUPS_SPENT_NOTE + "\n" + "\n\n".join(text for _, _, text in found),
+                                           "a lookup by this request's planner (its tool call in the trace)",
+                                           protected=True),
+                              {o for _, made, _ in found for o in made} | {origins_.FERB}))
             several = len(turn.entries) > 1
             state.append((ContextBlock(("Layer 5 — owner's new messages, sent one after another before FERB replied "
                                         "(read them together; the last one is the most recent):\n" if several else
@@ -3141,6 +3152,7 @@ class Supervisor(WorkerRuns):
         def timing() -> dict[str, Any]:
             return {**clocked.facts(), **({"call": call} if call else {})}
         token, looker = self._lookup_grant(turn, span.id, lookups)
+        spent_retry, refused = False, ""
         system = self._system("supervisor.md", live=False)
         clocked.mark("ferb_before")
         try:
@@ -3173,15 +3185,23 @@ class Supervisor(WorkerRuns):
             self.spans.finish(span, output={"text": locals().get("final", ""), "timing": timing()},
                               error=f"{type(exc).__name__}: {exc}")
             self._lookups_read(turn)       # a failed turn's lookups still count for a repair's or retry's answer
+            # ORCH-557: a call that spent every lookup and then failed (no answer) gets one last call without tools
+            if (looker and not lookups_spent and self.gateway.lookups_made(looker) >= PLANNER_LOOKUPS
+                    and not isinstance(exc, (asyncio.CancelledError, ImageRefused))):
+                spent_retry = True
             # ORCH-524: only the provider's own refusal of the image, as its adapter marked it (ImageRefused), is
             # retried without the image. Any other failure (an account, schema, timeout or network error) goes on as
             # what it is, with its own words, and costs no second call; an answer that doesn't validate goes to
             # _decide's repair as before.
-            if not (images and isinstance(exc, ImageRefused)):
+            elif not (images and isinstance(exc, ImageRefused)):
                 raise
-            refused = str(exc)
+            else:
+                refused = str(exc)
         finally:
             self._lookups_end(turn, looker)
+        if spent_retry:
+            self.journal.append("planner.lookups_spent", {"request_id": turn.request_id})
+            return await self._supervise(turn, repair, emit=emit, notify=notify, lookups_spent=True)
         # L12: a model that won't take the screenshot must not fail the message: once more without it, saying so,
         # with the provider's own words (free of the key; the journal redacts what it stores)
         self.journal.append("screen.image_refused", {"request_id": turn.request_id, "error": refused})

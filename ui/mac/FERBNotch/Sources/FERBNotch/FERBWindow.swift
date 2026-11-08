@@ -89,9 +89,10 @@ final class FERBWindowController: NSObject, NSWindowDelegate {
     func show(_ section: FERBSection, tab: SettingsTab? = nil) {
         select(section, tab: tab)
         if window == nil {
-            let created = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1020, height: 760),
-                                   styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-                                   backing: .buffered, defer: false)
+            let created = FERBAppWindow(contentRect: NSRect(x: 0, y: 0, width: 1020, height: 760),
+                                        styleMask: [.titled, .closable, .miniaturizable, .resizable,
+                                                    .fullSizeContentView],
+                                        backing: .buffered, defer: false)
             created.title = "FERB"
             created.titleVisibility = .hidden
             created.titlebarAppearsTransparent = true

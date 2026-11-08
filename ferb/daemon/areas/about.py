@@ -18,11 +18,11 @@ class About:
 
     def _models(self) -> dict[str, str]:
         """Role -> "runtime model", from config (the runtime table's defaults when unset)."""
-        from ferb.runtimes.catalog import ROLES, label, model_for
+        from ferb.runtimes.catalog import ROLES, label, role_model
         out = {}
         for role in ROLES:
             name = self._runtime_for(role)
-            out["planner" if role == "orchestrator" else role] = f"{label(name)} {model_for(self.config, name)}".strip()
+            out["planner" if role == "orchestrator" else role] = f"{label(name)} {role_model(self.config, name, role)}".strip()
         return out
 
     def _about_summary(self) -> str:

@@ -2958,3 +2958,33 @@ words = "no youre still not getting it. when i chagen from anthropic or anu api 
 words_source = "Owner 2026-11-08 08:18, with a screenshot of Settings → AI after switching to ChatGPT: the Anthropic row showed only an empty paste box"
 rule = "Each API key the Keychain holds gets a card like ChatGPT's and Claude's: the provider, \"Key saved\" (never the key), Use (one tiny call first; the service in use stays when it fails), Replace key, Remove key (not while in use) and its model. Only providers with no saved key keep the paste box. The ✓ sits on the connection in use; every Use in Settings → AI checks before switching."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift::APIKeyCard", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::SetupModel", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift::AISnapshot"]
+
+[APP-793]
+title = "A role's model is picked like its connection's: the provider's list plus Other…"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "is it not smart based on the service connected adn show its option + a text field???"
+words_source = "Owner 2026-11-08, on Settings → AI → Advanced showing a plain text field per role"
+rule = "Refines APP-791's Advanced part. Each role row (planner, worker, checker) has the connection's picker: the connection's model list, the connection's own model (the default, nothing set for the role) and Other… with a text field, and Use; a model is checked before it is saved, as for the connection."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift::RoleModelsView", "ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift::ModelRow", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift::ModelList"]
+
+[APP-794]
+title = "Other apps' shortcuts keep working while FERB's Settings window is open"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "another bug i noticed, i cant open my onemeny clipboard when settings window is open"
+words_source = "Owner 2026-11-08, about a clipboard app opened with a keyboard shortcut"
+rule = "With FERB's app window open and in front, another app's keyboard shortcut still reaches that app: FERB never turns on the Mac's secure keyboard input unless the owner chose a password-style field."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SecureEntryFocus.swift::FERBAppWindow"]
+untestable = "Whether another app's event tap sees keys is the owner's live check (LIVE-820); the tests check the window's focus rule on a real SwiftUI secure field."
+
+[APP-795]
+title = "A secure field in FERB's window takes the keyboard only from the owner's click or Tab"
+by = "agent"
+date = 2026-11-08
+status = "active"
+rule = "For APP-794. FERB's app window (FERBAppWindow) refuses to make a secure text field, or its field editor, first responder unless the event being handled is a press inside that field or Tab in that window. Opening the window or a page no longer focuses the API key or code field by itself. APP-790's menu watch lists only FERB's own windows and was not the cause."
+why = "The clipboard app reads its shortcut through an event tap (CGEventTapCreate); the window server logged \"secureTextInput is active\" with FERB in front (08:52:39, 08:53:51) while Settings was open: a secure field had the keyboard by itself, which hides keys from every other app."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SecureEntryFocus.swift::SecureEntryFocus", "ui/mac/FERBNotch/Sources/FERBNotch/FERBWindow.swift::FERBWindowController.show"]

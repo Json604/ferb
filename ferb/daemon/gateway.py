@@ -100,6 +100,8 @@ CHECKER_READ_ONLY = ("the final check is read-only: this tool acts and is not av
 # ORCH-516: a grant limited to named tools (the planner's lookups) gets only those, at most its `max_calls` calls
 LOOKUPS_SPENT = ("this turn has made its {n} lookups: answer from what you have, or make the request a task whose "
                  "worker can look further")
+SAME_LOOKUP = ("same as your earlier call with these arguments: its result is below; looking again won't change it, so "
+               "answer from it or try other words")
 # P19. The error is a fact the owner reads in step lines; what the agent should do is in `next`.
 UNKNOWN_NOT_REPEATED = ("A previous attempt at this exact action may have gone through (its outcome is unknown); it was "
                         "not repeated without the owner.")
@@ -593,6 +595,7 @@ class Gateway:
         self._undelivered: dict[tuple[str, str, str], tuple[str, dict[str, Any]]] = {}
         self._cancelled_tasks: set[str] = set()
         self._calls_made: dict[str, int] = {}             # by worker: calls of a grant with max_calls (ORCH-516)
+        self._lookup_answers: dict[tuple[str, str, str], dict[str, Any]] = {}   # ORCH-557: (worker, tool, args) -> reply
         # The orchestrator's two seams, given once by `attach` (it is built after the gateway, on top of it)
         self.observer: Observer = Observer()
         self.conversation_guard: Callable[[Any, str, Any, Any], str | None] = lambda grant, name, cap, spec: None
@@ -670,6 +673,14 @@ class Gateway:
         return out
 
     async def call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        # ORCH-557: a planner lookup repeated with the same arguments in the same call gets its earlier answer back,
+        # said so, without running again; it still counts as one of the call's lookups
+        same = (grant.worker_id, name, json.dumps(arguments, sort_keys=True, default=str)) if grant.max_calls else None
+        if same is not None and same in self._lookup_answers and self.lookups_made(grant.worker_id) < grant.max_calls:
+            self._calls_made[grant.worker_id] = self.lookups_made(grant.worker_id) + 1
+            earlier = self._lookup_answers[same]
+            return {**earlier, "content": {"same_as_your_earlier_call": True, "note": SAME_LOOKUP,
+                                           "result": earlier.get("content")}}
         job = asyncio.current_task()
         if job is not None:
             self._in_flight[job] = grant.task_id
@@ -678,6 +689,8 @@ class Gateway:
         finally:
             if job is not None:
                 self._in_flight.pop(job, None)
+        if same is not None and not r.get("is_error"):
+            self._lookup_answers[same] = r
         return r
 
     async def probe(self, grant: RunGrant, name: str, arguments: dict[str, Any], span_id: str) -> dict[str, Any]:
@@ -1013,9 +1026,15 @@ class Gateway:
             self._calls_made[grant.worker_id] = made + 1
         return cap
 
+    def lookups_made(self, worker_id: str) -> int:
+        """How many calls a grant with max_calls has made (ORCH-557)."""
+        return self._calls_made.get(worker_id, 0)
+
     def forget_calls(self, worker_id: str) -> None:
-        """A grant with max_calls ended (its run token revoked): its count goes."""
+        """A grant with max_calls ended (its run token revoked): its count and its answers go."""
         self._calls_made.pop(worker_id, None)
+        for key in [k for k in self._lookup_answers if k[0] == worker_id]:
+            del self._lookup_answers[key]
 
     @staticmethod
     async def _off_loop(cap: Any, fn: Callable[..., Any], *args: Any) -> Any:

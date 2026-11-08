@@ -587,3 +587,11 @@ kind = "question"
 status = "open"
 why = "Owner 2026-11-07: \"real mdoel calls on a vast variety of tasksk ... covering the ones that are makjor first BUT ensuring ours is qualitative rather tahn quanitty\". Plan first; owner-controlled surfaces (rule 16); before/after changes."
 ask = "Approve the plan: which tasks, what quality measures, which surfaces."
+
+[T-1070]
+title = "Redo the UI/UX of FERB window Settings"
+area = "app"
+kind = "build"
+status = "open"
+why = "Owner 2026-11-08: \"add in later checklist to redo the ui/ux of ferb window settings\". Settings is functional only (APP-791..793); a later pass redesigns it."
+decisions = ["APP-791", "APP-792", "APP-793"]
