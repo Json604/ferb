@@ -72,6 +72,7 @@ from ferb.orchestrator.schemas import (CHECKER_SCHEMA, FIX_SCHEMA, QUESTION_SCHE
                                        Finding, FixOutcome, QuestionOutcome, RecheckOutcome, SummaryOutcome,
                                        SupervisorOutcome, TaskSpec, WorkerReport, worker_schema)
 from ferb.orchestrator import browsing
+from ferb.orchestrator.test_runs import TestRuns
 from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
 from ferb.orchestrator.worker import (BUG, ConnectionNotice, ImageRefused, InvalidAnswer, Overflowed, ServiceDown,
@@ -414,6 +415,7 @@ class _Arrival:
     marked: Any = None                   # its own words and pasted parts (sanitize.untrusted.mark)
     paths: list[str] = field(default_factory=list)
     hidden: list[str] = field(default_factory=list)    # the kinds of secret masked in its text, by name
+    test_run: dict[str, str] | None = None               # GATE-550: a test run's tag {run, connection}
 
 
 @dataclass
@@ -2155,7 +2157,8 @@ class Supervisor(WorkerRuns):
 
     async def send(self, session_id: str, text: str, *, input_paths: list[str] | None = None,
                    request_id: str | None = None, screen: Awaitable[Any] | None = None,
-                   hidden: list[str] | None = None) -> AsyncIterator[dict[str, Any]]:
+                   hidden: list[str] | None = None,
+                   test_run: dict[str, str] | None = None) -> AsyncIterator[dict[str, Any]]:
         """One owner message in this chat (ORCH-318). A message sent while the chat's turn is still thinking (no reply
         yet) restarts that turn once and is read with it; a later one waits, and the messages that waited are read
         together in the next turn. A message another one's turn reads ends its own stream with `merged` (into that
@@ -2164,7 +2167,9 @@ class Supervisor(WorkerRuns):
         captures it from when the message arrived (L12). `hidden`: the kinds of secret the daemon masked in `text`
         (names only, `Redactor.kinds`)."""
         arrival = _Arrival(request_id or self.ids.new_id(), text, list(input_paths or []), screen,
-                           asyncio.get_running_loop().create_future(), hidden=list(hidden or []))
+                           asyncio.get_running_loop().create_future(), hidden=list(hidden or []), test_run=test_run)
+        if test_run:                                 # GATE-550: known as a test run's before anything reads it
+            TestRuns.of(self.journal.db).add(session_id, arrival.request_id)
         line = self._lines.setdefault(session_id, _ChatLine())
         line.arrive(arrival)
         try:
@@ -2323,7 +2328,8 @@ class Supervisor(WorkerRuns):
             arrival.entry = self.journal.append("chat.message", {
                 "session_id": session_id, "request_id": arrival.request_id, "text": m.for_model,
                 "untrusted_parts": len(m.untrusted) + bool(arrival.paths), "input_paths": arrival.paths}
-                | ({} if arrival is run.lead else {"read_with": run.lead.request_id}))
+                | ({} if arrival is run.lead else {"read_with": run.lead.request_id})
+                | ({"test_run": arrival.test_run} if arrival.test_run else {}))
         # what FERB does from the message to the planner's model call is timed (ORCH-525): this intake's steps here, the
         # context's in `_supervise`, which ends the span
         prep = _Prepare(self.spans, self.clock, run.lead.request_id)
@@ -2946,6 +2952,11 @@ class Supervisor(WorkerRuns):
         sites out); `_turn_sites` keeps the sites of those the owner typed, with the turn's, as where a login name may be
         saved."""
         session_id, request_id, typed = turn.session.id, turn.request_id, turn.typed
+        if (out.remember or out.forget) and TestRuns.of(self.journal.db).request(request_id):
+            # GATE-550: a test run learns nothing and changes none of the owner's memory
+            self.journal.append("test_run.memory_skipped", {"request_id": request_id, "remember": len(out.remember),
+                                                            "forget": len(out.forget)})
+            out = out.model_copy(update={"remember": [], "forget": []})
         recent = blocked_.NOT_IN_RECENT
         events: list[dict[str, Any]] = []
         for change in out.conversation_changes:
@@ -3480,8 +3491,8 @@ class Supervisor(WorkerRuns):
         back to the last 20 exchanges; the same call drops what is older than SUMMARY_DAYS unless it is still open.
         The token figures only decide when what lies beyond the last 20 exchanges folds: those 20 never fold. One fold
         per chat at a time; the planner only reads the latest summary (no model call per turn)."""
-        if conversation in self._summarizing:
-            return
+        if conversation in self._summarizing or TestRuns.of(self.journal.db).session(conversation):
+            return                       # GATE-550: a test run's chat never folds into a summary
         entries = self._timeline("", conversation, self._summary(conversation))[0]
         count = len(entries) - len(self._recent_entries(entries))
         excess = sum(count_tokens(e.text) for e in entries[:count])

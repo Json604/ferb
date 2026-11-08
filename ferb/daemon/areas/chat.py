@@ -228,6 +228,18 @@ class Chat:
         return {"approval_id": approval_id, "state": told["state"], "task_id": told["task_id"],
                 "message": mark(text).for_model, "reply": told["text"], **({"hidden": hidden} if hidden else {})}
 
+    def _test_run_tag(self, given: Any) -> dict[str, str] | None:
+        """GATE-550: a test run's tag on a chat message, {run, connection}, taken only while test mode records
+        questions (the run tool's chats); anything else is refused, never silently dropped."""
+        if given is None:
+            return None
+        if self.gateway is None or not self.gateway.test_questions:
+            raise FerbError("test_run needs test mode with questions recorded")
+        if not isinstance(given, dict) or not all(isinstance(given.get(k), str) and given[k].strip()
+                                                  for k in ("run", "connection")):
+            raise FerbError("test_run must be {run, connection}")
+        return {"run": given["run"].strip(), "connection": given["connection"].strip()}
+
     async def _test_mode(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         if self.gateway is None:
             raise FerbError("the tool gateway is not ready")
@@ -363,6 +375,7 @@ class Chat:
         if any(hit(p) for p in input_paths) if hit is not None else self.redact(input_paths) != input_paths:
             raise FerbError('input_paths contains protected secret text; rename the attachment before sharing its path')
         session_id = str(params.get("session_id", "default"))
+        test_run = self._test_run_tag(params.get("test_run"))
         if session_id.startswith(RESERVED_SESSIONS):     # FERB's own planner sessions (a schedule's, the intro preview)
             raise FerbError("session_id names one of FERB's own sessions, not a chat")
         raw = str(params.get("text", ""))
@@ -388,7 +401,7 @@ class Chat:
             try:
                 async for ev in self.supervisor.send(session_id, text,  # type: ignore[union-attr]
                                                      input_paths=input_paths, request_id=request_id, screen=screen,
-                                                     hidden=hidden):
+                                                     hidden=hidden, test_run=test_run):
                     ev = stamped(ev)
                     if ev.get("task_id"):
                         my_tasks.add(ev["task_id"])

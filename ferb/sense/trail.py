@@ -154,6 +154,9 @@ class Trail:
             return None                                               # 1. nothing excluded goes further
         data = self.redact(o.data)
         actor, task_id = self.attribution.decide(o)                   # 2. id + actor
+        from ferb.orchestrator.test_runs import TestRuns
+        if TestRuns.of(self.db).task(task_id):
+            return None                       # GATE-550: a test run's own activity isn't another run's context
         now = self.clock.now()
         e = TrailEvent(self.ids.new_id(), now, self.device_id(), actor, task_id, o.source, data)
         self.db.conn.execute(                                         # 3. persist, then publish

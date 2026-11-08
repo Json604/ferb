@@ -781,3 +781,22 @@ words_source = "Owner 2026-11-08: separate test FERB or the real one (first part
 rule = "Supersedes GATE-545. The real-task question test runs inside the owner's installed FERB, using every profile FERB needs, as far as payment pages and other extremes; its data is kept in a separate folder for later lookup (the owner reinstalls FERB afterwards). FERB never closes the owner's tabs, only its own (HAND-201). How questions are answered in it is GATE-546."
 paths = ["ferb/daemon/areas/chat.py::Chat._test_mode"]
 untestable = "The run itself is the owner's, on their installed FERB and profiles; the recorder's behaviour is tested under GATE-546."
+
+[GATE-550]
+title = "Test runs of the same task on different connections never see each other's records"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "also we have to make sure while runnign smae tasks on all teh provders, there history shouldn collide - so that it doesnt affect whot the other provider did the same task. laso time keeping, how much time it took for each to do that etcetc allt eh records shouldb be ther"
+words_source = "Owner 2026-11-08, about the real-task question test run on every connection (GATE-549)"
+rule = "Each test-run task runs in its own chat tagged with its run and connection. No test run sees another's chats, memory, learning or activity, and FERB learns nothing from test runs: no memory captures, learning cards, summary folds or distilled facts. The owner's data from before the run stays visible. Each task's records are kept: start and end, time per step and per model call, tokens, cost, questions, the outcome and FERB's answer."
+paths = ["ferb/orchestrator/test_runs.py::TestRuns", "scripts/question_run.py"]
+
+[GATE-551]
+title = "How test runs are kept apart: one tag on the chat message, checked where records are learned or read"
+by = "agent"
+date = 2026-11-08
+status = "active"
+rule = "For GATE-550. chat.send takes test_run {run, connection} only while test mode records questions; it is stored on the chat.message row and TestRuns answers by session, request or task. Already per chat: chat.history, task.evidence, the summary. Gated by the tag: trail rows of a test task aren't written; the daily distill skips test messages and outcomes; remember/forget entries are dropped (test_run.memory_skipped); no episode card; no summary fold. Episode rows stay (the trace's record)."
+why = "The run script adds --task-limit (default 20 min, stopped through task.stop and recorded) and --cost-cap; scripts/question_compare.py puts connections side by side."
+paths = ["ferb/orchestrator/test_runs.py", "ferb/daemon/areas/chat.py::Chat._test_run_tag", "ferb/sense/trail.py::Trail.record", "ferb/memory/summary.py::_journal", "scripts/question_compare.py"]

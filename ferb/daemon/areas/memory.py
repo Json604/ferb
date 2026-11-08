@@ -101,6 +101,9 @@ class MemoryGlue:
         verdict, a write of a card: `Learning.generation`), it reads again. `report`: journal the refs skipped as
         damaged by redaction or expired by retention, and a card skipped as built on forgotten content (C1). Raises
         LearningRefused when the card can't be built."""
+        from ferb.orchestrator.test_runs import TestRuns
+        if self.db is not None and TestRuns.of(self.db).task(task_id):
+            return None                       # GATE-550: nothing is learned from a test run's task
         assert self.learning is not None
         async with self._card_lock:
             while True:

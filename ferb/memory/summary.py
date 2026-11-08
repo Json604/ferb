@@ -72,10 +72,17 @@ def _rows(db: Database, day: str) -> list[Any]:
 
 
 def _journal(db: Database, day: str) -> list[Any]:
+    """The day's chat messages and task outcomes, without a test run's (GATE-550: nothing is learned from them)."""
+    from ferb.orchestrator.test_runs import TestRuns
+    runs = TestRuns.of(db)
     out = []
     for r in db.conn.execute("SELECT * FROM journal WHERE kind IN ('chat.message', 'task.outcome') ORDER BY seq"):
-        if datetime.fromisoformat(r["at"]).astimezone().date().isoformat() == day:
-            out.append(r)
+        if datetime.fromisoformat(r["at"]).astimezone().date().isoformat() != day:
+            continue
+        d = json.loads(r["data_json"])
+        if d.get("test_run") or (r["kind"] == "task.outcome" and runs.task(str(d.get("task_id") or ""))):
+            continue
+        out.append(r)
     return out
 
 

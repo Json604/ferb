@@ -8,7 +8,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 |---|---|---|---|---|---|
 | app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 241 | 11 | 9 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 69 | 5 | 5 |
-| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 71 | 8 | 47 |
+| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 73 | 8 | 47 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 81 | 3 | 10 |
 | memory | Memory and memory import | `ferb/memory` | 58 | 3 | 0 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 80 | 7 | 7 |
