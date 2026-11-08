@@ -54,13 +54,13 @@ class Runtimes:
                                    effort=effort)
 
     def _build_runtime(self, name: str, role: str, *, mode: str, tool_names: list[str], schema: dict[str, Any],
-                       effort: str | None = None) -> Any:
+                       effort: str | None = None, model: str = "") -> Any:
         """One runtime for a role (D32), through its factory in the runtime table. `effort`: the reasoning effort a
         worker-mode run asks for (L39: "high" for the checker of a step that changed files), each adapter's own
         setting; None keeps the runtime's default. The call's time limit: none for the planner's chat turn (ORCH-528)
         or a worker, CALL_LIMIT_S for another non-worker call (catalog.call_limit)."""
         from ferb.orchestrator.schemas import SUPERVISOR_SCHEMA
-        from ferb.runtimes.catalog import CATALOG, Build, call_limit, model_for
+        from ferb.runtimes.catalog import CATALOG, Build, call_limit, role_model
         entry = CATALOG.get(name)
         if entry is None:
             if role.startswith("worker:"):          # the planner's choice of worker type, not the owner's config
@@ -69,7 +69,7 @@ class Runtimes:
             raise FerbError(f"unknown runtime {name!r} in config.toml [runtimes]; runtimes: {', '.join(CATALOG)}")
         planner = role == "orchestrator" and mode == "supervisor" and schema is SUPERVISOR_SCHEMA
         return entry.build(Build(self.home, role, mode, tool_names, schema,  # type: ignore[arg-type, attr-defined]
-                                 model_for(self.config, name), self._runtime_deps(), effort, planner,
+                                 model or role_model(self.config, name, role), self._runtime_deps(), effort, planner,
                                  call_limit(mode, planner)))
 
     def _runtime_deps(self) -> Any:
@@ -228,13 +228,17 @@ class Runtimes:
 
     async def _runtimes_check(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """One tiny typed call through a runtime: proves the key, model and network work (costs a fraction of a cent)."""
+        return await self._check_runtime(str(params.get("runtime")), str(params.get("model") or ""))
+
+    async def _check_runtime(self, name: str, model: str = "") -> dict[str, Any]:
+        """`runtimes.check`'s call, with `model` instead of the runtime's own when given (RUN-429: a model is checked
+        before it is saved)."""
         from ferb.core.types import ModelRequest, Task
-        name = str(params.get("runtime"))
         self._available_cache.pop(name, None)
         schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"],
                   "additionalProperties": False}
         try:
-            rt = self._build_runtime(name, "orchestrator", mode="supervisor", tool_names=[], schema=schema)
+            rt = self._build_runtime(name, "orchestrator", mode="supervisor", tool_names=[], schema=schema, model=model)
             from ferb.orchestrator.worker import model_limits
             model_limits(rt)                # a model without documented limits fails here, before any call (L28)
             device = str(self.config.get("device", "id", "unknown-device"))
@@ -258,6 +262,79 @@ class Runtimes:
         finally:
             await rt.cancel(run)
         return {"ok": False, "detail": detail or "no answer"}
+
+    async def _runtimes_models(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """RUN-429 (owner 2026-11-08): the models a connection can use, for Settings → AI's picker: an API key's live
+        list from its provider (read with the stored key), Codex's and Claude's from what their pinned runtime knows;
+        the model it runs now and each role's own model. A list the provider didn't give says why (`problem`); the
+        owner can still type any model id."""
+        from ferb.runtimes import models as models_
+        from ferb.runtimes.catalog import CATALOG, ROLES, model_for
+        name = str(params.get("runtime", ""))
+        entry = CATALOG.get(name)
+        if entry is None:
+            raise FerbError(f"unknown AI service {name!r}")
+        out: dict[str, Any] = {"runtime": name, "model": model_for(self.config, name), "models": [],
+                               "source": "provider" if entry.sign_in == "key" else "known",
+                               "roles": {role: self.config.get("role_models", role) for role in ROLES
+                                         if isinstance(self.config.get("role_models", role), dict)}}
+        if entry.sign_in != "key":
+            out["models"] = await asyncio.to_thread(models_.known_models, name, self.home)
+            return out
+        key = await self._api_key(name)
+        if not key:
+            out["problem"] = f"no {name} API key is saved"
+            return out
+        try:
+            out["models"] = await models_.provider_models(name, key)
+        except models_.ListFailed as e:
+            out["problem"] = self._redact_text(str(e))
+        return out
+
+    async def _runtimes_model(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """RUN-429: the owner's model for a connection (`runtime`, `model`), or for one role on it (`role`; an empty
+        model clears the role's own). Checked before it is saved: in the provider's own list for this key, else (no
+        list, or a sign-in) one tiny call. A model that fails isn't saved: the previous one keeps running and the
+        provider's words come back. Saved to config.toml's [models] / [role_models] through this owner RPC only."""
+        from ferb.runtimes import models as models_
+        from ferb.runtimes.catalog import CATALOG, ROLES
+        name, model = str(params.get("runtime", "")), " ".join(str(params.get("model") or "").split())
+        role = params.get("role")
+        entry = CATALOG.get(name)
+        if entry is None:
+            raise FerbError(f"unknown AI service {name!r}")
+        if role is not None and role not in ROLES:
+            raise FerbError(f"role must be one of {', '.join(ROLES)}")
+        if role is not None and not model:
+            await asyncio.to_thread(self.config.remove, "role_models", str(role))
+            self._journal().append("runtimes.model", {"runtime": name, "role": role, "model": None})
+            return {"ok": True, "model": "", "detail": "uses the connection's model"}
+        if not model:
+            raise FerbError("model must be a model id")
+        checked = ""
+        if entry.sign_in == "key":
+            key = await self._api_key(name)
+            if key:
+                try:
+                    offered = await models_.provider_models(name, key)
+                    if model not in offered:
+                        return {"ok": False, "detail": f"{model} isn't in the models your {name} key can use"}
+                    checked = "in the provider's list"
+                except models_.ListFailed:
+                    checked = ""
+        if not checked:
+            result = await self._check_runtime(name, model)
+            if not result.get("ok"):
+                return {"ok": False, "detail": result.get("detail") or "no answer"}
+            checked = "answered"
+        if role is not None:
+            await asyncio.to_thread(self.config.set, "role_models", str(role), {"runtime": name, "model": model})
+        else:
+            await asyncio.to_thread(self.config.set, "models", name, model)
+        self._available_cache.pop(name, None)
+        self._journal().append("runtimes.model", {"runtime": name, "model": model, "checked": checked}
+                               | ({"role": role} if role is not None else {}))
+        return {"ok": True, "model": model, "detail": checked}
 
     async def _prepare_codex(self) -> None:
         """Before the daemon answers any call but ping (DMN-510), when a role runs on Codex or Codex is signed in for
@@ -283,9 +360,10 @@ class Runtimes:
         from ferb.core.errors import ModelLimitsUnknown
         from ferb.runtimes.catalog import CATALOG, ROLES
         out: dict[str, dict[str, Any]] = {}
+        from ferb.runtimes.catalog import role_model
         for role in ROLES:
             name = self._runtime_for(role)
-            model = self._model_for(name)
+            model = role_model(self.config, name, role) or None
             entry: dict[str, Any] = {"runtime": name,
                                      "model": model or (CATALOG[name].default_model if name in CATALOG else "")}
             try:

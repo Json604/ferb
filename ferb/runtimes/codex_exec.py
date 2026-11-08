@@ -311,10 +311,9 @@ def limits_for(ferb_home: Path, model: str) -> ModelLimits:
     percent = entry.get("effective_context_window_percent") if entry else None
     if not isinstance(window, int) or window <= 0 or not isinstance(percent, (int, float)) or not 0 < percent <= 100:
         raise ModelLimitsUnknown(f"Codex's model catalog ({label}) reports no context window for {model!r}")
-    if model not in LIMITS:
-        raise ModelLimitsUnknown(f"OpenAI documents no max output FERB knows for {model!r}; the ones it knows: "
-                                 f"{', '.join(sorted(LIMITS))}")
-    return ModelLimits(model, int(window * percent / 100), LIMITS[model][1],
+    # RUN-428: a model Codex's catalog has but OpenAI's table doesn't: the smallest max output FERB knows
+    output = LIMITS[model][1] if model in LIMITS else min(o for _, o in LIMITS.values())
+    return ModelLimits(model, int(window * percent / 100), output,
                        f"Codex {CODEX_VERSION} model catalog ({label}): context_window {window} x "
                        f"effective_context_window_percent {percent}; max output: {LIMITS_SOURCE}; max input "
                        f"characters: {INPUT_CHARS_SOURCE}",

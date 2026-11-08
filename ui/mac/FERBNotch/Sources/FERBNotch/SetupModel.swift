@@ -326,6 +326,8 @@ final class SetupModel: ObservableObject {
     func cancelSignIn() { runner.cancel() }
 
     func useClaude() async { await use("claude", check: true) }
+    /// A key already in the Keychain, used without entering it again (RUN-429).
+    func useAPIKey(_ provider: APIProvider) async { await use(provider.rawValue, check: true) }
     func useChatGPT() async { await use("codex", check: true) }
 
     var claudeSignIn: SignInStatus? { ai?.signIn("claude") }
@@ -376,19 +378,52 @@ final class SetupModel: ObservableObject {
         await use(provider.rawValue, check: true)
     }
 
+    /// The models a connection can use (RUN-429), nil when the daemon didn't answer.
+    func models(_ runtime: String) async -> ModelList? {
+        guard let reply = try? await rpc.call("runtimes.models", params: ["runtime": runtime], wait: 30) else { return nil }
+        return ModelList(reply: reply)
+    }
+
+    /// The owner's model for a connection, or for one role on it (`role`; "" clears the role's own). The daemon checks it
+    /// first and keeps the previous one when it fails; the line says which, in the provider's words.
+    func setModel(_ runtime: String, _ chosen: String, role: String? = nil) async -> String {
+        var params: [String: Any] = ["runtime": runtime, "model": chosen]
+        if let role { params["role"] = role }
+        do {
+            let reply = try await rpc.call("runtimes.model", params: params, wait: 90)
+            await refreshAI()
+            if reply["ok"] as? Bool == true {
+                return chosen.isEmpty ? "The \(role ?? "") role uses the connection's model." : "FERB uses \(chosen) now."
+            }
+            return "\(chosen) didn't work, so FERB keeps the model it had: \(reply["detail"] as? String ?? "no answer")"
+        } catch { return error.localizedDescription }
+    }
+
+    /// FERB uses `runtime` from its next call. `check`: one tiny call first; when it fails, the service in use stays
+    /// (APP-792, owner 2026-11-08) and the line says why.
     private func use(_ runtime: String, check: Bool) async {
         let name = AISnapshot.label(runtime)
         do {
-            _ = try await rpc.call("runtimes.use", params: ["runtime": runtime])
             if check {
                 aiMessage = "Checking that \(name) answers…"
                 let reply = try await rpc.call("runtimes.check", params: ["runtime": runtime], wait: 60)
-                aiMessage = reply["ok"] as? Bool == true ? "\(name) answered. FERB uses it now."
-                    : "\(name) didn't answer: \(reply["detail"] as? String ?? "no answer")"
-            } else {
-                aiMessage = "FERB uses \(name) now."
+                guard reply["ok"] as? Bool == true else {
+                    aiMessage = "\(name) didn't answer, so FERB keeps the service it uses: "
+                        + (reply["detail"] as? String ?? "no answer")
+                    await refreshAI()
+                    return
+                }
             }
+            _ = try await rpc.call("runtimes.use", params: ["runtime": runtime])
+            aiMessage = check ? "\(name) answered. FERB uses it now." : "FERB uses \(name) now."
         } catch { aiMessage = error.localizedDescription }
+        await refreshAI()
+    }
+
+    /// The owner's Remove key: the Keychain item goes (FERB.app removes it, as it stored it); the card goes with it.
+    func removeAPIKey(_ provider: APIProvider) async {
+        aiMessage = await keys.remove(provider: provider) ? "Your \(provider.label) key is removed from your Keychain."
+            : "The \(provider.label) key wasn't removed from your Keychain."
         await refreshAI()
     }
 

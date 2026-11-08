@@ -73,6 +73,11 @@ final class FakeKeys: APIKeyStoring {
         providers.append(provider)                  // the key itself is never kept, here or anywhere
         return accept && !key.isEmpty
     }
+    private(set) var removed: [APIProvider] = []
+    func remove(provider: APIProvider) async -> Bool {
+        removed.append(provider)
+        return true
+    }
 }
 
 @MainActor

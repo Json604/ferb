@@ -82,6 +82,13 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
             return s.signInFails ? ["ok": false, "detail": "the playground's sign-in is set to fail"] : ["ok": true]
         case "runtimes.sign_in":
             return await claudeSignIn(params)
+        case "runtimes.models":            // invented ids: the playground reaches no provider
+            let runtime = params["runtime"] as? String ?? "codex"
+            return ["runtime": runtime, "model": "sample-model-1", "models": ["sample-model-1", "sample-model-2"],
+                    "roles": [String: Any]()]
+        case "runtimes.model":
+            await state.pause(0.6)
+            return ["ok": true, "model": params["model"] as? String ?? "", "detail": "answered"]
 
         // Permissions
         case "setup.permissions":

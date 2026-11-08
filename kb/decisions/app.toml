@@ -2940,3 +2940,21 @@ rule = "A menu opened from a window FERB brings to the owner's Space (Settings a
 why = "Each picker click opened its menu, but the window server put every one on Space 3 (\"window 11bdb joined space 3\") while the owner and the window, moved there by FERB, were on 2896: invisible, so the click looked like nothing."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift"]
 untestable = "Where the window server puts a menu: the owner's live check on the installed app (the Provider picker in Settings → AI opens on the Space showing); the tests check the move and its triggers."
+
+[APP-791]
+title = "Settings → AI: a model row per connection, a saved key shown, models per role under Advanced"
+by = "agent"
+date = 2026-11-08
+status = "active"
+rule = "For RUN-431..433. Each signed-in connection's card has a Model row: a picker of runtimes.models' list plus Other… (a typed id) and Use, the model in use, the provider's words when it gave no list, and the check's result. Each saved API key has its own card (APP-792). Advanced: a model field per role, empty for the connection's. Functional only; the owner polishes."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift::ModelRow", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift::ModelList"]
+
+[APP-792]
+title = "Every saved API key has its own card: Use, Replace key, Remove key, its model"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "no youre still not getting it. when i chagen from anthropic or anu api key i cannot swithc bacj to it. cause its not shown there, so i ahve to retenr the api. FIX THIS BASIC UX THIG"
+words_source = "Owner 2026-11-08 08:18, with a screenshot of Settings → AI after switching to ChatGPT: the Anthropic row showed only an empty paste box"
+rule = "Each API key the Keychain holds gets a card like ChatGPT's and Claude's: the provider, \"Key saved\" (never the key), Use (one tiny call first; the service in use stays when it fails), Replace key, Remove key (not while in use) and its model. Only providers with no saved key keep the paste box. The ✓ sits on the connection in use; every Use in Settings → AI checks before switching."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift::APIKeyCard", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::SetupModel", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift::AISnapshot"]

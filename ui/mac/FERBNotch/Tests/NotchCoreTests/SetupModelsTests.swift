@@ -35,4 +35,23 @@ final class SetupModelsTests: XCTestCase {
         XCTAssertTrue(ai.inUse("anthropic"))
         XCTAssertEqual(ai.apiKeyInUse, .anthropic)
     }
+
+    // decision: RUN-429, APP-791
+    /// The model chooser's list: the model in use always shows (one the owner typed included), a role's own model only
+    /// for the connection it was chosen on, and the provider's words when it gave no list.
+    func testTheModelListShowsTheModelInUseAndEachRolesOwn() throws {
+        let list = try XCTUnwrap(ModelList(reply: [
+            "runtime": "anthropic", "model": "claude-new-1", "models": ["claude-opus-5-5", "claude-sonnet-5-5"],
+            "roles": ["worker": ["runtime": "anthropic", "model": "claude-sonnet-5-5"],
+                      "checker": ["runtime": "codex", "model": "gpt-6.1-sol"]]]))
+        XCTAssertEqual(list.models, ["claude-new-1", "claude-opus-5-5", "claude-sonnet-5-5"])
+        XCTAssertEqual(list.roles, ["worker": "claude-sonnet-5-5"])
+        XCTAssertNil(list.problem)
+        let none = try XCTUnwrap(ModelList(reply: ["runtime": "google", "model": "gemini-3.8-flash", "models": [String](),
+                                                   "problem": "HTTP 403: API key not valid"]))
+        XCTAssertEqual(none.models, ["gemini-3.8-flash"])
+        XCTAssertEqual(none.problem, "HTTP 403: API key not valid")
+        XCTAssertNil(ModelList(reply: ["model": "x"]))
+        XCTAssertEqual(RoleCopy.label("orchestrator"), "Planner")
+    }
 }

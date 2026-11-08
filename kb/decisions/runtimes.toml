@@ -301,3 +301,51 @@ status = "active"
 rule = "Anthropic's stream: a tool_use block whose argument fragments are empty or absent keeps its start's input (else {}); fragments that aren't JSON become the call's error (\"not valid JSON\"), told back to the model as the tool's result (its one repair, as for a non-object), and the turn is replayed with {} there. OpenAI's empty or blank arguments are no arguments. Gemini's arguments are already an object."
 why = "Live 2026-11-08 08:16: the owner's planner turn on the Anthropic API failed with \"streamed tool arguments were not JSON\" (claude-sonnet-5-5, 80 output tokens: an argument-less lookup); inferred from json.loads(\"\") failing, the raw stream wasn't kept."
 paths = ["ferb/runtimes/anthropic_api.py::AnthropicStream", "ferb/runtimes/anthropic_api.py::AnthropicProvider.parse", "ferb/runtimes/openai_api.py::OpenAIProvider.parse"]
+
+[RUN-428]
+title = "A model FERB has no documented limits for runs with the smallest limits FERB knows for its provider"
+by = "agent"
+date = 2026-11-08
+status = "active"
+rule = "For RUN-431. A model the owner typed that FERB's tables don't document (anthropic_api, openai_api, google_api LIMITS; Codex's max output) is sized with the smallest context window and max output FERB documents for that provider, said in the limits' source, instead of being refused. A Codex model not in Codex's own catalog still can't run (Codex refuses it)."
+why = "The owner wants to type a model id when a shipped name is wrong or new; refusing every model FERB doesn't know made that impossible. The smallest known window never sends more than a model of that provider documents taking."
+paths = ["ferb/runtimes/anthropic_api.py::limits_for", "ferb/runtimes/openai_api.py::limits_for", "ferb/runtimes/google_api.py::limits_for", "ferb/runtimes/codex_exec.py::limits_for"]
+
+[RUN-429]
+title = "A connection's model: its list or a typed id, checked before saving; a role's own model"
+by = "agent"
+date = 2026-11-08
+status = "active"
+rule = "For RUN-431..433. runtimes.models gives a connection's models (an API key's live list from its provider's models endpoint with the stored key; Codex's catalog; Claude's documented ids), its model now and each role's own. runtimes.model saves a model only after a check: in the provider's list for that key, else one tiny call; on failure the old model stays and the provider's words come back. Saved to [models] <runtime>, a role's to [role_models] <role> = {runtime, model} (used only while that role runs there). Claude's default is claude-opus-5-5."
+why = "claude-opus-5-5 appears in the pinned Claude Code 2.1.310 binary (claude-agent-sdk 0.2.174, `strings`: 72 times) and in anthropic_api.LIMITS; the owner chose Claude Opus 5.5."
+paths = ["ferb/runtimes/models.py", "ferb/runtimes/catalog.py::role_model", "ferb/daemon/areas/runtimes.py::Runtimes._runtimes_model", "ferb/daemon/areas/runtimes.py::Runtimes._runtimes_models"]
+
+[RUN-431]
+title = "The owner can change each connection's model, and type a model's id"
+by = "owner"
+date = 2026-11-07
+status = "active"
+words = "i want a better model not sonnet. and i can tchange it in settings. cant we give option to users to change the model??? i think we shoudl, also ifwe have to amke sure we store the correct model name and if its wrong and its shipped nad user selects that, they shoudld be able to tyoe the model correct anem to use in APIs"
+words_source = "Owner 2026-11-07/08 in chat, after the Anthropic API ran claude-sonnet-5-5"
+rule = "Settings → AI offers a model for each connection (ChatGPT, Claude, each API key), from the models it can use, and lets the owner type any model id; FERB checks a model before using it and keeps the working one when it fails."
+paths = ["ferb/daemon/areas/runtimes.py::Runtimes._runtimes_model", "ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift::ModelRow"]
+
+[RUN-432]
+title = "One model per connection, a model per role optional; the owner's run uses Claude Opus 5.5"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "One model, roles optional (Recommended)"
+words_source = "Owner 2026-11-08, asked how models are chosen (one model per connection, or per role), and which model his own run uses: \"Claude Opus 5.5\""
+rule = "A connection runs one model; an optional per-role model (planner, worker, checker) sits under Advanced, empty meaning the connection's model. Claude's sign-in defaults to Claude Opus 5.5 (claude-opus-5-5)."
+paths = ["ferb/runtimes/catalog.py::role_model", "ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift::RoleModelsView"]
+
+[RUN-433]
+title = "Settings shows a saved API key and each connection's model; Claude works after sign-in"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "we are not giving correct settings ot users imo. theres no save for teh api i entered on claude previously so have to enter again, theres still no model selection on codex/cc or APIs"
+words_source = "Owner 2026-11-08 07:24, with a screenshot: Claude sign-in failed \"I couldn't start that: no model is chosen for Claude.\""
+rule = "Settings → AI shows \"<provider> key saved\" for a key the Keychain holds (read for presence, never shown), gives it its own card (APP-792), never asks again for a saved key, and shows the model each connection uses with its picker. A Claude sign-in runs with its default model."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift::AIStepView"]

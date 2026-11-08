@@ -19,7 +19,6 @@ request carrying responseJsonSchema goes through the shared fallback in api.py (
 
 from typing import Any
 
-from ferb.core.errors import ModelLimitsUnknown
 from ferb.core.types import ModelLimits, ModelRequest
 from ferb.runtimes.api import ProviderError, ToolCall, ToolOutcome, ToolSpec, Turn
 from ferb.runtimes.schema_shape import Shape, for_gemini
@@ -40,9 +39,10 @@ LIMITS_SOURCE = "https://ai.google.dev/gemini-api/docs/models (checked 2026-10-1
 
 
 def limits_for(model: str) -> ModelLimits:
-    if model not in LIMITS:
-        raise ModelLimitsUnknown(f"Google documents no token limits FERB knows for model {model!r}; "
-                                 f"the ones it knows: {', '.join(sorted(LIMITS))}")
+    if model not in LIMITS:                         # RUN-428: a model the owner typed: the smallest limits FERB knows
+        window, output = min(w for w, _ in LIMITS.values()), min(o for _, o in LIMITS.values())
+        return ModelLimits(model, window, output, f"not documented to FERB for {model}: the smallest limits it knows "
+                                                  f"for Google models ({LIMITS_SOURCE})", window_includes_output=False)
     window, output = LIMITS[model]
     return ModelLimits(model, window, output, LIMITS_SOURCE, window_includes_output=False)
 

@@ -29,7 +29,6 @@ api.py, through `without_format` below."""
 import json
 from typing import Any
 
-from ferb.core.errors import ModelLimitsUnknown
 from ferb.core.types import ModelLimits, ModelRequest
 from ferb.runtimes.api import ProviderError, ToolCall, ToolOutcome, ToolSpec, Turn
 from ferb.runtimes.schema_shape import Shape, for_anthropic
@@ -61,9 +60,10 @@ IMAGE_REFUSALS = (("image exceeds", "maximum"), ("image dimensions exceed", "man
 
 
 def limits_for(model: str) -> ModelLimits:
-    if model not in LIMITS:
-        raise ModelLimitsUnknown(f"Anthropic documents no context window FERB knows for model {model!r}; "
-                                 f"the ones it knows: {', '.join(sorted(LIMITS))}")
+    if model not in LIMITS:                         # RUN-428: a model the owner typed: the smallest limits FERB knows
+        window, output = min(w for w, _ in LIMITS.values()), min(o for _, o in LIMITS.values())
+        return ModelLimits(model, window, output, f"not documented to FERB for {model}: the smallest limits it knows "
+                                                  f"for Anthropic models ({LIMITS_SOURCE})")
     window, output = LIMITS[model]
     return ModelLimits(model, window, output, LIMITS_SOURCE)
 

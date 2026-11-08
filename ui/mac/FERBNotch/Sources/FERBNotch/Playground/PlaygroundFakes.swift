@@ -70,6 +70,7 @@ final class PlaygroundAppPermissions: AppPermissionsProviding {
 @MainActor
 struct PlaygroundKeys: APIKeyStoring {
     func store(provider: APIProvider, key: String) async -> Bool { !key.isEmpty }
+    func remove(provider: APIProvider) async -> Bool { true }
 }
 
 /// launchd's restart of FERB's background service, faked: switches that apply only after a restart are read now.

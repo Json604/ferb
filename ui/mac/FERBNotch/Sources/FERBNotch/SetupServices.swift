@@ -35,6 +35,8 @@ protocol SystemOpening: AnyObject {
 @MainActor
 protocol APIKeyStoring {
     func store(provider: APIProvider, key: String) async -> Bool
+    /// The provider's Keychain item deleted; true when none is left.
+    func remove(provider: APIProvider) async -> Bool
 }
 
 @MainActor
@@ -334,6 +336,26 @@ struct KeychainAPIKeyStore: APIKeyStoring {
             do { try check.run() } catch { return false }
             check.waitUntilExit()
             return check.terminationStatus == 0
+        }.value
+    }
+
+    /// The owner's Remove key (APP-792): `security delete-generic-password` for that provider's item only, then a
+    /// presence check (no -w) that none is left.
+    func remove(provider: APIProvider) async -> Bool {
+        let account = APIKeyEntry.account(provider)
+        return await Task.detached {
+            func security(_ arguments: [String]) -> Int32 {
+                let run = Process()
+                run.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+                run.arguments = arguments
+                run.standardOutput = FileHandle.nullDevice
+                run.standardError = FileHandle.nullDevice
+                do { try run.run() } catch { return -1 }
+                run.waitUntilExit()
+                return run.terminationStatus
+            }
+            _ = security(["delete-generic-password", "-s", "ferb", "-a", account])
+            return security(["find-generic-password", "-s", "ferb", "-a", account]) != 0
         }.value
     }
 }

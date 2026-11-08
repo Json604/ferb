@@ -302,14 +302,39 @@ final class SetupModelTests: XCTestCase {
         XCTAssertTrue(rig.rpc.params(of: "runtimes.check").isEmpty)    // signing in already proved it
     }
 
-    // decision: APP-507
-    func testUseClaudeChoosesItAndSaysWhetherItAnswered() async {
+    // decision: APP-507, APP-792
+    func testUseClaudeChecksItFirstAndKeepsTheServiceInUseWhenItDoesntAnswer() async {
         let rig = SetupRig()
         rig.rpc.replies["runtimes.check"] = ["ok": false, "detail": "not logged in"]
         let model = rig.model()
         await model.useClaude()
-        XCTAssertEqual(rig.rpc.params(of: "runtimes.use").first?["runtime"] as? String, "claude")
-        XCTAssertEqual(model.aiMessage, "Claude didn't answer: not logged in")
+        XCTAssertEqual(rig.rpc.params(of: "runtimes.check").first?["runtime"] as? String, "claude")
+        XCTAssertTrue(rig.rpc.params(of: "runtimes.use").isEmpty)
+        XCTAssertEqual(model.aiMessage, "Claude didn't answer, so FERB keeps the service it uses: not logged in")
+    }
+
+    // decision: APP-792
+    /// Owner 2026-11-08: "when i chagen from anthropic or anu api key i cannot swithc bacj to it". After switching to
+    /// ChatGPT, the saved Anthropic key still has its card and its Use, which switches back without any key.
+    func testASavedKeyKeepsItsCardAndUseSwitchesBackWithoutTheKey() async {
+        let rig = SetupRig()
+        rig.rpc.replies["runtimes.status"] = [
+            "roles": ["orchestrator": "codex", "worker": "codex", "checker": "codex"],
+            "runtimes": [["name": "codex", "usable": true, "signed_in": true, "model": "gpt-5.6-sol"],
+                         ["name": "anthropic", "usable": true, "signed_in": true, "model": "claude-opus-5-5"],
+                         ["name": "openai", "usable": false, "signed_in": false, "model": "gpt-6.1-sol"]]]
+        rig.rpc.replies["runtimes.check"] = ["ok": true, "detail": "answered"]
+        let model = rig.model()
+        await model.refreshAI()
+        XCTAssertEqual(model.ai?.savedKeys, [.anthropic])
+        XCTAssertEqual(model.ai?.unsavedKeys, [.openai, .google])
+        XCTAssertTrue(model.ai?.inUse("codex") == true && model.ai?.inUse("anthropic") == false)
+        await model.useAPIKey(.anthropic)
+        XCTAssertEqual(rig.rpc.params(of: "runtimes.check").first?["runtime"] as? String, "anthropic")
+        XCTAssertEqual(rig.rpc.params(of: "runtimes.use").first?["runtime"] as? String, "anthropic")
+        XCTAssertTrue(rig.keys.providers.isEmpty)                         // no key entered again
+        await model.removeAPIKey(.anthropic)
+        XCTAssertEqual(rig.keys.removed, [.anthropic])
     }
 
     func testPersonaShowsWhatFERBSawWithNothingToAnswer() async {

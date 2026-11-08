@@ -299,11 +299,53 @@ public struct AISnapshot: Equatable {
     /// The API key FERB uses now, when a role runs on one.
     public var apiKeyInUse: APIProvider? { APIProvider.allCases.first { inUse($0.rawValue) } }
     public func signedIn(_ name: String) -> Bool { runtimes.first { $0.name == name }?.signedIn ?? false }
+    /// The API keys the Keychain holds (presence only): each gets its own card (APP-792).
+    public var savedKeys: [APIProvider] { APIProvider.allCases.filter { signedIn($0.rawValue) } }
+    /// The providers with no key saved: the paste box offers these.
+    public var unsavedKeys: [APIProvider] { APIProvider.allCases.filter { !signedIn($0.rawValue) } }
     public func signIn(_ name: String) -> SignInStatus? { runtimes.first { $0.name == name }?.signIn }
 
     public static func label(_ runtime: String) -> String {
         ["codex": "ChatGPT (Codex)", "claude": "Claude", "anthropic": "your Anthropic API key",
          "openai": "your OpenAI API key", "google": "your Google API key"][runtime] ?? runtime
+    }
+}
+
+/// `runtimes.models`' reply (RUN-429): the models one connection can use (an API key's live list from its provider, a
+/// sign-in's from its runtime), the model it runs now, and each role's own model. The owner may also type any model id.
+public struct ModelList: Equatable {
+    public let runtime: String
+    public let current: String
+    public let models: [String]
+    /// The provider's words when it gave no list (the owner can still type a model).
+    public let problem: String?
+    /// role -> model chosen for that role on this connection
+    public let roles: [String: String]
+
+    public init?(reply: [String: Any]) {
+        guard let runtime = reply["runtime"] as? String else { return nil }
+        self.runtime = runtime
+        current = reply["model"] as? String ?? ""
+        problem = (reply["problem"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        var roles: [String: String] = [:]
+        for (role, value) in reply["roles"] as? [String: Any] ?? [:] {
+            if let row = value as? [String: Any], row["runtime"] as? String == runtime,
+               let model = row["model"] as? String, !model.isEmpty { roles[role] = model }
+        }
+        self.roles = roles
+        let listed = (reply["models"] as? [String] ?? []).filter { !$0.isEmpty }
+        // the model in use always shows, even when the list doesn't have it (one the owner typed)
+        models = current.isEmpty || listed.contains(current) ? listed : [current] + listed
+    }
+
+    /// What the picker shows for a model: the list's own entry, else "Other…" (typed).
+    public func listed(_ model: String) -> Bool { models.contains(model) }
+}
+
+/// The owner's words for FERB's roles.
+public enum RoleCopy {
+    public static func label(_ role: String) -> String {
+        ["orchestrator": "Planner", "worker": "Worker", "checker": "Checker"][role] ?? role
     }
 }
 

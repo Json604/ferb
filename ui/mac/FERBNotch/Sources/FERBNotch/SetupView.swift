@@ -74,6 +74,7 @@ struct AIStepView: View {
                         Button("Use ChatGPT") { Task { await model.useChatGPT() } }
                     }
                 }
+                if model.ai?.signedIn("codex") == true { ModelRow(model: model, runtime: "codex") }
             }
             .padding(18).frame(maxWidth: .infinity, alignment: .leading)
             .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 18))
@@ -84,33 +85,34 @@ struct AIStepView: View {
                     if model.ai?.inUse("claude") == true { InUseTick() }
                 }
                 ClaudeSignInRow(model: model)
+                if model.ai?.signedIn("claude") == true { ModelRow(model: model, runtime: "claude") }
             }
             .padding(18).frame(maxWidth: .infinity, alignment: .leading)
             .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 18))
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: 10) {
-                    Picker("Provider", selection: $provider) {
-                        ForEach(APIProvider.allCases) { Text($0.label).tag($0) }
-                    }
-                    HStack {
-                        SecureField("Paste your API key", text: $key).onSubmit(saveKey)
-                        Button("Save", action: saveKey).disabled(key.isEmpty)
-                    }
-                }.padding(.top, 10)
-            } label: {
-                HStack {
-                    Text("Other ways to connect")
-                    if let inUse = model.ai?.apiKeyInUse {
-                        Spacer()
-                        Text("Your \(inUse.label) API key").foregroundStyle(.secondary)
-                        InUseTick()
-                    }
-                }
-            }.font(.system(size: 12)).tint(.white.opacity(0.6))
+            // every API key the Keychain holds gets its own card, like ChatGPT's and Claude's (owner 2026-11-08: "when i
+            // chagen from anthropic or anu api key i cannot swithc bacj to it"): Use, Replace, Remove, its model
+            ForEach(model.ai?.savedKeys ?? []) { saved in APIKeyCard(model: model, provider: saved) }
+            if !(model.ai?.unsavedKeys ?? APIProvider.allCases).isEmpty {
+                DisclosureGroup {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Picker("Provider", selection: $provider) {
+                            ForEach(model.ai?.unsavedKeys ?? APIProvider.allCases) { Text($0.label).tag($0) }
+                        }
+                        HStack {
+                            SecureField("Paste your API key", text: $key).onSubmit(saveKey)
+                            Button("Save", action: saveKey).disabled(key.isEmpty)
+                        }
+                    }.padding(.top, 10)
+                } label: {
+                    Text("Other ways to connect: an API key")
+                }.font(.system(size: 12)).tint(.white.opacity(0.6))
+            }
             if let line = model.aiMessage { Text(line).font(.callout) }
+            if let current = model.ai?.current { RoleModelsView(model: model, runtime: current).id(current) }
         }
-        .onChange(of: model.ai?.apiKeyInUse) { _, inUse in if let inUse { provider = inUse } }
-        .onAppear { if let inUse = model.ai?.apiKeyInUse { provider = inUse } }
+        .onChange(of: model.ai?.unsavedKeys) { _, unsaved in
+            if let first = unsaved?.first, unsaved?.contains(provider) != true { provider = first }
+        }
         // A change made elsewhere (the notch's switch, the CLI) shows when the owner comes back to this window.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await model.refreshAI() }
@@ -122,6 +124,152 @@ struct AIStepView: View {
         let entered = key
         key = ""                                               // the field never keeps it
         Task { await model.saveAPIKey(provider, key: entered) }
+    }
+}
+
+/// A saved API key's card (APP-792): the provider, "Key saved" (never the key), Use (checked with one tiny call; the
+/// service in use stays when it fails), Replace key, Remove key and its model.
+struct APIKeyCard: View {
+    @ObservedObject var model: SetupModel
+    let provider: APIProvider
+    @State private var replacing = false
+    @State private var key = ""
+
+    var body: some View {
+        let inUse = model.ai?.inUse(provider.rawValue) == true
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(provider.label).font(.system(size: 16, weight: .semibold))
+                    Label("Key saved in your Keychain", systemImage: "key.fill")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if inUse { InUseTick() }
+            }
+            HStack {
+                if !inUse { Button("Use \(provider.label)") { Task { await model.useAPIKey(provider) } } }
+                Button(replacing ? "Cancel" : "Replace key") { replacing.toggle(); key = "" }
+                Button("Remove key") { Task { await model.removeAPIKey(provider) } }
+                    .disabled(inUse).help(inUse ? "Use another service first" : "Delete this key from your Keychain")
+            }
+            if replacing {
+                HStack {
+                    SecureField("Paste the new key", text: $key).onSubmit(save)
+                    Button("Save", action: save).disabled(key.isEmpty)
+                }
+            }
+            ModelRow(model: model, runtime: provider.rawValue).id(provider.rawValue)
+        }
+        .padding(18).frame(maxWidth: .infinity, alignment: .leading)
+        .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private func save() {
+        guard !key.isEmpty else { return }
+        let entered = key
+        key = ""                                               // the field never keeps it
+        replacing = false
+        Task { await model.saveAPIKey(provider, key: entered) }
+    }
+}
+
+/// A connection's model (RUN-429): the one in use, the connection's list (an API key's from its provider) and "Other…"
+/// to type any model id; FERB checks a model before it uses it and keeps the old one when it fails.
+struct ModelRow: View {
+    @ObservedObject var model: SetupModel
+    let runtime: String
+    @State private var list: ModelList?
+    @State private var choice = ""
+    @State private var typed = ""
+    @State private var line: String?
+    @State private var busy = false
+    private static let other = "\u{0}other"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Model").font(.system(size: 12))
+                Picker("Model", selection: $choice) {
+                    ForEach(list?.models ?? [], id: \.self) { Text($0).tag($0) }
+                    Text("Other…").tag(Self.other)
+                }.labelsHidden()
+                if choice == Self.other {
+                    TextField("Model id, e.g. claude-opus-5-5", text: $typed).onSubmit(save)
+                }
+                Button(busy ? "Checking…" : "Use") { save() }
+                    .disabled(busy || chosen.isEmpty || chosen == list?.current)
+            }
+            if let current = list?.current, !current.isEmpty {
+                Text("In use: \(current)").font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            if let problem = list?.problem {
+                Text("No model list from the provider (\(problem)). You can type a model id under Other….")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            if let line { Text(line).font(.system(size: 11)).textSelection(.enabled) }
+        }
+        .task { await load() }
+    }
+
+    private var chosen: String {
+        (choice == Self.other ? typed : choice).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func load() async {
+        list = await model.models(runtime)
+        if let current = list?.current { choice = current.isEmpty ? Self.other : current }
+    }
+
+    private func save() {
+        let picked = chosen
+        guard !picked.isEmpty else { return }
+        busy = true
+        Task {
+            line = await model.setModel(runtime, picked)
+            await load()
+            busy = false
+        }
+    }
+}
+
+/// Advanced (RUN-429, owner: "One model, roles optional"): a model for one role on the connection in use; empty uses the
+/// connection's model.
+struct RoleModelsView: View {
+    @ObservedObject var model: SetupModel
+    let runtime: String
+    @State private var list: ModelList?
+    @State private var typed: [String: String] = [:]
+    @State private var line: String?
+
+    var body: some View {
+        DisclosureGroup("Advanced: a model for each role") {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(["orchestrator", "worker", "checker"], id: \.self) { role in
+                    HStack {
+                        Text(RoleCopy.label(role)).frame(width: 110, alignment: .leading)
+                        TextField(list?.current ?? "", text: binding(role)).onSubmit { save(role) }
+                        Button("Save") { save(role) }
+                    }
+                }
+                Text("Empty uses the connection's model.").font(.system(size: 11)).foregroundStyle(.secondary)
+                if let line { Text(line).font(.system(size: 11)).textSelection(.enabled) }
+            }.padding(.top, 6)
+        }
+        .font(.system(size: 12)).tint(.white.opacity(0.6))
+        .task {
+            list = await model.models(runtime)
+            typed = list?.roles ?? [:]
+        }
+    }
+
+    private func binding(_ role: String) -> Binding<String> {
+        Binding(get: { typed[role] ?? "" }, set: { typed[role] = $0 })
+    }
+
+    private func save(_ role: String) {
+        let picked = (typed[role] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        Task { line = await model.setModel(runtime, picked, role: role) }
     }
 }
 

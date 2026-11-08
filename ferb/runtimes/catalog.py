@@ -3,7 +3,7 @@ limits, how it bills, and how to tell it can run here. Must not choose a runtime
 
 Every list of runtime names (the daemon's builder, the planner's worker types, `ferb runtimes`, the app's API keys, the
 Keychain accounts, the doctor) reads this table. A runtime is available when its model is set (the owner's
-`[models] <name>` or the runtime's default; Claude has none) and FERB's own sign-in (Codex, Claude) or the provider's
+`[models] <name>` or the runtime's default) and FERB's own sign-in (Codex, Claude) or the provider's
 key (the direct APIs) is present. Prices are per model (ferb/runtimes/prices.py, shared by Codex and the OpenAI API) and
 reach every runtime's usage through ferb/runtimes/usage.py."""
 
@@ -147,6 +147,15 @@ def model_for(cfg: Any, name: str) -> str:
     return configured_model(cfg, name) or (entry.default_model if entry else "")
 
 
+def role_model(cfg: Any, name: str, role: str) -> str:
+    """The model a role runs on runtime `name` (RUN-429): the owner's model for that role (`[role_models] <role>`, kept
+    with the runtime it was chosen for, so it applies only while the role runs there), else the runtime's model."""
+    chosen = cfg.get("role_models", role.partition(":")[0])
+    if isinstance(chosen, dict) and chosen.get("runtime") == name and str(chosen.get("model") or "").strip():
+        return str(chosen["model"]).strip()
+    return model_for(cfg, name)
+
+
 def api_providers() -> tuple[str, ...]:
     """The runtimes that run on a provider API key from the Keychain."""
     return tuple(name for name, entry in CATALOG.items() if entry.sign_in == "key")
@@ -228,7 +237,9 @@ def _module_limits(module: str) -> Callable[[str, Path], ModelLimits]:
 CATALOG: dict[str, Runtime] = {
     # owner, 2026-10-14: GPT-5.5 retires from Codex for ChatGPT sign-ins
     "codex": Runtime("codex", "gpt-5.6-sol", "codex", "subscription", _build_codex, _codex_limits),
-    "claude": Runtime("claude", "", "claude", "subscription", _build_claude, _claude_limits),
+    # RUN-429 (owner 2026-11-08: run model "Claude Opus 5.5"): a Claude sign-in works out of the box; the id is one the
+    # pinned Claude Code (2.1.310, claude-agent-sdk 0.2.174) names in its own binary, and anthropic_api.LIMITS documents
+    "claude": Runtime("claude", "claude-opus-5-5", "claude", "subscription", _build_claude, _claude_limits),
     "anthropic": Runtime("anthropic", "claude-sonnet-5-5", "key", "api", _api(_anthropic),
                          _module_limits("ferb.runtimes.anthropic_api")),
     "openai": Runtime("openai", "gpt-6.1-sol", "key", "api", _api(_openai), _module_limits("ferb.runtimes.openai_api")),
