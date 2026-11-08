@@ -18,9 +18,10 @@ class _Provider:
     gateway for the worker call, and the planner's call refused when `refuse_planner`."""
 
     def __init__(self, daemon: RunningDaemon, role: str, schema: dict[str, Any], tools: list[str],
-                 refuse_planner: bool, call_tools: bool) -> None:
+                 refuse_planner: bool, call_tools: bool, hang_worker: bool = False) -> None:
         self.daemon, self.role, self.schema, self.tools = daemon, role, schema, tools
-        self.refuse_planner, self.call_tools = refuse_planner, call_tools
+        self.refuse_planner, self.call_tools, self.hang_worker = refuse_planner, call_tools, hang_worker
+        self.retried: list[dict[str, Any]] = []
 
     async def start(self, task: Any, request: Any, run_token: str) -> RunHandle:
         return RunHandle("run-" + task.id, "fake", task.id, {"token": run_token, "images": len(request.images)})
@@ -30,6 +31,9 @@ class _Provider:
                 and "kind" in self.schema["properties"]:
             yield RuntimeEvent("error", {"message": f"anthropic: HTTP 400: The compiled grammar is too large ({SECRET})"})
             return
+        if self.hang_worker and self.role == "worker" and self.tools:   # a free key held in a rate limit
+            self.retried.append({"status": 429, "retry_after": 30.0})
+            await anyio.sleep(30)
         if self.call_tools and self.tools and run.state["token"]:
             token = run.state["token"]
             await anyio.to_thread.run_sync(lambda: tool(self.daemon.sock, token, "check.ping"))
@@ -43,13 +47,13 @@ class _Provider:
 
 
 def _check(daemon: RunningDaemon, monkeypatch: Any, *, refuse_planner: bool = False,
-           call_tools: bool = True) -> dict[str, Any]:
+           call_tools: bool = True, hang_worker: bool = False) -> dict[str, Any]:
     d = daemon.daemon
     d._add_secret_value(SECRET)
 
     def build(name: str, role: str, *, mode: str, tool_names: list[str], schema: dict[str, Any],
               effort: Any = None, model: str = "") -> _Provider:
-        return _Provider(daemon, role, schema, tool_names, refuse_planner, call_tools)
+        return _Provider(daemon, role, schema, tool_names, refuse_planner, call_tools, hang_worker)
     monkeypatch.setattr(d, "_build_runtime", build)
     return daemon.run(d._runtimes_check_calls(None, {"runtime": "anthropic"}))   # type: ignore[no-any-return]
 
@@ -78,3 +82,36 @@ def test_a_refused_call_says_the_providers_words_redacted_and_tools_not_called(d
     assert not no_args["ok"] and "didn't call check.ping" in no_args["detail"]
     assert not with_args["ok"]
     assert report["lines"][3]["ok"]                                           # the worker's own answer still fits
+
+
+# decision: RUN-439
+def test_a_call_that_never_answers_is_given_up_with_the_rate_limit_it_hit(daemon: RunningDaemon,
+                                                                          monkeypatch: Any) -> None:
+    """Owner 2026-11-08: "checking is stuck on gogole api(most prob cause its free and its stucj in rate limt or
+    sometign)". The line gives up after its limit and says what the provider answered meanwhile; the rest still run."""
+    from ferb.runtimes import check
+    monkeypatch.setattr(check, "LINE_LIMIT_S", 0.2)
+    report = _check(daemon, monkeypatch, hang_worker=True)
+    worker = next(line for line in report["lines"] if line["name"].startswith("Worker call"))
+    assert not worker["ok"] and worker["detail"] == ("no answer after 0.2 s; the provider answered a rate or usage "
+                                                     "limit (HTTP 429) 1 time, asking to retry after 30 s")
+    assert report["lines"][-1]["ok"] and report["lines"][-2]["ok"]       # the checker and picture calls still ran
+
+
+# decision: RUN-439
+def test_the_tool_call_lines_say_they_ran_inside_the_worker_call(daemon: RunningDaemon, monkeypatch: Any) -> None:
+    lines = _check(daemon, monkeypatch)["lines"]
+    assert [line.get("part_of") for line in lines[1:3]] == ["worker call", "worker call"]
+    assert all(line["limit_s"] == 60.0 for line in lines)
+
+
+# decision: RUN-439
+def test_a_429_says_when_the_provider_asks_to_retry() -> None:
+    import httpx
+    from ferb.runtimes.anthropic_api import AnthropicProvider
+    from ferb.runtimes.api import ApiRuntime
+    rt = object.__new__(ApiRuntime)
+    rt.provider = AnthropicProvider("claude-opus-5-5")
+    resp = httpx.Response(429, headers={"retry-after": "20"}, json={"error": {"message": "Resource exhausted"}})
+    text = rt._error_text(resp, "")
+    assert "Resource exhausted" in text and text.endswith("it says to retry after 20 s")

@@ -28,12 +28,14 @@ final class SettingsInteractionTests: XCTestCase {
         let check = Task { await store.checkRuntime("codex") }
         await fulfillment(of: [started], timeout: 2)
         XCTAssertTrue(store.checkingRuntime)
+        XCTAssertEqual(store.checkingRuntimeName, "codex")             // RUN-439: names what it checks
         await store.checkRuntime("codex")
         XCTAssertEqual(rpc.calls, 1)
-        rpc.finish(.success(["ok": true]))
+        rpc.finish(.success(["ok": true, "runtime": "codex"]))
         await check.value
         XCTAssertFalse(store.checkingRuntime)
-        XCTAssertNotNil(store.runtimeResult)
+        XCTAssertNotNil(store.checkResults["codex"])
+        XCTAssertNil(store.checkResults["google"])                       // never shown under another connection
 
         let healthStarted = expectation(description: "health request started")
         rpc.onCall = { healthStarted.fulfill() }

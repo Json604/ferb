@@ -9,7 +9,9 @@ list of {"id", "turns": [...]}. Each task runs in a chat of its own. The run nee
 The connection is used for every role during the run and the roles go back as they were at the end.
 
 Per task: each question FERB recorded (card, rules, the table's answer, when), the time, steps (tool calls), model
-calls, tokens (input, cached reads, cache writes by TTL, output), cost and the outcome. Nothing is cleaned up: FERB
+calls, tokens (input, cached reads, cache writes by TTL, output), cost and the outcome; and the typed-answer forms
+(RUN-440): calls by form, in-run repairs and how they ended, their seconds, and the planner's own repairs, per task and
+for the whole run. Nothing is cleaned up: FERB
 closes only its own tabs (HAND-201)."""
 
 import argparse
@@ -45,6 +47,38 @@ def walk(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for n in nodes:
         out.append(n)
         out += walk(n.get("children") or [])
+    return out
+
+
+def typed_forms(nodes: list[dict[str, Any]]) -> dict[str, Any]:
+    """RUN-440: model calls by the form their typed answer took (strict / stated / stated_after_refusal / none), the
+    stated answers told back once in the run (asked) and how that ended (fixed / failed), the seconds those repair
+    calls took, and the planner's own repair turns after a failed answer (and how many of them ended without error)."""
+    by_form: dict[str, int] = {}
+    repairs = {"asked": 0, "fixed": 0, "failed": 0}
+    extra_ms = 0
+    for n in nodes:
+        if n["kind"] != "model.usage":
+            continue
+        out = n.get("output") or {}
+        form = str(out.get("typed") or "none")
+        by_form[form] = by_form.get(form, 0) + 1
+        if out.get("repair") in repairs:
+            repairs[out["repair"]] += 1
+            if out["repair"] != "asked":
+                extra_ms += int((out.get("timing") or {}).get("total_ms") or 0)
+    planner = [n for n in nodes if n["kind"] == "model.turn" and (n.get("input") or {}).get("repair")]
+    return {"calls": by_form, "repairs": repairs, "repair_seconds": round(extra_ms / 1000, 1),
+            "planner_repairs": len(planner), "planner_repairs_saved": sum(1 for n in planner if not n.get("error"))}
+
+
+def add_forms(total: dict[str, Any], one: dict[str, Any]) -> dict[str, Any]:
+    out = {"calls": dict(total.get("calls") or {}), "repairs": dict(total.get("repairs") or {})}
+    for part in ("calls", "repairs"):
+        for k, v in one[part].items():
+            out[part][k] = out[part].get(k, 0) + v
+    for k in ("repair_seconds", "planner_repairs", "planner_repairs_saved"):
+        out[k] = round(total.get(k, 0) + one[k], 1)
     return out
 
 
@@ -93,6 +127,7 @@ def collect(client: Client, turn: dict[str, Any]) -> dict[str, Any]:
                 unpriced.add(str(out.get("model") or "?"))
             else:
                 cost += float(out["cost_usd"])
+    forms = typed_forms(nodes)
     calls = [n for n in nodes if n["kind"] == "tool.call"]
     questions = []
     for n in calls:
@@ -107,7 +142,7 @@ def collect(client: Client, turn: dict[str, Any]) -> dict[str, Any]:
                           "recorded": bool(out.get("test_mode"))})
     return {**turn, "questions": questions, "steps": len([c for c in calls if (c.get("input") or {}).get("tool")
                                                           != "owner.ask"]),
-            "model_calls": sum(1 for n in nodes if n["kind"] == "model.usage"), "usage": usage,
+            "model_calls": sum(1 for n in nodes if n["kind"] == "model.usage"), "usage": usage, "typed": forms,
             "cost_usd": round(cost, 6), "unpriced_models": sorted(unpriced), "episodes": episodes}
 
 
@@ -146,6 +181,9 @@ def main() -> int:
                        "questions": sum(len(t["questions"]) for t in turns),
                        "steps": sum(t["steps"] for t in turns),
                        "cost_usd": round(sum(t["cost_usd"] for t in turns), 6)}
+                for t in turns:
+                    row["typed"] = add_forms(row.get("typed") or {}, t["typed"])
+                    report["typed"] = add_forms(report.get("typed") or {}, t["typed"])    # the run's summary
                 report["tasks"].append(row)
                 out.write_text(json.dumps(report, ensure_ascii=False, indent=2))   # kept as it goes
                 print(f"{task['id']} run {run}: {row['seconds']} s, {row['steps']} steps, {row['questions']} "

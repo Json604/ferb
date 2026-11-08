@@ -363,12 +363,18 @@ public struct ConnectionCheck: Equatable {
         public let seconds: Double
         public let tokens: Int
         public let cost: Double?
+        /// The call it ran inside (the tool-call lines: the worker call's time and tokens are on its line), RUN-439
+        public var partOf: String = ""
 
-        /// "✓ Planner call — claude-opus-5-5, typed strict, 2.1 s, 1,204 tokens, $0.0031" (the provider's words after a ✗)
+        /// "✓ Planner call — claude-opus-5-5, typed strict, 2.1 s, 1,204 tokens, $0.0031" (the provider's words after a ✗);
+        /// a tool-call line: "✓ Tool call with no arguments — ran inside the worker call"
         public var text: String {
+            let mark = ok ? "✓ " : "✗ "
+            let fault = ok || detail.isEmpty ? "" : ": " + detail
+            if !partOf.isEmpty { return mark + name + " — ran inside the " + partOf + fault }
             var facts = [model, "typed \(typed)", String(format: "%.1f s", seconds), "\(tokens) tokens"].filter { !$0.isEmpty }
             if let cost { facts.append(String(format: "$%.4f", cost)) }
-            return (ok ? "✓ " : "✗ ") + name + " — " + facts.joined(separator: ", ") + (ok || detail.isEmpty ? "" : ": " + detail)
+            return mark + name + " — " + facts.joined(separator: ", ") + fault
         }
     }
     public let lines: [Line]
@@ -381,16 +387,23 @@ public struct ConnectionCheck: Equatable {
                  model: row["model"] as? String ?? "", typed: row["typed"] as? String ?? "none",
                  seconds: row["seconds"] as? Double ?? Double(row["seconds"] as? Int ?? 0),
                  tokens: (row["input_tokens"] as? Int ?? 0) + (row["output_tokens"] as? Int ?? 0),
-                 cost: row["cost_usd"] as? Double)
+                 cost: row["cost_usd"] as? Double, partOf: row["part_of"] as? String ?? "")
         }
         ok = reply["ok"] as? Bool ?? false
         totalCost = reply["total_cost_usd"] as? Double
+        runtime = reply["runtime"] as? String ?? ""
+        limit = (reply["lines"] as? [[String: Any]])?.first?["limit_s"] as? Double
     }
+
+    /// The connection this check ran on (RUN-439: shown only under it), and each call's limit in seconds.
+    public let runtime: String
+    public let limit: Double?
 
     public var summary: String {
         let passed = lines.filter(\.ok).count
         let cost = totalCost.map { String(format: " Cost: $%.4f.", $0) } ?? ""
-        return "\(passed) of \(lines.count) checks passed.\(cost)"
+        let limit = limit.map { String(format: " Each call is given up after %.0f s.", $0) } ?? ""
+        return "\(passed) of \(lines.count) checks passed.\(cost)\(limit)"
     }
 }
 

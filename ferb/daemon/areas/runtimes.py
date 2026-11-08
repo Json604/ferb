@@ -403,12 +403,13 @@ class Runtimes:
             worker = await self._check_call(check.Line("Worker call (tools, its typed report)"), name, model, "worker",
                                             "worker", WORKER_SCHEMA, [check.PING, check.ECHO], set(),
                                             ModelRequest(check.PROMPT_WORKER, ("Check.",), 0))
+            # RUN-439: the two tool calls ran inside the worker call: its time, tokens and cost are on its line
             lines += [check.Line("Tool call with no arguments", ok=ping.calls > 0,
                                  detail="" if ping.calls else "the model didn't call check.ping",
-                                 model=worker.model, typed=worker.typed),
+                                 model=worker.model, typed=worker.typed, part_of="worker call"),
                       check.Line("Tool call with arguments", ok="hello" in echo.texts,
                                  detail="" if "hello" in echo.texts else "the model didn't call check.echo with hello",
-                                 model=worker.model, typed=worker.typed),
+                                 model=worker.model, typed=worker.typed, part_of="worker call"),
                       worker]
             lines.append(await self._check_call(check.Line("Checker call (its schema)"), name, model, "checker",
                                                 "worker", CHECKER_SCHEMA, [], set(),
@@ -435,6 +436,7 @@ class Runtimes:
         from ferb.core.structured import check_final
         from ferb.core.types import Task
         from ferb.orchestrator.tree import TaskRecord
+        from ferb.runtimes import check
         started = time.monotonic()
         task_id, holder = "check-" + self.ids.new_id(), ""
         device = str(self.config.get("device", "id", "unknown-device"))
@@ -450,9 +452,11 @@ class Runtimes:
                 self.tasks.hold(TaskRecord(task, self.clock.now(), span.id, task_id))
                 token = self.tokens.issue(task_id, holder, set(scopes), Identity.OWNER, ttl_s=600.0,
                                           observe_only=True, tools=frozenset(tools), max_calls=10)
-            run = await rt.start(task, request, token)
-            try:
-                async for ev in rt.events(run):
+            runs: list[Any] = []
+
+            async def answer() -> None:
+                runs.append(await rt.start(task, request, token))
+                async for ev in rt.events(runs[0]):
                     if ev.kind == "usage":
                         line.add_usage(ev.data)
                     elif ev.kind == "final":
@@ -461,12 +465,20 @@ class Runtimes:
                             line.ok = True
                         except ValueError as e:
                             line.detail = f"the answer didn't fit its form: {e}"
-                        break
+                        return
                     elif ev.kind in ("error", "violation"):
                         line.detail = str(ev.data.get("message") or ev.data)
-                        break
+                        return
+                    elif ev.kind == "retrying":           # Codex retrying after an error: why, if it never answers
+                        line.extra["retrying"] = str(ev.data.get("message") or "")
+            try:
+                await asyncio.wait_for(answer(), check.LINE_LIMIT_S)   # RUN-439: a check line never hangs
+            except TimeoutError:
+                line.detail = check.no_answer(check.LINE_LIMIT_S, getattr(rt, "retried", []),
+                                              line.extra.get("retrying", ""))
             finally:
-                await rt.cancel(run)
+                if runs:
+                    await rt.cancel(runs[0])
         except Exception as e:                       # the provider's or FERB's words, never a crash of the check
             line.detail = f"{type(e).__name__}: {e}"
         finally:

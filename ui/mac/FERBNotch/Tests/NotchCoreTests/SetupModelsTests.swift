@@ -80,4 +80,25 @@ final class SetupModelsTests: XCTestCase {
                                                     + "stated_after_refusal"))
         XCTAssertEqual(check.summary, "1 of 2 checks passed. Cost: $0.0123.")
     }
+
+    // decision: RUN-439
+    /// Owner 2026-11-08: "checking is stuck on gogole api(most prob cause its free and its stucj in rate limt or
+    /// sometign). even is hift provider the chedck box didtn refrsh". A call given up says so with its limit; the
+    /// tool-call lines say they ran inside the worker call; the result names its connection.
+    func testACheckGivenUpSaysItsLimitAndToolLinesSayWhereTheyRan() {
+        let check = ConnectionCheck(reply: [
+            "runtime": "google", "ok": false,
+            "lines": [["name": "Tool call with no arguments", "ok": true, "detail": "", "model": "gemini-3.8-flash",
+                       "typed": "strict", "seconds": 0.0, "input_tokens": 0, "output_tokens": 0, "limit_s": 60.0,
+                       "part_of": "worker call"],
+                      ["name": "Worker call (tools, its typed report)", "ok": false, "limit_s": 60.0,
+                       "detail": "no answer after 60 s; the provider answered a rate or usage limit (HTTP 429) 2 times",
+                       "model": "gemini-3.8-flash", "typed": "none", "seconds": 60.0, "input_tokens": 0,
+                       "output_tokens": 0]]])
+        XCTAssertEqual(check.runtime, "google")
+        XCTAssertEqual(check.lines[0].text, "✓ Tool call with no arguments — ran inside the worker call")
+        XCTAssertTrue(check.lines[1].text.hasSuffix(": no answer after 60 s; the provider answered a rate or usage "
+                                                     + "limit (HTTP 429) 2 times"))
+        XCTAssertEqual(check.summary, "1 of 2 checks passed. Each call is given up after 60 s.")
+    }
 }

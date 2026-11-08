@@ -356,7 +356,7 @@ class ClaudeRuntime:
                 yield RuntimeEvent("usage", asdict(from_anthropic(self.model or "claude", dict(m.usage or {}),
                                                                   billing="subscription", provider_cost=cost))
                                    | ({"timing": timer.done()} if timer is not None else {})
-                                   | ({"typed": typed} if typed else {}))
+                                   | ({"typed": typed} if typed else {}) | self._repair_mark(m, run, typed))
                 if getattr(m, "is_error", False):
                     if (typed == "strict" and getattr(m, "api_error_status", None) == 400
                             and not run.state.get("emitted") and m.subtype != STRUCTURED_RETRIES):
@@ -398,6 +398,26 @@ class ClaudeRuntime:
                 run.state["closed"] = True
                 yield RuntimeEvent("final", {"text": text, "tools_seen": sorted(self.proxy.seen(run.id))})
                 return
+
+    def _repair_mark(self, m: Any, run: RunHandle, typed: str) -> dict[str, str]:
+        """RUN-440: a stated answer's in-run repair as its usage report says it: "asked" (this answer was outside the
+        schema and is told back), "fixed" or "failed" (the answer after it); {} for every other result."""
+        if not typed.startswith("stated") or getattr(m, "is_error", False) or run.state.get("pending_updates"):
+            return {}
+        structured = getattr(m, "structured_output", None) or run.state.get("structured")
+        if structured is not None:
+            text = json.dumps(self.shape.value(structured) if self.shape else structured)
+        else:
+            text = m.result or ""
+            text = self.shape.answer_text(unfenced(text)) if self.shape is not None else text
+        try:
+            check_final(text, self.output_schema)
+            fits = True
+        except ValueError:
+            fits = False
+        if run.state.get("repaired"):
+            return {"repair": "fixed" if fits else "failed"}
+        return {} if fits else {"repair": "asked"}
 
     async def continue_(self, run: RunHandle, message: str) -> None:
         async with run.state.setdefault("input_lock", asyncio.Lock()):

@@ -202,6 +202,9 @@ class ApiRuntime:
         self.limit_s = limit_s           # one overall limit on this call (catalog.call_limit); None for a worker
         self.bridge, self.key, self.transport, self.sleep = bridge, key, transport, sleep
         self.retries, self.backoff_s, self.timeout_s = retries, backoff_s, timeout_s
+        # RUN-439: each answer this runtime retried after (status, the provider's retry-after), for a caller that
+        # gives up waiting to say why (Settings' Check)
+        self.retried: list[dict[str, Any]] = []
 
     @property
     def limits(self) -> ModelLimits:
@@ -295,10 +298,21 @@ class ApiRuntime:
                                        ({"account": e.account} if e.account else {}) |
                                        ({"image": True} if e.image else {}))
                     return
+                final, misfit = "", None
+                if not turn.calls and turn.final and not r.updates:
+                    final = unfenced(turn.final) if r.typed.startswith("stated") else turn.final
+                    final = self.shape.answer_text(final) if self.shape else final
+                    if r.typed.startswith("stated"):
+                        try:
+                            check_final(final, self.output_schema)
+                        except ValueError as e:
+                            misfit = str(e)
                 # RUN-419: the call's timing, from its request going out to its last streamed event; RUN-427: which
-                # form its typed answer took
+                # form its typed answer took; RUN-440: a stated answer's in-run repair (asked, then fixed or failed)
+                repair = (("failed" if misfit is not None else "fixed") if r.repaired and final
+                          else "asked" if misfit is not None else "")
                 yield RuntimeEvent("usage", asdict(turn.usage) | ({"timing": r.timer.done()} if r.timer else {})
-                                   | ({"typed": r.typed} if r.typed else {}))
+                                   | ({"typed": r.typed} if r.typed else {}) | ({"repair": repair} if repair else {}))
                 if not turn.calls:
                     if r.updates:
                         continue  # The answer predates an accepted owner correction.
@@ -306,17 +320,12 @@ class ApiRuntime:
                         r.closed = True
                         yield RuntimeEvent("error", {"message": f"{self.name}: the model ended without an answer"})
                         return
-                    final = unfenced(turn.final) if r.typed.startswith("stated") else turn.final
-                    final = self.shape.answer_text(final) if self.shape else final
-                    if r.typed.startswith("stated") and not r.repaired:
-                        try:
-                            check_final(final, self.output_schema)
-                        except ValueError as e:
-                            # RUN-427: nothing enforced the form, so one answer outside it is told back once; a second
-                            # goes to the caller's own check and repair
-                            r.repaired = True
-                            self.provider.add_message(r.state, repair_note(str(e)))
-                            continue
+                    if misfit is not None and not r.repaired:
+                        # RUN-427: nothing enforced the form, so one answer outside it is told back once; a second
+                        # goes to the caller's own check and repair
+                        r.repaired = True
+                        self.provider.add_message(r.state, repair_note(misfit))
+                        continue
                     r.closed = True  # No update may be accepted while the final event is handled.
                     yield RuntimeEvent("final", {"text": final})
                     return
@@ -406,6 +415,7 @@ class ApiRuntime:
                 async with r.client.stream('POST', url, headers=headers, json=body) as resp:
                     if resp.status_code in RETRY_STATUS and attempt < self.retries:
                         await resp.aread()
+                        self.retried.append({"status": resp.status_code, "retry_after": _retry_after(resp)})
                         await self.sleep(_retry_after(resp) or delay)
                         delay *= 2
                         continue
@@ -454,7 +464,8 @@ class ApiRuntime:
         if key:
             detail = detail.replace(key, "[key]")      # before truncating: a key at the cut would keep its prefix
         technical = f"HTTP {resp.status_code}" + (f": {detail[:300]}" if detail else "")
-        return f"{http_cause(resp.status_code)} ({technical})"
+        wait = _retry_after(resp) if resp.status_code == 429 else None      # RUN-439: when it says to try again
+        return f"{http_cause(resp.status_code)} ({technical})" + (f"; it says to retry after {wait:g} s" if wait else "")
 
     def _apply_updates(self, r: _Run) -> None:
         for message in r.updates:

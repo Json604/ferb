@@ -163,7 +163,7 @@ async def test_a_400_the_stated_form_gets_too_stays_its_own_error_and_is_not_rem
     assert not refusals.refused(rt.format_key)
 
 
-# decision: RUN-427
+# decision: RUN-427, RUN-440
 @pytest.mark.anyio
 async def test_a_stated_answer_outside_the_form_is_told_back_once() -> None:
     refusals = Refusals()
@@ -177,10 +177,13 @@ async def test_a_stated_answer_outside_the_form_is_told_back_once() -> None:
     messages = script.requests[1][1]["messages"]
     assert [m["role"] for m in messages] == ["user", "assistant", "user"]           # the problem, told back once
     assert json.loads(next(e for e in events if e.kind == "final").data["text"]) == good
+    # RUN-440: each usage report says how the repair went
+    assert [e.data.get("repair") for e in events if e.kind == "usage"] == ["asked", "fixed"]
 
     twice = Scripted([anthropic_answer(bad), anthropic_answer(bad)])                # a second miss: the caller's check
     events = await run(make(twice, refusals))
     assert len(twice.requests) == 2
+    assert [e.data.get("repair") for e in events if e.kind == "usage"] == ["asked", "failed"]
     with pytest.raises(ValueError):
         check_final(next(e for e in events if e.kind == "final").data["text"], core.SUPERVISOR_SCHEMA)
 
@@ -252,6 +255,7 @@ async def test_claude_code_refused_on_the_typed_format_starts_again_stated(monke
     assert system.startswith("FERB instructions") and stated_schema(system) == core.SUPERVISOR_SCHEMA
     assert json.loads(next(e for e in events if e.kind == "final").data["text"]) == answer
     assert not any(e.kind == "error" for e in events)
+    assert not any("repair" in e.data for e in events if e.kind == "usage")       # RUN-440: it fit: no repair
     # the Anthropic API runtime and Claude Code share the fact (one feature, the same model)
     api = make(Scripted([]), refusals)
     assert api.provider.model == "claude-sonnet-5-5" and rt.format_key == api.format_key

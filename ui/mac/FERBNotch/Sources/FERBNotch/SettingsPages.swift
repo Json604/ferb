@@ -348,15 +348,18 @@ struct AISettingsPage: View {
             WindowPage {
                 WindowSettingsSection { AIStepView(model: setup) }
                 WindowSettingsSection(title: "Check") {
-                    Button(store.checkingRuntime ? "Checking… (five small calls)" : "Check connection") {
-                        Task { await store.checkRuntime(setup.ai?.current ?? "codex") }
+                    let current = setup.ai?.current ?? "codex"
+                    Button(store.checkingRuntimeName.map { "Checking \(AISnapshot.label($0))… (five small calls)" }
+                           ?? "Check connection") {
+                        Task { await store.checkRuntime(current) }
                     }.disabled(store.checkingRuntime || output.running)
-                    ForEach(store.checkLines) { line in
-                        Text(verbatim: line.text).font(.caption).foregroundStyle(line.ok ? .secondary : .primary)
-                            .textSelection(.enabled)
-                    }
-                    if let result = store.runtimeResult {
-                        Text(result).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    // RUN-439: only this connection's own last result, never another's
+                    if let result = store.checkResults[current] {
+                        ForEach(result.lines) { line in
+                            Text(verbatim: line.text).font(.caption).foregroundStyle(line.ok ? .secondary : .primary)
+                                .textSelection(.enabled)
+                        }
+                        Text(result.summary).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                     }
                     Button("Sign out of ChatGPT") {
                         output.run(["setup", "--codex-logout"], with: actions) { Task { await setup.refreshAI() } }

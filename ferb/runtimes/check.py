@@ -85,9 +85,15 @@ def red_png(size: int = 16) -> bytes:
             + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
 
 
+# RUN-439: each check call is given up after this long (the check tool's own limit, not FERB's: a real call has none),
+# so the Check never hangs on a provider that doesn't answer (a free key held in a rate limit)
+LINE_LIMIT_S = 60.0
+
+
 @dataclass
 class Line:
-    """One check's result as Settings shows it."""
+    """One check's result as Settings shows it. `part_of`: the call it ran inside (the tool-call lines are the worker
+    call's: their time and tokens are that call's)."""
     name: str
     ok: bool = False
     detail: str = ""
@@ -97,6 +103,7 @@ class Line:
     input_tokens: int = 0
     output_tokens: int = 0
     cost_usd: float | None = None
+    part_of: str = ""
     extra: dict[str, Any] = field(default_factory=dict)
 
     def add_usage(self, data: dict[str, Any]) -> None:
@@ -109,6 +116,22 @@ class Line:
             self.cost_usd = (self.cost_usd or 0.0) + float(cost)
 
     def row(self) -> dict[str, Any]:
-        return {"name": self.name, "ok": self.ok, "detail": self.detail, "model": self.model,
-                "typed": self.typed or "none", "seconds": round(self.seconds, 1), "input_tokens": self.input_tokens,
-                "output_tokens": self.output_tokens, "cost_usd": self.cost_usd}
+        return ({"name": self.name, "ok": self.ok, "detail": self.detail, "model": self.model,
+                 "typed": self.typed or "none", "seconds": round(self.seconds, 1), "input_tokens": self.input_tokens,
+                 "output_tokens": self.output_tokens, "cost_usd": self.cost_usd, "limit_s": LINE_LIMIT_S}
+                | ({"part_of": self.part_of} if self.part_of else {}))
+
+
+def no_answer(limit_s: float, retried: list[dict[str, Any]], retrying: str = "") -> str:
+    """RUN-439: a check line given up after `limit_s`, saying what the provider answered meanwhile: a rate or usage
+    limit (429, with its retry-after), another status FERB retried after, or Codex's own retry message."""
+    said = f"no answer after {limit_s:g} s"
+    if retried:
+        last = retried[-1]
+        status, wait = int(last.get("status") or 0), last.get("retry_after")
+        what = "a rate or usage limit (HTTP 429)" if status == 429 else f"HTTP {status}"
+        said += (f"; the provider answered {what} {len(retried)} time{'s' if len(retried) != 1 else ''}"
+                 + (f", asking to retry after {wait:g} s" if wait else ""))
+    elif retrying:
+        said += f"; {retrying}"
+    return said

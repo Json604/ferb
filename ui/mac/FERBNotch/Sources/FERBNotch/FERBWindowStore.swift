@@ -72,9 +72,10 @@ final class FERBWindowStore: ObservableObject {
     @Published var note: String?
     /// Where Send diagnostics to developer stands, under its button: prepared, sent, or not sent and kept.
     @Published var diagnostic: ReportState?
-    @Published private(set) var checkingRuntime = false
-    @Published private(set) var runtimeResult: String?
-    @Published private(set) var checkLines: [ConnectionCheck.Line] = []
+    /// RUN-439: the connection being checked now, and each connection's own last result (never shown under another)
+    @Published private(set) var checkingRuntimeName: String?
+    @Published private(set) var checkResults: [String: CheckResult] = [:]
+    var checkingRuntime: Bool { checkingRuntimeName != nil }
     @Published private(set) var checkingHealth = false
     @Published private(set) var healthProblem: String?
 
@@ -329,18 +330,16 @@ final class FERBWindowStore: ObservableObject {
 
     func checkRuntime(_ name: String) async {
         guard !checkingRuntime else { return }
-        checkingRuntime = true
-        runtimeResult = nil
-        defer { checkingRuntime = false }
-        checkLines = []
+        checkingRuntimeName = name
+        checkResults[name] = nil
+        defer { checkingRuntimeName = nil }
         // T-1069: the call shapes FERB really makes, one line each (a few cents at most)
         guard let reply = await ask("runtimes.check_calls", ["runtime": name], wait: Self.checkWait) else {
-            runtimeResult = problem
+            checkResults[name] = CheckResult(lines: [], summary: problem ?? "The check didn't finish.")
             return
         }
         let report = ConnectionCheck(reply: reply)
-        checkLines = report.lines
-        runtimeResult = report.summary
+        checkResults[name] = CheckResult(lines: report.lines, summary: report.summary)
     }
 
     func pauseRecording(_ paused: Bool) async {
@@ -389,4 +388,10 @@ final class FERBWindowStore: ObservableObject {
               let path = reply["path"] as? String else { return nil }
         return URL(fileURLWithPath: path)
     }
+}
+
+/// One connection's last Check (RUN-439).
+struct CheckResult: Equatable {
+    let lines: [ConnectionCheck.Line]
+    let summary: String
 }
