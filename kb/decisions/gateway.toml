@@ -797,6 +797,16 @@ title = "How test runs are kept apart: one tag on the chat message, checked wher
 by = "agent"
 date = 2026-11-08
 status = "active"
-rule = "For GATE-550. chat.send takes test_run {run, connection} only while test mode records questions; it is stored on the chat.message row and TestRuns answers by session, request or task. Already per chat: chat.history, task.evidence, the summary. Gated by the tag: trail rows of a test task aren't written; the daily distill skips test messages and outcomes; remember/forget entries are dropped (test_run.memory_skipped); no episode card; no summary fold. Episode rows stay (the trace's record)."
-why = "The run script adds --task-limit (default 20 min, stopped through task.stop and recorded) and --cost-cap; scripts/question_compare.py puts connections side by side."
+rule = "For GATE-550 and GATE-552. chat.send takes test_run {run, connection} only while test mode records questions; it is stored on the chat.message row and TestRuns answers by session, request or task. Per chat already: chat.history, task.evidence, the running summary (a run's own chat folds as usual). Gated by the tag: trail rows of a test task aren't written; the daily distill skips test messages and outcomes; remember/forget entries are dropped (test_run.memory_skipped); no episode card. Episode rows stay (the trace's record)."
+why = "The run script adds --turn-limit (default 20 min, stopped through task.stop and recorded), --cost-cap (unset by default) and --chat-per-task; scripts/question_compare.py puts connections side by side."
 paths = ["ferb/orchestrator/test_runs.py", "ferb/daemon/areas/chat.py::Chat._test_run_tag", "ferb/sense/trail.py::Trail.record", "ferb/memory/summary.py::_journal", "scripts/question_compare.py"]
+
+[GATE-552]
+title = "A test run sends the whole task file into one chat; the next connection starts a fresh chat"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "i thogh it ws one bye one privider. a oriver rund hte full test and then other provide in fresh session. thats what i emant / have th buyinga nd hught staeks task at the end cuase then the econtetx will be filled and then the test will be a hard one"
+words_source = "Owner 2026-11-08: how the real-task run goes (first part), and why the order, hotel and table tasks come last"
+rule = "Refines GATE-550. One connection runs the whole task file, in order, in one chat, so context builds up as in real use (the chat's running summary folds as usual); the next connection runs it in a fresh chat. Each task and turn is still recorded on its own, the time limit is per turn, and the report is rewritten after every turn. Across runs nothing a run wrote is visible; learning stays off. The buying and high-stakes tasks are last in the file."
+paths = ["scripts/question_run.py"]

@@ -3491,8 +3491,8 @@ class Supervisor(WorkerRuns):
         back to the last 20 exchanges; the same call drops what is older than SUMMARY_DAYS unless it is still open.
         The token figures only decide when what lies beyond the last 20 exchanges folds: those 20 never fold. One fold
         per chat at a time; the planner only reads the latest summary (no model call per turn)."""
-        if conversation in self._summarizing or TestRuns.of(self.journal.db).session(conversation):
-            return                       # GATE-550: a test run's chat never folds into a summary
+        if conversation in self._summarizing:
+            return
         entries = self._timeline("", conversation, self._summary(conversation))[0]
         count = len(entries) - len(self._recent_entries(entries))
         excess = sum(count_tokens(e.text) for e in entries[:count])

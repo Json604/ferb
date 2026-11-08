@@ -1,6 +1,7 @@
 """scripts/question_run.py (GATE-551): what the task-run tool reports per task, and its own limits. Fakes stand in for
 FERB's socket; nothing reaches the owner's FERB."""
 import importlib.util
+import json
 import threading
 from pathlib import Path
 from typing import Any
@@ -101,3 +102,53 @@ def test_the_live_runs_models_have_documented_prices_and_limits() -> None:
     assert [PRICES[m][0].cached for m in ("claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1")] == [0.10, 0.20, 0.25]
     assert [PRICES[m][0].cache_write_1h for m in ("claude-sonnet-5-5", "claude-opus-5-5")] == [4.00, 8.00]
     assert "claude-sonnet-5-5" in anthropic_api.LIMITS
+
+
+# decision: GATE-552
+def test_a_run_sends_the_whole_file_into_one_chat_and_the_next_run_gets_a_fresh_one(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Owner 2026-11-08: "i thogh it ws one bye one privider. a oriver rund hte full test and then other provide in
+    fresh session". Every task of a run, in file order, goes into one chat; each turn is recorded on its own and the
+    report is written after every turn."""
+    sent: list[tuple[str, str]] = []
+    writes: list[int] = []
+
+    class Fake:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def stream(self, method: str, params: dict[str, Any]) -> Any:
+            sent.append((params["session_id"], params["text"]))
+            yield {"type": "reply", "request_id": "r" + str(len(sent)), "text": "Done: " + params["text"]}
+
+        def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+            return {"test.mode": {"questions": "record"}, "runtimes.status": {"roles": {"worker": "codex"}},
+                    "runtimes.models": {"model": "gpt-6.1-sol", "roles": {}},
+                    "trace.get": {"spans": []}}.get(method, {})
+
+        def set_timeout(self, s: float) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+    monkeypatch.setattr(qr, "Client", Fake)
+    real_write = Path.write_text
+
+    def counted(self: Path, text: str, *args: Any, **kwargs: Any) -> int:
+        writes.append(1)
+        return real_write(self, text, *args, **kwargs)
+    monkeypatch.setattr(Path, "write_text", counted)
+    tasks = tmp_path / "tasks.txt"
+    real_write(tasks, "find the weather\nlist my files || and sort them\n")
+    out = tmp_path / "run.json"
+    monkeypatch.setattr("sys.argv", ["question_run.py", str(tasks), "--runtime", "codex", "--out", str(out),
+                                     "--repeat", "2"])
+    assert qr.main() == 0
+    sessions = [s for s, _ in sent]
+    assert [t for _, t in sent] == ["find the weather", "list my files", "and sort them"] * 2
+    assert len(set(sessions[:3])) == 1 and len(set(sessions[3:])) == 1 and sessions[0] != sessions[3]
+    report = json.loads(out.read_text())
+    assert report["chat"] == "one per run" and len(report["tasks"]) == 4
+    assert [len(t["turns"]) for t in report["tasks"]] == [1, 2, 1, 2]
+    assert report["tasks"][1]["final_answer"] == "Done: and sort them" and report["tasks"][1]["started_at"]
+    assert len(writes) >= 6                                                  # after every turn, and at the end

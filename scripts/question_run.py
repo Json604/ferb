@@ -3,15 +3,18 @@ recorder, and write each task's results to a report outside the repository.
 
     uv run python scripts/question_run.py TASKS --runtime anthropic --out ~/ferb-runs/run1.json [--repeat 3]
 
-TASKS is a text file, one task per line ("||" splits the turns of a two-turn task, "#" starts a comment), or a JSON
-list of {"id", "turns": [...]}. Each task runs in a chat of its own, tagged with the run and the connection
-(GATE-550), so no run sees another's chats, memory, learning or activity, and FERB learns nothing from them. The run
+TASKS is a text file, one task per line ("||" splits the turns of a multi-turn task, "#" starts a comment), or a JSON
+list of {"id", "turns": [...]}. A run sends every task, in file order, into one chat (GATE-552: one provider runs the
+whole test, the next gets a fresh chat), so context builds up as in real use (--chat-per-task: a fresh chat per task).
+Every message is tagged with the run and the connection (GATE-550), so no run sees another's chats, summary, memory,
+learning or activity, and FERB learns nothing from any of them. The run
 needs test mode with questions recorded (Settings, or `--enable "me@example.com" ...` here, which turns it on with that
 send allowlist; it stays on after). The connection is used for every role during the run and the roles go back as
 they were at the end.
 
-The run tool's own limits (not FERB's): --task-limit minutes per task (default 20), after which the runner stops the
-task through FERB's stop and records it; --cost-cap dollars for the whole run, after which no new task starts.
+The run tool's own limits (not FERB's): --turn-limit minutes per turn (default 20), after which the runner stops that
+turn's task through FERB's stop and records it; --cost-cap dollars for the whole run (unset by default), after which
+no new task starts. The report is rewritten after every turn.
 
 Per task: start and end, seconds (each step's and each model call's too), steps (tool calls), model calls, tokens
 (input, cache reads, cache writes by TTL, output), cost, each question FERB recorded (card, rules, the table's answer,
@@ -194,6 +197,18 @@ def collect(client: Client, turn: dict[str, Any]) -> dict[str, Any]:
             "final_answer": answer, "possible_leftovers": leftovers}
 
 
+def sum_up(row: dict[str, Any]) -> None:
+    """A task's totals from its turns so far (each turn keeps its own figures)."""
+    turns = row["turns"]
+    row.update({"started_at": turns[0]["started_at"], "ended_at": turns[-1]["ended_at"],
+                "stopped_by_runner": next((t["stopped_by_runner"] for t in turns if t.get("stopped_by_runner")), ""),
+                "final_answer": turns[-1]["final_answer"], "seconds": round(sum(t["seconds"] for t in turns), 1),
+                "questions": sum(len(t["questions"]) for t in turns), "steps": sum(t["steps"] for t in turns),
+                "cost_usd": round(sum(t["cost_usd"] for t in turns), 6), "typed": {}})
+    for t in turns:
+        row["typed"] = add_forms(row["typed"], t["typed"])
+
+
 def set_model(client: Client, runtime: str, model: str, role: str | None = None) -> None:
     """The connection's model (or one role's; "" clears a role's own), through runtimes.model, which checks a model
     before it saves it; a refusal stops the run with the provider's words."""
@@ -220,7 +235,10 @@ def main() -> int:
                    help="turn on test mode with questions recorded and this send allowlist")
     p.add_argument("--model", default="", help="the connection's model for every role during the run (checked first, "
                                                "as Settings does; the models go back at the end)")
-    p.add_argument("--task-limit", type=float, default=20.0, help="minutes per task before the runner stops it")
+    p.add_argument("--turn-limit", "--task-limit", dest="turn_limit", type=float, default=20.0,
+                   help="minutes per turn before the runner stops that turn's task")
+    p.add_argument("--chat-per-task", action="store_true",
+                   help="each task in a fresh chat (default: the whole file in one chat per run, as real use)")
     p.add_argument("--cost-cap", type=float, default=None, help="dollars: no new task starts once the run reached it")
     args = p.parse_args()
     out = args.out.expanduser().resolve()
@@ -244,33 +262,29 @@ def main() -> int:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     report: dict[str, Any] = {"started": datetime.now().isoformat(timespec="seconds"), "runtime": args.runtime,
                               "model": client.call("runtimes.models", {"runtime": args.runtime}).get("model"),
-                              "run": stamp, "test_mode": mode, "task_limit_min": args.task_limit,
+                              "run": stamp, "test_mode": mode, "turn_limit_min": args.turn_limit,
+                              "chat": "per task" if args.chat_per_task else "one per run",
                               "cost_cap_usd": args.cost_cap, "tasks": []}
     tag = {"run": stamp, "connection": args.runtime}
     out.parent.mkdir(parents=True, exist_ok=True)
     try:
-        for task in tasks:
-            for run in range(1, args.repeat + 1):
+        for run in range(1, args.repeat + 1):                 # GATE-552: each run is the whole file, in order
+            for task in tasks:
                 spent = sum(t["cost_usd"] for t in report["tasks"])
                 if args.cost_cap is not None and spent >= args.cost_cap:
                     report["stopped"] = f"the cost cap ${args.cost_cap:g} was reached (${spent:.4f})"
                     raise StopIteration
-                session = f"qrun-{stamp}-{args.runtime}-{task['id']}-{run}"
-                turns = [collect(client, send(session, text, tag, args.task_limit * 60)) for text in task["turns"]]
-                row = {"id": task["id"], "run": run, "session": session, "turns": turns,
-                       "started_at": turns[0]["started_at"], "ended_at": turns[-1]["ended_at"],
-                       "stopped_by_runner": next((t["stopped_by_runner"] for t in turns
-                                                  if t.get("stopped_by_runner")), ""),
-                       "final_answer": turns[-1]["final_answer"],
-                       "seconds": round(sum(t["seconds"] for t in turns), 1),
-                       "questions": sum(len(t["questions"]) for t in turns),
-                       "steps": sum(t["steps"] for t in turns),
-                       "cost_usd": round(sum(t["cost_usd"] for t in turns), 6)}
-                for t in turns:
-                    row["typed"] = add_forms(row.get("typed") or {}, t["typed"])
-                    report["typed"] = add_forms(report.get("typed") or {}, t["typed"])    # the run's summary
+                session = (f"qrun-{stamp}-{args.runtime}-{task['id']}-{run}" if args.chat_per_task
+                           else f"qrun-{stamp}-{args.runtime}-{run}")   # one chat for the run: context builds up
+                row: dict[str, Any] = {"id": task["id"], "run": run, "session": session, "turns": []}
                 report["tasks"].append(row)
-                out.write_text(json.dumps(report, ensure_ascii=False, indent=2))   # kept as it goes
+                for text in task["turns"]:
+                    row["turns"].append(collect(client, send(session, text, tag, args.turn_limit * 60)))
+                    sum_up(row)
+                    report["typed"] = {}
+                    for t in (t for r in report["tasks"] for t in r["turns"]):
+                        report["typed"] = add_forms(report["typed"], t["typed"])     # the run's summary
+                    out.write_text(json.dumps(report, ensure_ascii=False, indent=2))   # after every turn
                 print(f"{task['id']} run {run}: {row['seconds']} s, {row['steps']} steps, {row['questions']} "
                       f"questions, ${row['cost_usd']}")
     except StopIteration:
