@@ -194,6 +194,16 @@ def collect(client: Client, turn: dict[str, Any]) -> dict[str, Any]:
             "final_answer": answer, "possible_leftovers": leftovers}
 
 
+def set_model(client: Client, runtime: str, model: str, role: str | None = None) -> None:
+    """The connection's model (or one role's; "" clears a role's own), through runtimes.model, which checks a model
+    before it saves it; a refusal stops the run with the provider's words."""
+    client.set_timeout(120)
+    got = client.call("runtimes.model", {"runtime": runtime, "model": model} | ({"role": role} if role else {}))
+    client.set_timeout(60)
+    if not got.get("ok"):
+        raise SystemExit(f"{runtime} didn't take {model or 'the connection model'}: {got.get('detail')}")
+
+
 def secs(n: dict[str, Any]) -> float | None:
     if not n.get("ended_at"):
         return None
@@ -208,6 +218,8 @@ def main() -> int:
     p.add_argument("--repeat", type=int, default=1)
     p.add_argument("--enable", nargs="*", metavar="RECIPIENT",
                    help="turn on test mode with questions recorded and this send allowlist")
+    p.add_argument("--model", default="", help="the connection's model for every role during the run (checked first, "
+                                               "as Settings does; the models go back at the end)")
     p.add_argument("--task-limit", type=float, default=20.0, help="minutes per task before the runner stops it")
     p.add_argument("--cost-cap", type=float, default=None, help="dollars: no new task starts once the run reached it")
     args = p.parse_args()
@@ -222,9 +234,16 @@ def main() -> int:
     if mode.get("questions") != "record":
         p.error("FERB's test mode isn't recording questions: turn it on, or pass --enable with the send allowlist")
     before = client.call("runtimes.status").get("roles") or {}
+    models = client.call("runtimes.models", {"runtime": args.runtime})
+    if args.model:                                     # every role on this model: the roles' own ones set aside
+        set_model(client, args.runtime, args.model)
+        for role, own in (models.get("roles") or {}).items():
+            if isinstance(own, dict) and own.get("runtime") == args.runtime and own.get("model"):
+                set_model(client, args.runtime, "", role)
     client.call("runtimes.use", {"runtime": args.runtime})
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     report: dict[str, Any] = {"started": datetime.now().isoformat(timespec="seconds"), "runtime": args.runtime,
+                              "model": client.call("runtimes.models", {"runtime": args.runtime}).get("model"),
                               "run": stamp, "test_mode": mode, "task_limit_min": args.task_limit,
                               "cost_cap_usd": args.cost_cap, "tasks": []}
     tag = {"run": stamp, "connection": args.runtime}
@@ -259,6 +278,12 @@ def main() -> int:
     finally:
         for role, runtime in before.items():           # the roles as they were
             client.call("runtimes.use", {"runtime": runtime, "roles": [role]})
+        if args.model:                                 # and the models
+            if models.get("model") and models["model"] != args.model:
+                set_model(client, args.runtime, str(models["model"]))
+            for role, own in (models.get("roles") or {}).items():
+                if isinstance(own, dict) and own.get("runtime") == args.runtime and own.get("model"):
+                    set_model(client, args.runtime, str(own["model"]), role)
         report["ended"] = datetime.now().isoformat(timespec="seconds")
         out.write_text(json.dumps(report, ensure_ascii=False, indent=2))
     print(f"report: {out}")

@@ -414,3 +414,25 @@ date = 2026-11-08
 status = "active"
 rule = "For RUN-427, to measure the fallback live. The API loop's and Claude Code's usage report carries repair: \"asked\" (the stated answer was outside the schema and is told back), then \"fixed\" or \"failed\" on the answer after it; none otherwise. scripts/question_run.py counts per task and per run: calls by typed form, repairs asked, fixed and failed, the repair calls' seconds, and the planner's own repair turns and how many ended without error."
 paths = ["ferb/runtimes/api.py::ApiRuntime.events", "ferb/runtimes/claude_sdk.py::ClaudeRuntime._repair_mark", "scripts/question_run.py::typed_forms"]
+
+[RUN-441]
+title = "The live run uses gpt-5.6-luna on OpenAI and claude-sonnet-5-5 on Claude, no cost cap, nothing paid"
+by = "owner"
+date = 2026-11-08
+status = "superseded"
+superseded_by = "RUN-442"
+words = "openai providers as got5.6luna(both code adn api) and cladue providers modelas sonnet5.5 on both api and code / no cap from our side / keep eveythign we testing real life scnearis ... JUST AMEK SURE IT DEOSNT PAY / lets leave it as is will built t1060 after the runs"
+words_source = "Owner 2026-11-08, choosing the live real-task run's models and limits (Google left out: four connections work)"
+rule = "The real-task run uses gpt-5.6-luna on Codex and the OpenAI API, claude-sonnet-5-5 on Claude Code and the Anthropic API; Google is not run. No cost cap is set by FERB's side (the run tool's --cost-cap stays optional and unset). Tasks are real-life scenarios; no payment is ever approved in the run (record mode answers every payment, card, secret and code question No). T-1060 waits until after the runs."
+paths = ["ferb/runtimes/prices.py::PRICES", "ferb/runtimes/openai_api.py::LIMITS", "scripts/question_run.py::set_model"]
+
+[RUN-442]
+title = "The live run's GPT model is gpt-6.1-sol on Codex and the OpenAI API"
+by = "owner"
+date = 2026-11-08
+status = "active"
+supersedes = ["RUN-441"]
+words = "ok good. also lets shift the gpt model to 6.1 sol. both api and subscription. its the smae money equivalent ig."
+words_source = "Owner 2026-11-08, after choosing gpt-5.6-luna for the live real-task run (RUN-441)"
+rule = "Supersedes RUN-441's GPT model; the rest of RUN-441 stands. The real-task run uses gpt-6.1-sol on Codex (the ChatGPT subscription) and the OpenAI API, claude-sonnet-5-5 on Claude Code and the Anthropic API; Google is not run; no cost cap from FERB's side; no payment is ever approved in the run; T-1060 waits until after the runs."
+paths = ["ferb/runtimes/prices.py::PRICES", "ferb/runtimes/openai_api.py::LIMITS", "scripts/question_run.py::set_model"]

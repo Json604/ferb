@@ -2358,10 +2358,21 @@ class Gateway:
     # ---------- hidden input (ferb/daemon/hidden_input.py) ----------
 
     async def ask_secret(self, ctx: ToolContext, target: str, **kw: Any) -> str | None:
+        if self.test_questions:                 # GATE-546: a password, card or other secret is never given in a test
+            return self._test_declined(ctx, "secret", f"a secret for {target}")
         return await self.hidden.secret(ctx, target, **kw)
 
     async def ask_login_code(self, ctx: ToolContext, origin: str) -> str | None:
+        if self.test_questions:                 # GATE-546: nor a login code
+            return self._test_declined(ctx, "login_code", f"a login code for {origin}")
         return await self.hidden.login_code(ctx, origin)
+
+    def _test_declined(self, ctx: ToolContext, kind: str, question: str) -> None:
+        """GATE-546: a hidden-input question in record mode is recorded and declined at once (the owner's No)."""
+        span = self.spans.start("tool.call", task_id=ctx.task_id, input={
+            "tool": OWNER_ASK, "args": {"question": question}, "ferb_question": True, "question_kind": kind})
+        self.spans.finish(span, output={"test_mode": True, "answer": "No"})
+        return None
 
     def release_secret(self, value: str) -> None:
         self.hidden.release(value)

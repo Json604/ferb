@@ -34,6 +34,9 @@ BREAKPOINT = {"mode": "explicit"}
 LIMITS: dict[str, tuple[int, int]] = {
     "gpt-5.5": (1_050_000, 128_000),
     "gpt-5.6-sol": (1_050_000, 128_000),
+    # https://developers.openai.com/api/docs/models/gpt-5.6-luna (checked 2026-11-08): 1,050,000 context window,
+    # 128,000 max output tokens
+    "gpt-5.6-luna": (1_050_000, 128_000),
     "gpt-6-astra": (1_050_000, 128_000),
     "gpt-6.1-sol": (1_050_000, 128_000),
     "gpt-6-luna": (1_050_000, 128_000),

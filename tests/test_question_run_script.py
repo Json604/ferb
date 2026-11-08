@@ -68,3 +68,36 @@ def test_a_task_past_its_limit_is_stopped_through_ferbs_stop(monkeypatch: pytest
     assert calls == [("task.stop", {"task_ids": ["tree1"]})]
     assert turn["stopped_by_runner"] == f"stopped by the runner after {0.2 / 60:g} min"
     assert turn["task_ids"] == ["tree1.worker"] and turn["seconds"] < 5
+
+
+# decision: RUN-442
+def test_the_runs_model_is_set_through_the_checked_path_and_a_refusal_stops_the_run() -> None:
+    seen: list[tuple[str, Any]] = []
+
+    class Fake:
+        def set_timeout(self, s: float) -> None:
+            pass
+
+        def call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+            seen.append((method, params))
+            return {"ok": params["model"] != "gpt-nope", "detail": "not in the models your key can use"}
+    qr.set_model(Fake(), "openai", "gpt-5.6-luna")
+    assert seen == [("runtimes.model", {"runtime": "openai", "model": "gpt-5.6-luna"})]
+    with pytest.raises(SystemExit, match="not in the models"):
+        qr.set_model(Fake(), "openai", "gpt-nope")
+
+
+# decision: RUN-442
+def test_the_live_runs_models_have_documented_prices_and_limits() -> None:
+    from ferb.runtimes import anthropic_api, openai_api
+    from ferb.runtimes.prices import PRICES
+    luna = PRICES["gpt-5.6-luna"][0]
+    assert (luna.input, luna.cached, luna.cache_write, luna.output) == (0.20, 0.02, 0.25, 1.20)
+    assert openai_api.LIMITS["gpt-5.6-luna"] == (1_050_000, 128_000)
+    sol = PRICES["gpt-6.1-sol"][0]                       # checked 2026-11-08 on OpenAI's pricing and model pages
+    assert (sol.input, sol.cached, sol.cache_write, sol.output) == (2.00, 0.10, 2.50, 10.00)
+    assert openai_api.LIMITS["gpt-6.1-sol"] == (1_050_000, 128_000)
+    # Anthropic's page, checked 2026-11-08: hits are $0.10 on Sonnet 5.5, $0.20 on Opus 5.5, $0.25 on Fable 5.1
+    assert [PRICES[m][0].cached for m in ("claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1")] == [0.10, 0.20, 0.25]
+    assert [PRICES[m][0].cache_write_1h for m in ("claude-sonnet-5-5", "claude-opus-5-5")] == [4.00, 8.00]
+    assert "claude-sonnet-5-5" in anthropic_api.LIMITS

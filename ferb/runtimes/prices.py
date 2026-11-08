@@ -34,10 +34,16 @@ PRICES: dict[str, list[Price]] = {
     # output; >272K input tokens: $8 / $0.80 / $10 / $30 for the whole request. Listed as promotional pricing "at least
     # through November 21, 2026": add a dated entry when it changes.
     "gpt-5.6-sol": [Price(4.00, 0.40, 5.00, 20.00, 272_000, 2.0, 1.5)],
+    # https://developers.openai.com/api/docs/pricing (checked 2026-11-08, Standard; gpt-6.1-sol's entry matched it too:
+    # $2 / $0.10 cached / $2.50 30m write / $10, long 2x and 1.5x): $0.20 input, $0.02 cached, $0.25
+    # 30-minute cache write, $1.20 output; >272K input tokens: input, cached and writes 2x, output 1.5x
+    "gpt-5.6-luna": [Price(0.20, 0.02, 0.25, 1.20, 272_000, 2.0, 1.5)],
     # 1-hour cache writes are 2x the base input price on every Claude model (pricing page, prompt caching; RUN-436)
     "claude-fable-5-1": [Price(10.00, 0.25, 12.50, 50.00, cache_write_1h=20.00)],
+    # https://platform.claude.com/docs/en/about-claude/pricing (checked 2026-11-08): Fable 5.1 $10 / $12.50 5m write /
+    # $20 1h write / $0.25 hit / $50; Opus 5.5 $4 / $5 / $8 / $0.20 / $20; Sonnet 5.5 $2 / $2.50 / $4 / $0.10 / $10
     "claude-opus-5-5": [Price(4.00, 0.20, 5.00, 20.00, cache_write_1h=8.00)],
-    "claude-sonnet-5-5": [Price(2.00, 0.20, 2.50, 10.00, cache_write_1h=4.00)],
+    "claude-sonnet-5-5": [Price(2.00, 0.10, 2.50, 10.00, cache_write_1h=4.00)],
     # https://platform.claude.com/docs/en/about-claude/pricing (checked 2026-10-30): prompts up to 100,000 tokens $0.10
     # input, $0.125 5-minute cache write, $0.01 cache hit, $0.50 output; a prompt over 100,000 tokens (cache reads and
     # writes counted) pays 5x on all of them ($0.50 / $0.625 / $0.05 / $2.50) for the whole request

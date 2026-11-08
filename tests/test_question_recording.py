@@ -186,3 +186,31 @@ def test_a_test_run_tag_is_refused_outside_record_mode(daemon: RunningDaemon) ->
     from ferb.cli.client import RpcError
     with pytest.raises(RpcError, match="test mode"):
         _tagged(daemon, "hello", "qrun-x", "codex")
+
+
+# decision: GATE-546, RUN-442
+def test_no_payment_card_secret_or_code_question_is_ever_answered_yes(daemon: RunningDaemon) -> None:
+    """Owner 2026-11-08: "JUST AMEK SURE IT DEOSNT PAY". Every rule a FERB question can come from (the card table's
+    list) is answered No by the table except the URL sink's; a secret (a password or card) and a login code are
+    declined at once."""
+    from ferb.core.types import Identity, ToolContext
+    from tests.test_question_cards import RULES
+    _record_mode(daemon)
+    grant, _ = gateway_setup(daemon, {"web"}, gateway_request("buy the kettle"), [])
+    rec = daemon.daemon.tasks.get(grant.task_id)
+    owner = Answers(daemon, granted=True, choice=1)
+    try:
+        answers = {rule: daemon.run(daemon.daemon.gateway.ask_confirmation(
+            grant, rec, [confirm.Need(rule, rule + ":k", values)], None, "browser.act", "")).granted
+            for rule, values in RULES.items()}
+        ctx = ToolContext(grant.task_id, "w1", "req-1", Identity.OWNER, frozenset({"web"}), "dev", None, "/tmp",
+                          (), ())
+        secret = daemon.run(daemon.daemon.gateway.ask_secret(ctx, "card number on shop.example"))
+        code = daemon.run(daemon.daemon.gateway.ask_login_code(ctx, "https://bank.example"))
+    finally:
+        owner.stop()
+    assert owner.asked == []
+    assert [rule for rule, yes in answers.items() if yes] == ["sink:private_url"]
+    assert answers["floor:pay"] is False and secret is None and code is None
+    kinds = [a["input"].get("question_kind") for a in _asked(daemon)]
+    assert "secret" in kinds and "login_code" in kinds
