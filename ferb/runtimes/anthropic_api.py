@@ -129,10 +129,14 @@ class AnthropicProvider:
         if stop not in ("end_turn", "tool_use", "stop_sequence"):
             raise ProviderError(f"anthropic: the reply stopped early ({stop})",
                                 overflow=stop == "model_context_window_exceeded")
-        state["body"]["messages"].append({"role": "assistant", "content": content})
         calls = [ToolCall(b["id"], b["name"], b["input"] if isinstance(b.get("input"), dict) else {},
-                          "" if isinstance(b.get("input"), dict) else "not a JSON object")
+                          "" if isinstance(b.get("input"), dict) else
+                          "not valid JSON" if isinstance(b.get("input"), str) else "not a JSON object")
                  for b in content if b.get("type") == "tool_use"]
+        # the turn goes back as it was, a call's unreadable arguments as {} (the API takes only an object there)
+        replay = [{**b, "input": b["input"] if isinstance(b.get("input"), dict) else {}}
+                  if b.get("type") == "tool_use" else b for b in content]
+        state["body"]["messages"].append({"role": "assistant", "content": replay})
         text = "".join(b.get("text", "") for b in content if b.get("type") == "text")
         return Turn(calls, None if calls else text, from_anthropic(self.model, data.get("usage") or {}, billing="api"), stop)
 
@@ -219,10 +223,15 @@ class AnthropicStream:
         elif kind == 'content_block_stop':
             index = event['index']
             if index in self.arguments:
-                try:
-                    self.blocks[index]['input'] = json.loads(self.arguments[index])
-                except ValueError:
-                    raise ProviderError('anthropic: streamed tool arguments were not JSON') from None
+                raw = self.arguments[index]
+                if not raw.strip():          # a tool called with no arguments: its block's own input, else {}
+                    started = self.blocks[index].get('input')
+                    self.blocks[index]['input'] = started if isinstance(started, dict) else {}
+                else:
+                    try:
+                        self.blocks[index]['input'] = json.loads(raw)
+                    except ValueError:       # told back to the model as the call's error (its one repair), not fatal
+                        self.blocks[index]['input'] = raw
         elif kind == 'message_delta' and self.message is not None:
             self.message.update(event.get('delta') or {})
             self.message.setdefault('usage', {}).update(event.get('usage') or {})

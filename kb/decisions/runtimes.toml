@@ -292,3 +292,12 @@ rejected = ["Matching each provider's refusal wording: breaks when it changes; O
 evidence = "Owner's DB, read-only: 3 supervisor model.turn spans 2026-11-08 failed with that 400. Bundled Claude Code 2.1.310 sends typed output as output_config.format and resends without it only on \"extra inputs are not permitted\" or \"structured_outputs_unsupported\"."
 paths = ["ferb/runtimes/api.py::ApiRuntime._call", "ferb/runtimes/api.py::ApiRuntime._events", "ferb/runtimes/schema_shape.py::Refusals", "ferb/runtimes/schema_shape.py::stated", "ferb/runtimes/anthropic_api.py::AnthropicProvider.without_format", "ferb/runtimes/openai_api.py::OpenAIProvider.without_format", "ferb/runtimes/google_api.py::GoogleProvider.without_format", "ferb/runtimes/claude_sdk.py::ClaudeRuntime._restart"]
 live = ["LIVE-410"]
+
+[RUN-430]
+title = "A tool call with no arguments, or arguments that aren't JSON, never ends the turn"
+by = "agent"
+date = 2026-11-08
+status = "active"
+rule = "Anthropic's stream: a tool_use block whose argument fragments are empty or absent keeps its start's input (else {}); fragments that aren't JSON become the call's error (\"not valid JSON\"), told back to the model as the tool's result (its one repair, as for a non-object), and the turn is replayed with {} there. OpenAI's empty or blank arguments are no arguments. Gemini's arguments are already an object."
+why = "Live 2026-11-08 08:16: the owner's planner turn on the Anthropic API failed with \"streamed tool arguments were not JSON\" (claude-sonnet-5-5, 80 output tokens: an argument-less lookup); inferred from json.loads(\"\") failing, the raw stream wasn't kept."
+paths = ["ferb/runtimes/anthropic_api.py::AnthropicStream", "ferb/runtimes/anthropic_api.py::AnthropicProvider.parse", "ferb/runtimes/openai_api.py::OpenAIProvider.parse"]

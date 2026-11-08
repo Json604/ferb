@@ -126,7 +126,7 @@ class OpenAIProvider:
             if item.get("type") != "function_call":
                 continue
             try:
-                args = json.loads(item.get("arguments") or "{}")
+                args = json.loads(str(item.get("arguments") or "").strip() or "{}")   # none: no arguments
                 error = "" if isinstance(args, dict) else "not a JSON object"
             except ValueError:
                 args, error = {}, "not a JSON object"
