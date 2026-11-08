@@ -3511,3 +3511,12 @@ request = "Ask FERB \"what model are you using?\". In Settings → AI → Advanc
 pass = "FERB names the connection and model per role from its settings, with no failed turn. Each role row shows the connection's models, the connection's own model and Other…; a bad id is refused and the old one stays. The clipboard app opens while Settings is open, unless you clicked into a key field."
 decisions = ["ORCH-557", "APP-793", "APP-794", "APP-795"]
 sitting = "after this change is installed"
+
+[LIVE-821]
+title = "FERB's windows and menus open on the Space you're on, and FERB never switches Spaces"
+area = "app"
+surface = "FERB.app with this build; three desktops (Spaces), one of them the home one; notch mode, then window mode"
+request = "Open Settings (menu bar icon → Settings…) on desktop 2. Go to desktop 3 and to the home desktop, and on each click the menu bar icon, then click it again with Settings closed. From desktop 3 open Settings… and Open FERB Window from the menu bar icon, Settings… from the notch's (and the sticky window's) profile menu, and press ⌘, with FERB in front. In Settings → AI open the Provider picker. Attach a file with the chat's paperclip, and Quick Look an artifact."
+pass = "The menu bar icon's menu opens on every desktop on the first click, with Settings open elsewhere or closed. Every FERB window, picker, menu, file picker and Quick Look opens on the desktop you're on; you're never moved to another desktop. Settings left on desktop 2 stays there until you ask for it from another desktop, then comes to you. The notch and sticky window stay put; FERB's Dock icon shows while its window is open (perhaps once you click another app)."
+decisions = ["APP-796", "APP-600", "APP-773", "APP-774"]
+sitting = "after this change is installed"

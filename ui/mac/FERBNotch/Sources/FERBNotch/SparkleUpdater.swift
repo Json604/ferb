@@ -33,7 +33,8 @@ final class SparkleUpdater: NSObject, UpdaterDriving, SPUUpdaterDelegate, SPUSta
         set { controller?.updater.automaticallyDownloadsUpdates = newValue }
     }
 
-    func checkForUpdates() { controller?.checkForUpdates(nil) }
+    /// Sparkle's window opens on the Space showing (APP-796); its first window can follow the feed's answer.
+    func checkForUpdates() { AppWindowPresentation.opening("the update window", for: 10) { controller?.checkForUpdates(nil) } }
 
     // MARK: SPUUpdaterDelegate (Sparkle calls these on the main thread)
 

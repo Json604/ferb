@@ -197,7 +197,6 @@ final class UpdateCoordinator: ObservableObject {
             ". Quitting now stops it and installs the update; you can ask FERB to pick it up again after."
         alert.addButton(withTitle: "Keep FERB Open")
         alert.addButton(withTitle: "Quit and Install")
-        NSApp.activate(ignoringOtherApps: true)
-        return alert.runModal() == .alertSecondButtonReturn
+        return AppWindowPresentation.runModal(alert) == .alertSecondButtonReturn    // on this Space (APP-796)
     }
 }

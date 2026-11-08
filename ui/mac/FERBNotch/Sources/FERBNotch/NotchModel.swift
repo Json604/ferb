@@ -873,14 +873,14 @@ final class NotchModel: ObservableObject {
         picker.prompt = "Hand to FERB"
         picker.message = "Selected paths are handed to FERB with your request. FERB may read these files."
         onInteraction?()
-        picker.begin { [weak self] response in
+        AppWindowPresentation.opening("the file picker") { picker.begin { [weak self] response in
             Task { @MainActor in
                 guard let self else { return }
                 self.setFilePickerOpen(false)
                 if response == .OK { self.attach(picker.urls) }
                 self.onInteractionEnded?()
             }
-        }
+        } }
     }
 
     /// FERB takes dropped files now: not during the tour (D18; its controller sets `onIntroAction` while it runs) or

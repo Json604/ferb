@@ -10,6 +10,14 @@ final class DockPresence {
         windows.contains { !$0.isPanel && $0.isTitled && ($0.isVisible || $0.isMiniaturized) }
     }
 
+    /// The policy to set now, or nil to leave it. FERB joins the Dock only while it isn't the active app (APP-796): the
+    /// Dock takes joining as the launch of the front app "with no windows" and switched the owner to another Space
+    /// (owner's logs, 2026-11-07/08). A join wanted while FERB is active waits until it resigns active.
+    static func change(wants: Bool, current: NSApplication.ActivationPolicy, active: Bool) -> NSApplication.ActivationPolicy? {
+        if wants { return current == .regular || active ? nil : .regular }
+        return current == .accessory ? nil : .accessory
+    }
+
     struct DockWindow: Equatable {
         let isPanel: Bool, isTitled: Bool, isVisible: Bool, isMiniaturized: Bool
         init(isPanel: Bool, isTitled: Bool, isVisible: Bool, isMiniaturized: Bool) {
@@ -27,7 +35,8 @@ final class DockPresence {
         let names: [Notification.Name] = [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification,
                                           NSWindow.willCloseNotification, NSWindow.didMiniaturizeNotification,
                                           NSWindow.didDeminiaturizeNotification,
-                                          NSWindow.didChangeOcclusionStateNotification]
+                                          NSWindow.didChangeOcclusionStateNotification,
+                                          NSApplication.didResignActiveNotification]
         for name in names {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) {
                 [weak self] _ in MainActor.assumeIsolated { self?.update() }
@@ -39,9 +48,10 @@ final class DockPresence {
     /// After the current event, so a closing window has already left the screen when it is counted.
     func update() {
         DispatchQueue.main.async {
-            let policy: NSApplication.ActivationPolicy =
-                Self.wantsDock(NSApp.windows.map(DockWindow.init)) ? .regular : .accessory
-            if NSApp.activationPolicy() != policy { NSApp.setActivationPolicy(policy) }
+            if let policy = Self.change(wants: Self.wantsDock(NSApp.windows.map(DockWindow.init)),
+                                        current: NSApp.activationPolicy(), active: NSApp.isActive) {
+                NSApp.setActivationPolicy(policy)
+            }
         }
     }
 }

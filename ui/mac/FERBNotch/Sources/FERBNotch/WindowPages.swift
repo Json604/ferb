@@ -307,7 +307,7 @@ struct MemoryPage: View {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.message = "Choose the \(source.title.replacingOccurrences(of: "…", with: "")) file or its unzipped folder"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard AppWindowPresentation.runModal(panel) == .OK, let url = panel.url else { return }
         await store.estimateImport(source, path: url.path)
     }
 

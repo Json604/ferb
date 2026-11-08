@@ -363,7 +363,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                 let alert = NSAlert()
                 alert.messageText = "The artifact couldn’t be opened."
                 alert.informativeText = "Try Quick Look, or reveal the file in Finder."
-                alert.runModal()
+                _ = AppWindowPresentation.runModal(alert)
             }
         }
         model.onQuickLook = { [weak self] url in self?.quickLook(url) }
@@ -1842,6 +1842,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         let menu = NSMenu()
         menu.delegate = self
         item.menu = menu
+        AppWindowPresentation.start()                    // FERB's menus open on the Space showing (APP-796)
         statusItem = item
         updateStatusItem()
         rebuildMenu(menu)
@@ -1999,6 +2000,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     var statusTint: StatusTint? { StatusTint.of(model.indicatorPhase, pillHidden: pillHidden) }
 
     func menuNeedsUpdate(_ menu: NSMenu) { rebuildMenu(menu) }
+    /// The menu bar icon's menu opens on the Space showing, with or without FERB's other windows open (APP-796).
+    func menuWillOpen(_ menu: NSMenu) { AppWindowPresentation.menuOpening() }
 
     private func rebuildMenu(_ menu: NSMenu) {
         menu.removeAllItems()
@@ -2079,8 +2082,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                 let alert = NSAlert()
                 alert.messageText = "FERB's background service isn't installed."
                 alert.informativeText = "From a checkout, run `ferb setup`."
-                NSApp.activate(ignoringOtherApps: true)
-                alert.runModal()
+                _ = AppWindowPresentation.runModal(alert)
             }
         }
     }
@@ -2201,7 +2203,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         beginInteraction()
         guard let preview = QLPreviewPanel.shared() else { return }
         preview.updateController()
-        preview.makeKeyAndOrderFront(nil)            // the sticky window steps down while it shows (APP-749)
+        // the sticky window steps down while it shows (APP-749); it opens on this Space (APP-796)
+        AppWindowPresentation.opening("Quick Look") { preview.makeKeyAndOrderFront(nil) }
         if !model.chatInWindow { model.collapse() }
         if preview.currentController as AnyObject? === self { preview.reloadData() }
     }

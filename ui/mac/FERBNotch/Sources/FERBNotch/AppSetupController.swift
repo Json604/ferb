@@ -325,7 +325,6 @@ final class AppSetupController: NSObject {
             "runs it from \(bundle.path) instead. Your data in ~/.ferb stays."
         alert.addButton(withTitle: "Set Up From This App")
         alert.addButton(withTitle: "Not Now")
-        NSApp.activate(ignoringOtherApps: true)
-        return alert.runModal() == .alertFirstButtonReturn
+        return AppWindowPresentation.runModal(alert) == .alertFirstButtonReturn     // on this Space (APP-796)
     }
 }

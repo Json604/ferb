@@ -28,7 +28,7 @@ final class SecureEntryFocusTests: XCTestCase {
         super.tearDown()
     }
 
-    // decision: APP-794, APP-795, APP-790
+    // decision: APP-794, APP-795, APP-796
     func testASecureFieldTakesTheKeyboardOnlyFromTheOwnersClickOrTab() throws {
         _ = NSApplication.shared
         let window = FERBAppWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 140), styleMask: [.titled],
@@ -61,7 +61,7 @@ final class SecureEntryFocusTests: XCTestCase {
         XCTAssertTrue(window.makeFirstResponder(secure))
     }
 
-    // decision: APP-790
+    // decision: APP-796
     func testTheMenuWatchListsOnlyFERBsOwnWindows() {
         _ = NSApplication.shared
         // its default reads FERB's own window list: another app's window or menu is never in it, so never moved
