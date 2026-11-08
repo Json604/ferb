@@ -244,6 +244,11 @@ class _Run:
                          origin=origin.join(labels))
         self.d.run(go())
 
+    def owner_fact(self, text: str) -> None:
+        async def go() -> None:
+            self.d.daemon.memory.save("fact", "owner", "contact", text, "owner_stated", [("journal", "corpus")], 1.0)
+        self.d.run(go())
+
     def questions(self) -> list[list[str]]:
         async def go() -> list[list[str]]:
             rows = self.d.daemon.db.conn.execute(
@@ -312,6 +317,10 @@ class _Run:
                 step = self.call(f"read {r.kind}", cap.name, lambda c=cap: c.calls)
                 if step.outcome != "ran":
                     raise RuntimeError(f"{s.id}: a read did not run: {step}")
+                continue
+            if r.kind == "owner_fact":                # the owner's words about themselves, saved and looked up
+                self.owner_fact(r.text)
+                self.expose(r.text, {origin.OWNER}, "memory.read")
                 continue
             labels = _carried_labels(r)
             if r.kind == "front_window":

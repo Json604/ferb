@@ -360,3 +360,12 @@ status = "active"
 rule = "For ORCH-550. supervisor.md says: schedules is a list, one per schedule asked for; scheduling happens only there and in schedule_changes, never in a task (a part they answer has direct \"\"); times and random fill several times a day; the request names only times it runs at, which code checks; an edit changes a schedule in place instead of cancel and new; show_schedules shows FERB's list, and questions about schedules are answered only from the facts' schedule list."
 untestable = "Prompt text: TEST-500 keeps no wording tests; tests/test_schedule_timing.py guards the code side."
 paths = ["ferb/orchestrator/prompts/supervisor.md"]
+
+[PRM-333]
+title = "worker.md: never ask the owner what the page, app or file shows"
+by = "agent"
+date = 2026-11-08
+status = "active"
+rule = "For GATE-539. worker.md's asking rule adds: never ask what the page, app or file can show (which security question it asks, a link in the owner's résumé); look first, then ask only what the owner alone knows."
+untestable = "Prompt text: TEST-500 keeps no wording tests."
+paths = ["ferb/orchestrator/prompts/worker.md"]

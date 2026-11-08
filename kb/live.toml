@@ -3475,3 +3475,12 @@ request = "Ask for one schedule that runs every 6 hours from 6 am plus 2 random 
 pass = "The first card says every 360 minutes plus 2 at random times between 05:00 and 08:00, with the next run shown. The change keeps one schedule and shows what it was and what it is now. The answer to how many comes with a card listing each schedule, its times and next run, matching Settings → Schedules & Reminders. Two schedules asked in one message are both made."
 decisions = ["ORCH-550", "ORCH-551", "ORCH-552", "ORCH-554", "APP-789"]
 sitting = "after this change is installed"
+
+[LIVE-817]
+title = "Fewer unnecessary questions: earlier words, dates, mail links, own email, copies"
+area = "gateway"
+surface = "FERB.app with this build; FERB's Gmail with one tracking mail; a disposable file on the Desktop"
+request = "Tell FERB a made-up order code in one message, then in the next ask it to look it up on a site; ask for flights on a date; ask it to open the tracking link in the mail; ask it to unsubscribe your own email from a test list on a kartikey.xyz page; ask it to copy a file it made to ~/Desktop/proofOfWork."
+pass = "None of these asks you anything: the code from your earlier message, the date, the mail's own link, your own email in the form and the copy (no Finder script, no terminal question). A code only in a file you didn't type still asks."
+decisions = ["GATE-534", "GATE-535", "GATE-536", "GATE-538", "GATE-539"]
+sitting = "after this change is installed"

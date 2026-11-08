@@ -144,6 +144,20 @@ def sink_parts(payload: str, segments: Iterable[dict[str, Any]]) -> tuple[str, d
     return "\n".join(kept), {sites: "\n".join(values) for sites, values in by_site.items()}
 
 
+def owner_said(payload: str, segments: Iterable[dict[str, Any]]) -> str:
+    """The owner's own earlier messages in a stored record of FERB's conversation (entries whose kinds are only the
+    owner's): owner decision D1 2026-11-08, GATE-534: their values are the owner's words for the sink, as this request's
+    words are."""
+    said: list[str] = []
+    at = 0
+    for seg in segments:
+        size = int(seg.get("len", 0))
+        if seg.get("whole") and set(seg.get("kinds", [])) == {origin.OWNER}:
+            said.append(payload[at:at + size])
+        at += size + 2                                 # entries are joined by a blank line
+    return "\n".join(said)
+
+
 def sink_text(payload: str, segments: Iterable[dict[str, Any]]) -> str:
     """`sink_parts`, every value together (for a reader that needs no sites)."""
     main, by_site = sink_parts(payload, segments)

@@ -406,6 +406,8 @@ class OutsideTexts:
     # apart, the values read only on some sites' own pages, by those sites (GATE-524)
     owners: dict[int, list[tuple[frozenset[str], provenance.Text]]] = field(default_factory=dict)
     pages: dict[int, str] = field(default_factory=dict)          # the page each browser result was read from
+    # GATE-534 (owner D1): the owner's earlier messages in a stored record of FERB's conversation, by record
+    said: dict[int, str] = field(default_factory=dict)
     ready_owners: dict[int, list[tuple[frozenset[str], provenance.Text]]] = field(default_factory=dict)
     preparing: asyncio.Lock = field(default_factory=asyncio.Lock)     # one off-loop preparation per tree at a time
 
@@ -439,6 +441,9 @@ class GatewayDeps:
     profile_account: Callable[[str, str], str]          # ... with the account it is signed in to, "" none (HAND-424)
     disturbance: Any                                    # the desktop sentinel (P26)
     username_sources: Callable[[], Container[str] | None]   # L36 §6: where a login record's username may come from
+    # GATE-538 (owner D7): the owner's own email addresses and phone numbers (their paired profiles' accounts, their
+    # own stated facts about themselves): typed into a form, they don't ask
+    owner_contacts: Callable[[], frozenset[str]]
     on_path: Callable[[str, str], None]                 # trail attribution of a path FERB touched
     route_question: Callable[[str, str, list[str]], Awaitable[dict[str, Any]]] | None   # a worker's question
     shadow_action: Callable[[dict[str, Any], str], Awaitable[None]] | None   # advice only (D23 shadow)
@@ -597,6 +602,7 @@ class Gateway:
         self.route_question: Any = deps.route_question
         # L36 §6: the memory sources a login record's username may still come from (the daemon's memory; None: any)
         self.username_sources: Callable[[], Container[str] | None] = deps.username_sources
+        self.owner_contacts: Callable[[], frozenset[str]] = deps.owner_contacts
         self.disturbance: Any = deps.disturbance
         self.test_send_allowlist: set[str] | None = deps.test_send_allowlist   # test mode: sends reach just these
         self.allow_until: datetime | None = None          # the owner's "don't ask for 30 min" for routine questions
@@ -778,8 +784,13 @@ class Gateway:
         request = self.state.requests.get(rec.task.request_id) if rec is not None else None
         words = request.words if request is not None else ""
         text = words + "\n" + "\n".join(self.spans.owner_answers(root))
+        # GATE-537 (owner D6): the sites the planner resolved from the owner's words into the task, stated under the
+        # plan line, count exactly (never fuzzy-matched by code)
+        sites = {KnownDestinations.normalize("host", h.split("://")[-1].split("/")[0]).removeprefix("www.")
+                 for h in (request.targets.sites if request is not None else ()) if h.strip()}
         return host_norm in {KnownDestinations.normalize("host", h)
-                             for kind, h in KnownDestinations.from_words(text) if kind == "host"}
+                             for kind, h in KnownDestinations.from_words(text) if kind == "host"} or \
+            host_norm.removeprefix("www.") in sites
 
     def cancel_tasks(self, task_ids: set[str]) -> None:
         self.hooks.previews.remove(task_ids)
@@ -866,6 +877,7 @@ class Gateway:
                 if result.segments:                      # GATE-522: FERB's conversation, by its stored values
                     known.owners[result.rowid] = known.ready_owners.pop(result.rowid, None) or \
                         _owner_parts(result.text, result.segments)
+                    known.said[result.rowid] = carried.owner_said(result.text, result.segments)
             if result.path:
                 known.file_chunks.setdefault(result.path, {})[result.rowid] = result
                 changed.add(result.path)
@@ -1244,10 +1256,8 @@ class Gateway:
             return None                                  # no outside content read: not a sink
         if self.destinations.approved("host", host) or self._host_named(host, root):
             return None                                  # the owner approved or named this host
-        request = self.state.requests.get(c.rec.task.request_id)
-        words = request.words if request is not None else ""
-        owner_text = provenance.prepare(words + "\n" + "\n".join(self.spans.owner_answers(root)))
         private, outside_only = await self._sink_texts_ready(root)   # N1: span-ordered; a followed link read first
+        owner_text = self._sink_owner_text(c, root)
         values = confirm.url_private_values(url, private, outside_only, owner_text, self._sink_origins(root),
                                             self._site_texts(root), self._outside.setdefault(root, OutsideTexts()).pages)
         if not values:
@@ -1259,6 +1269,15 @@ class Gateway:
                                                       "source": self._read_as(root, first.first_read),
                                                       "read": confirm.shown_origins(outside_labels)},
                             destinations=(("host", host),))
+
+    def _sink_owner_text(self, c: "Call", root: str) -> provenance.Text:
+        """The owner's words for the sink rule: this request's words, the owner's answers in this task and their earlier
+        messages in the conversation the task was given (GATE-534, owner D1: the window the quote checks read). Read
+        after `_sink_texts_ready`, which records those messages."""
+        request = self.state.requests.get(c.rec.task.request_id)
+        said = self._outside.setdefault(root, OutsideTexts()).said.values()
+        return provenance.prepare("\n".join([request.words if request is not None else "",
+                                              *self.spans.owner_answers(root), *said]))
 
     def _site_texts(self, root: str) -> dict[int, frozenset[str]]:
         """The owner values FERB's conversation stored as read only on some sites' own pages, by `id` of their prepared
@@ -1328,13 +1347,23 @@ class Gateway:
                 counted = await asyncio.to_thread(usage, real, self._path_closed(c.name), True)
                 if not counted['complete']:
                     return {"error": "bulk deletion could not be fully enumerated; inspect the exact target first"}
-                if not confirm.owner_named(path_sources.get("path", [])):
+                if not confirm.owner_named(path_sources.get("path", [])) and not self._made_here(root, path):
                     needs.append(confirm.bulk_delete(path, counted))
+        if self.changes is not None:     # GATE-539: deleting what this task tree itself made asks nothing
+            needs = [n for n in needs if not (n.rule == "floor:delete_permanent" and n.values.get("path") and
+                                              self._made_here(root, str(n.values["path"])))]
         if c.facts is not None and c.facts.page_amount:  # what code read on the page, never the worker's number
             needs = [dataclasses.replace(n, values=n.values | {"amount": c.facts.page_amount,
                                                                "merchant": c.facts.page_merchant or ""})
                      if n.rule == confirm.ALWAYS[Kind.PAY] else n for n in needs]
         return await self._payment(c, needs)
+
+    def _made_here(self, root: str, path: str) -> bool:
+        """GATE-539: the change records say this task tree made `path` (it wasn't there before the tree touched it)."""
+        try:
+            return self.changes is not None and self.changes.made_in_tree(root, file_real_path(path, self.roots.workspace))
+        except (OSError, RuntimeError, ValueError):
+            return False
 
     async def _submit_sink(self, c: "Call", target: Target, outside: list[str]) -> confirm.Need | None:
         """S4 (a) for a submitted form (coordinator ruling, step 6b): asked only when a value typed or chosen into this
@@ -1352,11 +1381,12 @@ class Gateway:
             typed.append(c.spec.content)                  # Enter in the field it types into
         if not typed:
             return None
-        request = self.state.requests.get(c.rec.task.request_id)
-        owner_text = provenance.prepare((request.words if request is not None else "") + "\n" +
-                                        "\n".join(self.spans.owner_answers(c.root)))
         private, outside_only = await self._sink_texts_ready(c.root)
+        owner_text = self._sink_owner_text(c, c.root)
         values = confirm.text_carries_private("\n".join(typed), private, outside_only, owner_text)
+        if values:                       # GATE-538 (owner D7): the owner's own email or phone doesn't ask
+            own = self.owner_contacts()          # memory rows are the loop's; profile names are read as for pairing
+            values = [v for v in values if not confirm.own_contact(v, own)]
         if not values:
             return None
         return confirm.Need("sink:new_destination", confirm.key("sink:new_destination", host),

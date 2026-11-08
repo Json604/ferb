@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from ferb.act.fs.files import FsEdit, FsList, FsRead, FsTrash, FsWrite, normalize_path, resolve, PathRefused
+from ferb.act.fs.files import (FsCopy, FsEdit, FsList, FsMove, FsRead, FsTrash, FsWrite, normalize_path, resolve,
+                               PathRefused)
 from ferb.core.types import Identity, ToolContext
 
 
@@ -89,3 +90,31 @@ def test_describe_gives_policy_kinds_and_paths() -> None:
     assert FsTrash().describe(FsTrash.Input(path="x")).kind == "trash"
     assert normalize_path("notes/../a.md", "/ws") == "/ws/a.md"
     assert normalize_path("~/a", "/ws") == os.path.expanduser("~/a")
+
+
+# decision: GATE-539, HAND-432
+def test_copy_and_move_files_without_finder(world: dict, tmp_path: Path) -> None:
+    """Owner 2026-11-08 ("Build them"): fs.copy copies any file (bytes, not only text), never replacing one unless
+    overwrite; fs.move renames a file or folder on its disk and never replaces anything. Both declare every path
+    they touch, so the protection lists apply to each."""
+    c = ctx(world)
+    pdf = world["ws"] / "made.pdf"
+    pdf.write_bytes(b"%PDF-1.7\x00\xff binary")
+    out = tmp_path / "Desktop" / "proofOfWork" / "made.pdf"
+    assert not run(FsCopy(), {"path": str(pdf), "destination": str(out)}, c).is_error
+    assert out.read_bytes() == pdf.read_bytes()
+    pdf.write_bytes(b"newer")
+    again = run(FsCopy(), {"path": str(pdf), "destination": str(out)}, c)
+    assert again.is_error and "exists" in again.content["error"] and out.read_bytes() != b"newer"
+    assert not run(FsCopy(), {"path": str(pdf), "destination": str(out), "overwrite": True}, c).is_error
+    assert out.read_bytes() == b"newer"
+    moved = tmp_path / "Desktop" / "renamed.pdf"
+    assert not run(FsMove(), {"path": str(out), "destination": str(moved)}, c).is_error
+    assert moved.read_bytes() == b"newer" and not out.exists()
+    (world["docs"] / "b.txt").write_text("x")
+    clash = run(FsMove(), {"path": str(world["docs"] / "b.txt"), "destination": str(world["docs"] / "a.txt")}, c)
+    assert clash.is_error and (world["docs"] / "a.txt").read_text() == "hello world"
+    args = FsMove.Input.model_validate({"path": str(moved), "destination": str(pdf)})
+    assert FsMove().file_paths(args) == [(str(moved), "remove"), (str(pdf), "write")]
+    assert FsCopy().file_paths(FsCopy.Input.model_validate({"path": "a", "destination": "b"})) == [("a", "read"),
+                                                                                                     ("b", "write")]

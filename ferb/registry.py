@@ -8,7 +8,7 @@ from ferb.act.browser.tools import (BrowserPdf, BrowserRecord, BrowserKeepOpen, 
                                    FERB_BROWSER, IdentityDriver,
                                    BrowserOtpCandidates, OWNER_BROWSER)
 from ferb.act.ask import OwnerAsk
-from ferb.act.fs.files import FsEdit, FsList, FsRead, FsTrash, FsWrite
+from ferb.act.fs.files import FsCopy, FsEdit, FsList, FsMove, FsRead, FsTrash, FsWrite
 from ferb.act.mac.driver import MacComputerDriver
 from ferb.act.mac.tools import (MacRecord, MacApps, MacAct, MacAppleScript, MacClick, MacPointer, MacMenu, MacOpen, MacScreenshot,
                                 MacSnapshot)
@@ -48,6 +48,8 @@ def build() -> Registry:
     r.add(FsWrite())
     r.add(FsEdit())
     r.add(FsTrash())
+    r.add(FsCopy())
+    r.add(FsMove())
     r.add(OwnerAsk())                 # a worker's question to the owner (every identity, no scopes)
     return r
 

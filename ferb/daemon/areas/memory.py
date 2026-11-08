@@ -491,6 +491,21 @@ class MemoryGlue:
             return None
         return {"memory:" + i for i in self.memory.current_ids("owner_stated")}
 
+    def _owner_contacts(self) -> frozenset[str]:
+        """The owner's own email addresses and phone numbers (GATE-538, owner D7), by shape: the accounts their paired
+        browser profiles are signed in to, and those written in their own words about themselves in memory (owner
+        stated, subject owner, holding now)."""
+        from ferb.core.types import Identity
+        from ferb.policy.confirm import contacts_in
+        found: set[str] = set()
+        for b in (self.pairings.all() if self.pairings is not None else []):
+            if b.identity is Identity.OWNER:
+                found |= contacts_in(self._profile_account(b.browser, b.folder))
+        for item in (self.memory.items(subject="owner") if self.memory is not None else []):
+            if item.origin == "owner_stated":
+                found |= contacts_in(item.content)
+        return frozenset(found)
+
     async def _clear_login_names(self, item_ids: list[str]) -> None:
         """Clear every login record's username that came from one of these memory items (forgotten, retracted, retired
         or superseded: `_memory_ended`), in a worker thread: the handle file's lock may be held by a hidden input's

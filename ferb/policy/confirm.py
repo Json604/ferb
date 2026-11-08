@@ -371,13 +371,29 @@ def is_year(value: str) -> bool:
     return bool(_YEAR.fullmatch(value))
 
 
+# A full calendar date as numbers: 2026-11-07, 2026/11/07, 07-11-2026, 11/07/2026, 07.11.2026 (GATE-535)
+_DATE = re.compile(r"(?:(19|20)\d\d[-/.](\d{1,2})[-/.](\d{1,2})|(\d{1,2})[-/.](\d{1,2})[-/.](19|20)\d\d)")
+
+
+def is_date(value: str) -> bool:
+    """A full calendar date alone (owner D2, 2026-11-08, GATE-535): like a year, never the owner's private value.
+    By shape only: year 1900-2099 and a month and day that can be one."""
+    m = _DATE.fullmatch(value)
+    if m is None:
+        return False
+    a, b = (int(m[2]), int(m[3])) if m[1] else (int(m[4]), int(m[5]))
+    first_month = 1 <= a <= 12 and 1 <= b <= 31                     # year first: month, day
+    return first_month if m[1] else (1 <= a <= 31 and 1 <= b <= 12) or (1 <= a <= 12 and 1 <= b <= 31)
+
+
 def _value_forms(text: str, coarse: Iterable[str] | None = None) -> frozenset[str]:
     """Every form a single-token value of `text` (lowercased) can take in an address or a form: its tokens (coarse:
     whole emails, hosts, paths; fine: values embedded in JSON/.env/query punctuation, N2) and their `_spellings`. A
     token that appears only as one group of a grouped value (`_RUN`) is a part of it, not a value of its own (owner,
     2026-11-07, on a link carrying only part of the owner's data: "dont ask"): the last digits of `+44 7700 900123` are
     not the number. Grouped values are matched by `_in_runs`. `coarse`: the text's coarse tokens when already made."""
-    toks = set(provenance.tokens(text) if coarse is None else coarse) | _fine_tokens(text)
+    toks = {t for t in set(provenance.tokens(text) if coarse is None else coarse) | _fine_tokens(text)
+            if not is_date(t)}                                   # a full date is never a value (GATE-535)
     spans = [m.span(1) for m in _RUN.finditer(text) if _one_value(m.group(1))]
     if spans:
         runs = [text[a:b] for a, b in spans]
@@ -812,8 +828,10 @@ def url_private_values(url: str, private: list[tuple[int, provenance.Text]],
     seen_url = {url.casefold(), url.replace("\\", "/").casefold()}
     if any(order < earliest and any(u in t.folded for u in seen_url) for order, t in outside):
         return []                                             # a followed link, read before the private value
-    if all(_first_seen_in_link(url, h, private) for h in hits):
-        return []                                             # the owner's C' link rule (GATE-521)
+    if any(_link_spans(url, t.folded) or _broken_link_spans(url, t.folded) for _, t in private):
+        # GATE-536 (owner D3, extending GATE-521): a link as a record of the owner's FERB read has it (a signed-in page,
+        # a mail, a file), wherever the value came first; an outside-only page's links are as before
+        return []
     return hits
 
 
@@ -830,24 +848,6 @@ def _link_spans(url: str, folded: str) -> list[tuple[int, int]]:
     return spans
 
 
-def _first_seen_in_link(url: str, hit: "PrivateValue", private: list[tuple[int, provenance.Text]]) -> bool:
-    """The owner's link rule (GATE-521, owner 2026-11-07: "open withouth asking"): the value's first sighting in what
-    the task read privately (the record it was first read from, its first place there) is inside this same link, as
-    written or wrapped: a link opened exactly as a signed-in page showed it (Gmail, a search result) gives that site
-    nothing new, even when the page echoes the address after it. Read order still decides: a value first read
-    anywhere else (a file, FERB's conversation, a page that showed it plainly first) is the owner's, and asks."""
-    want = [hit.matched, quote(hit.matched, safe=""), quote_plus(hit.matched)]
-    for order, t in private:
-        if order != hit.first_read or not any(_positions(t.folded, w.casefold(), False) for w in want):
-            continue                                          # not the record (or the part of it) that holds it
-        # the link as the text has it, or broken by a space or a line break inside its own extent: a page can show a
-        # long link wrapped over a line ("https://forms.gle/ X8d9…") right before the link itself (GATE-521, F5)
-        found = [at for form in dict.fromkeys(w.casefold() for w in want) for at in _positions(t.folded, form)]
-        spans = _link_spans(url, t.folded) + _broken_link_spans(url, t.folded)
-        return bool(found) and any(start <= min(found) < end for start, end in spans)
-    return False
-
-
 def _broken_link_spans(url: str, folded: str) -> list[tuple[int, int]]:
     """Where `url` appears in a read text with whitespace inside its own extent (a long link the page wrapped), never
     joining text before or after it."""
@@ -858,18 +858,26 @@ def _broken_link_spans(url: str, folded: str) -> list[tuple[int, int]]:
     return [m.span() for m in pattern.finditer(folded) if any(c.isspace() for c in m.group(0))]
 
 
-def _positions(folded: str, needle: str, whole: bool = True) -> list[int]:
-    """Where `needle` stands in a read text: whole (not inside a longer word or number), or anywhere (`whole` False:
-    a text with its spaces taken out has no word edges left to trust)."""
-    out: list[int] = []
-    at = folded.find(needle) if needle else -1
-    while at != -1:
-        end = at + len(needle)
-        edges = (at == 0 or not folded[at - 1].isalnum()) and (end == len(folded) or not folded[end].isalnum())
-        if not whole or edges:
-            out.append(at)
-        at = folded.find(needle, at + 1)
-    return out
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+_PHONE = re.compile(r"\+?\d[\d ().-]{5,}\d")
+
+
+def contacts_in(text: str) -> set[str]:
+    """The email addresses (lowercased) and phone numbers (digits, at least 7) written in `text`, by shape."""
+    found = {m.group(0).lower() for m in _EMAIL.finditer(text)}
+    found |= {d for m in _PHONE.finditer(text) if len(d := "".join(c for c in m.group(0) if c.isdigit())) >= 7}
+    return found
+
+
+def own_contact(value: str, own: Iterable[str]) -> bool:
+    """Whether a typed value is one of the owner's own email addresses or phone numbers (GATE-538): the same address,
+    or the same digits (a number with or without its country code: the last 10 digits when both have 10 or more)."""
+    mine = set(own)
+    if value.strip().lower() in mine:
+        return True
+    digits = "".join(c for c in value if c.isdigit())
+    return len(digits) >= 7 and not any(c.isalpha() for c in value) and any(
+        d == digits or (len(d) >= 10 and len(digits) >= 10 and d[-10:] == digits[-10:]) for d in mine if d.isdigit())
 
 
 def text_carries_private(text: str, private: list[tuple[int, provenance.Text]],

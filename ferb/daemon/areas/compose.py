@@ -119,6 +119,7 @@ class Compose:
                                    profile_name=self._profile_display_name,   # browser_pair's question names it
                                    profile_account=self._profile_account,     # and its signed-in account
                                    disturbance=self.disturbance, username_sources=self._username_sources,
+                                   owner_contacts=self._owner_contacts,       # GATE-538
                                    on_path=self.attribution.ferb_touched, route_question=questions,
                                    shadow_action=self._destructive_shadow, test_send_allowlist=allowlist,
                                    standing=StandingPermissions(self.db)))

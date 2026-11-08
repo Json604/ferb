@@ -1005,6 +1005,26 @@ class Changes:
             return describe(change, self.text_of, lambda _: old)
         return describe(change, self.text_of)
 
+    def made_in_tree(self, tree_id: str, path: Path) -> bool:
+        """GATE-539 (owner 2026-11-08: "Build them"): this task tree made `path`: a call of the tree named it while it
+        was missing, or its folder's listing from before the tree first touched it doesn't have it; no record of the
+        tree lists it as there before. Facts of FERB's records, never of what the path is."""
+        target = real(path)
+        recs = [r for r in list(self._records.values()) if r.tree_id == tree_id]
+        seen = {r.task_id for r in recs}
+        for index in (self.root / self._key(tree_id)).glob(f"*/{INDEX}"):      # a record only on disk (a restart)
+            try:
+                data = json.loads(index.read_text())
+                if data["task_id"] not in seen:
+                    recs.append(_Record(data["task_id"], data["tree_id"], {}, data["folders"],
+                                        set(data.get("named", []))))
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+        listed = [r.folders[str(target.parent)] for r in recs if str(target.parent) in r.folders]
+        if any(target.name in names for names in listed):
+            return False
+        return bool(listed) or any(str(target) in r.named for r in recs)
+
     def forget(self, tree_id: str) -> list[str]:
         """The tree ended: its copies and records go. Returns what couldn't be removed (for FERB's journal)."""
         with self._guard:

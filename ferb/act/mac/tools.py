@@ -367,7 +367,8 @@ class MacMenu(_Base):
     description = ("An app's menu bar, in the background: with no path, list its menus and items; with a path "
                    "(\"File > Search\"), press that item. Many apps keep commands only in their menus — e.g. "
                    "WhatsApp's search opens from File > Search, then mac_snapshot shows the search box. Take a new "
-                   "snapshot after pressing.")
+                   "snapshot after pressing. A browser's tabs, windows and profiles are the browser tools' (in the "
+                   "background): its menus ask the owner first.")
     scopes = {"mac:read"}             # listing is reading; pressing an item needs mac:act (checked in _run)
     reversible = False                # it can press: the gateway adds effect / why to its schema
 
@@ -491,7 +492,9 @@ class MacAct(_Base):
                    "again; a repeat of any action but focus needs the owner. scroll: target an element inside the list or "
                    "pane (AXScrollToVisible only reveals an element); batches stop on unconfirmed progress, so read "
                    "the returned count and reason, and remember unchanged content can mean failed input, not the end. "
-                   "Never substitute Next Chat, selection changes or opening each row for scrolling a list.")
+                   "Never substitute Next Chat, selection changes or opening each row for scrolling a list. "
+                   "For web pages, and a browser's tabs and windows, use the browser tools (they work in the "
+                   "background): Mac input into a browser asks the owner first.")
     scopes = {"mac:act"}
     risk, reversible = RiskLevel.MEDIUM, False
     method_args = ("mechanism", "allow_foreground")    # how input is delivered, not what it does (P19 hash)
@@ -657,7 +660,8 @@ class MacClick(_Base):
     description = ("Click exact screenshot pixels using a single chosen mechanism: pointer (default, window/process "
                    "addressed), ax (exact hit-tested control), or foreground. No fallback or replay. "
                    "Foreground input asks the owner Yes/No once per task for that app. "
-                   "Inspect a fresh snapshot after delivery; no app is restored afterwards.")
+                   "Inspect a fresh snapshot after delivery; no app is restored afterwards. For web pages use the "
+                   "browser tools: Mac input into a browser asks the owner first.")
     scopes = {"mac:act"}
     risk, reversible = RiskLevel.MEDIUM, False
     origin = "ferb"                                    # delivery facts written by FERB; no app text comes back

@@ -496,11 +496,12 @@ live = ["LIVE-815"]
 title = "A link opened exactly as a page FERB read showed it, its values first seen in that link, doesn't ask"
 by = "owner"
 date = 2026-11-07
-status = "active"
+status = "superseded"
+superseded_by = "GATE-536"
 words = "open withouth asking"
 words_source = "Owner 2026-11-07, asked: \"When FERB opens a link exactly as it appeared on a page it read (incl. your Gmail), and every value in it first appeared inside that same link, open without asking?\""
 rule = "Refines GATE-506 for the URL sink. When FERB opens an address exactly as it appeared on a page it read (a signed-in page such as Gmail included, also inside a redirect wrapper, written or percent-encoded, or echoed after it), and every owner value in it was first seen, in read order, inside that same link, no question is asked. A value first read anywhere else (a file, FERB's conversation, a page showing it plainly first) still asks."
-paths = ["ferb/policy/confirm.py::_first_seen_in_link", "ferb/policy/confirm.py::_link_spans"]
+paths = ["ferb/policy/confirm.py::_link_spans"]
 
 [GATE-522]
 title = "The sink reads FERB's conversation by its stored values; the owner's earlier words count"
@@ -515,7 +516,8 @@ paths = ["ferb/policy/carried.py::sink_text", "ferb/daemon/gateway.py::Gateway._
 title = "A plain year is never the owner's private value"
 by = "owner"
 date = 2026-11-07
-status = "active"
+status = "superseded"
+superseded_by = "GATE-535"
 words = "Years don't count (Recommended)"
 words_source = "Owner 2026-11-07, asked: \"Should a plain year (1900–2099) never count as your data? Every other number (OTPs, PINs, card digits, phones) keeps asking.\""
 rule = "In the sink (an address or a form), a plain year alone (four digits, 1900-2099) is never one of the owner's private values. Every other number still counts, a full date included; there is no other short-number threshold. A private number that only looks like a year is the accepted residual."
@@ -617,3 +619,94 @@ status = "active"
 rule = "Refines GATE-517's URL pieces. Each /-separated segment of the fragment (#inbox/VALUE, #k=a/VALUE) is a piece of its own, like a path segment, so a whole value in a page's client-side route counts."
 why = "Without GATE-530's substring match, a value in #inbox/<id> sent to another page of the site (same_site_return.email.01, GATE-528) went unseen: the fragment was only split at & and =."
 paths = ["ferb/policy/confirm.py::_url_pieces"]
+
+[GATE-534]
+title = "The owner's earlier messages in the conversation are their words for the sink"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "Take your view (Recommended)"
+words_source = "Owner 2026-11-08, answering the unnecessary-questions audit's table, row D1: values the owner typed earlier in the conversation count as their words (a page could get FERB to send one)"
+rule = "Refines GATE-522. In the sink (an address or a form), the owner's earlier messages in the conversation a task was given (the window the quote checks read: the last exchanges word for word) are the owner's words, as this request's words and answers are: their values don't ask. The accepted cost: a page could get FERB to send something the owner typed earlier."
+paths = ["ferb/policy/carried.py::owner_said", "ferb/daemon/gateway.py::Gateway._sink_owner_text"]
+
+[GATE-535]
+title = "A plain year or a full date is never the owner's private value"
+by = "owner"
+date = 2026-11-08
+status = "active"
+supersedes = ["GATE-523"]
+words = "Take your view (Recommended)"
+words_source = "Owner 2026-11-08, answering the unnecessary-questions audit's table, row D2: a plain full date (2026-11-07, 7 Nov 2026) is not a private value, like years"
+rule = "Supersedes GATE-523, keeping its years (\"Years don't count\"). In the sink, a plain year alone (1900-2099) and a full date written as numbers (2026-11-07, 2026/11/07, 07-11-2026, 11/07/2026, 07.11.2026; a real month and day) are never the owner's private values; a date written in words never was one. Every other number still counts. A private number shaped like a year or a date is the accepted residual."
+paths = ["ferb/policy/confirm.py::is_year", "ferb/policy/confirm.py::is_date"]
+
+[GATE-536]
+title = "A link opened exactly as a record of the owner's has it doesn't ask, wherever its value came first"
+by = "owner"
+date = 2026-11-08
+status = "active"
+supersedes = ["GATE-521"]
+words = "Take your view (Recommended)"
+words_source = "Owner 2026-11-08, answering the unnecessary-questions audit's table, row D3: a link opened exactly as any record FERB read has it counts as that link, wherever the value came first"
+rule = "Supersedes GATE-521, dropping its read order. When FERB opens an address exactly as a record it read has it (as written, wrapped inside its own extent, or inside a redirect wrapper, written or percent-encoded), no question is asked, wherever the values in it were first seen. Which records count: GATE-542."
+paths = ["ferb/policy/confirm.py::url_private_values", "ferb/policy/confirm.py::_link_spans", "ferb/policy/confirm.py::_broken_link_spans"]
+
+[GATE-537]
+title = "A site the plan resolved from the owner's words, stated under the plan line, counts as named"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "Take your view (Recommended)"
+words_source = "Owner 2026-11-08, audit table row D6: a site the owner named counts as named only through structured resolution into the plan's exact sites, shown in the plan line"
+rule = "The sites the planner resolved from the owner's words into the task's targets (\"Basis Fellowship\" → basisfellowship.org) are stated under the plan line (\"Sites: …\") and count as named by the owner for the URL and form sinks, exactly (www aside), as HAND-204's folders do. Code never matches site names itself."
+paths = ["ferb/daemon/gateway.py::Gateway._host_named", "ferb/orchestrator/supervisor.py::Supervisor.run_tree"]
+
+[GATE-538]
+title = "The owner's own email or phone typed into a form doesn't ask"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "Take your view (Recommended)"
+words_source = "Owner 2026-11-08, answering the unnecessary-questions audit's table, row D7: the owner's own email or phone typed into a form doesn't ask"
+rule = "A form's typed value that is one of the owner's own email addresses or phone numbers is not private data for the form sink: the accounts the owner's paired browser profiles are signed in to, and the addresses and numbers in the owner's own stated facts about themselves (memory, owner's words, subject owner, holding now). A phone matches by its digits (the last 10 when both have 10 or more). Anyone else's still asks."
+paths = ["ferb/policy/confirm.py::own_contact", "ferb/policy/confirm.py::contacts_in", "ferb/daemon/areas/memory.py::MemoryGlue._owner_contacts"]
+
+[GATE-539]
+title = "Five fixes that remove a question's cause at no safety cost"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "Build them (Recommended)"
+words_source = "Owner 2026-11-08, on the audit's no-cost fixes: pip trust, fs.copy/fs.move, background browser tools first, deleting what the task made, not asking for what the page shows"
+rule = "pip's certificate trust in FERB's shell without turning checks off (HAND-432); fs.copy and fs.move file tools with the protection lists and recovery copies (HAND-432); the background browser tools before Mac input in a browser (HAND-432); a permanent delete of what this task tree itself made, by its change records, asks nothing; workers never ask the owner what the page, app or file shows (PRM-333)."
+paths = ["ferb/daemon/gateway.py::Gateway._made_here", "ferb/act/fs/changes.py::Changes.made_in_tree"]
+
+[GATE-540]
+title = "A clicked and a typed address follow one link rule"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "Take your view (Recommended)"
+words_source = "Owner 2026-11-08, answering the unnecessary-questions audit's table, row D4: clicked and typed addresses follow one rule (through D3)"
+rule = "Through GATE-536: a typed or opened address that is exactly a link a record of the owner's has is treated as following that link, as a click on it is; a click stays unchecked by the URL sink."
+paths = ["ferb/policy/confirm.py::url_private_values"]
+
+[GATE-541]
+title = "Same page path only stays for the same-site exemption"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "Take your view (Recommended)"
+words_source = "Owner 2026-11-08, answering the unnecessary-questions audit's table, row D5, not taken: a signed-in site's whole host for its values; GATE-528 (same page path only) stays"
+rule = "GATE-528 stays: a value read on a site's page goes back unasked only to that page (its path through the first segment holding an id); another path on the same host still asks."
+paths = ["ferb/policy/confirm.py::page_scope"]
+
+[GATE-542]
+title = "The link rule counts links in records of the owner's data only"
+by = "agent"
+date = 2026-11-08
+status = "active"
+rule = "For GATE-536: the records whose links count are those holding the owner's data (a signed-in page or mail, a file, the owner's parts of FERB's conversation), as GATE-521 read them. A link only an outside-only page shows keeps today's rule (asked unless that page was read before the value was)."
+why = "A page listing candidate links (one per guess of the owner's code) learns which one FERB opens; counting outside-only pages' links would turn GATE-536 into that oracle (corpus candidate_list, echo_laundering)."
+paths = ["ferb/policy/confirm.py::url_private_values"]

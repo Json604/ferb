@@ -374,3 +374,23 @@ def test_keys_that_only_look_secret_are_remembered_by_digest_and_real_secrets_ne
     looks, real, stored = daemon.run(go())
     assert looks is not None and real is None
     assert stored.startswith("sha256:") and "hunter22" not in stored
+
+
+# decision: GATE-539
+def test_deleting_what_the_task_itself_made_asks_nothing(daemon: RunningDaemon, tmp_path: Any) -> None:
+    """Owner 2026-11-08 ("Build them"): a file this task tree made (its change records: the file wasn't there before
+    the tree first touched its folder) deletes without the permanent-delete question; a file that was there asks."""
+    wipe = _Deletes()
+    made = tmp_path / "draft.pdf"
+    old = tmp_path / "old.txt"
+    old.write_text("x")
+    grant, _ = gateway_setup(daemon, {"probe", "fs:write"}, gateway_request("make a draft, then tidy up"), [wipe])
+    assert not gateway_tool_call(daemon, grant, "fs.write", path=str(made), content="draft")["is_error"]
+    owner = Answers(daemon, granted=False, choice=2)
+    try:
+        mine = gateway_tool_call(daemon, grant, "probe.wipe", path=str(made))
+        theirs = gateway_tool_call(daemon, grant, "probe.wipe", path=str(old))
+    finally:
+        owner.stop()
+    assert not mine["is_error"] and theirs["is_error"] and wipe.calls == 1
+    assert _rules(daemon) == [["floor:delete_permanent"]]

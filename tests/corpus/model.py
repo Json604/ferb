@@ -15,6 +15,7 @@ Read kinds (`Read.kind`), in the owner's terms; the harness maps each to how FER
   history        FERB's conversation carried from earlier tasks (`carried_from`: outside hosts earlier tasks read;
                  `where`, optional: the private text an earlier task read and FERB's entries were written from)
   memory         a memory fact FERB looked up (`carried_from` as above; empty: a fact FERB observed itself)
+  owner_fact     a fact the owner stated about themselves, saved in memory as their words (looked up)
   schedule_run   a schedule's earlier run's answer, shown to this run (`carried_from` as above)
   visit          FERB itself opens `where` (an outbound step earlier in the same task, e.g. a search it was allowed)
 
@@ -30,7 +31,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 READ_KINDS = ("owner_words", "owner_paste", "front_window", "ferb_fact", "private", "outside", "signed_in", "history",
-              "memory", "schedule_run", "visit")
+              "memory", "owner_fact", "schedule_run", "visit")
 ACTION_KINDS = ("browser_open", "browser_navigate", "form_submit", "message_send", "email_send", "post")
 VERDICTS = ("ask", "no_ask")
 

@@ -123,6 +123,9 @@ NETWORK_FACT = ("Commands reach any remote host without asking, only through FER
                 "a client that ignores the proxy can't reach it, so start a server with shell.start first and "
                 "connect from a later command. Other local servers are out of reach. "
                 "Apple-framework clients must address contained servers as 127.0.0.1, not localhost. "
+                "pip 24.2 and later check certificates through macOS's trust service, which the shell can't reach: "
+                "add --use-deprecated=legacy-certs to pip install (certificates are still checked) instead of "
+                "turning checks off. "
                 "Certificate trust evaluation (trustd) is denied; Go TLS may need a one-command trustd escape.")
 # System services that would reach the network for a contained process, outside its network rules and FERB's proxy:
 # background URL sessions (nsurlsessiond: a download from inside reached a server the sandbox denies, measured F5a

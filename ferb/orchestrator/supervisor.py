@@ -3721,6 +3721,8 @@ class Supervisor(WorkerRuns):
                 stated += "\n" + self.gateway.redact("\n".join(loop_line(s) for s in spec.plan.steps if s.loops))
             if spec.folders:     # HAND-204: stated whenever there are any, so a wrong guess can be corrected
                 stated += "\n" + self.gateway.redact(work_in(spec.folders))
+            if spec.targets.sites:   # GATE-537 (owner D6): the sites resolved from the owner's words count as named
+                stated += "\n" + self.gateway.redact("Sites: " + ", ".join(spec.targets.sites) + ".")
             yield self._plan_event(tree, text, stated, restored)
             self._record_planner_reads(tree, root_span.id, request_id)    # big writes after the plan line (L28)
             await self._browse_as(tree)             # APP-777: before any worker of the tree starts

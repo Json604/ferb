@@ -618,6 +618,153 @@ class FsEdit(_Base):
         return ToolResult(out, read_sources=(_source(p, ctx),))
 
 
+def _copy_into(src: int, p: Path, overwrite: bool, closed: Callable[[Path], str | None] | None) -> None:
+    """Copy the opened file `src` to `p`: made next to it and renamed into place inside one opened folder that `closed`
+    checks (the protection lists); never replacing anything unless `overwrite` (RENAME_EXCL otherwise)."""
+    try:
+        folder = os.open(p.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    except OSError as e:
+        raise PathRefused(f"FERB couldn't open the folder for {p.name} ({e.strerror or e}); nothing was copied") from None
+    try:
+        _check_in(folder, p.name, closed)
+        fd, temp = _sibling_temp(folder, p.name)
+        try:
+            try:
+                while chunk := os.read(src, 1 << 20):
+                    _write_all(fd, chunk)
+                _copy_attributes(src, fd)
+            finally:
+                os.close(fd)
+            if overwrite:
+                os.rename(temp, p.name, src_dir_fd=folder, dst_dir_fd=folder)
+            else:
+                try:
+                    move_excl(folder, temp, folder, p.name)
+                except FileExistsError:
+                    raise PathRefused(f"{p} exists (set overwrite=true to replace it); nothing was copied") from None
+        finally:
+            try:
+                os.unlink(temp, dir_fd=folder)
+            except FileNotFoundError:
+                pass
+    finally:
+        os.close(folder)
+
+
+class FsCopy(_Base):
+    """GATE-539 (owner 2026-11-08, "Build them (Recommended)"): a file copied by a file tool, with the protection lists
+    and a recovery copy of a file it replaces, so a copy into the owner's folders needs no Finder script."""
+    name, description = ("fs.copy", "Copy one file (any kind: PDF, image, text) to destination, a file path. An existing "
+                         "file there is replaced only with overwrite=true (FERB keeps a copy of it first).")
+    scopes, risk, reversible = {"fs:write"}, RiskLevel.MEDIUM, False
+    access = "write"
+    undone = "nothing was copied"
+    target_args = ("destination",)
+
+    class Input(BaseModel):
+        path: str = Field(description="The file to copy")
+        destination: str = Field(description="The new file's path")
+        overwrite: bool = False
+
+    def file_paths(self, args: BaseModel) -> list[tuple[str, FileAccess]]:
+        return [(str(getattr(args, "path")), "read"), (str(getattr(args, "destination")), "write")]
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        dest = str(Path(str(getattr(args, "destination"))).expanduser())
+        return ActionSpec("write_file", Target(path=dest), facts=ActionFacts(writes=(dest,)))
+
+    def real_path(self, args: BaseModel, workspace: str) -> Path:
+        return real_path(str(getattr(args, "destination")), workspace)
+
+    def locks(self, args: BaseModel) -> list[str]:
+        return [f"file:{Path(str(getattr(args, n))).expanduser()}" for n in ("path", "destination")]
+
+    def recovery_reason(self, args: BaseModel) -> str | None:
+        return "overwrite" if getattr(args, "overwrite") else None
+
+    def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        src = resolve(str(getattr(args, "path")), ctx, must_exist=True)
+        dest = resolve(str(getattr(args, "destination")), ctx, must_exist=False)
+        if not src.is_file():
+            return _err(f"{src} is not a file; nothing was copied")
+        if dest.is_dir():
+            return _err(f"{dest} is a folder: give the new file's full path; nothing was copied")
+        fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            refusal = opened_closed(ctx, fd, "read")
+            if refusal:
+                return _err(refusal)
+            make_folders(dest.parent, _write_check(ctx))
+            _copy_into(fd, dest, bool(getattr(args, "overwrite")), _write_check(ctx))
+        finally:
+            os.close(fd)
+        return ToolResult({**identity(dest), "copied_from": str(src)}, read_sources=(_source(src, ctx),))
+
+
+class FsMove(_Base):
+    """GATE-539: a file or folder moved or renamed on its volume by a file tool, never replacing anything, with the
+    protection lists (its old place as a removal, its new one as a write)."""
+    name, description = ("fs.move", "Move or rename a file or folder to destination (its new full path) on the same "
+                         "disk. Never replaces anything at destination; across disks, copy with fs.copy instead.")
+    scopes, risk, reversible = {"fs:write"}, RiskLevel.LOW, True
+    access = "remove"
+    undone = "nothing was moved"
+    target_args = ("destination",)
+
+    class Input(BaseModel):
+        path: str = Field(description="The file or folder to move")
+        destination: str = Field(description="Its new full path")
+
+    def file_paths(self, args: BaseModel) -> list[tuple[str, FileAccess]]:
+        return [(str(getattr(args, "path")), "remove"), (str(getattr(args, "destination")), "write")]
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        src, dest = (str(Path(str(getattr(args, n))).expanduser()) for n in ("path", "destination"))
+        return ActionSpec("write_file", Target(path=dest), facts=ActionFacts(writes=(src, dest)))
+
+    def real_path(self, args: BaseModel, workspace: str) -> Path:
+        return link_path(str(getattr(args, "destination")), workspace)
+
+    def locks(self, args: BaseModel) -> list[str]:
+        return [f"file:{Path(str(getattr(args, n))).expanduser()}" for n in ("path", "destination")]
+
+    def recovery_reason(self, args: BaseModel) -> str | None:
+        return None                                      # never replaces anything: nothing to keep a copy of
+
+    def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        given = str(getattr(args, "path"))
+        src = link_path(given, ctx.workspace)
+        dest = link_path(str(getattr(args, "destination")), ctx.workspace)
+        if not os.path.lexists(src):
+            return _err(f"{given} does not exist")
+        make_folders(dest.parent, _write_check(ctx))
+        try:
+            src_dir = os.open(src.parent, O_SEARCH | os.O_DIRECTORY | os.O_CLOEXEC)
+        except OSError as e:
+            return _err(f"FERB couldn't open the folder of {src.name} ({e.strerror or e}); nothing was moved")
+        try:
+            dst_dir = os.open(dest.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        except OSError as e:
+            os.close(src_dir)
+            return _err(f"FERB couldn't open the folder for {dest.name} ({e.strerror or e}); nothing was moved")
+        try:
+            check = ctx.path_closed
+            _check_in(src_dir, src.name, (lambda path: check(path, "remove")) if check is not None else None)
+            _check_in(dst_dir, dest.name, _write_check(ctx))
+            try:
+                move_excl(src_dir, src.name, dst_dir, dest.name)
+            except FileExistsError:
+                return _err(f"{dest} exists; nothing was moved")
+            except OSError as e:
+                if e.errno == errno.EXDEV:
+                    return _err(f"{dest} is on another disk: copy it with fs.copy instead; nothing was moved")
+                raise
+        finally:
+            os.close(src_dir)
+            os.close(dst_dir)
+        return ToolResult({"path": str(dest), "moved_from": str(src)})
+
+
 def link_path(path: str, workspace: str) -> Path:
     """The item a call names, its last part never followed: a link names the link itself (fs.trash moves the link,
     not what it points to). Its folder is resolved as the OS does."""
