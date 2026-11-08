@@ -237,10 +237,6 @@ class Schedules:
             now = self.clock.now()
             plan = self._schedule_plan(spec, now)
             rule, first, return_after, until, timing = plan.rule, plan.first, plan.return_after, plan.until, plan.timing
-            if plan.missing:                    # T-1066: its words claim a time its rule doesn't run at
-                self._journal().append("schedule.refused", {"why": "request names times the rule doesn't run at",
-                                                            "times": plan.missing})
-                return self._untrue_times_line(spec, plan), None
             t = spec.targets
             recorded = Targets.of(
                 t.apps, t.sites, [normalize_path(p, str(self.home / "workspace")) for p in t.paths],
@@ -309,6 +305,8 @@ class Schedules:
                 "These weren't recorded, because their destination isn't in words you typed (now, or when you told me "
                 "to remember it). In each run they get FERB's usual checks, and a send that asks can't be answered "
                 "with nobody there, so it's reported not done:\n" + "\n".join("- " + line for line in unnamed))
+        if plan.missing:                    # ORCH-555: its words name times it doesn't run at: kept, said plainly
+            said += "\n" + self._other_times_line(plan)
         if (s.run_scope or {}).get("identity") == "ferb":
             # APP-777: its runs can't ask, so FERB asks now, while the owner is here, which of their profiles it uses
             self._browsing(True, request_id)
@@ -321,13 +319,13 @@ class Schedules:
         return plan_new(spec, now, self.ids.new_id())
 
     @staticmethod
-    def _untrue_times_line(spec: Any, plan: Any) -> str:
-        """T-1066 (owner: "where is honesty"): a schedule whose words name a time its saved rule never runs at isn't
-        made or changed; FERB says so plainly, with the times it would run at."""
+    def _other_times_line(plan: Any) -> str:
+        """ORCH-555 (owner: "Keep it, say it plainly"): a schedule whose words still name a time it never runs at, after
+        the planner's one repair, is kept; code's line says when it runs and that those times in its instructions
+        aren't run times."""
         from ferb.orchestrator.schedules import said_list
-        named = said_list(plan.missing)
-        return (f"I didn't save “{plan.schedule.label}”: its instructions say {named}, but it would run "
-                f"{plan.schedule.when_said()}. Tell me again exactly when it should run.")
+        return (f"It runs {plan.schedule.when_said()}; {said_list(plan.missing)} in its instructions "
+                f"{'is' if len(plan.missing) == 1 else 'are'} not a time it runs.")
 
     def _schedule_problems(self, entry: Any) -> list[str]:
         """What code finds wrong with a new or changed schedule before the planner's reply stands (T-1066), told back
@@ -352,8 +350,9 @@ class Schedules:
             return [f"{what}: {e}."]
         if plan.missing:
             return [f"{what}: its request names {', '.join(plan.missing)}, but its saved timing would run "
-                    f"{plan.schedule.when_said()}. Every clock time a schedule's request names must be a time it runs "
-                    f"at (when, times, random) or its end: set the timing to every time the owner asked for."]
+                    f"{plan.schedule.when_said()}. Every clock time a schedule's request names should be a time it runs "
+                    f"at (when, times, random) or its end: set the timing to every time the owner asked for. A time that "
+                    f"isn't a run time stays, and FERB says it isn't one."]
         return []
 
     def _schedule_scopes(self, stated: list[Any], own_words: str,
@@ -464,10 +463,6 @@ class Schedules:
             plan = plan_edit(old, str(ch.request), ch.timing, now, self.ids.new_id())
         except (ScheduleError, ValueError) as e:
             return f"I didn't change “{old.label}”: {e}.", None
-        if plan.missing:
-            self._journal().append("schedule.refused", {"schedule_id": old.id, "why": "request names times the rule "
-                                                        "doesn't run at", "times": plan.missing})
-            return self._untrue_times_line(ch, plan), None
         retimed = bool(ch.timing.repeat)
         targets = None                          # a new timing replaces the old one in its recorded JSON
         if retimed:
@@ -496,7 +491,8 @@ class Schedules:
         timing = f"now {after} (was {before})" if after != before else f"still {after}"
         line = ", ".join(part for part in (f"🗓 Changed: {s.label} — {timing}{nxt}",
                                            until_said(s.until) if s.until else "", WATCH_SAID[s.watch]) if part)
-        said = line + (f"\nIts instructions now: {s.request}" if s.request != old.request else "")
+        said = line + (f"\nIts instructions now: {s.request}" if s.request != old.request else "") + (
+            "\n" + self._other_times_line(plan) if plan.missing else "")   # ORCH-555: kept, said plainly
         card = cards.event("schedule", s.id, s.label, s.next_run.isoformat() if s.next_run else "", line,
                            repeat=after, watch=WATCH_SAID[s.watch] or None,
                            until=s.until.isoformat() if s.until else None) | {

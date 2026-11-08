@@ -893,7 +893,7 @@ title = "A schedule's words may name only clock times its saved timing runs at"
 by = "agent"
 date = 2026-11-07
 status = "active"
-rule = "For ORCH-550. Every clock time written in a new or edited schedule's request (5:20 AM, 6 am, 7.10pm, 18:00; HH:MM 1-11 may be a.m. or p.m.) must be a minute its saved timing runs at: its rule's own times (each run of \"every N minutes\" over a week), its fixed times, a random window's start or end, or its end's time. Otherwise it goes back to the planner once (with the side entries' quote problems), then is refused when applied with a plain line naming the times and when it would run. Shape only, never what a time is about."
+rule = "For ORCH-550. Every clock time written in a new or edited schedule's request (5:20 AM, 6 am, 7.10pm, 18:00; HH:MM 1-11 may be a.m. or p.m.) must be a minute its saved timing runs at: its rule's own times (each run of \"every N minutes\" over a week), its fixed times, a random window's start or end, or its end's time. Otherwise it goes back to the planner once (with the side entries' quote problems); still mismatched, it is kept and code's line says when it runs and which of those times aren't run times (ORCH-555). Shape only, never what a time is about."
 why = "Live 2026-11-07: a schedule saved as daily 05:20 said six checks a day in its request and in FERB's replies."
 paths = ["ferb/orchestrator/schedules.py::missing_times", "ferb/daemon/areas/schedules.py::Schedules._schedule_problems", "ferb/orchestrator/supervisor.py::Supervisor._side_quote_problems"]
 
@@ -923,3 +923,23 @@ status = "active"
 rule = "For ORCH-550. Every planner turn's live facts start with the owner's schedules from the database: a count by state, then per schedule its id, name, state, the timing code renders from its rule, its end and watch, its next run and its instructions, marked as the only source for anything about schedules. The planner's show_schedules (a plain boolean) makes code add a schedules card and its line, built from the same rows after the turn's own schedule changes."
 why = "Live 2026-11-07: asked how many schedules there were, FERB answered \"six checks daily\" from the conversation, not from the rule."
 paths = ["ferb/daemon/areas/schedules.py::Schedules._schedule_rows", "ferb/daemon/areas/schedules.py::Schedules._schedule_facts", "ferb/daemon/areas/schedules.py::Schedules._schedules_card"]
+
+[ORCH-555]
+title = "A time in a schedule's words that isn't a run time: kept, said plainly"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "Keep it, say it plainly (Recommended)"
+words_source = "Owner 2026-11-08, asked: a time in a schedule's instructions that isn't a run time (\"book a slot after 10:30 AM\"): refuse the schedule, or keep it and state the real run times plainly?"
+rule = "Refines ORCH-551. After the planner's one repair, a new or edited schedule whose instructions still name a clock time it never runs at is saved, not refused; code's line says when it runs and that those times in its instructions are not times it runs."
+paths = ["ferb/daemon/areas/schedules.py::Schedules._other_times_line"]
+
+[ORCH-556]
+title = "Random run times are just random: no gap from other runs"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "no, just random. adn then ferb sayz htat this is it. if user wants then they ask and chagne it. DONT TRY TO VOERENGINEER WHERE NOT NEEDE, TAKE MY OPINION"
+words_source = "Owner 2026-11-08, asked: minimum gap between a random-time run and your fixed runs (so random checks aren't skipped while another run is going)?"
+rule = "Refines ORCH-550. A schedule's random times are drawn in their window with no minimum gap from its other runs (only never the same minute, as built). FERB says what it set (its timing, first and next run); the owner changes it by asking. Nothing more is added."
+paths = ["ferb/orchestrator/schedules.py::Timing.picks"]

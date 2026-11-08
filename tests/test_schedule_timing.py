@@ -49,6 +49,7 @@ def test_one_schedule_runs_at_several_fixed_times_a_day() -> None:
 
 
 # decision: ORCH-550
+# decision: ORCH-556
 def test_random_times_are_drawn_per_day_from_the_seed_and_keep_off_other_runs() -> None:
     """The visa case: every 6 hours from 06:00 plus 2 random times between 05:00 and 08:00 each day, never on the
     06:00 run's minute. The draw depends only on the seed and the date, so the next run is always known."""
@@ -160,19 +161,23 @@ def test_the_visa_schedule_end_to_end(daemon: RunningDaemon) -> None:
 
 
 # decision: ORCH-551
-def test_a_schedule_whose_words_claim_times_its_rule_doesnt_run_is_sent_back_then_refused(
+# decision: ORCH-555
+def test_a_schedule_whose_words_name_times_it_doesnt_run_at_is_sent_back_then_kept_and_said_plainly(
         daemon: RunningDaemon) -> None:
+    """Owner 2026-11-08: "Keep it, say it plainly". Told back to the planner once; still mismatched, the schedule is
+    kept and code's line says when it runs and which times in its instructions aren't run times."""
     words = "check the visa site daily at 5:20 AM, 6:00 AM and 7:10 AM"
-    dishonest = _schedule("Check the visa site at 5:20 AM, 6:00 AM and 7:10 AM", words, _at("05:20"), "daily")
+    dishonest = _schedule("Check the visa site at 5:20 AM, 6:00 AM and 7:10 AM", words, _at("05:20"), "daily",
+                          name="Visa check")
     script = install(daemon, [_reply("Done.", schedules=[dishonest]), _reply("Done.", schedules=[dishonest])])
     evs = chat(daemon, words)
     repair = [ctx for mode, key, ctx, _ in script.contexts if "6:00 AM, 7:10 AM" in ctx and "would run" in ctx]
     assert repair                                                  # told back once, naming the times
-    [line] = _lines(evs)                                           # then refused when applied, said plainly
-    assert line.startswith("I didn't save “") and line.endswith(
-        "”: its instructions say 6:00 AM and 7:10 AM, but it would run every day at 05:20. Tell me again exactly when it "
-        "should run.")
-    assert run(daemon, daemon.daemon.schedules.all) == []
+    [line] = _lines(evs)
+    assert line.startswith("🗓 Scheduled: Visa check — every day at 05:20, first on ")
+    assert "It runs every day at 05:20; 6:00 AM and 7:10 AM in its instructions are not a time it runs." in \
+        _reply_of(evs)["text"]
+    assert len(run(daemon, daemon.daemon.schedules.all)) == 1
 
 
 # decision: ORCH-550

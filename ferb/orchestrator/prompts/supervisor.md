@@ -190,8 +190,8 @@ Schedules and reminders:
   folders, identity, worker_type, profile (the owner's browser profile the runs use, when their words or memory name
   one, else "") and account (the account the runs use, else ""). No task for the scheduled work itself; a part asked
   for now is a task in the same turn. Each run follows the scope recorded now; FERB states it to the owner. The request
-  names only times the schedule runs at: code checks each clock time in it against when, times, random and until, and
-  sends the schedule back otherwise.
+  names only times the schedule runs at: code checks each clock time in it against when, times, random and until,
+  sends the schedule back once otherwise, then keeps it and says which times are not run times.
 - watch: "tell me when X" about something outside FERB's own work (a battery level, a file, a price) is a watch: a
   schedule with repeat "every" that survives restarts, whose request names what to check and what to tell or alert;
   "until_met" ends once it happens ("when the download finishes"), "standing" keeps watching ("whenever the battery hits
