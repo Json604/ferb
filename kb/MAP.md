@@ -16,7 +16,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 8 | 6 | 0 |
 | prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 26 | 3 | 8 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 18 | 2 | 2 |
-| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 27 | 2 | 0 |
+| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 28 | 3 | 0 |
 | storage | Storage | `ferb/store` | 25 | 6 | 3 |
 | tests | Tests | `tests` | 10 | 16 | 0 |
 | voice | Voice | `ferb/voice` | 3 | 0 | 0 |
@@ -36,6 +36,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-1064 (app): While you're typing into a password field somewhere, should hovering over FERB open it without moving your typing into FERB (you'd click its box to type)?
 - T-1067 (prompts): Approve the review plan, then each proposed prompt wording and claim check.
 - T-1068 (tests): Approve the plan: which tasks, what quality measures, which surfaces.
+- T-1069 (runtimes): Before each release, should FERB run one tiny real call per AI service and per kind of answer (planner, worker, checker, and the others) on your keys, costing a few cents in all, and show you the results before the build ships?
 
 ## Terms
 

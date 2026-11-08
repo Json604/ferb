@@ -3,10 +3,13 @@ run token doesn't cover.
 
 One loop for every provider: ask the model, run each tool call through FERB's gateway (GatewayBridge, the same path as the
 MCP shim), send the results back, until the model answers. A small Provider class per API translates requests, responses,
-cache markers, typed output (its `shape` of FERB's schema, ferb/runtimes/schema_shape.py) and usage. A call to a tool the
-run wasn't offered gets a tool error back and nothing runs (no provider-hosted tool is ever enabled, so it can only be a
-made-up name). No turn or token budget; stop, the stall watchdog and the call's own time limit (none for a worker) end a
-run. Keys come from the Keychain at start and never appear in errors."""
+cache markers, typed output (its `shape` of FERB's schema, ferb/runtimes/schema_shape.py) and usage. A typed format the
+provider refuses (HTTP 400 while it carried one, and the same request without it accepted) falls back to the answer form
+stated in the instructions, one shared path for every provider (RUN-427, `_call`): each such answer is checked against
+the core schema and one that doesn't fit is told back once; each usage report says which form the call used (`typed`).
+A call to a tool the run wasn't offered gets a tool error back and nothing runs (no provider-hosted tool is ever
+enabled, so it can only be a made-up name). No turn or token budget; stop, the stall watchdog and the call's own time
+limit (none for a worker) end a run. Keys come from the Keychain at start and never appear in errors."""
 
 import asyncio
 import json
@@ -19,9 +22,11 @@ import httpx
 
 from ferb.cli.mcp import mcp_name
 from ferb.core.errors import FerbError, Unsupported
+from ferb.core.structured import check_final
 from ferb.core.timing import CallTimer
 from ferb.core.types import ModelLimits, ModelRequest, RunHandle, RuntimeEvent, Task
-from ferb.runtimes.schema_shape import Shape, same
+from ferb.runtimes.schema_shape import (REFUSALS, Refusals, SchemaTooComplex, Shape, repair_note, same, stated,
+                                        unfenced)
 from ferb.runtimes.usage import Usage
 
 RETRY_STATUS = frozenset({408, 409, 429, 500, 502, 503, 504, 529})
@@ -33,9 +38,11 @@ class ProviderError(Exception):
     `image`: the provider's own rejection of an image in the request (`Provider.image_refused`, ORCH-524: only then is
     the planner's turn run again without the owner's screenshot)."""
 
-    def __init__(self, message: str, overflow: bool = False, account: str = '', image: bool = False) -> None:
+    def __init__(self, message: str, overflow: bool = False, account: str = '', image: bool = False,
+                 status: int = 0) -> None:
         super().__init__(message)
         self.overflow, self.account, self.image = overflow, account, image
+        self.status = status                   # the HTTP status of a provider's refusal; 0 for any other failure
 
 
 # HTTP statuses that are account facts no model can change (step 8b, ORCH-315): a key the provider refused,
@@ -105,6 +112,9 @@ class Provider(Protocol):
     # (or its own client) defines (ORCH-524); a provider with none to cite answers False
     def image_refused(self, status: int, error: dict[str, Any]) -> bool: ...
     def add_message(self, state: dict[str, Any], message: str) -> None: ...
+    # Optional (RUN-427): the request without its typed format, `statement` (the answer form) added to FERB's
+    # instructions where the provider caches them. Without it a refused typed format is an error as any other.
+    # def without_format(self, state: dict[str, Any], statement: str) -> None: ...
 
 
 class Bridge(Protocol):
@@ -159,6 +169,10 @@ class _Run:
     inflight: "asyncio.Future[Any] | None" = None
     deadline: float | None = None               # the call's one overall limit (loop time), None for none
     timer: CallTimer | None = None              # each model call's timing on its usage report (RUN-419)
+    # RUN-427: the typed answer's form: "" (none asked), "strict" (the provider's typed format), "stated" (in the
+    # instructions: refused earlier or over a counted limit), "stated_after_refusal" (refused on this run)
+    typed: str = ""
+    repaired: bool = False                      # a stated answer that didn't fit was told back (once)
 
 
 class ApiRuntime:
@@ -167,14 +181,24 @@ class ApiRuntime:
                  key: Callable[[str], Awaitable[str | None]], transport: httpx.AsyncBaseTransport | None = None,
                  sleep: Callable[[float], Awaitable[None]] = asyncio.sleep, retries: int = 4, backoff_s: float = 1.0,
                  timeout_s: float = 600.0, effort: str | None = None, limit_s: float | None = None,
-                 monotonic: Callable[[], float] = time.monotonic) -> None:
+                 monotonic: Callable[[], float] = time.monotonic, refusals: Refusals | None = None) -> None:
         self.provider, self.name = provider, provider.name
         self.monotonic = monotonic       # the clock each model call's timing reads (RUN-419); tests give a fake
         self.effort = effort             # L39: a worker run's effort when asked for ("high"); supervisor runs stay low
         self.mode, self.role, self.tool_names, self.output_schema = mode, role, list(tool_names or []), output_schema
         reshape = getattr(provider, "shape", None)
-        self.shape: Shape | None = ((reshape(output_schema) if reshape is not None else same(output_schema))
-                                    if output_schema else None)
+        self.refusals = refusals if refusals is not None else REFUSALS
+        self.stated_only = False         # over a provider's counted limit (SchemaTooComplex): stated from the start
+        self.shape: Shape | None = None
+        if output_schema:
+            try:
+                self.shape = reshape(output_schema) if reshape is not None else same(output_schema)
+            except SchemaTooComplex:
+                if not hasattr(provider, "without_format"):
+                    raise
+                self.shape, self.stated_only = same(output_schema), True
+        self.format_key = (Refusals.key(provider.name, provider.model, self.shape.wire) if self.shape is not None
+                           else "")
         self.limit_s = limit_s           # one overall limit on this call (catalog.call_limit); None for a worker
         self.bridge, self.key, self.transport, self.sleep = bridge, key, transport, sleep
         self.retries, self.backoff_s, self.timeout_s = retries, backoff_s, timeout_s
@@ -205,11 +229,21 @@ class ApiRuntime:
         state = self.provider.begin(request, tools, self.shape.wire if self.shape else None,
                                     "low" if self.mode == "supervisor" else self.effort,
                                     f"ferb:{self.role.partition(':')[0]}:{self.mode}")
+        typed = ""
+        if self.shape is not None:
+            typed = "strict"
+            if self.stated_only or self.refusals.refused(self.format_key):
+                self._state_format(state)
+                typed = "stated"
         client = httpx.AsyncClient(timeout=self.timeout_s, transport=self.transport)
         deadline = asyncio.get_running_loop().time() + self.limit_s if self.limit_s is not None else None
         return RunHandle("run-" + secrets.token_hex(6), self.name, task.id,
                          {"run": _Run(state, key, run_token, names, client, deadline=deadline,
-                                      timer=CallTimer(self.monotonic))})
+                                      timer=CallTimer(self.monotonic), typed=typed)})
+
+    def _state_format(self, state: dict[str, Any]) -> None:
+        assert self.output_schema is not None
+        getattr(self.provider, "without_format")(state, stated(self.output_schema))
 
     async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
         r: _Run = run.state["run"]
@@ -261,8 +295,10 @@ class ApiRuntime:
                                        ({"account": e.account} if e.account else {}) |
                                        ({"image": True} if e.image else {}))
                     return
-                # RUN-419: the call's timing, from its request going out to its last streamed event
-                yield RuntimeEvent("usage", asdict(turn.usage) | ({"timing": r.timer.done()} if r.timer else {}))
+                # RUN-419: the call's timing, from its request going out to its last streamed event; RUN-427: which
+                # form its typed answer took
+                yield RuntimeEvent("usage", asdict(turn.usage) | ({"timing": r.timer.done()} if r.timer else {})
+                                   | ({"typed": r.typed} if r.typed else {}))
                 if not turn.calls:
                     if r.updates:
                         continue  # The answer predates an accepted owner correction.
@@ -270,9 +306,19 @@ class ApiRuntime:
                         r.closed = True
                         yield RuntimeEvent("error", {"message": f"{self.name}: the model ended without an answer"})
                         return
+                    final = unfenced(turn.final) if r.typed.startswith("stated") else turn.final
+                    final = self.shape.answer_text(final) if self.shape else final
+                    if r.typed.startswith("stated") and not r.repaired:
+                        try:
+                            check_final(final, self.output_schema)
+                        except ValueError as e:
+                            # RUN-427: nothing enforced the form, so one answer outside it is told back once; a second
+                            # goes to the caller's own check and repair
+                            r.repaired = True
+                            self.provider.add_message(r.state, repair_note(str(e)))
+                            continue
                     r.closed = True  # No update may be accepted while the final event is handled.
-                    yield RuntimeEvent("final", {"text": self.shape.answer_text(turn.final) if self.shape
-                                                 else turn.final})
+                    yield RuntimeEvent("final", {"text": final})
                     return
                 results = []
                 for call in turn.calls:
@@ -327,6 +373,24 @@ class ApiRuntime:
         return ToolOutcome(call, text, bool(out.get("is_error")), out.get("image"))
 
     async def _call(self, r: _Run, on_delta: Callable[[str], None]) -> Turn:
+        if r.timer:
+            r.timer.begin()                  # this model call begins (RUN-421); a retry's wait counts before its send
+        try:
+            return await self._send(r, on_delta)
+        except ProviderError as e:
+            # RUN-427: the provider refused a request carrying the typed format (HTTP 400, not its window or image
+            # refusal): the same request goes once more without it, the answer form stated in the instructions. Only
+            # when that one is accepted is the format remembered as not fitting; otherwise its own error stands.
+            if (r.typed != "strict" or e.status != 400 or e.overflow or e.image
+                    or not hasattr(self.provider, "without_format")):
+                raise
+            self._state_format(r.state)
+            r.typed = "stated_after_refusal"
+        turn = await self._send(r, on_delta)
+        self.refusals.remember(self.format_key)
+        return turn
+
+    async def _send(self, r: _Run, on_delta: Callable[[str], None]) -> Turn:
         streaming = (self.mode == 'supervisor' and self.output_schema is not None
                      and hasattr(self.provider, 'stream_http'))
         request = getattr(self.provider, 'stream_http') if streaming else self.provider.http
@@ -334,8 +398,6 @@ class ApiRuntime:
         headers = {**headers, **self.provider.auth(r.key)}
         delay = self.backoff_s
         timer = r.timer
-        if timer:
-            timer.begin()                    # this model call begins (RUN-421); a retry's wait counts before its send
         for attempt in range(self.retries + 1):
             emitted = False
             try:
@@ -353,7 +415,7 @@ class ApiRuntime:
                         shape = error if isinstance(error, dict) else {}
                         raise ProviderError(self._error_text(resp, r.key), overflow=self.provider.window_exceeded(
                             resp.status_code, shape), account=ACCOUNT_STATUS.get(resp.status_code, ''),
-                            image=self.provider.image_refused(resp.status_code, shape))
+                            image=self.provider.image_refused(resp.status_code, shape), status=resp.status_code)
                     if streaming and resp.headers.get('content-type', '').split(';', 1)[0].strip().lower() == 'text/event-stream':
                         parser = getattr(self.provider, 'stream_parser')()
                         async for event in _sse_events(resp):

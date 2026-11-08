@@ -278,3 +278,17 @@ status = "active"
 rule = "In a Codex run, an mcpToolCall item from server `codex` whose tool is list_mcp_resources or list_mcp_resource_templates is let through without a violation. read_mcp_resource and every other tool not FERB's still stop the run (RUN-405)."
 why = "FERB's bridge is Codex's only server and offers no resources, so a listing returns nothing. Live 2026-11-07 a final check stopped on it and the task lost its confirmation. Owner agreed 2026-11-07."
 paths = ["ferb/runtimes/codex_stream.py::events", "ferb/runtimes/codex_exec.py"]
+
+[RUN-427]
+title = "A typed format a provider refuses falls back in the adapter to the answer form stated in the prompt"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "also cause in future ive to have amny APIs and providers support and if these kind of thigns keep happenign then we are don for"
+words_source = "The owner, 2026-11-08, on the Anthropic API's \"compiled grammar is too large\" refusals of every planner turn (journal chat.failed 05:20, 06:00, 07:10)."
+rule = "A provider's refusal of a request carrying FERB's typed format (HTTP 400, not window or image; Claude Code: api_error_status 400 before output) is resent once without it, the core schema stated after FERB's cached instructions; if that is accepted the format is remembered as not fitting (in memory, per provider, model and schema, 24 h). A schema over the counted limits is stated from the start. A stated answer outside the schema is told back once in the run. Usage reports carry `typed`. Offline contract tests cover every schema FERB sends and every adapter."
+why = "SUPERVISOR_SCHEMA fits Anthropic's counted limits after reshaping (14 unions, 24 optionals) but not its undocumented grammar size. Resending without the format tells a format refusal from any other 400 with no provider wording, so it holds for providers added later."
+rejected = ["Matching each provider's refusal wording: breaks when it changes; OpenAI's isn't recorded", "Required-with-default fields: a sentinel changes an answer's meaning, and nothing offline proves a smaller grammar", "Splitting the planner's answer into several calls: more calls and latency on every provider", "Handling it in the orchestrator: model-specific code belongs in the adapter (AGENTS.md rule 12)"]
+evidence = "Owner's DB, read-only: 3 supervisor model.turn spans 2026-11-08 failed with that 400. Bundled Claude Code 2.1.310 sends typed output as output_config.format and resends without it only on \"extra inputs are not permitted\" or \"structured_outputs_unsupported\"."
+paths = ["ferb/runtimes/api.py::ApiRuntime._call", "ferb/runtimes/api.py::ApiRuntime._events", "ferb/runtimes/schema_shape.py::Refusals", "ferb/runtimes/schema_shape.py::stated", "ferb/runtimes/anthropic_api.py::AnthropicProvider.without_format", "ferb/runtimes/openai_api.py::OpenAIProvider.without_format", "ferb/runtimes/google_api.py::GoogleProvider.without_format", "ferb/runtimes/claude_sdk.py::ClaudeRuntime._restart"]
+live = ["LIVE-410"]

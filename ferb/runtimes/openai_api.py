@@ -9,7 +9,13 @@ Verified 2026-10-07 (https://developers.openai.com/api/reference/resources/respo
 - stateless (store false): every output item, reasoning included, is replayed on the next call;
 - typed answers: text.format json_schema strict (FERB's schemas are strict-compatible); tools stay non-strict because
   FERB's tool schemas have optional fields;
-- function_call arguments arrive as a JSON string; results go back as function_call_output, with images as input_image."""
+- function_call arguments arrive as a JSON string; results go back as function_call_output, with images as input_image.
+
+Typed-answer limits (RUN-427): OpenAI documents its strict-schema limits on the structured-outputs page above; FERB's
+repository records no checked figures or refusal wording for them (not verified for this change), so none are enforced
+here and no wording is matched. A 400 on a request carrying `text.format` goes through the
+shared fallback in api.py (`without_format` below), which tells a format refusal from any other 400 by resending
+without the format."""
 
 import json
 from typing import Any
@@ -134,6 +140,17 @@ class OpenAIProvider:
 
     def add_message(self, state: dict[str, Any], message: str) -> None:
         state["body"]["input"].append({"role": "user", "content": [self._text(message, False)]})
+
+    def without_format(self, state: dict[str, Any], statement: str) -> None:
+        """RUN-427: no text.format; the answer form goes at the end of FERB's developer message, inside its cache
+        breakpoint (explicit models) or its implicitly cached prefix."""
+        body = state["body"]
+        body.pop("text", None)
+        items = body["input"]
+        if items and items[0].get("role") == "developer":
+            items[0]["content"][0]["text"] += "\n\n" + statement
+        else:
+            items.insert(0, {"role": "developer", "content": [self._text(statement, True)]})
 
     def window_exceeded(self, status: int, error: dict[str, Any]) -> bool:
         """The `error.code` OpenAI's API returns for an input longer than the model's context window, read from that

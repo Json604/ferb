@@ -10,7 +10,10 @@ inherited ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN would otherwise silently 
 token reaches FERB's MCP shim through a 0600 file, never the MCP config Claude Code receives on its command line. The
 tool list the API actually receives is checked through the local tool-list proxy after every turn. Typed answers use
 Anthropic's structured outputs (Claude Code's StructuredOutput tool), so the schema is reshaped for Anthropic's limits
-(schema_shape.for_anthropic) and the answer mapped back."""
+(schema_shape.for_anthropic) and the answer mapped back. Claude Code sends it as the API's output_config.format, so the
+API's undocumented grammar-size refusal reaches this runtime too: a run whose first API call is refused (the result's
+`api_error_status` 400, before any output) starts again once with no output_format and the answer form stated after
+FERB's instructions, sharing the API loop's memory of which formats don't fit (RUN-427, schema_shape.Refusals)."""
 
 import asyncio
 import json
@@ -20,17 +23,19 @@ import shutil
 import tempfile
 import time
 import uuid
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from contextlib import suppress
 from typing import Any, AsyncIterator, Callable, Literal
 
 from ferb.cli.mcp import mcp_name
 from ferb.core.errors import ModelLimitsUnknown, Unsupported
+from ferb.core.structured import check_final
 from ferb.core.timing import CallTimer, Steps
 from ferb.core.types import ModelImage, ModelLimits, ModelRequest, RunHandle, RuntimeEvent, Task
 from ferb.runtimes.proxy import ToolListProxy
-from ferb.runtimes.schema_shape import Shape, for_anthropic
+from ferb.runtimes.schema_shape import (REFUSALS, Refusals, SchemaTooComplex, Shape, for_anthropic, repair_note, same,
+                                        stated, unfenced)
 from ferb.runtimes.usage import from_anthropic
 
 SDK_VERSION = "0.2.174"
@@ -138,13 +143,23 @@ class ClaudeRuntime:
                  shim_cmd: list[str] | None = None, tool_names: list[str] | None = None,
                  output_schema: dict[str, Any] | None = None, model: str | None = None,
                  effort: str | None = None, limit_s: float | None = None,
-                 monotonic: Callable[[], float] = time.monotonic) -> None:
+                 monotonic: Callable[[], float] = time.monotonic, refusals: Refusals | None = None) -> None:
         self.mode, self.proxy, self.ferb_home, self.shim_cmd = mode, proxy, ferb_home, shim_cmd
         # the clock the run's timing reads (RUN-419, RUN-420): its start steps and its turn's; tests give a fake
         self.monotonic = monotonic
         self.output_schema, self.model = output_schema, model
         # what Claude Code receives, and how its answers come back to FERB's form (schema_shape)
-        self.shape: Shape | None = for_anthropic(output_schema) if output_schema else None
+        self.shape: Shape | None = None
+        self.stated_only = False         # over Anthropic's counted limits: the answer form stated from the start
+        if output_schema:
+            try:
+                self.shape = for_anthropic(output_schema)
+            except SchemaTooComplex:
+                self.shape, self.stated_only = same(output_schema), True
+        # RUN-427: the same fact as the Anthropic API runtime's (one feature, one grammar), keyed by the resolved model
+        self.refusals = refusals if refusals is not None else REFUSALS
+        self.format_key = (Refusals.key("anthropic", ALIASES.get(model or "", model), self.shape.wire)
+                           if self.shape is not None else "")
         self.effort = effort             # L39: the SDK's own effort option when asked for ("high"); None: its default
         self.limit_s = limit_s           # one overall limit on this call (catalog.call_limit); None for a worker
         self.allowed = {f"mcp__ferb__{mcp_name(n)}" for n in (tool_names or [])}
@@ -155,7 +170,7 @@ class ClaudeRuntime:
     def limits(self) -> ModelLimits:
         return limits_for(self.model)
 
-    def _options(self, run_id: str, token_file: Path | None) -> Any:
+    def _options(self, run_id: str, token_file: Path | None, stated_form: bool = False) -> Any:
         from claude_agent_sdk import ClaudeAgentOptions
         from ferb.runtimes.claude_login import claude_home, cli_binary
         own = claude_home(Path(self.ferb_home))       # L34 C: FERB's own Claude sign-in, once it finished
@@ -188,7 +203,15 @@ class ClaudeRuntime:
             model=self.model, effort=self.effort, cli_path=cli,   # type: ignore[arg-type]
             include_partial_messages=self.mode == 'supervisor' and self.output_schema is not None,
             extra_args={"no-session-persistence": None, "replay-user-messages": None},   # no transcript (tool results, screenshots) on disk
-            output_format={"type": "json_schema", "schema": self.shape.wire} if self.shape else None)
+            output_format=({"type": "json_schema", "schema": self.shape.wire} if self.shape and not stated_form
+                           else None))
+
+    def _request(self, request: ModelRequest, typed: str) -> ModelRequest:
+        """The request as sent: with the answer form stated after FERB's instructions when the typed format isn't
+        used (RUN-427), inside the same cached prefix."""
+        if not typed.startswith("stated") or self.output_schema is None:
+            return request
+        return replace(request, system="\n\n".join(filter(None, [request.system, stated(self.output_schema)])))
 
     async def start(self, task: Task, request: ModelRequest, run_token: str) -> RunHandle:
         from claude_agent_sdk import ClaudeSDKClient
@@ -196,15 +219,17 @@ class ClaudeRuntime:
         deadline = asyncio.get_running_loop().time() + self.limit_s if self.limit_s is not None else None
         steps, timer = Steps(self.monotonic), CallTimer(self.monotonic)     # RUN-420, RUN-419
         token_file = write_token_file(run_token) if self.mode == "worker" or run_token else None
+        typed = ("stated" if self.stated_only or self.refusals.refused(self.format_key) else "strict") if self.shape \
+            else ""
         client = None
         try:
-            client = ClaudeSDKClient(options=self._options(run_id, token_file))
+            client = ClaudeSDKClient(options=self._options(run_id, token_file, typed == "stated"))
             steps.mark("options")
             async with asyncio.timeout_at(deadline):
                 await client.connect()
                 steps.mark("connect")                  # Claude Code's process started and ready
                 timer.begin()
-                await client.query(_frames(request))
+                await client.query(_frames(self._request(request, typed)))
                 steps.mark("query")
         except BaseException:
             if client is not None:
@@ -216,22 +241,44 @@ class ClaudeRuntime:
             raise
         return RunHandle(run_id, self.name, task.id, {"client": client, "checked_auth": False,
                                                       "token_file": token_file, "deadline": deadline,
-                                                      "start_steps": steps.steps, "timer": timer})
+                                                      "start_steps": steps.steps, "timer": timer, "typed": typed,
+                                                      "request": request})
 
     async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
-        client = run.state["client"]
-        if client is None or run.state.get("closed"):
+        if run.state.get("client") is None or run.state.get("closed"):
             return
-        inner = self._events(run, client)
         try:
             async with asyncio.timeout_at(run.state.get("deadline")):
-                async for event in inner:
-                    yield event
+                while True:
+                    inner = self._events(run, run.state["client"])
+                    try:
+                        async for event in inner:
+                            yield event
+                    finally:
+                        await inner.aclose()
+                    if not run.state.pop("restart", False):
+                        break
+                    await self._restart(run)
         except TimeoutError:
             yield RuntimeEvent("error", {"message": "Claude runtime timed out"})
         finally:
             run.state["closed"] = True
-            await inner.aclose()
+
+    async def _restart(self, run: RunHandle) -> None:
+        """RUN-427: the API refused the typed format before any output; the same run starts again in a fresh Claude Code
+        with the answer form stated instead (same run id, proxy route and token file)."""
+        from claude_agent_sdk import ClaudeSDKClient
+        old = run.state.get("client")
+        if old is not None:
+            with suppress(Exception):
+                await old.disconnect()
+        run.state.update(typed="stated_after_refusal", checked_auth=False, client=None)
+        client = ClaudeSDKClient(options=self._options(run.id, run.state.get("token_file"), True))
+        run.state["client"] = client
+        await client.connect()
+        if run.state.get("timer") is not None:
+            run.state["timer"].begin()                 # the stated call is a call of its own (RUN-421)
+        await client.query(_frames(self._request(run.state["request"], "stated_after_refusal")))
 
     async def _events(self, run: RunHandle, client: Any) -> AsyncIterator[RuntimeEvent]:
         from claude_agent_sdk import (AssistantMessage, ResultMessage, SystemMessage, ToolResultBlock, ToolUseBlock,
@@ -243,6 +290,7 @@ class ClaudeRuntime:
         # API calls and the tools between them), as its usage does.
         timer: CallTimer | None = run.state.get("timer")
         # receive_response stops at the first ResultMessage, even with queued input.
+        typed = str(run.state.get("typed") or "")
         async for m in client.receive_messages():
             if timer is not None and isinstance(m, (StreamEvent, AssistantMessage)):
                 timer.output()
@@ -270,12 +318,16 @@ class ClaudeRuntime:
                     structured_blocks.clear()
                 elif kind == 'content_block_start':
                     block = event.get('content_block') or {}
-                    if block.get('type') == 'tool_use' and block.get('name') == STRUCTURED_OUTPUT:
+                    if ((block.get('type') == 'tool_use' and block.get('name') == STRUCTURED_OUTPUT)
+                            or (block.get('type') == 'text' and typed.startswith('stated'))):   # RUN-427: the answer
                         structured_blocks.add(event['index'])
                 elif kind == 'content_block_delta' and event.get('index') in structured_blocks:
                     delta = event.get('delta') or {}
-                    if delta.get('type') == 'input_json_delta' and delta.get('partial_json'):
-                        yield RuntimeEvent('text_delta', {'text': delta['partial_json']})
+                    piece = (delta.get('partial_json') if delta.get('type') == 'input_json_delta'
+                             else delta.get('text') if delta.get('type') == 'text_delta' else None)
+                    if piece:
+                        run.state["emitted"] = True
+                        yield RuntimeEvent('text_delta', {'text': piece})
                         continue
                 elif kind == 'content_block_stop':
                     structured_blocks.discard(event.get('index'))
@@ -286,11 +338,13 @@ class ClaudeRuntime:
                     run.state["account"] = account   # the SDK's own error kind (AssistantMessageError), step 8b
                 for b in m.content:
                     if isinstance(b, ToolUseBlock):
+                        run.state["emitted"] = True
                         if b.name == STRUCTURED_OUTPUT:
                             run.state["structured"] = b.input
                         else:
                             yield RuntimeEvent("tool_call", {"tool": b.name, "arguments": b.input})
                     elif hasattr(b, "text") and b.text:
+                        run.state["emitted"] = True
                         yield RuntimeEvent("message", {"text": b.text})
             elif isinstance(m, ResultMessage):
                 # Claude Code's total_cost_usd is cumulative across the turns of one streaming-input session ("each
@@ -301,8 +355,13 @@ class ClaudeRuntime:
                     cost, run.state["cost_so_far"] = max(cost - run.state.get("cost_so_far", 0.0), 0.0), cost
                 yield RuntimeEvent("usage", asdict(from_anthropic(self.model or "claude", dict(m.usage or {}),
                                                                   billing="subscription", provider_cost=cost))
-                                   | ({"timing": timer.done()} if timer is not None else {}))
+                                   | ({"timing": timer.done()} if timer is not None else {})
+                                   | ({"typed": typed} if typed else {}))
                 if getattr(m, "is_error", False):
+                    if (typed == "strict" and getattr(m, "api_error_status", None) == 400
+                            and not run.state.get("emitted") and m.subtype != STRUCTURED_RETRIES):
+                        run.state["restart"] = True    # RUN-427: once more without the typed format (`events`)
+                        return
                     run.state["closed"] = True
                     detail = m.result or str(getattr(m, "errors", None)) or m.subtype
                     # the model answered, but never within the schema: format repair, not a failed call
@@ -324,7 +383,18 @@ class ClaudeRuntime:
                 if structured is not None:
                     text = json.dumps(self.shape.value(structured) if self.shape else structured)
                 elif self.shape is not None:
-                    text = self.shape.answer_text(text)
+                    text = self.shape.answer_text(unfenced(text) if typed.startswith("stated") else text)
+                if typed == "stated_after_refusal" and not run.state.get("remembered"):
+                    run.state["remembered"] = True     # the same request without the format was accepted
+                    self.refusals.remember(self.format_key)
+                if typed.startswith("stated") and not run.state.get("repaired"):
+                    try:
+                        check_final(text, self.output_schema)
+                    except ValueError as e:
+                        # RUN-427: nothing enforced the form, so one answer outside it is told back once
+                        run.state["repaired"] = True
+                        await self.continue_(run, repair_note(str(e)))
+                        continue
                 run.state["closed"] = True
                 yield RuntimeEvent("final", {"text": text, "tools_seen": sorted(self.proxy.seen(run.id))})
                 return

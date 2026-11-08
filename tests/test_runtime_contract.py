@@ -181,7 +181,8 @@ async def test_anthropic_over_long_prompt_rejection_is_marked_as_an_overflow(sta
     `/prompt is too long[^0-9]*(\\d+)\\s*tokens?\\s*>\\s*(\\d+)/i`, and its `max_tokens_context_overflow` class). Only
     that status, type and prefix count; any other rejection stays an ordinary error."""
     body = {"type": "error", "error": {"type": kind, "message": message}, "request_id": "req_1"}
-    events = await run(make(CASES["anthropic"], Scripted([(status, body)]), mode="supervisor"), token="")
+    # a 400 that isn't one is sent once more without the typed format (RUN-427), which the provider refuses alike
+    events = await run(make(CASES["anthropic"], Scripted([(status, body)] * 2), mode="supervisor"), token="")
     assert events[-1].kind == "error" and events[-1].data.get("overflow", False) is overflow
 
 
@@ -193,7 +194,7 @@ async def test_googles_token_count_rejection_stays_unmarked() -> None:
     body = {"error": {"code": 400, "status": "INVALID_ARGUMENT",
                       "message": "The input token count (1200000) exceeds the maximum number of tokens allowed "
                                  "(1048576)."}}
-    events = await run(make(CASES["google"], Scripted([(400, body)]), mode="supervisor"), token="")
+    events = await run(make(CASES["google"], Scripted([(400, body)] * 2), mode="supervisor"), token="")  # RUN-427
     assert events[-1].kind == "error" and "overflow" not in events[-1].data
 
 
@@ -203,7 +204,7 @@ async def test_openai_window_exceeded_error_is_marked_as_an_overflow(code, overf
     """OpenAI documents error code context_length_exceeded for an input longer than the model's window."""
     body = {"error": {"message": "This model's maximum context length is 400000 tokens.",
                       "type": "invalid_request_error", "code": code}}
-    events = await run(make(CASES["openai"], Scripted([(400, body)]), mode="supervisor"), token="")
+    events = await run(make(CASES["openai"], Scripted([(400, body)] * 2), mode="supervisor"), token="")  # RUN-427
     assert events[-1].kind == "error" and "400" in events[-1].data["message"]
     assert events[-1].data.get("overflow", False) is overflow
 

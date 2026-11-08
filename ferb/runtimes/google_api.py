@@ -10,7 +10,12 @@ Verified 2026-10-07 (https://ai.google.dev/api/generate-content, /gemini-api/doc
   usageMetadata.cachedContentTokenCount;
 - thinkingLevel "low" for planner-type calls ("minimal" is unsupported on 3.8-flash and 3.1-pro);
 - only finishReason STOP (or none) is a normal end; every other reason is an error (F2-R6).
-Google now also promotes a newer Interactions API; generateContent remains documented and is what this adapter uses."""
+Google now also promotes a newer Interactions API; generateContent remains documented and is what this adapter uses.
+
+Typed-answer limits (RUN-408, RUN-427): the structured-output page documents the JSON Schema keywords it takes
+(schema_shape.GEMINI_KEYWORDS, checked 2026-10-30); FERB's repository records no size limit for it. FERB's runtime
+notes expected a too-large schema's rejection as "too many states" (LIVE-411; the wording not verified). A 400 on a
+request carrying responseJsonSchema goes through the shared fallback in api.py (`without_format` below)."""
 
 from typing import Any
 
@@ -118,6 +123,17 @@ class GoogleProvider:
 
     def add_message(self, state: dict[str, Any], message: str) -> None:
         state["body"]["contents"].append({"role": "user", "parts": [{"text": message}]})
+
+    def without_format(self, state: dict[str, Any], statement: str) -> None:
+        """RUN-427: no responseMimeType or responseJsonSchema; the answer form goes at the end of the system instruction
+        (implicit caching keeps a stable prefix)."""
+        body = state["body"]
+        config = body.get("generationConfig") or {}
+        config.pop("responseMimeType", None)
+        config.pop("responseJsonSchema", None)
+        if not config:
+            body.pop("generationConfig", None)
+        body.setdefault("systemInstruction", {"parts": []})["parts"].append({"text": statement})
 
     def window_exceeded(self, status: int, error: dict[str, Any]) -> bool:
         """Never marked: Google documents no error code or message for an input over a model's token limit (its

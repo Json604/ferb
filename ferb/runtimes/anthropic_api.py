@@ -10,7 +10,21 @@ Verified 2026-10-07 (https://platform.claude.com/docs/en/build-with-claude/promp
   assistant's content, thinking blocks included, goes back unchanged;
 - max_tokens is required: MAX_TOKENS is a per-reply ceiling, and a reply cut off there is an error, never a partial answer.
 - only end_turn, tool_use and stop_sequence are complete turns; refusal, pause_turn (FERB enables no server tools) and
-  model_context_window_exceeded are errors."""
+  model_context_window_exceeded are errors.
+
+Typed-answer limits (RUN-408, RUN-427). Counted, documented
+(https://platform.claude.com/docs/en/build-with-claude/structured-outputs, "Schema complexity limits", checked
+2026-10-30): at most 24 optional parameters and 16 parameters with union types across a request's strict schemas;
+schema_shape.for_anthropic reshapes to fit them. The page also says (as quoted 2026-11-08, not re-read) that a request
+takes at most 20 strict tools, unions have an exponential compilation cost, each optional parameter roughly doubles part
+of the grammar's state space, and compiled grammars are cached 24 h. Not counted, not documented: the compiled
+grammar's size. A 400 "The compiled grammar is too large, which would cause performance issues. Simplify your tool
+schemas or reduce the number of strict tools." came back on every planner turn on 2026-11-08 (the owner's journal,
+05:20, 06:00, 07:10) for SUPERVISOR_SCHEMA, within the counted limits after reshaping. Claude Code (2.1.310, bundled
+in claude-agent-sdk 0.2.174) sends its typed output as the same output_config.format and has a fallback of its own only
+for a model without the feature ("output_config.format: extra inputs are not permitted" or
+"structured_outputs_unsupported": it latches that model and resends without the format). FERB's is the shared one in
+api.py, through `without_format` below."""
 
 import json
 from typing import Any
@@ -142,6 +156,20 @@ class AnthropicProvider:
         schema or other request error has the same status and type, so the shape is what tells them apart."""
         message = str(error.get("message") or "").lower()
         return status == 400 and any(all(part in message for part in shape) for shape in IMAGE_REFUSALS)
+
+    def without_format(self, state: dict[str, Any], statement: str) -> None:
+        """RUN-427: no output_config.format; the answer form goes at the end of the system block, which keeps its cache
+        breakpoint, so the stated form is cached with FERB's instructions."""
+        body = state["body"]
+        output = body.get("output_config") or {}
+        output.pop("format", None)
+        if not output:
+            body.pop("output_config", None)
+        system = body.get("system")
+        if system:
+            system[-1]["text"] += "\n\n" + statement
+        else:
+            body["system"] = [{"type": "text", "text": statement, "cache_control": CACHE}]
 
     def add_results(self, state: dict[str, Any], turn: Turn, results: list[ToolOutcome]) -> None:
         blocks = []

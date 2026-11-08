@@ -16,12 +16,25 @@ OpenAI API take them as they are. Other providers limit that form:
   enum holding null is written as anyOf [the enum, null] (the same values). Nothing to map back.
 
 Answers come back through `Shape.answer_text` (a missing nullable property becomes null; a list standing for a
-nullable object becomes its one item, or null when empty) before FERB's own check, which then sees the core shape."""
+nullable object becomes its one item, or null when empty) before FERB's own check, which then sees the core shape.
+
+The counted limits are not the only ones. Anthropic also refuses a typed format whose compiled grammar is too large
+(undocumented size; the owner's planner turns 2026-11-08 05:20, 06:00, 07:10: "HTTP 400: The compiled grammar is too
+large, which would cause performance issues", on SUPERVISOR_SCHEMA after reshaping, 14 unions and 24 optionals), and
+Gemini a schema whose constraint "has too many states" (the shape FERB's runtime notes expected, LIVE-411). So every
+adapter that sends a typed format has one fallback (RUN-427): when the provider refuses a request that carried it
+(HTTP 400, or Claude Code's `api_error_status` 400) and the same request without the format is accepted, the format
+didn't fit. The answer form is then stated in the instructions (`stated`), each answer is checked against the core
+schema, one that doesn't fit is told back once (`repair_note`), and `Refusals` remembers the fit for STATED_FOR_S per
+runtime, model and wire schema, so later calls go straight to the stated form. A new FERB build starts with none
+remembered (the memory is the daemon's), so it tries the strict form again."""
 
 import copy
+import hashlib
 import json
+import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 # https://platform.claude.com/docs/en/build-with-claude/structured-outputs, "Schema complexity limits" (2026-10-30)
 ANTHROPIC_MAX_UNIONS = 16
@@ -236,6 +249,64 @@ def for_gemini(schema: dict[str, Any]) -> Shape:
                    **({"description": out["description"]} if "description" in out else {})}
         return out
     return Shape(schema, walk(copy.deepcopy(schema)))
+
+
+# ---------- the answer form stated in the instructions (the fallback, RUN-427) ----------
+
+# How long a refused typed format is remembered before the strict form is tried again: the 24 h Anthropic documents for
+# keeping a compiled grammar (https://platform.claude.com/docs/en/build-with-claude/structured-outputs; not re-read for
+# this change). A technical retry interval, not a limit on the owner's work
+STATED_FOR_S = 24 * 3600.0
+
+
+class Refusals:
+    """Which typed formats a provider refused (runtime family, model, wire schema), each for STATED_FOR_S on an
+    injected monotonic clock. In memory only: a daemon start or a new FERB build tries the strict form again."""
+
+    def __init__(self, monotonic: Callable[[], float] = time.monotonic) -> None:
+        self.monotonic = monotonic
+        self._at: dict[str, float] = {}
+
+    @staticmethod
+    def key(provider: str, model: str | None, wire: dict[str, Any]) -> str:
+        text = json.dumps([provider, model or "", wire], sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(text.encode()).hexdigest()
+
+    def refused(self, key: str) -> bool:
+        at = self._at.get(key)
+        if at is not None and self.monotonic() - at >= STATED_FOR_S:
+            del self._at[key]
+            return False
+        return at is not None
+
+    def remember(self, key: str) -> None:
+        self._at[key] = self.monotonic()
+
+
+REFUSALS = Refusals()            # the daemon's one memory, shared by the API loop and the Claude Agent SDK runtime
+
+
+def stated(schema: dict[str, Any]) -> str:
+    """The answer form as instructions: the core schema, compact. Adapters put it after FERB's own instructions, in the
+    cached prefix, so it repeats across calls."""
+    return ("FERB's answer format (required): your final answer is one JSON object that matches this JSON Schema, "
+            "with nothing before or after it and no code fence. Include every property; use null where the schema "
+            "allows it for a value that doesn't apply.\n"
+            + json.dumps(schema, ensure_ascii=False, separators=(",", ":")))
+
+
+def repair_note(problem: str) -> str:
+    return (f"That answer doesn't fit FERB's answer format ({problem}). Reply again with only the corrected JSON "
+            "object.")
+
+
+def unfenced(text: str) -> str:
+    """The text inside one Markdown code fence wrapping the whole answer (```json ... ```); other text as it is."""
+    inner = text.strip()
+    if not (inner.startswith("```") and inner.endswith("```") and len(inner) >= 6):
+        return text
+    first, _, rest = inner[3:-3].partition("\n")
+    return rest.strip() if first.strip() in ("", "json", "JSON") else text
 
 
 # ---------- answers back to the core shape ----------
