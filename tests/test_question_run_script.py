@@ -320,3 +320,61 @@ def test_compare_puts_cpu_per_task_and_totals_per_connection() -> None:
     totals = text.split("## Totals")[1]
     assert "| codex | 1 | 2 | 40.0 | 6 | 0.0200 | 10.0 | 25.0 | 2.0 | 7.0 | 1.0 | 15.0 |" in totals
     assert "| openai | 1 | 1 | 20.0 | 3 | 0.0100 |  |  |  |  |  |  |" in totals
+
+
+# decision: GATE-553
+def test_a_clarifying_question_is_declined_in_its_own_turn_and_never_answered_by_the_next_task(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Live 2026-11-08 14:34: FERB asked "Which YouTube account should I change?"; the old runner sent the next task,
+    which FERB took as the answer. Now the question is recorded, the runner answers it with the decline line in the
+    same chat and waits for the turn to end."""
+    sent: list[str] = []
+
+    class Fake:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def stream(self, method: str, params: dict[str, Any]) -> Any:
+            sent.append(params["text"])
+            if len(sent) == 1:
+                yield {"type": "clarify", "request_id": "r1", "text": "Which YouTube account should I change?"}
+            else:
+                yield {"type": "plan", "request_id": "r1", "task_id": "t1"}
+                yield {"type": "outcome", "task_id": "t1", "status": "done", "summary": "Turned them off."}
+
+        def close(self) -> None:
+            pass
+    monkeypatch.setattr(qr, "Client", Fake)
+    turn = qr.send("s", "turn off all the youtube emails", {"run": "r", "connection": "openai"}, 30)
+    assert sent == ["turn off all the youtube emails", qr.DECLINE]
+    assert turn["clarify"][0]["question"] == "Which YouTube account should I change?"
+    assert turn["outcomes"][0]["status"] == "done" and turn["task_ids"] == ["t1"]
+    got = qr.collect(type("T", (), {"call": lambda self, m, p: {"spans": []}})(), turn)
+    assert [q["kind"] for q in got["questions"]] == ["clarify"]
+
+
+# decision: GATE-553
+def test_the_compare_table_marks_tasks_the_old_runner_tangled_and_totals_without_them() -> None:
+    spec = importlib.util.spec_from_file_location("question_compare",
+                                                  Path(__file__).parent.parent / "scripts/question_compare.py")
+    assert spec is not None and spec.loader is not None
+    qc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(qc)
+
+    def task(ident: str, turns: list[dict[str, Any]]) -> dict[str, Any]:
+        return {"id": ident, "session": "s", "turns": turns, "seconds": 10, "questions": 0, "cost_usd": 1.0}
+    asked = {"text": "turn off the youtube emails", "request_id": "r1", "task_ids": [], "replies": [], "outcomes": []}
+    done = {"text": "what are people saying", "request_id": "r2", "task_ids": ["t2"], "replies": [],
+            "outcomes": [{"status": "failed"}]}
+    old = {"runtime": "openai", "run": "20261108-131046", "tasks": [task("F2", [asked]), task("G1", [done]),
+                                                                     task("H1", [done])]}
+    assert qc.tangled(old, set()) == {0, 1}
+    assert qc.tangled(old, {"r1"}) == {0, 1}                        # the journal says the same
+    fixed = {"runtime": "anthropic", "run": "r2", "tasks": [task("F2", [asked | {"clarify": [{"question": "q"}]}]),
+                                                             task("G1", [done | {"clarify": []}])]}
+    assert qc.tangled(fixed, set()) == set()
+    text = qc.table([old, fixed])
+    assert "tangled by the old runner" in text and "ran with the runner before the clarify fix" in text
+    totals = text.split("## Totals")[1]
+    assert "| openai | 1 | 3 | 30.0 |" in totals and "| openai | 1 without tangled | 1 | 10.0 |" in totals
+    assert "| anthropic | 1 | 2 | 20.0 |" in totals and "anthropic | 1 without" not in totals

@@ -339,46 +339,70 @@ def add_forms(total: dict[str, Any], one: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+# GATE-553: the reply the runner gives FERB's clarifying question (the line record mode gives a task's own question,
+# GATE-546), so the next task's text never answers it; at most this many in one turn
+DECLINE = "No answer in this test run; decide yourself or report what you need"
+MAX_CLARIFY = 3
+
+
 def send(session: str, text: str, tag: dict[str, str], limit_s: float) -> dict[str, Any]:
-    """One chat turn, streamed to its end (the turn's tasks finished), on a connection of its own. Past `limit_s` the
+    """One chat turn, streamed to its end (the turn's tasks finished), on a connection of its own. When FERB answers
+    with a clarifying question and no task started, the question is recorded and the runner replies DECLINE in the same
+    chat, and waits on (GATE-553): the next task is only sent once this turn ended. Past `limit_s` (the whole turn) the
     runner stops the turn's tasks through FERB's own stop (task.stop) and waits for the stream to end."""
     started = time.monotonic()
     turn: dict[str, Any] = {"text": text, "request_id": None, "task_ids": [], "replies": [], "outcomes": [],
-                            "started_at": datetime.now().astimezone().isoformat(timespec="seconds")}
+                            "clarify": [], "started_at": datetime.now().astimezone().isoformat(timespec="seconds")}
 
-    def stream() -> None:
+    def stream(message: str, asked: list[str]) -> None:
         c = Client(socket_path(), timeout=60)
         try:
-            for ev in c.stream("chat.send", {"session_id": session, "text": text, "test_run": tag}):
+            for ev in c.stream("chat.send", {"session_id": session, "text": message, "test_run": tag}):
                 turn["request_id"] = turn["request_id"] or ev.get("request_id")
                 if ev.get("task_id") and ev["task_id"] not in turn["task_ids"]:
                     turn["task_ids"].append(ev["task_id"])
                 if ev.get("type") == "reply":
                     turn["replies"].append({"text": ev.get("text", ""), "status": ev.get("status")})
+                elif ev.get("type") == "clarify":
+                    asked.append(str(ev.get("text", "")))
                 elif ev.get("type") == "outcome":
                     turn["outcomes"].append({k: ev.get(k) for k in ("task_id", "status", "summary")})
         except Exception as e:                      # FERB's words, kept with the turn
             turn.setdefault("problems", []).append(f"chat.send: {e}")
         finally:
             c.close()
-    worker = threading.Thread(target=stream, daemon=True)
-    worker.start()
-    worker.join(limit_s)
-    if worker.is_alive():
-        roots = sorted({t.split(".", 1)[0] for t in turn["task_ids"]})
-        turn["stopped_by_runner"] = f"stopped by the runner after {limit_s / 60:g} min"
-        if roots:
-            stopper = Client(socket_path(), timeout=60)
-            try:
-                turn["stopped"] = stopper.call("task.stop", {"task_ids": roots}).get("stopped")
-            finally:
-                stopper.close()
-        else:
-            turn["stopped_by_runner"] += " (no task had started: nothing to stop)"
-        worker.join(120)
+    message = text
+    for _ in range(MAX_CLARIFY + 1):
+        asked: list[str] = []
+        worker = threading.Thread(target=stream, args=(message, asked), daemon=True)
+        worker.start()
+        worker.join(max(limit_s - (time.monotonic() - started), 0.0))
+        if worker.is_alive():
+            stop_turn(turn, limit_s)
+            worker.join(120)
+            break
+        if not asked or turn["task_ids"]:
+            break
+        for question in asked:                      # recorded like FERB's other questions, then declined
+            turn["clarify"].append({"at": datetime.now().astimezone().isoformat(timespec="seconds"),
+                                    "question": question, "answer": DECLINE})
+        message = DECLINE
     turn["ended_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
     turn["seconds"] = round(time.monotonic() - started, 1)
     return turn
+
+
+def stop_turn(turn: dict[str, Any], limit_s: float) -> None:
+    roots = sorted({t.split(".", 1)[0] for t in turn["task_ids"]})
+    turn["stopped_by_runner"] = f"stopped by the runner after {limit_s / 60:g} min"
+    if roots:
+        stopper = Client(socket_path(), timeout=60)
+        try:
+            turn["stopped"] = stopper.call("task.stop", {"task_ids": roots}).get("stopped")
+        finally:
+            stopper.close()
+    else:
+        turn["stopped_by_runner"] += " (no task had started: nothing to stop)"
 
 
 def collect(client: Client, turn: dict[str, Any]) -> dict[str, Any]:
@@ -433,6 +457,8 @@ def collect(client: Client, turn: dict[str, Any]) -> dict[str, Any]:
                           "card": out.get("card"), "needs": out.get("needs"),
                           "answer": out.get("answer") or out.get("reason") or out.get("state"),
                           "recorded": bool(out.get("test_mode"))})
+    questions += [{"at": q["at"], "kind": "clarify", "ferb_question": True, "question": q["question"],
+                   "answer": q["answer"], "recorded": True} for q in turn.get("clarify") or []]   # GATE-553
     answer = next((e["answer"] for e in reversed(episodes) if e.get("answer")), "") or \
         next((o["summary"] for o in reversed(turn["outcomes"]) if o.get("summary")), "") or \
         next((r["text"] for r in reversed(turn["replies"]) if r.get("text")), "")

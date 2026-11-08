@@ -810,3 +810,13 @@ words = "i thogh it ws one bye one privider. a oriver rund hte full test and the
 words_source = "Owner 2026-11-08: how the real-task run goes (first part), and why the order, hotel and table tasks come last"
 rule = "Refines GATE-550. One connection runs the whole task file, in order, in one chat, so context builds up as in real use (the chat's running summary folds as usual); the next connection runs it in a fresh chat. Each task and turn is still recorded on its own, the time limit is per turn, and the report is rewritten after every turn. Across runs nothing a run wrote is visible; learning stays off. The buying and high-stakes tasks are last in the file."
 paths = ["scripts/question_run.py"]
+
+[GATE-553]
+title = "The run tool answers FERB's clarifying question itself; tasks the old runner tangled are marked"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "ok lets fix, but make sure tha twe match it witht the fixed claude run and this non fixed codex"
+words_source = "Owner 2026-11-08, after the OpenAI run's clarify (\"Which YouTube account?\") was answered by the next task's message (he calls that run codex)"
+rule = "When FERB answers a test turn with a clarifying question and no task starts, the run tool records the question and replies in that chat with the decline line record mode gives a task's own question, then waits for the turn to end before the next task: a next task's message never answers a question. The comparison marks the tasks the old runner tangled (OpenAI run 20261108-131046) and gives totals with and without them, so the fixed runs and that run can be compared."
+paths = ["scripts/question_run.py::send", "scripts/question_compare.py::tangled"]
