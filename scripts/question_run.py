@@ -20,28 +20,273 @@ Per task: start and end, seconds (each step's and each model call's too), steps 
 (input, cache reads, cache writes by TTL, output), cost, each question FERB recorded (card, rules, the table's answer,
 when), the typed-answer forms and repairs (RUN-440), the outcome and FERB's final answer, and the acting calls that may
 have left something in the owner's accounts (a cart add, a draft: check by hand). Nothing is cleaned up: FERB closes
-only its own tabs (HAND-201). scripts/question_compare.py puts several connections' reports side by side."""
+only its own tabs (HAND-201). scripts/question_compare.py puts several connections' reports side by side.
+
+Per turn (RUN-443, RUN-444) the CPU and memory of FERB's daemon, its child processes, FERB.app, FERB's browser native
+hosts and each running browser (see Meter), and the other FERB tasks and resource_samples rows that overlapped the turn."""
 
 import argparse
 import json
+import os
+import re
+import sqlite3
+import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from ferb.cli.client import Client  # noqa: E402
-from ferb.paths import socket_path  # noqa: E402
+from ferb.paths import ferb_home, socket_path  # noqa: E402
 
 # Calls whose kind may leave something behind in an account or on the Mac (rules.Kind): everything but reads,
 # navigation, search, tabs, snapshots and stopping the task's own processes
 LEAVES_NOTHING = frozenset({"read", "navigate", "search", "open_tab", "snapshot", "stop_process", "mailbox_read"})
 USAGE_KEYS = ("input_tokens", "cached_input_tokens", "cache_write_tokens", "cache_write_5m_tokens",
               "cache_write_1h_tokens", "output_tokens", "reasoning_tokens")
+
+# RUN-444: what each turn's CPU and memory figures are made of. FERB's groups: the daemon (the process running
+# `-m ferb.daemon`), everything under it (Codex / Claude Code, MCP shims, sandboxed shell commands, ffmpeg...), FERB.app's
+# FERBNotch and its children, and FERB's native hosts (`ferb.native_host`, started by the browsers). Each browser is
+# its bundle's processes and their children.
+BROWSERS = ("Google Chrome", "Brave Browser", "Chromium", "Microsoft Edge", "Arc", "Dia", "Opera", "Vivaldi")
+FERB_GROUPS = ("daemon", "daemon_children", "app", "native_host")
+SAMPLE_S = 2.0                       # memory peaks and the busiest children; CPU comes from the kernel's counters
+DAEMON = re.compile(r"(^|\s)-m ferb\.daemon(\s|$)")
+BROWSER_BASIS = "upper bound: includes the owner's own browsing during the turn"
+FERB_BASIS = "the turn's task (the run is sequential), plus any background work listed under background"
+CPU_NOTE = ("CPU: the kernel's cumulative counters (each process's own user+system CPU plus that of its ended children "
+            "it waited for) summed over the group's live processes at the turn's start and end, so a command that "
+            "starts and ends within the turn is counted without sampling; lost only if it was re-parented away from "
+            f"the group (e.g. a double fork). Memory: summed RSS and physical footprint, sampled every {SAMPLE_S:g} s "
+            "(peak and end). cpu_pct is CPU seconds / wall seconds (100 = one core).")
+
+
+class Usage(Protocol):
+    """ferb.daemon.resources.MacReadings in a run (libproc's proc_pid_rusage), a fake in tests."""
+
+    def process(self, pid: int) -> Any: ...             # .start, .cpu_s, .children_cpu_s, .footprint; None: gone
+    def path(self, pid: int) -> str | None: ...
+
+
+def ps_text() -> str:
+    return subprocess.run(["/bin/ps", "-axww", "-o", "pid=,ppid=,rss=,command="], capture_output=True, text=True,
+                          timeout=20, check=True).stdout
+
+
+def ps_table(text: str) -> dict[int, tuple[int, int, str]]:
+    """pid -> (ppid, rss KB, command) from `ps -o pid=,ppid=,rss=,command=`."""
+    out = {}
+    for line in text.splitlines():
+        parts = line.split(None, 3)
+        if len(parts) == 4 and parts[0].isdigit() and parts[1].isdigit() and parts[2].isdigit():
+            out[int(parts[0])] = (int(parts[1]), int(parts[2]), parts[3])
+    return out
+
+
+def groups(table: dict[int, tuple[int, int, str]]) -> dict[int, str]:
+    """Each process's group (RUN-444); processes in none are left out. The daemon's tree first, then FERB.app's, the
+    native hosts, then each browser's bundle and its children."""
+    kids: dict[int, list[int]] = {}
+    for pid, (ppid, _, _) in table.items():
+        kids.setdefault(ppid, []).append(pid)
+    got: dict[int, str] = {}
+
+    def tree(root: int, name: str, below: str) -> None:
+        got.setdefault(root, name)
+        todo = list(kids.get(root, []))
+        while todo:
+            pid = todo.pop()
+            if pid not in got:
+                got[pid] = below
+                todo += kids.get(pid, [])
+    for pid, (_, _, cmd) in table.items():
+        if DAEMON.search(cmd):
+            tree(pid, "daemon", "daemon_children")
+    for pid, (_, _, cmd) in table.items():
+        if ".app/Contents/MacOS/FERBNotch" in cmd:
+            tree(pid, "app", "app")
+    for pid, (_, _, cmd) in table.items():
+        if "ferb.native_host" in cmd:
+            got.setdefault(pid, "native_host")
+    for name in BROWSERS:
+        for pid, (_, _, cmd) in table.items():
+            if f"/{name}.app/" in cmd:
+                tree(pid, f"browser:{name}", f"browser:{name}")
+    return got
+
+
+def label(path: str | None, cmd: str) -> str:
+    """A process's name for the busiest list: its executable's basename, with the module for `python -m X`."""
+    name = os.path.basename(path or cmd.split(" ", 1)[0]) or "unknown"
+    module = re.search(r"(?:^|\s)-m\s+(\S+)", cmd)
+    return f"{name} -m {module.group(1)}" if module and name.startswith("python") else name
+
+
+class Meter:
+    """One turn's CPU and memory by group (RUN-444): `start` before the turn, `stop` after it. Between them a thread
+    looks every SAMPLE_S seconds for memory peaks and the daemon's busiest children."""
+
+    def __init__(self, usage: Usage, ps: Callable[[], str] | None = None, every: float = SAMPLE_S,
+                 clock: Callable[[], float] = time.monotonic) -> None:
+        self.usage, self.ps, self.every, self.clock = usage, ps or ps_text, every, clock
+        self.problems: list[str] = []
+        self.peak: dict[str, dict[str, float]] = {}
+        self.first: dict[tuple[int, int], tuple[str, str, float]] = {}   # key -> (group, name, CPU when first seen)
+        self.last: dict[tuple[int, int], float] = {}
+        self.at_start: set[tuple[int, int]] = set()
+        self.daemons: set[tuple[int, int]] = set()            # the daemon process(es) at the last look
+        self.begin: dict[str, dict[str, float]] | None = None
+        self.begin_daemons: set[tuple[int, int]] = set()
+        self.samples = 0
+        self._done = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def look(self) -> dict[str, dict[str, float]] | None:
+        """One look: per group, the CPU counters' sum (own CPU, with the daemon's ended children credited to
+        daemon_children), the processes, RSS and footprint in MB; peaks and per-process CPU kept. None: ps failed."""
+        try:
+            table = ps_table(self.ps())
+        except (OSError, subprocess.SubprocessError) as e:
+            self.problems.append(f"ps: {e}")
+            return None
+        out: dict[str, dict[str, float]] = {}
+        self.daemons = set()
+        for pid, group in groups(table).items():
+            proc = self.usage.process(pid)
+            if proc is None:
+                continue
+            ended = "daemon_children" if group == "daemon" else group
+            for g in (group, ended):
+                out.setdefault(g, {"cpu_s": 0.0, "processes": 0, "rss_mb": 0.0, "footprint_mb": 0.0})
+            out[group]["cpu_s"] += proc.cpu_s
+            out[ended]["cpu_s"] += proc.children_cpu_s
+            out[group]["processes"] += 1
+            out[group]["rss_mb"] += table[pid][1] / 1024
+            out[group]["footprint_mb"] += proc.footprint / 2**20
+            key = (pid, int(proc.start))
+            if group == "daemon":
+                self.daemons.add(key)
+            if not self.samples:
+                self.at_start.add(key)
+            self.first.setdefault(key, (group, label(self.usage.path(pid), table[pid][2]),
+                                        proc.cpu_s + proc.children_cpu_s if not self.samples else 0.0))
+            self.last[key] = proc.cpu_s + proc.children_cpu_s
+        for g, v in out.items():
+            peak = self.peak.setdefault(g, {"rss_mb": 0.0, "footprint_mb": 0.0})
+            for k in peak:
+                peak[k] = max(peak[k], v[k])
+        self.samples += 1
+        return out
+
+    def start(self) -> None:
+        self.t0, self.at0 = self.clock(), datetime.now().astimezone().isoformat()
+        self.begin = self.look()
+        self.begin_daemons = set(self.daemons) if self.begin is not None else set()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._done.wait(self.every):
+            self.look()
+
+    def stop(self) -> dict[str, Any]:
+        self._done.set()
+        if self._thread:
+            self._thread.join(30)
+        end, wall = self.look(), max(self.clock() - self.t0, 1e-9)
+        result: dict[str, Any] = {"from": self.at0, "to": datetime.now().astimezone().isoformat(),
+                                  "wall_s": round(wall, 1), "sample_every_s": self.every, "samples": self.samples}
+        if self.begin is None or end is None:          # no start or end figures: no difference to give
+            result["problems"] = sorted(set(self.problems))
+            return result
+        if self.begin_daemons and self.daemons != self.begin_daemons:
+            self.problems.append("FERB's daemon restarted during the turn: the daemon and daemon_children CPU figures are unreliable")
+        result["groups"] = {}
+        for g in sorted(set(self.begin) | set(end), key=lambda g: (g not in FERB_GROUPS, g)):
+            b, e = self.begin.get(g, {}), end.get(g, {})
+            cpu = max(0.0, e.get("cpu_s", 0.0) - b.get("cpu_s", 0.0))
+            row = {"cpu_s": round(cpu, 2), "cpu_pct": round(100 * cpu / wall, 1),
+                   "peak_rss_mb": round(self.peak.get(g, {}).get("rss_mb", 0.0), 1),
+                   "end_rss_mb": round(e.get("rss_mb", 0.0), 1),
+                   "peak_footprint_mb": round(self.peak.get(g, {}).get("footprint_mb", 0.0), 1),
+                   "end_footprint_mb": round(e.get("footprint_mb", 0.0), 1),
+                   "processes_end": int(e.get("processes", 0)),
+                   "basis": BROWSER_BASIS if g.startswith("browser:") else FERB_BASIS}
+            if g == "daemon_children" or g.startswith("browser:"):
+                row["started_in_turn"] = sum(1 for k, (grp, _, _) in self.first.items()
+                                             if grp == g and k not in self.at_start)
+            if g == "daemon_children":
+                row["busiest"] = self.busiest(g)
+            result["groups"][g] = row
+        ferb = [result["groups"][g] for g in FERB_GROUPS if g in result["groups"]]
+        result["ferb_cpu_s"] = round(sum(r["cpu_s"] for r in ferb), 2)
+        result["ferb_cpu_pct"] = round(100 * result["ferb_cpu_s"] / wall, 1)
+        result["browser_cpu_s"] = round(sum(r["cpu_s"] for g, r in result["groups"].items()
+                                            if g.startswith("browser:")), 2)
+        if "daemon" not in result["groups"]:
+            self.problems.append("no process running -m ferb.daemon was found")
+        if self.problems:
+            result["problems"] = sorted(set(self.problems))
+        return result
+
+    def busiest(self, group: str, top: int = 5) -> list[list[Any]]:
+        """The group's CPU by process name, from the looks (a process's CPU after its last look is in its parent's)."""
+        by: dict[str, float] = {}
+        for key, (grp, name, base) in self.first.items():
+            if grp == group:
+                by[name] = by.get(name, 0.0) + max(0.0, self.last[key] - base)
+        return [[n, round(s, 2)] for n, s in sorted(by.items(), key=lambda x: -x[1])[:top] if s > 0]
+
+
+def background(db: Path, start: str, end: str, own_trees: set[str]) -> dict[str, Any]:
+    """FERB work that may have run beside the turn (RUN-444), read-only from FERB's database: other task trees active
+    in the turn's window (no goals), and the resource_samples rows whose 5-minute windows overlap it."""
+    if not db.exists():
+        return {"problem": f"no database at {db}"}
+    t0, t1 = datetime.fromisoformat(start), datetime.fromisoformat(end)
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
+        try:
+            tasks = conn.execute("SELECT tree_id, role, status, created_at, updated_at FROM tasks WHERE "
+                                 "status IN ('planned', 'running', 'paused') OR updated_at >= ?",
+                                 (t0.isoformat(),)).fetchall()
+            rows = conn.execute("SELECT at, window_s, cpu_s, child_cpu_s, app_cpu_s, work_json FROM resource_samples "
+                                "WHERE at >= ? ORDER BY id", (t0.isoformat(),)).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error as e:
+        return {"problem": f"database: {e}"}
+    others: dict[str, dict[str, Any]] = {}
+    for tree, role, status, created, updated in tasks:
+        if tree in own_trees or datetime.fromisoformat(created) > t1 or \
+                (status not in ('planned', 'running', 'paused') and datetime.fromisoformat(updated) < t0):
+            continue
+        row = others.setdefault(tree, {"tree_id": tree, "roles": [], "statuses": [], "created_at": created,
+                                       "updated_at": updated})
+        row["roles"].append(role)
+        row["statuses"].append(status)
+        row["created_at"], row["updated_at"] = min(row["created_at"], created), max(row["updated_at"], updated)
+    samples = []
+    for at, window_s, cpu_s, child_cpu_s, app_cpu_s, work in rows:
+        end_at = datetime.fromisoformat(at)
+        if end_at.timestamp() - window_s > t1.timestamp():
+            continue
+        w = json.loads(work or "{}")
+        samples.append({"at": at, "window_s": window_s, "daemon_cpu_s": cpu_s, "child_cpu_s": child_cpu_s,
+                        "app_cpu_s": app_cpu_s} | {k: w.get(k) for k in ("tasks_running", "tool_calls", "models",
+                                                                         "perception", "top")})
+    return {"other_tasks": list(others.values()), "resource_samples": samples}
+
+
+def roots(turn: dict[str, Any]) -> set[str]:
+    return {t.split(".", 1)[0] for t in turn.get("task_ids") or []}
 
 
 def tasks_from(path: Path) -> list[dict[str, Any]]:
@@ -207,6 +452,45 @@ def sum_up(row: dict[str, Any]) -> None:
                 "cost_usd": round(sum(t["cost_usd"] for t in turns), 6), "typed": {}})
     for t in turns:
         row["typed"] = add_forms(row["typed"], t["typed"])
+    measured = [t["resources"] for t in turns if "groups" in (t.get("resources") or {})]
+    if measured:                                       # RUN-444: the task's CPU by group, its turns added up
+        wall = sum(r["wall_s"] for r in measured)
+        cpu: dict[str, float] = {}
+        peak: dict[str, float] = {}
+        for r in measured:
+            for g, v in r["groups"].items():
+                cpu[g] = round(cpu.get(g, 0.0) + v["cpu_s"], 2)
+                peak[g] = max(peak.get(g, 0.0), v["peak_footprint_mb"])
+        ferb = round(sum(r["ferb_cpu_s"] for r in measured), 2)
+        row["resources"] = {"wall_s": round(wall, 1), "ferb_cpu_s": ferb,
+                            "ferb_cpu_pct": round(100 * ferb / wall, 1) if wall else 0.0,
+                            "browser_cpu_s": round(sum(r["browser_cpu_s"] for r in measured), 2),
+                            "cpu_s": cpu, "peak_footprint_mb": peak,
+                            "other_tasks": sum(len((r.get("background") or {}).get("other_tasks") or [])
+                                               for r in measured)}
+
+
+def mac_usage() -> tuple[Usage | None, str]:
+    """The kernel's per-process numbers (libproc), as the daemon's own resource log reads them."""
+    try:
+        from ferb.daemon.resources import MacReadings
+        return MacReadings(), ""
+    except OSError as e:
+        return None, f"libproc can't be read: {e}"
+
+
+def measured(usage: Usage | None, why: str, client: Client, session: str, text: str, tag: dict[str, str],
+             limit_s: float, db: Path) -> dict[str, Any]:
+    """One turn sent and collected, with its CPU and memory (RUN-444) and the FERB work beside it."""
+    meter = Meter(usage) if usage else None
+    if meter:
+        meter.start()
+    turn = send(session, text, tag, limit_s)
+    resources: dict[str, Any] = meter.stop() if meter else {"problems": [why]}
+    got = collect(client, turn)
+    if "from" in resources:
+        resources["background"] = background(db, resources["from"], resources["to"], roots(got))
+    return got | {"resources": resources}
 
 
 def set_model(client: Client, runtime: str, model: str, role: str | None = None) -> None:
@@ -264,7 +548,11 @@ def main() -> int:
                               "model": client.call("runtimes.models", {"runtime": args.runtime}).get("model"),
                               "run": stamp, "test_mode": mode, "turn_limit_min": args.turn_limit,
                               "chat": "per task" if args.chat_per_task else "one per run",
-                              "cost_cap_usd": args.cost_cap, "tasks": []}
+                              "cost_cap_usd": args.cost_cap,
+                              "resources_note": {"cpu": CPU_NOTE, "ferb_groups": FERB_BASIS,
+                                                 "browsers": BROWSER_BASIS}, "tasks": []}
+    usage, why = mac_usage()
+    db = ferb_home() / "ferb.db"
     tag = {"run": stamp, "connection": args.runtime}
     out.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -279,14 +567,15 @@ def main() -> int:
                 row: dict[str, Any] = {"id": task["id"], "run": run, "session": session, "turns": []}
                 report["tasks"].append(row)
                 for text in task["turns"]:
-                    row["turns"].append(collect(client, send(session, text, tag, args.turn_limit * 60)))
+                    row["turns"].append(measured(usage, why, client, session, text, tag, args.turn_limit * 60, db))
                     sum_up(row)
                     report["typed"] = {}
                     for t in (t for r in report["tasks"] for t in r["turns"]):
                         report["typed"] = add_forms(report["typed"], t["typed"])     # the run's summary
                     out.write_text(json.dumps(report, ensure_ascii=False, indent=2))   # after every turn
                 print(f"{task['id']} run {run}: {row['seconds']} s, {row['steps']} steps, {row['questions']} "
-                      f"questions, ${row['cost_usd']}")
+                      f"questions, ${row['cost_usd']}, FERB CPU "
+                      f"{(row.get('resources') or {}).get('ferb_cpu_s', '?')} s")
     except StopIteration:
         print(report["stopped"])
     finally:
@@ -298,6 +587,13 @@ def main() -> int:
             for role, own in (models.get("roles") or {}).items():
                 if isinstance(own, dict) and own.get("runtime") == args.runtime and own.get("model"):
                     set_model(client, args.runtime, str(own["model"]), role)
+        for row in report["tasks"]:                     # resource_samples rows written after their turn ended
+            for t in row["turns"]:
+                if "from" in (t.get("resources") or {}):
+                    t["resources"]["background"] = background(db, t["resources"]["from"], t["resources"]["to"],
+                                                              roots(t))
+            if row["turns"]:
+                sum_up(row)
         report["ended"] = datetime.now().isoformat(timespec="seconds")
         out.write_text(json.dumps(report, ensure_ascii=False, indent=2))
     print(f"report: {out}")

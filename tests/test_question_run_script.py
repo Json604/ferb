@@ -2,9 +2,11 @@
 FERB's socket; nothing reaches the owner's FERB."""
 import importlib.util
 import json
+import sqlite3
+import subprocess
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import pytest
 
@@ -138,6 +140,9 @@ def test_a_run_sends_the_whole_file_into_one_chat_and_the_next_run_gets_a_fresh_
         writes.append(1)
         return real_write(self, text, *args, **kwargs)
     monkeypatch.setattr(Path, "write_text", counted)
+    monkeypatch.setattr(qr, "mac_usage", lambda: (_Usage(_START[1]), ""))    # RUN-444: no real process is read
+    monkeypatch.setattr(qr, "ps_text", lambda: _START[0])
+    monkeypatch.setattr(qr, "ferb_home", lambda: tmp_path)
     tasks = tmp_path / "tasks.txt"
     real_write(tasks, "find the weather\nlist my files || and sort them\n")
     out = tmp_path / "run.json"
@@ -152,3 +157,166 @@ def test_a_run_sends_the_whole_file_into_one_chat_and_the_next_run_gets_a_fresh_
     assert [len(t["turns"]) for t in report["tasks"]] == [1, 2, 1, 2]
     assert report["tasks"][1]["final_answer"] == "Done: and sort them" and report["tasks"][1]["started_at"]
     assert len(writes) >= 6                                                  # after every turn, and at the end
+    turns = [t for task in report["tasks"] for t in task["turns"]]
+    assert all("daemon" in t["resources"]["groups"] for t in turns)
+    assert all(t["resources"]["background"] == {"problem": f"no database at {tmp_path / 'ferb.db'}"} for t in turns)
+    assert all(task["resources"]["ferb_cpu_s"] == 0 for task in report["tasks"])
+    assert report["resources_note"]["browsers"] == qr.BROWSER_BASIS
+
+
+class _P(NamedTuple):
+    start: int
+    cpu_s: float
+    children_cpu_s: float
+    footprint: int
+
+
+class _Usage:
+    """Stands in for libproc: each process's CPU counters and footprint, swapped between looks."""
+
+    def __init__(self, procs: dict[int, _P]) -> None:
+        self.procs = procs
+
+    def process(self, pid: int) -> _P | None:
+        return self.procs.get(pid)
+
+    def path(self, pid: int) -> str | None:
+        return None
+
+
+MB = 2**20
+_PS = {
+    100: "    1 300000 /Applications/FERB.app/Contents/Helpers/FERB.app/Contents/MacOS/FERB -m ferb.daemon",
+    101: "  100  51200 /Applications/FERB.app/Contents/Resources/codex/codex app-server",
+    102: "  101   2048 /bin/zsh -c ls ~/Downloads",
+    200: "    1 204800 /Applications/FERB.app/Contents/MacOS/FERBNotch",
+    300: "    1 512000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    301: "  300 102400 /Applications/Google Chrome.app/Contents/Frameworks/Helpers/Google Chrome Helper (Renderer).app/"
+         "Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer",
+    302: "  300   9216 /Applications/FERB.app/Contents/Resources/python/bin/python3.12 -I -B -m ferb.native_host.main "
+         "chrome-extension://abcdef/",
+    303: "  300  20480 /Applications/Google Chrome.app/Contents/Frameworks/Helpers/Google Chrome Helper (Renderer).app/"
+         "Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer",
+    400: "    1 307200 /Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    401: "    1   5120 /Applications/Brave Browser.app/Contents/Frameworks/Helpers/chrome_crashpad_handler",
+    500: "    1   1024 /Applications/Some Editor.app/Contents/MacOS/Editor",
+}
+
+
+def _ps(*pids: int) -> str:
+    return "\n".join(f"{pid:>5} {_PS[pid]}" for pid in pids) + "\n"
+
+
+_START = (_ps(100, 101, 200, 300, 301, 302, 400, 401, 500), {
+    100: _P(1, 50.0, 1.0, 300 * MB), 101: _P(2, 10.0, 2.0, 50 * MB), 200: _P(3, 20.0, 0.0, 200 * MB),
+    300: _P(4, 100.0, 40.0, 400 * MB), 301: _P(5, 5.0, 0.0, 100 * MB), 302: _P(6, 0.1, 0.0, 9 * MB),
+    400: _P(7, 900.0, 3000.0, 300 * MB), 401: _P(8, 1.0, 0.0, 5 * MB), 500: _P(9, 77.0, 0.0, MB)})
+
+
+# decision: RUN-444
+def test_ps_output_sorts_processes_into_ferbs_groups_and_each_browser() -> None:
+    got = qr.groups(qr.ps_table(_ps(100, 101, 102, 200, 300, 301, 302, 400, 401, 500) + "garbage line\n"))
+    assert got == {100: "daemon", 101: "daemon_children", 102: "daemon_children", 200: "app",
+                   300: "browser:Google Chrome", 301: "browser:Google Chrome", 302: "native_host",
+                   400: "browser:Brave Browser", 401: "browser:Brave Browser"}      # the editor is in no group
+
+
+# decision: RUN-443, RUN-444
+def test_a_turns_cpu_counts_short_lived_children_and_marks_browsers_as_an_upper_bound() -> None:
+    """Owner 2026-11-08: "track teh cpu usage acrros tasks and if its acutally ferb's task using that". A shell command
+    seen once mid-turn and an ffmpeg that started and ended between looks are both in daemon_children, through their
+    parents' ended-children counters; a renderer started in the turn is counted in its browser."""
+    state = {"ps": _START[0]}
+    usage = _Usage(dict(_START[1]))
+    clock = iter([0.0, 10.0])
+    meter = qr.Meter(usage, ps=lambda: state["ps"], every=3600, clock=lambda: next(clock))
+    meter.start()
+    state["ps"] = _ps(100, 101, 102, 200, 300, 301, 302, 400, 401, 500)        # a look mid-turn: zsh running
+    usage.procs |= {102: _P(10, 0.5, 0.0, 2 * MB), 101: _P(2, 11.0, 2.0, 80 * MB)}
+    meter.look()
+    state["ps"] = _ps(100, 101, 200, 300, 301, 302, 303, 400, 401, 500)        # the end: zsh gone, a new renderer
+    usage.procs = dict(_START[1]) | {
+        100: _P(1, 51.5, 4.0, 310 * MB),        # ffmpeg (3 s, never seen) ended under the daemon
+        101: _P(2, 13.0, 2.8, 60 * MB),         # zsh's whole 0.8 s now in codex's ended-children counter
+        300: _P(4, 101.0, 40.0, 400 * MB), 303: _P(11, 1.0, 0.0, 20 * MB),
+        400: _P(7, 900.2, 3000.0, 300 * MB), 500: _P(9, 99.0, 0.0, MB)}
+    got = meter.stop()
+    g = got["groups"]
+    assert (got["wall_s"], g["daemon"]["cpu_s"], g["daemon_children"]["cpu_s"]) == (10.0, 1.5, 6.8)
+    assert g["daemon_children"]["started_in_turn"] == 1
+    assert g["daemon_children"]["busiest"] == [["codex", 3.8], ["zsh", 0.5]]
+    assert g["daemon_children"]["peak_footprint_mb"] == 82.0 and g["daemon_children"]["end_footprint_mb"] == 60.0
+    assert (g["app"]["cpu_s"], g["native_host"]["cpu_s"]) == (0.0, 0.0)
+    assert (got["ferb_cpu_s"], got["ferb_cpu_pct"]) == (8.3, 83.0)
+    chrome = g["browser:Google Chrome"]
+    assert (chrome["cpu_s"], chrome["started_in_turn"], chrome["basis"]) == (2.0, 1, qr.BROWSER_BASIS)
+    assert (g["browser:Brave Browser"]["cpu_s"], got["browser_cpu_s"]) == (0.2, 2.2)
+    assert g["daemon"]["basis"] == qr.FERB_BASIS and "problems" not in got
+
+
+# decision: RUN-444
+def test_a_daemon_restart_or_a_failed_ps_is_said_not_measured_as_zero() -> None:
+    state: dict[str, Any] = {"ps": _START[0]}
+    usage = _Usage(dict(_START[1]))
+    meter = qr.Meter(usage, ps=lambda: state["ps"], every=3600, clock=iter([0.0, 5.0]).__next__)
+    meter.start()
+    usage.procs = dict(_START[1]) | {100: _P(99, 0.4, 0.0, 100 * MB)}          # a new daemon process
+    assert "daemon restarted" in meter.stop()["problems"][0]
+
+    def broken() -> str:
+        raise subprocess.SubprocessError("ps timed out")
+    failed = qr.Meter(usage, ps=broken, every=3600, clock=iter([0.0, 5.0]).__next__)
+    failed.start()
+    got = failed.stop()
+    assert "groups" not in got and got["problems"] == ["ps: ps timed out"]
+
+
+# decision: RUN-444
+def test_background_lists_other_task_trees_and_overlapping_resource_samples(tmp_path: Path) -> None:
+    db = tmp_path / "ferb.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        "CREATE TABLE tasks (tree_id TEXT, role TEXT, status TEXT, created_at TEXT, updated_at TEXT);"
+        "CREATE TABLE resource_samples (id INTEGER PRIMARY KEY, at TEXT, window_s REAL, cpu_s REAL, child_cpu_s REAL,"
+        " app_cpu_s REAL, work_json TEXT);")
+    conn.executemany("INSERT INTO tasks VALUES (?, ?, ?, ?, ?)", [
+        ("mine", "worker", "done", "2026-11-08T10:00:01+00:00", "2026-11-08T10:00:30+00:00"),
+        ("sched", "worker", "running", "2026-11-08T09:00:00+00:00", "2026-11-08T09:00:00+00:00"),
+        ("old", "worker", "done", "2026-11-08T08:00:00+00:00", "2026-11-08T08:10:00+00:00"),
+        ("later", "worker", "done", "2026-11-08T11:00:00+00:00", "2026-11-08T11:05:00+00:00")])
+    work = json.dumps({"tasks_running": 2, "tool_calls": 9, "models": {"worker": 1}, "perception": {"wakes": 1},
+                       "top": [["codex", 4.0]], "events": {"window": 3}})
+    conn.executemany("INSERT INTO resource_samples (at, window_s, cpu_s, child_cpu_s, app_cpu_s, work_json) "
+                     "VALUES (?, 300, 12.5, 4.0, 3.0, ?)", [("2026-11-08T09:59:00+00:00", work),
+                                                            ("2026-11-08T10:04:00+00:00", work),
+                                                            ("2026-11-08T10:09:00+00:00", work)])
+    conn.commit()
+    conn.close()
+    got = qr.background(db, "2026-11-08T10:00:00+00:00", "2026-11-08T10:02:00+00:00", {"mine"})
+    assert [t["tree_id"] for t in got["other_tasks"]] == ["sched"]
+    assert [s["at"] for s in got["resource_samples"]] == ["2026-11-08T10:04:00+00:00"]
+    assert got["resource_samples"][0]["tasks_running"] == 2 and "events" not in got["resource_samples"][0]
+
+
+# decision: RUN-444
+def test_compare_puts_cpu_per_task_and_totals_per_connection() -> None:
+    spec = importlib.util.spec_from_file_location("question_compare",
+                                                  Path(__file__).parent.parent / "scripts/question_compare.py")
+    assert spec is not None and spec.loader is not None
+    qc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(qc)
+    res = {"wall_s": 20.0, "ferb_cpu_s": 5.0, "ferb_cpu_pct": 25.0, "browser_cpu_s": 7.5, "other_tasks": 1,
+           "cpu_s": {"daemon": 1.0, "daemon_children": 3.5, "app": 0.5},
+           "peak_footprint_mb": {"daemon": 300.0, "daemon_children": 80.0, "browser:Google Chrome": 900.0}}
+    task = {"id": "1", "run": 1, "seconds": 20.0, "steps": 3, "questions": 0, "cost_usd": 0.01, "resources": res,
+            "turns": [{"text": "find the weather"}]}
+    text = qc.table([{"runtime": "codex", "tasks": [task, task | {"id": "2"}]},
+                     {"runtime": "openai", "tasks": [task | {"resources": None}]}])
+    header = next(line for line in text.splitlines() if line.startswith("| connection | run | outcome"))
+    first = text.splitlines()[text.splitlines().index(header) + 2].split(" | ")
+    cols = header.strip("| ").split(" | ")
+    assert [first[cols.index(c)] for c in ("FERB CPU s", "children s", "browsers s (upper bound)", "peak FERB MB",
+                                           "other tasks")] == ["5.0", "3.5", "7.5", "380", "1"]
+    totals = text.split("## Totals")[1]
+    assert "| codex | 1 | 2 | 40.0 | 6 | 0.0200 | 10.0 | 25.0 | 2.0 | 7.0 | 1.0 | 15.0 |" in totals
+    assert "| openai | 1 | 1 | 20.0 | 3 | 0.0100 |  |  |  |  |  |  |" in totals

@@ -436,3 +436,22 @@ words = "ok good. also lets shift the gpt model to 6.1 sol. both api and subscri
 words_source = "Owner 2026-11-08, after choosing gpt-5.6-luna for the live real-task run (RUN-441)"
 rule = "Supersedes RUN-441's GPT model; the rest of RUN-441 stands. The real-task run uses gpt-6.1-sol on Codex (the ChatGPT subscription) and the OpenAI API, claude-sonnet-5-5 on Claude Code and the Anthropic API; Google is not run; no cost cap from FERB's side; no payment is ever approved in the run; T-1060 waits until after the runs."
 paths = ["ferb/runtimes/prices.py::PRICES", "ferb/runtimes/openai_api.py::LIMITS", "scripts/question_run.py::set_model"]
+
+[RUN-443]
+title = "The live task run measures CPU and memory per task, and whether it is FERB's task using it"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "a other thign i think we missed is to track teh cpu usage acrros tasks and if its acutally ferb's task using that"
+words_source = "Owner 2026-11-08, during the live real-task run (GATE-552), on what the run report was missing"
+rule = "The live task run records, per turn and per task, the CPU and memory used by FERB's processes (its background service, everything it starts, FERB.app) and by each running browser, and says how much of it is the task's: FERB's own processes during the sequential run are the task's unless other FERB work ran beside it (listed), and browser figures are an upper bound that includes the owner's own browsing."
+paths = ["scripts/question_run.py::Meter", "scripts/question_compare.py::totals"]
+
+[RUN-444]
+title = "How the task run measures CPU: kernel counters per process group at each turn's start and end"
+by = "agent"
+date = 2026-11-08
+status = "active"
+rule = "For RUN-443. Groups from ps (pid, ppid, rss, command): the daemon (-m ferb.daemon), its descendants, FERBNotch's tree, ferb.native_host, each browser's bundle and children. A group's CPU is the sum over its live processes of libproc's own CPU plus its ended, waited-for children's (MacReadings), at the turn's start and end, so short-lived commands count without sampling. A 2 s look keeps RSS and footprint peaks and the busiest children. Read-only from ferb.db: other task trees and resource_samples rows overlapping the turn. A failed ps or a daemon restart is reported, never zero."
+why = "resource_samples (5 min) are too coarse per task and leave out the browsers. Counters at the turn's edges are exact for anything reaped inside its group (lost only if re-parented, e.g. a double fork); 2 s sampling would miss a sub-second command. question_compare.py adds per-task CPU and totals."
+paths = ["scripts/question_run.py::Meter", "scripts/question_run.py::groups", "scripts/question_run.py::background", "scripts/question_compare.py::totals"]
