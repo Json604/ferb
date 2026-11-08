@@ -59,7 +59,8 @@ METHODS: dict[Role, frozenset[str]] = {
 # The server checks the peer's code signature (app_peer.py) once per connection.
 APP_ONLY: frozenset[str] = frozenset({"tasks.preview", "secrets.saved", "secrets.delete", "identity.find",
                                       "identity.choose", "identity.pair", "about.guide", "seen.list", "seen.image",
-                                      "setup.finish", "intro.suggest", "intro.preview", "keys.store", "keys.delete"})
+                                      "setup.finish", "intro.suggest", "intro.preview", "keys.store", "keys.delete",
+                                      "runtimes.check_calls"})   # GATE-547: paid model calls, FERB.app's Check only
 
 
 def allowed(role: Role, method: str) -> bool:

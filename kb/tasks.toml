@@ -587,3 +587,11 @@ kind = "build"
 status = "open"
 why = "Owner 2026-11-08: \"add in later checklist to redo the ui/ux of ferb window settings\". Settings is functional only (APP-791..793); a later pass redesigns it."
 decisions = ["APP-791", "APP-792", "APP-793"]
+
+[T-1071]
+title = "Next helper change: store api.sealed items by delete-then-add, so a pre-made item's ACL never stays"
+area = "gateway"
+kind = "build"
+status = "open"
+why = "Review of b364b948 #4: the helper's store updates an existing item, keeping its ACL, so a pre-made loose ferb/api.sealed/<p> item makes later keys readable by `security -w`. The fix changes the helper's bytes (every saved secret asks again): do it with the next helper change."
+decisions = ["GATE-543", "GATE-548", "REL-404"]

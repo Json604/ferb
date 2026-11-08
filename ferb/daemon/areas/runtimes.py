@@ -123,10 +123,17 @@ class Runtimes:
     async def _api_key(self, provider: str) -> str | None:
         """From the Keychain at call time; added to the redactor so an echo never reaches a trace or the journal."""
         from ferb.runtimes import keys
-        key = await keys.api_key(provider)
+        problems: list[dict[str, Any]] = []
+        key = await keys.api_key(provider, lambda kind, data: problems.append(data))
+        self._keys_problems(problems)
         if key:
             self._add_secret_value(key)
         return key
+
+    def _keys_problems(self, problems: list[dict[str, Any]]) -> None:
+        """GATE-547: an older key item FERB couldn't delete, journaled on the loop (provider only)."""
+        for problem in problems:
+            self._journal().append("keys.old_item_not_deleted", problem)
 
     def _runtime_available(self, name: str) -> bool:
         """The runtime table's availability (a model set and signed in), as last known (RUN-424): read once (the
@@ -347,7 +354,9 @@ class Runtimes:
         if not isinstance(key, str) or not key.strip() or any(c.isspace() for c in key.strip()):
             raise FerbError("that doesn't look like an API key")
         self._add_secret_value(key.strip())
-        stored = await asyncio.to_thread(keys.store_key, provider, key.strip())
+        problems: list[dict[str, Any]] = []
+        stored = await asyncio.to_thread(keys.store_key, provider, key.strip(), lambda k, d: problems.append(d))
+        self._keys_problems(problems)
         self._available_cache.pop(provider, None)
         self._journal().append("keys.stored", {"provider": provider, "stored": stored})
         return {"stored": stored}
@@ -359,7 +368,9 @@ class Runtimes:
         provider = str(params.get("provider", ""))
         if provider not in api_providers():
             raise FerbError(f"unknown provider {provider!r}")
-        removed = await asyncio.to_thread(keys.delete_key, provider)
+        problems: list[dict[str, Any]] = []
+        removed = await asyncio.to_thread(keys.delete_key, provider, lambda k, d: problems.append(d))
+        self._keys_problems(problems)
         self._available_cache.pop(provider, None)
         self._journal().append("keys.deleted", {"provider": provider, "removed": removed})
         return {"removed": removed}

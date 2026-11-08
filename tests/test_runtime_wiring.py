@@ -51,7 +51,7 @@ def test_worker_types_list_only_available_runtimes(daemon: RunningDaemon, monkey
 def test_a_key_read_for_a_call_is_redacted_everywhere(daemon: RunningDaemon, monkeypatch) -> None:
     import ferb.runtimes.keys as keys
 
-    async def fake_key(provider):
+    async def fake_key(provider, problem=None):
         return "sk-live-abc123"
     monkeypatch.setattr(keys, "api_key", fake_key)
     d = daemon.daemon
@@ -63,7 +63,7 @@ def test_a_key_stays_redacted_in_journal_and_spans_after_a_config_reload(daemon:
     import ferb.runtimes.keys as keys
     secret = "plain-words-key-9f8e7d6c"                      # matches no regex pattern
 
-    async def fake_key(provider):
+    async def fake_key(provider, problem=None):
         return secret
     monkeypatch.setattr(keys, "api_key", fake_key)
     d = daemon.daemon

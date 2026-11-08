@@ -196,7 +196,7 @@ class Environment:
         if add is not None:
             add(value)
 
-    def _keychain_values(self) -> tuple[list[str], int]:
+    def _keychain_values(self, problems: list[dict[str, Any]] | None = None) -> tuple[list[str], int]:
         """The values of FERB's Keychain handles ([secrets], and the API keys of the providers this home's runtime
         table uses) and of the owner's saved secrets, read through their stores (a worker thread: each read is a helper
         or `security` call). A home that names none reads nothing."""
@@ -210,7 +210,8 @@ class Environment:
         except Exception:                          # the handles file can't be read: those values come at first use
             unreadable += 1
         try:
-            values += stored_api_keys({self._runtime_for(role) for role in ROLES})
+            values += stored_api_keys({self._runtime_for(role) for role in ROLES},
+                                      (lambda kind, data: problems.append(data)) if problems is not None else None)
         except Exception:
             unreadable += 1
         return values, unreadable
@@ -222,7 +223,10 @@ class Environment:
         preload = getattr(self.redact, "preload", None)
         if preload is None:
             return
-        values, unreadable = await asyncio.to_thread(self._keychain_values)
+        problems: list[dict[str, Any]] = []                 # GATE-547: journaled here, on the loop
+        values, unreadable = await asyncio.to_thread(self._keychain_values, problems)
+        for problem in problems:
+            self._journal().append("keys.old_item_not_deleted", problem)
         if values or unreadable:
             self._journal().append("secret.registry_preloaded", {"values": preload(values), "unreadable": unreadable})
 

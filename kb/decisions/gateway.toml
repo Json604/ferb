@@ -747,3 +747,23 @@ date = 2026-11-08
 status = "active"
 rule = "For GATE-545. test.mode takes questions \"ask\" | \"record\" (kept in [test_mode] state; record only while the send allowlist is on). ask_confirmation records before the unattended branch: its owner.ask span's output holds the card, needs (rule, key, values), answer and test_mode; a Yes is recorded in confirmations for the tree, never _known_from. _ask_owner declines a task's question with TEST_TASK_ANSWER, a retry with retry_approved false. scripts/question_run.py runs a task list on one connection and writes per-task results outside the repo."
 paths = ["ferb/daemon/gateway.py::Gateway.ask_confirmation", "ferb/daemon/gateway.py::Gateway._ask_owner", "scripts/question_run.py"]
+
+[GATE-547]
+title = "API keys: older items moved whenever they exist, one lock per provider, the Check is FERB.app's only"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "yes do all fixes"
+words_source = "Owner 2026-11-08, after an independent review of b364b948 (GATE-543/544): older items left behind, races, a loose pre-made item, check_calls on the plain role, claims"
+rule = "Refines GATE-543. An older api/<provider> item is moved whenever one exists, on store and on read: read, it is the newer key, so it is stored sealed, read back and only then deleted; storing a new key deletes it. A delete that fails is journaled with the provider only. One lock per provider covers read, move, store and delete; Remove clears memory again after it. runtimes.check_calls (paid calls) is FERB.app's only. GATE-543's limits are stated in GATE-548."
+paths = ["ferb/runtimes/keys.py::read_key", "ferb/runtimes/keys.py::store_key", "ferb/daemon/auth.py::APP_ONLY"]
+
+[GATE-548]
+title = "Why FERB keeps secrets through its own small signed helper, and what that does not stop"
+by = "agent"
+date = 2026-11-08
+status = "active"
+rule = "A Keychain item trusts the binary that created it. Created by FERB's Python, which runs any script, that trust would be wide; created by `security`, any program running it reads the item. So one small pinned, signed helper (ferb-secrets) creates and reads FERB's items: generic tools now get a Keychain prompt. Limits: the helper checks no caller, so any program running as the owner can ask it for a secret; FERB.app-only store/delete RPCs, the sandbox keeping models, tasks and the shell away from the Keychain and ~/.ferb, and no key in an environment, log or span are what is enforced."
+why = "A caller check wouldn't stop a same-user program (it can run FERB's signed Python), and changing the helper's bytes asks again for every saved secret, so the helper stays as pinned (REL-404); hardening waits for its next planned change (T-1071)."
+paths = ["ferb/identity/helper.py", "ferb/runtimes/keys.py"]
+untestable = "The Keychain's access list and prompts: the owner's Mac only; tests use a fake Keychain and never the real one (TEST-508)."

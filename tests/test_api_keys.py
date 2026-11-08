@@ -17,6 +17,7 @@ class FakeKeychain:
         self.helper_items: dict[str, str] = {}
         self.security_items: dict[str, str] = {}
         self.reads: list[str] = []
+        self.delete_fails = False
 
     def helper(self, body: dict[str, Any]) -> dict[str, Any]:
         assert body["service"] == "ferb"
@@ -45,8 +46,10 @@ class FakeKeychain:
                 return subprocess.CompletedProcess(cmd, 0, (items[acct] + "\n").encode())
             return subprocess.CompletedProcess(cmd, 0, b"")
         if verb == "delete-generic-password":
-            self.security_items.pop(acct, None)
-            return subprocess.CompletedProcess(cmd, 0, b"")
+            if self.delete_fails:
+                return subprocess.CompletedProcess(cmd, 1, b"")
+            gone = self.security_items.pop(acct, None) is not None
+            return subprocess.CompletedProcess(cmd, 0 if gone else 44, b"")
         raise AssertionError(verb)
 
 
@@ -84,6 +87,47 @@ def test_an_older_item_is_moved_once_and_deleted_only_after_it_reads_back(keycha
     keychain.security_items["api/google"] = "g-old-789"
     monkeypatch.setattr(keys, "_sealed_value", lambda provider: "")
     assert keys.read_key("google") == "g-old-789" and keychain.security_items == {"api/google": "g-old-789"}
+
+
+# decision: GATE-547
+def test_a_new_key_replaces_an_older_item_even_for_a_provider_not_in_use(keychain: FakeKeychain) -> None:
+    """Review #1 (a): a provider the runtime table doesn't use is never read at start, so saving its key in Settings
+    must remove the older, `security`-readable item itself."""
+    keychain.security_items["api/openai"] = "sk-old"
+    assert keys.store_key("openai", "sk-new")
+    assert keychain.helper_items == {"api.sealed/openai": "sk-new"} and keychain.security_items == {}
+
+
+# decision: GATE-547
+def test_an_older_item_beside_a_sealed_one_is_the_newer_key_and_is_moved(keychain: FakeKeychain) -> None:
+    """Review #1 (b): a downgraded FERB showed "no key", the owner entered it again and that build wrote the older
+    item; back on this build the older item is the newer key: it is read, sealed, read back and deleted."""
+    keychain.helper_items["api.sealed/anthropic"] = "sk-stale"
+    keychain.security_items["api/anthropic"] = "sk-reentered"
+    assert keys.read_key("anthropic") == "sk-reentered"
+    assert keychain.helper_items == {"api.sealed/anthropic": "sk-reentered"} and keychain.security_items == {}
+
+
+# decision: GATE-547
+def test_an_older_item_that_wont_delete_is_journaled_by_provider_only(keychain: FakeKeychain) -> None:
+    keychain.security_items["api/google"] = "g-old"
+    keychain.delete_fails = True
+    seen: list[tuple[str, dict[str, Any]]] = []
+    assert keys.read_key("google", lambda kind, data: seen.append((kind, data))) == "g-old"
+    assert seen == [("keys.old_item_not_deleted", {"provider": "google"})]
+
+
+# decision: GATE-547
+def test_remove_key_leaves_nothing_in_memory(keychain: FakeKeychain) -> None:
+    assert keys.store_key("openai", "sk-1") and keys.read_key("openai") == "sk-1"
+    assert keys.delete_key("openai")
+    assert keys.read_key("openai") is None and keys._cache == {}
+
+
+# decision: GATE-547
+def test_check_calls_and_key_changes_are_for_ferb_app_only() -> None:
+    from ferb.daemon.auth import APP_ONLY
+    assert {"keys.store", "keys.delete", "runtimes.check_calls"} <= APP_ONLY
 
 
 # decision: GATE-543

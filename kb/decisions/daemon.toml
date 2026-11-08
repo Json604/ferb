@@ -741,3 +741,12 @@ date = 2026-11-08
 status = "active"
 rule = "For RUN-429. runtimes.models {runtime} -> {runtime, model, models, source (provider | known), roles, problem?} and runtimes.model {runtime, model, role?} -> {ok, model, detail} are on the app's role (auth.py) beside runtimes.use, with long waits (30 s, 90 s). No key is ever returned."
 paths = ["ferb/daemon/areas/rpc.py", "ferb/daemon/auth.py", "ferb/daemon/server.py::LONG_WAITS"]
+
+[DMN-552]
+title = "Why FERB is an app, a background service and a secrets helper"
+by = "agent"
+date = 2026-11-08
+status = "active"
+rule = "FERB.app is the owner's side and the product (AGENTS.md rule 13): the notch, windows, setup and the macOS permissions granted to it. The background service (the daemon, a user LaunchAgent: DMN-513, before it DMN-2 and DMN-15) keeps running tasks, schedules and the gateway alive whether or not the app's windows are open, and runs before sign-in finishes (APP-506). The secrets helper is a separate small signed binary because Keychain items trust the binary that made them (GATE-548)."
+paths = ["ferb/daemon", "ui/mac/FERBNotch", "ferb/identity/secret_helper.swift"]
+untestable = "An explanation of the split; each part's own decisions carry their tests."

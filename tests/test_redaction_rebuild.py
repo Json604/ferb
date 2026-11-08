@@ -316,7 +316,7 @@ def test_the_daemon_preloads_its_keychain_and_owner_values_through_the_stores(da
     monkeypatch.setattr(d.secrets, "values", lambda: (["Fake-Config-Secret-1"], 1))
     monkeypatch.setattr(owner_secrets.OwnerSecrets, "values", lambda self: (["Fake-Owner-Secret-2"], 0))
     asked: list[set[str]] = []
-    monkeypatch.setattr(keys, "stored_api_keys", lambda providers: asked.append(set(providers)) or
+    monkeypatch.setattr(keys, "stored_api_keys", lambda providers, problem=None: asked.append(set(providers)) or
                         ["sk-ant-api03-" + fake(30)])
     daemon.run(d._preload_secrets())
     for value in ("Fake-Config-Secret-1", "Fake-Owner-Secret-2"):
