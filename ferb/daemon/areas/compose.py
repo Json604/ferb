@@ -103,10 +103,12 @@ class Compose:
         self.changes = Changes(self.home / "changes", closed=lambda path: protection.read_denied(path) is not None)
         test_mode = self.config.get('test_mode', 'state', {})
         allowlist: set[str] | None = None
+        record_questions = False
         if isinstance(test_mode, dict) and test_mode.get('enabled') is True:
             allowed = test_mode.get('allow_send', [])
             allowlist = (set(allowed) if isinstance(allowed, list) and
                          all(isinstance(item, str) and item.strip() for item in allowed) else set())
+            record_questions = test_mode.get('questions') == "record"   # GATE-545
         questions = ports.QuestionRouter()
         self.gateway = Gateway(self.registry.capabilities, self.state, self.ledger, self.spans, self.tasks,
                                self.clock, self.redact, self._publish, roots, device, deps=GatewayDeps(
@@ -122,6 +124,7 @@ class Compose:
                                    owner_contacts=self._owner_contacts,       # GATE-538
                                    on_path=self.attribution.ferb_touched, route_question=questions,
                                    shadow_action=self._destructive_shadow, test_send_allowlist=allowlist,
+                                   test_questions=record_questions,
                                    standing=StandingPermissions(self.db)))
         self.supervisor = Supervisor(
             make_runtime=self._make_runtime, gateway=self.gateway, state=self.state, tokens=self.tokens,

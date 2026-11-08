@@ -729,3 +729,21 @@ status = "active"
 rule = "For GATE-543. The daemon reads a provider's key through the helper once per run (first use or the start's redactor preload) and keeps it in memory until a store or delete changes it, so the helper is run once per provider per daemon start, never per model call. Presence checks (Settings, availability) never read a value."
 why = "The owner's api/anthropic item's decrypt ACL trusts /usr/bin/security (checked 2026-11-08 without its value). Fewer helper reads keep T-502's prompt, if it returns, to one per provider per start. A program that runs the helper can still ask it, as for owner secrets."
 paths = ["ferb/runtimes/keys.py::read_key"]
+
+[GATE-545]
+title = "Test mode can record questions and answer them from a fixed table, for real-task runs"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "Yes-for-this-task-only (never saved as known) for URL-sink questions; run inside the installed FERB, no cleanup"
+words_source = "Owner 2026-11-08, choosing option A of the real-task question test (questions recorded with card and rule), as relayed by the coordinator"
+rule = "With test mode on and its questions set to record, every question FERB would ask in a task is recorded with its card and rules and answered by a fixed table in code, never by a model or the owner: the URL sink's question Yes for that task tree only (never a known destination); every other FERB question No (payment, account security, deletion, terminal, certificates, foreground, forms, the rest); a task's own question declined; a retry No. Runs happen in the installed FERB with no clean-up."
+paths = ["ferb/daemon/gateway.py::TEST_YES_RULES", "ferb/daemon/areas/chat.py::Chat._test_mode"]
+
+[GATE-546]
+title = "The question recorder: one hook in each asking path, test.mode's questions field, a run script"
+by = "agent"
+date = 2026-11-08
+status = "active"
+rule = "For GATE-545. test.mode takes questions \"ask\" | \"record\" (kept in [test_mode] state; record only while the send allowlist is on). ask_confirmation records before the unattended branch: its owner.ask span's output holds the card, needs (rule, key, values), answer and test_mode; a Yes is recorded in confirmations for the tree, never _known_from. _ask_owner declines a task's question with TEST_TASK_ANSWER, a retry with retry_approved false. scripts/question_run.py runs a task list on one connection and writes per-task results outside the repo."
+paths = ["ferb/daemon/gateway.py::Gateway.ask_confirmation", "ferb/daemon/gateway.py::Gateway._ask_owner", "scripts/question_run.py"]

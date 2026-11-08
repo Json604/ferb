@@ -261,6 +261,10 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
     usage = {"model_calls": sum(1 for n in nodes if n["kind"] in MODEL_KINDS), "usage_records": len(usage_out),
              "input_tokens": sum(int(u.get("input_tokens") or 0) for u in usage_out),
              "cached_input_tokens": sum(int(u.get("cached_input_tokens") or 0) for u in usage_out),
+             # RUN-436: cache writes, and Anthropic's by TTL
+             "cache_write_tokens": sum(int(u.get("cache_write_tokens") or 0) for u in usage_out),
+             "cache_write_5m_tokens": sum(int(u.get("cache_write_5m_tokens") or 0) for u in usage_out),
+             "cache_write_1h_tokens": sum(int(u.get("cache_write_1h_tokens") or 0) for u in usage_out),
              "output_tokens": sum(int(u.get("output_tokens") or 0) for u in usage_out),
              "cost_usd": round(sum(priced), 6) if priced else None,
              "unpriced_models": sorted({u.get("model") or "an unnamed model" for u in usage_out

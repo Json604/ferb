@@ -233,7 +233,11 @@ class Chat:
             raise FerbError("the tool gateway is not ready")
         if params.get("status") is True:
             return {"enabled": self.gateway.test_send_allowlist is not None,
-                    "allow_send": sorted(self.gateway.test_send_allowlist or ())}
+                    "allow_send": sorted(self.gateway.test_send_allowlist or ()),
+                    "questions": "record" if self.gateway.test_questions else "ask"}
+        questions = params.get("questions", "ask")         # GATE-545: "record" only with the send allowlist on
+        if questions not in ("ask", "record"):
+            raise FerbError('questions must be "ask" or "record"')
         allowed = params.get("allow_send", [])
         if not isinstance(allowed, list) or not all(isinstance(x, str) and x.strip() for x in allowed):
             raise FerbError('allow_send must be a list of exact recipients or "SITE @ACCOUNT" entries for posts')
@@ -242,9 +246,11 @@ class Chat:
         if problems:
             raise FerbError("; ".join(problems))
         next_allowlist = None if params.get("off") is True else set(allowed)
-        record = {"enabled": next_allowlist is not None, "allow_send": sorted(next_allowlist or ())}
+        record = {"enabled": next_allowlist is not None, "allow_send": sorted(next_allowlist or ()),
+                  "questions": questions if next_allowlist is not None else "ask"}
         self.config.set('test_mode', 'state', record)  # one atomic config write before the running state changes
         self.gateway.test_send_allowlist = next_allowlist
+        self.gateway.test_questions = record["questions"] == "record"
         self._journal().append("test.mode", record)
         return record
 

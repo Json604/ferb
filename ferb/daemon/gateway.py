@@ -102,6 +102,11 @@ LOOKUPS_SPENT = ("this turn has made its {n} lookups: answer from what you have,
                  "worker can look further")
 SAME_LOOKUP = ("same as your earlier call with these arguments: its result is below; looking again won't change it, so "
                "answer from it or try other words")
+# GATE-545 (owner 2026-11-08: questions recorded in a test run, answered from a fixed table in code, never by a model):
+# only the URL sink's question is Yes, for this task tree only (never made a known destination); every other FERB
+# question is No; a task's own question gets TEST_TASK_ANSWER and a P19 retry is No
+TEST_YES_RULES = frozenset({"sink:private_url"})
+TEST_TASK_ANSWER = "No answer in this test run; decide yourself or report what you need"
 # P19. The error is a fact the owner reads in step lines; what the agent should do is in `next`.
 UNKNOWN_NOT_REPEATED = ("A previous attempt at this exact action may have gone through (its outcome is unknown); it was "
                         "not repeated without the owner.")
@@ -450,6 +455,7 @@ class GatewayDeps:
     route_question: Callable[[str, str, list[str]], Awaitable[dict[str, Any]]] | None   # a worker's question
     shadow_action: Callable[[dict[str, Any], str], Awaitable[None]] | None   # advice only (D23 shadow)
     test_send_allowlist: set[str] | None                # test mode only: send-class actions may reach just these
+    test_questions: bool                                # GATE-545: test mode records questions, answers from a table
     standing: Any = None                                # D30: standing permissions (None: every question is asked)
 
 
@@ -608,6 +614,7 @@ class Gateway:
         self.owner_contacts: Callable[[], frozenset[str]] = deps.owner_contacts
         self.disturbance: Any = deps.disturbance
         self.test_send_allowlist: set[str] | None = deps.test_send_allowlist   # test mode: sends reach just these
+        self.test_questions: bool = deps.test_questions       # GATE-545: questions recorded, answered by TEST_ANSWERS
         self.allow_until: datetime | None = None          # the owner's "don't ask for 30 min" for routine questions
         self.evidence: Any = deps.evidence                 # the evidence store (ferb/act/evidence/store.py)
         # The daemon's app-window picture (ferb/act/mac/tools.py app_window): (app, scopes) -> AppWindow | None.
@@ -1996,6 +2003,14 @@ class Gateway:
                                          "ferb_question": True} | ({"for_span": span.id} if span is not None else {}))
         self.publish("tool.called", {"tool": OWNER_ASK, "task_id": grant.task_id, "worker_id": grant.worker_id})
         self.hooks.started(grant, OWNER_ASK, {}, "owner_question", None)
+        if self.test_questions:                          # GATE-545: recorded with its card, answered from the table
+            yes = all(n.rule in TEST_YES_RULES for n in needs)
+            ids = [self.confirmations.record(root, n.rule, n.key, yes, q_span.id) for n in needs]   # this tree only
+            given = {"answer": YES if yes else NO, "confirmed" if yes else "refused": ids, "test_mode": True,
+                     "card": self._test_card(needs, typed, why),
+                     "needs": [{"rule": n.rule, "key": n.key, "values": n.values} for n in needs]}
+            self._finish_call(q_span, OWNER_ASK, given, False, output=given, origins=ask_origins(given))
+            return Answer(yes, ids, "" if yes else SAID_NO.format(line=text), "" if yes else OWNER_DECIDED_NEXT)
         if rec.task.request_id in self.state.approvals.unattended:
             declined = {"declined": True, "unattended": True}
             self._finish_call(q_span, OWNER_ASK, declined, False, output=declined, origins=ask_origins(declined))
@@ -2054,6 +2069,14 @@ class Gateway:
             given["skipped"] = True
         self._finish_call(q_span, OWNER_ASK, given, False, output=given, origins=ask_origins(given))
         return Answer(yes, ids, "" if yes else SAID_NO.format(line=text), "" if yes else OWNER_DECIDED_NEXT)
+
+    def _test_card(self, needs: list[confirm.Need], typed: str, why: str) -> dict[str, str]:
+        """The card the owner would have seen (GATE-513's parts), for a test run's record (GATE-545)."""
+        card = SimpleNamespace(summary="", detail="", exact="")
+        shown = quoted(self.redact({"t": typed})["t"]) if typed.strip() else ""
+        self._set_card(card, needs, shown, any(n.rule == confirm.TERMINAL_INPUT for n in needs))
+        reason = self._one_line(confirm.reason_line(quoted(self.redact({"w": why})["w"]) if why.strip() else ""))
+        return {"question": card.summary, "detail": card.detail, "exact": card.exact, "why": reason}
 
     def _known_from(self, needs: list[confirm.Need], rec: Any, span_id: str) -> None:
         """SQ6, GATE-205: the destinations the owner's Yes approved stay known (approved) for good."""
@@ -2404,6 +2427,14 @@ class Gateway:
             self._finish_call(span, OWNER_ASK, declined, False, output=declined, origins=ask_origins(declined))
             return {"declined": True, "reason": "the owner isn't here (a scheduled run): decide yourself or report "
                                                 "what's missing"}
+        if self.test_questions:                          # GATE-545: recorded; a retry is No, a task's is declined
+            if retry:
+                given: dict[str, Any] = {"answer": RETRY_NO, "retry_approved": False, "test_mode": True}
+                self._finish_call(span, OWNER_ASK, given, False, output=given, origins=ask_origins(given))
+                return given
+            declined = {"declined": True, "test_mode": True, "reason": TEST_TASK_ANSWER}
+            self._finish_call(span, OWNER_ASK, declined, False, output=declined, origins=ask_origins(declined))
+            return {"declined": True, "reason": TEST_TASK_ANSWER}
         if reused is None and await self.observer.correction_pending(grant):     # ORCH-538: the correction first
             first = {"declined": True, "state": "correction pending"}
             self._finish_call(span, OWNER_ASK, first, False, output=first, origins=ask_origins(first))

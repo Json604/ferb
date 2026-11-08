@@ -60,11 +60,11 @@ def test_manual_test_mode_status_is_read_only_and_send_gate_is_exact(daemon):
     from ferb.cli.client import Client
     client = Client(daemon.sock)
     try:
-        assert client.call('test.mode', {'status': True}) == {'enabled': False, 'allow_send': []}
+        assert client.call('test.mode', {'status': True}) == {'enabled': False, 'allow_send': [], 'questions': 'ask'}
         assert client.call('test.mode', {'allow_send': ['owner@controlled.test']}) == {
-            'enabled': True, 'allow_send': ['owner@controlled.test']}
+            'enabled': True, 'allow_send': ['owner@controlled.test'], 'questions': 'ask'}
         assert client.call('test.mode', {'status': True})['allow_send'] == ['owner@controlled.test']
-        assert client.call('test.mode', {'off': True}) == {'enabled': False, 'allow_send': []}
+        assert client.call('test.mode', {'off': True}) == {'enabled': False, 'allow_send': [], 'questions': 'ask'}
     finally:
         client.close()
 
@@ -75,7 +75,7 @@ def test_manual_test_mode_survives_daemon_restart(home):
     first = RunningDaemon(home, watch_owner_input=False)
     client = Client(first.sock)
     try:
-        client.call('test.mode', {'allow_send': ['owner@controlled.test']})
+        client.call('test.mode', {'allow_send': ['owner@controlled.test'], 'questions': 'record'})   # GATE-546
     finally:
         client.close()
         first.stop()
@@ -83,9 +83,10 @@ def test_manual_test_mode_survives_daemon_restart(home):
     client = Client(second.sock)
     try:
         assert client.call('test.mode', {'status': True}) == {
-            'enabled': True, 'allow_send': ['owner@controlled.test']}
+            'enabled': True, 'allow_send': ['owner@controlled.test'], 'questions': 'record'}
         client.call('test.mode', {'off': True})
-        assert second.daemon.config.get('test_mode', 'state') == {'enabled': False, 'allow_send': []}
+        assert second.daemon.config.get('test_mode', 'state') == {'enabled': False, 'allow_send': [],
+                                                                  'questions': 'ask'}
     finally:
         client.close()
         second.stop()
