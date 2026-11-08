@@ -3004,3 +3004,14 @@ why = "Logs 2026-11-07/08: every fresh open of FERB's window (6/6) made FERB fro
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift", "ui/mac/FERBNotch/Sources/FERBNotch/DockPresence.swift", "ui/mac/FERBNotch/Tools/SettingsKeyScan/main.swift"]
 untestable = "Where the window server and Dock put windows and menus, and whether the Dock switches Spaces: LIVE-821 on the installed app. Tests run every listed path with the window server, Spaces, Dock and activation stood in, and fail on an unlisted presenter in the sources."
 live = ["LIVE-821"]
+
+[APP-797]
+title = "A fresh FERB window may open without keyboard focus rather than jump Spaces"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "OK, click once (Recommended)"
+words_source = "Owner 2026-11-08, asked: a fresh window (FERB not in the Dock yet) shows on your Space without keyboard focus until clicked, since grabbing focus then caused the Space jump. OK?"
+rule = "Refines APP-796: when FERB isn't already in the Dock (or active), opening its window or an alert shows it in front on the owner's Space without activating FERB; keyboard focus waits for the owner's click. FERB never activates in a way that can switch Spaces."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift"]
+live = ["LIVE-821"]
