@@ -148,7 +148,10 @@ class AnthropicProvider:
                   if b.get("type") == "tool_use" else b for b in content]
         state["body"]["messages"].append({"role": "assistant", "content": replay})
         text = "".join(b.get("text", "") for b in content if b.get("type") == "text")
-        return Turn(calls, None if calls else text, from_anthropic(self.model, data.get("usage") or {}, billing="api"), stop)
+        # an empty turn (no blocks, or tool_use with no tool block) stays in the conversation as returned: the API takes
+        # an assistant turn with no content before the follow-up (RUN-446, measured 6/6 on 2026-11-08)
+        return Turn(calls, None if calls else text, from_anthropic(self.model, data.get("usage") or {}, billing="api"),
+                    stop, tuple(str(b.get("type")) for b in content))
 
     def add_message(self, state: dict[str, Any], message: str) -> None:
         state["body"]["messages"].append({"role": "user", "content": [{"type": "text", "text": message}]})

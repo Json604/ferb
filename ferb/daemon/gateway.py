@@ -601,6 +601,7 @@ class Gateway:
         self._undelivered: dict[tuple[str, str, str], tuple[str, dict[str, Any]]] = {}
         self._cancelled_tasks: set[str] = set()
         self._calls_made: dict[str, int] = {}             # by worker: calls of a grant with max_calls (ORCH-516)
+        self._refused_over: dict[str, int] = {}           # by worker: calls refused past max_calls (RUN-445)
         self._lookup_answers: dict[tuple[str, str, str], dict[str, Any]] = {}   # ORCH-557: (worker, tool, args) -> reply
         # The orchestrator's two seams, given once by `attach` (it is built after the gateway, on top of it)
         self.observer: Observer = Observer()
@@ -1029,6 +1030,8 @@ class Gateway:
             made = self._calls_made.get(grant.worker_id, 0)
             if made >= grant.max_calls:
                 self._refused(grant, rec, name, f"over the grant's {grant.max_calls} calls")
+                # RUN-445: a wrong call the shared run counts toward its cap (`calls_refused`)
+                self._refused_over[grant.worker_id] = self._refused_over.get(grant.worker_id, 0) + 1
                 return reply({"error": LOOKUPS_SPENT.format(n=grant.max_calls)}, True, {origin.FERB})
             self._calls_made[grant.worker_id] = made + 1
         return cap
@@ -1037,9 +1040,15 @@ class Gateway:
         """How many calls a grant with max_calls has made (ORCH-557)."""
         return self._calls_made.get(worker_id, 0)
 
+    def calls_refused(self, worker_id: str) -> int:
+        """How many calls a grant with max_calls had refused after they were spent (RUN-445): wrong calls, which the
+        shared run counts toward its cap."""
+        return self._refused_over.get(worker_id, 0)
+
     def forget_calls(self, worker_id: str) -> None:
-        """A grant with max_calls ended (its run token revoked): its count and its answers go."""
+        """A grant with max_calls ended (its run token revoked): its counts and its answers go."""
         self._calls_made.pop(worker_id, None)
+        self._refused_over.pop(worker_id, None)
         for key in [k for k in self._lookup_answers if k[0] == worker_id]:
             del self._lookup_answers[key]
 

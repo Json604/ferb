@@ -139,7 +139,7 @@ class OpenAIProvider:
             raise ProviderError("openai: the model refused to answer")
         text = "".join(c.get("text", "") for c in parts if c.get("type") == "output_text")
         return Turn(calls, None if calls else text, from_openai(self.model, data.get("usage") or {}, billing="api"),
-                    str(data.get("status") or ""))
+                    str(data.get("status") or ""), tuple(str(item.get("type")) for item in output))
 
     def add_message(self, state: dict[str, Any], message: str) -> None:
         state["body"]["input"].append({"role": "user", "content": [self._text(message, False)]})

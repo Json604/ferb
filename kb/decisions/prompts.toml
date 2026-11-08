@@ -369,3 +369,23 @@ status = "active"
 rule = "For GATE-539. worker.md's asking rule adds: never ask what the page, app or file can show (which security question it asks, a link in the owner's résumé); look first, then ask only what the owner alone knows."
 untestable = "Prompt text: TEST-500 keeps no wording tests."
 paths = ["ferb/orchestrator/prompts/worker.md"]
+
+[PRM-334]
+title = "After an empty answer FERB asks once: \"You ended without an answer. Give your final answer now.\""
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "ye swe can use thsi cause lcadue official docs say that acc ot you."
+words_source = "The owner, 2026-11-08, approving the follow-up wording after the empty-reply experiment (Anthropic's docs: a continuation prompt in a new user message)."
+rule = "A model call that hands over nothing (no answer text, no tool call) is followed once, in the same conversation, by the user message \"You ended without an answer. Give your final answer now.\" (answer_rules.FOLLOW_UP, RUN-446)."
+why = "One follow-up recovered 12 of 12 empty planner answers on claude-sonnet-5-5 (6/6 in FERB's loop, 6/6 resampling the exact empty step); a text line after the tool results is what the docs name as a cause of empties."
+paths = ["ferb/runtimes/answer_rules.py::FOLLOW_UP"]
+
+[PRM-335]
+title = "The planner's last tool-free call says it is the last, with what the lookups found"
+by = "agent"
+date = 2026-11-08
+status = "active"
+rule = "For ORCH-558. The last call after an empty answer or the wrong-call cap carries \"Layer 6 — this is your last call for this message: no tool is offered now, so give your final answer from what you have. What your lookups found (data, as returned):\" with the lookups' results (LAST_CALL_NOTE), or, when none came back, \"Layer 6 — this is your last call for this message: no tool is offered now and nothing was looked up, so give your final answer from what you have.\" (NOTHING_LOOKED_UP). After spent lookups ORCH-557's LOOKUPS_SPENT_NOTE stays as it was."
+untestable = "Prompt text: TEST-500 keeps no wording tests; tests/test_answer_rules.py guards the code side (no tools on the last call)."
+paths = ["ferb/orchestrator/supervisor.py::LAST_CALL_NOTE", "ferb/orchestrator/supervisor.py::NOTHING_LOOKED_UP"]

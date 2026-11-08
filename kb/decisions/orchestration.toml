@@ -952,3 +952,13 @@ status = "active"
 rule = "Refines ORCH-516. A lookup repeating an earlier call's tool and arguments in the same planner call gets that call's result back, marked as the same and told looking again won't change it; it isn't run again but still counts. A planner call that used all PLANNER_LOOKUPS and then failed gets one last call with no tools, given what its lookups found. Every planner turn's live facts start with the AI FERB uses now, per role, from its settings (connection and model), to answer from."
 why = "Live 2026-11-08 08:49, claude-sonnet-5-5: \"what model are you using???\" made memory.read {\"query\": \"model\"} ten times, each empty, then \"the model ended without an answer\" failed the turn; FERB's own settings held the answer."
 paths = ["ferb/daemon/gateway.py::Gateway.call", "ferb/orchestrator/supervisor.py::Supervisor._supervise", "ferb/daemon/areas/environment.py::Environment._live_facts", "ferb/daemon/areas/about.py::About._models"]
+
+[ORCH-558]
+title = "The planner's one last tool-free call also follows an empty answer and the wrong-call cap"
+by = "agent"
+date = 2026-11-08
+status = "active"
+rule = "Refines ORCH-557 and ORCH-516, for RUN-445 and RUN-446. A planner call that ended without an answer (EmptyAnswer) or was stopped at the wrong-call cap (ToolLoop) gets ORCH-557's one last call: no tools, what its lookups found or that nothing was looked up (PRM-335). The last call's own failure is the turn's, said plainly. A lookup refused because PLANNER_LOOKUPS were spent counts toward the cap. model.turn records last_call (spent, empty, tool_loop). Other failures go on as before."
+why = "The owner chose the last call over failing at the cap (RUN-445). The empties came after real lookups as often as after made-up calls, so the same recovery serves both."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._supervise", "ferb/orchestrator/supervisor.py::LAST_CALL_NOTE", "ferb/daemon/gateway.py::Gateway._admit"]
+live = ["LIVE-822"]

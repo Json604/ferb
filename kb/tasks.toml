@@ -595,3 +595,19 @@ kind = "build"
 status = "open"
 why = "Review of b364b948 #4: the helper's store updates an existing item, keeping its ACL, so a pre-made loose ferb/api.sealed/<p> item makes later keys readable by `security -w`. The fix changes the helper's bytes (every saved secret asks again): do it with the next helper change."
 decisions = ["GATE-543", "GATE-548", "REL-404"]
+
+[T-1072]
+title = "Codex: find what a made-up function name does, against a local Responses stand-in"
+area = "runtimes"
+kind = "build"
+status = "open"
+why = "RUN-445 counts made-up tools in the API loop and Claude Code. On Codex it isn't known whether a made-up function name shows as an item or is answered inside Codex (design F15). Build RUN-412's stand-in (a local Responses server returning function_call \"x\") and report it as offered False."
+decisions = ["RUN-445", "RUN-405", "RUN-412"]
+
+[T-1073]
+title = "Check line \"Planner after a lookup\", and replay the saved empty requests through the new loop"
+area = "runtimes"
+kind = "build"
+status = "open"
+why = "Planner-answer design 2.7: a Check line whose planner makes one memory.read then answers, showing stop and blocks per call; then, owner present, the experiment's empty-prone requests replayed through ApiRuntime 4 times each (~$0.40) before rerunning RUN-442's Claude run."
+decisions = ["RUN-446", "RUN-434", "RUN-435"]

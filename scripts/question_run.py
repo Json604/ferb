@@ -310,9 +310,12 @@ def walk(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def typed_forms(nodes: list[dict[str, Any]]) -> dict[str, Any]:
     """RUN-440: model calls by the form their typed answer took (strict / stated / stated_after_refusal / none), the
     stated answers told back once in the run (asked) and how that ended (fixed / failed), the seconds those repair
-    calls took, and the planner's own repair turns after a failed answer (and how many of them ended without error)."""
+    calls took, and the planner's own repair turns after a failed answer (and how many of them ended without error).
+    RUN-446: empty answers' follow-ups (asked, then fixed or failed); RUN-445: runs stopped at the wrong-call cap;
+    ORCH-558: the planner's last tool-free calls by why, and how many ended without error."""
     by_form: dict[str, int] = {}
     repairs = {"asked": 0, "fixed": 0, "failed": 0}
+    follow_ups = {"asked": 0, "fixed": 0, "failed": 0}
     extra_ms = 0
     for n in nodes:
         if n["kind"] != "model.usage":
@@ -324,17 +327,28 @@ def typed_forms(nodes: list[dict[str, Any]]) -> dict[str, Any]:
             repairs[out["repair"]] += 1
             if out["repair"] != "asked":
                 extra_ms += int((out.get("timing") or {}).get("total_ms") or 0)
+        if out.get("follow_up") in follow_ups:
+            follow_ups[out["follow_up"]] += 1
     planner = [n for n in nodes if n["kind"] == "model.turn" and (n.get("input") or {}).get("repair")]
+    last = [n for n in nodes if n["kind"] == "model.turn" and (n.get("input") or {}).get("last_call")]
+    last_calls: dict[str, int] = {}
+    for n in last:
+        why = str(n["input"]["last_call"])
+        last_calls[why] = last_calls.get(why, 0) + 1
     return {"calls": by_form, "repairs": repairs, "repair_seconds": round(extra_ms / 1000, 1),
-            "planner_repairs": len(planner), "planner_repairs_saved": sum(1 for n in planner if not n.get("error"))}
+            "planner_repairs": len(planner), "planner_repairs_saved": sum(1 for n in planner if not n.get("error")),
+            "follow_ups": follow_ups, "last_calls": last_calls,
+            "last_calls_saved": sum(1 for n in last if not n.get("error")),
+            "tool_loops": sum(1 for n in nodes if n["kind"] == "model.tool_loop")}
 
 
 def add_forms(total: dict[str, Any], one: dict[str, Any]) -> dict[str, Any]:
-    out = {"calls": dict(total.get("calls") or {}), "repairs": dict(total.get("repairs") or {})}
-    for part in ("calls", "repairs"):
+    parts = ("calls", "repairs", "follow_ups", "last_calls")
+    out: dict[str, Any] = {part: dict(total.get(part) or {}) for part in parts}
+    for part in parts:
         for k, v in one[part].items():
             out[part][k] = out[part].get(k, 0) + v
-    for k in ("repair_seconds", "planner_repairs", "planner_repairs_saved"):
+    for k in ("repair_seconds", "planner_repairs", "planner_repairs_saved", "last_calls_saved", "tool_loops"):
         out[k] = round(total.get(k, 0) + one[k], 1)
     return out
 

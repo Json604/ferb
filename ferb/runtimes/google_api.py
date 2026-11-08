@@ -106,8 +106,9 @@ class GoogleProvider:
         if finish not in ("", "STOP"):
             raise ProviderError(f"google: the model stopped ({finish})")
         content = first.get("content") or {"role": "model", "parts": []}
-        state["body"]["contents"].append(content)        # thought signatures go back exactly as received
         parts = content.get("parts") or []
+        if parts:      # a model turn with no parts isn't sent back: the follow-up follows the last user turn (RUN-446)
+            state["body"]["contents"].append(content)    # thought signatures go back exactly as received
         calls: list[ToolCall] = []
         for p in parts:
             fc = p.get("functionCall")
@@ -118,8 +119,10 @@ class GoogleProvider:
             ident = str(fc.get("id") or f"{LOCAL_ID}{len(calls)}:{fc['name']}")
             calls.append(ToolCall(ident, str(fc["name"]), (args or {}) if ok else {}, "" if ok else "not a JSON object"))
         text = "".join(p.get("text", "") for p in parts if "text" in p and not p.get("thought"))
+        kinds = tuple("thought" if p.get("thought") else "function_call" if p.get("functionCall") else
+                      "text" if "text" in p else next(iter(p), "") for p in parts)
         return Turn(calls, None if calls else text, from_gemini(self.model, data.get("usageMetadata") or {}, billing="api"),
-                    finish)
+                    finish, kinds)
 
     def add_message(self, state: dict[str, Any], message: str) -> None:
         state["body"]["contents"].append({"role": "user", "parts": [{"text": message}]})

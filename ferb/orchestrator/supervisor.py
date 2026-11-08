@@ -78,6 +78,7 @@ from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
 from ferb.orchestrator.worker import (BUG, ConnectionNotice, ImageRefused, InvalidAnswer, Overflowed, ServiceDown,
                                       ServiceError, Stalled, WorkerRuns, account_problem, couldnt, model_limits, reason,
                                       reserve_tokens)
+from ferb.runtimes.answer_rules import AnswerMissing, ToolLoop
 from ferb.runtimes.catalog import label
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy import blocked as blocked_
@@ -170,6 +171,12 @@ LOOKUPS = ".lookups"                # a planner turn's lookup record: its reques
 # ORCH-557: the last call of a turn whose lookups are used up: no tool, and what they found
 LOOKUPS_SPENT_NOTE = ("Layer 6 — your lookups for this message are used up; no tool is offered now. What they found "
                       "(data, as returned):")
+# ORCH-558, PRM-335: the last call after a call that ended without an answer (RUN-446) or was stopped at the wrong-call
+# cap (RUN-445): no tool, and what its lookups found, or that nothing was looked up
+LAST_CALL_NOTE = ("Layer 6 — this is your last call for this message: no tool is offered now, so give your final answer "
+                  "from what you have. What your lookups found (data, as returned):")
+NOTHING_LOOKED_UP = ("Layer 6 — this is your last call for this message: no tool is offered now and nothing was looked "
+                     "up, so give your final answer from what you have.")
 RECENT_EXCHANGES = 20               # owner decision: the last 20 exchanges, always, never folded or dropped
 RECENT_CONVERSATION_TOKENS = 15_000  # with FOLD_CHUNK_TOKENS, a whole tail past both folds what lies beyond the 20
 FOLD_CHUNK_TOKENS = 20_000          # the unfolded tail folds once it holds this much beyond them; one summary call
@@ -3078,7 +3085,7 @@ class Supervisor(WorkerRuns):
     async def _supervise(self, turn: _Turn, repair: list[str] | None = None, *,
                          emit: Callable[[dict[str, Any]], None] | None = None,
                          notify: Callable[[dict[str, Any]], None] | None = None,
-                         lookups_spent: bool = False) -> SupervisorOutcome:
+                         last_call: str = "") -> SupervisorOutcome:
         """One planner call (L28). Its blocks are ordered most-stable first, so the provider caches the prefix (decision
         4, target design 5): its instructions (with the facts that hold across turns), the stable device facts, FERB's
         running summary of the older chat, every entry after it (append-only: at least the last RECENT_EXCHANGES
@@ -3088,14 +3095,16 @@ class Supervisor(WorkerRuns):
         the owner's new message. Memory, older chat, earlier tasks and today's activity are not pushed (ORCH-515): the
         planner looks them up when it needs them, read-only, through the gateway (`_lookup_grant`, ORCH-516). `emit`
         streams the reply's draft; `notify` is the turn's live line for a lost connection (fix wave 7): the owner's
-        chat stream, never a scheduled run's."""
+        chat stream, never a scheduled run's. `last_call` (ORCH-557, ORCH-558): why this is the turn's one last call,
+        with no tools and what the lookups found: "spent" (all lookups used, then the call failed), "empty" (it ended
+        without an answer, RUN-446) or "tool_loop" (stopped at the wrong-call cap, RUN-445)."""
         # FERB's own work before the model call, step by step (ORCH-525): the span the intake opened, or a new one
         prep, turn.prepare = turn.prepare, None
         if prep is None:
             prep = _Prepare(self.spans, self.clock, turn.request_id, repair=bool(repair))
         try:
-            # ORCH-557: after a call that spent its lookups and failed, one last call with no tools and what they found
-            lookups = [] if lookups_spent else self._lookup_tools(turn)
+            # ORCH-557, ORCH-558: the last call has no tools and is given what the lookups found
+            lookups = [] if last_call else self._lookup_tools(turn)
             rt = self.make_runtime("orchestrator", mode="supervisor", tool_names=lookups, schema=SUPERVISOR_SCHEMA)
             prep.steps.mark("runtime")
             session = turn.session
@@ -3145,9 +3154,11 @@ class Supervisor(WorkerRuns):
                 state.append((ContextBlock('Layer 6 — plan repair:\n' + load_prompt(self._approach() + "/repair.md")
                                            + "\n" + json.dumps(repair), "plan validation", protected=True),
                               {origins_.FERB}))
-            if lookups_spent:
+            if last_call:
                 found = self.spans.tool_outputs(turn.request_id + LOOKUPS)
-                state.append((ContextBlock(LOOKUPS_SPENT_NOTE + "\n" + "\n\n".join(text for _, _, text in found),
+                note = LOOKUPS_SPENT_NOTE if last_call == "spent" else LAST_CALL_NOTE
+                state.append((ContextBlock(note + "\n" + "\n\n".join(text for _, _, text in found)
+                                           if found or last_call == "spent" else NOTHING_LOOKED_UP,
                                            "a lookup by this request's planner (its tool call in the trace)",
                                            protected=True),
                               {o for _, made, _ in found for o in made} | {origins_.FERB}))
@@ -3178,7 +3189,8 @@ class Supervisor(WorkerRuns):
             raise
         prep.finish()
         span = self.spans.start("model.turn", task_id=None, input={"role": "supervisor", "request_id": turn.request_id,
-                                                                   "repair": bool(repair)})
+                                                                   "repair": bool(repair)}
+                                | ({"last_call": last_call} if last_call else {}))
         shape = getattr(rt, "shape", None)          # a runtime whose provider gets the schema reshaped (D32)
         draft = (ReplyDraft(self.gateway.redact, emit, shape.field if getattr(shape, "mapped", False) else None)
                  if emit is not None and isinstance(self.gateway.redact, Redactor) else None)
@@ -3191,7 +3203,7 @@ class Supervisor(WorkerRuns):
         def timing() -> dict[str, Any]:
             return {**clocked.facts(), **({"call": call} if call else {})}
         token, looker = self._lookup_grant(turn, span.id, lookups)
-        spent_retry, refused = False, ""
+        last_why, refused = "", ""
         system = self._system("supervisor.md", live=False)
         clocked.mark("ferb_before")
         try:
@@ -3224,10 +3236,13 @@ class Supervisor(WorkerRuns):
             self.spans.finish(span, output={"text": locals().get("final", ""), "timing": timing()},
                               error=f"{type(exc).__name__}: {exc}")
             self._lookups_read(turn)       # a failed turn's lookups still count for a repair's or retry's answer
-            # ORCH-557: a call that spent every lookup and then failed (no answer) gets one last call without tools
-            if (looker and not lookups_spent and self.gateway.lookups_made(looker) >= PLANNER_LOOKUPS
-                    and not isinstance(exc, (asyncio.CancelledError, ImageRefused))):
-                spent_retry = True
+            # ORCH-557: a call that spent every lookup and then failed (no answer) gets one last call without tools;
+            # ORCH-558: so does a call that ended without an answer (RUN-446) or was stopped at the wrong-call cap
+            # (RUN-445). The last call's own failure is the turn's.
+            if not last_call and not isinstance(exc, (asyncio.CancelledError, ImageRefused)) and (
+                    (looker and self.gateway.lookups_made(looker) >= PLANNER_LOOKUPS) or isinstance(exc, AnswerMissing)):
+                last_why = ("spent" if looker and self.gateway.lookups_made(looker) >= PLANNER_LOOKUPS
+                            else "tool_loop" if isinstance(exc, ToolLoop) else "empty")
             # ORCH-524: only the provider's own refusal of the image, as its adapter marked it (ImageRefused), is
             # retried without the image. Any other failure (an account, schema, timeout or network error) goes on as
             # what it is, with its own words, and costs no second call; an answer that doesn't validate goes to
@@ -3238,9 +3253,12 @@ class Supervisor(WorkerRuns):
                 refused = str(exc)
         finally:
             self._lookups_end(turn, looker)
-        if spent_retry:
-            self.journal.append("planner.lookups_spent", {"request_id": turn.request_id})
-            return await self._supervise(turn, repair, emit=emit, notify=notify, lookups_spent=True)
+        if last_why:
+            if last_why == "spent":
+                self.journal.append("planner.lookups_spent", {"request_id": turn.request_id})
+            else:
+                self.journal.append("planner.last_call", {"request_id": turn.request_id, "why": last_why})
+            return await self._supervise(turn, repair, emit=emit, notify=notify, last_call=last_why)
         # L12: a model that won't take the screenshot must not fail the message: once more without it, saying so,
         # with the provider's own words (free of the key; the journal redacts what it stores)
         self.journal.append("screen.image_refused", {"request_id": turn.request_id, "error": refused})

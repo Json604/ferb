@@ -13,7 +13,11 @@ Anthropic's structured outputs (Claude Code's StructuredOutput tool), so the sch
 (schema_shape.for_anthropic) and the answer mapped back. Claude Code sends it as the API's output_config.format, so the
 API's undocumented grammar-size refusal reaches this runtime too: a run whose first API call is refused (the result's
 `api_error_status` 400, before any output) starts again once with no output_format and the answer form stated after
-FERB's instructions, sharing the API loop's memory of which formats don't fit (RUN-427, schema_shape.Refusals)."""
+FERB's instructions, sharing the API loop's memory of which formats don't fit (RUN-427, schema_shape.Refusals). A turn
+that ends with no answer (no structured output, no result text) gets answer_rules.FOLLOW_UP once through the same
+streaming input, in strict and stated form alike; a second ends the run with an error marked `empty` (RUN-446). A call
+to a tool the run wasn't given is reported with `offered` False for the shared wrong-call cap (RUN-445); Claude Code
+itself answers it."""
 
 import asyncio
 import json
@@ -33,6 +37,7 @@ from ferb.core.errors import ModelLimitsUnknown, Unsupported
 from ferb.core.structured import check_final
 from ferb.core.timing import CallTimer, Steps
 from ferb.core.types import ModelImage, ModelLimits, ModelRequest, RunHandle, RuntimeEvent, Task
+from ferb.runtimes.answer_rules import FOLLOW_UP
 from ferb.runtimes.proxy import ToolListProxy
 from ferb.runtimes.schema_shape import (REFUSALS, Refusals, SchemaTooComplex, Shape, for_anthropic, repair_note, same,
                                         stated, unfenced)
@@ -337,12 +342,15 @@ class ClaudeRuntime:
                 if account := ACCOUNT_ERRORS.get(str(getattr(m, "error", None) or "")):
                     run.state["account"] = account   # the SDK's own error kind (AssistantMessageError), step 8b
                 for b in m.content:
+                    run.state.setdefault("blocks", []).append(_kind(b))     # RUN-446: kinds only, never content
                     if isinstance(b, ToolUseBlock):
                         run.state["emitted"] = True
                         if b.name == STRUCTURED_OUTPUT:
                             run.state["structured"] = b.input
                         else:
-                            yield RuntimeEvent("tool_call", {"tool": b.name, "arguments": b.input})
+                            # RUN-445: a name the run wasn't given counts toward the shared wrong-call cap
+                            yield RuntimeEvent("tool_call", {"tool": b.name, "arguments": b.input,
+                                                             **({} if b.name in self.allowed else {"offered": False})})
                     elif hasattr(b, "text") and b.text:
                         run.state["emitted"] = True
                         yield RuntimeEvent("message", {"text": b.text})
@@ -353,10 +361,24 @@ class ClaudeRuntime:
                 cost = m.total_cost_usd
                 if cost is not None:
                     cost, run.state["cost_so_far"] = max(cost - run.state.get("cost_so_far", 0.0), 0.0), cost
+                # RUN-446: a turn that ended with no answer at all (no structured output, no result text)
+                empty = (not getattr(m, "is_error", False) and not run.state.get("pending_updates")
+                         and getattr(m, "structured_output", None) is None and run.state.get("structured") is None
+                         and not (m.result or "").strip())
+                follow = ""
+                if run.state.get("follow_up") == "asked" and not run.state.get("pending_updates"):
+                    follow = "failed" if empty or getattr(m, "is_error", False) else "fixed"
+                    run.state["follow_up"] = "done"
+                elif empty and not run.state.get("follow_up"):
+                    follow = "asked"
                 yield RuntimeEvent("usage", asdict(from_anthropic(self.model or "claude", dict(m.usage or {}),
                                                                   billing="subscription", provider_cost=cost))
                                    | ({"timing": timer.done()} if timer is not None else {})
-                                   | ({"typed": typed} if typed else {}) | self._repair_mark(m, run, typed))
+                                   | ({"typed": typed} if typed else {})
+                                   | ({} if empty else self._repair_mark(m, run, typed))
+                                   | {"stop": str(getattr(m, "stop_reason", None) or m.subtype or ""),
+                                      "blocks": run.state.pop("blocks", [])}
+                                   | ({"follow_up": follow} if follow else {}))
                 if getattr(m, "is_error", False):
                     if (typed == "strict" and getattr(m, "api_error_status", None) == 400
                             and not run.state.get("emitted") and m.subtype != STRUCTURED_RETRIES):
@@ -378,6 +400,16 @@ class ClaudeRuntime:
                     # A late result from the previous input cannot finish accepted corrections.
                     run.state.pop("structured", None)
                     continue
+                if empty:
+                    if follow == "asked":
+                        # RUN-446: asked once, in the same conversation, to give its answer
+                        run.state["follow_up"] = "asked"
+                        await self.continue_(run, FOLLOW_UP)
+                        continue
+                    run.state["closed"] = True
+                    yield RuntimeEvent("error", {"message": "claude: the model ended without an answer twice",
+                                                 "empty": True})
+                    return
                 structured = getattr(m, "structured_output", None) or run.state.get("structured")
                 text = m.result or ""
                 if structured is not None:
@@ -459,3 +491,10 @@ class ClaudeRuntime:
 def _remove_token(path: Path | None) -> None:
     if path is not None:
         shutil.rmtree(path.parent, ignore_errors=True)
+
+
+def _kind(block: Any) -> str:
+    """A content block's kind as the Messages API names it (TextBlock -> text, ToolUseBlock -> tool_use), never its
+    content (RUN-446)."""
+    name = type(block).__name__.removesuffix("Block")
+    return "".join("_" + c.lower() if c.isupper() and i else c.lower() for i, c in enumerate(name))

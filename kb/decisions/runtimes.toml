@@ -455,3 +455,27 @@ status = "active"
 rule = "For RUN-443. Groups from ps (pid, ppid, rss, command): the daemon (-m ferb.daemon), its descendants, FERBNotch's tree, ferb.native_host, each browser's bundle and children. A group's CPU is the sum over its live processes of libproc's own CPU plus its ended, waited-for children's (MacReadings), at the turn's start and end, so short-lived commands count without sampling. A 2 s look keeps RSS and footprint peaks and the busiest children. Read-only from ferb.db: other task trees and resource_samples rows overlapping the turn. A failed ps or a daemon restart is reported, never zero."
 why = "resource_samples (5 min) are too coarse per task and leave out the browsers. Counters at the turn's edges are exact for anything reaped inside its group (lost only if re-parented, e.g. a double fork); 2 s sampling would miss a sub-second command. question_compare.py adds per-task CPU and totals."
 paths = ["scripts/question_run.py::Meter", "scripts/question_run.py::groups", "scripts/question_run.py::background", "scripts/question_compare.py::totals"]
+
+[RUN-445]
+title = "Wrong calls stop a model run at 10: made-up tools and lookups refused after they were spent"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "Yes, at 10 (Recommended)"
+words_source = "The owner, 2026-11-08, on \"the wrong-call backstop (counts only made-up tools and refused lookups; the planner then answers from one last no-tools call instead of failing)\"."
+rule = "Every model run of every role and runtime counts its wrong calls: a call to a tool the run wasn't offered, and a call FERB's gateway refused because the grant's calls were spent (the planner's lookups, ORCH-516). Lookups and tools that ran never count. At WRONG_CALLS_CAP (10) the shared run stops the run (ToolLoop) and records a model.tool_loop span. The planner then answers from one last call with no tools and what its lookups found (ORCH-558); a worker's attempt ends with the reason."
+why = "On 2026-11-08 two Sonnet planner turns called the made-up tool `x` 816 and 866 times, about 21 minutes each, $13.04 together; FERB had no limit. Of 47 successful Sonnet turns a cap of 10 would have touched 3, each of which still answers through the last call."
+evidence = "Owner, same day: \"i want a detailed, throught and correct fix wuthouth breaking ferb now\"; \"im not fullt in favor of a limit, cause that would resutl in amny reasponses failling\" (answered: only wrong calls count; the planner answers through the last call)."
+paths = ["ferb/runtimes/answer_rules.py::WRONG_CALLS_CAP", "ferb/orchestrator/worker.py::WorkerRuns._run_once", "ferb/daemon/gateway.py::Gateway.calls_refused", "ferb/runtimes/api.py::ApiRuntime._events", "ferb/runtimes/claude_sdk.py::ClaudeRuntime._events"]
+live = ["LIVE-410", "LIVE-822"]
+
+[RUN-446]
+title = "An empty answer gets one follow-up where the run can go on; each call records how it ended"
+by = "agent"
+date = 2026-11-08
+status = "active"
+rule = "For PRM-334 and RUN-445 (answer_rules.py). Empty: no answer text and no tool call. The API loop and Claude Code send FOLLOW_UP once per run after the model's turn, kept as returned (Gemini drops a turn with no parts); a second empty ends the run marked `empty` (EmptyAnswer). A Codex turn completed with no answer is marked `empty`. Usage reports carry stop, blocks (kinds, never content) and follow_up (asked, fixed, failed). A tool the run wasn't offered is a tool_call with offered False. Refines RUN-440."
+why = "28 of 80 claude-sonnet-5-5 planner turns on 2026-11-08 ended empty (end_turn with no blocks; tool_use with no block; thinking only) and failed. The experiment recovered every one with the follow-up, the API accepting the empty assistant turn before it."
+evidence = "Raw streams: message_start → message_delta{stop_reason end_turn} → message_stop with no content_block (req_011CgqexXkZ1fGf6MEUUSBy3); {stop_reason tool_use, blocks []} (23 tokens); {stop_reason tool_use, blocks [thinking \"\" + signature]} (41 tokens)."
+paths = ["ferb/runtimes/answer_rules.py::is_empty", "ferb/runtimes/api.py::ApiRuntime._events", "ferb/runtimes/api.py::Turn", "ferb/runtimes/anthropic_api.py::AnthropicProvider.parse", "ferb/runtimes/openai_api.py::OpenAIProvider.parse", "ferb/runtimes/google_api.py::GoogleProvider.parse", "ferb/runtimes/claude_sdk.py::ClaudeRuntime._events", "ferb/runtimes/codex_stream.py::ProtocolError", "scripts/question_run.py::typed_forms"]
+live = ["LIVE-822"]

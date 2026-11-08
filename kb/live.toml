@@ -433,8 +433,8 @@ title = "Anthropic API: planner schema accepted, unknown tool, prices"
 area = "runtimes"
 surface = "FERB.app with the owner's Anthropic API key"
 request = "A planner turn on SUPERVISOR_SCHEMA; a worker that calls a made-up tool name; read the usage spans of a claude-haiku-5-5 run."
-pass = "No \"too many parameters with union types\"; the answer maps back and a plan streams; the made-up tool gets a tool error and the worker goes on; haiku-5-5 spans carry a cost."
-decisions = ["RUN-400", "RUN-408"]
+pass = "No \"too many parameters with union types\"; the answer maps back and a plan streams; the made-up tool gets a tool error and the worker goes on; haiku-5-5 spans carry a cost. Since RUN-445: that holds below 10 made-up calls; at 10 the attempt ends with \"kept calling tools it wasn't given\" and a model.tool_loop span."
+decisions = ["RUN-400", "RUN-408", "RUN-445"]
 sitting = "step 13, sitting 2"
 waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
@@ -3519,4 +3519,13 @@ surface = "FERB.app with this build; three desktops (Spaces), one of them the ho
 request = "Open Settings (menu bar icon → Settings…) on desktop 2. Go to desktop 3 and to the home desktop, and on each click the menu bar icon, then click it again with Settings closed. From desktop 3 open Settings… and Open FERB Window from the menu bar icon, Settings… from the notch's (and the sticky window's) profile menu, and press ⌘, with FERB in front. In Settings → AI open the Provider picker. Attach a file with the chat's paperclip, and Quick Look an artifact."
 pass = "The menu bar icon's menu opens on every desktop on the first click, with Settings open elsewhere or closed. Every FERB window, picker, menu, file picker and Quick Look opens on the desktop you're on; you're never moved to another desktop. Settings left on desktop 2 stays there until you ask for it from another desktop, then comes to you. The notch and sticky window stay put; FERB's Dock icon shows while its window is open (perhaps once you click another app)."
 decisions = ["APP-796", "APP-600", "APP-773", "APP-774"]
+sitting = "after this change is installed"
+
+[LIVE-822]
+title = "Anthropic API planner: an empty answer recovers, a wrong-call loop ends in an answer"
+area = "runtimes"
+surface = "FERB.app with this build on the owner's Anthropic API key (claude-sonnet-5-5), then on Claude"
+request = "Chat requests that need a lookup first (\"how much did I spend on food in October?\", \"what did he say about the battery? timestamp pls\", a tech-news request), several times each; then read `ferb trace` of each turn."
+pass = "No turn fails with \"ended without an answer\" on its first empty; a turn either answers or says plainly it couldn't. Each model.usage span shows stop and blocks; an empty call shows follow_up asked, the next fixed. No turn runs on for minutes calling made-up tools: a model.tool_loop span appears by the 10th wrong call and the reply still comes from the last call (model.turn last_call)."
+decisions = ["RUN-445", "RUN-446", "ORCH-558", "PRM-334"]
 sitting = "after this change is installed"

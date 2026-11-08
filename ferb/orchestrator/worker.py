@@ -28,6 +28,7 @@ from ferb.core.types import ModelImage, ModelLimits, ModelRequest, Outcome, RunH
 from ferb.orchestrator.tree import TaskRecord
 from ferb.orchestrator.steering import deliver as deliver_steering
 from ferb.orchestrator import progress
+from ferb.runtimes.answer_rules import WRONG_CALLS_CAP, AnswerMissing, EmptyAnswer, ToolLoop
 from ferb.runtimes.catalog import SignedOut
 
 if TYPE_CHECKING:
@@ -416,10 +417,11 @@ class WorkerRuns:
                 raise InvalidAnswer(f"the answer is not JSON ({exc.msg})") from None
             if not isinstance(result, dict):
                 raise InvalidAnswer("the answer is not a JSON object")
-        except RuntimeViolation as e:
+        except (RuntimeViolation, AnswerMissing) as e:
             failure = f"{type(e).__name__}: {e}"
             # Plain words with the reason, which the owner may read (L11, owner 2026-10-24); the exact failure is
-            # evidence for recovery
+            # evidence for recovery. A run that ended without an answer by the shared rules (RUN-445, RUN-446) fails
+            # this attempt the same way; the checker and ORCH-307 decide what comes next.
             result = Outcome(task.id, "failed", "This attempt was stopped: " + reason(e, self.gateway.redact), [],
                              [failure])
         except ServiceError as e:
@@ -633,6 +635,7 @@ class WorkerRuns:
         if tree is not None:
             tree.steering.delivered[run.id] = revision
         final = ""
+        made_up = 0                 # RUN-445: calls to tools this run wasn't offered, as its adapter reported them
         try:
             if tree is not None and tree.stop:
                 raise ValueError("task stopped while the runtime was starting")
@@ -655,6 +658,8 @@ class WorkerRuns:
                     if on_delta is not None:
                         on_delta(str(ev.data.get('text', '')))
                 elif ev.kind == "tool_call":
+                    if ev.data.get("offered") is False:
+                        made_up += 1
                     if on_tool is not None:
                         on_tool()
                 elif ev.kind == "usage":
@@ -687,6 +692,8 @@ class WorkerRuns:
                     raise ContextOverflow(str(ev.data.get("message")), rt.name)
                 elif ev.kind == "error" and ev.data.get("image"):        # the provider refused the image, as marked
                     raise ImageRefused(str(ev.data.get("message")), rt.name)
+                elif ev.kind == "error" and ev.data.get("empty"):        # no answer twice, as marked (RUN-446)
+                    raise EmptyAnswer(str(ev.data.get("message")), rt.name)
                 elif ev.kind == "error":
                     account = str(ev.data.get("account") or "")      # the adapter's account fact (step 8b)
                     if account == "signed_out":
@@ -705,6 +712,16 @@ class WorkerRuns:
                             "returncode": ev.data.get("returncode"),
                             "meaning": "tool names observed in provider request traces; not proof of invocation or complete deferred inventory"})
                     final = str(ev.data.get("text", ""))
+                # RUN-445: wrong calls (made-up tools, and lookups the gateway refused once they were spent; lookups
+                # and tools that ran never count) stop the run at the cap; the finally below cancels it
+                refused = self.gateway.calls_refused(watch_id)
+                if made_up + refused >= WRONG_CALLS_CAP and ev.kind != "final":
+                    s = self.spans.start("model.tool_loop", task_id=task.id if task.id != task.request_id else None,
+                                         parent_id=parent_span, input={"runtime": rt.name})
+                    self.spans.finish(s, output={"wrong_calls": made_up + refused, "made_up": made_up,
+                                                 "refused_lookups": refused, "cap": WRONG_CALLS_CAP},
+                                      error="stopped at the wrong-call cap")
+                    raise ToolLoop(rt.name, made_up + refused)
         finally:
             steps.mark("stream")
             watchdog.cancel()

@@ -81,6 +81,7 @@ def write_template(codex_home: Path, workdir: Path, thread_id: str, model: str, 
 class ProtocolError(ValueError):
     overflow = False       # Codex's CodexErrorInfo `contextWindowExceeded`: the model's window overflowed
     account = ''           # "usage_limit" / "signed_out" from its CodexErrorInfo (ACCOUNT_INFO), else ''
+    empty = False          # the turn completed with no final answer (RUN-446)
 
 
 # Codex's CodexErrorInfo (app-server protocol v2) values that are account facts no model can change (step 8b, owner
@@ -689,8 +690,12 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                     await _finish_trace(run)
                     await _check_catalog(run)
                     if turn.get('status') != 'completed' or turn.get('error') or not final:
-                        raise _codex_failure('Codex runtime did not complete its final answer', turn.get('error'),
-                                             runtime.redact, runtime)
+                        failure = _codex_failure('Codex runtime did not complete its final answer', turn.get('error'),
+                                                 runtime.redact, runtime)
+                        # RUN-446: a turn Codex completed with no answer is an empty answer (a supervisor run can't
+                        # be continued with a follow-up, so the shared path decides: the planner's last call)
+                        failure.empty = turn.get('status') == 'completed' and not turn.get('error')
+                        raise failure
                     # the answer is checked against the schema once, by FERB's caller (core/structured.check_final)
                     for text in pending_text:
                         yield RuntimeEvent('text_delta', {'text': text})
@@ -779,7 +784,8 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
             message = 'Codex runtime timed out' if isinstance(exc, TimeoutError) else str(exc)
             yield RuntimeEvent('error', {'message': message} | ({'overflow': True} if getattr(exc, 'overflow', False)
                                                                 else {})
-                               | ({'account': exc.account} if getattr(exc, 'account', '') else {}))
+                               | ({'account': exc.account} if getattr(exc, 'account', '') else {})
+                               | ({'empty': True} if getattr(exc, 'empty', False) else {}))
     finally:
         if reading is not None:
             reading.cancel()

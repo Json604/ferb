@@ -8,8 +8,13 @@ provider refuses (HTTP 400 while it carried one, and the same request without it
 stated in the instructions, one shared path for every provider (RUN-427, `_call`): each such answer is checked against
 the core schema and one that doesn't fit is told back once; each usage report says which form the call used (`typed`).
 A call to a tool the run wasn't offered gets a tool error back and nothing runs (no provider-hosted tool is ever
-enabled, so it can only be a made-up name). No turn or token budget; stop, the stall watchdog and the call's own time
-limit (none for a worker) end a run. Keys come from the Keychain at start and never appear in errors."""
+enabled, so it can only be a made-up name); it is reported as a `tool_call` event with `offered` False, which the shared
+run counts toward the wrong-call cap (RUN-445, answer_rules.py). A call that hands over nothing (no answer text, no tool
+call) gets one follow-up in the same conversation (answer_rules.FOLLOW_UP); a second ends the run with an error marked
+`empty` (RUN-446). Each usage report says how its call ended (`stop`), the kinds of its output pieces (`blocks`) and the
+follow-up (`follow_up`), never content. No turn or token budget of its own beyond those; stop, the stall watchdog and
+the call's own time limit (none for a worker) end a run. Keys come from the Keychain at start and never appear in
+errors."""
 
 import asyncio
 import json
@@ -25,6 +30,7 @@ from ferb.core.errors import FerbError, Unsupported
 from ferb.core.structured import check_final
 from ferb.core.timing import CallTimer
 from ferb.core.types import ModelLimits, ModelRequest, RunHandle, RuntimeEvent, Task
+from ferb.runtimes.answer_rules import FOLLOW_UP, is_empty
 from ferb.runtimes.schema_shape import (REFUSALS, Refusals, SchemaTooComplex, Shape, repair_note, same, stated,
                                         unfenced)
 from ferb.runtimes.usage import Usage
@@ -91,6 +97,7 @@ class Turn:
     final: str | None
     usage: Usage
     stop: str = ""
+    blocks: tuple[str, ...] = ()     # the kinds of the call's output pieces as the provider names them (RUN-446)
 
 
 class Provider(Protocol):
@@ -173,6 +180,8 @@ class _Run:
     # instructions: refused earlier or over a counted limit), "stated_after_refusal" (refused on this run)
     typed: str = ""
     repaired: bool = False                      # a stated answer that didn't fit was told back (once)
+    # RUN-446: an empty answer's one follow-up: "" (none yet), "asked" (sent, the next call says how it went), "done"
+    follow_up: str = ""
 
 
 class ApiRuntime:
@@ -299,7 +308,7 @@ class ApiRuntime:
                                        ({"image": True} if e.image else {}))
                     return
                 final, misfit = "", None
-                if not turn.calls and turn.final and not r.updates:
+                if not turn.calls and (turn.final or "").strip() and not r.updates:
                     final = unfenced(turn.final) if r.typed.startswith("stated") else turn.final
                     final = self.shape.answer_text(final) if self.shape else final
                     if r.typed.startswith("stated"):
@@ -311,14 +320,28 @@ class ApiRuntime:
                 # form its typed answer took; RUN-440: a stated answer's in-run repair (asked, then fixed or failed)
                 repair = (("failed" if misfit is not None else "fixed") if r.repaired and final
                           else "asked" if misfit is not None else "")
+                # RUN-446: an empty answer (no text, no call) is asked once to answer; the call after says how it went
+                empty = is_empty(turn.calls, turn.final)
+                follow = ""
+                if r.follow_up == "asked":
+                    follow, r.follow_up = ("failed" if empty else "fixed"), "done"
+                elif empty and not r.updates and not r.follow_up:
+                    follow = "asked"
                 yield RuntimeEvent("usage", asdict(turn.usage) | ({"timing": r.timer.done()} if r.timer else {})
-                                   | ({"typed": r.typed} if r.typed else {}) | ({"repair": repair} if repair else {}))
+                                   | ({"typed": r.typed} if r.typed else {}) | ({"repair": repair} if repair else {})
+                                   | {"stop": turn.stop, "blocks": list(turn.blocks)}
+                                   | ({"follow_up": follow} if follow else {}))
                 if not turn.calls:
                     if r.updates:
                         continue  # The answer predates an accepted owner correction.
-                    if not turn.final:
+                    if empty:
+                        if follow == "asked":
+                            r.follow_up = "asked"
+                            self.provider.add_message(r.state, FOLLOW_UP)
+                            continue
                         r.closed = True
-                        yield RuntimeEvent("error", {"message": f"{self.name}: the model ended without an answer"})
+                        yield RuntimeEvent("error", {"message": f"{self.name}: the model ended without an answer "
+                                                                "twice", "empty": True})
                         return
                     if misfit is not None and not r.repaired:
                         # RUN-427: nothing enforced the form, so one answer outside it is told back once; a second
@@ -332,7 +355,12 @@ class ApiRuntime:
                 results = []
                 for call in turn.calls:
                     if call.name not in r.names:
-                        # a name this run was never offered: nothing runs, and the model is told so and goes on
+                        # a name this run was never offered: nothing runs, the shared run counts it (RUN-445), and the
+                        # model is told so and goes on
+                        yield RuntimeEvent("tool_call", {"tool": call.name, "arguments": call.arguments,
+                                                         "offered": False})
+                        if r.cancelled:
+                            return
                         results.append(ToolOutcome(call, f"FERB refused: no tool named {call.name!r} was offered to "
                                                          "this run; use one of the tools listed for it.", True))
                         continue
