@@ -348,9 +348,13 @@ struct AISettingsPage: View {
             WindowPage {
                 WindowSettingsSection { AIStepView(model: setup) }
                 WindowSettingsSection(title: "Check") {
-                    Button(store.checkingRuntime ? "Checking…" : "Check connection") {
+                    Button(store.checkingRuntime ? "Checking… (five small calls)" : "Check connection") {
                         Task { await store.checkRuntime(setup.ai?.current ?? "codex") }
                     }.disabled(store.checkingRuntime || output.running)
+                    ForEach(store.checkLines) { line in
+                        Text(verbatim: line.text).font(.caption).foregroundStyle(line.ok ? .secondary : .primary)
+                            .textSelection(.enabled)
+                    }
                     if let result = store.runtimeResult {
                         Text(result).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                     }

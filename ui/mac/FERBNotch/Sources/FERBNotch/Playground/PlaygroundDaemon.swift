@@ -86,6 +86,14 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
             let runtime = params["runtime"] as? String ?? "codex"
             return ["runtime": runtime, "model": "sample-model-1", "models": ["sample-model-1", "sample-model-2"],
                     "roles": [String: Any]()]
+        case "runtimes.check_calls":       // invented lines: the playground reaches no provider
+            await state.pause(1.0)
+            let names = ["Planner call (its real schema, lookups offered)", "Tool call with no arguments",
+                         "Tool call with arguments", "Worker call (tools, its typed report)", "Checker call (its schema)",
+                         "A picture in the request"]
+            return ["ok": true, "total_cost_usd": 0.0, "lines": names.map {
+                ["name": $0, "ok": true, "detail": "", "model": "sample-model-1", "typed": "strict", "seconds": 0.4,
+                 "input_tokens": 0, "output_tokens": 0] as [String: Any] }]
         case "runtimes.model":
             await state.pause(0.6)
             return ["ok": true, "model": params["model"] as? String ?? "", "detail": "answered"]

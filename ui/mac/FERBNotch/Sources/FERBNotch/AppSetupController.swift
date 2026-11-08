@@ -72,10 +72,11 @@ final class AppSetupController: NSObject {
     var makeArrival: () -> IntroArrivalShowing? = { StartupArrival() }
 
     lazy var model: SetupModel = {
-        injectedModel ?? SetupModel(rpc: DaemonRPC(), runner: SetupCommand(launcher: launcher),
-                                    app: SystemAppPermissions(), system: SystemOpener(),
-                                    keys: KeychainAPIKeyStore(), service: DaemonService(),
-                                    background: isPackaged ? background : nil)
+        if let injectedModel { return injectedModel }
+        let rpc = DaemonRPC()
+        return SetupModel(rpc: rpc, runner: SetupCommand(launcher: launcher), app: SystemAppPermissions(),
+                          system: SystemOpener(), keys: DaemonAPIKeyStore(rpc: rpc), service: DaemonService(),
+                          background: isPackaged ? background : nil)
     }()
 
     var isPackaged: Bool {

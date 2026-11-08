@@ -307,56 +307,23 @@ final class SystemOpener: SystemOpening {
     func reveal(_ path: String) { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
 }
 
-/// An API key goes from the setup window straight into the Keychain (L34 C, rule 14): written on `security`'s stdin
-/// (`security -i`), never as an argument other processes could read, never to the daemon, a log or FERB's settings. The
-/// item is the one the daemon's runtimes read (ferb/runtimes/keys.py), so the daemon's runtimes read it the same way. Only its presence is checked
-/// afterwards, never its value.
+/// An API key goes from the setup window to FERB's daemon over FERB.app's signed connection (`keys.store`, APP_ONLY),
+/// which stores it through FERB's signed secret helper (GATE-543: an item `security` writes trusts /usr/bin/security,
+/// which any program can run to read it). Never an argument, a log or FERB's settings; the field never keeps it.
 @MainActor
-struct KeychainAPIKeyStore: APIKeyStoring {
+struct DaemonAPIKeyStore: APIKeyStoring {
+    let rpc: DaemonRPCTransport
+
     func store(provider: APIProvider, key: String) async -> Bool {
-        guard let command = APIKeyEntry.command(provider: provider, key: key) else { return false }
-        let account = APIKeyEntry.account(provider)
-        return await Task.detached {
-            let writer = Process()
-            writer.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-            writer.arguments = ["-i"]
-            let input = Pipe()
-            writer.standardInput = input
-            writer.standardOutput = FileHandle.nullDevice
-            writer.standardError = FileHandle.nullDevice
-            do { try writer.run() } catch { return false }
-            try? input.fileHandleForWriting.write(contentsOf: Data((command + "quit\n").utf8))
-            try? input.fileHandleForWriting.close()
-            writer.waitUntilExit()
-            let check = Process()
-            check.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-            check.arguments = ["find-generic-password", "-s", "ferb", "-a", account]   // no -w: presence only
-            check.standardOutput = FileHandle.nullDevice
-            check.standardError = FileHandle.nullDevice
-            do { try check.run() } catch { return false }
-            check.waitUntilExit()
-            return check.terminationStatus == 0
-        }.value
+        guard APIKeyEntry.isStorable(key) else { return false }
+        let reply = try? await rpc.call("keys.store", params: ["provider": provider.rawValue, "key": key], wait: 30)
+        return reply?["stored"] as? Bool == true
     }
 
-    /// The owner's Remove key (APP-792): `security delete-generic-password` for that provider's item only, then a
-    /// presence check (no -w) that none is left.
+    /// The owner's Remove key (APP-792): the daemon deletes it through the helper (an older item too).
     func remove(provider: APIProvider) async -> Bool {
-        let account = APIKeyEntry.account(provider)
-        return await Task.detached {
-            func security(_ arguments: [String]) -> Int32 {
-                let run = Process()
-                run.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-                run.arguments = arguments
-                run.standardOutput = FileHandle.nullDevice
-                run.standardError = FileHandle.nullDevice
-                do { try run.run() } catch { return -1 }
-                run.waitUntilExit()
-                return run.terminationStatus
-            }
-            _ = security(["delete-generic-password", "-s", "ferb", "-a", account])
-            return security(["find-generic-password", "-s", "ferb", "-a", account]) != 0
-        }.value
+        let reply = try? await rpc.call("keys.delete", params: ["provider": provider.rawValue], wait: 30)
+        return reply?["removed"] as? Bool == true
     }
 }
 

@@ -97,7 +97,7 @@ final class PlaygroundModeTests: XCTestCase {
         // No Keychain, no setup command, no macOS permission request, no System Settings, no launchd, no SMAppService,
         // no microphone.
         XCTAssertTrue(services.setup.keys is PlaygroundKeys)
-        XCTAssertFalse(services.setup.keys is KeychainAPIKeyStore)
+        XCTAssertFalse(services.setup.keys is DaemonAPIKeyStore)
         XCTAssertTrue(services.setup.runner is PlaygroundRunner)
         XCTAssertFalse(services.setup.runner is SetupCommand)
         XCTAssertTrue(services.setup.app is PlaygroundAppPermissions)

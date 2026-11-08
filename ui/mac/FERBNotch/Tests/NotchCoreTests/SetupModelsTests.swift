@@ -14,12 +14,10 @@ final class SetupModelsTests: XCTestCase {
     }
 
     // decision: APP-593
-    func testAPIKeyLineCarriesTheKeyAsOneWordOrNothing() {
-        XCTAssertEqual(APIKeyEntry.command(provider: .openai, key: "sk-proj-AbC_123"),
-                       "add-generic-password -U -s ferb -a api/openai -w sk-proj-AbC_123\n")
-        XCTAssertEqual(APIKeyEntry.account(.google), "api/google")
+    func testAnAPIKeyIsOneWordOrNothing() {
+        XCTAssertTrue(APIKeyEntry.isStorable("sk-proj-AbC_123"))
         for bad in ["", "two words", "quote\"d", "it's", "back\\slash", "tab\tkey", "ключ", "line\nbreak"] {
-            XCTAssertNil(APIKeyEntry.command(provider: .anthropic, key: bad), bad)
+            XCTAssertFalse(APIKeyEntry.isStorable(bad), bad)
         }
     }
 
@@ -53,5 +51,24 @@ final class SetupModelsTests: XCTestCase {
         XCTAssertEqual(none.problem, "HTTP 403: API key not valid")
         XCTAssertNil(ModelList(reply: ["model": "x"]))
         XCTAssertEqual(RoleCopy.label("orchestrator"), "Planner")
+    }
+
+    // decision: RUN-434
+    /// Settings → AI's Check: one line per call shape, the provider's words after a failure, and the total.
+    func testTheConnectionCheckSaysEachCallsResultAndTheTotal() {
+        let check = ConnectionCheck(reply: [
+            "ok": false, "total_cost_usd": 0.0123,
+            "lines": [["name": "Planner call", "ok": false, "detail": "HTTP 400: The compiled grammar is too large",
+                       "model": "claude-sonnet-5-5", "typed": "strict", "seconds": 1.5, "input_tokens": 900,
+                       "output_tokens": 0],
+                      ["name": "Tool call with no arguments", "ok": true, "detail": "", "model": "claude-sonnet-5-5",
+                       "typed": "stated_after_refusal", "seconds": 0.0, "input_tokens": 0, "output_tokens": 0,
+                       "cost_usd": 0.0021]]])
+        XCTAssertEqual(check.lines.count, 2)
+        XCTAssertEqual(check.lines[0].text, "✗ Planner call — claude-sonnet-5-5, typed strict, 1.5 s, 900 tokens: "
+                       + "HTTP 400: The compiled grammar is too large")
+        XCTAssertTrue(check.lines[1].text.hasPrefix("✓ Tool call with no arguments — claude-sonnet-5-5, typed "
+                                                    + "stated_after_refusal"))
+        XCTAssertEqual(check.summary, "1 of 2 checks passed. Cost: $0.0123.")
     }
 }

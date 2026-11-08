@@ -3493,3 +3493,12 @@ request = "Open Settings → AI. Switch to ChatGPT, then press Use Anthropic on 
 pass = "The Anthropic card shows Key saved and Use without asking for the key; Use switches back after one check (a failing one keeps ChatGPT and says why); the model list comes from Anthropic; a wrong model id keeps the old model and shows Anthropic's words. The Claude card shows claude-opus-5-5 in use and FERB answers on Claude."
 decisions = ["RUN-431", "RUN-432", "RUN-433", "APP-791", "APP-792"]
 sitting = "after this change is installed"
+
+[LIVE-819]
+title = "Check each AI connection with real calls"
+area = "runtimes"
+surface = "FERB.app with this build; Codex and Claude signed in; Anthropic, OpenAI and Gemini keys saved"
+request = "For each of the five connections in turn: Use it in Settings → AI, then press Check connection."
+pass = "Each check shows six lines (planner call, tool call with no arguments, tool call with arguments, worker call, checker call, a picture) with pass or fail, the model, the typed form, time, tokens and cost, and a total of a few cents; a failure shows the provider's own words. The saved keys are moved without asking you for them again (at most one Keychain prompt per key)."
+decisions = ["RUN-434", "RUN-435", "GATE-543"]
+sitting = "after this change is installed"

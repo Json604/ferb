@@ -342,6 +342,49 @@ public struct ModelList: Equatable {
     public func listed(_ model: String) -> Bool { models.contains(model) }
 }
 
+/// `runtimes.check_calls`' reply (T-1069): one line per call shape FERB really makes, and the total cost.
+public struct ConnectionCheck: Equatable {
+    public struct Line: Equatable, Identifiable {
+        public var id: String { name }
+        public let name: String
+        public let ok: Bool
+        public let detail: String
+        public let model: String
+        public let typed: String
+        public let seconds: Double
+        public let tokens: Int
+        public let cost: Double?
+
+        /// "✓ Planner call — claude-opus-5-5, typed strict, 2.1 s, 1,204 tokens, $0.0031" (the provider's words after a ✗)
+        public var text: String {
+            var facts = [model, "typed \(typed)", String(format: "%.1f s", seconds), "\(tokens) tokens"].filter { !$0.isEmpty }
+            if let cost { facts.append(String(format: "$%.4f", cost)) }
+            return (ok ? "✓ " : "✗ ") + name + " — " + facts.joined(separator: ", ") + (ok || detail.isEmpty ? "" : ": " + detail)
+        }
+    }
+    public let lines: [Line]
+    public let ok: Bool
+    public let totalCost: Double?
+
+    public init(reply: [String: Any]) {
+        lines = (reply["lines"] as? [[String: Any]] ?? []).map { row in
+            Line(name: row["name"] as? String ?? "", ok: row["ok"] as? Bool ?? false, detail: row["detail"] as? String ?? "",
+                 model: row["model"] as? String ?? "", typed: row["typed"] as? String ?? "none",
+                 seconds: row["seconds"] as? Double ?? Double(row["seconds"] as? Int ?? 0),
+                 tokens: (row["input_tokens"] as? Int ?? 0) + (row["output_tokens"] as? Int ?? 0),
+                 cost: row["cost_usd"] as? Double)
+        }
+        ok = reply["ok"] as? Bool ?? false
+        totalCost = reply["total_cost_usd"] as? Double
+    }
+
+    public var summary: String {
+        let passed = lines.filter(\.ok).count
+        let cost = totalCost.map { String(format: " Cost: $%.4f.", $0) } ?? ""
+        return "\(passed) of \(lines.count) checks passed.\(cost)"
+    }
+}
+
 /// The owner's words for FERB's roles.
 public enum RoleCopy {
     public static func label(_ role: String) -> String {
@@ -361,11 +404,8 @@ public enum APIProvider: String, CaseIterable, Identifiable {
     }
 }
 
-/// The Keychain item the daemon's API runtimes read (service "ferb", account "api/<provider>"), written by FERB.app on
-/// `security -i`'s stdin (rule 14: never an argument).
+/// A key FERB.app hands the daemon (GATE-543), which stores it through FERB's signed secret helper.
 public enum APIKeyEntry {
-    public static func account(_ provider: APIProvider) -> String { "api/" + provider.rawValue }
-
     /// A key the Keychain line carries as one word: printable ASCII with no spaces, quotes or backslashes.
     public static func isStorable(_ key: String) -> Bool {
         !key.isEmpty && key.unicodeScalars.allSatisfy { scalar in
@@ -373,10 +413,6 @@ public enum APIKeyEntry {
         }
     }
 
-    /// `security -i`'s line that stores it (`-U` replaces an earlier key for that provider), or nil.
-    public static func command(provider: APIProvider, key: String) -> String? {
-        isStorable(key) ? "add-generic-password -U -s ferb -a \(account(provider)) -w \(key)\n" : nil
-    }
 }
 
 /// Getting to know you (`setup.persona`, MEM-13): what FERB saw on this Mac, shown once as

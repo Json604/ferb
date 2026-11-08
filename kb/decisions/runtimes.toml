@@ -349,3 +349,22 @@ words = "we are not giving correct settings ot users imo. theres no save for teh
 words_source = "Owner 2026-11-08 07:24, with a screenshot: Claude sign-in failed \"I couldn't start that: no model is chosen for Claude.\""
 rule = "Settings → AI shows \"<provider> key saved\" for a key the Keychain holds (read for presence, never shown), gives it its own card (APP-792), never asks again for a saved key, and shows the model each connection uses with its picker. A Claude sign-in runs with its default model."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift::AIStepView"]
+
+[RUN-434]
+title = "Settings → AI's Check sends the call shapes FERB really makes, one line each"
+by = "agent"
+date = 2026-11-08
+status = "active"
+rule = "For RUN-435. runtimes.check_calls {runtime, model?} runs, through the connection's real adapter and model: a planner call with SUPERVISOR_SCHEMA and the planner's lookup tools offered; a worker call that calls check.ping (no arguments) and check.echo (an argument) and answers in WORKER_SCHEMA; a checker call in CHECKER_SCHEMA; a call with a 16 px generated PNG. Each line: pass or fail, the provider's words redacted, model, typed form, seconds, tokens, cost; and the total. The check tools exist only during the check and touch nothing."
+why = "The old Check (one call, a 1-field schema, no tools) said the Anthropic key answered while every planner call failed (a grammar too large, empty tool arguments)."
+paths = ["ferb/runtimes/check.py", "ferb/daemon/areas/runtimes.py::Runtimes._runtimes_check_calls", "ferb/daemon/areas/runtimes.py::Runtimes._check_call"]
+
+[RUN-435]
+title = "A real-call check of each connection, run on the owner's own services"
+by = "owner"
+date = 2026-11-08
+status = "active"
+words = "yes lets run a few same tasks on codex, claude code, anthropic api key, openai api key(i have credits), and a free gemini key"
+words_source = "Owner 2026-11-08, asked: Build and run the real-call provider check (T-1069) now on your Anthropic key, before the 35-task run, and before every future release?"
+rule = "Settings → AI's Check runs the same small set of real calls (planner, tools, worker, checker, a picture) on whichever connection is in use, costing cents, and shows each result; the owner runs it on Codex, Claude, the Anthropic, OpenAI and Gemini keys, and before every release."
+paths = ["ferb/daemon/areas/runtimes.py::Runtimes._runtimes_check_calls", "ui/mac/FERBNotch/Sources/FERBNotch/FERBWindowStore.swift"]

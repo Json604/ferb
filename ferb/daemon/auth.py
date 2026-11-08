@@ -40,9 +40,10 @@ METHODS: dict[Role, frozenset[str]] = {
                          "verdict.set", "recovery.list", "recovery.restore",
                          "conversations.list", "conversations.change", "attention.ack",
                          "reports.build", "reports.send", "ui.click_through", "tasks.preview",
-                         "setup.browsers", "setup.browser_open", "setup.browser_pair", "setup.browsers_pair_all", "setup.browsers_pairing", "browser.show_handoff", "reports.diagnostic", "update.prepare", "tasks.list", "notices.list", "settings.get", "settings.set", "notifications.subscribe", "notifications.categories", "runtimes.sign_in", "runtimes.status", "runtimes.use", "runtimes.models", "runtimes.model", "runtimes.switch_task", "setup.permissions", "setup.permission_request", "setup.finish",
+                         "setup.browsers", "setup.browser_open", "setup.browser_pair", "setup.browsers_pair_all", "setup.browsers_pairing", "browser.show_handoff", "reports.diagnostic", "update.prepare", "tasks.list", "notices.list", "settings.get", "settings.set", "notifications.subscribe", "notifications.categories", "runtimes.sign_in", "runtimes.status", "runtimes.use", "runtimes.models", "runtimes.model", "runtimes.check_calls", "runtimes.switch_task", "setup.permissions", "setup.permission_request", "setup.finish",
                          "about.get", "about.guide", "secrets.saved", "secrets.delete", "identity.find",
-                         "identity.choose", "seen.list", "seen.image", "intro.suggest", "intro.preview"}),
+                         "identity.choose", "seen.list", "seen.image", "intro.suggest", "intro.preview", "keys.store",
+                         "keys.delete"}),
     Role.MCP_SHIM: frozenset({"ping", "tools.list", "tools.call"}),
     Role.NATIVE_HOST: frozenset(),
 }
@@ -58,7 +59,7 @@ METHODS: dict[Role, frozenset[str]] = {
 # The server checks the peer's code signature (app_peer.py) once per connection.
 APP_ONLY: frozenset[str] = frozenset({"tasks.preview", "secrets.saved", "secrets.delete", "identity.find",
                                       "identity.choose", "identity.pair", "about.guide", "seen.list", "seen.image",
-                                      "setup.finish", "intro.suggest", "intro.preview"})
+                                      "setup.finish", "intro.suggest", "intro.preview", "keys.store", "keys.delete"})
 
 
 def allowed(role: Role, method: str) -> bool:

@@ -450,4 +450,23 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(rig.rpc.params(of: "runtimes.sign_in").last?["cancel"] as? Bool, true)
         XCTAssertFalse(model.claudeSigningIn)
     }
+
+    // decision: GATE-543
+    /// A key goes only to the daemon's keys.store (which stores it through FERB's signed helper), as one call naming
+    /// the provider; Remove key is keys.delete. Nothing runs `security` in the app any more.
+    func testAKeyGoesToTheDaemonsSealedStoreAndRemoveDeletesIt() async {
+        let rpc = ScriptedRPC()
+        rpc.replies["keys.store"] = ["stored": true]
+        rpc.replies["keys.delete"] = ["removed": true]
+        let store = DaemonAPIKeyStore(rpc: rpc)
+        let stored = await store.store(provider: .anthropic, key: "sk-ant-test-0123")
+        XCTAssertTrue(stored)
+        XCTAssertEqual(rpc.params(of: "keys.store").first?["provider"] as? String, "anthropic")
+        let refused = await store.store(provider: .anthropic, key: "two words")
+        XCTAssertFalse(refused)
+        XCTAssertEqual(rpc.params(of: "keys.store").count, 1)
+        let removed = await store.remove(provider: .anthropic)
+        XCTAssertTrue(removed)
+        XCTAssertEqual(rpc.params(of: "keys.delete").first?["provider"] as? String, "anthropic")
+    }
 }

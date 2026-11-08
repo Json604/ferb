@@ -587,12 +587,3 @@ kind = "question"
 status = "open"
 why = "Owner 2026-11-07: \"real mdoel calls on a vast variety of tasksk ... covering the ones that are makjor first BUT ensuring ours is qualitative rather tahn quanitty\". Plan first; owner-controlled surfaces (rule 16); before/after changes."
 ask = "Approve the plan: which tasks, what quality measures, which surfaces."
-
-[T-1069]
-title = "A pre-release live provider check: one tiny real call per provider and role"
-area = "runtimes"
-kind = "question"
-status = "open"
-why = "2026-11-08: Anthropic refused every planner turn on a limit only the live API enforces (RUN-427); offline tests can't see such limits. Proposal, not built: before a release, with the owner's keys and go, one minimal real call per service and role schema, recording `typed`, latency and cost."
-decisions = ["RUN-427", "RUN-400"]
-ask = "Before each release, should FERB run one tiny real call per AI service and per kind of answer (planner, worker, checker, and the others) on your keys, costing a few cents in all, and show you the results before the build ships?"

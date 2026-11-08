@@ -159,6 +159,8 @@ class Rpc:
             "settings.get": self._settings_get, "settings.set": self._settings_set,
             "runtimes.status": self._runtimes_status, "runtimes.use": self._runtimes_use,
             "runtimes.models": self._runtimes_models, "runtimes.model": self._runtimes_model,
+            "runtimes.check_calls": self._runtimes_check_calls, "keys.store": self._keys_store,
+            "keys.delete": self._keys_delete,
             "runtimes.switch_task": self._runtimes_switch_task,
             "runtimes.sign_in": self._runtimes_sign_in, "setup.browsers": self._setup_browsers,
             "setup.browser_open": self._setup_browser_open, "setup.permissions": self._setup_permissions,

@@ -336,6 +336,143 @@ class Runtimes:
                                | ({"role": role} if role is not None else {}))
         return {"ok": True, "model": model, "detail": checked}
 
+    async def _keys_store(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """GATE-543: FERB.app's API key for a provider (APP_ONLY), stored through FERB's signed secret helper and read
+        back through it; registered with the redactor first. The key is in no reply, span or journal entry."""
+        from ferb.runtimes import keys
+        from ferb.runtimes.catalog import api_providers
+        provider, key = str(params.get("provider", "")), params.get("key")
+        if provider not in api_providers():
+            raise FerbError(f"unknown provider {provider!r}")
+        if not isinstance(key, str) or not key.strip() or any(c.isspace() for c in key.strip()):
+            raise FerbError("that doesn't look like an API key")
+        self._add_secret_value(key.strip())
+        stored = await asyncio.to_thread(keys.store_key, provider, key.strip())
+        self._available_cache.pop(provider, None)
+        self._journal().append("keys.stored", {"provider": provider, "stored": stored})
+        return {"stored": stored}
+
+    async def _keys_delete(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """GATE-543: the owner's Remove key (APP_ONLY): the provider's item goes through the helper (an older one too)."""
+        from ferb.runtimes import keys
+        from ferb.runtimes.catalog import api_providers
+        provider = str(params.get("provider", ""))
+        if provider not in api_providers():
+            raise FerbError(f"unknown provider {provider!r}")
+        removed = await asyncio.to_thread(keys.delete_key, provider)
+        self._available_cache.pop(provider, None)
+        self._journal().append("keys.deleted", {"provider": provider, "removed": removed})
+        return {"removed": removed}
+
+    async def _runtimes_check_calls(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Settings → AI's Check (T-1069, owner 2026-11-08): the call shapes FERB really makes, through the connection's
+        real adapter and model (`model` to try another): a planner call with the planner's schema and its lookup tools
+        offered, a worker call that calls a tool with no arguments and one with arguments and answers in the worker's
+        schema, a checker call, and a call with a small generated picture. Each is a line with pass or fail, the
+        provider's words (redacted), the model, the typed form, time, tokens and cost; and the total cost. The two
+        check tools exist only while it runs and touch nothing."""
+        from ferb.core.types import ModelImage, ModelRequest
+        from ferb.orchestrator.schemas import CHECKER_SCHEMA, SUPERVISOR_SCHEMA, WORKER_SCHEMA
+        from ferb.orchestrator.supervisor import PLANNER_SCOPES, PLANNER_TOOLS
+        from ferb.runtimes import check
+        from ferb.runtimes.catalog import CATALOG, model_for
+        name, model = str(params.get("runtime", "")), str(params.get("model") or "").strip()
+        if name not in CATALOG:
+            raise FerbError(f"unknown AI service {name!r}")
+        self._available_cache.pop(name, None)
+        ping, echo = check.CheckPing(), check.CheckEcho()
+        caps = self.registry.capabilities
+        caps[ping.name], caps[echo.name] = ping, echo        # type: ignore[assignment]
+        lines: list[Any] = []
+        try:
+            lines.append(await self._check_call(check.Line("Planner call (its real schema, lookups offered)"), name,
+                                                model, "orchestrator", "supervisor", SUPERVISOR_SCHEMA,
+                                                sorted(PLANNER_TOOLS), set(PLANNER_SCOPES),
+                                                ModelRequest(check.PROMPT_PLANNER, ("Check.",), 0)))
+            worker = await self._check_call(check.Line("Worker call (tools, its typed report)"), name, model, "worker",
+                                            "worker", WORKER_SCHEMA, [check.PING, check.ECHO], set(),
+                                            ModelRequest(check.PROMPT_WORKER, ("Check.",), 0))
+            lines += [check.Line("Tool call with no arguments", ok=ping.calls > 0,
+                                 detail="" if ping.calls else "the model didn't call check.ping",
+                                 model=worker.model, typed=worker.typed),
+                      check.Line("Tool call with arguments", ok="hello" in echo.texts,
+                                 detail="" if "hello" in echo.texts else "the model didn't call check.echo with hello",
+                                 model=worker.model, typed=worker.typed),
+                      worker]
+            lines.append(await self._check_call(check.Line("Checker call (its schema)"), name, model, "checker",
+                                                "worker", CHECKER_SCHEMA, [], set(),
+                                                ModelRequest(check.PROMPT_CHECKER, ("Check.",), 0)))
+            lines.append(await self._check_call(check.Line("A picture in the request"), name, model, "orchestrator",
+                                                "supervisor", check.IMAGE_SCHEMA, [], set(),
+                                                ModelRequest(check.PROMPT_IMAGE, ("Check.",), 0,
+                                                             (ModelImage(check.red_png(), "connection-check",
+                                                                         "image/png"),))))
+        finally:
+            caps.pop(ping.name, None)
+            caps.pop(echo.name, None)
+        costs = [line.cost_usd for line in lines if line.cost_usd is not None]
+        self._journal().append("runtimes.checked", {"runtime": name, "passed": sum(line.ok for line in lines),
+                                                    "lines": len(lines)})
+        return {"runtime": name, "model": model or model_for(self.config, name), "ok": all(l.ok for l in lines),
+                "lines": [line.row() for line in lines], "total_cost_usd": round(sum(costs), 6) if costs else None}
+
+    async def _check_call(self, line: Any, name: str, model: str, role: str, mode: str, schema: dict[str, Any],
+                          tools: list[str], scopes: set[str], request: Any) -> Any:
+        """One check call: the real runtime for `role`, offered `tools` through a run token for a live record held
+        only for this call (as the planner's lookups are), its events read to the end. The line passes when the final
+        answer fits `schema`; an error or a misfit says why, redacted."""
+        from ferb.core.structured import check_final
+        from ferb.core.types import Task
+        from ferb.orchestrator.tree import TaskRecord
+        started = time.monotonic()
+        task_id, holder = "check-" + self.ids.new_id(), ""
+        device = str(self.config.get("device", "id", "unknown-device"))
+        task = Task(task_id, None, "FERB's connection check", device, Identity.OWNER, set(scopes), "mixed", task_id,
+                    [], None)
+        span = self.spans.start("runtime.check", task_id=None, input={"runtime": name, "role": role,
+                                                                       "check": line.name})
+        try:
+            rt = self._build_runtime(name, role, mode=mode, tool_names=tools, schema=schema, model=model)
+            token = ""
+            if tools:
+                holder = "check:" + task_id
+                self.tasks.hold(TaskRecord(task, self.clock.now(), span.id, task_id))
+                token = self.tokens.issue(task_id, holder, set(scopes), Identity.OWNER, ttl_s=600.0,
+                                          observe_only=True, tools=frozenset(tools), max_calls=10)
+            run = await rt.start(task, request, token)
+            try:
+                async for ev in rt.events(run):
+                    if ev.kind == "usage":
+                        line.add_usage(ev.data)
+                    elif ev.kind == "final":
+                        try:
+                            check_final(str(ev.data.get("text", "")), schema)
+                            line.ok = True
+                        except ValueError as e:
+                            line.detail = f"the answer didn't fit its form: {e}"
+                        break
+                    elif ev.kind in ("error", "violation"):
+                        line.detail = str(ev.data.get("message") or ev.data)
+                        break
+            finally:
+                await rt.cancel(run)
+        except Exception as e:                       # the provider's or FERB's words, never a crash of the check
+            line.detail = f"{type(e).__name__}: {e}"
+        finally:
+            if holder:
+                self.tokens.revoke_worker(holder)
+                self.gateway.forget_calls(holder)
+                self.tasks.remove(task_id)
+            line.seconds = time.monotonic() - started
+            line.detail = self._redact_text(line.detail) if line.detail else ("" if line.ok else "no answer")
+            line.model = line.model or model or self._model_label(name)
+            self.spans.finish(span, output=line.row())
+        return line
+
+    def _model_label(self, name: str) -> str:
+        from ferb.runtimes.catalog import model_for
+        return model_for(self.config, name)
+
     async def _prepare_codex(self) -> None:
         """Before the daemon answers any call but ping (DMN-510), when a role runs on Codex or Codex is signed in for
         FERB (a worker type): the catalog shipped with the pinned binary is dumped (L28, final review M8: once per Codex version, in a worker thread, so

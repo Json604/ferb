@@ -35,6 +35,7 @@ enum FERBSection: Hashable, CaseIterable, Identifiable {
 final class FERBWindowStore: ObservableObject {
     /// Seconds the app waits: a runtime's tiny check call, a diagnostic file's health check, the full self-test.
     static let runtimeWait = 60
+    static let checkWait = 600                       // five real calls through the connection (T-1069)
     static let diagnosticWait = 60
     static let healthWait = 120
 
@@ -73,6 +74,7 @@ final class FERBWindowStore: ObservableObject {
     @Published var diagnostic: ReportState?
     @Published private(set) var checkingRuntime = false
     @Published private(set) var runtimeResult: String?
+    @Published private(set) var checkLines: [ConnectionCheck.Line] = []
     @Published private(set) var checkingHealth = false
     @Published private(set) var healthProblem: String?
 
@@ -330,12 +332,15 @@ final class FERBWindowStore: ObservableObject {
         checkingRuntime = true
         runtimeResult = nil
         defer { checkingRuntime = false }
-        guard let reply = await ask("runtimes.check", ["runtime": name], wait: Self.runtimeWait) else {
+        checkLines = []
+        // T-1069: the call shapes FERB really makes, one line each (a few cents at most)
+        guard let reply = await ask("runtimes.check_calls", ["runtime": name], wait: Self.checkWait) else {
             runtimeResult = problem
             return
         }
-        let ok = reply["ok"] as? Bool ?? false
-        runtimeResult = ok ? "\(name) answered." : "\(name) didn't answer: \(reply["detail"] as? String ?? "no answer")"
+        let report = ConnectionCheck(reply: reply)
+        checkLines = report.lines
+        runtimeResult = report.summary
     }
 
     func pauseRecording(_ paused: Bool) async {
