@@ -1,4 +1,4 @@
-"""Developer toolbox (GATE-545): run a list of tasks in the running FERB, on one connection, in test mode's question
+"""Developer toolbox (GATE-546): run a list of tasks in the running FERB, on one connection, in test mode's question
 recorder, and write each task's results to a report outside the repository.
 
     uv run python scripts/question_run.py TASKS --runtime anthropic --out ~/ferb-runs/run1.json [--repeat 3]

@@ -108,7 +108,7 @@ class Compose:
             allowed = test_mode.get('allow_send', [])
             allowlist = (set(allowed) if isinstance(allowed, list) and
                          all(isinstance(item, str) and item.strip() for item in allowed) else set())
-            record_questions = test_mode.get('questions') == "record"   # GATE-545
+            record_questions = test_mode.get('questions') == "record"   # GATE-546
         questions = ports.QuestionRouter()
         self.gateway = Gateway(self.registry.capabilities, self.state, self.ledger, self.spans, self.tasks,
                                self.clock, self.redact, self._publish, roots, device, deps=GatewayDeps(

@@ -235,7 +235,7 @@ class Chat:
             return {"enabled": self.gateway.test_send_allowlist is not None,
                     "allow_send": sorted(self.gateway.test_send_allowlist or ()),
                     "questions": "record" if self.gateway.test_questions else "ask"}
-        questions = params.get("questions", "ask")         # GATE-545: "record" only with the send allowlist on
+        questions = params.get("questions", "ask")         # GATE-546: "record" only with the send allowlist on
         if questions not in ("ask", "record"):
             raise FerbError('questions must be "ask" or "record"')
         allowed = params.get("allow_send", [])

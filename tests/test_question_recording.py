@@ -1,4 +1,4 @@
-"""Test mode's question recorder (GATE-545, owner 2026-11-08): with test mode's questions set to "record", every
+"""Test mode's question recorder (GATE-546; the run itself: GATE-549): with test mode's questions set to "record", every
 question FERB would ask is recorded with its card and rule and answered from a fixed table in code, never by a model
 and never by the owner: the URL sink's Yes for this task tree only (never a known destination), No for everything
 else (a payment here), a task's own question declined with the fixed line, a P19 retry No."""
@@ -32,7 +32,7 @@ def _asked(daemon: RunningDaemon) -> list[dict[str, Any]]:
     return daemon.run(rows())
 
 
-# decision: GATE-545, GATE-546
+# decision: GATE-546
 def test_ferbs_questions_are_recorded_with_their_card_and_answered_from_the_table(daemon: RunningDaemon) -> None:
     _record_mode(daemon)
     grant, _ = gateway_setup(daemon, {"web"}, gateway_request("find the overleaf template and pay for lunch"), [])
@@ -57,7 +57,7 @@ def test_ferbs_questions_are_recorded_with_their_card_and_answered_from_the_tabl
     assert not daemon.run(known())
 
 
-# decision: GATE-545, GATE-546
+# decision: GATE-546
 def test_a_tasks_own_question_is_declined_with_the_fixed_line(daemon: RunningDaemon) -> None:
     _record_mode(daemon)
     grant, _ = gateway_setup(daemon, {"web"}, gateway_request("pick a template"), [])
@@ -76,7 +76,7 @@ def test_a_tasks_own_question_is_declined_with_the_fixed_line(daemon: RunningDae
     assert asked["output"]["test_mode"] is True and asked["input"]["args"]["question"]
 
 
-# decision: GATE-545, GATE-546
+# decision: GATE-546
 def test_questions_are_asked_again_once_test_mode_is_off(daemon: RunningDaemon) -> None:
     _record_mode(daemon)
 
@@ -85,7 +85,7 @@ def test_questions_are_asked_again_once_test_mode_is_off(daemon: RunningDaemon) 
     assert daemon.run(off())["questions"] == "ask" and not daemon.daemon.gateway.test_questions
 
 
-# decision: GATE-545, GATE-546
+# decision: GATE-546
 def test_outside_test_mode_the_same_yes_makes_the_site_known(daemon: RunningDaemon) -> None:
     """The control for the first test: the owner's own Yes makes the address approved for good (GATE-205)."""
     grant, _ = gateway_setup(daemon, {"web"}, gateway_request("find the overleaf template"), [])
@@ -100,3 +100,36 @@ def test_outside_test_mode_the_same_yes_makes_the_site_known(daemon: RunningDaem
     async def approved() -> bool:
         return bool(daemon.daemon.destinations.approved("host", "www.overleaf.com"))
     assert daemon.run(approved()) and owner.asked
+
+
+# decision: GATE-546
+def test_ferbs_check_in_is_recorded_and_stops_so_a_test_run_never_waits(daemon: RunningDaemon) -> None:
+    """The attempt-5 "Keep going?" is asked by the supervisor, not the gateway: in record mode it is recorded and
+    answered No at once, so the task stops with what it found instead of waiting for nobody."""
+    from ferb.orchestrator.attempts import CHECK_IN_AFTER
+    from tests.conftest import chat, install, outcome, report, sup, task, verdict
+    _record_mode(daemon)
+    failed = json.dumps(report("not_done", reason="The site errored."))
+    script = install(daemon, [sup("task", "On it.", task("Book the table"))],
+                     {"worker": failed, "worker.verify": verdict(None, next="retry", missing="Not booked.",
+                                                                 instructions="Try another way.")})
+    result = outcome(chat(daemon, "book the table", timeout=60))
+    assert len(script.calls("worker")) == CHECK_IN_AFTER and result["status"] == "failed"
+    assert daemon.daemon.state.approvals.pending() == []                     # nothing left for the owner
+    [asked] = _asked(daemon)
+    assert asked["input"]["question_kind"] == "check_in" and asked["output"] == {
+        "test_mode": True, "answer": "No", "declined": False}
+
+
+# decision: GATE-546
+def test_the_browsing_choice_is_recorded_and_the_setting_stays(daemon: RunningDaemon) -> None:
+    from ferb.act.browser.profiles import BrowserProfile
+    from tests.support.schedules import run
+    _record_mode(daemon)
+    d = daemon.daemon
+    d._browsing_profiles = lambda: [BrowserProfile("chrome", "Profile 1", "Work", "me@work.example")]
+    got = run(daemon, lambda: d._browsing(True, "r1"))
+    assert "note" in got and d.state.approvals.pending() == []
+    assert d.config.get("browsing", "owner_profile", "") == ""
+    [asked] = _asked(daemon)
+    assert asked["input"]["question_kind"] == "browsing" and asked["output"]["test_mode"] is True

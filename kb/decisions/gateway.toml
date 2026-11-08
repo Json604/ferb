@@ -734,19 +734,21 @@ paths = ["ferb/runtimes/keys.py::read_key"]
 title = "Test mode can record questions and answer them from a fixed table, for real-task runs"
 by = "owner"
 date = 2026-11-08
-status = "active"
+status = "superseded"
+superseded_by = "GATE-549"
 words = "Yes-for-this-task-only (never saved as known) for URL-sink questions; run inside the installed FERB, no cleanup"
 words_source = "Owner 2026-11-08, choosing option A of the real-task question test (questions recorded with card and rule), as relayed by the coordinator"
 rule = "With test mode on and its questions set to record, every question FERB would ask in a task is recorded with its card and rules and answered by a fixed table in code, never by a model or the owner: the URL sink's question Yes for that task tree only (never a known destination); every other FERB question No (payment, account security, deletion, terminal, certificates, foreground, forms, the rest); a task's own question declined; a retry No. Runs happen in the installed FERB with no clean-up."
 paths = ["ferb/daemon/gateway.py::TEST_YES_RULES", "ferb/daemon/areas/chat.py::Chat._test_mode"]
 
 [GATE-546]
-title = "The question recorder: one hook in each asking path, test.mode's questions field, a run script"
+title = "The question recorder: its answer table, one hook per asking path, a run script"
 by = "agent"
 date = 2026-11-08
 status = "active"
-rule = "For GATE-545. test.mode takes questions \"ask\" | \"record\" (kept in [test_mode] state; record only while the send allowlist is on). ask_confirmation records before the unattended branch: its owner.ask span's output holds the card, needs (rule, key, values), answer and test_mode; a Yes is recorded in confirmations for the tree, never _known_from. _ask_owner declines a task's question with TEST_TASK_ANSWER, a retry with retry_approved false. scripts/question_run.py runs a task list on one connection and writes per-task results outside the repo."
-paths = ["ferb/daemon/gateway.py::Gateway.ask_confirmation", "ferb/daemon/gateway.py::Gateway._ask_owner", "scripts/question_run.py"]
+rule = "For GATE-549 (test.mode questions \"record\", only with the send allowlist on). Every question is recorded as an owner.ask span with its card, needs and answer, never asked. Table: the URL sink's question Yes for that tree only (never a known destination); every other FERB question No; FERB's own option check-ins that wait in the supervisor (attempt-5, a closed tab, a paused loop, a runtime offer) No; a task's question declined; a retry No; the paused-task mention and the browsing choice not asked (stays paused; setting kept). scripts/question_run.py runs a task list."
+why = "The table is the question hunter's design (fq-hunt.md section C), relayed by the coordinator, not the owner's words: so no test run ever waits, and the URL sink's Yes lets research tasks go on past it."
+paths = ["ferb/daemon/gateway.py::Gateway.ask_confirmation", "ferb/daemon/gateway.py::Gateway._ask_owner", "ferb/orchestrator/supervisor.py::Supervisor._test_reply", "ferb/daemon/areas/browsers.py::Browsers._browsing", "scripts/question_run.py"]
 
 [GATE-547]
 title = "API keys: older items moved whenever they exist, one lock per provider, the Check is FERB.app's only"
@@ -767,3 +769,15 @@ rule = "A Keychain item trusts the binary that created it. Created by FERB's Pyt
 why = "A caller check wouldn't stop a same-user program (it can run FERB's signed Python), and changing the helper's bytes asks again for every saved secret, so the helper stays as pinned (REL-404); hardening waits for its next planned change (T-1071)."
 paths = ["ferb/identity/helper.py", "ferb/runtimes/keys.py"]
 untestable = "The Keychain's access list and prompts: the owner's Mac only; tests use a fake Keychain and never the real one (TEST-508)."
+
+[GATE-549]
+title = "Real-task question tests run inside the installed FERB with all the owner's profiles"
+by = "owner"
+date = 2026-11-08
+status = "active"
+supersedes = ["GATE-545"]
+words = "test inside my real febr that is currenlty installed, anyways im going to do a fresh isntall of ferb later. BUt this time we'll preserve al lthis data in a separte folder ir somerhing bfor use to look up later. JSUT AMKE SURE TAH TFERB DOESNT CLOSESE MY TABS - i thinkgi it wont cause it already performs in its own griups but just my concern / we can use all my prifiles for this test whatever ferb needs. we can go till payment pages too and all othe r extremes to chekc ferb"
+words_source = "Owner 2026-11-08: separate test FERB or the real one (first part); and the earlier authorization for the run (after the slash)"
+rule = "Supersedes GATE-545. The real-task question test runs inside the owner's installed FERB, using every profile FERB needs, as far as payment pages and other extremes; its data is kept in a separate folder for later lookup (the owner reinstalls FERB afterwards). FERB never closes the owner's tabs, only its own (HAND-201). How questions are answered in it is GATE-546."
+paths = ["ferb/daemon/areas/chat.py::Chat._test_mode"]
+untestable = "The run itself is the owner's, on their installed FERB and profiles; the recorder's behaviour is tested under GATE-546."
