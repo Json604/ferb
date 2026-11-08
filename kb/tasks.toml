@@ -242,14 +242,6 @@ status = "open"
 why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
 decisions = ["TEST-508"]
 
-[T-20]
-title = "Make test_egress_proxy.py deterministic (TEST-508)"
-area = "tests"
-kind = "chore"
-status = "open"
-why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
-decisions = ["TEST-508"]
-
 [T-21]
 title = "Make test_redaction_scaling.py deterministic (TEST-508)"
 area = "tests"

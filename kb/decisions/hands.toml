@@ -844,3 +844,12 @@ status = "active"
 rule = "For GATE-539. fs.copy copies one file of any kind (never replacing one unless overwrite, a recovery copy first); fs.move moves or renames a file or folder on its disk (renameatx_np RENAME_EXCL: never replaces anything). Both declare every path (read/remove and write) for the protection lists. The shell's description tells pip 24.2+ to add --use-deprecated=legacy-certs (certificates still checked); mac.act, mac.click and mac.menu say a browser's pages, tabs and windows are the browser tools' (in the background)."
 why = "An environment variable would break pip below 24.2 (measured: CLT's pip 21.2.4 refuses \"invalid choice: 'legacy-certs'\"). Inferred, not run in FERB's sandbox: pip with legacy-certs verifies with its bundled certificates, never through trustd."
 paths = ["ferb/act/fs/files.py::FsCopy", "ferb/act/fs/files.py::FsMove", "ferb/act/shell/sandbox.py::NETWORK_FACT", "ferb/act/mac/tools.py"]
+
+[HAND-433]
+title = "A socket reading taken mid-accept is read again before a local connection is refused"
+by = "agent"
+date = 2026-11-08
+status = "active"
+rule = "Refines HAND-227. When LocalAccess.connected finds the connection held by no socket and nothing queued on a visible listener of that port, it reads again up to SETTLE_READS (3) more times before refusing. No visible listener still refuses at once; the socket that holds the connection is checked as before (pinned executable or FERB's containment), so a server another program runs is still refused."
+why = "Measured 2026-11-08: a libproc reading taken while the server accepted showed its listener with nothing queued and the accepted socket not yet listed; 3 ms later it was there. The proxy refused a contained dev server with 403 (test_egress_proxy, T-20)."
+paths = ["ferb/act/shell/local.py::SETTLE_READS", "ferb/act/shell/local.py::LocalAccess.connected"]

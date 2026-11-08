@@ -111,19 +111,41 @@ def test_the_proxy_waits_for_the_server_to_accept_its_queued_connection(tmp_path
     assert access.connected(("127.0.0.1", 8765), ("127.0.0.1", 54321)).executable == "/usr/bin/python3"
 
 
-# decision: HAND-227
-@pytest.mark.parametrize("rows", [[row(("127.0.0.1", 8765), None, "LISTEN")],      # nothing queued on it
-                                  [row(("127.0.0.1", 9999), None, "LISTEN", queued=1)],   # queued elsewhere
-                                  []])                                    # a server FERB can't inspect
-def test_a_connection_no_inspectable_server_holds_or_queues_is_refused_at_once(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rows: list[local.TcpSocket]) -> None:
+# decision: HAND-227, HAND-433
+@pytest.mark.parametrize("rows,reads", [([row(("127.0.0.1", 8765), None, "LISTEN")], 1 + local.SETTLE_READS),
+                                        ([row(("127.0.0.1", 9999), None, "LISTEN", queued=1)], 1),   # queued elsewhere
+                                        ([], 1)])                         # a server FERB can't inspect: at once
+def test_a_connection_no_inspectable_server_holds_or_queues_is_refused(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rows: list[local.TcpSocket], reads: int) -> None:
     access = local.LocalAccess(protection(tmp_path, [{"port": 8765, "executable": "/usr/bin/python3"}]))
     calls: list[int] = []
     monkeypatch.setattr(local, "tcp_snapshot", lambda: calls.append(1) or rows)
     monkeypatch.setattr(local, "executable_of", lambda pid: Path("/usr/bin/python3"))
+    monkeypatch.setattr(local.time, "sleep", lambda s: None)
     with pytest.raises(local.LocalRefused, match="couldn't identify"):
         access.connected(("127.0.0.1", 8765), ("127.0.0.1", 54321))
-    assert len(calls) == 1
+    assert len(calls) == reads
+
+
+# decision: HAND-433
+@pytest.mark.parametrize("contained", [True, False])
+def test_a_reading_taken_mid_accept_is_read_again_and_the_server_still_checked(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, contained: bool) -> None:
+    """Measured 2026-11-08: a reading taken while the server accepts showed its listener with nothing queued and the
+    accepted socket not yet in its table; the next reading has it. The server that holds it is checked as ever: a
+    server another program runs is still refused."""
+    access = local.LocalAccess(protection(tmp_path, []))
+    listener = row(("127.0.0.1", 9876), None, "LISTEN")
+    readings = iter([[listener], [listener, row(("127.0.0.1", 9876), ("127.0.0.1", 54321), "ESTABLISHED")]])
+    monkeypatch.setattr(local, "tcp_snapshot", lambda: next(readings))
+    monkeypatch.setattr(local, "contained", lambda *args: contained)
+    monkeypatch.setattr(local, "executable_of", lambda pid: Path("/usr/bin/python3"))
+    monkeypatch.setattr(local.time, "sleep", lambda s: None)
+    if contained:
+        assert access.connected(("127.0.0.1", 9876), ("127.0.0.1", 54321)).executable == "/usr/bin/python3"
+    else:
+        with pytest.raises(local.LocalRefused, match="outside FERB"):
+            access.connected(("127.0.0.1", 9876), ("127.0.0.1", 54321))
 
 
 # decision: HAND-227

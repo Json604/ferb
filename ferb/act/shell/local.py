@@ -89,6 +89,10 @@ class LocalPeer:
 # How long the proxy waits for a pinned or contained server to accept a connection it has queued: the connected
 # socket is in no process's descriptor table until then (sockets.py), and the proxy's own connect allows 30 s
 ACCEPT_WAIT = 30.0
+# HAND-433: a reading of a process's sockets isn't atomic: one taken while the server accepts can show its listener
+# with nothing queued and the accepted socket not yet in its table (measured 2026-11-08, macOS 27.2). A visible
+# listener with neither is read this many more times before the connection is refused.
+SETTLE_READS = 3
 
 
 def _ip(address: str) -> str:
@@ -166,17 +170,22 @@ class LocalAccess:
     def connected(self, target: tuple[str, int], client: tuple[str, int]) -> LocalPeer:
         """Verify the server end of this exact connected socket, not whichever listener now holds that port. Until a
         server accepts, the connection sits in its listener's queue and no process holds it: wait while a listener
-        FERB can see on this port has one queued (at most ACCEPT_WAIT); a server FERB can't see never shows it."""
+        FERB can see on this port has one queued (at most ACCEPT_WAIT); a server FERB can't see never shows it. A visible
+        listener showing neither is read SETTLE_READS more times (a reading taken mid-accept, HAND-433)."""
         server = (_ip(target[0]), target[1])
         source = (_ip(client[0]), client[1])
-        deadline, pause = time.monotonic() + ACCEPT_WAIT, 0.001
+        deadline, pause, settle = time.monotonic() + ACCEPT_WAIT, 0.001, SETTLE_READS
         while True:
             rows = self._sockets()
             held = [row for row in rows if row.state == "ESTABLISHED" and row.local == server and row.remote == source]
-            queued = any(row.state == "LISTEN" and row.local[1] == server[1] and row.queued > 0
-                         and row.local[0] in (server[0], "*") for row in rows)
-            if held or not queued or time.monotonic() >= deadline:
+            listening = [row for row in rows if row.state == "LISTEN" and row.local[1] == server[1]
+                         and row.local[0] in (server[0], "*")]
+            if held or time.monotonic() >= deadline:
                 break
+            if not any(row.queued > 0 for row in listening):
+                if not listening or settle == 0:       # no visible listener: a server FERB can't see never shows it
+                    break
+                settle -= 1                            # HAND-433: a reading taken mid-accept; read again
             time.sleep(pause)
             pause = min(pause * 2, 0.05)
         executable = self._verified(held, target[1])
