@@ -987,3 +987,25 @@ status = "active"
 rule = "HAND-442..446 ship as extension 0.19.7 with optional fields only (`leave_page`, a reply's `dialog`, a met wait's `url`, `popup` events for tabs a task's input opened), so the protocol and the minimum stay: an older extension keeps working without them, and an older FERB never sends `leave_page`. The owner publishes 0.19.7 to the Chrome Web Store."
 why = "A protocol bump would stop every installed FERB until its browsers update (protocol.js, 0.19.3)."
 paths = ["extensions/chromium/manifest.json", "ferb/act/browser/ext_protocol.py::Result"]
+
+[HAND-447]
+title = "After FERB's own input in a tab, leaving it needs the worker's leave or stay"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Refines HAND-446. FERB records each task tab's load count when it types, selects, presses a key, uploads or fills a sealed value there. Until the page's next load, browser.navigate and a browser.close that would close the tab are refused at once without leave_page (nothing sent): a plain fact asking the worker to say leave or stay. Elsewhere leave_page stays optional. A borrowed or kept tab that close only lets go of needs none. Code never picks leave or stay (rule 4)."
+why = "With no choice the page can still raise \"Leave site?\", and Chrome activates its tab for that before FERB hears of it (HAND-446, measured). The worker's own input since the last load is the structural sign that a page may ask."
+evidence = "Owner 2026-11-10 (via the coordinator): the concern is the \"Leave site?\" dialog itself, which shifts the tab and maximizes Chrome."
+rejected = ["Requiring it on every navigate: noise on pages FERB never typed into", "Reading the page for unsaved state: content judging, and pages can't be asked without running their handlers"]
+paths = ["ferb/act/browser/tools.py::_leave_unsaid", "ferb/act/browser/ext_bridge.py::typed_since_load", "ferb/act/browser/ext_bridge.py::_note_input"]
+live = ["LIVE-865"]
+
+[HAND-448]
+title = "A tab whose page asks before closing at the task's end keeps its dialog and is closed once"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Task-end cleanup closes FERB's tabs without leave_page (code never picks). A page that asks returns dialog_pending at once; that tab isn't closed again (no second dialog). Its dialog stays in the tab, which tabs.remove doesn't bring forward (measured), and the owner gets HAND-419's leftover line naming the tab."
+why = "Before, the cleanup's close waited 10 s and then tried again, which could raise the page's dialog a second time."
+paths = ["ferb/act/browser/ext_bridge.py::release"]
+live = ["LIVE-866"]

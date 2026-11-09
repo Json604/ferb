@@ -203,14 +203,26 @@ class _Tab(BaseModel):
     tab: str = Field(description="Tab id from open (e.g. t1)")
 
 
-# HAND-442: the worker's choice for a page that asks before it is left ("Leave site? Changes you made may not be
-# saved", a beforeunload dialog). Code never makes it (rule 4); without it such a page stops the call with the dialog.
+# HAND-442/446/447: the worker's choice for a page that asks before it is left ("Leave site? Changes you made may not
+# be saved", a beforeunload dialog). Code never makes it (rule 4). Required after FERB's own input in the tab since its
+# page last loaded (a fact FERB records, never the page's content); without it such a page stops the call with the
+# dialog, which Chrome brings forward.
 LEAVE_PAGE = Field(default=None, description=(
     "What to do if the page asks before it is left (\"Leave site? Changes you made may not be saved\"): leave (go on; "
     "what the page didn't save is lost) or stay (don't leave). Decide from the task, e.g. leave once what you typed is "
-    "saved. Say it whenever you leave a page you typed into: FERB then answers the page itself, in the background. "
-    "Without it, a page that asks stops this call and its dialog waits for the dialog tool (accept leaves, dismiss "
-    "stays)"))
+    "saved. Required when you typed, filled or uploaded in this tab since its page last loaded (the call is refused "
+    "without it); optional otherwise. With it FERB answers the page itself, in the background."))
+
+
+def _leave_unsaid(driver: Any, ref: TabRef, leave: str | None, what: str) -> None:
+    """HAND-447: refused, nothing sent, when FERB typed, filled or uploaded in this tab since its page last loaded and
+    the worker didn't say leave or stay: the page may ask "Leave site?", and Chrome brings the tab forward for that."""
+    typed = getattr(driver, "typed_since_load", None)
+    if leave or typed is None or not typed(ref):
+        return
+    raise Refused(f"you typed, filled or uploaded in tab {ref.tab_id} since its page last loaded, so the page may hold "
+                  f"unsaved input and ask \"Leave site?\" before it {what}. Say leave_page: leave (go on; what the "
+                  "page didn't save is lost) or stay (don't leave). Nothing was done")
 
 
 class _El(_Tab):
@@ -489,6 +501,7 @@ class BrowserNavigate(_Base):
         else:
             ref = self.driver.owned_by(tab, ctx.task_id)
         leave = getattr(args, "leave_page", None)
+        _leave_unsaid(self.driver, ref, leave, "loads another page")
         await self.driver.navigate(ref, str(getattr(args, "url")), **({"leave_page": leave} if leave else {}))
         out: dict[str, Any] = {"tab": ref.tab_id, "url": self.driver.tab_url(ref.tab_id)}
         news, more = await _news(self.driver, ref, SETTLE_S)
@@ -1046,8 +1059,11 @@ class BrowserClose(_Base):
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         leave = getattr(args, "leave_page", None)
-        result = await self.driver.close(self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id),
-                                         **({"leave_page": leave} if leave else {}))
+        ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
+        closes = getattr(self.driver, "closes", None)
+        if closes is None or closes(ref):                # a borrowed or kept tab is only let go of: its page stays
+            _leave_unsaid(self.driver, ref, leave, "closes")
+        result = await self.driver.close(ref, **({"leave_page": leave} if leave else {}))
         return ToolResult(result if isinstance(result, dict) else {"closed": True})
 
 

@@ -849,6 +849,8 @@ CENTRING = frozenset({"click", "dblclick", "rightclick", "hover"})
 CENTRING_REAL = frozenset({"type", "press"})
 POINTER_KINDS = frozenset({"click", "dblclick", "rightclick", "hover", "drag"})   # what a screenshot point takes
 STILL = frozenset({"select", "upload"})          # acts that never scroll the page (no focus, no scroll into view)
+# HAND-447: acts that put input into the page (what it may hold unsaved): leaving the tab after one needs leave_page
+WRITES = frozenset({"type", "select", "press", "upload"})
 
 
 def _numbers(v: Any, n: int) -> tuple[float, ...] | None:
@@ -964,6 +966,7 @@ class _Tab:
     frame_urls: dict[int, str] = field(default_factory=dict)   # the latest snapshot's frames' URLs (masked)
     commerce: dict[str, Any] = field(default_factory=dict)     # the page's structured amount/merchant (protocol 18)
     muted: bool = False             # HAND-207: FERB muted it (the browser's tab mute); its task may unmute it
+    typed_at: int | None = None     # HAND-447: the tab's load count when FERB last typed, filled or uploaded in it
     page: _Page | None = None       # where the latest snapshot saw the tab, for FERB's cursor (L33)
     motion: dict[str, tuple[str | None, bool]] = field(default_factory=dict)   # element id -> its scroll facts (L33)
     moved: bool = False             # FERB scrolled the page since the snapshot: its rects aren't where they were (L33)
@@ -1324,6 +1327,23 @@ class _TabDriver:
             await self.downloads.settle(t.bridge, t.chrome_id, wait)
         return self.downloads.unreported(t.bridge, t.chrome_id)
 
+    @staticmethod
+    def _note_input(t: _Tab) -> None:
+        """HAND-447: FERB typed, filled or uploaded in this tab: until its next load the page may hold unsaved input,
+        so leaving it (navigate, close) needs the worker's leave_page."""
+        t.typed_at = t.bridge.navs.get(t.chrome_id, 0)
+
+    def typed_since_load(self, tab: TabRef) -> bool:
+        """Whether FERB typed, filled or uploaded in this task tab since the page last loaded (a load seen as the
+        browser's `updated` tab event). A fact about FERB's own input, never about the page's content."""
+        t = self._tabs.get(tab.tab_id)
+        return t is not None and t.typed_at is not None and t.typed_at == t.bridge.navs.get(t.chrome_id, 0)
+
+    def closes(self, tab: TabRef) -> bool:
+        """Whether `close` would close this tab (one FERB opened, not handed over), rather than only let go of it."""
+        t = self._tabs.get(tab.tab_id)
+        return t is not None and not t.attached and not t.keep_open and not t.closed
+
     def opened_for(self, tab: TabRef) -> list[dict[str, Any]]:
         """New tabs this tab started (a link to a new tab, a page's window.open), now this task's, not yet reported."""
         t = self._tabs.get(tab.tab_id)
@@ -1596,6 +1616,8 @@ class _TabDriver:
         into = action.kind in ("type", "press") and info.terminal                # D31: a web terminal
         if into and (refusal := self._terminal_refusal(t, el.element_id, action)):
             raise Refused(refusal)
+        if action.kind in WRITES:
+            self._note_input(t)                         # HAND-447: the page may now hold unsaved input
         if action.kind == "upload":
             return await self._upload(t, frame, snap, local, action.files, intent_id, action.files_closed)
         args: dict[str, Any] = {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap, "el": local,
@@ -2435,10 +2457,13 @@ class _TabDriver:
                     results.append(await self.close(self._tabs[alias].ref))
                     break
                 except DriverError as e:
-                    if attempt == 2:
+                    # HAND-448: a page that asked before closing keeps its dialog (tabs.remove doesn't bring the tab
+                    # forward, measured) and isn't asked again: code never answers it, and the owner is told
+                    if attempt == 2 or e.facts.get("reason") == "dialog_pending":
                         self._tabs[alias].owner = None
                         errors.append(f"{alias}: {e}")
                         left.append(self._leftover(self._tabs[alias], str(e)))
+                        break
         live_roots = {self.task_root(t.owner) for t in self._tabs.values() if t.owner}
         self._keep_roots = {r for r in self._keep_roots if r in live_roots or self.task_running(r)}
         if errors:                      # the raw errors stay in the trace; `tabs` names each one for the owner (HAND-419)
@@ -2635,6 +2660,7 @@ class Router(_TabDriver):
                 raise Refused("the browser is no longer paired")
             cid = ctx.intent_id or "f-" + secrets.token_hex(8)
             sealed = self.seal_value(seal_key(key), value, cid, origin)
+            self._note_input(t)
             result = await t.bridge.call("fill", {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap,
                                                  "el": local, "sealed": sealed, "origin": origin, "code_only": True}, timeout=15, cid=cid)
             return ActionResult(bool(result.get("ok")), str(result.get("detail", "")))
@@ -2682,6 +2708,7 @@ class Router(_TabDriver):
             if key is None:
                 raise Refused("the browser is no longer paired")
             cid = ctx.intent_id or "f-" + secrets.token_hex(8)
+            self._note_input(t)
             result = await t.bridge.call("fill", {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap,
                 "el": local, "sealed": self.seal_value(seal_key(key), value, cid, origin), "origin": origin,
                 **({"split_els": locals_} if locals_ is not None else {})}, timeout=15, cid=cid)
@@ -2800,6 +2827,7 @@ class FerbIdentity(_TabDriver):
             raise Refused("FERB's identity profile isn't paired")
         cid = intent_id or "f-" + secrets.token_hex(8)
         sealed = self.seal_value(seal_key(key), value, cid, origin)
+        self._note_input(t)
         v = await t.bridge.call("fill", {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap, "el": local,
                                          "sealed": sealed, "origin": origin}, timeout=15, cid=cid)
         if v.get("detail") == "stale":

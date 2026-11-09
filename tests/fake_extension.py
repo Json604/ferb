@@ -118,6 +118,7 @@ class FakeExtension:
         # tab -> the browser's refusal of chrome.debugger.attach (e.g. another extension's frame in the page): no real
         # input there; page events still reach the page's own frames
         self.debugger_refused: dict[int, str] = {}
+        self.asks_before_leaving: set[int] = set()        # pages whose beforeunload asks (HAND-442: the dialog fact)
         self.attaches = 0
         self.detached_reason: dict[int, str] = {}
         self.dialogs: list[dict[str, Any]] = []           # every dialog the extension answered
@@ -433,7 +434,17 @@ class FakeExtension:
             self.muted.add(tab)
         return {"adopted": True, "tab_id": tab, "group_id": gid, "muted": tab in self.muted}
 
+    def _asks(self, a: dict[str, Any], what: str) -> dict[str, Any] | None:
+        if a["tab_id"] not in self.asks_before_leaving or a.get("leave_page") == "leave":
+            return None
+        if a.get("leave_page") == "stay":
+            return {"ok": False, f"{what}": False, "reason": "stayed", "detail": "FERB stayed, as leave_page said"}
+        return {"ok": False, f"{what}": False, "reason": "dialog_pending", "dialog": {"type": "beforeunload"},
+                "detail": "the page opened a beforeunload dialog"}
+
     def op_navigate(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        if (asked := self._asks(a, "navigated")) is not None:
+            return asked
         if a["url"] in self.nav_refuse:
             return {"navigated": False, "reason": "download_capture_unavailable", "tab_id": a["tab_id"],
                     "url": self.tabs[a["tab_id"]], "detail": "FERB couldn't prepare this tab to hold downloads"}
@@ -538,6 +549,8 @@ class FakeExtension:
         return {"data": base64.b64encode(chunk).decode(), "offset": offset, "eof": eof}
 
     def op_close(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        if (asked := self._asks(a, "closed")) is not None:
+            return asked
         if a['tab_id'] in self.kept:
             return self.op_release_tab(dict(a, keep_open=True), cid) | {'closed': False}
         rec = self.records.get(a["tab_id"])

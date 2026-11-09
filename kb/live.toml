@@ -3831,3 +3831,21 @@ request = "Start a task that takes a few minutes, then send \"cancel the task\" 
 pass = "One reply under the message says \"Stopped, as you asked.\" with what the task had found; the task's own message up the chat shows it stopped, and no second \"Stopped\" reply appears below."
 decisions = ["ORCH-579", "APP-825"]
 sitting = "after this change is installed"
+
+[LIVE-865]
+title = "Leaving a page FERB typed into: the worker says leave or stay, and no dialog shows"
+area = "hands"
+surface = "FERB.app with this build and the FERB extension 0.19.7, in a Chrome profile FERB drives; a disposable draft in FERB's Gmail"
+request = "Ask FERB to type a line into a new Gmail draft in FERB's Gmail, then go to example.com in that same tab. Work in another app meanwhile."
+pass = "The trace shows browser.navigate with leave_page (or one refusal asking for it, then the call with it). No \"Leave site?\" dialog shows, Chrome doesn't come forward and its window stays as it was."
+decisions = ["HAND-447", "HAND-446"]
+sitting = "after this change is installed and 0.19.7 is published"
+
+[LIVE-866]
+title = "A task ending on a page that asks before closing leaves nothing in front"
+area = "hands"
+surface = "FERB.app with this build and the FERB extension 0.19.7; a kartikey.xyz test page that asks before it is left"
+request = "Ask FERB to type a word into the test page's field and then stop there (end the task). Work in another app meanwhile."
+pass = "Nothing comes to the front when the task ends. FERB says it couldn't close that one tab; the tab is in FERB's own window with the page's question, and closing it there works."
+decisions = ["HAND-448"]
+sitting = "after this change is installed and 0.19.7 is published"
