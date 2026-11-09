@@ -77,7 +77,8 @@ class Build:
     model: str
     deps: RuntimeDeps
     effort: str | None = None
-    planner: bool = False                 # the planner's chat turn (P20 cache; no overall limit, ORCH-528)
+    planner: bool = False                 # the planner's chat turn (P20 cache; no overall limit, ORCH-528; the
+                                          # API loop's answer tool where its form is stated, RUN-447)
     limit_s: float | None = None
 
 
@@ -198,7 +199,7 @@ def _api(provider: Callable[[str], Any]) -> Callable[[Build], Any]:
         from ferb.runtimes.api import ApiRuntime
         return ApiRuntime(provider(b.model), mode=b.mode, role=b.role, tool_names=b.tool_names, output_schema=b.schema,
                           bridge=b.deps.bridge(), key=b.deps.api_key, effort=b.effort if b.mode == "worker" else None,
-                          limit_s=b.limit_s)
+                          limit_s=b.limit_s, planner=b.planner)
     return build
 
 

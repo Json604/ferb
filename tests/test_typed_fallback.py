@@ -86,7 +86,7 @@ def check_stated(provider: str, body: dict[str, Any], schema: dict[str, Any]) ->
         assert parts[0]["text"] == "FERB instructions" and stated_schema(parts[-1]["text"]) == schema
 
 
-# decision: RUN-427, RUN-408
+# decision: RUN-447, RUN-408
 @pytest.mark.parametrize("name", sorted(SENT))
 def test_every_schema_ferb_sends_fits_anthropics_counted_limits(name: str) -> None:
     wire = for_anthropic(SENT[name]).wire
@@ -95,7 +95,7 @@ def test_every_schema_ferb_sends_fits_anthropics_counted_limits(name: str) -> No
     for_gemini(SENT[name])
 
 
-# decision: RUN-427
+# decision: RUN-447
 @pytest.mark.anyio
 @pytest.mark.parametrize("provider", sorted(PROVIDERS))
 @pytest.mark.parametrize("name", sorted(SENT))
@@ -109,7 +109,7 @@ async def test_the_stated_form_is_a_valid_request_for_every_schema_and_provider(
     await rt.cancel(handle)
 
 
-# decision: RUN-427
+# decision: RUN-447
 @pytest.mark.anyio
 async def test_a_grammar_too_large_refusal_falls_back_once_and_later_calls_skip_the_strict_form() -> None:
     refusals = Refusals()
@@ -130,7 +130,7 @@ async def test_a_grammar_too_large_refusal_falls_back_once_and_later_calls_skip_
     assert [e.data["typed"] for e in events if e.kind == "usage"] == ["stated"]
 
 
-# decision: RUN-427
+# decision: RUN-447
 @pytest.mark.anyio
 async def test_the_strict_form_is_tried_again_after_a_day() -> None:
     now = [0.0]
@@ -150,7 +150,7 @@ async def test_the_strict_form_is_tried_again_after_a_day() -> None:
     assert [e.data["typed"] for e in events if e.kind == "usage"] == ["strict"]
 
 
-# decision: RUN-427, RUN-1
+# decision: RUN-447, RUN-1
 @pytest.mark.anyio
 async def test_a_400_the_stated_form_gets_too_stays_its_own_error_and_is_not_remembered() -> None:
     refusals = Refusals()
@@ -163,7 +163,7 @@ async def test_a_400_the_stated_form_gets_too_stays_its_own_error_and_is_not_rem
     assert not refusals.refused(rt.format_key)
 
 
-# decision: RUN-427, RUN-440
+# decision: RUN-447, RUN-440
 @pytest.mark.anyio
 async def test_a_stated_answer_outside_the_form_is_told_back_once() -> None:
     refusals = Refusals()
@@ -188,7 +188,7 @@ async def test_a_stated_answer_outside_the_form_is_told_back_once() -> None:
         check_final(next(e for e in events if e.kind == "final").data["text"], core.SUPERVISOR_SCHEMA)
 
 
-# decision: RUN-427
+# decision: RUN-447
 @pytest.mark.anyio
 async def test_a_schema_over_the_counted_limits_is_stated_from_the_start() -> None:
     props = {f"f{i}": {"type": "object", "additionalProperties": False, "required": ["v"],
@@ -228,7 +228,7 @@ class Client:
         pass
 
 
-# decision: RUN-427
+# decision: RUN-447
 @pytest.mark.anyio
 async def test_claude_code_refused_on_the_typed_format_starts_again_stated(monkeypatch) -> None:
     import claude_agent_sdk

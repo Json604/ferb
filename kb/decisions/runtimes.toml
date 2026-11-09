@@ -283,7 +283,8 @@ paths = ["ferb/runtimes/codex_stream.py::events", "ferb/runtimes/codex_exec.py"]
 title = "A typed format a provider refuses falls back in the adapter to the answer form stated in the prompt"
 by = "owner"
 date = 2026-11-08
-status = "active"
+status = "superseded"
+superseded_by = "RUN-447"
 words = "also cause in future ive to have amny APIs and providers support and if these kind of thigns keep happenign then we are don for"
 words_source = "The owner, 2026-11-08, on the Anthropic API's \"compiled grammar is too large\" refusals of every planner turn (journal chat.failed 05:20, 06:00, 07:10)."
 rule = "A provider's refusal of a request carrying FERB's typed format (HTTP 400, not window or image; Claude Code: api_error_status 400 before output) is resent once without it, the core schema stated after FERB's cached instructions; if that is accepted the format is remembered as not fitting (in memory, per provider, model and schema, 24 h). A schema over the counted limits is stated from the start. A stated answer outside the schema is told back once in the run. Usage reports carry `typed`. Offline contract tests cover every schema FERB sends and every adapter."
@@ -479,3 +480,27 @@ why = "28 of 80 claude-sonnet-5-5 planner turns on 2026-11-08 ended empty (end_t
 evidence = "Raw streams: message_start → message_delta{stop_reason end_turn} → message_stop with no content_block (req_011CgqexXkZ1fGf6MEUUSBy3); {stop_reason tool_use, blocks []} (23 tokens); {stop_reason tool_use, blocks [thinking \"\" + signature]} (41 tokens)."
 paths = ["ferb/runtimes/answer_rules.py::is_empty", "ferb/runtimes/api.py::ApiRuntime._events", "ferb/runtimes/api.py::Turn", "ferb/runtimes/anthropic_api.py::AnthropicProvider.parse", "ferb/runtimes/openai_api.py::OpenAIProvider.parse", "ferb/runtimes/google_api.py::GoogleProvider.parse", "ferb/runtimes/claude_sdk.py::ClaudeRuntime._events", "ferb/runtimes/codex_stream.py::ProtocolError", "scripts/question_run.py::typed_forms"]
 live = ["LIVE-822"]
+
+[RUN-447]
+title = "Where the planner's form can't be enforced, the planner answers through an answer tool"
+by = "owner"
+date = 2026-11-09
+status = "active"
+supersedes = ["RUN-427"]
+words = "i agree with implementing it , but didint you say due to this it didnt even called the usefull ones??? whats that sool to tprevent this?? / Yes, build with this wording (Recommended)"
+words_source = "Owner 2026-11-08 on the step-2 measurement; 2026-11-09 answering \"Build step 2 (the answer tool for Claude's planner) with the new wording above?\" (measured: 83% → 88% right, 0 empty replies)"
+rule = "Supersedes RUN-427 for the planner where its form can't be enforced; the rest of RUN-427 stands (resend once without the refused format, remembered 24 h; over the counted limits stated from the start; a misfit told back once; `typed` on usage; other roles stated). In FERB's API loop (Anthropic API now; Gemini when its form doesn't fit) the planner is offered ferb_answer, a non-strict tool with the core answer schema, and PRM-336's line in place of the schema. Its call is the answer; a text answer still counts. OpenAI and Codex stay enforced; Claude Code keeps its own."
+why = "Sonnet 5.5 on the owner's recorded planner requests: first calls empty 54/135 stated vs 0/135 with the tool; made-up calls in 67% of trials vs none; $0.017 vs $0.090 a turn, median 5.9 s vs 17.5 s. With PRM-336, right answers 88% vs 83% today."
+evidence = "Planner-answer design step 2: step2-measure.md (1,256 trials) and lookup-measure.md (1,416 trials), FERB's own ApiRuntime and AnthropicProvider on recorded requests."
+paths = ["ferb/runtimes/api.py::ApiRuntime._state_format", "ferb/runtimes/api.py::ApiRuntime._events", "ferb/runtimes/answer_rules.py::ANSWER_TOOL", "ferb/runtimes/anthropic_api.py::AnthropicProvider.without_format", "ferb/runtimes/openai_api.py::OpenAIProvider.without_format", "ferb/runtimes/google_api.py::GoogleProvider.without_format", "ferb/runtimes/catalog.py::Build"]
+live = ["LIVE-827"]
+
+[RUN-448]
+title = "The answer tool: one repair through its result, never a wrong call, its input streamed as the draft"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "For RUN-447. ApiRuntime(planner=True) adds ANSWER_TOOL whenever it states the form, through each provider's without_format(state, statement, tool), never among the run's tool names: the gateway never sees it, it is never a tool_call (never a wrong call), and the last tool-free call keeps it. Its call's arguments are the answer; the reply's other calls don't run; a misfit gets repair_note as its result once. Stream parsers return its arguments as answer text and mark its start (a text_delta with restart: the draft restarts). Usage carries answer_via; question_run.py counts it."
+why = "One shared path for every provider whose form is stated. The gateway and the wrong-call count see only FERB's tools, and the reply draft needs the answer's JSON from its first character."
+paths = ["ferb/runtimes/api.py::ApiRuntime._events", "ferb/runtimes/api.py::ApiRuntime._send", "ferb/runtimes/anthropic_api.py::AnthropicStream", "ferb/runtimes/openai_api.py::OpenAIStream", "ferb/runtimes/google_api.py::GoogleStream", "ferb/orchestrator/worker.py::WorkerRuns._run_once", "scripts/question_run.py::typed_forms"]
+live = ["LIVE-827"]

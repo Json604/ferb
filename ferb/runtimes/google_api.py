@@ -17,6 +17,7 @@ Typed-answer limits (RUN-408, RUN-427): the structured-output page documents the
 notes expected a too-large schema's rejection as "too many states" (LIVE-411; the wording not verified). A 400 on a
 request carrying responseJsonSchema goes through the shared fallback in api.py (`without_format` below)."""
 
+import json
 from typing import Any
 
 from ferb.core.types import ModelLimits, ModelRequest
@@ -88,8 +89,8 @@ class GoogleProvider:
     def stream_http(self, state: dict[str, Any]) -> tuple[str, dict[str, str], dict[str, Any]]:
         return f"{BASE}/{self.model}:streamGenerateContent?alt=sse", {"content-type": "application/json"}, state['body']
 
-    def stream_parser(self) -> "GoogleStream":
-        return GoogleStream()
+    def stream_parser(self, answer: str = "") -> "GoogleStream":
+        return GoogleStream(answer)
 
     def auth(self, key: str) -> dict[str, str]:
         return {"x-goog-api-key": key}
@@ -127,10 +128,16 @@ class GoogleProvider:
     def add_message(self, state: dict[str, Any], message: str) -> None:
         state["body"]["contents"].append({"role": "user", "parts": [{"text": message}]})
 
-    def without_format(self, state: dict[str, Any], statement: str) -> None:
+    def without_format(self, state: dict[str, Any], statement: str, tool: ToolSpec | None = None) -> None:
         """RUN-427: no responseMimeType or responseJsonSchema; the answer form goes at the end of the system instruction
-        (implicit caching keeps a stable prefix)."""
+        (implicit caching keeps a stable prefix). RUN-447: `tool`, the answer tool, follows FERB's function
+        declarations, its schema in Gemini's documented form (schema_shape.for_gemini: the same values)."""
         body = state["body"]
+        if tool is not None:
+            if not body.get("tools"):
+                body["tools"] = [{"functionDeclarations": []}]
+            body["tools"][0]["functionDeclarations"].append({"name": tool.name, "description": tool.description,
+                                                             "parametersJsonSchema": for_gemini(tool.schema).wire})
         config = body.get("generationConfig") or {}
         config.pop("responseMimeType", None)
         config.pop("responseJsonSchema", None)
@@ -162,11 +169,16 @@ class GoogleProvider:
 
 
 class GoogleStream:
-    """Gemini streams complete candidate chunks; retain signatures and omit thought parts from deltas."""
-    def __init__(self) -> None:
+    """Gemini streams complete candidate chunks; retain signatures and omit thought parts from deltas. A call to the
+    answer tool (`answer`, RUN-447) comes whole: its arguments are the answer's text at once (`answer_began`), and text
+    after it isn't."""
+    def __init__(self, answer: str = "") -> None:
         self.parts: list[dict[str, Any]] = []
         self.candidate: dict[str, Any] = {}
         self.metadata: dict[str, Any] = {}
+        self.answer = answer
+        self.answering = False
+        self.answer_began = False                  # set when the answer call arrives; the loop reads and clears it
 
     def feed(self, event: dict[str, Any]) -> str:
         if event.get('error'):
@@ -183,7 +195,15 @@ class GoogleStream:
         self.candidate.update(candidate)
         parts = (candidate.get('content') or {}).get('parts') or []
         self.parts.extend(parts)
-        return ''.join(str(part.get('text') or '') for part in parts if not part.get('thought'))
+        out: list[str] = []
+        for part in parts:
+            call = part.get('functionCall') or {}
+            if self.answer and not self.answering and call.get('name') == self.answer:
+                self.answering = self.answer_began = True
+                out = [json.dumps(call.get('args') or {}, ensure_ascii=False)]    # text before it isn't the answer
+            elif not self.answering and not part.get('thought'):
+                out.append(str(part.get('text') or ''))
+        return ''.join(out)
 
     def finish(self) -> dict[str, Any]:
         if not self.candidate:

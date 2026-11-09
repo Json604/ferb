@@ -3565,3 +3565,12 @@ request = "Open the chat, press History and pick 8 Nov; scroll it top to bottom 
 pass = "8 Nov opens at once with its newest messages, scrolls without hitching, and Tasks opens at once. A finishing task still scrolls its answer or card into view (or shows the pill when you just scrolled), and the pill brings it forward. Nothing looks different from before."
 decisions = ["APP-800", "APP-720"]
 sitting = "after this change is installed"
+
+[LIVE-827]
+title = "Anthropic API planner answers through its answer tool, looks things up itself, and its reply streams"
+area = "runtimes"
+surface = "FERB.app with this build on the owner's Anthropic API key (claude-sonnet-5-5)"
+request = "Ask about something an earlier task found (\"why did you pick X?\" after a shopping task), about a detail of an earlier long answer, and a request that used to go empty (\"how much did I spend on food in October?\"); watch the reply appear; then read `ferb trace` of each turn."
+pass = "Each question about earlier work is answered from FERB's records (a task.evidence or chat.history lookup in the turn), not by starting a new task. No turn ends without an answer or runs on calling made-up tools. The reply's words appear while it is written, not only at the end. The model.usage span of the answering call shows answer_via tool (or text), typed stated."
+decisions = ["RUN-447", "RUN-448", "PRM-336"]
+sitting = "after this change is installed"

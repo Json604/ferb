@@ -103,8 +103,8 @@ class OpenAIProvider:
     def stream_http(self, state: dict[str, Any]) -> tuple[str, dict[str, str], dict[str, Any]]:
         return URL, {"content-type": "application/json"}, {**state['body'], 'stream': True}
 
-    def stream_parser(self) -> "OpenAIStream":
-        return OpenAIStream()
+    def stream_parser(self, answer: str = "") -> "OpenAIStream":
+        return OpenAIStream(answer)
 
     def auth(self, key: str) -> dict[str, str]:
         return {"authorization": f"Bearer {key}"}
@@ -144,11 +144,15 @@ class OpenAIProvider:
     def add_message(self, state: dict[str, Any], message: str) -> None:
         state["body"]["input"].append({"role": "user", "content": [self._text(message, False)]})
 
-    def without_format(self, state: dict[str, Any], statement: str) -> None:
+    def without_format(self, state: dict[str, Any], statement: str, tool: ToolSpec | None = None) -> None:
         """RUN-427: no text.format; the answer form goes at the end of FERB's developer message, inside its cache
-        breakpoint (explicit models) or its implicitly cached prefix."""
+        breakpoint (explicit models) or its implicitly cached prefix. RUN-447: `tool`, the answer tool, follows FERB's
+        tools as a non-strict function, as theirs are."""
         body = state["body"]
         body.pop("text", None)
+        if tool is not None:
+            body.setdefault("tools", []).append({"type": "function", "name": tool.name, "description": tool.description,
+                                                 "parameters": tool.schema, "strict": False})
         items = body["input"]
         if items and items[0].get("role") == "developer":
             items[0]["content"][0]["text"] += "\n\n" + statement
@@ -176,14 +180,27 @@ class OpenAIProvider:
 
 
 class OpenAIStream:
-    """Responses SSE carries text deltas and the authoritative complete response separately."""
-    def __init__(self) -> None:
+    """Responses SSE carries text deltas and the authoritative complete response separately. The answer tool's
+    (`answer`, RUN-447) argument deltas are the answer's text from its call's start (`answer_began`); text after it
+    isn't."""
+    def __init__(self, answer: str = "") -> None:
         self.response: dict[str, Any] | None = None
+        self.answer = answer
+        self.answer_item: str | None = None        # the answer call's item id, once it starts
+        self.answer_began = False                  # set when it starts; the loop reads and clears it
 
     def feed(self, event: dict[str, Any]) -> str:
         kind = event.get('type')
+        if kind == 'response.output_item.added' and self.answer and self.answer_item is None:
+            item = event.get('item') or {}
+            if item.get('type') == 'function_call' and item.get('name') == self.answer:
+                self.answer_item, self.answer_began = str(item.get('id') or ''), True
+            return ''
+        if kind == 'response.function_call_arguments.delta':
+            return (str(event.get('delta') or '') if self.answer_item is not None
+                    and str(event.get('item_id') or '') == self.answer_item else '')
         if kind == 'response.output_text.delta':
-            return str(event.get('delta') or '')
+            return str(event.get('delta') or '') if self.answer_item is None else ''
         if kind in ('response.completed', 'response.failed', 'response.incomplete'):
             self.response = event.get('response')
         elif kind == 'error':

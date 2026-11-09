@@ -14,9 +14,9 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 81 | 7 | 7 |
 | perception | Perception | `ferb/sense` | 15 | 2 | 0 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 8 | 6 | 0 |
-| prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 28 | 3 | 8 |
+| prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 30 | 3 | 8 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 18 | 2 | 2 |
-| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 46 | 4 | 3 |
+| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 47 | 4 | 4 |
 | storage | Storage | `ferb/store` | 25 | 6 | 3 |
 | tests | Tests | `tests` | 10 | 15 | 0 |
 | voice | Voice | `ferb/voice` | 3 | 0 | 0 |

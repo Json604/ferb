@@ -485,7 +485,8 @@ class WorkerRuns:
         for 15 minutes); a second silence, or a call that went quiet after answering in part, fails with that reason.
         `retry_silent` False (the planner's turn, ORCH-528): a silence is not tried again; Stalled goes to the caller,
         which tells the owner plainly. `on_tool`: told when the model calls a tool (the planner's draft starts over:
-        ORCH-516). `on_timing`: told the call's timing when it ends, however it ends (`_run_once`, ORCH-526)."""
+        ORCH-516), or its answer tool's call begins (RUN-447: what streamed before it wasn't the answer). `on_timing`:
+        told the call's timing when it ends, however it ends (`_run_once`, ORCH-526)."""
         once = partial(self._run_once, rt, task, system, ctx, token, parent_span, tree, worker_id, on_delta=on_delta,
                        on_usage=on_usage, images=images, notify=notify, on_tool=on_tool, on_timing=on_timing)
         if worker_id:
@@ -655,6 +656,8 @@ class WorkerRuns:
                 if ev.kind in ("text_delta", "message", "tool_call"):
                     arrival.output()                     # model output, as it reached FERB (ORCH-526)
                 if ev.kind == "text_delta":
+                    if ev.data.get("restart") and on_tool is not None:    # the answer tool's call begins (RUN-447)
+                        on_tool()
                     if on_delta is not None:
                         on_delta(str(ev.data.get('text', '')))
                 elif ev.kind == "tool_call":

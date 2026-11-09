@@ -123,8 +123,8 @@ class AnthropicProvider:
         url, headers, body = self.http(state)
         return url, headers, {**body, 'stream': True}
 
-    def stream_parser(self) -> "AnthropicStream":
-        return AnthropicStream()
+    def stream_parser(self, answer: str = "") -> "AnthropicStream":
+        return AnthropicStream(answer)
 
     def auth(self, key: str) -> dict[str, str]:
         return {"x-api-key": key}
@@ -174,10 +174,17 @@ class AnthropicProvider:
         message = str(error.get("message") or "").lower()
         return status == 400 and any(all(part in message for part in shape) for shape in IMAGE_REFUSALS)
 
-    def without_format(self, state: dict[str, Any], statement: str) -> None:
+    def without_format(self, state: dict[str, Any], statement: str, tool: ToolSpec | None = None) -> None:
         """RUN-427: no output_config.format; the answer form goes at the end of the system block, which keeps its cache
-        breakpoint, so the stated form is cached with FERB's instructions."""
+        breakpoint, so the stated form is cached with FERB's instructions. RUN-447: `tool`, the answer tool, follows
+        FERB's tools as a plain (non-strict) tool with the core schema as its input schema: no grammar is compiled for
+        it, so no size limit applies (accepted for SUPERVISOR_SCHEMA in a live probe, 2026-11-08); tool_choice stays
+        auto ("any"/"tool" return 400 on Opus 5.5, Sonnet 5.5 and Fable 5.1)."""
         body = state["body"]
+        if tool is not None:
+            body.setdefault("tools", []).append({"name": tool.name, "description": tool.description,
+                                                 "input_schema": tool.schema})
+            body["tool_choice"] = {"type": "auto"}
         output = body.get("output_config") or {}
         output.pop("format", None)
         if not output:
@@ -200,12 +207,17 @@ class AnthropicProvider:
 
 
 class AnthropicStream:
-    """Assemble indexed Messages blocks without forwarding thinking or tool arguments as answer text."""
-    def __init__(self) -> None:
+    """Assemble indexed Messages blocks without forwarding thinking or tool arguments as answer text, except the
+    arguments of the answer tool `answer` (RUN-447): they are the answer, so they stream as its text from the call's
+    start (`answer_began`), and text blocks after it don't."""
+    def __init__(self, answer: str = "") -> None:
         self.message: dict[str, Any] | None = None
         self.blocks: dict[int, dict[str, Any]] = {}
         self.arguments: dict[int, str] = {}
         self.stopped = False
+        self.answer = answer
+        self.answer_index: int | None = None       # the block of the answer tool's call, once it starts
+        self.answer_began = False                  # set when it starts; the loop reads and clears it
 
     def feed(self, event: dict[str, Any]) -> str:
         kind = event.get('type')
@@ -214,7 +226,11 @@ class AnthropicStream:
         elif kind == 'content_block_start':
             started = dict(event['content_block'])
             self.blocks[event['index']] = started
-            return str(started.get('text') or '') if started.get('type') == 'text' else ''
+            if (self.answer and self.answer_index is None and started.get('type') == 'tool_use'
+                    and started.get('name') == self.answer):
+                self.answer_index, self.answer_began = event['index'], True
+            return (str(started.get('text') or '') if started.get('type') == 'text' and self.answer_index is None
+                    else '')
         elif kind == 'content_block_delta':
             index, delta = event['index'], event['delta']
             block = self.blocks.get(index)
@@ -224,13 +240,16 @@ class AnthropicStream:
             if delta_type == 'text_delta' and block.get('type') == 'text':
                 text = str(delta.get('text') or '')
                 block['text'] = block.get('text', '') + text
-                return text
+                return text if self.answer_index is None else ''
             if delta_type == 'thinking_delta':
                 block['thinking'] = block.get('thinking', '') + str(delta.get('thinking') or '')
             elif delta_type == 'signature_delta':
                 block['signature'] = block.get('signature', '') + str(delta.get('signature') or '')
             elif delta_type == 'input_json_delta':
-                self.arguments[index] = self.arguments.get(index, '') + str(delta.get('partial_json') or '')
+                partial = str(delta.get('partial_json') or '')
+                self.arguments[index] = self.arguments.get(index, '') + partial
+                if index == self.answer_index:
+                    return partial
             elif delta_type == 'citations_delta':
                 block.setdefault('citations', []).append(delta.get('citation'))
         elif kind == 'content_block_stop':

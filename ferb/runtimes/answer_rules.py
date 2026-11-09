@@ -10,7 +10,11 @@ Runtime-neutral: no provider code; must not judge what an answer says.
   or one FERB's gateway refused because the grant's calls were spent (the planner's lookups, ORCH-516). Lookups and
   tools that ran never count. The shared run stops a run at WRONG_CALLS_CAP of them with ToolLoop.
 - The planner turns EmptyAnswer and ToolLoop into one last call with no tools and what its lookups found (ORCH-557);
-  a worker's attempt ends with the reason (ORCH-307 decides what comes next)."""
+  a worker's attempt ends with the reason (ORCH-307 decides what comes next).
+- The answer tool (RUN-447): where the planner's typed format isn't used (the provider refused it, or it is over the
+  counted limits), the direct-API loop offers ANSWER_TOOL, a non-strict tool whose input schema is the core answer
+  schema, and states PLANNER_ANSWER in place of the schema. A call to it is the answer; it is never a wrong call and
+  never reaches FERB's gateway. A text answer is still accepted."""
 
 from ferb.core.errors import FerbError
 
@@ -19,6 +23,27 @@ from ferb.core.errors import FerbError
 FOLLOW_UP = "You ended without an answer. Give your final answer now."
 # RUN-446 (owner 2026-11-08: "Yes, at 10 (Recommended)"): wrong calls per model run, every role
 WRONG_CALLS_CAP = 10
+# RUN-447: the answer tool's name and description (PRM-337, as measured on 2026-11-08: 0 of 135 first calls empty)
+ANSWER_TOOL = "ferb_answer"
+ANSWER_TOOL_DESC = ("Give FERB your final answer for this message: call this once, when you have decided, with the whole "
+                    "answer as its input (one object matching this input schema). Include every property; use null "
+                    "where the schema allows it for a value that doesn't apply. FERB acts on this answer; nothing you "
+                    "call in the same reply runs.")
+# PRM-336 (owner 2026-11-09: "Yes, build with this wording (Recommended)"): the planner's answer form where its typed
+# format isn't used, in place of the stated schema, beside ANSWER_TOOL
+PLANNER_ANSWER = ("FERB's answer format (required): your lookup tools are for you, not for a task. When the owner asks "
+                  "about something from before (a detail of an earlier answer, what an earlier task found or did, "
+                  "something they told you, memory), call the lookups yourself first and answer from what they "
+                  "return: a short-form result's full text is one chat.history call with its entry_id, an earlier "
+                  "task's records are task.evidence with its task_id. Never make a task just to read FERB's own "
+                  "records; when a task needs something from an earlier result (a file it made, the values to send), "
+                  "read it first and put it in the goal. Then give your final answer by calling the ferb_answer tool "
+                  "with the whole answer (its input schema is the answer format), or reply with only that JSON "
+                  "object, nothing before or after it.")
+# RUN-447: the result other calls get when they came in the same reply as the answer, and the answer's when an owner
+# correction arrived before it was taken
+NOT_RUN_WITH_ANSWER = "Not run: your answer came in the same reply."
+ANSWER_NOT_TAKEN = "Not taken: the owner updated the request; answer again using the new instructions."
 
 
 def is_empty(calls: object, final: str | None) -> bool:

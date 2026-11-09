@@ -12,7 +12,11 @@ enabled, so it can only be a made-up name); it is reported as a `tool_call` even
 run counts toward the wrong-call cap (RUN-445, answer_rules.py). A call that hands over nothing (no answer text, no tool
 call) gets one follow-up in the same conversation (answer_rules.FOLLOW_UP); a second ends the run with an error marked
 `empty` (RUN-446). Each usage report says how its call ended (`stop`), the kinds of its output pieces (`blocks`) and the
-follow-up (`follow_up`), never content. No turn or token budget of its own beyond those; stop, the stall watchdog and
+follow-up (`follow_up`), never content. Where the planner's typed format isn't used (stated, RUN-427), the planner's
+call is also offered the answer tool (answer_rules.ANSWER_TOOL, RUN-447): a call to it is the answer, checked against
+the core schema and told back once through its tool result when it doesn't fit; it is never run through the gateway
+and never a wrong call; its input streams as the reply's draft; a text answer is still accepted; usage says which
+(`answer_via`). No turn or token budget of its own beyond those; stop, the stall watchdog and
 the call's own time limit (none for a worker) end a run. Keys come from the Keychain at start and never appear in
 errors."""
 
@@ -30,7 +34,8 @@ from ferb.core.errors import FerbError, Unsupported
 from ferb.core.structured import check_final
 from ferb.core.timing import CallTimer
 from ferb.core.types import ModelLimits, ModelRequest, RunHandle, RuntimeEvent, Task
-from ferb.runtimes.answer_rules import FOLLOW_UP, is_empty
+from ferb.runtimes.answer_rules import (ANSWER_NOT_TAKEN, ANSWER_TOOL, ANSWER_TOOL_DESC, FOLLOW_UP, NOT_RUN_WITH_ANSWER,
+                                       PLANNER_ANSWER, is_empty)
 from ferb.runtimes.schema_shape import (REFUSALS, Refusals, SchemaTooComplex, Shape, repair_note, same, stated,
                                         unfenced)
 from ferb.runtimes.usage import Usage
@@ -120,8 +125,11 @@ class Provider(Protocol):
     def image_refused(self, status: int, error: dict[str, Any]) -> bool: ...
     def add_message(self, state: dict[str, Any], message: str) -> None: ...
     # Optional (RUN-427): the request without its typed format, `statement` (the answer form) added to FERB's
-    # instructions where the provider caches them. Without it a refused typed format is an error as any other.
-    # def without_format(self, state: dict[str, Any], statement: str) -> None: ...
+    # instructions where the provider caches them, and `tool` (RUN-447: the answer tool, its schema the core one)
+    # offered beside FERB's tools in the provider's own form. Without it a refused typed format is an error as any other.
+    # def without_format(self, state: dict[str, Any], statement: str, tool: ToolSpec | None = None) -> None: ...
+    # Optional (streaming): stream_parser(answer) assembles one streamed reply; `answer` (RUN-447) names the answer
+    # tool, whose arguments it returns as answer text, setting `answer_began` when that call starts.
 
 
 class Bridge(Protocol):
@@ -182,6 +190,14 @@ class _Run:
     repaired: bool = False                      # a stated answer that didn't fit was told back (once)
     # RUN-446: an empty answer's one follow-up: "" (none yet), "asked" (sent, the next call says how it went), "done"
     follow_up: str = ""
+    answer_tool: bool = False                   # RUN-447: the answer tool is offered (the planner, stated form)
+
+
+class _AnswerBegins:
+    """The answer tool's call started streaming (RUN-447): what streamed before it in this run isn't the answer."""
+
+
+ANSWER_BEGINS = _AnswerBegins()
 
 
 class ApiRuntime:
@@ -190,8 +206,11 @@ class ApiRuntime:
                  key: Callable[[str], Awaitable[str | None]], transport: httpx.AsyncBaseTransport | None = None,
                  sleep: Callable[[float], Awaitable[None]] = asyncio.sleep, retries: int = 4, backoff_s: float = 1.0,
                  timeout_s: float = 600.0, effort: str | None = None, limit_s: float | None = None,
-                 monotonic: Callable[[], float] = time.monotonic, refusals: Refusals | None = None) -> None:
+                 monotonic: Callable[[], float] = time.monotonic, refusals: Refusals | None = None,
+                 planner: bool = False) -> None:
         self.provider, self.name = provider, provider.name
+        # the planner's call (catalog Build.planner): offered the answer tool when its form is stated (RUN-447)
+        self.planner = planner
         self.monotonic = monotonic       # the clock each model call's timing reads (RUN-419); tests give a fake
         self.effort = effort             # L39: a worker run's effort when asked for ("high"); supervisor runs stay low
         self.mode, self.role, self.tool_names, self.output_schema = mode, role, list(tool_names or []), output_schema
@@ -241,21 +260,29 @@ class ApiRuntime:
         state = self.provider.begin(request, tools, self.shape.wire if self.shape else None,
                                     "low" if self.mode == "supervisor" else self.effort,
                                     f"ferb:{self.role.partition(':')[0]}:{self.mode}")
-        typed = ""
+        typed, answer_tool = "", False
         if self.shape is not None:
             typed = "strict"
             if self.stated_only or self.refusals.refused(self.format_key):
-                self._state_format(state)
+                answer_tool = self._state_format(state)
                 typed = "stated"
         client = httpx.AsyncClient(timeout=self.timeout_s, transport=self.transport)
         deadline = asyncio.get_running_loop().time() + self.limit_s if self.limit_s is not None else None
         return RunHandle("run-" + secrets.token_hex(6), self.name, task.id,
                          {"run": _Run(state, key, run_token, names, client, deadline=deadline,
-                                      timer=CallTimer(self.monotonic), typed=typed)})
+                                      timer=CallTimer(self.monotonic), typed=typed, answer_tool=answer_tool)})
 
-    def _state_format(self, state: dict[str, Any]) -> None:
+    def _state_format(self, state: dict[str, Any]) -> bool:
+        """RUN-427: the request without its typed format. The planner's call gets the answer tool, its schema the core
+        one, and PLANNER_ANSWER in place of the stated schema (RUN-447); any other call the schema stated. True when
+        the answer tool is offered."""
         assert self.output_schema is not None
-        getattr(self.provider, "without_format")(state, stated(self.output_schema))
+        without = getattr(self.provider, "without_format")
+        if self.planner:
+            without(state, PLANNER_ANSWER, ToolSpec(ANSWER_TOOL, ANSWER_TOOL_DESC, inline_refs(self.output_schema)))
+            return True
+        without(state, stated(self.output_schema))
+        return False
 
     async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
         r: _Run = run.state["run"]
@@ -278,7 +305,7 @@ class ApiRuntime:
                 if r.cancelled:
                     return
                 self._apply_updates(r)
-                fragments: asyncio.Queue[str | None] = asyncio.Queue()
+                fragments: asyncio.Queue[str | _AnswerBegins | None] = asyncio.Queue()
 
                 async def read_turn() -> Turn:
                     try:
@@ -291,6 +318,10 @@ class ApiRuntime:
                     while (fragment := await fragments.get()) is not None:
                         if r.cancelled:
                             return
+                        if isinstance(fragment, _AnswerBegins):
+                            # RUN-447: the answer tool's call starts: what streamed before it isn't the answer
+                            yield RuntimeEvent('text_delta', {'text': '', 'restart': True})
+                            continue
                         # "" is a streamed event with no answer text (thinking, a block starting): a sign of life for
                         # the silence guard (ORCH-528)
                         yield (RuntimeEvent('text_delta', {'text': fragment}) if fragment
@@ -307,8 +338,19 @@ class ApiRuntime:
                                        ({"account": e.account} if e.account else {}) |
                                        ({"image": True} if e.image else {}))
                     return
-                final, misfit = "", None
-                if not turn.calls and (turn.final or "").strip() and not r.updates:
+                final, misfit, via = "", None, ""
+                # RUN-447: a call to the answer tool is the answer (the other calls in its reply aren't run)
+                answer = next((c for c in turn.calls if c.name == ANSWER_TOOL), None) if r.answer_tool else None
+                if answer is not None and not r.updates:
+                    final, via = json.dumps(answer.arguments, ensure_ascii=False), "tool"
+                    try:
+                        if answer.arguments_error:
+                            raise ValueError(f"the answer is not a JSON object ({answer.arguments_error})")
+                        check_final(final, self.output_schema)
+                    except ValueError as e:
+                        misfit = str(e)
+                elif not turn.calls and (turn.final or "").strip() and not r.updates:
+                    via = "text"
                     final = unfenced(turn.final) if r.typed.startswith("stated") else turn.final
                     final = self.shape.answer_text(final) if self.shape else final
                     if r.typed.startswith("stated"):
@@ -330,7 +372,19 @@ class ApiRuntime:
                 yield RuntimeEvent("usage", asdict(turn.usage) | ({"timing": r.timer.done()} if r.timer else {})
                                    | ({"typed": r.typed} if r.typed else {}) | ({"repair": repair} if repair else {})
                                    | {"stop": turn.stop, "blocks": list(turn.blocks)}
-                                   | ({"follow_up": follow} if follow else {}))
+                                   | ({"follow_up": follow} if follow else {})
+                                   | ({"answer_via": via} if via and r.answer_tool else {}))
+                if answer is not None and not r.updates:
+                    if misfit is not None and not r.repaired:
+                        # RUN-427's one repair, told back as the answer call's own result
+                        r.repaired = True
+                        self.provider.add_results(r.state, turn, [
+                            ToolOutcome(c, repair_note(misfit) if c is answer else NOT_RUN_WITH_ANSWER, True)
+                            for c in turn.calls])
+                        continue
+                    r.closed = True
+                    yield RuntimeEvent("final", {"text": final})
+                    return
                 if not turn.calls:
                     if r.updates:
                         continue  # The answer predates an accepted owner correction.
@@ -354,6 +408,11 @@ class ApiRuntime:
                     return
                 results = []
                 for call in turn.calls:
+                    if r.answer_tool and call.name == ANSWER_TOOL:
+                        # an answer given before the owner's correction reached the model: not taken, never a wrong
+                        # call (only here with updates pending)
+                        results.append(ToolOutcome(call, ANSWER_NOT_TAKEN, True))
+                        continue
                     if call.name not in r.names:
                         # a name this run was never offered: nothing runs, the shared run counts it (RUN-445), and the
                         # model is told so and goes on
@@ -409,7 +468,7 @@ class ApiRuntime:
         text = json.dumps(out["content"], ensure_ascii=False) + "\n" + str(out.get("footer", ""))
         return ToolOutcome(call, text, bool(out.get("is_error")), out.get("image"))
 
-    async def _call(self, r: _Run, on_delta: Callable[[str], None]) -> Turn:
+    async def _call(self, r: _Run, on_delta: Callable[[str | _AnswerBegins], None]) -> Turn:
         if r.timer:
             r.timer.begin()                  # this model call begins (RUN-421); a retry's wait counts before its send
         try:
@@ -421,13 +480,13 @@ class ApiRuntime:
             if (r.typed != "strict" or e.status != 400 or e.overflow or e.image
                     or not hasattr(self.provider, "without_format")):
                 raise
-            self._state_format(r.state)
+            r.answer_tool = self._state_format(r.state)
             r.typed = "stated_after_refusal"
         turn = await self._send(r, on_delta)
         self.refusals.remember(self.format_key)
         return turn
 
-    async def _send(self, r: _Run, on_delta: Callable[[str], None]) -> Turn:
+    async def _send(self, r: _Run, on_delta: Callable[[str | _AnswerBegins], None]) -> Turn:
         streaming = (self.mode == 'supervisor' and self.output_schema is not None
                      and hasattr(self.provider, 'stream_http'))
         request = getattr(self.provider, 'stream_http') if streaming else self.provider.http
@@ -455,7 +514,8 @@ class ApiRuntime:
                             resp.status_code, shape), account=ACCOUNT_STATUS.get(resp.status_code, ''),
                             image=self.provider.image_refused(resp.status_code, shape), status=resp.status_code)
                     if streaming and resp.headers.get('content-type', '').split(';', 1)[0].strip().lower() == 'text/event-stream':
-                        parser = getattr(self.provider, 'stream_parser')()
+                        make = getattr(self.provider, 'stream_parser')
+                        parser = make(ANSWER_TOOL) if r.answer_tool else make()
                         async for event in _sse_events(resp):
                             if timer:
                                 timer.output()       # each streamed event is the model's output arriving
@@ -463,6 +523,9 @@ class ApiRuntime:
                                 text = parser.feed(event)
                             except (KeyError, TypeError, ValueError):
                                 raise ProviderError(f'{self.name}: malformed response stream event') from None
+                            if getattr(parser, 'answer_began', False):    # RUN-447: the answer tool's call starts
+                                parser.answer_began = False
+                                on_delta(ANSWER_BEGINS)
                             if text:
                                 emitted = True
                             on_delta(text or "")      # "" still shows the model working (ORCH-528)
