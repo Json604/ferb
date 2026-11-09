@@ -103,7 +103,6 @@ extension NotchModel {
     /// `focus: false`: FERB itself shows the day (the intro), without taking focus (rule 10).
     func selectDay(_ day: Date, focus: Bool = true) {
         followsToday = Calendar.current.isDateInToday(day)
-        measuredTranscriptHeight = 0
         resetWindow(day)                    // opened again: its newest page (APP-806)
         selectedDay = Calendar.current.startOfDay(for: day)
         showingHistory = false

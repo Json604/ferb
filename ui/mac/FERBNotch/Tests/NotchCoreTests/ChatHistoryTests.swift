@@ -241,6 +241,32 @@ final class ChatHistoryTests: XCTestCase {
         XCTAssertGreaterThan(presented, 0, "the chat is sized again when the page comes")
     }
 
+    // decision: APP-815, APP-806
+    func testADayReadFromTheDaemonShowsMessagesOrTheLoaderAtEveryThumbJump() async throws {
+        let probe = TranscriptScrollProbeTests()
+        let day = TranscriptScrollProbeTests.day
+        let rpc = HistoryRPC()
+        let archive = try TranscriptScrollProbeTests.archive(day: day)
+        _ = try await rpc.call("chat.history.import",
+                               params: ["entries": archive.storedEntries.map { try HistoryEntry($0).wire }])
+        let defaults = scratchDefaults("ChatHistoryThumb")
+        defaults.set(try JSONEncoder().encode(HistoryImport(at: Date(), entries: 0, archiveSHA256: "")),
+                     forKey: NotchModel.historyImportKey)
+        let model = NotchModel(rpc: rpc, preferences: defaults)
+        let host = NSHostingView(rootView: AnyView(ChatBodyView(model: model, animates: false)
+            .environment(\.selectableTextGeneration, model.textRenderGeneration)))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 440, height: 520),
+                              styleMask: .borderless, backing: .buffered, defer: true)
+        window.contentView = host                                     // never ordered front or captured
+        await model.loadDay(day)
+        let jumps = try await probe.thumb(model, host, window)
+        print(jumps.line.replacingOccurrences(of: "THUMB", with: "THUMB-DAEMON"))
+        XCTAssertEqual(jumps.blankFrames, 0, "messages, or the loader while a page is on its way, in the first frame")
+        XCTAssertEqual(jumps.moved, 0, "\(jumps.movedTotal) pt")
+        XCTAssertEqual(model.visibleEntries.count, TranscriptScrollProbeTests.entries)
+        withExtendedLifetime(window) {}
+    }
+
     // decision: APP-806, APP-809
     func testADayReadFromTheDaemonScrollsToItsTopWithNothingBlankAndNoJump() async throws {
         let probe = TranscriptScrollProbeTests()

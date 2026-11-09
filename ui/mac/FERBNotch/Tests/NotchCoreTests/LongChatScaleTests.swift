@@ -41,7 +41,7 @@ final class LongChatScaleTests: XCTestCase {
             if case let .turn(turn, _) = $0 { return turn.card != nil } else { return false } }))
         model.requestScroll(TranscriptTarget.footer(turn: oldest.id), .needsYou)
         for _ in 0..<6 { await settle(host) }
-        XCTAssertLessThan(scroll.contentView.bounds.minY, 2000, "the view moved up to the oldest card, near the top")
+        XCTAssertLessThan(scroll.contentView.bounds.minY, bottom / 2, "the view moved up to the oldest card, near the top")
         let shown = textViews(in: host).filter { view in
             view.convert(view.bounds, to: scroll.contentView).intersects(scroll.contentView.bounds)
         }

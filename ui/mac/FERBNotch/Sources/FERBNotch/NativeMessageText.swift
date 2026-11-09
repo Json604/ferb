@@ -275,8 +275,11 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
         manager.ensureLayout(for: container)
         let used = manager.boundingRect(forGlyphRange: NSRange(location: 0, length: manager.numberOfGlyphs), in: container)
         let size = CGSize(width: min(width, ceil(used.maxX)), height: ceil(max(used.maxY, manager.usedRect(for: container).maxY, manager.extraLineFragmentUsedRect.maxY)))
-        container.containerSize = previousSize
-        manager.ensureLayout(for: container)
+        // The text stays laid out at the width it was measured at when that is (or will be) its own width: laying it out
+        // again at a 1-point width before its first layout typeset every glyph on a line of its own (APP-815)
+        if bounds.width > 1, abs(previousSize.width - bounds.width) < 0.5, abs(width - bounds.width) >= 0.5 {
+            container.containerSize = previousSize
+        }
         measuredWidths[width] = size
         return size
     }

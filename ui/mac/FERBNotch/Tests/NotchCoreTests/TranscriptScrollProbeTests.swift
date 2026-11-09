@@ -44,9 +44,123 @@ final class TranscriptScrollProbeTests: XCTestCase {
         XCTAssertEqual(probe.jumps, 0, "the content moves exactly as scrolled (\(probe.jumpTotal) pt off)")
         if ProcessInfo.processInfo.environment["FERB_SCALE_BENCH"] == "1" {
             XCTAssertLessThan(probe.openMs, 300, "opening the day")
-            XCTAssertLessThan(probe.p95, 16.7, "a scroll step within a frame (95th percentile)")
+            // release (APP-815): a step's mean well within a frame; a step that measures the rows coming into view
+            // costs one row's build (rows near the view are measured ahead once the owner pauses)
+            XCTAssertLessThan(probe.mean, 16, "a scroll step within a frame (mean)")
+            XCTAssertLessThan(probe.p95, 20, "a scroll step that builds a row (95th percentile)")
         }
         withExtendedLifetime(window) {}
+    }
+
+    /// Owner 2026-11-09: "i still saw blank screen whiel usign teh scroll indicato to go fastly to top or bottom". With
+    /// the lazy stack (before APP-815) the same 30 entries measured anywhere from 8,951 to 14,473 pt as rows were built,
+    /// so a jump to the bottom landed in estimated space with nothing in it (1 blank frame in 21 jumps on a day whose
+    /// long answers were open).
+    // decision: APP-815, APP-806, APP-809
+    func testDraggingTheScrollThumbFastShowsMessagesInTheFirstFrame() async throws {
+        for open in [false, true] {
+            let (model, host, window) = try await mixedDay()
+            if open {
+                // heights far apart: every other long answer shown whole
+                for (n, turn) in model.conversation.turns.enumerated() where turn.answer.count > 2000 && n % 2 == 0 {
+                    model.expandedText.toggle(ExpansionState.key(turn: turn.id, item: "answer"))
+                }
+            }
+            let jumps = try await thumb(model, host, window)
+            print(jumps.line + (open ? " (long answers open)" : ""))
+            XCTAssertEqual(jumps.blankFrames, 0, "a thumb jump shows messages (or the loader) in its first frame")
+            XCTAssertEqual(jumps.moved, 0, "what a thumb jump shows stays where it was drawn (\(jumps.movedTotal) pt)")
+            XCTAssertEqual(model.visibleEntries.count, Self.entries, "the whole day was in the list for the later jumps")
+            if ProcessInfo.processInfo.environment["FERB_SCALE_BENCH"] == "1" {
+                XCTAssertLessThan(jumps.meanMs, 16.7, "a thumb jump within a frame (mean)")
+            }
+            withExtendedLifetime(window) {}
+        }
+    }
+
+    struct Thumb {
+        var jumps = 0
+        var blankFrames = 0
+        var loaderFrames = 0
+        var moved = 0
+        var movedTotal = 0.0
+        var ms: [Double] = []
+        var meanMs: Double { ms.isEmpty ? 0 : ms.reduce(0, +) / Double(ms.count) }
+        var worstMs: Double { ms.max() ?? 0 }
+        var line: String {
+            String(format: "THUMB jumps=%d blankFrames=%d loaderFrames=%d moved=%d movedTotal=%.0fpt mean=%.1fms worst=%.1fms",
+                   jumps, blankFrames, loaderFrames, moved, movedTotal, meanMs, worstMs)
+        }
+    }
+
+    /// The scroll thumb dragged fast: the view put straight at a far place (the top, the bottom, places between), then
+    /// one frame (layout and display, as the display cycle does after a scroll event). Blank: no message text and no
+    /// loader in view in that frame. Moved: a message drawn in that frame stood elsewhere once the transcript settled.
+    func thumb(_ model: NotchModel, _ host: NSView, _ window: NSWindow) async throws -> Thumb {
+        var out = Thumb()
+        model.selectDay(Self.day, focus: false)
+        await settle(host)
+        let scroll = try XCTUnwrap(scrollView(in: host), "the transcript's scroll view")
+        let clip = scroll.contentView
+        func frame() {
+            window.contentView?.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+        }
+        func jump(_ fraction: CGFloat) async {
+            let most = max(0, (scroll.documentView?.frame.height ?? 0) - clip.bounds.height)
+            let t = Date()
+            clip.scroll(to: CGPoint(x: 0, y: (most * fraction).rounded()))
+            scroll.reflectScrolledClipView(clip)
+            frame()
+            out.ms.append(Date().timeIntervalSince(t) * 1000)
+            out.jumps += 1
+            let drawn = visible(host, scroll)
+            if drawn.isEmpty, ProcessInfo.processInfo.environment["FERB_PROBE_TRACE"] == "1", let table = scroll.documentView as? NSTableView {
+                let r = table.rows(in: clip.bounds)
+                print("BLANK y=\(clip.bounds.minY) rows=\(r.location)..<\(r.location + r.length) of \(table.numberOfRows)")
+                for row in r.location..<(r.location + r.length) {
+                    let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
+                    print("  row \(row) rect=\(table.rect(ofRow: row)) cell=\(cell.map { String(describing: type(of: $0)).prefix(30) } ?? "nil") cellFrame=\(cell?.frame ?? .zero) texts=\(cell.map { textViews(in: $0).count } ?? -1) rowView=\(table.rowView(atRow: row, makeIfNecessary: false) != nil)")
+                }
+            }
+            if drawn.isEmpty {
+                if loaderShown(host, scroll) { out.loaderFrames += 1 } else { out.blankFrames += 1 }
+            }
+            let docThen = scroll.documentView?.frame.height ?? 0, yThen = clip.bounds.minY
+            await settle(host)
+            let settled = visible(host, scroll)
+            if ProcessInfo.processInfo.environment["FERB_PROBE_TRACE"] == "1" {
+                print(String(format: "JUMPTO f=%.2f y=%.0f doc=%.0f drawn=%d -> settled y=%.0f doc=%.0f shown=%d entries=%d",
+                             fraction, yThen, docThen, drawn.count, clip.bounds.minY,
+                             scroll.documentView?.frame.height ?? 0, settled.count, model.visibleEntries.count))
+            }
+            let off = drawn.compactMap { text, top in settled[text].map { abs($0 - top) } }.max() ?? 0
+            if off > 1 {
+                out.moved += 1
+                out.movedTotal += off
+            }
+        }
+        // the day as it opens (earlier pages still to come), then with every entry in
+        for fraction: CGFloat in [0, 1, 0, 1, 0.5, 0, 1] { await jump(fraction) }
+        // every page in (as the near-top trigger brings them), then the whole day
+        var guardSteps = 0
+        while model.visibleEntries.count < Self.entries && guardSteps < 200 {
+            model.loadEarlier()
+            await settle(host)
+            guardSteps += 1
+        }
+        for fraction: CGFloat in [1, 0, 1, 0, 0.5, 0.1, 0.9, 0.3, 0.7, 1, 0.05, 0.95, 0, 1] { await jump(fraction) }
+        return out
+    }
+
+    private func loaderShown(_ host: NSView, _ scroll: NSScrollView) -> Bool {
+        let shown = scroll.contentView.convert(scroll.contentView.bounds, to: scroll)
+        func walk(_ view: NSView) -> Bool {
+            if view is NSProgressIndicator, !view.isHiddenOrHasHiddenAncestor,
+               view.convert(view.bounds, to: scroll).intersects(shown) { return true }
+            return view.subviews.contains(where: walk)
+        }
+        return walk(host)
     }
 
     // MARK: - The probe

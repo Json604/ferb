@@ -262,7 +262,6 @@ extension NotchModel {
         var window = window(for: day, all: all)
         guard !window.loading else { return }
         if window.revealHeld(all) {
-            beforeEarlierInsert?()
             updateWindow(day) { $0 = window }
             prefetchEarlier(day)
             return
@@ -275,7 +274,6 @@ extension NotchModel {
                 let page = try await self.rpc.call("chat.history.page", params: [
                     "day": HistoryEntry.day(day), "before": cursor, "limit": DayWindow.page])
                 let entries = (page["entries"] as? [Any] ?? []).compactMap(HistoryEntry.read)
-                if day == self.shownDay { self.beforeEarlierInsert?() }
                 self.receivePage(day, entries: entries, context: page["context"] as? [Any] ?? [],
                                  cursor: page["cursor"] as? String, more: page["more"] as? Bool ?? false, launch: false)
             } catch {

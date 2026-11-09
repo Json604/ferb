@@ -63,7 +63,6 @@ final class NotchModel: ObservableObject {
         textRenderGeneration += 1
     }
 
-    @Published var measuredTranscriptHeight: CGFloat = 0
     @Published var preferredPanelWidth: CGFloat = 440
     @Published var preferredTranscriptHeight: CGFloat = 300
     @Published var localSettingReply: String?
@@ -107,8 +106,6 @@ final class NotchModel: ObservableObject {
     var dayWindows: [Date: DayWindow] = [:]
     /// The days the daemon has chat for (History), read when History opens.
     @Published var historyDays: [Date] = []
-    /// The transcript holds the view still just before earlier entries are inserted above it (APP-806).
-    var beforeEarlierInsert: (() -> Void)?
     @Published var followsToday = true
     @Published var selectedDay = Calendar.current.startOfDay(for: Date())
     @Published var handleWidth: CGFloat = 180

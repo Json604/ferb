@@ -53,6 +53,57 @@ final class FoldClipTests: XCTestCase {
         withExtendedLifetime(window) {}
     }
 
+    // decision: APP-815, APP-813, APP-725
+    func testShowAllGrowsItsRowAndShowLessFoldsItWithNothingOverlapping() async throws {
+        let model = NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults("FoldClipList"))
+        model.preferredTranscriptHeight = 500
+        var long = ConversationTurn(id: UUID(), createdAt: Date(), request: "the visa rules", sources: [])
+        long.status = "done"
+        long.answer = (1...80).map { "- 7.\($0) a long bullet about the visa rules and what to bring" }.joined(separator: "\n")
+        var next = ConversationTurn(id: UUID(), createdAt: Date().addingTimeInterval(5), request: "and the fee?", sources: [])
+        next.status = "done"
+        next.answer = "The fee is 60 euros."
+        let host = NSHostingView(rootView: ConversationTranscript(
+            entries: [.turn(long, answeredBelow: false), .turn(next, answeredBelow: false)], model: model))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 440, height: 500),
+                              styleMask: .borderless, backing: .buffered, defer: true)
+        window.contentView = host                                   // never ordered front or captured
+        func settle() async {
+            for _ in 0..<4 {
+                host.layoutSubtreeIfNeeded()
+                await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+            }
+            host.layoutSubtreeIfNeeded()
+        }
+        func gap() throws -> (folded: Bool, answerBottom: CGFloat, nextTop: CGFloat) {
+            let views = textViews(in: host)
+            let answer = try XCTUnwrap(views.first { $0.string.hasPrefix("7.1") || $0.string.contains("7.1 a long") })
+            let after = try XCTUnwrap(views.first { $0.string == "and the fee?" })
+            // in the list's own (flipped) coordinates: where each stands in the transcript, wherever the view is
+            let list = try XCTUnwrap(answer.enclosingScrollView?.documentView)
+            let a = answer.convert(answer.bounds, to: list), b = after.convert(after.bounds, to: list)
+            return (answer.shownHeight != nil, a.maxY, b.minY)
+        }
+        await settle()
+        let folded = try gap()
+        XCTAssertTrue(folded.folded, "the long answer is folded")
+        XCTAssertLessThanOrEqual(folded.answerBottom, folded.nextTop, "nothing of the folded answer reaches the next entry")
+
+        model.toggleExpanded(ExpansionState.key(turn: long.id, item: "answer"), target: TranscriptTarget.answer(turn: long.id))
+        await settle()
+        let open = try gap()
+        XCTAssertFalse(open.folded, "Show all shows all of it")
+        XCTAssertLessThanOrEqual(open.answerBottom, open.nextTop, "its row grew with it: the next entry is below it")
+        XCTAssertGreaterThan(open.nextTop - folded.nextTop, 300, "the next entry stands lower in the transcript by what was shown")
+
+        model.toggleExpanded(ExpansionState.key(turn: long.id, item: "answer"), target: TranscriptTarget.answer(turn: long.id))
+        await settle()
+        let again = try gap()
+        XCTAssertTrue(again.folded)
+        XCTAssertLessThanOrEqual(again.answerBottom, again.nextTop)
+        withExtendedLifetime(window) {}
+    }
+
     private func textViews(in view: NSView) -> [MessageTextView] {
         if let field = view as? MessageTextView { return [field] }
         return view.subviews.flatMap { textViews(in: $0) }

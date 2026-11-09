@@ -3637,12 +3637,12 @@ decisions = ["RUN-449", "RUN-450"]
 sitting = "after this change is installed"
 
 [LIVE-837]
-title = "A long day opens on its newest messages and scrolls to its top smoothly, loading as it goes"
+title = "A long day opens on its newest messages and scrolls smoothly, even dragging the scroll thumb"
 area = "app"
 surface = "FERB.app with this build, after its first launch imported the chat (LIVE-838)"
-request = "Open History, pick Nov 8, and scroll fast to the top with the trackpad; then scroll back down; then open Today and do the same."
-pass = "The day opens on its newest messages, never on empty space. Scrolling up is smooth: earlier messages come in by themselves near the top (a small loader at the top only if you get there before they arrive), nothing blank shows and what you are reading never jumps. No Load more button. Long answers and rows show folded with Show all / Show more from the start, never full height then folding."
-decisions = ["APP-806", "APP-809", "APP-811", "APP-800"]
+request = "Open History, pick Nov 8, and scroll fast to the top with the trackpad; then scroll back down; then drag the scroll bar's thumb fast to the top and to the bottom a few times; open a long answer with Show all and fold it again; then open Today and do the same."
+pass = "The day opens on its newest messages, never on empty space. Scrolling and dragging the thumb anywhere show messages at once, never a blank area (a small loader at the very top only while earlier messages are on their way), and what you are reading never jumps. No Load more button. Long answers show folded with Show all from the start; Show all grows the answer in place and nothing overlaps."
+decisions = ["APP-815", "APP-806", "APP-809", "APP-800"]
 sitting = "after this change is installed"
 
 [LIVE-838]
