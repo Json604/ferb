@@ -15,7 +15,8 @@ final class HistoryState {
     var sync = HistorySync()
     /// The old chat to send once more: everything kept in the preferences (APP-808).
     var importPending = false
-    /// The daemon refused the chat history RPCs (an older daemon, or not FERB.app's own process): the archive stays.
+    /// The daemon refused the chat history RPCs (an older daemon, or not FERB.app's own process): the archive stays
+    /// until a later connection finds them (a new daemon after FERB's update).
     var unavailable = false
     /// Days whose newest page the daemon has given (or is giving) this run.
     var requestedDays = Set<String>()
@@ -94,7 +95,13 @@ extension NotchModel {
     /// After each connection, before the status read places anything: the old chat imported if it is due, the
     /// outbox written, today's newest page and every waiting turn read.
     func prepareHistory() async {
-        guard !chatStore.unavailable else { return }
+        if chatStore.unavailable {
+            // A refusal holds only for the daemon that gave it: FERB's own update can open the app a few seconds before
+            // its new daemon runs, so each connection asks again (APP-810)
+            guard (try? await rpc.call("chat.history.days", params: [:])) != nil else { return }
+            chatStore.unavailable = false
+            Self.historyLog.notice("chat history is available from this FERB now")
+        }
         if chatStore.importPending {
             guard await importArchive() else { return }
         }
@@ -326,13 +333,20 @@ extension NotchModel {
     }
 
     func updateWindow(_ day: Date, _ change: (inout DayWindow) -> Void) {
-        var window = dayWindows[day] ?? DayWindow.newest(conversation.transcript(on: day))
+        let old = dayWindows[day]
+        var window = old ?? DayWindow.newest(conversation.transcript(on: day))
         change(&window)
-        guard window != dayWindows[day] else { return }
+        guard window != old else { return }
         objectWillChange.send()
         dayWindows[day] = window
         shownTranscript = nil
+        // The shown day's page came (or failed): the chat is sized again for what it now shows
+        if day == shownDay, old?.loading != window.loading { onBackgroundChange?(true) }
     }
+
+    /// The shown day has nothing to show yet because its first page is on its way (APP-806): the chat keeps its height
+    /// and shows the loader.
+    var shownDayLoading: Bool { visibleEntries.isEmpty && (dayWindows[shownDay]?.loading ?? false) }
 
     /// A day opened again shows its newest page again; what was read stays in hand.
     func resetWindow(_ day: Date) {

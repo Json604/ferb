@@ -120,6 +120,10 @@ struct ChatBodyView: View {
             if !model.visibleEntries.isEmpty || !model.inlineQuestions.isEmpty {
                 ConversationTranscript(entries: model.visibleEntries, earlier: model.earlierEntries,
                                        questions: model.inlineQuestions, model: model)
+            } else if model.shownDayLoading {
+                // its first page on its way: the loader, in the chat's own height (APP-806)
+                ProgressView().controlSize(.small).accessibilityLabel("Loading messages")
+                    .frame(maxWidth: .infinity).frame(height: model.chatTranscriptHeight)
             } else if !model.viewingToday {
                 Text("No messages on this day.").font(.system(size: 12)).foregroundStyle(Palette.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

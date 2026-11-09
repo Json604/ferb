@@ -3671,3 +3671,21 @@ request = "Open the notch chat (Today) and History → Nov 8; find long answers 
 pass = "Each folded answer ends at its Show all and its card's edge; nothing of its text shows over the rows, cards or messages below it, in the notch and the window, on every day. Show all shows the whole answer and Show less folds it back."
 decisions = ["APP-813", "APP-809", "APP-788"]
 sitting = "after this change is installed"
+
+[LIVE-841]
+title = "A day opened for the first time opens at the chat's usual height"
+area = "app"
+surface = "FERB.app with this build, just after it started"
+request = "Open the notch chat, then History, and click a day you haven't opened since FERB.app started; then another; then Today."
+pass = "Each day opens at the same height as the others, a small loader in it for a moment if its messages are still coming; it never opens short or grows after. The height you set is kept."
+decisions = ["APP-814", "APP-806", "APP-587"]
+sitting = "after this change is installed"
+
+[LIVE-842]
+title = "After FERB updates itself, the chat moves to FERB's database without reopening the app"
+area = "app"
+surface = "FERB.app updating itself (Sparkle) from a build without the chat in FERB's database"
+request = "Let FERB update; once it has restarted, don't quit it; open History."
+pass = "Every earlier day is listed and opens with its messages; no reopen of FERB.app was needed (Console, category history: \"chat history is available from this FERB now\" if the app started before the new daemon)."
+decisions = ["APP-810", "APP-808"]
+sitting = "after this change is installed"

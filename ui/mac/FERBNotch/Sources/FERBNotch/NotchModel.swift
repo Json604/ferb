@@ -535,7 +535,10 @@ final class NotchModel: ObservableObject {
         if showingTasks { return chatTranscriptHeight + conversationChromeHeight }
         if showingSources { return 250 }
         if session.phase != .listening && !showingActivity {
-            return (visibleEntries.isEmpty && inlineQuestions.isEmpty ? min(31, chatTranscriptHeight) : chatTranscriptHeight) + conversationChromeHeight
+            // A day whose first page is on its way keeps the chat's height and shows the loader in it, so the chat never
+            // opens short and grows (owner 2026-11-09: "on opeening a new chat its height get short the first time")
+            let empty = visibleEntries.isEmpty && inlineQuestions.isEmpty && !shownDayLoading
+            return (empty ? min(31, chatTranscriptHeight) : chatTranscriptHeight) + conversationChromeHeight
         }
         if showingActivity { return 204 }
         switch session.phase {

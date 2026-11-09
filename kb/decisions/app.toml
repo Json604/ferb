@@ -3159,8 +3159,8 @@ title = "When the daemon can't take the chat: the preferences or the outbox"
 by = "agent"
 date = 2026-11-09
 status = "active"
-rule = "For APP-805 and APP-808. A daemon without the chat.history RPCs (an older one, -32601) or that refuses the app (-32005, -32001) leaves the chat in the preferences archive for that run, read and written as before. With the daemon as the store, entries a write couldn't deliver wait in FERBChatHistoryOutbox (only while there are any): they show at the next launch and are written at the next connection; a quit puts what changed and isn't written yet there. Launch reads today's newest page and every turn still waiting for FERB's answer before the status read places anything."
-paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatHistoryStore.swift::NotchModel.writeHistory", "ui/mac/FERBNotch/Sources/FERBNotch/ChatHistoryStore.swift::NotchModel.keepUnsavedHistory", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift::NotchModel.connectDaemon"]
+rule = "For APP-805 and APP-808. A daemon without the chat.history RPCs (an older one, -32601) or that refuses the app (-32005, -32001) keeps the chat in the preferences archive as before until a later connection finds the RPCs (each one asks again: FERB's update can open the app before its new daemon); then the import runs. With the daemon as the store, entries a write couldn't deliver (or unwritten at quit) wait in FERBChatHistoryOutbox: shown at the next launch, written at the next connection. Launch reads today's newest page and the waiting turns before the status read."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatHistoryStore.swift::NotchModel.prepareHistory", "ui/mac/FERBNotch/Sources/FERBNotch/ChatHistoryStore.swift::NotchModel.writeHistory", "ui/mac/FERBNotch/Sources/FERBNotch/ChatHistoryStore.swift::NotchModel.keepUnsavedHistory", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift::NotchModel.connectDaemon"]
 live = ["LIVE-838"]
 
 [APP-811]
@@ -3193,3 +3193,13 @@ why = "Owner 2026-11-09: \"btw the spill is in eveyr date, today also\": a folde
 evidence = "FoldClipTests: before the fix the pixels below a folded answer's row had alpha 0.85; after, 0."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NativeMessageText.swift::MessageTextView"]
 live = ["LIVE-840"]
+
+[APP-814]
+title = "A day whose first page is on its way keeps the chat's height"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "For APP-806 and APP-587. While the shown day has nothing in hand because its first page is coming from the daemon, the notch's body keeps the chat's height (the height the owner set, as for any day with messages) and shows a small loader in it; it never takes the empty-day height. When the page comes (or fails) the shown day's window changes and the panel is sized again."
+why = "Owner 2026-11-09: \"on opeening a new chat its height get short the first time\": the empty-day height was used while the page loaded and the panel wasn't sized again when it came."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.requestedBodyHeight", "ui/mac/FERBNotch/Sources/FERBNotch/ChatHistoryStore.swift::NotchModel.updateWindow", "ui/mac/FERBNotch/Sources/FERBNotch/ChatBody.swift::ChatBodyView.conversation"]
+live = ["LIVE-841"]

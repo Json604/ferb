@@ -111,6 +111,26 @@ final class ChatHistoryTests: XCTestCase {
         XCTAssertTrue(saved.turns.contains { $0.id == id }, "the archive is still where the chat is kept")
     }
 
+    // decision: APP-810, APP-808
+    func testAfterFERBsUpdateTheNewDaemonGetsTheChatAtItsFirstConnection() async throws {
+        // FERB.app opened a few seconds before its updated daemon: the first connection met the older one
+        let defaults = try olderApp()
+        let rpc = HistoryRPC()
+        rpc.refuse = true
+        let model = NotchModel(rpc: rpc, preferences: defaults)
+        await model.prepareHistory()
+        XCTAssertEqual(model.chatStore.store, .archive)
+        let id = UUID()
+        model.conversation.begin(id: id, request: "sent while the older daemon ran", sources: [])
+        model.saveConversation()
+        // the new daemon runs; the app reconnects
+        rpc.refuse = false
+        await model.prepareHistory()
+        XCTAssertEqual(model.chatStore.store, .daemon, "the next connection asks again and imports the chat")
+        XCTAssertNotNil(model.historyImport)
+        XCTAssertNotNil(rpc.held(id), "what was said meanwhile went over too")
+    }
+
     // decision: APP-805
     func testASaveWritesOnlyTheEntriesThatChangedAndTheRawTextNever() async throws {
         let defaults = try olderApp()
@@ -192,6 +212,33 @@ final class ChatHistoryTests: XCTestCase {
         var empty = ConversationArchive()
         XCTAssertEqual(empty.absorb(archive.storedEntries).count, archive.storedEntries.count)
         XCTAssertEqual(empty.transcript().map(\.id), archive.transcript().map(\.id))
+    }
+
+    // decision: APP-814, APP-806, APP-587
+    func testADayNotLoadedYetOpensAtTheChatsHeightAndKeepsIt() async throws {
+        // Owner 2026-11-09: "on opeening a new chat its height get short the first time"
+        let day = TranscriptScrollProbeTests.day
+        let rpc = HistoryRPC()
+        let archive = try TranscriptScrollProbeTests.archive(day: day, entries: 40)
+        _ = try await rpc.call("chat.history.import",
+                               params: ["entries": archive.storedEntries.map { try HistoryEntry($0).wire }])
+        let defaults = scratchDefaults("ChatHistoryHeight")
+        defaults.set(try JSONEncoder().encode(HistoryImport(at: Date(), entries: 0, archiveSHA256: "")),
+                     forKey: NotchModel.historyImportKey)
+        let model = NotchModel(rpc: rpc, preferences: defaults)
+        var presented = 0
+        model.onBackgroundChange = { _ in presented += 1 }
+        model.selectDay(day, focus: false)
+        XCTAssertTrue(model.visibleEntries.isEmpty, "its first page is on its way")
+        XCTAssertTrue(model.shownDayLoading)
+        let loading = model.bodyHeight
+        XCTAssertEqual(loading, model.chatTranscriptHeight + model.conversationChromeHeight,
+                       "the chat keeps its height while the day loads, never the empty height")
+        presented = 0
+        for _ in 0..<200 where model.visibleEntries.isEmpty { await Task.yield() }
+        XCTAssertFalse(model.visibleEntries.isEmpty, "the day's entries came")
+        XCTAssertEqual(model.bodyHeight, loading, "the same height with its entries")
+        XCTAssertGreaterThan(presented, 0, "the chat is sized again when the page comes")
     }
 
     // decision: APP-806, APP-809
