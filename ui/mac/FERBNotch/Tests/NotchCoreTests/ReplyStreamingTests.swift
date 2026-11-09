@@ -64,7 +64,7 @@ final class ReplyStreamingTests: XCTestCase {
         XCTAssertFalse(restored.completionTraceVisible)
     }
 
-    // decision: APP-569
+    // decision: APP-805
     func testExistingArchiveWithoutStreamingNoticeStillDecodes() throws {
         var archive = ConversationArchive()
         archive.begin(id: UUID(), request: "Existing history", sources: [])

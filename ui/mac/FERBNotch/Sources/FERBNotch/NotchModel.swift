@@ -101,6 +101,14 @@ final class NotchModel: ObservableObject {
     /// The shown day's entries as last built (`visibleEntries`): the chat, the notch's size on every pointer move and
     /// frame, and the questions all read them, so they are built once per change of the conversation or the day.
     var shownTranscript: (day: Date, entries: [TranscriptEntry])?
+    /// Where the chat is kept and what the daemon holds of it (APP-805).
+    let chatStore = HistoryState()
+    /// What is shown of each day (APP-806); changed only through `updateWindow`.
+    var dayWindows: [Date: DayWindow] = [:]
+    /// The days the daemon has chat for (History), read when History opens.
+    @Published var historyDays: [Date] = []
+    /// The transcript holds the view still just before earlier entries are inserted above it (APP-806).
+    var beforeEarlierInsert: (() -> Void)?
     @Published var followsToday = true
     @Published var selectedDay = Calendar.current.startOfDay(for: Date())
     @Published var handleWidth: CGFloat = 180
@@ -253,6 +261,7 @@ final class NotchModel: ObservableObject {
     /// Asks the transcript to bring an item forward. Called before FERB opens the notch for it, so a hidden body lands
     /// on the item without animating (`revealing`).
     func requestScroll(_ target: String, _ reason: TranscriptScrollRequest.Reason, label: String = "") {
+        revealForScroll(target)                 // an entry the shown day's window hides opens first (APP-806)
         scrollGeneration += 1
         scrollRequests = (scrollRequests + [TranscriptScrollRequest(target: target, reason: reason, label: label,
                                                                      generation: scrollGeneration,
@@ -276,19 +285,22 @@ final class NotchModel: ObservableObject {
         feedback = SoundFeedback(defaults: preferences)
         preferredPanelWidth = max(360, CGFloat((preferences.object(forKey: "notch.panelWidth") as? NSNumber)?.doubleValue ?? 440))
         preferredTranscriptHeight = max(260, CGFloat((preferences.object(forKey: "notch.transcriptHeight") as? NSNumber)?.doubleValue ?? 300))
-        // History this build can't read is never saved over: what it can't read is kept aside, unchanged (APP-801).
-        let loaded = ArchiveStore.load(preferences)
-        archiveBlocked = loaded.blocked
-        if let saved = loaded.archive {
-            conversation = saved
-            conversation.interruptRestoredDrafts()
-            if conversation != saved, !archiveBlocked, let repaired = try? JSONEncoder().encode(conversation.forStorage()) {
-                preferences.set(repaired, forKey: ArchiveStore.archiveKey)
+        // With the chat in FERB's database (APP-805) the preferences archive isn't read: the daemon's pages are.
+        if openHistory() {
+            // History this build can't read is never saved over: what it can't read is kept aside, unchanged (APP-801).
+            let loaded = ArchiveStore.load(preferences)
+            archiveBlocked = loaded.blocked
+            if let saved = loaded.archive {
+                conversation = saved
+                conversation.interruptRestoredDrafts()
+                if conversation != saved, !archiveBlocked, let repaired = try? JSONEncoder().encode(conversation.forStorage()) {
+                    preferences.set(repaired, forKey: ArchiveStore.archiveKey)
+                }
             }
+            // A copy an earlier build set aside unread comes back once this build can read it (APP-801).
+            let recovery = archiveBlocked ? [] : ArchiveStore.recover(into: &conversation, preferences)
+            for line in loaded.log + recovery { Self.historyLog.notice("\(line, privacy: .public)") }
         }
-        // A copy an earlier build set aside unread comes back once this build can read it (APP-801).
-        let recovery = archiveBlocked ? [] : ArchiveStore.recover(into: &conversation, preferences)
-        for line in loaded.log + recovery { Self.historyLog.notice("\(line, privacy: .public)") }
         conversationID = preferences.string(forKey: "FERBConversationID")
         guideObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
                                                                object: preferences, queue: .main) { [weak self] _ in

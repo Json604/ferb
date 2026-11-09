@@ -86,7 +86,8 @@ extension ConversationArchive {
     }
 }
 
-/// Where FERB.app keeps the chat (APP-569) and the copies of it set aside, never deleted (APP-801).
+/// Where FERB.app kept the chat before FERB's database held it (APP-805, APP-808), and the copies of it set aside, never
+/// deleted (APP-801).
 public enum ArchiveStore {
     public static let archiveKey = "FERBConversationArchive"
     /// An archive this build couldn't read at all, kept unchanged under this prefix and the time; each launch tries

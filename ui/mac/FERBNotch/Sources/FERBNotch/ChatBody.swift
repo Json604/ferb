@@ -90,6 +90,7 @@ struct ChatBodyView: View {
                     .font(.system(size: 11)).buttonStyle(.plain)
                 Button {
                     model.showingHistory.toggle()
+                    if model.showingHistory { model.refreshHistoryDays() }
                     model.onPresentationChange?(true)
                 } label: { Text("History").font(.system(size: 11)) }
                     .buttonStyle(.plain).foregroundStyle(Palette.secondary)
@@ -97,7 +98,7 @@ struct ChatBodyView: View {
             if model.showingHistory || !model.viewingToday {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
-                        ForEach(model.conversation.days, id: \.self) { day in
+                        ForEach(model.listedDays, id: \.self) { day in
                             Button { model.selectDay(day) } label: {
                                 Text(day, format: .dateTime.month(.abbreviated).day())
                                     .font(.system(size: 11))
@@ -105,7 +106,7 @@ struct ChatBodyView: View {
                                     .background(.white.opacity(0.08), in: Capsule())
                             }.buttonStyle(.plain)
                         }
-                        if model.conversation.days.isEmpty { Text("Your conversations will appear here.").font(.system(size: 11)) }
+                        if model.listedDays.isEmpty { Text("Your conversations will appear here.").font(.system(size: 11)) }
                     }
                 }.frame(height: 28)
             }
@@ -117,7 +118,8 @@ struct ChatBodyView: View {
                 }
             }
             if !model.visibleEntries.isEmpty || !model.inlineQuestions.isEmpty {
-                ConversationTranscript(entries: model.visibleEntries, questions: model.inlineQuestions, model: model)
+                ConversationTranscript(entries: model.visibleEntries, earlier: model.earlierEntries,
+                                       questions: model.inlineQuestions, model: model)
             } else if !model.viewingToday {
                 Text("No messages on this day.").font(.system(size: 12)).foregroundStyle(Palette.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

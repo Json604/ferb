@@ -220,7 +220,7 @@ final class ChatFlowTests: XCTestCase {
         model.disconnectDaemon()
     }
 
-    // decision: APP-569
+    // decision: APP-805
     func testArchivesSavedBeforeChatFlowFieldsStillDecode() throws {
         var archive = ConversationArchive()
         archive.begin(id: UUID(), request: "Older request", sources: [])
@@ -275,7 +275,7 @@ final class ChatFlowTests: XCTestCase {
                                        "turn: Save it as a new file = I'll keep the original and save a copy."])
     }
 
-    // decision: APP-712, APP-713, APP-569
+    // decision: APP-712, APP-713, APP-805
     func testAPastedDraftWithPasteMarkersShowsTheCleanTextInTheBubbleAndHistory() async throws {
         // The ack as 0.27.1's daemon sent it: the composer's own brackets echoed back in `message`.
         let echoed = "\u{1b}[200~Keep a notes file\u{1b}[201~"

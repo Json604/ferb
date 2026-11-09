@@ -161,6 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationWillTerminate(_ notification: Notification) {
         PermissionRelaunchWatcher.startIfNoted(poll: appSetup.model.grantPoll, reads: appSetup.model.serviceStartAfter)
         appSetup.stop()
+        coordinator?.model.keepUnsavedHistory()   // chat entries not written yet wait in the outbox (APP-805)
         coordinator?.tearDown()
     }
 }

@@ -395,9 +395,9 @@ public enum TranscriptEntry: Identifiable, Equatable {
 
 /// Calendar days are a presentation grouping; the daemon conversation remains continuous.
 public struct ConversationArchive: Codable, Equatable {
-    public private(set) var turns: [ConversationTurn] = []
-    public private(set) var replies: [ConversationReply] = []
-    public private(set) var notices: [ConversationNotice] = []
+    public internal(set) var turns: [ConversationTurn] = []
+    public internal(set) var replies: [ConversationReply] = []
+    public internal(set) var notices: [ConversationNotice] = []
     public init() {}
 
     private enum CodingKeys: String, CodingKey { case turns, replies, notices }

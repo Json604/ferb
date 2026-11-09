@@ -20,7 +20,7 @@ final class DaemonConnectionTests: XCTestCase {
         XCTAssertFalse(rpc.calls.contains { $0.0 == "chat.send" })
     }
 
-    // decision: APP-569
+    // decision: APP-805
     func testSecretAnswerUsesOnlyDedicatedApprovalRPCAndIsNotSessionText() async throws {
         let rpc = RecordingRPC()
         let model = makeModel(rpc)

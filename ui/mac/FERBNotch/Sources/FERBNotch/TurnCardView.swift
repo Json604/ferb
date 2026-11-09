@@ -303,8 +303,10 @@ struct RowSpinner: View {
 }
 
 /// A text shown to its first lines with a fade and Show more / Show less (APP-719), when `CollapsePolicy` says it is
-/// long enough for its `kind` (APP-725); the same text either way. The control is explicit (selection on the text keeps working, APP-637). Collapsing
-/// keeps the item's top in view.
+/// long enough for its `kind` (APP-725); the same text either way. The control is explicit (selection on the text keeps
+/// working, APP-637). Collapsing keeps the item's top in view. Its height is final the first time it is laid out
+/// (APP-809): the text view measures its text at the width it gets and folds itself in the same pass, its control and
+/// the lines kept under a collapsed text drawn by it too, never a full height then a fold.
 struct CollapsibleText<Content: View>: View {
     let key: String
     let kind: CollapsePolicy.Kind
@@ -312,46 +314,19 @@ struct CollapsibleText<Content: View>: View {
     let more: String
     @ObservedObject var model: NotchModel
     /// Shown under the fade only while collapsed: lines that must stay visible but sit at the text's end.
-    var whenCollapsed: AnyView? = nil
+    var whenCollapsed: NSAttributedString? = nil
     @ViewBuilder let content: () -> Content
-    @State private var natural: CGFloat = 0
 
-    private static var lineHeight: CGFloat { ceil(NSLayoutManager().defaultLineHeight(for: .systemFont(ofSize: 12))) }
+    static var lineHeight: CGFloat { ceil(NSLayoutManager().defaultLineHeight(for: .systemFont(ofSize: 12))) }
 
     var body: some View {
-        let lineHeight = Self.lineHeight
-        let clamp = CollapsePolicy.clamp(kind, natural: natural, lineHeight: lineHeight)
-        let collapsible = clamp != nil
-        let collapsed = collapsible && !model.expandedText.isOpen(key)
-        VStack(alignment: .leading, spacing: 3) {
-            content()
-                .fixedSize(horizontal: false, vertical: true)
-                .background(GeometryReader { proxy in
-                    Color.clear.preference(key: NaturalTextHeight.self, value: proxy.size.height)
-                })
-                .onPreferenceChange(NaturalTextHeight.self) { height in
-                    if abs(height - natural) > 0.5 { natural = height }
-                }
-                // Collapsed, the text view itself shows only the clamp and fades out (APP-721); open, nothing clips or
-                // masks it. One view either way, so selection and the reveal refresh keep working (APP-788).
-                .environment(\.messageTextShownHeight, collapsed ? clamp : nil)
-                .frame(height: collapsed ? clamp : nil, alignment: .top)
-            if collapsed, let whenCollapsed { whenCollapsed }
-            if collapsible {
-                Button(collapsed ? more : "Show less") { model.toggleExpanded(key, target: target) }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(Palette.chatBlue)
-                    .accessibilityHint(collapsed ? "Shows the whole text" : "Shows the first lines")
-            }
-        }
+        let model = model, key = key, target = target
+        content().environment(\.messageTextFold, MessageFold(
+            kind: kind, open: model.expandedText.isOpen(key), more: more, tail: whenCollapsed,
+            lineHeight: Self.lineHeight, toggle: { model.toggleExpanded(key, target: target) }))
     }
 }
 
-private struct NaturalTextHeight: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
-}
 
 private struct UpdatedTag: View {
     var body: some View {

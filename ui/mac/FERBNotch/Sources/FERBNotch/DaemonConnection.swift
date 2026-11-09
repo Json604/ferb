@@ -13,6 +13,7 @@ extension NotchModel {
                     try await self.attachDaemon()
                     self.daemonLink.succeeded()
                     self.clickThrough.reconnected()     // the daemon may have restarted: its click-through windows
+                    await self.prepareHistory()         // the chat in hand before the status read places anything
                     await self.refreshDaemonStatus()
                     await self.refreshTimers()
                     for try await event in self.rpc.stream("logs.subscribe", params: [:]) {

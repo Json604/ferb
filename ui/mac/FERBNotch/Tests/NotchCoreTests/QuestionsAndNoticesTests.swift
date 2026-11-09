@@ -155,7 +155,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
 
     // MARK: - No stored drafts (L20); sent messages stay in History (ui/AGENTS.md)
 
-    // decision: APP-569
+    // decision: APP-805
     func testAnUnsentDraftIsNeverWrittenToUserDefaults() async throws {
         let rpc = StatusRPC()
         rpc.status["notices"] = [["id": "batch:9", "text": "Your build finished.", "at": at]]
@@ -173,7 +173,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         model.disconnectDaemon()
     }
 
-    // decision: APP-569
+    // decision: APP-805
     func testSentOwnerMessagesSurviveARestart() async throws {
         let rpc = StatusRPC()
         rpc.events = [
@@ -197,7 +197,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(turn.answer, "Renamed.")
     }
 
-    // decision: APP-569
+    // decision: APP-805
     func testAnExistingArchiveWithOwnerTurnsSurvivesLaunchUnchanged() throws {
         let suite = Self.scratchSuiteName()
         suites.append(suite)
@@ -225,7 +225,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(model.conversation, archive)
     }
 
-    // decision: APP-569
+    // decision: APP-805
     func testAnArchiveThatFailsToDecodeIsSetAsideNeverSavedOver() throws {
         let suite = Self.scratchSuiteName()
         suites.append(suite)
@@ -247,7 +247,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(NotchModel(preferences: defaults).conversation.turns.first?.request, "Hello again")
     }
 
-    // decision: APP-569
+    // decision: APP-805
     func testASecretAnswerNeverEntersHistory() async throws {
         let rpc = StatusRPC()
         let (model, suite) = makeModelWithSuite(rpc)
@@ -651,7 +651,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(turn(a, in: model).answer, "4")
     }
 
-    // decision: APP-569
+    // decision: APP-805
     func testADaysTranscriptIsTheWholeChatFilteredToThatDay() {
         var chat = ConversationArchive()
         let today = Calendar.current.startOfDay(for: Date()).addingTimeInterval(9 * 3600)

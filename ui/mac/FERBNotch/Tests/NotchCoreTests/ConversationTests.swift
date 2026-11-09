@@ -3,7 +3,7 @@ import XCTest
 @testable import FERBNotch
 
 final class ConversationTests: XCTestCase {
-    // decision: APP-569
+    // decision: APP-805
     func testTurnsPersistAndGroupByLocalDayWithoutLosingEarlierReplies() throws {
         var chat = ConversationArchive()
         let day = Calendar.current.startOfDay(for: Date())

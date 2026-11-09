@@ -20,13 +20,83 @@ struct TranscriptAnchors: PreferenceKey {
 }
 
 extension View {
-    /// An item a scroll request can bring forward: its id for the scroll view and its place for the follow rules.
+    /// An item a scroll request can bring forward: its id for the scroll view and its place for the follow rules, and a
+    /// marker view the transcript finds it by once it is built (APP-806: a nested item is brought by its own place).
     func transcriptAnchor(_ id: String) -> some View {
         self.id(id).background(GeometryReader { proxy in
             Color.clear.preference(key: TranscriptAnchors.self,
                                    value: [id: proxy.frame(in: .named("ferb-transcript-scroll"))])
-        })
+        }).background(AnchorMark(id: id))
     }
+}
+
+/// The transcript's built items by id, as their marker views registered them.
+@MainActor
+final class AnchorMarks {
+    private var views: [String: Weak] = [:]
+    private struct Weak { weak var view: NSView? }
+
+    func register(_ id: String, _ view: NSView) {
+        views[id] = Weak(view: view)
+        if views.count > 400 { views = views.filter { $0.value.view?.window != nil } }
+    }
+    func view(_ id: String) -> NSView? { views[id]?.view.flatMap { $0.window != nil ? $0 : nil } }
+
+    private var observer: CFRunLoopObserver?
+
+    /// Brings `id` into view by the scroll view's own offset once a scroll in flight has landed (the offset unchanged
+    /// for a pass) and the item is built; `otherwise` when it isn't built within a second.
+    func bring(_ id: String, anchor: UnitPoint, in scroll: NSScrollView?, otherwise: @escaping () -> Void) {
+        if let observer { CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes) }
+        guard let scroll else { return otherwise() }
+        let deadline = Date().addingTimeInterval(1)
+        var last = CGFloat.nan
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, 1_999_999) {
+            [weak self] _, _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let clip = scroll.contentView
+                let y = clip.bounds.minY
+                defer { last = y }
+                let done = { if let o = self.observer { CFRunLoopRemoveObserver(CFRunLoopGetMain(), o, .commonModes) }; self.observer = nil }
+                guard Date() < deadline else { done(); return otherwise() }
+                guard abs(y - last) < 0.5, let mark = self.view(id), let document = scroll.documentView else { return }
+                done()
+                let frame = mark.convert(mark.bounds, to: document)
+                let viewport = clip.bounds.height
+                let target = anchor == .bottom ? frame.maxY - viewport : frame.minY
+                let most = max(0, document.frame.height - viewport)
+                clip.scroll(to: CGPoint(x: clip.bounds.minX, y: min(max(0, target), most)))
+                scroll.reflectScrolledClipView(clip)
+            }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        self.observer = observer
+    }
+}
+
+private struct AnchorMarksKey: EnvironmentKey {
+    static let defaultValue: AnchorMarks? = nil
+}
+extension EnvironmentValues {
+    var transcriptMarks: AnchorMarks? {
+        get { self[AnchorMarksKey.self] }
+        set { self[AnchorMarksKey.self] = newValue }
+    }
+}
+
+/// A view as large as the item it marks, registered under the item's id.
+private struct AnchorMark: NSViewRepresentable {
+    let id: String
+    @Environment(\.transcriptMarks) private var marks
+
+    final class Mark: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func isAccessibilityElement() -> Bool { false }
+    }
+
+    func makeNSView(context: Context) -> Mark { Mark() }
+    func updateNSView(_ view: Mark, context: Context) { marks?.register(id, view) }
 }
 
 /// The transcript's measurements and follow state. A reference, so scrolling never re-renders the transcript.
@@ -34,10 +104,219 @@ extension View {
 private final class TranscriptPlace {
     var follow = TranscriptFollow()
     var anchors: [String: CGRect] = [:]
+    /// The scroll offset, as the scroll view last reported it.
+    var offset: CGFloat = 0
+    /// When FERB last moved the view itself (a newest entry, an item brought forward): earlier entries come in only
+    /// after the owner scrolled since (APP-806).
+    var ferbScrolledAt = Date.distantPast
+    /// Keeps the view still while earlier entries come in above it (APP-806).
+    let hold = ScrollHold()
+    /// The built items' marker views (APP-806).
+    let marks = AnchorMarks()
+}
+
+/// Reports the scroll view's offset and content height as they change, where SwiftUI can tell (macOS 15); on macOS 14
+/// the content frame's preference reports them.
+private struct ScrollFollow: ViewModifier {
+    let changed: (CGFloat, CGFloat) -> Void
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content.onScrollGeometryChange(for: CGRect.self) { geometry in
+                CGRect(x: 0, y: geometry.contentOffset.y + geometry.contentInsets.top, width: 0,
+                       height: geometry.contentSize.height)
+            } action: { _, now in
+                changed(now.minY, now.height)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+/// Holds the view still while earlier entries are inserted above it (APP-806). Just before, it notes how far below the
+/// view's top the content ends, the message views in view and their texts with their places. Once the insertion is laid
+/// out, and before that frame is drawn (a run-loop observer just ahead of Core Animation's commit), the scroll view's own
+/// offset is set back: by a message view that survived the insertion (exactly what came in above it), else by the same
+/// distance from the content's end; then, each pass until the content settles, a noted message is put back exactly
+/// where it stood. SwiftUI's lazy stack alone moves the view on such an insertion (measured: 9 of 9 insertions moved it).
+@MainActor
+final class ScrollHold {
+    weak var scroll: NSScrollView?
+    private var fromEnd: CGFloat = 0
+    private var height: CGFloat = 0
+    private var marks: [(text: String, top: CGFloat)] = []
+    private var views: [(view: Weak, y: CGFloat)] = []
+    struct Weak { weak var view: NSView? }
+    private var observer: CFRunLoopObserver?
+    private var deadline = Date.distantPast
+    private var started = false
+    private var lastHeight: CGFloat = 0
+    private var quiet = 0
+    var holding: Bool { observer != nil }
+
+    /// When no message view survived and none is built where the first guess put the view: SwiftUI brings the entry
+    /// that was at the top back to the top (its own scroll), and the next passes put the noted message exactly.
+    var bringBack: (() -> Void)?
+    private var broughtBack = false
+
+    func hold() {
+        guard let scroll, let document = scroll.documentView else { return }
+        broughtBack = false
+        let clip = scroll.contentView.bounds
+        height = document.frame.height
+        lastHeight = height
+        fromEnd = height - clip.minY
+        marks = Self.messages(in: document, shown: clip)
+        views = Self.views(in: document, shown: clip).map { (Weak(view: $0), $0.convert($0.bounds, to: document).minY) }
+        deadline = Date().addingTimeInterval(1)
+        started = false
+        quiet = 0
+        placedAt = nil
+        guard observer == nil else { return }
+        // just before Core Animation's commit (order 2000000), after SwiftUI's update and layout
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, 1_999_999) {
+            [weak self] _, _ in MainActor.assumeIsolated { self?.settle() }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        self.observer = observer
+    }
+
+    /// Where this hold last put the view; nil while SwiftUI is bringing an entry back.
+    private var placedAt: CGFloat?
+
+    private func settle() {
+        guard let scroll, let document = scroll.documentView, Date() < deadline else { return release() }
+        let clip = scroll.contentView
+        let now = document.frame.height
+        // The owner scrolled since: the view is theirs again
+        if started, let placedAt, abs(clip.bounds.minY - placedAt) > 0.5 { return release() }
+        if !started {
+            guard abs(now - height) > 0.5 else { return }        // the insertion isn't laid out yet
+            started = true
+            var coarse = now - fromEnd
+            if let alive = views.first(where: { $0.view.view?.window != nil }), let view = alive.view.view {
+                coarse = (height - fromEnd) + view.convert(view.bounds, to: document).minY - alive.y
+            }
+            place(scroll, coarse)
+            scroll.window?.contentView?.layoutSubtreeIfNeeded()
+        }
+        let off = offFromMarks(document, clip)
+        if let off, abs(off) > 0.5 {
+            place(scroll, clip.bounds.minY + off)
+            scroll.window?.contentView?.layoutSubtreeIfNeeded()
+            quiet = 0
+        } else if off == nil, !marks.isEmpty, !broughtBack, let bringBack {
+            broughtBack = true
+            quiet = 0
+            bringBack()
+            placedAt = nil
+            lastHeight = document.frame.height
+            return
+        } else if abs(document.frame.height - lastHeight) < 0.5 {
+            quiet += 1
+            if quiet >= 3 { release() }
+        } else {
+            quiet = 0
+        }
+        lastHeight = document.frame.height
+        placedAt = clip.bounds.minY
+    }
+
+    /// How far the first noted message now built stands from where it stood (a text built twice: the nearer one).
+    private func offFromMarks(_ document: NSView, _ clip: NSClipView) -> CGFloat? {
+        let built = Self.messages(in: document, shown: clip.bounds.insetBy(dx: 0, dy: -clip.bounds.height), unique: false)
+        for mark in marks {
+            let tops = built.filter { $0.text == mark.text }.map { $0.top - mark.top }
+            if let near = tops.min(by: { abs($0) < abs($1) }) { return near }
+        }
+        return nil
+    }
+
+    private func place(_ scroll: NSScrollView, _ y: CGFloat) {
+        let clip = scroll.contentView
+        let most = max(0, (scroll.documentView?.frame.height ?? 0) - clip.bounds.height)
+        clip.scroll(to: CGPoint(x: clip.bounds.minX, y: min(max(0, y), most)))
+        scroll.reflectScrolledClipView(clip)
+    }
+
+    private func release() {
+        if let observer { CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes) }
+        observer = nil
+        marks = []
+        views = []
+    }
+
+    static func views(in document: NSView, shown: CGRect) -> [NSView] {
+        var found: [NSView] = []
+        func walk(_ view: NSView) {
+            if view is MessageTextView {
+                let frame = view.convert(view.bounds, to: document)
+                if frame.intersects(shown), frame.height > 0, !view.isHiddenOrHasHiddenAncestor { found.append(view) }
+                return
+            }
+            view.subviews.forEach(walk)
+        }
+        walk(document)
+        return found
+    }
+
+    /// Each message text in `shown` (document coordinates), top first, with its top relative to the view's top; with
+    /// `unique`, only texts no other one there has.
+    static func messages(in document: NSView, shown: CGRect, unique: Bool = true) -> [(text: String, top: CGFloat)] {
+        let found = views(in: document, shown: shown).compactMap { view -> (String, CGFloat)? in
+            guard let text = (view as? MessageTextView)?.string, !text.isEmpty else { return nil }
+            return (text, view.convert(view.bounds, to: document).minY)
+        }
+        let counts = Dictionary(grouping: found, by: \.0).mapValues(\.count)
+        let origin = document.enclosingScrollView?.contentView.bounds.minY ?? 0
+        return found.filter { !unique || counts[$0.0] == 1 }.sorted { $0.1 < $1.1 }.map { ($0.0, $0.1 - origin) }
+    }
+}
+
+/// A view inside the transcript's content, handing itself to `found` once it is in the scroll view, so the offset
+/// correction reaches the scroll view (APP-806).
+private struct ContentFinder: NSViewRepresentable {
+    let found: (NSView) -> Void
+
+    final class Finder: NSView {
+        var found: (NSView) -> Void = { _ in }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window != nil { found(self) }
+        }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
+    func makeNSView(context: Context) -> Finder { Finder() }
+    func updateNSView(_ view: Finder, context: Context) {
+        view.found = found
+        if view.window != nil { found(view) }
+    }
+}
+
+/// Whether the shown day has entries before the first one shown, and whether they are on their way (APP-806).
+struct EarlierEntries: Equatable {
+    var more = false
+    var loading = false
+}
+
+/// The top of a day while the daemon's page of earlier entries is on its way (APP-806): a small loader.
+private struct EarlierLoader: View {
+    var body: some View {
+        HStack {
+            Spacer()
+            ProgressView().controlSize(.small).accessibilityLabel("Loading earlier messages")
+            Spacer()
+        }
+        .frame(height: 24)
+    }
 }
 
 struct ConversationTranscript: View {
     let entries: [TranscriptEntry]
+    /// Earlier entries of the shown day (APP-806).
+    var earlier = EarlierEntries()
     /// Open questions, shown after the newest entry; they are live state and never enter history.
     var questions: [DaemonApproval] = []
     @ObservedObject var model: NotchModel
@@ -57,22 +336,27 @@ struct ConversationTranscript: View {
                 // opens, scrolls and takes each update as fast as a short one (owner 2026-11-09: "when i pressed on
                 // 8nov(prev day) - it is laggggin sooooo much"). Items not built are reached through their entry.
                 LazyVStack(alignment: .leading, spacing: 10) {
+                    // Only while the daemon's page is on its way: the small loader at the top (APP-806). Earlier
+                    // entries in hand come in at once, with nothing shown.
+                    if earlier.loading {
+                        EarlierLoader().id("transcript-earlier")
+                    }
                     ForEach(entries) { entry in
-                        let hidden = moved[entry.id] ?? []
-                        Group {
-                            switch entry {
-                            case let .turn(turn, answeredBelow):
-                                TurnView(turn: turn, answeredBelow: answeredBelow, hidden: hidden, model: model)
-                            case let .reply(reply, turn): LateReplyView(reply: reply, turn: turn, hidden: hidden, model: model)
-                            case let .notice(notice): NoticeView(notice: notice, hidden: hidden, model: model)
+                        row(entry, moved: moved)
+                            .transcriptAnchor(TranscriptTarget.entry(entry.id))
+                            // macOS 14 (no scroll geometry): the first entry shown is built as it nears the view, and
+                            // earlier entries come in then (APP-806)
+                            .onAppear {
+                                if #unavailable(macOS 15.0), earlier.more, entry.id == entries.first?.id { model.loadEarlier() }
                             }
-                        }.transcriptAnchor(TranscriptTarget.entry(entry.id))
                     }
                     ForEach(questions) { question in
                         ApprovalView(model: model, approval: question).transcriptAnchor(TranscriptTarget.question(question.id))
                     }
                     Color.clear.frame(height: 1).id("transcript-bottom")
                 }
+                .background(ContentFinder { view in place.hold.scroll = view.enclosingScrollView })
+                .environment(\.transcriptMarks, place.marks)
                 .font(.system(size: 12))
                 // Another day's chat is a record: its cards draw without live state (APP-769)
                 .environment(\.cardsLive, model.viewingToday)
@@ -85,6 +369,20 @@ struct ConversationTranscript: View {
                         .preference(key: TranscriptContentFrame.self, value: proxy.frame(in: .named("ferb-transcript-scroll")))
                 })
             }
+            .modifier(ScrollFollow { offset, height in
+                // The scroll view's own offset (macOS 15): the owner's scrolling is seen as it happens (APP-720)
+                let viewport = model.chatTranscriptHeight
+                place.offset = offset
+                if place.follow.observe(offset: offset, contentHeight: height, viewport: viewport, at: Date()) {
+                    toBottom(proxy, animated: false)
+                }
+                // Within a screen of the top: earlier entries come in (APP-806)
+                // (only once the owner scrolled, or when the day so far doesn't fill two screens: never as it opens)
+                if offset < viewport, earlier.more, !earlier.loading, !place.hold.holding,
+                   (place.follow.ownerScrolledAt ?? .distantPast) > place.ferbScrolledAt || height < 2 * viewport {
+                    model.loadEarlier()
+                }
+            })
             .coordinateSpace(name: "ferb-transcript-scroll")
             .frame(height: model.chatTranscriptHeight)
             .mask {
@@ -111,7 +409,8 @@ struct ConversationTranscript: View {
             .onPreferenceChange(TranscriptContentFrame.self) { frame in
                 // Growth while following stays pinned to the bottom; the owner's own scrolling is remembered (APP-720).
                 let viewport = model.chatTranscriptHeight
-                if place.follow.observe(offset: -frame.minY, contentHeight: frame.height, viewport: viewport, at: Date()) {
+                if #unavailable(macOS 15.0),
+                   place.follow.observe(offset: -frame.minY, contentHeight: frame.height, viewport: viewport, at: Date()) {
                     toBottom(proxy, animated: false)
                 }
                 if frame.maxY <= viewport + TranscriptFollow.bottomSlack, hasUnreadBelow { hasUnreadBelow = false }
@@ -143,9 +442,20 @@ struct ConversationTranscript: View {
             }
             .onChange(of: model.scrollRequests) { _, _ in consume(proxy) }
             .onChange(of: model.viewingToday) { _, today in if today { consume(proxy) } }
-            .onChange(of: entries) { _, _ in followNewest(proxy) }
+            .onChange(of: entries) { old, new in
+                // Earlier entries coming in above (APP-806) are no new message: the view stays where the owner is
+                if new.count > old.count, new.last?.id == old.last?.id, new.first?.id != old.first?.id,
+                   new.suffix(old.count).map(\.id) == old.map(\.id) { return }
+                followNewest(proxy)
+            }
             .onChange(of: questions) { _, _ in followNewest(proxy) }
             .onAppear {
+                model.beforeEarlierInsert = { [place] in
+                    // the entry at the top of the view, for the hold's last resort
+                    let top = TranscriptResume.at(place.anchors, following: false).topEntry
+                    place.hold.bringBack = top.map { id in { proxy.scrollTo(id, anchor: .top) } }
+                    place.hold.hold()
+                }
                 // The chat moved to the other host (APP-745): back where the owner left it.
                 let resume = model.transcriptResume
                 model.transcriptResume = nil
@@ -162,6 +472,17 @@ struct ConversationTranscript: View {
                 guard model.chatInWindow != inWindow else { return }
                 model.transcriptResume = TranscriptResume.at(place.anchors, following: place.follow.following)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func row(_ entry: TranscriptEntry, moved: [UUID: Set<String>]) -> some View {
+        let hidden = moved[entry.id] ?? []
+        switch entry {
+        case let .turn(turn, answeredBelow):
+            TurnView(turn: turn, answeredBelow: answeredBelow, hidden: hidden, model: model)
+        case let .reply(reply, turn): LateReplyView(reply: reply, turn: turn, hidden: hidden, model: model)
+        case let .notice(notice): NoticeView(notice: notice, hidden: hidden, model: model)
         }
     }
 
@@ -221,13 +542,15 @@ struct ConversationTranscript: View {
 
     private func bring(_ target: String, _ proxy: ScrollViewProxy, animated: Bool, anchor: UnitPoint = .top) {
         place.follow.scrolledByFERB(at: Date(), settle: animated ? 0.6 : 0.15)
+        place.ferbScrolledAt = Date().addingTimeInterval(animated ? 0.6 : 0.15)
         let motion: Animation? = animated ? .spring(duration: 0.4, bounce: 0) : nil
         // An item inside an entry the lazy stack hasn't built has no place yet: its entry first, then the item once
         // that entry is laid out.
         if place.anchors[target] == nil, !TranscriptTarget.isEntry(target),
            let holder = TranscriptTarget.entry(holding: target, in: entries) {
             withAnimation(motion) { proxy.scrollTo(TranscriptTarget.entry(holder), anchor: anchor) }
-            DispatchQueue.main.async {
+            // Once SwiftUI's scroll to the entry has landed, the item by its marker's place (APP-806)
+            place.marks.bring(target, anchor: anchor, in: place.hold.scroll) {
                 withAnimation(motion) { proxy.scrollTo(target, anchor: anchor) }
             }
             return
@@ -237,6 +560,7 @@ struct ConversationTranscript: View {
 
     private func toBottom(_ proxy: ScrollViewProxy, animated: Bool) {
         place.follow.scrolledByFERB(at: Date(), settle: animated ? 0.3 : 0.1)
+        place.ferbScrolledAt = Date().addingTimeInterval(animated ? 0.3 : 0.1)
         withAnimation(animated ? .easeOut(duration: 0.18) : nil) { proxy.scrollTo("transcript-bottom", anchor: .bottom) }
     }
 }
@@ -536,9 +860,9 @@ private struct AnswerView: View {
         }
 
         /// A collapsed answer's own lines ("Couldn't confirm", code's lines) stay in view under the fade.
-        var collapsedLines: AnyView? {
+        var collapsedLines: NSAttributedString? {
             guard split.note != nil || !codeLines.isEmpty else { return nil }
-            return AnyView(AnswerLinesView(note: split.note, lines: codeLines))
+            return MarkdownTextAttributes.annotations(note: split.note, lines: codeLines)
         }
     }
 

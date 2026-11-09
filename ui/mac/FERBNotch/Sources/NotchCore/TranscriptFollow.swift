@@ -175,7 +175,9 @@ public struct TranscriptFollow: Equatable {
             return false
         }
         if grew && !moved { return following && !atBottom }
-        if grew && moved { following = following || atBottom }
+        // Rows built as the owner scrolls (a lazy transcript) grow it while it moves: following only at the bottom,
+        // so a later growth never pulls the owner back down (APP-809)
+        if grew && moved { following = atBottom }
         return false
     }
 

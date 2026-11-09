@@ -142,7 +142,7 @@ final class ArchiveUpgradeTests: XCTestCase {
         XCTAssertEqual(read.dropped, 1)                             // the part, so the original is kept aside
     }
 
-    // decision: APP-801, APP-569
+    // decision: APP-801, APP-805
     func testAnUnreadableEntryIsLeftOutAndTheOriginalKeptAside() throws {
         let defaults = scratchDefaults()
         var saved = try object(fixture("0.27.3"))
@@ -231,7 +231,7 @@ final class ArchiveUpgradeTests: XCTestCase {
         XCTAssertEqual(turnTimes, turnTimes.sorted())
     }
 
-    // decision: APP-801, APP-569
+    // decision: APP-801, APP-805
     func testACopyStillUnreadableStaysAsItIs() throws {
         let defaults = scratchDefaults()
         let garbage = Data("{\"turns\": \"not a list\"}".utf8)

@@ -9,7 +9,27 @@ extension NSAttributedString.Key {
 private struct MessageTextShownHeightKey: EnvironmentKey {
     static let defaultValue: CGFloat? = nil
 }
+/// CollapsibleText's fold (APP-719, APP-809): the text view folds itself to it in one layout pass.
+struct MessageFold {
+    let kind: CollapsePolicy.Kind
+    let open: Bool
+    let more: String
+    /// Lines shown under the fade only while collapsed (an answer's "Couldn't confirm" and code's lines).
+    let tail: NSAttributedString?
+    let lineHeight: CGFloat
+    let toggle: () -> Void
+
+    static let spacing: CGFloat = 3
+}
+
+private struct MessageFoldKey: EnvironmentKey {
+    static let defaultValue: MessageFold? = nil
+}
 extension EnvironmentValues {
+    var messageTextFold: MessageFold? {
+        get { self[MessageFoldKey.self] }
+        set { self[MessageFoldKey.self] = newValue }
+    }
     /// While CollapsibleText is collapsed: how much of its text shows, faded at the bottom (APP-721). The text view
     /// clips and fades itself, so no SwiftUI clip or mask wraps chat text (APP-788).
     var messageTextShownHeight: CGFloat? {
@@ -38,10 +58,12 @@ struct NativeMessageText: NSViewRepresentable {
     func makeNSView(context: Context) -> MessageTextView { MessageTextView() }
     func updateNSView(_ view: MessageTextView, context: Context) {
         view.update(text, generation: generation)
-        view.shownHeight = shownHeight
+        view.fold = context.environment.messageTextFold
+        if view.fold == nil { view.shownHeight = shownHeight }
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: MessageTextView, context: Context) -> CGSize? {
-        nsView.measuredSize(width: proposal.width)
+        nsView.fold = context.environment.messageTextFold
+        return nsView.foldedSize(width: proposal.width)
     }
 }
 
@@ -99,6 +121,103 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
     /// clickable. Nil: all of it.
     var shownHeight: CGFloat? {
         didSet { if shownHeight != oldValue { refreshGlyphDisplay() } }
+    }
+    /// Inside CollapsibleText (APP-809): the text measured at the width it is given and folded in the same pass; its
+    /// Show more / Show less and, collapsed, the lines kept under the fade are this view's own subviews, below the text.
+    var fold: MessageFold? {
+        didSet {
+            guard fold != nil || oldValue != nil else { return }
+            foldControl.isHidden = true
+            tailView?.isHidden = true
+            needsLayout = true
+        }
+    }
+    private lazy var foldControl: FoldButton = {
+        let button = FoldButton(frame: .zero)
+        button.isBordered = false
+        button.setButtonType(.momentaryChange)
+        button.target = button
+        button.action = #selector(FoldButton.pressed)
+        button.isHidden = true
+        addSubview(button)
+        return button
+    }()
+    private var tailView: MessageTextView?
+
+    final class FoldButton: NSButton {
+        var run: () -> Void = {}
+        @objc func pressed() { run() }
+    }
+
+    /// What the fold shows at `width`: the text's height (all of it, or the clamp), then the lines kept under a
+    /// collapsed text, then the control; nil parts when the text is too short to fold.
+    private func foldPlan(width: CGFloat?) -> (natural: CGSize, text: CGFloat, tail: CGFloat?, control: CGSize?) {
+        let natural = measuredSize(width: width)
+        guard let fold, let clamp = CollapsePolicy.clamp(fold.kind, natural: natural.height, lineHeight: fold.lineHeight)
+        else { return (natural, natural.height, nil, nil) }
+        let control = controlTitle(fold).size()
+        let tail = !fold.open ? fold.tail.map { tail -> CGFloat in
+            let view = tailText(tail)
+            return view.measuredSize(width: width).height
+        } : nil
+        return (natural, fold.open ? natural.height : clamp, tail,
+                CGSize(width: ceil(control.width), height: ceil(control.height)))
+    }
+
+    func foldedSize(width: CGFloat?) -> CGSize {
+        let plan = foldPlan(width: width)
+        guard let control = plan.control else { return plan.natural }
+        let height = plan.text + (plan.tail.map { $0 + MessageFold.spacing } ?? 0) + MessageFold.spacing + control.height
+        let width = width.flatMap { $0.isFinite ? $0 : nil } ?? max(plan.natural.width, control.width)
+        return CGSize(width: width, height: height)
+    }
+
+    private func controlTitle(_ fold: MessageFold) -> NSAttributedString {
+        NSAttributedString(string: fold.open ? "Show less" : fold.more,
+                           attributes: [.font: NSFont.systemFont(ofSize: 10.5, weight: .medium),
+                                        .foregroundColor: NSColor(Palette.chatBlue)])
+    }
+
+    private func tailText(_ tail: NSAttributedString) -> MessageTextView {
+        if let tailView {
+            if !tailView.attributedString().isEqual(to: tail) { tailView.update(tail, generation: 0) }
+            return tailView
+        }
+        let view = MessageTextView()
+        view.update(tail, generation: 0)
+        view.isHidden = true
+        addSubview(view)
+        tailView = view
+        return view
+    }
+
+    /// Places the fold's parts in this view's bounds: the text shows down to its height (faded when cut), the lines
+    /// kept under it and the control below.
+    private func layoutFold() {
+        guard let fold else { return }
+        let plan = foldPlan(width: bounds.width)
+        guard let control = plan.control else {
+            shownHeight = nil
+            foldControl.isHidden = true
+            tailView?.isHidden = true
+            return
+        }
+        shownHeight = fold.open ? nil : plan.text
+        var y = plan.text
+        if let tail = plan.tail, let tailView {
+            y += MessageFold.spacing
+            tailView.frame = CGRect(x: 0, y: y, width: bounds.width, height: tail)
+            tailView.isHidden = false
+            y += tail
+        } else {
+            tailView?.isHidden = true
+        }
+        foldControl.run = fold.toggle
+        let title = controlTitle(fold)
+        if foldControl.attributedTitle != title { foldControl.attributedTitle = title }
+        foldControl.setAccessibilityHelp(fold.open ? "Shows the first lines" : "Shows the whole text")
+        foldControl.frame = CGRect(x: 0, y: y + MessageFold.spacing, width: control.width, height: control.height)
+        foldControl.isHidden = false
     }
 
     init() {
@@ -160,6 +279,7 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
 
     override func layout() {
         super.layout()
+        layoutFold()
         defer { if window != nil { updateTrackingAreas() } }   // the links' areas follow the laid-out text
         guard bounds.width > 0, let container = textContainer, container.containerSize.width != bounds.width else { return }
         container.containerSize = CGSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
@@ -212,6 +332,13 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        // The fold's control and kept lines are subviews below the shown text (APP-809)
+        if let superview, fold != nil {
+            let inside = convert(point, from: superview)
+            for view in [foldControl as NSView, tailView].compactMap({ $0 }) where !view.isHidden && view.frame.contains(inside) {
+                return view.hitTest(convert(inside, to: view.superview)) ?? view
+            }
+        }
         // The part a collapsed text doesn't show takes no clicks: Show more sits there.
         if let shownHeight, let superview, convert(point, from: superview).y > shownHeight { return nil }
         return super.hitTest(point)

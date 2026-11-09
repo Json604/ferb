@@ -32,7 +32,9 @@ extension NotchModel {
     var visibleEntries: [TranscriptEntry] {
         let day = Calendar.current.startOfDay(for: followsToday ? Date() : selectedDay)
         if let shown = shownTranscript, shown.day == day { return shown.entries }
-        let entries = conversation.transcript(on: day)
+        let all = conversation.transcript(on: day)
+        // A day shows its newest page; earlier entries come in as the owner scrolls up (APP-806)
+        let entries = window(for: day, all: all).shown(all)
         shownTranscript = (day, entries)
         return entries
     }
@@ -88,6 +90,8 @@ extension NotchModel {
     }
 
     func saveConversation() {
+        // In FERB's database (APP-805): the entries that changed are written; the preferences archive stays as it was.
+        if chatStore.store == .daemon { writeHistorySoon(); return }
         guard !archiveBlocked else {
             promptError = "Earlier history couldn’t be read or set aside, so new messages aren’t being saved."
             return
@@ -100,6 +104,7 @@ extension NotchModel {
     func selectDay(_ day: Date, focus: Bool = true) {
         followsToday = Calendar.current.isDateInToday(day)
         measuredTranscriptHeight = 0
+        resetWindow(day)                    // opened again: its newest page (APP-806)
         selectedDay = Calendar.current.startOfDay(for: day)
         showingHistory = false
         showingSources = false
