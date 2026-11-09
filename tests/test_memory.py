@@ -436,6 +436,21 @@ def test_trail_query_is_owner_only_and_titles_expose_the_worker(daemon: RunningD
     assert not r["is_error"] and r["content"]["count"] >= 1
 
 
+
+# decision: SENSE-408
+def test_trail_query_reads_one_afternoon_in_one_call(daemon: RunningDaemon) -> None:
+    """Owner 2026-11-09 ("yes lets give it if that actually helps"): "what happened 2-4 pm on day X" is one
+    trail.query with since/until, however long ago; since_hours keeps working."""
+    day = (datetime.now().astimezone() - timedelta(days=9)).date().isoformat()
+    rows = {h: trail_row(daemon, day, hour=h, data={"host": f"h{h}.example", "url": f"https://h{h}.example/"})
+            for h in (13, 14, 15, 16)}
+    g = task(daemon, "q", Identity.OWNER, {"trail:read"}, {"research"})
+    r = call(daemon, g, "trail.query", since=f"{day}T14:00", until=f"{day}T16:00")
+    assert not r["is_error"] and [e["id"] for e in r["content"]["events"]] == [rows[15], rows[14]]
+    r = call(daemon, g, "trail.query", since=day, until=day)                  # a date covers its whole day
+    assert {e["id"] for e in r["content"]["events"]} == set(rows.values())
+    assert call(daemon, g, "trail.query", since="the afternoon")["is_error"]
+
 def test_secrets_never_reach_memory_or_its_export(daemon: RunningDaemon) -> None:
     """Safety test 5 for memory: whatever the owner or a model puts in an item goes through the redactor."""
     m, home = mem(daemon), daemon.daemon.home

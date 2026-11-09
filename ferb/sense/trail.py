@@ -185,13 +185,17 @@ class Trail:
         return [TrailEvent(r["id"], datetime.fromisoformat(r["at"]), r["device_id"], r["actor"], r["task_id"],
                            r["source"], json.loads(r["data_json"])) for r in rows]
 
-    def query(self, *, since: str, source: str | None = None, actor: str | None = None,
+    def query(self, *, since: str, until: str | None = None, source: str | None = None, actor: str | None = None,
               host: str | None = None, limit: int = 100, before_seq: int | None = None,
               text: str | None = None, event_id: str | None = None) -> dict[str, Any]:
-        """Filter before paging; ordering is chronology, never an instruction to choose the newest candidate."""
+        """Filter before paging; ordering is chronology, never an instruction to choose the newest candidate. `since`
+        and `until` (exclusive) are ISO times in the form the rows were written."""
         if limit < 1:
             raise ValueError('limit must be positive')
         query, params = 'SELECT * FROM trail WHERE at >= ?', [since]
+        if until is not None:
+            query += ' AND at < ?'
+            params.append(until)
         if event_id is not None:
             query, params = 'SELECT * FROM trail WHERE id = ?', [event_id]
         for column, value in (('source', source), ('actor', actor)):

@@ -158,3 +158,13 @@ rule = "`daemon.started` keeps a 16-hex digest of the login session's id under `
 why = "Live 2026-11-01..03: the digest was journaled under `session`, which the redactor hides as a cookie, so every start compared \"[redacted]\" with a fresh digest and counted as a login: 18 false returns fired held reminders and repeated paused-task notes."
 paths = ["ferb/daemon/areas/schedules.py", "ferb/daemon/main.py"]
 live = ["LIVE-716"]
+
+[SENSE-408]
+title = "trail.query reads one stretch of time: since/until"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "yes lets give it if that actually helps"
+words_source = "Owner 2026-11-09, asked whether trail.query should take a from/until range (as chat.history's since/until), so \"what happened 2-4 pm on day X\" is one call instead of paging back with since_hours."
+rule = "trail.query takes optional since and until (ISO dates or date-times; the clock's zone, the Mac's, when none is named; a bare date as an end covers its whole day; the end is excluded). since replaces since_hours, which keeps working when since is absent. A malformed value is the caller's error before anything is read."
+paths = ["ferb/sense/tools.py::TrailQuery", "ferb/sense/tools.py::time_bound", "ferb/sense/trail.py::Trail.query"]
