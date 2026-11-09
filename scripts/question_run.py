@@ -8,9 +8,11 @@ list of {"id", "turns": [...]}. A run sends every task, in file order, into one 
 whole test, the next gets a fresh chat), so context builds up as in real use (--chat-per-task: a fresh chat per task).
 Every message is tagged with the run and the connection (GATE-550), so no run sees another's chats, summary, memory,
 learning or activity, and FERB learns nothing from any of them. The run
-needs test mode with questions recorded (Settings, or `--enable "me@example.com" ...` here, which turns it on with that
-send allowlist; it stays on after). The connection is used for every role during the run and the roles go back as
-they were at the end.
+needs test mode with questions recorded: pass `--enable "me@example.com" ...` on every run, which turns it on with that
+send allowlist. The run turns test mode off whenever it exits (its end, Ctrl-C, an error, SIGTERM or SIGHUP; only a
+SIGKILL can't be caught) and prints that it did, so FERB never keeps declining the owner's own questions after a run
+(2026-11-09: a cancelled run left it on). The connection is used for every role during the run and the roles go back
+as they were at the end.
 
 The run tool's own limits (not FERB's): --turn-limit minutes per turn (default 20), after which the runner stops that
 turn's task through FERB's stop and records it; --cost-cap dollars for the whole run (unset by default), after which
@@ -29,6 +31,7 @@ import argparse
 import json
 import os
 import re
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -553,6 +556,22 @@ def secs(n: dict[str, Any]) -> float | None:
     return round((datetime.fromisoformat(n["ended_at"]) - datetime.fromisoformat(n["started_at"])).total_seconds(), 1)
 
 
+def test_mode_off(client: Any) -> None:
+    """Test mode off, said on the terminal: every way out of a run comes through here."""
+    try:
+        got = client.call("test.mode", {"off": True})
+    except Exception as e:                                 # the daemon gone: say so, never claim it is off
+        print(f"test mode: couldn't turn it off ({e}); turn it off in Settings", file=sys.stderr)
+        return
+    print("test mode: off" if not got.get("enabled") else "test mode: still on; turn it off in Settings",
+          file=sys.stderr)
+
+
+def _exit_on_signal(signum: int, frame: Any) -> None:
+    """SIGTERM and SIGHUP end the run the way Ctrl-C does, so its clean-up (test mode off) runs."""
+    raise SystemExit(128 + signum)
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("tasks", type=Path)
@@ -560,7 +579,8 @@ def main() -> int:
     p.add_argument("--out", type=Path, required=True, help="the report (JSON), outside the repository")
     p.add_argument("--repeat", type=int, default=1)
     p.add_argument("--enable", nargs="*", metavar="RECIPIENT",
-                   help="turn on test mode with questions recorded and this send allowlist")
+                   help="needed on every run: turns on test mode with questions recorded and this send allowlist "
+                        "(the run turns it off when it exits)")
     p.add_argument("--model", default="", help="the connection's model for every role during the run (checked first, "
                                                "as Settings does; the models go back at the end)")
     p.add_argument("--turn-limit", "--task-limit", dest="turn_limit", type=float, default=20.0,
@@ -574,11 +594,19 @@ def main() -> int:
         p.error("--out must be outside the repository")
     tasks = tasks_from(args.tasks)
     client = Client(socket_path(), timeout=60)
+    try:
+        return run(p, args, tasks, out, client)
+    finally:
+        test_mode_off(client)                          # every exit: the end, Ctrl-C, an error, SIGTERM, SIGHUP
+
+
+def run(p: argparse.ArgumentParser, args: argparse.Namespace, tasks: list[dict[str, Any]], out: Path,
+        client: Any) -> int:
     if args.enable is not None:
         client.call("test.mode", {"allow_send": args.enable, "questions": "record"})
     mode = client.call("test.mode", {"status": True})
     if mode.get("questions") != "record":
-        p.error("FERB's test mode isn't recording questions: turn it on, or pass --enable with the send allowlist")
+        p.error("FERB's test mode isn't recording questions: pass --enable with the send allowlist (needed per run)")
     before = client.call("runtimes.status").get("roles") or {}
     models = client.call("runtimes.models", {"runtime": args.runtime})
     if args.model:                                     # every role on this model: the roles' own ones set aside
@@ -645,4 +673,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, _exit_on_signal)
     sys.exit(main())

@@ -820,3 +820,12 @@ words = "ok lets fix, but make sure tha twe match it witht the fixed claude run 
 words_source = "Owner 2026-11-08, after the OpenAI run's clarify (\"Which YouTube account?\") was answered by the next task's message (he calls that run codex)"
 rule = "When FERB answers a test turn with a clarifying question and no task starts, the run tool records the question and replies in that chat with the decline line record mode gives a task's own question, then waits for the turn to end before the next task: a next task's message never answers a question. The comparison marks the tasks the old runner tangled (OpenAI run 20261108-131046) and gives totals with and without them, so the fixed runs and that run can be compared."
 paths = ["scripts/question_run.py::send", "scripts/question_compare.py::tangled"]
+
+[GATE-554]
+title = "The run tool turns test mode off whenever it exits and says so; --enable is needed per run"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "For GATE-546. scripts/question_run.py calls test.mode {off: true} on every exit it can catch (its end, Ctrl-C, an unhandled error, p.error after start, SIGTERM and SIGHUP raised as SystemExit) and prints whether test mode is off, or that it couldn't be turned off and to turn it off in Settings. A run needs --enable with the send allowlist each time; test mode is never left on for the next run."
+why = "2026-11-08 a cancelled run left test mode on; on 2026-11-09 07:12 a real scheduled visa run's password question was declined by the recorder."
+paths = ["scripts/question_run.py::main", "scripts/question_run.py::test_mode_off", "scripts/question_run.py::_exit_on_signal"]

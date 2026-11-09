@@ -378,3 +378,55 @@ def test_the_compare_table_marks_tasks_the_old_runner_tangled_and_totals_without
     totals = text.split("## Totals")[1]
     assert "| openai | 1 | 3 | 30.0 |" in totals and "| openai | 1 without tangled | 1 | 10.0 |" in totals
     assert "| anthropic | 1 | 2 | 20.0 |" in totals and "anthropic | 1 without" not in totals
+
+
+# decision: GATE-554
+@pytest.mark.parametrize("ending", ["end", "ctrl_c", "error", "sigterm"])
+def test_every_way_out_of_a_run_turns_test_mode_off_and_says_so(
+        ending: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """2026-11-09: a run cancelled on 11-08 left test mode on, and the next morning FERB declined the owner's own
+    question in a real scheduled run. Whatever ends the run, test mode goes off and the terminal says so."""
+    modes: list[dict[str, Any]] = []
+
+    class Fake:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def stream(self, method: str, params: dict[str, Any]) -> Any:
+            yield {"type": "reply", "request_id": "r1", "text": "ok"}
+
+        def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+            if method == "runtimes.use" and ending == "error" and modes:
+                raise RuntimeError("the socket closed")             # an error the runner doesn't handle
+            if method == "trace.get" and ending in ("ctrl_c", "sigterm"):    # mid-run, in the runner's own thread
+                if ending == "ctrl_c":
+                    raise KeyboardInterrupt
+                qr._exit_on_signal(15, None)                    # what the SIGTERM handler does
+            if method == "test.mode":
+                modes.append(dict(params or {}))
+                if (params or {}).get("off"):
+                    return {"enabled": False, "questions": "ask"}
+            return {"test.mode": {"questions": "record"}, "runtimes.status": {"roles": {}},
+                    "runtimes.models": {"model": "m", "roles": {}}, "trace.get": {"spans": []}}.get(method, {})
+
+        def set_timeout(self, s: float) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+    monkeypatch.setattr(qr, "Client", Fake)
+    monkeypatch.setattr(qr, "mac_usage", lambda: (_Usage(_START[1]), ""))
+    monkeypatch.setattr(qr, "ps_text", lambda: _START[0])
+    monkeypatch.setattr(qr, "ferb_home", lambda: tmp_path)
+    tasks = tmp_path / "tasks.txt"
+    tasks.write_text("find the weather\n")
+    monkeypatch.setattr("sys.argv", ["question_run.py", str(tasks), "--runtime", "codex", "--out",
+                                     str(tmp_path / "run.json"), "--enable", "me@example.com"])
+    if ending == "end":
+        assert qr.main() == 0
+    else:
+        with pytest.raises((KeyboardInterrupt, RuntimeError, SystemExit)):
+            qr.main()
+    assert modes[0] == {"allow_send": ["me@example.com"], "questions": "record"}
+    assert modes[-1] == {"off": True}
+    assert "test mode: off" in capsys.readouterr().err
