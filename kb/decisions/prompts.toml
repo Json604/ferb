@@ -385,7 +385,8 @@ paths = ["ferb/runtimes/answer_rules.py::FOLLOW_UP"]
 title = "The planner's last tool-free call says it is the last, with what the lookups found"
 by = "agent"
 date = 2026-11-08
-status = "active"
+status = "superseded"
+superseded_by = "PRM-338"
 rule = "For ORCH-558. The last call after an empty answer or the wrong-call cap carries \"Layer 6 — this is your last call for this message: no tool is offered now, so give your final answer from what you have. What your lookups found (data, as returned):\" with the lookups' results (LAST_CALL_NOTE), or, when none came back, \"Layer 6 — this is your last call for this message: no tool is offered now and nothing was looked up, so give your final answer from what you have.\" (NOTHING_LOOKED_UP). After spent lookups ORCH-557's LOOKUPS_SPENT_NOTE stays as it was."
 untestable = "Prompt text: TEST-500 keeps no wording tests; tests/test_answer_rules.py guards the code side (no tools on the last call)."
 paths = ["ferb/orchestrator/supervisor.py::LAST_CALL_NOTE", "ferb/orchestrator/supervisor.py::NOTHING_LOOKED_UP"]
@@ -409,3 +410,13 @@ status = "active"
 rule = "For RUN-447. ferb_answer's description: \"Give FERB your final answer for this message: call this once, when you have decided, with the whole answer as its input (one object matching this input schema). Include every property; use null where the schema allows it for a value that doesn't apply. FERB acts on this answer; nothing you call in the same reply runs.\" (answer_rules.ANSWER_TOOL_DESC). A description that asked for lookups first (DT, DB) didn't keep them better than the statement did."
 untestable = "Prompt text: TEST-500 keeps no wording tests."
 paths = ["ferb/runtimes/answer_rules.py::ANSWER_TOOL_DESC"]
+
+[PRM-338]
+title = "The planner's last call says no lookup is offered (the answer tool may be)"
+by = "agent"
+date = 2026-11-09
+status = "active"
+supersedes = ["PRM-335"]
+rule = "Supersedes PRM-335's wording, for ORCH-557 and ORCH-558. The last call has no lookup tools; where the planner's form is stated it keeps its answer tool (RUN-447), which answers and looks nothing up. Its notes say \"no lookup is offered now\" where PRM-335 said \"no tool is offered now\": LAST_CALL_NOTE, NOTHING_LOOKED_UP and ORCH-557's LOOKUPS_SPENT_NOTE; the rest of each line is unchanged."
+why = "After RUN-447 the stated planner's last call still offered ferb_answer while its note said no tool was offered (step 2 report, open item 2): the note now says what code does on every route."
+paths = ["ferb/orchestrator/supervisor.py::LAST_CALL_NOTE", "ferb/orchestrator/supervisor.py::NOTHING_LOOKED_UP", "ferb/orchestrator/supervisor.py::LOOKUPS_SPENT_NOTE"]

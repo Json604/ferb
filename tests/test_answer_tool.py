@@ -19,7 +19,7 @@ from ferb.core.structured import check_final
 from ferb.core.types import Identity, ModelRequest, Task
 from ferb.orchestrator import schemas as core
 from ferb.orchestrator.schemas import SupervisorOutcome
-from ferb.runtimes.answer_rules import ANSWER_TOOL, FOLLOW_UP
+from ferb.runtimes.answer_rules import ANSWER_TOOL, FOLLOW_UP, WRONG_CALLS_CAP
 from ferb.runtimes.anthropic_api import AnthropicProvider
 from ferb.runtimes.api import ApiRuntime, GatewayBridge, inline_refs
 from ferb.runtimes.google_api import GoogleProvider
@@ -338,3 +338,14 @@ def test_a_follow_up_about_an_earlier_answer_is_answered_from_its_lookup(daemon:
     assert result["type"] == "tool_result" and not result["is_error"]
     assert "4th Cross Road" in result["content"][0]["text"]               # the earlier answer, read through the gateway
     assert [u.get("answer_via") for u in spans(daemon, "model.usage")] == ["tool", None, "tool"]
+
+
+# decision: PRM-338, ORCH-558, RUN-447
+def test_the_last_call_offers_no_lookup_only_the_answer_tool(daemon: RunningDaemon) -> None:
+    """The last call after the wrong-call cap (ORCH-558) has no lookups; where the form is stated the answer tool stays,
+    as the note says ("no lookup is offered now"), and the answer through it is the reply."""
+    wire = Wire([looked_up("x", {}) for _ in range(WRONG_CALLS_CAP)] + [answered(ANSWER)])
+    through_anthropic(daemon, wire)
+    assert replies(chat(daemon, "who is my dentist?")) == [ANSWER["text"]]
+    assert "memory_read" in offered(wire.bodies[0])
+    assert offered(wire.bodies[-1]) == [ANSWER_TOOL]

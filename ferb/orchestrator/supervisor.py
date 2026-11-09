@@ -168,15 +168,16 @@ PLANNER_TOOLS = frozenset({"memory.read", "chat.history", "task.evidence", "trai
 PLANNER_SCOPES = frozenset({"task:read", "trail:read"})
 PLANNER_LOOKUPS = 10
 LOOKUPS = ".lookups"                # a planner turn's lookup record: its request id with this suffix (no task row)
-# ORCH-557: the last call of a turn whose lookups are used up: no tool, and what they found
-LOOKUPS_SPENT_NOTE = ("Layer 6 — your lookups for this message are used up; no tool is offered now. What they found "
+# ORCH-557, PRM-338: the last call of a turn whose lookups are used up: no lookup tool (where the planner's form is
+# stated it still has its answer tool, RUN-447, which answers and looks nothing up), and what they found
+LOOKUPS_SPENT_NOTE = ("Layer 6 — your lookups for this message are used up; no lookup is offered now. What they found "
                       "(data, as returned):")
-# ORCH-558, PRM-335: the last call after a call that ended without an answer (RUN-446) or was stopped at the wrong-call
-# cap (RUN-445): no tool, and what its lookups found, or that nothing was looked up
-LAST_CALL_NOTE = ("Layer 6 — this is your last call for this message: no tool is offered now, so give your final answer "
-                  "from what you have. What your lookups found (data, as returned):")
-NOTHING_LOOKED_UP = ("Layer 6 — this is your last call for this message: no tool is offered now and nothing was looked "
-                     "up, so give your final answer from what you have.")
+# ORCH-558, PRM-338: the last call after a call that ended without an answer (RUN-446) or was stopped at the wrong-call
+# cap (RUN-445): no lookup tool, and what its lookups found, or that nothing was looked up
+LAST_CALL_NOTE = ("Layer 6 — this is your last call for this message: no lookup is offered now, so give your final "
+                  "answer from what you have. What your lookups found (data, as returned):")
+NOTHING_LOOKED_UP = ("Layer 6 — this is your last call for this message: no lookup is offered now and nothing was "
+                     "looked up, so give your final answer from what you have.")
 RECENT_EXCHANGES = 20               # owner decision: the last 20 exchanges, always, never folded or dropped
 RECENT_CONVERSATION_TOKENS = 15_000  # with FOLD_CHUNK_TOKENS, a whole tail past both folds what lies beyond the 20
 FOLD_CHUNK_TOKENS = 20_000          # the unfolded tail folds once it holds this much beyond them; one summary call
