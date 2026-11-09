@@ -3060,3 +3060,23 @@ evidence = "Fixtures 0.27.0/0.27.3 made with each release's NotchCore fail at tu
 rejected = ["Make `changed` optional only: the next defaulted property breaks every archive again", "Rebuild history from the daemon's journal: no chat-history RPC, and it holds the owner's side only"]
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/ArchiveStore.swift", "ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationArchive.restore", "ui/mac/FERBNotch/Sources/NotchCore/ResultCard.swift", "ui/mac/FERBNotch/Sources/NotchCore/TurnCard.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.init", "ui/mac/FERBNotch/Tests/NotchCoreTests/Fixtures"]
 live = ["LIVE-828"]
+
+[APP-802]
+title = "FERB.app draws FERB's record cards, and the playground shows them all at once"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "yes draw them. BUT show them in the playground for me to see htem all at once what are they and how they look"
+words_source = "Owner 2026-11-09, asked whether FERB.app should draw the record cards DMN-553 left as text lines."
+rule = "FERB.app draws every record card the daemon sends (reminders, tasks, task, memory, permissions, logins, about; submit, trash, delete, download), plain and functional in the typed cards' look. The playground shows every one of them at once, each labelled with what it is and when FERB shows it, from invented sample data (playground.sh --cards)."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/RecordCardViews.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundCardGallery.swift", "ui/mac/FERBNotch/playground.sh"]
+live = ["LIVE-832"]
+
+[APP-803]
+title = "Record cards: how they decode, draw and save"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "For APP-802 and DMN-554. ResultCard reads each record kind from its payload (one without what makes it one, e.g. a task without task_id, isn't a card; an unreadable row is left out) and from the saved chat by APP-801's rules. Each draws on its own surface and stands for its line (ORCH-329); an unknown kind is dropped and its line stays. Logins keep names, places, kinds and sites only (the account hint isn't kept). A task card shows its name, status, Checked, the couldn't-confirm note, answered questions and each record card as one line. Long lists fold behind Show all."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/ResultCard.swift", "ui/mac/FERBNotch/Sources/NotchCore/RecordCards.swift", "ui/mac/FERBNotch/Sources/FERBNotch/RecordCardViews.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift::ResultCardView"]
+live = ["LIVE-832"]

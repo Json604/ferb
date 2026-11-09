@@ -451,3 +451,37 @@ words_source = "Owner 2026-11-09, after the 12:00 visa run (a84c752c) hit Cloudf
 rule = "worker.md, in the shared work rules every browser route reads: when a page doesn't work (blocked, an error page, it won't load or respond), refresh it once; if it still doesn't work, open the same address in a new tab and try again once; if that fails too, report it, never loop. HAND-441 makes the hung-read error say the same; browser_verification's SKILL.md sends a block page with no check on it to this rule."
 paths = ["ferb/orchestrator/prompts/worker.md", "ferb/abilities/browser_verification/SKILL.md"]
 live = ["LIVE-830"]
+
+[PRM-342]
+title = "interaction.md: FERB's state and what a task did only from its records; a gap as a gap"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "1. Gap as a gap, 2. No general can't-claims, 3. Fields tidy (optional)"
+words_source = "Owner 2026-11-09, answering the claims build report's three agent-drafted lines after their explanations (item 1); the line text is the agent's, approved as written."
+rule = "interaction.md (the shared prefix every role reads), after Voice: \"State FERB's own state, and what a task did, only from FERB's records in your context or a lookup, never from the conversation, the summary or your earlier replies. Give a gap as a gap.\""
+untestable = "Prompt text: TEST-500 keeps no wording tests; ORCH-563..ORCH-566 guard the records it points to."
+paths = ["ferb/orchestrator/prompts/interaction.md"]
+live = ["LIVE-829"]
+
+[PRM-343]
+title = "worker.md: a failure says what was tried and seen, never what FERB in general can't do"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "1. Gap as a gap, 2. No general can't-claims, 3. Fields tidy (optional)"
+words_source = "Owner 2026-11-09, answering the claims build report's three agent-drafted lines after their explanations (item 2); the line text is the agent's, approved as written."
+rule = "worker.md's report field reason gains: \"A failure says what was tried and what was seen; never what FERB in general can or can't do.\""
+untestable = "Prompt text: TEST-500 keeps no wording tests; ORCH-562's findings round is the code side."
+paths = ["ferb/orchestrator/prompts/worker.md"]
+
+[PRM-344]
+title = "worker.md: a not-done answer holds only what was found or done; what stopped it goes in reason"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "1. Gap as a gap, 2. No general can't-claims, 3. Fields tidy (optional)"
+words_source = "Owner 2026-11-09, answering the claims build report's three agent-drafted lines after their explanations (item 3); the line text is the agent's, approved as written."
+rule = "worker.md's report field answer gains: \"When not done: only what you found or did before stopping; what stopped you goes in reason.\" ORCH-568 shows the reason once and the findings under it."
+untestable = "Prompt text: TEST-500 keeps no wording tests; ORCH-568's test covers the failed answer built from the two fields."
+paths = ["ferb/orchestrator/prompts/worker.md"]

@@ -74,7 +74,10 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
                 await services.setup.refreshAI()
                 await services.setup.refreshPermissions()
                 await services.notch.refreshDaemonStatus()
-                if PlaygroundMode.startsPlay { review.startPlay() } else {
+                if PlaygroundMode.startsCards {         // playground.sh --cards: the record cards, all at once
+                    review.showCardGallery()
+                    review.play(.records)
+                } else if PlaygroundMode.startsPlay { review.startPlay() } else {
                     review.play(.conversation)
                     review.show(.schedules)
                 }
@@ -196,6 +199,7 @@ final class PlaygroundDelegate: NSObject, NSApplicationDelegate {
             showScene: { [weak self] scene in self?.appReview?.play(scene) },
             finishTask: { services.daemon.workspace.finishRunning() },
             showTaskPreview: { [weak self] in self?.appReview?.showPreview() },
+            showCardGallery: { [weak self] in self?.appReview?.showCardGallery() },
             previewSetup: { [weak self] in
                 self?.appSetup?.repair(.none)          // the service step in the notch (APP-685): no window
             },

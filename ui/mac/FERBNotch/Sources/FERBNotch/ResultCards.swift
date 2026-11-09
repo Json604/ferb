@@ -60,6 +60,15 @@ struct ResultCardView: View {
         case "payment": ExpenseRow(card: card)
         case "send": ContactCard(card: card)
         case "schedules": SchedulesCard(card: card)
+        // FERB's records (ORCH-563..ORCH-565, DMN-554; RecordCardViews.swift)
+        case "reminders": RemindersListCard(card: card)
+        case "tasks": TasksListCard(card: card, model: model)
+        case "task": TaskRecordCard(card: card, model: model)
+        case "memory": MemoryListCard(card: card)
+        case "permissions": PermissionsCard(card: card)
+        case "logins": LoginsCard(card: card)
+        case "about": AboutCard(card: card)
+        case "submit", "trash", "delete", "download": DoneRecordCard(card: card, model: model)
         default: EmptyView()
         }
     }
@@ -97,7 +106,7 @@ struct CardChip: View {
 }
 
 /// The card's title (Shapeshift's 17 pt / 550 weight, at notch scale).
-private struct CardTitle: View {
+struct CardTitle: View {
     let text: String
     var body: some View {
         // chat text draws through FERB's own text view (APP-788)
@@ -106,7 +115,7 @@ private struct CardTitle: View {
 }
 
 /// A small label above a title: what kind of card this is.
-private struct CardMeta: View {
+struct CardMeta: View {
     let icon: String
     let text: String
     var body: some View {

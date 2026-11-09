@@ -308,25 +308,27 @@ def test_an_unverifiable_outcome_is_done_unconfirmed_with_the_answer_first(daemo
 
 
 
-SIGNED_OUT = ("I couldn't check availability at 7:10 AM because your session had expired and the saved password "
-              "could not be filled during this unattended run. No appointment was booked.")
+SIGNED_OUT = "The session had expired and the saved password could not be filled during this unattended run."
+FOUND = "The visa site's sign-in page loaded; no appointment was booked."
 
 
-# decision: ORCH-560
+# decision: ORCH-568
 def test_a_failure_the_worker_explained_is_told_once(daemon: RunningDaemon) -> None:
     """Owner 2026-11-09, the 7:10 visa run: "why is this giving two replies????". The worker's reason, its answer and
-    the checker's reason all said the same failure; the owner reads it once: the worker's own answer to them."""
+    the checker's reason all said the same failure. The owner reads it once: the worker's own reason (what stopped
+    it), then its answer as what it found (PRM-344: a not-done answer holds only that); the checker's stays the
+    record's."""
     not_done = json.dumps({"status": "not_done", "question": None, "artifacts": [], "how": "",
-                           "reason": "The session had expired; secure filling was declined, so I could not sign in.",
-                           "answer": SIGNED_OUT})
+                           "reason": SIGNED_OUT, "answer": FOUND})
     install(daemon, [sup("task", "On it.", task("Check visa slots"))], {
         "worker": not_done,
         "worker.verify": verdict(False, True, next="fail",
                                  reason="The 7:10 AM check could not reach availability: the session had expired.")})
     result = outcome(chat(daemon, "check visa slots"))
     assert result["status"] == "failed"
-    assert result["answer"].split("\n\n")[0] == f"I couldn't finish this task. {SIGNED_OUT}"
-    assert "What I found" not in result["answer"] and "could not reach availability" not in result["answer"]
+    assert result["answer"].split("\n\n")[:2] == [f"I couldn't finish this task. {SIGNED_OUT}",
+                                                   f"What I found (not checked): {FOUND}"]
+    assert result["answer"].count(SIGNED_OUT) == 1 and "could not reach availability" not in result["answer"]
     assert "could not reach availability" in result["summary"]          # the checker's reason stays in the record
 
 
@@ -345,7 +347,8 @@ def test_a_failures_own_explanation_gets_the_same_findings_round(daemon: Running
         "worker.fix": _fix(fixed), "worker.recheck": json.dumps({"findings": []})})
     result = outcome(chat(daemon, "change my visa schedule"))
     assert result["status"] == "failed" and script.calls("worker") == ["worker", "worker.fix"]
-    assert result["answer"].split("\n\n")[0] == f"I couldn't finish this task. {fixed}"
+    assert result["answer"].split("\n\n")[:2] == ["I couldn't finish this task. The edit didn't save.",
+                                                   f"What I found (not checked): {fixed}"]
     assert claim not in result["answer"] and claim not in result["summary"]      # the reason's quote, removed by code
     assert "What FERB can use now" in _context_of(script, "worker.verify")
 

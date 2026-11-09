@@ -785,7 +785,18 @@ live = ["LIVE-824"]
 title = "New card types for FERB's records; about.get and about.read gain permissions and logins"
 by = "agent"
 date = 2026-11-09
-status = "active"
+status = "superseded"
+superseded_by = "DMN-554"
 rule = "For ORCH-561, ORCH-563..ORCH-565. New reply cards, each with count and line: reminders {reminders: [{id, kind, name, at}]}, tasks {tasks: [task cards]}, task {task_id, name, status, verified, note?, questions?, cards?}, memory {items, forgotten}, permissions {standing_sends, known_destinations, routine_questions_off_until}, logins {owner_saved, ferb_own}, about {version, models, permissions}; at a task's end submit {site}, trash, delete, download {path, name}. FERB.app draws none yet, so their lines stay in the text. about.get/about.read gain permissions_in_force and saved_logins. No new RPC."
 paths = ["ferb/daemon/areas/records.py", "ferb/orchestrator/cards.py", "ferb/daemon/about.py::SECTIONS"]
 untestable = "The payload shapes are exercised by tests/test_claims_records.py under ORCH-561..ORCH-565; this records the protocol for FERB.app."
+
+[DMN-554]
+title = "FERB's record cards: the protocol FERB.app draws"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "Supersedes DMN-553: FERB.app draws them (APP-803). Reply cards, each with count and line: reminders {reminders: [{id, kind, name, at}]}, tasks {tasks: [task cards without line]}, task {task_id, name, status, verified, note?, questions?, cards?}, memory {items, forgotten}, permissions {standing_sends, known_destinations, routine_questions_off_until}, logins {owner_saved, ferb_own}, about {version, models, permissions}; at a task's end submit {site}, trash, delete, download {path, name} (no line). An app that doesn't know a type keeps its line in the text. No new RPC."
+supersedes = ["DMN-553"]
+paths = ["ferb/daemon/areas/records.py", "ferb/orchestrator/cards.py", "ferb/daemon/about.py::SECTIONS"]
+untestable = "The payload shapes are exercised by tests/test_claims_records.py under ORCH-561..ORCH-565 and read by ui/mac/FERBNotch/Tests/NotchCoreTests/RecordCardsTests.swift under APP-803."

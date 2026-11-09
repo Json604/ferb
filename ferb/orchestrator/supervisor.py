@@ -6552,16 +6552,19 @@ class Supervisor(WorkerRuns):
             status = "failed"
             why = src.stop_reason or src.reason or (out.summary if out.status != "done" else NOT_ACCEPTED)
             summary = answer = f"{NOT_FINISHED} {_sentence(why)}".strip()
-            # The failure is told once (owner 2026-11-09, the 7:10 visa run: "why is this giving two replies????"). A
-            # worker that reported not done wrote its answer for the owner (what stopped it, and anything it found), so
-            # that answer is the account, in place of a model's reason (the checker's or its own), which stays the
-            # summary; its sentences had the same findings round as a done answer (ORCH-562). After code's own stop line
-            # (attempts used up, an AI service down) it follows as what was found, unchecked. Never a done claim the
-            # check didn't confirm. By where each text came from, never by what it says (rule 4).
-            own = src.owner_answer.strip() if not (src.reports and src.reports[-1].get("status") == "done") else ""
-            if own and not src.stop_by_code:
-                answer = f"{NOT_FINISHED} {own}"
-            elif own and own != why.strip():
+            # The failure is told once (owner 2026-11-09, the 7:10 visa run: "why is this giving two replies????";
+            # ORCH-568, with PRM-344: a not-done answer holds only what was found or done, what stopped it is its
+            # reason). A worker that reported not done is the account: its own reason (after ORCH-562's findings round)
+            # says what stopped it, in place of the checker's, which stays the summary; its answer follows as what was
+            # found, unchecked. After code's own stop line (attempts used up, an AI service down) only the answer
+            # follows. Never a done claim the check didn't confirm. By where each text came from, never by what it
+            # says (rule 4).
+            not_done = not (src.reports and src.reports[-1].get("status") == "done")
+            own = src.owner_answer.strip() if not_done else ""
+            if not_done and src.reports and src.reason.strip() and not src.stop_by_code:
+                why = src.reason
+                answer = f"{NOT_FINISHED} {_sentence(why)}".strip()
+            if own and own != why.strip():
                 answer += f"\n\n{FOUND_UNCHECKED} {own}"
         # D33: the answer and summary carry model-written lines (reports, the checker's question and reason); one that
         # reads like FERB's own check is marked as the task's. Code's own lines here never start with "FERB".

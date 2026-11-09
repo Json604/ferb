@@ -31,6 +31,21 @@ profile names with their accounts (Settings → Browsers), window mode (always f
 to 0.27.1" once. It never calls a model, the real daemon, `~/.ferb` or the network. Each beat checks the UI state it
 leaves; failed checks show under the controls and in the log, and `PlaygroundPlayTests` runs every beat hermetically.
 
+## FERB's record cards: all at once
+
+```sh
+ui/mac/FERBNotch/playground.sh --cards
+```
+
+It builds the playground, opens the app playground, and shows **FERB — record cards**: every card the daemon sends for
+FERB's own state and a task's records (reminders and timers, tasks, one task, memory, permissions in force, saved
+logins, about FERB; a form submitted, moved to the Trash, deleted permanently, downloaded; the schedules card for
+comparison), each labelled with what it is, when FERB shows it and the reply line it replaces. They are drawn by the
+real card views (`FERBNotch/RecordCardViews.swift`) from invented samples shaped as the daemon sends them
+(`Playground/PlaygroundCardGallery.swift`). The notch also gets the same cards as one reply (**FERB's record cards** under
+Notch & message states), where each card's line is left out of the text. The controls' **FERB's record cards: all at
+once** reopens the gallery.
+
 ## Whole-app review
 
 The startup/setup concept is accepted (APP-618). There is no global Skip intro control. To review the rest of the app:
@@ -65,6 +80,7 @@ ui/mac/FERBNotch/playground.sh            # build, then open the playground fres
 ui/mac/FERBNotch/playground.sh --reopen   # build, then open it keeping the last run's state
 ui/mac/FERBNotch/playground.sh --build-only   # build "build/FERB Playground.app" without opening it
 ui/mac/FERBNotch/playground.sh --play         # build, open the app playground and start Play 0.27.1
+ui/mac/FERBNotch/playground.sh --cards        # build, open the app playground with FERB's record cards
 ```
 
 The script builds the package (debug), assembles `ui/mac/FERBNotch/build/FERB Playground.app` with its own bundle id

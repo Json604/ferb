@@ -61,14 +61,48 @@ public struct ResultCard: Codable, Equatable {
     // schedules (T-1066): the owner's schedules as FERB's records hold them, drawn by the daemon's code
     public var count: Int?
     public var schedules: [ScheduleListRow]?
+    // FERB's records (ORCH-563..ORCH-565, DMN-554, APP-803), each drawn by code from FERB's rows, never a model's words.
+    /// reminders: the pending reminders and timers, soonest first.
+    public var reminders: [ReminderListRow]?
+    /// tasks: every running task and this chat's ended ones, each a `task` card.
+    public var tasks: [ResultCard]?
+    // task: one task as FERB's records hold it (ORCH-564): its id, its status as code set it (running, paused,
+    // stopping, done, done_unverified, failed, cancelled, needs_user, interrupted), whether it was verified, code's
+    // couldn't-confirm note, the questions the owner answered for it and its record cards (sends, payments, submits,
+    // trash, deletes, downloads, files, sites).
+    public var taskID: String?
+    public var status: String?
+    public var verified: Bool?
+    public var note: String?
+    public var questions: [AnsweredQuestion]?
+    public var records: [ResultCard]?
+    /// memory: what FERB remembers now, and the forgets on record (when and how many; contents are never kept).
+    public var memoryItems: [MemoryListRow]?
+    public var forgotten: [ForgetRow]?
+    /// permissions: the standing send scopes in force, the known destinations and the ask-free window's end.
+    public var standingSends: [StandingSend]?
+    public var knownDestinations: [KnownDestination]?
+    public var questionsOffUntil: String?
+    /// logins: the owner's saved entries and FERB's own secrets, by name and site only (never a value, a username or
+    /// an account).
+    public var ownerLogins: [SavedLogin]?
+    public var ferbLogins: [OwnLogin]?
+    /// about: FERB's version, its model per role and its permissions' state.
+    public var version: String?
+    public var models: [ModelRow]?
+    public var permissionRows: [PermissionStateRow]?
 
     public static let types: Set<String> = ["reminder", "event", "note", "payment", "send", "link", "file", "page",
-                                            "schedules"]
+                                            "schedules", "reminders", "tasks", "task", "memory", "permissions",
+                                            "logins", "about", "submit", "trash", "delete", "download"]
 
     private enum CodingKeys: String, CodingKey {
         case type, line, title, due, repeatRule, nextRun, scheduleID, until, kind, id, what, when, watch, started
         case timerID, repeatOf, itemID, text, state, amount, merchant, site, savedCard, recipient, app, account, host
         case path, name, page, importedFrom, changed, wasRepeat, wasRequest, request, count, schedules
+        case reminders, tasks, taskID, status, verified, note, questions, records, memoryItems, forgotten
+        case standingSends, knownDestinations, questionsOffUntil, ownerLogins, ferbLogins, version, models
+        case permissionRows
     }
 
     /// Read tolerantly (APP-801): only `type` is required; a key saved before it existed reads as a new card's value
@@ -92,6 +126,23 @@ public struct ResultCard: Codable, Equatable {
         wasRepeat = try words(.wasRepeat); wasRequest = try words(.wasRequest); request = try words(.request)
         count = try c.decodeIfPresent(Int.self, forKey: .count)
         schedules = try c.lossyList(ScheduleListRow.self, .schedules)
+        reminders = try c.lossyList(ReminderListRow.self, .reminders)
+        tasks = try c.lossyList(ResultCard.self, .tasks)
+        taskID = try words(.taskID); status = try words(.status)
+        verified = try c.decodeIfPresent(Bool.self, forKey: .verified)
+        note = try words(.note)
+        questions = try c.lossyList(AnsweredQuestion.self, .questions)
+        records = try c.lossyList(ResultCard.self, .records)
+        memoryItems = try c.lossyList(MemoryListRow.self, .memoryItems)
+        forgotten = try c.lossyList(ForgetRow.self, .forgotten)
+        standingSends = try c.lossyList(StandingSend.self, .standingSends)
+        knownDestinations = try c.lossyList(KnownDestination.self, .knownDestinations)
+        questionsOffUntil = try words(.questionsOffUntil)
+        ownerLogins = try c.lossyList(SavedLogin.self, .ownerLogins)
+        ferbLogins = try c.lossyList(OwnLogin.self, .ferbLogins)
+        version = try words(.version)
+        models = try c.lossyList(ModelRow.self, .models)
+        permissionRows = try c.lossyList(PermissionStateRow.self, .permissionRows)
     }
 
     public init?(_ value: Any?) {
@@ -115,6 +166,24 @@ public struct ResultCard: Codable, Equatable {
         count = value["count"] as? Int
         schedules = (value["schedules"] as? [Any]).map { $0.compactMap { ScheduleListRow($0) } }
         importedFrom = ((value["filter"] as? [String: Any])?["imported_from"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        // FERB's records (DMN-554): each list keeps the rows it can read; a row it can't is left out.
+        func rows<T>(_ key: String, _ make: (Any) -> T?) -> [T]? { (value[key] as? [Any]).map { $0.compactMap(make) } }
+        reminders = rows("reminders") { ReminderListRow($0) }
+        tasks = rows("tasks") { ResultCard($0) }.map { $0.filter { $0.type == "task" } }
+        taskID = words("task_id"); status = words("status"); verified = value["verified"] as? Bool
+        note = words("note")
+        questions = rows("questions") { AnsweredQuestion($0) }
+        records = rows("cards") { ResultCard($0) }
+        memoryItems = rows("items") { MemoryListRow($0) }
+        forgotten = rows("forgotten") { ForgetRow($0) }
+        standingSends = rows("standing_sends") { StandingSend($0) }
+        knownDestinations = rows("known_destinations") { KnownDestination($0) }
+        questionsOffUntil = words("routine_questions_off_until")
+        ownerLogins = rows("owner_saved") { SavedLogin($0) }
+        ferbLogins = rows("ferb_own") { OwnLogin($0) }
+        version = ((value["version"] as? [String: Any])?["ferb"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        models = (value["models"] as? [String: Any]).map { ModelRow.rows($0) }
+        permissionRows = type == "about" ? rows("permissions") { PermissionStateRow($0) } : nil
         // A card with nothing to show isn't one.
         switch type {
         case "note": if itemID == nil || text == nil { return nil }
@@ -125,6 +194,15 @@ public struct ResultCard: Codable, Equatable {
         case "event": if what == nil { return nil }
         case "page": if page == nil { return nil }
         case "schedules": if schedules == nil { return nil }
+        case "reminders": if reminders == nil { return nil }
+        case "tasks": if tasks == nil { return nil }
+        case "task": if taskID == nil { return nil }
+        case "memory": if memoryItems == nil { return nil }
+        case "permissions": if standingSends == nil && knownDestinations == nil && questionsOffUntil == nil { return nil }
+        case "logins": if ownerLogins == nil && ferbLogins == nil { return nil }
+        case "about": if version == nil && models == nil && permissionRows == nil { return nil }
+        case "submit": if site == nil { return nil }
+        case "trash", "delete", "download": if path == nil { return nil }
         default: break
         }
     }
@@ -227,8 +305,12 @@ public enum CardLayout {
     public static func above(_ cards: [ResultCard]) -> [ResultCard] { cards.filter { $0.type == "reminder" } }
     /// Cards drawn one per surface under the text, in the daemon's order.
     public static func below(_ cards: [ResultCard]) -> [ResultCard] {
-        cards.filter { ["event", "note", "payment", "send", "schedules"].contains($0.type) }
+        cards.filter { surfaces.contains($0.type) }
     }
+    /// The types drawn one per surface under the text.
+    public static let surfaces: Set<String> = ["event", "note", "payment", "send", "schedules", "reminders", "tasks",
+                                               "task", "memory", "permissions", "logins", "about", "submit", "trash",
+                                               "delete", "download"]
     public static func links(_ cards: [ResultCard]) -> [ResultCard] { cards.filter { $0.type == "link" } }
     public static func files(_ cards: [ResultCard]) -> [ResultCard] { cards.filter { $0.type == "file" } }
     /// Buttons that open a page of FERB's window (step 12c).

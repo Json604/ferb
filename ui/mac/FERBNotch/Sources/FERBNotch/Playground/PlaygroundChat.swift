@@ -6,7 +6,7 @@ import NotchCore
 enum PlaygroundChatScenario: String, CaseIterable, Identifiable {
     case conversation = "Chat reply", working = "Running task", approval = "Approval", question = "Question"
     case completed = "Finished result", reminder = "Reminder arriving", schedule = "Scheduled result"
-    case failed = "Failed task", cards = "All message cards"
+    case failed = "Failed task", cards = "All message cards", records = "FERB's record cards"
     var id: String { rawValue }
     var request: String {
         switch self {
@@ -18,6 +18,7 @@ enum PlaygroundChatScenario: String, CaseIterable, Identifiable {
         case .schedule: return "Bring me a short morning brief every weekday."
         case .failed: return "Collect this week's studio invoices."
         case .cards: return "Show me the different kinds of things FERB can return."
+        case .records: return "What do your records say about my reminders, tasks, memory, permissions and logins?"
         }
     }
 }
@@ -76,6 +77,8 @@ extension PlaygroundWorkspace {
         case .cards:
             text = "Sample results, all in one conversation. Nothing here was sent, purchased or changed."
             cards = sampleCards
+        case .records:                  // APP-802: every record card, its line in the text (the notch leaves it out)
+            (text, cards) = PlaygroundRecordCards.reply(download: sampleDownload())
         default:
             text = "You have room for one good stretch of focused work.\n\nStart with the launch mockups, settle the two open decisions, then keep **2:00–3:30 PM** clear. Leave messages and small tasks for afterwards.\n\nWant me to turn that into a reminder or a recurring plan?"
             cards = []
@@ -98,6 +101,15 @@ extension PlaygroundWorkspace {
         ["type": "file", "path": artifact.path, "name": "Afternoon brief.txt"],
         ["type": "page", "page": "memory", "title": "What FERB remembers"]
     ] }
+
+    /// The record cards' downloaded file: a sample in the playground's own home, so its chip shows it in Finder.
+    func sampleDownload() -> URL {
+        let url = state.home.appendingPathComponent("Print Co invoice October.txt")
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try? "PLAYGROUND SAMPLE\n\nPrint Co. invoice, October (invented).\n".write(to: url, atomically: true, encoding: .utf8)
+        }
+        return url
+    }
 
     func deliverReminder() {
         let id = "sample-reminder-" + UUID().uuidString

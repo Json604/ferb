@@ -3609,3 +3609,12 @@ request = "Ask FERB to read that page and say what it shows; then read `ferb tra
 pass = "The trace shows the first load blocked, one refresh (the same tab navigated to the address again) still blocked, then the same address opened in a new tab and read. Had that failed too, the task reports the block instead of trying again."
 decisions = ["PRM-341", "HAND-441"]
 sitting = "after this change is installed"
+
+[LIVE-832]
+title = "FERB's record cards show in the notch in place of their lines"
+area = "app"
+surface = "FERB.app with this build; first the playground (ui/mac/FERBNotch/playground.sh --cards)"
+request = "In the playground, look at every card in FERB — record cards. Then in FERB.app, with a reminder set and a task done today, ask \"what reminders do I have?\", \"what did you do for <that task>?\", \"what are you running?\", \"what do you remember about me?\", \"what logins do you have saved?\" and \"which version are you?\"."
+pass = "Each answer shows its card (reminders, the task's card with status, Checked or the couldn't-confirm note, the questions answered and what it did, tasks, memory, logins with names and sites only, about) and the line the card stands for is not repeated in the text. Older chats load in full. A task that trashed, deleted, submitted or downloaded shows that card at its end."
+decisions = ["APP-802", "APP-803", "ORCH-563", "ORCH-564", "ORCH-561"]
+sitting = "after this change is installed"

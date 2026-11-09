@@ -5,6 +5,7 @@
 #   ui/mac/FERBNotch/playground.sh --reopen      build, then open it keeping the last run's state
 #   ui/mac/FERBNotch/playground.sh --build-only  build the app bundle, don't open it
 #   ui/mac/FERBNotch/playground.sh --play        open the app playground and start Play 0.27.1 at once
+#   ui/mac/FERBNotch/playground.sh --cards       open the app playground with FERB's record cards, all at once
 set -euo pipefail
 PROJECT_DIR="${0:A:h}"
 REPO="${PROJECT_DIR:h:h:h}"
@@ -23,7 +24,8 @@ for arg in "$@"; do
     --app) ARGS+=(--app) ;;
     --pause-before=*) ARGS+=("$arg") ;;
     --play) ARGS+=(--app --play); CONCEPT_NAME="FERB Arrival Concept"; CONCEPT_ID="dev.ferb.playground.arrival"; CONCEPT_HOME="ferb-arrival-concept" ;;
-    *) print -u2 "Usage: playground.sh [--arrival] [--app] [--play] [--reopen] [--build-only]"; exit 1 ;;
+    --cards) ARGS+=(--app --cards); CONCEPT_NAME="FERB Arrival Concept"; CONCEPT_ID="dev.ferb.playground.arrival"; CONCEPT_HOME="ferb-arrival-concept" ;;
+    *) print -u2 "Usage: playground.sh [--arrival] [--app] [--play] [--cards] [--reopen] [--build-only]"; exit 1 ;;
   esac
 done
 

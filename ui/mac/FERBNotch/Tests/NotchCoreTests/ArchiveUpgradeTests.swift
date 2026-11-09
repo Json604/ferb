@@ -72,7 +72,7 @@ final class ArchiveUpgradeTests: XCTestCase {
     /// Every key a build may not have saved yet (an older one) is optional: without it the entry holding it reads in
     /// full. Only the keys that make an entry what it is may be required, and without one only that entry is left out.
     /// A stored property added later without tolerant reading (as `changed` was) fails here.
-    // decision: APP-801, STORE-403
+    // decision: APP-801, APP-803, STORE-403
     func testWithoutAnyOneKeyOnlyTheEntryItIdentifiesIsLost() throws {
         var archive = try ConversationArchive.read(fixture("0.27.3")).archive
         let id = UUID()
@@ -84,8 +84,9 @@ final class ArchiveUpgradeTests: XCTestCase {
                             "watch": "news"]]],
             ["type": "event", "kind": "schedule", "id": "s-1", "what": "Stretch", "changed": true,
              "was_repeat": "every day at 8:00", "was_request": "stretch", "request": "stretch for 5 minutes"],
-        ])
+        ] + RecordCardsTests.payloads)                       // FERB's record cards (APP-802), nested rows included
         archive.finish(id: id, answer: "1 schedule", status: "done", artifacts: [])
+        XCTAssertEqual(try ConversationArchive.read(JSONEncoder().encode(archive)).archive, archive)
         let full = try object(JSONEncoder().encode(archive))
         let counts = [archive.turns.count, archive.replies.count, archive.notices.count]
 
@@ -94,6 +95,10 @@ final class ArchiveUpgradeTests: XCTestCase {
             "notices": ["id", "entryID", "createdAt", "text"], "cards": ["type"], "receiptCards": ["type"],
             "card": ["taskID"], "rows": ["taskID", "part"], "question": ["approvalID"], "runtimeSwitch": ["choices"],
             "quotes": ["text"], "proposals": ["id", "text"], "schedules": ["id", "name", "repeatRule"],
+            // FERB's record cards' rows (APP-802): a nested card is a card; each row needs only what makes it one
+            "tasks": ["type"], "records": ["type"], "reminders": ["id"], "questions": ["question", "answer"],
+            "memoryItems": ["text"], "forgotten": ["at"], "knownDestinations": ["value"], "ferbLogins": ["name"],
+            "models": ["role", "model"], "permissionRows": ["id"],
         ]
         var checked = 0
         for path in keyPaths(full) where path.count > 1 {
@@ -112,7 +117,7 @@ final class ArchiveUpgradeTests: XCTestCase {
             }
             checked += 1
         }
-        XCTAssertGreaterThan(checked, 150)   // the sweep reached the cards, rows and notices
+        XCTAssertGreaterThan(checked, 250)   // the sweep reached the cards, rows, record rows and notices
     }
 
     // decision: APP-801
