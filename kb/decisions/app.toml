@@ -3048,3 +3048,15 @@ why = "Every model change redrew all of a day's entries (every view observes the
 evidence = "Owner 2026-11-08: \"a bit lagginess in UI after so much tasks now\"; 2026-11-09: \"when i open today's hcat that is short there no lag. but when i pressed on 8nov(prev day) - it is laggggin sooooo much\""
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::ConversationTranscript", "ui/mac/FERBNotch/Sources/NotchCore/TranscriptFollow.swift::TranscriptTarget", "ui/mac/FERBNotch/Sources/FERBNotch/TaskList.swift::TaskListView", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Conversation.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ArtifactPreview.swift::SelectableNameView"]
 live = ["LIVE-826"]
+
+[APP-801]
+title = "The saved chat reads tolerantly across builds, and a copy set aside unread comes back"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "For APP-569 and STORE-403. Each archived type has its own init(from:): only identity keys are required, a missing key reads as a new value's default, a bad nested value or element (an unknown reply part too) is left out, not its entry. A bad turn, reply or notice is left out and counted; the bytes are kept as .partial-<time>. At launch each .unreadable-* copy this build can read is merged back (new ids only, by date, nothing live changed), saved, and renamed .restored-<time>, bytes unchanged. Copies are never deleted; a rerun changes nothing."
+why = "a35676cf added ResultCard.changed: Bool = false; synthesized Codable ignored the default, every older card threw keyNotFound and the whole archive was set aside unread on 11-08 (99 turns, 11-04..11-08). Read-only check: that copy reads in full; merged, 197 turns over 11-04..11-09, live kept."
+evidence = "Fixtures 0.27.0/0.27.3 made with each release's NotchCore fail at turns[0].cards[0].changed before this change; the owner's FERBConversationArchive.unreadable-2026-11-08T02:42:50Z reads 99 turns, 10 replies, 27 notices, nothing left out."
+rejected = ["Make `changed` optional only: the next defaulted property breaks every archive again", "Rebuild history from the daemon's journal: no chat-history RPC, and it holds the owner's side only"]
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/ArchiveStore.swift", "ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationArchive.restore", "ui/mac/FERBNotch/Sources/NotchCore/ResultCard.swift", "ui/mac/FERBNotch/Sources/NotchCore/TurnCard.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.init", "ui/mac/FERBNotch/Tests/NotchCoreTests/Fixtures"]
+live = ["LIVE-828"]

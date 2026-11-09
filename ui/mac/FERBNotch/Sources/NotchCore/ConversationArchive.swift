@@ -153,6 +153,91 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
 }
 
 extension ConversationTurn {
+    /// Read tolerantly (APP-801): only `id` and `createdAt` are required. Any other key may be missing (saved before it
+    /// existed) and starts as a new turn's does; a card or list element that can't be read is left out, not the turn.
+    /// A stored property added here is read here too, never left to synthesized decoding.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        request = try c.value(.request, or: "")
+        sources = try c.value(.sources, or: [])
+        backendTaskID = try c.decodeIfPresent(String.self, forKey: .backendTaskID)
+        answer = try c.value(.answer, or: "")
+        displayText = try c.decodeIfPresent(String.self, forKey: .displayText)
+        status = try c.value(.status, or: "working")
+        artifacts = try c.value(.artifacts, or: [])
+        responseNotice = try c.decodeIfPresent(String.self, forKey: .responseNotice)
+        requestID = try c.decodeIfPresent(String.self, forKey: .requestID)
+        ack = try c.decodeIfPresent(String.self, forKey: .ack)
+        plan = try c.decodeIfPresent(String.self, forKey: .plan)
+        parts = try c.decodeIfPresent([String].self, forKey: .parts)
+        verified = try c.decodeIfPresent(Bool.self, forKey: .verified)
+        question = try c.decodeIfPresent(String.self, forKey: .question)
+        statusInferred = try c.decodeIfPresent(Bool.self, forKey: .statusInferred)
+        taskGoal = try c.decodeIfPresent(String.self, forKey: .taskGoal)
+        taskName = try c.decodeIfPresent(String.self, forKey: .taskName)
+        planLine = try c.decodeIfPresent(String.self, forKey: .planLine)
+        planLines = try c.decodeIfPresent([String].self, forKey: .planLines)
+        direct = try c.decodeIfPresent([String].self, forKey: .direct)
+        receipts = try c.decodeIfPresent([String].self, forKey: .receipts)
+        card = try c.lossy(TurnCard.self, .card)
+        note = try c.decodeIfPresent(String.self, forKey: .note)
+        codeLines = try c.decodeIfPresent([String].self, forKey: .codeLines)
+        runtimeSwitch = try c.lossy(RuntimeSwitch.self, .runtimeSwitch)
+        cards = try c.lossyList(ResultCard.self, .cards)
+        receiptCards = try c.lossyList(ResultCard.self, .receiptCards)
+        mergedInto = try c.decodeIfPresent(String.self, forKey: .mergedInto)
+        hiddenKinds = try c.decodeIfPresent([String].self, forKey: .hiddenKinds)
+    }
+}
+
+extension ConversationReply {
+    private enum CodingKeys: String, CodingKey { case id, turnID, createdAt, afterTurnID, part }
+
+    /// Read tolerantly (APP-801): a part this build doesn't know (a newer build's) reads as none, which shows the answer.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        turnID = try c.decode(UUID.self, forKey: .turnID)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        afterTurnID = try c.decode(UUID.self, forKey: .afterTurnID)
+        part = try c.lossy(ReplyPart.self, .part)
+    }
+}
+
+extension NoticeQuote {
+    private enum CodingKeys: String, CodingKey { case text, origin }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        text = try c.decode(String.self, forKey: .text)
+        origin = try c.value(.origin, or: "")
+    }
+}
+
+extension ConversationNotice {
+    private enum CodingKeys: String, CodingKey {
+        case id, entryID, createdAt, noticedAt, text, quotes, tag, afterTurnID, proposals, cards
+    }
+
+    /// Read tolerantly (APP-801): a quote, proposal or card that can't be read is left out, not the notice.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        entryID = try c.decode(UUID.self, forKey: .entryID)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        noticedAt = try c.decodeIfPresent(Date.self, forKey: .noticedAt)
+        text = try c.decode(String.self, forKey: .text)
+        quotes = try c.lossyList(NoticeQuote.self, .quotes) ?? []
+        tag = try c.decodeIfPresent(String.self, forKey: .tag)
+        afterTurnID = try c.decodeIfPresent(UUID.self, forKey: .afterTurnID)
+        proposals = try c.lossyList(LearningProposal.self, .proposals)
+        cards = try c.lossyList(ResultCard.self, .cards)
+    }
+}
+
+extension ConversationTurn {
     /// The daemon's name for one of the owner's own saved secrets (`Redactor.kinds`).
     static let savedSecret = "saved secret"
 
@@ -319,12 +404,51 @@ public struct ConversationArchive: Codable, Equatable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        turns = try container.decode([ConversationTurn].self, forKey: .turns)
+        // Entry by entry (APP-801): one that can't be read is left out and counted, never the whole history.
+        turns = try container.decode([Lossy<ConversationTurn>].self, forKey: .turns).compactMap(\.value)
         // A message saved with the paste markers 0.27.1's ack echoed back reads as the owner wrote it (APP-712)
         for index in turns.indices { turns[index].request = PasteMarkers.removed(from: turns[index].request) }
         // Archives saved before late replies and notices existed have none.
-        replies = try container.decodeIfPresent([ConversationReply].self, forKey: .replies) ?? []
-        notices = try container.decodeIfPresent([ConversationNotice].self, forKey: .notices) ?? []
+        replies = try container.lossyList(ConversationReply.self, .replies) ?? []
+        notices = try container.lossyList(ConversationNotice.self, .notices) ?? []
+    }
+
+    /// Adds back the entries of an archive kept aside earlier (APP-801, `ArchiveStore.recover`): each turn, reply and
+    /// notice this chat doesn't have, placed among the others by when it was made. A turn for a request another turn
+    /// here already shows is left out (a request belongs to one turn), and so are its replies. Nothing already here
+    /// changes. Returns how many entries were added.
+    @discardableResult
+    public mutating func restore(_ older: ConversationArchive) -> Int {
+        let turnIDs = Set(turns.map(\.id))
+        let requests = Set(turns.compactMap(\.requestID))
+        let addedTurns = older.turns.filter { turn in
+            !turnIDs.contains(turn.id) && !(turn.requestID.map(requests.contains) ?? false)
+        }
+        turns = Self.merged(turns, addedTurns, by: \.createdAt)
+        let shownTurns = Set(turns.map(\.id))
+        let replyIDs = Set(replies.map(\.id))
+        let addedReplies = older.replies.filter { !replyIDs.contains($0.id) && shownTurns.contains($0.turnID) }
+        replies = Self.merged(replies, addedReplies, by: \.createdAt)
+        let noticeIDs = Set(notices.map(\.id))
+        let entryIDs = Set(notices.map(\.entryID))
+        let addedNotices = older.notices.filter { !noticeIDs.contains($0.id) && !entryIDs.contains($0.entryID) }
+        notices = Self.merged(notices, addedNotices, by: \.createdAt)
+        return addedTurns.count + addedReplies.count + addedNotices.count
+    }
+
+    /// `added` placed among `kept`, both in their own order: each added entry goes before the first kept one made
+    /// after it.
+    private static func merged<Entry>(_ kept: [Entry], _ added: [Entry], by date: (Entry) -> Date) -> [Entry] {
+        guard !added.isEmpty else { return kept }
+        let added = added.enumerated().sorted { (date($0.element), $0.offset) < (date($1.element), $1.offset) }
+            .map(\.element)
+        var out: [Entry] = []
+        var k = 0
+        for entry in added {
+            while k < kept.count && date(kept[k]) <= date(entry) { out.append(kept[k]); k += 1 }
+            out.append(entry)
+        }
+        return out + kept[k...]
     }
 
     public func turns(on date: Date, calendar: Calendar = .current) -> [ConversationTurn] {

@@ -3573,4 +3573,12 @@ surface = "FERB.app with this build on the owner's Anthropic API key (claude-son
 request = "Ask about something an earlier task found (\"why did you pick X?\" after a shopping task), about a detail of an earlier long answer, and a request that used to go empty (\"how much did I spend on food in October?\"); watch the reply appear; then read `ferb trace` of each turn."
 pass = "Each question about earlier work is answered from FERB's records (a task.evidence or chat.history lookup in the turn), not by starting a new task. No turn ends without an answer or runs on calling made-up tools. The reply's words appear while it is written, not only at the end. The model.usage span of the answering call shows answer_via tool (or text), typed stated."
 decisions = ["RUN-447", "RUN-448", "PRM-336"]
+
+[LIVE-828]
+title = "History shows Nov 4-7 again after installing"
+area = "app"
+surface = "FERB.app with this build installed over 202611080728, the owner's own chat"
+request = "Install the build and open FERB once. Open the chat's History (date tabs) and look at Nov 4, 5, 6 and 7, then today; quit and open FERB again and look once more. Optionally: log show --last 10m --predicate 'subsystem == \"com.ferb.FERB\" AND category == \"history\"'."
+pass = "Nov 4, 5, 6 and 7 (and the morning of Nov 8) show their messages and FERB's answers again, in order, with their cards; Nov 8 and 9 still show everything they showed before. The log says it restored entries from FERBConversationArchive.unreadable-2026-11-08T02:42:50Z. After the second launch nothing is duplicated and nothing more is restored."
+decisions = ["APP-801", "APP-569", "STORE-403"]
 sitting = "after this change is installed"

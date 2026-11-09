@@ -17,6 +17,15 @@ public struct RowQuestion: Codable, Equatable {
         text = value["text"] as? String ?? ""
         options = value["options"] as? [String] ?? []
     }
+
+    private enum CodingKeys: String, CodingKey { case approvalID, text, options }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        approvalID = try c.decode(String.self, forKey: .approvalID)
+        text = try c.value(.text, or: "")
+        options = try c.value(.options, or: [])
+    }
 }
 
 /// One part of the owner's request in the card. Each `part` event is the row's whole state now (the daemon sends the
@@ -67,6 +76,31 @@ public struct CardRow: Codable, Equatable, Identifiable {
         cardRequestID = value["card_request_id"] as? String
         seq = value["seq"] as? String
         take(value)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case taskID, part, label, state, text, note, why, chosen, verified, direct, step, stepTaskID, seq, question
+        case cardRequestID
+    }
+
+    /// Read tolerantly (APP-801): only its task and part are required; a question that can't be read is left out.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        taskID = try c.decode(String.self, forKey: .taskID)
+        part = try c.decode(String.self, forKey: .part)
+        label = try c.value(.label, or: "")
+        state = try c.value(.state, or: "working")
+        text = try c.decodeIfPresent(String.self, forKey: .text)
+        note = try c.decodeIfPresent(String.self, forKey: .note)
+        why = try c.decodeIfPresent(String.self, forKey: .why)
+        chosen = try c.decodeIfPresent(String.self, forKey: .chosen)
+        verified = try c.decodeIfPresent(Bool.self, forKey: .verified)
+        direct = try c.value(.direct, or: false)
+        step = try c.decodeIfPresent(String.self, forKey: .step)
+        stepTaskID = try c.decodeIfPresent(String.self, forKey: .stepTaskID)
+        seq = try c.decodeIfPresent(String.self, forKey: .seq)
+        question = try c.lossy(RowQuestion.self, .question)
+        cardRequestID = try c.decodeIfPresent(String.self, forKey: .cardRequestID)
     }
 
     /// The row's changeable fields from an event or a snapshot row: absent ones are cleared (each is the whole state).
@@ -146,6 +180,19 @@ public struct TurnCard: Codable, Equatable {
         for (key, value) in payload["steps"] as? [String: Any] ?? [:] {
             if let state = StepState(value) { steps[key] = state }
         }
+    }
+
+    /// Read tolerantly (APP-801): only its task is required; a row that can't be read is left out, not the card.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        taskID = try c.decode(String.self, forKey: .taskID)
+        requestID = try c.value(.requestID, or: "")
+        rows = try c.lossyList(CardRow.self, .rows) ?? []
+        done = try c.value(.done, or: 0)
+        total = try c.value(.total, or: rows.count)
+        line = try c.decodeIfPresent(String.self, forKey: .line)
+        lines = try c.value(.lines, or: [])
+        headline = try c.decodeIfPresent(String.self, forKey: .headline)
     }
 
     /// Applies a `step` event (ORCH-531) when it is newer than the step's state shown. Returns whether it applied.
@@ -234,6 +281,17 @@ public struct RuntimeSwitch: Codable, Equatable {
         problem = value["problem"] as? String ?? ""
         role = value["role"] as? String ?? "worker"
         self.choices = choices
+    }
+
+    private enum CodingKeys: String, CodingKey { case runtime, problem, role, choices }
+
+    /// Read tolerantly (APP-801): an offer needs its choices; the rest reads as a new offer's.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        runtime = try c.value(.runtime, or: "")
+        problem = try c.value(.problem, or: "")
+        role = try c.value(.role, or: "worker")
+        choices = try c.decode([String].self, forKey: .choices)
     }
 
     /// The runtime's name as FERB says it (ferb/runtimes/catalog.py LABELS).

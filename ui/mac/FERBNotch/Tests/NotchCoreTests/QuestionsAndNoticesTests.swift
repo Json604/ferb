@@ -230,7 +230,8 @@ final class QuestionsAndNoticesTests: XCTestCase {
         let suite = Self.scratchSuiteName()
         suites.append(suite)
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        let unreadable = Data("{\"turns\": [{\"id\": \"not-a-uuid\", \"request\": \"Older history\"}]}".utf8)
+        // Not an archive at all (an archive with an unreadable entry keeps the rest: ArchiveUpgradeTests, APP-801)
+        let unreadable = Data("{\"turns\": {\"id\": \"not-a-uuid\", \"request\": \"Older history\"}}".utf8)
         defaults.set(unreadable, forKey: "FERBConversationArchive")
 
         let model = NotchModel(preferences: defaults)

@@ -65,6 +65,35 @@ public struct ResultCard: Codable, Equatable {
     public static let types: Set<String> = ["reminder", "event", "note", "payment", "send", "link", "file", "page",
                                             "schedules"]
 
+    private enum CodingKeys: String, CodingKey {
+        case type, line, title, due, repeatRule, nextRun, scheduleID, until, kind, id, what, when, watch, started
+        case timerID, repeatOf, itemID, text, state, amount, merchant, site, savedCard, recipient, app, account, host
+        case path, name, page, importedFrom, changed, wasRepeat, wasRequest, request, count, schedules
+    }
+
+    /// Read tolerantly (APP-801): only `type` is required; a key saved before it existed reads as a new card's value
+    /// (2026-11-08: `changed` without it failed every older card, and so the whole chat), and a schedule row that
+    /// can't be read is left out. A stored property added here gets a key above and a line here.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func words(_ key: CodingKeys) throws -> String? { try c.decodeIfPresent(String.self, forKey: key) }
+        type = try c.decode(String.self, forKey: .type)
+        line = try words(.line)
+        title = try words(.title); due = try words(.due); repeatRule = try words(.repeatRule)
+        nextRun = try words(.nextRun); scheduleID = try words(.scheduleID); until = try words(.until)
+        kind = try words(.kind); id = try words(.id); what = try words(.what); when = try words(.when)
+        watch = try words(.watch); started = try words(.started); timerID = try words(.timerID)
+        repeatOf = try words(.repeatOf); itemID = try words(.itemID); text = try words(.text); state = try words(.state)
+        amount = try words(.amount); merchant = try words(.merchant); site = try words(.site)
+        savedCard = try words(.savedCard); recipient = try words(.recipient); app = try words(.app)
+        account = try words(.account); host = try words(.host); path = try words(.path); name = try words(.name)
+        page = try words(.page); importedFrom = try words(.importedFrom)
+        changed = try c.value(.changed, or: false)
+        wasRepeat = try words(.wasRepeat); wasRequest = try words(.wasRequest); request = try words(.request)
+        count = try c.decodeIfPresent(Int.self, forKey: .count)
+        schedules = try c.lossyList(ScheduleListRow.self, .schedules)
+    }
+
     public init?(_ value: Any?) {
         guard let value = value as? [String: Any], let type = value["type"] as? String, Self.types.contains(type) else {
             return nil
@@ -176,6 +205,20 @@ public struct ScheduleListRow: Codable, Equatable {
     }
 
     public var nextRunDate: Date? { LiveProgress.time(nextRun) }
+
+    private enum CodingKeys: String, CodingKey { case id, name, repeatRule, state, nextRun, until, watch }
+
+    /// Read tolerantly (APP-801): its id, name and timing words are required; a missing state reads as active.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        repeatRule = try c.decode(String.self, forKey: .repeatRule)
+        state = try c.value(.state, or: "active")
+        nextRun = try c.decodeIfPresent(String.self, forKey: .nextRun)
+        until = try c.decodeIfPresent(String.self, forKey: .until)
+        watch = try c.decodeIfPresent(String.self, forKey: .watch)
+    }
 }
 
 /// How the notch places a turn's cards, and the text left when the lines they stand for are left out.

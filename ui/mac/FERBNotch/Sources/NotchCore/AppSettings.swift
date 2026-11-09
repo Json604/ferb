@@ -139,7 +139,7 @@ public enum AppSettings {
         "FERBActiveTaskID": "the task the notch shows now (state, not a choice)",
         "FERBAnnouncedAttentionIDs": "notices already announced (bookkeeping)",
         "FERBAskedNotifications": "whether macOS was asked for notifications (bookkeeping)",
-        "FERBConversationArchive": "the saved chat itself (data, not a choice)",
+        "FERBConversationArchive": "the saved chat and its copies kept aside (APP-801; data, not a choice)",
         "FERBConversationID": "the daemon conversation this chat continues (state)",
         "FERBIntroBeat": "where the intro tour was left (state)",
         "FERBIntroDone": "whether the intro tour finished (state)",

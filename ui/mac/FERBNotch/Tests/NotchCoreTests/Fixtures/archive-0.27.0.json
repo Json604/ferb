@@ -1,0 +1,309 @@
+{
+  "notices" : [
+    {
+      "afterTurnID" : "139B0922-6568-4381-BCF6-080D19E55F96",
+      "createdAt" : 814695260,
+      "entryID" : "5C4B6598-B521-4887-9BD2-234B35DA2924",
+      "id" : "notice-1",
+      "noticedAt" : 814695260,
+      "quotes" : [
+        {
+          "origin" : "Mail",
+          "text" : "Lunch?"
+        }
+      ],
+      "tag" : "noticed",
+      "text" : "A new message arrived."
+    },
+    {
+      "afterTurnID" : "139B0922-6568-4381-BCF6-080D19E55F96",
+      "cards" : [
+        {
+          "importedFrom" : "notes",
+          "page" : "memory",
+          "type" : "page"
+        }
+      ],
+      "createdAt" : 814695320,
+      "entryID" : "270E3758-FC36-4048-9A87-DA2960C87FFA",
+      "id" : "notice-2",
+      "proposals" : [
+        {
+          "decision" : "confirmed",
+          "id" : "lp-1",
+          "text" : "You start work at 9"
+        },
+        {
+          "id" : "lp-2",
+          "kind" : "guess",
+          "text" : "You prefer email"
+        }
+      ],
+      "quotes" : [
+
+      ],
+      "text" : "Is this right?"
+    }
+  ],
+  "replies" : [
+    {
+      "afterTurnID" : "00000000-0000-4000-8000-000000000004",
+      "createdAt" : 814694600,
+      "id" : "CE841B5A-53F8-48D3-B99F-AE37B9F01A47",
+      "part" : "answer",
+      "turnID" : "00000000-0000-4000-8000-000000000003"
+    }
+  ],
+  "turns" : [
+    {
+      "ack" : "On it.",
+      "answer" : "Timer set for 10 minutes\nNoted.",
+      "artifacts" : [
+        "file:\/\/\/tmp\/fixture\/notes.txt"
+      ],
+      "backendTaskID" : "task-1",
+      "cards" : [
+        {
+          "id" : "timer-1",
+          "kind" : "timer",
+          "line" : "Timer set for 10 minutes",
+          "type" : "event",
+          "what" : "10 minute timer",
+          "when" : "2026-10-26T08:43:20+00:00"
+        },
+        {
+          "host" : "www.example.com",
+          "line" : "https:\/\/www.example.com\/oat",
+          "type" : "link"
+        },
+        {
+          "name" : "notes.txt",
+          "path" : "\/tmp\/fixture\/notes.txt",
+          "type" : "file"
+        },
+        {
+          "amount" : "$4.00",
+          "merchant" : "Example Cafe",
+          "savedCard" : "Everyday card",
+          "site" : "example.com",
+          "type" : "payment"
+        },
+        {
+          "account" : "ferb@example.com",
+          "app" : "Mail",
+          "kind" : "send",
+          "recipient" : "Sam Example",
+          "type" : "send"
+        },
+        {
+          "due" : "2026-10-26T09:00:00+00:00",
+          "kind" : "schedule",
+          "nextRun" : "2026-10-27T09:00:00+00:00",
+          "repeatRule" : "every day",
+          "scheduleID" : "sched-1",
+          "title" : "Stretch",
+          "type" : "reminder",
+          "until" : "2026-11-01T00:00:00+00:00"
+        }
+      ],
+      "codeLines" : [
+        "Timer set for 10 minutes"
+      ],
+      "createdAt" : 814692800,
+      "direct" : [
+        "Noted."
+      ],
+      "displayText" : "Done.",
+      "id" : "00000000-0000-4000-8000-000000000001",
+      "note" : "the timer's sound",
+      "plan" : "Setting the timer and noting that.",
+      "planLine" : "Setting the timer and noting that.",
+      "planLines" : [
+        "Working in Clock"
+      ],
+      "receiptCards" : [
+        {
+          "itemID" : "mem-1",
+          "line" : "Remembered: you like oat milk",
+          "state" : "corrected",
+          "text" : "You like oat milk in coffee",
+          "type" : "note"
+        }
+      ],
+      "receipts" : [
+        "Remembered: you like oat milk"
+      ],
+      "request" : "Set a 10 minute timer and remember I like oat milk",
+      "requestID" : "req-1",
+      "sources" : [
+
+      ],
+      "status" : "done",
+      "verified" : true
+    },
+    {
+      "ack" : "Looking.",
+      "answer" : "1 of 2 done",
+      "artifacts" : [
+
+      ],
+      "backendTaskID" : "task-2",
+      "card" : {
+        "done" : 1,
+        "headline" : "Stopped at the email",
+        "line" : "1 of 2 done",
+        "lines" : [
+          "Sites contacted: example.com"
+        ],
+        "requestID" : "req-2",
+        "rows" : [
+          {
+            "direct" : false,
+            "label" : "Compare laptops",
+            "note" : "prices change",
+            "part" : "p1",
+            "seq" : "2026-10-26T08:44:00.000001Z",
+            "state" : "done",
+            "step" : "s1",
+            "stepTaskID" : "task-2.s1",
+            "taskID" : "task-2",
+            "text" : "The first is lighter.",
+            "verified" : true
+          },
+          {
+            "chosen" : "No",
+            "direct" : false,
+            "label" : "Email the summary",
+            "part" : "p2",
+            "seq" : "2026-10-26T08:45:00.000001Z",
+            "state" : "failed",
+            "taskID" : "task-2",
+            "text" : "Couldn't do: the send was declined.",
+            "why" : "owner said no"
+          }
+        ],
+        "taskID" : "task-2",
+        "total" : 2
+      },
+      "createdAt" : 814693400,
+      "hiddenKinds" : [
+        "saved secret"
+      ],
+      "id" : "00000000-0000-4000-8000-000000000002",
+      "plan" : "Comparing, then emailing.",
+      "planLine" : "Comparing, then emailing.",
+      "planLines" : [
+
+      ],
+      "request" : "Compare two laptops and email me the summary",
+      "requestID" : "req-2",
+      "sources" : [
+
+      ],
+      "status" : "done",
+      "verified" : false
+    },
+    {
+      "ack" : "Checking.",
+      "answer" : "Booked for Friday.",
+      "artifacts" : [
+
+      ],
+      "backendTaskID" : "task-3",
+      "createdAt" : 814694000,
+      "id" : "00000000-0000-4000-8000-000000000003",
+      "question" : "Which evening?",
+      "request" : "Book the usual table",
+      "requestID" : "req-3",
+      "sources" : [
+        "file:\/\/\/tmp\/fixture\/menu.pdf"
+      ],
+      "status" : "done",
+      "verified" : true
+    },
+    {
+      "answer" : "4",
+      "artifacts" : [
+
+      ],
+      "createdAt" : 814694120,
+      "id" : "00000000-0000-4000-8000-000000000004",
+      "request" : "What's 2 + 2?",
+      "requestID" : "req-4",
+      "sources" : [
+
+      ],
+      "status" : "done",
+      "verified" : false
+    },
+    {
+      "answer" : "",
+      "artifacts" : [
+
+      ],
+      "createdAt" : 814694660,
+      "id" : "00000000-0000-4000-8000-000000000005",
+      "mergedInto" : "req-3",
+      "request" : "and for four people",
+      "requestID" : "req-5",
+      "sources" : [
+
+      ],
+      "status" : "merged"
+    },
+    {
+      "answer" : "Codex hit its usage limit.",
+      "artifacts" : [
+
+      ],
+      "createdAt" : 814694720,
+      "id" : "00000000-0000-4000-8000-000000000006",
+      "request" : "Summarise my inbox",
+      "requestID" : "req-6",
+      "runtimeSwitch" : {
+        "choices" : [
+          "claude"
+        ],
+        "problem" : "usage limit",
+        "role" : "planner",
+        "runtime" : "codex"
+      },
+      "sources" : [
+
+      ],
+      "status" : "failed",
+      "verified" : false
+    },
+    {
+      "answer" : "",
+      "artifacts" : [
+
+      ],
+      "createdAt" : 814694840,
+      "id" : "00000000-0000-4000-8000-000000000007",
+      "request" : "Draft a note",
+      "responseNotice" : "FERB closed before this draft was confirmed.",
+      "sources" : [
+
+      ],
+      "status" : "interrupted",
+      "statusInferred" : true
+    },
+    {
+      "answer" : "Reminded you.",
+      "artifacts" : [
+
+      ],
+      "backendTaskID" : "task-8",
+      "createdAt" : 814695200,
+      "id" : "139B0922-6568-4381-BCF6-080D19E55F96",
+      "request" : "",
+      "sources" : [
+
+      ],
+      "status" : "done",
+      "taskGoal" : "Water the plants reminder",
+      "verified" : false
+    }
+  ]
+}

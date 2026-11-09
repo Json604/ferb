@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import NotchCore
+import os
 
 /// A running loop's latest `loop.status` (L31): what it keeps, its state (acting, watching, backing_off, paused), how
 /// many rounds fixed something and when the last one ended.
@@ -35,6 +36,8 @@ struct QuestionFocus: Equatable {
 
 @MainActor
 final class NotchModel: ObservableObject {
+    /// How the saved chat was read back at launch (APP-801): counts and keys, never chat text.
+    nonisolated static let historyLog = Logger(subsystem: "com.ferb.FERB", category: "history")
     // The task list's inputs (TaskList.swift): each change drops the list built from them, so it is built again once.
     @Published var session = NotchSession() {
         didSet {
@@ -273,22 +276,19 @@ final class NotchModel: ObservableObject {
         feedback = SoundFeedback(defaults: preferences)
         preferredPanelWidth = max(360, CGFloat((preferences.object(forKey: "notch.panelWidth") as? NSNumber)?.doubleValue ?? 440))
         preferredTranscriptHeight = max(260, CGFloat((preferences.object(forKey: "notch.transcriptHeight") as? NSNumber)?.doubleValue ?? 300))
-        if let data = preferences.data(forKey: "FERBConversationArchive") {
-            if let saved = try? JSONDecoder().decode(ConversationArchive.self, from: data) {
-                conversation = saved
-                conversation.interruptRestoredDrafts()
-                if conversation != saved, let repaired = try? JSONEncoder().encode(conversation.forStorage()) {
-                    preferences.set(repaired, forKey: "FERBConversationArchive")
-                }
-            } else {
-                // History this build can't read is never saved over: it is kept aside, unchanged, and a new
-                // conversation archive starts.
-                let aside = "FERBConversationArchive.unreadable-" + ISO8601DateFormatter().string(from: Date())
-                preferences.set(data, forKey: aside)
-                if preferences.data(forKey: aside) == data { preferences.removeObject(forKey: "FERBConversationArchive") }
-                else { archiveBlocked = true }
+        // History this build can't read is never saved over: what it can't read is kept aside, unchanged (APP-801).
+        let loaded = ArchiveStore.load(preferences)
+        archiveBlocked = loaded.blocked
+        if let saved = loaded.archive {
+            conversation = saved
+            conversation.interruptRestoredDrafts()
+            if conversation != saved, !archiveBlocked, let repaired = try? JSONEncoder().encode(conversation.forStorage()) {
+                preferences.set(repaired, forKey: ArchiveStore.archiveKey)
             }
         }
+        // A copy an earlier build set aside unread comes back once this build can read it (APP-801).
+        let recovery = archiveBlocked ? [] : ArchiveStore.recover(into: &conversation, preferences)
+        for line in loaded.log + recovery { Self.historyLog.notice("\(line, privacy: .public)") }
         conversationID = preferences.string(forKey: "FERBConversationID")
         guideObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
                                                                object: preferences, queue: .main) { [weak self] _ in

@@ -24,6 +24,8 @@ let package = Package(
         .plugin(name: "SettingsKeysPlugin", capability: .buildTool(), dependencies: ["SettingsKeyScan"],
                 path: "Plugins/SettingsKeysPlugin"),
         .testTarget(name: "NotchCoreTests", dependencies: ["NotchCore", "FERBNotch", "AudioCapture"],
+                    // Archives as released builds saved them (APP-801, STORE-403), read from the test bundle
+                    resources: [.copy("Fixtures")],
                     swiftSettings: [.define("FERB_PLAYGROUND", .when(configuration: .debug))],
                     plugins: ["SettingsKeysPlugin"])
     ],
