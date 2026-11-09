@@ -3,20 +3,21 @@ import XCTest
 @testable import FERBNotch
 @testable import NotchCore
 
-/// Owner, 2026-11-05: "Custom keyboard shortcuts to open ferb", approved with D24: any key combination with ⌘ or ⌃,
-/// no default; double-tap right Option stays and can be switched off; no other double-tap keys for now.
+/// Owner, 2026-11-05: "Custom keyboard shortcuts to open ferb", approved with D24, and 2026-11-09: "any new custom
+/// shortcut should include cmd or control or option" (APP-818): any key combination with ⌘, ⌃ or ⌥, no default; double-tap right Option stays and can be switched off; no other double-tap keys for now.
 @MainActor
 final class KeyboardShortcutTests: XCTestCase {
     private let F: UInt32 = 3
     private var controlOption: UInt32 { KeyCombo.control | KeyCombo.option }
 
-    // decision: APP-740, APP-741
-    func testACombinationNeedsCommandOrControlAndIsNeverOneOfFERBsOwnKeys() {
+    // decision: APP-818, APP-819
+    func testACombinationNeedsCommandControlOrOptionAndIsNeverOneOfFERBsOwnKeys() {
         XCTAssertNil(KeyCombo(keyCode: F, modifiers: controlOption).problem)
         XCTAssertNil(KeyCombo(keyCode: 49, modifiers: KeyCombo.command).problem)          // ⌘Space: allowed, warned
-        XCTAssertEqual(KeyCombo(keyCode: F, modifiers: KeyCombo.option).problem, .needsCommandOrControl)
-        XCTAssertEqual(KeyCombo(keyCode: F, modifiers: KeyCombo.option | KeyCombo.shift).problem, .needsCommandOrControl)
-        XCTAssertEqual(KeyCombo(keyCode: F, modifiers: 0).problem, .needsCommandOrControl)
+        XCTAssertNil(KeyCombo(keyCode: F, modifiers: KeyCombo.option).problem)                // ⌥F (APP-818)
+        XCTAssertNil(KeyCombo(keyCode: F, modifiers: KeyCombo.option | KeyCombo.shift).problem)
+        XCTAssertEqual(KeyCombo(keyCode: F, modifiers: KeyCombo.shift).problem, .needsModifier)
+        XCTAssertEqual(KeyCombo(keyCode: F, modifiers: 0).problem, .needsModifier)
         XCTAssertEqual(KeyCombo(keyCode: 58, modifiers: KeyCombo.command).problem, .modifierOnly)
         for code: UInt32 in [43, 13, 12, 46, 15, 8, 7, 0, 9, 6] {                    // ⌘, W Q M R C X A V Z
             if case .ferbOwn = KeyCombo(keyCode: code, modifiers: KeyCombo.command).problem {} else {
@@ -28,18 +29,20 @@ final class KeyboardShortcutTests: XCTestCase {
         XCTAssertNil(KeyCombo(keyCode: 13, modifiers: KeyCombo.command | KeyCombo.option).problem)   // ⌥⌘W is not ⌘W
     }
 
-    // decision: APP-740, APP-741
+    // decision: APP-818, APP-819
     func testRecordingKeys() {
         XCTAssertEqual(KeyCombo.recorded(keyCode: 53, cocoaModifiers: 0), .cancel)
         XCTAssertEqual(KeyCombo.recorded(keyCode: 51, cocoaModifiers: 0), .clear)
         XCTAssertEqual(KeyCombo.recorded(keyCode: 3, cocoaModifiers: NSEvent.ModifierFlags.option.rawValue),
-                       .invalid(.needsCommandOrControl))
+                       .record(KeyCombo(keyCode: F, modifiers: KeyCombo.option)))
+        XCTAssertEqual(KeyCombo.recorded(keyCode: 3, cocoaModifiers: NSEvent.ModifierFlags.shift.rawValue),
+                       .invalid(.needsModifier))
         let flags = NSEvent.ModifierFlags([.control, .option, .function]).rawValue      // fn never counts
         XCTAssertEqual(KeyCombo.recorded(keyCode: 3, cocoaModifiers: flags),
                        .record(KeyCombo(keyCode: F, modifiers: controlOption)))
     }
 
-    // decision: APP-740, APP-741
+    // decision: APP-818, APP-819
     func testTheShortcutIsSavedUnderOneKeyAndShownInTheCurrentLayout() {
         let defaults = scratchDefaults()
         XCTAssertNil(KeyCombo.saved(in: defaults), "no shortcut by default")
@@ -57,7 +60,7 @@ final class KeyboardShortcutTests: XCTestCase {
         XCTAssertNil(defaults.object(forKey: AppSettings.openShortcut.key))
     }
 
-    // decision: APP-740, APP-741
+    // decision: APP-818, APP-819
     func testMacOSShortcutsWarnFromTheSymbolicHotKeysFile() {
         let spotlight = KeyCombo(keyCode: 49, modifiers: KeyCombo.command)
         let inputSource = KeyCombo(keyCode: 49, modifiers: KeyCombo.control)
@@ -82,7 +85,7 @@ final class KeyboardShortcutTests: XCTestCase {
         XCTAssertNil(KeyCombo.warning(mine, conflicts: []))
     }
 
-    // decision: APP-741
+    // decision: APP-819
     func testTheCenterRegistersChangesUnregistersWhileRecordingAndShowsAFailure() {
         let defaults = scratchDefaults()
         let registrar = FakeHotKeys()
@@ -124,7 +127,7 @@ final class KeyboardShortcutTests: XCTestCase {
         XCTAssertNil(registrar.registered)
     }
 
-    // decision: APP-741, APP-709
+    // decision: APP-819, APP-709
     func testTheHotKeyTakesTheDoubleTapPathIncludingFromAYield() throws {
         _ = NSApplication.shared
         guard NSScreen.screens.first != nil else { throw XCTSkip("Needs a display") }
@@ -152,7 +155,7 @@ final class KeyboardShortcutTests: XCTestCase {
         XCTAssertFalse(model.expanded, "the shortcut didn't close FERB")
     }
 
-    // decision: APP-740, APP-552
+    // decision: APP-818, APP-552
     func testWithDoubleTapOffTheMonitorIgnoresItAndHoldToTalkStillWorks() {
         var state = NotchShortcutState()
         state.doubleTapEnabled = false
@@ -166,7 +169,7 @@ final class KeyboardShortcutTests: XCTestCase {
         XCTAssertFalse(state.doubleTapEnabled, "a reset (sleep, session switch) keeps the owner's choice")
     }
 
-    // decision: APP-740, APP-728
+    // decision: APP-818, APP-728
     func testTheGuideCarriesTheShortcutAndWhetherDoubleTapIsOn() {
         let defaults = scratchDefaults()
         XCTAssertEqual(AppGuide.keys(AppGuide.openAction, defaults), "Double-tap right Option")

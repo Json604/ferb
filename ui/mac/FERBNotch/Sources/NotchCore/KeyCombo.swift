@@ -1,6 +1,6 @@
 import Foundation
 
-/// The owner's keyboard shortcut to open FERB (owner, 2026-11-05, D24: any key combination with ⌘ or ⌃, no default):
+/// The owner's keyboard shortcut to open FERB (APP-818: any key combination with ⌘, ⌃ or ⌥, no default):
 /// a virtual key code and Carbon modifiers, as `RegisterEventHotKey` takes them. Saved under one defaults key.
 public struct KeyCombo: Equatable, Hashable {
     public let keyCode: UInt32
@@ -31,8 +31,8 @@ public struct KeyCombo: Equatable, Hashable {
     // MARK: Validation
 
     public enum Problem: Equatable {
-        /// D24: the combination must hold ⌘ or ⌃ (Option-only and plain keys would type characters everywhere).
-        case needsCommandOrControl
+        /// APP-818: the combination must hold ⌘, ⌃ or ⌥ (a plain or Shift-only key would take a letter from typing).
+        case needsModifier
         /// One of FERB's own keys (named): the notch's and window's ⌘, ⌘W ⌘Q ⌘M ⌘R, editing ⌘C ⌘X ⌘A ⌘V ⌘Z ⇧⌘Z
         /// (APP-717), and Return / Escape, which submit and close.
         case ferbOwn(String)
@@ -50,7 +50,7 @@ public struct KeyCombo: Equatable, Hashable {
 
     public var problem: Problem? {
         if Self.modifierKeys.contains(keyCode) { return .modifierOnly }
-        if modifiers & (Self.command | Self.control) == 0 { return .needsCommandOrControl }
+        if modifiers & (Self.command | Self.control | Self.option) == 0 { return .needsModifier }
         if Self.ownKeys.contains(keyCode) { return .ferbOwn(display) }
         if modifiers == Self.command, let own = Self.ownCommandKeys[keyCode] { return .ferbOwn(own) }
         if modifiers == Self.command | Self.shift, keyCode == 6 { return .ferbOwn("⇧⌘Z") }
@@ -59,7 +59,7 @@ public struct KeyCombo: Equatable, Hashable {
 
     public static func describe(_ problem: Problem) -> String {
         switch problem {
-        case .needsCommandOrControl: return "Use ⌘ Command or ⌃ Control in the shortcut."
+        case .needsModifier: return "Use ⌘ Command, ⌃ Control or ⌥ Option in the shortcut."
         case .modifierOnly: return "Add a key to the modifiers."
         case .ferbOwn(let keys): return "\(keys) is one of FERB's own keys. Pick another."
         }

@@ -2407,7 +2407,8 @@ live = ["LIVE-792"]
 title = "The owner picks a keyboard shortcut to open FERB; double-tap right Option can be switched off"
 by = "owner"
 date = 2026-11-05
-status = "active"
+status = "superseded"
+superseded_by = "APP-818"
 words = "Custom keyboard shortcuts to open ferb / approved"
 words_source = "Owner, 2026-11-05 (0.27.1 item 9), \"approved\" for the plan's D24"
 rule = "Refines APP-552 and APP-668. In Settings → Keyboard & voice the owner can record one keyboard shortcut that opens FERB (closing it when open), the same way double-tap right Option does: any key combination with ⌘ or ⌃. There is none by default (APP-668's Control-Option-Space stays unregistered unless the owner records it). Double-tap right Option stays, on by default, and can be switched off there; hold right ⌘ + ⌥ to dictate is unchanged. No other double-tap keys for now. FERB's guide names the shortcut as it is."
@@ -2419,7 +2420,8 @@ live = ["LIVE-793"]
 title = "The shortcut is a Carbon hot key on the double-tap's path"
 by = "agent"
 date = 2026-11-05
-status = "active"
+status = "superseded"
+superseded_by = "APP-819"
 rule = "Implements APP-740. KeyCombo (key code + Carbon modifiers) is saved under shortcut.openFERB; it must hold ⌘ or ⌃ and is never FERB's own (⌘, W Q M R C X A V Z, ⇧⌘Z, Return, Escape). HotKeyCenter registers it with RegisterEventHotKey (exclusive; no event tap, no Input Monitoring) at launch and on change, not while recording; a refusal shows in Settings. A press runs PanelCoordinator.toggleByShortcut, as the double-tap does. Enabled macOS shortcuts (com.apple.symbolichotkeys, defaults for unlisted ids) warn, never block. Keys show via UCKeyTranslate."
 why = "Carbon hot keys need no permission and arrive under secure input; one toggle function lets batch 7's window mode switch both shortcuts at once."
 evidence = "macOS 27.2 probe (scratchpad hk/): an exclusive registration of a combination another process holds exclusively returns -9878 (eventHotKeyExistsErr); a non-exclusive holder doesn't block it; ⌥F alone registers with noErr (D24 refuses it anyway)."
@@ -3240,3 +3242,27 @@ why = "Owner 2026-11-09: \"ferb's own profile small window and menuy bar iwndo a
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController.ownMenu", "ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController.stepsBack"]
 untestable = "That the menus draw in front on the owner's screen is the live check (LIVE-844); the test checks the window's level and space."
 live = ["LIVE-844"]
+
+[APP-818]
+title = "The shortcut to open FERB may use Option: any combination with Command, Control or Option"
+by = "owner"
+date = 2026-11-09
+status = "active"
+supersedes = ["APP-740"]
+words = "have to one more shortcut settings: can set it up with option too. so any new custom shortcut should include cmd or control or option"
+words_source = "Owner 2026-11-09, while a friend set FERB up on his MacBook."
+rule = "Refines APP-552 and APP-668. In Settings → Keyboard & voice the owner can record one keyboard shortcut that opens FERB (closing it when open), the same way double-tap right Option does: any key combination with ⌘, ⌃ or ⌥ (a plain key or Shift with a key is refused). There is none by default (APP-668's Control-Option-Space stays unregistered unless the owner records it). Double-tap right Option stays, on by default, and can be switched off there; hold right ⌘ + ⌥ to dictate is unchanged. No other double-tap keys for now. FERB's guide names the shortcut as it is."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/KeyCombo.swift", "ui/mac/FERBNotch/Sources/FERBNotch/HotKeyCenter.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "ui/mac/FERBNotch/Sources/NotchCore/AppSettings.swift", "ui/mac/FERBNotch/Sources/NotchCore/AppScreens.swift", "ui/mac/FERBNotch/Sources/NotchCore/NotchShortcutState.swift"]
+live = ["LIVE-793", "LIVE-845"]
+
+[APP-819]
+title = "The shortcut is a Carbon hot key on the double-tap's path"
+by = "agent"
+date = 2026-11-09
+status = "active"
+supersedes = ["APP-741"]
+rule = "Implements APP-818. KeyCombo (key code + Carbon modifiers) is saved under shortcut.openFERB; it must hold ⌘, ⌃ or ⌥ and is never FERB's own (⌘, W Q M R C X A V Z, ⇧⌘Z, Return, Escape). HotKeyCenter registers it with RegisterEventHotKey (exclusive; no event tap, no Input Monitoring) at launch and on change, not while recording; a refusal shows in Settings. A press runs PanelCoordinator.toggleByShortcut. Enabled macOS shortcuts (com.apple.symbolichotkeys) warn, never block. Keys show via UCKeyTranslate. An Option combination takes its key from typing while set (⌥F no longer types ƒ)."
+why = "Carbon hot keys need no permission and arrive under secure input; one toggle function lets batch 7's window mode switch both shortcuts at once."
+evidence = "macOS 27.2 probe (APP-741): ⌥F alone registers with noErr; an exclusive registration of a combination another process holds exclusively returns -9878 (eventHotKeyExistsErr)."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/KeyCombo.swift", "ui/mac/FERBNotch/Sources/FERBNotch/HotKeyCenter.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchShortcutMonitor.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroDemoBeats.swift"]
+live = ["LIVE-793", "LIVE-845"]

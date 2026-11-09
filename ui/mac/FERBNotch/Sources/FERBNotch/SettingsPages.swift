@@ -170,7 +170,7 @@ struct NotchSettingsPage: View {
 }
 
 /// Settings → Keyboard & voice: the owner's own shortcut to open FERB (D24). Click, then press the keys: Escape
-/// cancels, Delete removes it; a combination without ⌘ or ⌃, or one of FERB's own, is explained and recording goes on;
+/// cancels, Delete removes it; a combination without ⌘, ⌃ or ⌥, or one of FERB's own, is explained and recording goes on;
 /// one macOS uses too is saved with a warning. Reset leaves no shortcut (the default).
 struct ShortcutRecorder: View {
     @ObservedObject var hotKeys: HotKeyCenter
@@ -195,7 +195,7 @@ struct ShortcutRecorder: View {
                 }
             }
             if hotKeys.recording {
-                note("Press a combination with ⌘ or ⌃. Escape cancels; Delete removes the shortcut.", .secondary)
+                note("Press a combination with ⌘, ⌃ or ⌥. Escape cancels; Delete removes the shortcut.", .secondary)
             }
             if let problem { note(problem, .orange) }
             if let warning, !hotKeys.recording { note(warning, .orange) }

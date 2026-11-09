@@ -3243,7 +3243,7 @@ area = "app"
 surface = "FERB.app with this build; Settings → Notch & Shortcuts → Keyboard & voice; any other app, a password field, a full-screen app"
 request = "Record ⌃⌥F. From another app press it (open), again (close); in a web page's password field; over a full-screen app. Try recording ⌥F and ⌘Q. Try ⌘Space (Spotlight may take it before FERB sees it). Reset. Turn off double-tap right Option, double-tap, then hold right ⌘ + ⌥. Turn it back on. Ask FERB in chat how to open it."
 pass = "⌃⌥F opens and closes FERB everywhere, focused for typing, and the chat stays when the pointer leaves. ⌥F and ⌘Q are refused with a reason; a macOS shortcut that records shows a warning. After Reset no shortcut works but double-tap. With double-tap off it does nothing while hold-to-talk still dictates. FERB names the shortcut as set."
-decisions = ["APP-740", "APP-741"]
+decisions = ["APP-818", "APP-819"]
 sitting = "after this change is installed"
 waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
@@ -3714,3 +3714,12 @@ pass = "Each menu shows in front of the chat window, and the window stays in fro
 decisions = ["APP-817"]
 sitting = "after this change is installed"
 result = "passed 2026-11-09 on build 202611091520: owner, \"works, menus come forward now\"."
+
+[LIVE-845]
+title = "An Option shortcut opens FERB"
+area = "app"
+surface = "FERB.app, Settings → Keyboard & voice"
+request = "Record an Option-only shortcut (for example ⌥Space), then press it with another app in front; then try recording Shift with a letter."
+pass = "The Option shortcut is accepted and opens and closes FERB; Shift with a letter is refused with a line saying to use ⌘, ⌃ or ⌥."
+decisions = ["APP-818", "APP-819"]
+sitting = "after this change is installed"

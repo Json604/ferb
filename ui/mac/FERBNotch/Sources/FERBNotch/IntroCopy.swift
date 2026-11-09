@@ -231,8 +231,10 @@ enum IntroCopy {
     /// FERB's store page fixes offer Add to <browser> (HAND-413).
     static func notPaired(_ progress: PairProgress, message: String) -> IntroLine {
         let paired = progress.rows.filter { $0.state == .paired }.count
+        let browsers = Set(progress.rows.map(\.label))
+        let profiles = browsers.count == 1 ? " \(browsers.first!) profiles" : ""
         var line = IntroLine(text: progress.rows.isEmpty ? "Not all of them paired."
-                             : "\(paired) of \(progress.rows.count) paired.",
+                             : "\(paired) of \(progress.rows.count)\(profiles) paired.",
                              detail: progress.rows.isEmpty ? message
                                 : progress.rows.contains(where: \.canAdd)
                                     ? "The others need a step from you. Add opens FERB's store page in that profile."
@@ -244,18 +246,31 @@ enum IntroCopy {
     }
 
     private static func pairChecklist(_ progress: PairProgress) -> [IntroChecklistItem] {
-        progress.rows.map { row in
+        // Profiles all in one browser: the rows name the profile alone (the browser said once is room for the name)
+        let oneBrowser = Set(progress.rows.map(\.label)).count == 1
+        return progress.rows.map { row in
             let status: String
             switch row.state {
             case .pairing: status = "Pairing…"
             case .paired: status = "Paired"
-            case .failed: status = row.canAdd ? "Add to \(row.label)" : "Didn't pair"
-            case .skipped: status = row.canAdd ? "Add to \(row.label)" : "Needs a step"
+            case .failed: status = row.canAdd ? "Add" : "Didn't pair"
+            case .skipped: status = row.canAdd ? "Add" : skippedStatus(row.reason)
             }
-            return IntroChecklistItem(id: row.id, title: row.title, secondary: row.email,
+            return IntroChecklistItem(id: row.id, title: oneBrowser ? ProfileName(name: row.name).title : row.title,
+                                      secondary: row.email,
                                       detail: row.why.isEmpty ? status : row.why, complete: row.state == .paired,
                                       actionID: row.canAdd && row.state != .paired ? Pick.add(row.id) : nil,
                                       active: row.state == .pairing, status: status)
+        }
+    }
+
+    /// A skipped profile's state in a word or two (owner 2026-11-09, a friend's 13 profiles: "whats the need a step
+    /// error??"); its step is the row's detail, shown on pointing at it.
+    static func skippedStatus(_ reason: String) -> String {
+        switch reason {
+        case "off": return "Turned off"
+        case "too_old": return "Needs update"
+        default: return "Needs a step"
         }
     }
 

@@ -174,16 +174,23 @@ struct IntroNarrationView: View {
                                 Image(systemName: item.complete ? "checkmark.circle.fill" : item.active ? "circle.inset.filled" : "circle")
                                     .foregroundStyle(item.complete ? Color.green : item.active ? Color.orange : Color.white.opacity(0.35))
                                 Text(item.title).font(.system(size: 12, weight: .medium))
-                                    .lineLimit(1).layoutPriority(1)
-                                if !item.secondary.isEmpty {        // HAND-424: only the account shortens
+                                    .lineLimit(1).truncationMode(.tail).layoutPriority(1)
+                                // HAND-424: the account beside the name, shortened in the middle; it shares the
+                                // room with a long name (both shorten) so profiles with one name stay apart, and is
+                                // left out when the name already is it
+                                if !item.secondary.isEmpty, !item.title.contains(item.secondary) {
                                     Text(item.secondary).font(.system(size: 11))
                                         .foregroundStyle(Palette.secondary)
                                         .lineLimit(1).truncationMode(.middle)
+                                        .layoutPriority(1)
                                         .help(item.secondary)
                                 }
                                 Spacer(minLength: 8)
+                                // always whole on one line: a long name or account shortens instead (a friend's
+                                // 13 profiles, owner 2026-11-09: the status wrapped and one was pushed out)
                                 Text(item.status ?? (item.complete ? "Allowed" : "Required"))
                                     .font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                                    .lineLimit(1).fixedSize().layoutPriority(2)
                             }
                             .padding(.horizontal, 8)
                             .frame(height: 32)

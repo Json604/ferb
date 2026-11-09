@@ -18,6 +18,9 @@ public struct PairProgress: Equatable {
         public var why: String
         /// FERB's Web Store page adds the extension here in one click (removed, not added, or waiting for a restart).
         public var canAdd: Bool
+        /// Why Pair all skipped it, as the daemon names it (HAND-411: removed, requested, not_added, off, too_old, or
+        /// a connection problem's own); "" otherwise.
+        public var reason: String = ""
         public var shown: ProfileName { ProfileName(label: label, name: name, email: email) }
         /// The browser and the name, for a list row (its email drawn beside it).
         public var title: String { shown.title }
@@ -61,11 +64,12 @@ public struct PairProgress: Equatable {
     }
 
     /// One profile's row changed outside Pair all (added from the store page, then paired on its own).
-    public mutating func set(_ id: String, state: State, why: String = "", canAdd: Bool = false) {
+    public mutating func set(_ id: String, state: State, why: String = "", canAdd: Bool = false, reason: String = "") {
         guard let index = rows.firstIndex(where: { $0.id == id }) else { return }
         rows[index].state = state
         rows[index].why = why
         rows[index].canAdd = canAdd
+        rows[index].reason = reason
     }
 
     public static func == (a: PairProgress, b: PairProgress) -> Bool {
@@ -79,6 +83,7 @@ public struct PairProgress: Equatable {
         return Row(browser: browser, label: value["label"] as? String ?? browser, folder: folder,
                    name: value["name"] as? String ?? folder, email: value["email"] as? String ?? "", state: state,
                    why: state == .paired || state == .pairing ? "" : (why ?? ""),
-                   canAdd: value["can_add"] as? Bool ?? false)
+                   canAdd: value["can_add"] as? Bool ?? false,
+                   reason: state == .skipped ? value["reason"] as? String ?? "" : "")
     }
 }

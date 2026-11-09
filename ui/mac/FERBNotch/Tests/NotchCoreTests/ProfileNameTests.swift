@@ -34,9 +34,15 @@ final class ProfileNameTests: XCTestCase {
                         "label": "Google Chrome", "email": "work@example.com", "paired": true])
         XCTAssertEqual(progress.rows.first { $0.id == "chrome/Default" }?.email, "work@example.com")
         let line = IntroCopy.pairing(progress)
-        XCTAssertEqual(line.checklist.map(\.title), ["Google Chrome “Work”", "Google Chrome “Home”"])
+        // all in one browser: the rows name the profile alone (owner 2026-11-09, a friend's 13 Chrome profiles)
+        XCTAssertEqual(line.checklist.map(\.title), ["“Work”", "“Home”"])
         XCTAssertEqual(line.checklist.map(\.secondary), ["work@example.com", ""])     // drawn apart from the name
         XCTAssertTrue(line.text.contains("“Home”") && !line.text.contains("@"))
+        // profiles in two browsers keep their browser's name
+        progress.apply(["type": "result", "browser": "brave", "folder": "Default", "name": "Play", "label": "Brave",
+                        "paired": true])
+        XCTAssertEqual(IntroCopy.pairing(progress).checklist.map(\.title),
+                       ["Google Chrome “Work”", "Google Chrome “Home”", "Brave “Play”"])
     }
 
     // decision: APP-736, HAND-411

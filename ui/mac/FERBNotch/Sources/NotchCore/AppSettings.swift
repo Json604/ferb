@@ -72,7 +72,7 @@ public enum AppSettings {
         "voice.sendOnRelease", "Send dictation when I let go of the keys", place: notch + " → Keyboard & voice",
         effect: "Dictation is sent as soon as the dictation keys are released, instead of waiting in the composer",
         on: false)
-    /// The owner's own keyboard shortcut to open FERB (D24: any combination with ⌘ or ⌃; none by default).
+    /// The owner's own keyboard shortcut to open FERB (APP-818: any combination with ⌘, ⌃ or ⌥; none by default).
     public static let openShortcut = AppSetting(
         keys: [KeyCombo.defaultsKey], name: "Keyboard shortcut to open FERB", place: notch + " → Keyboard & voice",
         effect: "Pressing this combination anywhere opens FERB, or closes it when open; none is set at first") { defaults in
