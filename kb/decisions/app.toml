@@ -3229,3 +3229,14 @@ words_source = "Owner 2026-11-09, shown a wide chat whose answers and cards span
 rule = "In a chat (notch or window) wider than its standard 440 pt, every message keeps the width it has at the standard width (ChatSide.width: 440 less the chat's 25 pt sides, 390 pt): FERB's replies, cards (timers, reminders, records, task cards), questions, notices and late replies on the left; the owner's messages on the right, no wider than at the standard width. The extra width is the space between them. The composer stays the chat's full width. At the standard width or narrower nothing changes."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::ChatSide", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::TurnView", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::RequestView", "ui/mac/FERBNotch/Sources/FERBNotch/TranscriptList.swift::TranscriptList.textHeight"]
 live = ["LIVE-843"]
+
+[APP-817]
+title = "The sticky chat window steps back while one of FERB's own menus is open"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "For APP-760 and APP-749. While any of FERB's own menus tracks (the profile menu, the menu bar icon's, a submenu, a picker's or a context menu: this process's NSMenu begin/end tracking), the sticky window steps back out of the fixed overlay space to the normal level, in front of ordinary windows, as it does for another app's menu; it comes back when the last one ends."
+why = "Owner 2026-11-09: \"ferb's own profile small window and menuy bar iwndo appears behind hte ferb chat window, rest all come forward\". The overlay space draws above every menu, and the window watch counts only other processes' windows."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController.ownMenu", "ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController.stepsBack"]
+untestable = "That the menus draw in front on the owner's screen is the live check (LIVE-844); the test checks the window's level and space."
+live = ["LIVE-844"]

@@ -120,6 +120,10 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
     private var handedOff = false
     /// Another process's menu, popover or floating window (one the owner hasn't shown the window above) is over it.
     private(set) var overlaysOver = false
+    /// FERB's own menus open now (the profile menu, the menu bar icon's, a picker's, a context menu): the overlay space
+    /// draws above every menu, so the window steps back while one shows (owner 2026-11-09: "ferb's own profile small
+    /// window and menuy bar iwndo appears behind hte ferb chat window, rest all come forward").
+    private var ownMenus = Set<ObjectIdentifier>()
     /// Other processes' windows the owner chose to show the window above (over it when they opened it or clicked into
     /// it), until they leave the screen; the notch's rule (NotchYieldController.overriddenOverlays).
     private var overridden = Set<UInt32>()
@@ -193,6 +197,14 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
         observers.append(center.addObserver(forName: HandOff.notification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.handOff() }
         })
+        // FERB's own menus (this process's menu tracking, at once: the window watch reads other processes' windows)
+        for (name, open) in [(NSMenu.didBeginTrackingNotification, true), (NSMenu.didEndTrackingNotification, false)] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                guard let menu = note.object as AnyObject? else { return }
+                let id = ObjectIdentifier(menu)
+                MainActor.assumeIsolated { self?.ownMenu(id, open: open) }
+            })
+        }
         observers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: panel, queue: .main) {
             [weak self] _ in MainActor.assumeIsolated { self?.ownerReturned() }
         })
@@ -255,6 +267,13 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
         applyPlace()
     }
 
+    /// One of FERB's own menus began or ended tracking.
+    func ownMenu(_ id: ObjectIdentifier, open: Bool) {
+        let before = !ownMenus.isEmpty
+        if open { ownMenus.insert(id) } else { ownMenus.remove(id) }
+        if before != !ownMenus.isEmpty { applyPlace() }
+    }
+
     /// The owner came back to the window (it became key): nothing they had brought forward holds it back any more.
     private func ownerReturned() {
         handedOff = false
@@ -267,7 +286,7 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
     private var fixed: Bool { space?.isAttached == true }
 
     /// What must show above the window now.
-    var stepsBack: Bool { underPicker || underOwnWindow || handedOff || overlaysOver }
+    var stepsBack: Bool { underPicker || underOwnWindow || handedOff || overlaysOver || !ownMenus.isEmpty }
 
     /// The window's frame in window-server coordinates (origin at the primary display's top left).
     private var serverFrame: CGRect {
@@ -385,7 +404,7 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
             steppedBack = true
             space.stepBack(panel)
             Self.log.notice("Window steps back (\(self.reasons, privacy: .public))")
-            if panel.isVisible && overlaysOver && !underPicker && !underOwnWindow && !handedOff {
+            if panel.isVisible && (overlaysOver || !ownMenus.isEmpty) && !underPicker && !underOwnWindow && !handedOff {
                 panel.orderFrontRegardless()                  // menus and popovers sit above the normal level
             }
         } else {
@@ -400,7 +419,7 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
 
     var reasons: String {
         [underPicker ? "picker" : nil, underOwnWindow ? "FERB window" : nil, handedOff ? "hand-off" : nil,
-         overlaysOver ? "menu or popover" : nil].compactMap { $0 }.joined(separator: ", ")
+         overlaysOver ? "menu or popover" : nil, ownMenus.isEmpty ? nil : "FERB menu"].compactMap { $0 }.joined(separator: ", ")
     }
 
     static let log = Logger(subsystem: "com.ferb.FERB", category: "spaces")

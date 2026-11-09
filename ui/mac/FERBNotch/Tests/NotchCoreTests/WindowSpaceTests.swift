@@ -164,6 +164,28 @@ final class WindowSpaceTests: XCTestCase {
         assertFixed(h, "after the switches")
     }
 
+    /// Owner 2026-11-09: "ferb's own profile small window and menuy bar iwndo appears behind hte ferb chat window, rest all
+    /// come forward". FERB's own menus (the profile menu, the menu bar icon's, a submenu) are this process's windows, which
+    /// the watch for other apps' menus never counts, and the fixed space draws above every menu: while one is tracking
+    /// the window steps back (staying in front of ordinary windows), and it comes back when the last one closes.
+    // decision: APP-817, APP-760
+    func testFERBsOwnMenuShowsAboveItAndTheWindowComesBack() throws {
+        let h = try harness()
+        let profile = NSMenu(title: "Profile"), submenu = NSMenu(title: "Send to FERB")
+        let center = NotificationCenter.default
+        center.post(name: NSMenu.didBeginTrackingNotification, object: profile)
+        assertSteppedBack(h, "FERB's profile menu open")
+        center.post(name: NSMenu.didBeginTrackingNotification, object: submenu)
+        center.post(name: NSMenu.didEndTrackingNotification, object: submenu)
+        assertSteppedBack(h, "its submenu closed, the menu still open")
+        center.post(name: NSMenu.didEndTrackingNotification, object: profile)
+        assertFixed(h, "the menu closed")
+        center.post(name: NSMenu.didBeginTrackingNotification, object: profile)   // the menu bar icon's menu, again
+        assertSteppedBack(h, "FERB's menu open again")
+        center.post(name: NSMenu.didEndTrackingNotification, object: profile)
+        assertFixed(h, "closed again")
+    }
+
     /// The window always floats (APP-772, owner 2026-11-06: "c, remove it"): an app the owner brings forward, its
     /// window lying over the sticky window, never steps it back; it stays fixed in the space, in front.
     // decision: APP-772, APP-760
