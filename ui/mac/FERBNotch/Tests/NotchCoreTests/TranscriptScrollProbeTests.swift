@@ -78,6 +78,46 @@ final class TranscriptScrollProbeTests: XCTestCase {
         }
     }
 
+    /// Owner 2026-11-09: "when i scroll at th etop or bottom(at the exteremes), the text and eveyrhgin kind of jutters
+    /// upndown". macOS stretches a list past its top or end as it is scrolled there and springs it back itself, moving the
+    /// view through places outside the content; the list pulled each of those back inside, fighting the spring on every
+    /// frame. A place past either edge stays where macOS put it, through the list's own measuring after a pause too.
+    // decision: APP-815
+    func testScrollingPastTheTopOrTheEndKeepsMacOSsStretch() async throws {
+        let (model, host, window) = try await mixedDay()
+        model.selectDay(Self.day, focus: false)
+        await settle(host)
+        var guardSteps = 0
+        while model.visibleEntries.count < Self.entries && guardSteps < 200 {
+            model.loadEarlier()
+            await settle(host)
+            guardSteps += 1
+        }
+        let scroll = try XCTUnwrap(scrollView(in: host), "the transcript's scroll view")
+        let clip = scroll.contentView
+        let most = max(0, (scroll.documentView?.frame.height ?? 0) - clip.bounds.height)
+        XCTAssertGreaterThan(most, 1000, "a day longer than the view")
+        for (edge, place) in [("top", CGFloat(0)), ("end", most)] {
+            clip.scroll(to: CGPoint(x: 0, y: place))
+            scroll.reflectScrolledClipView(clip)
+            await settle(host)
+            for stretch: CGFloat in [12, 30, 55, 30, 8] {
+                let y = edge == "top" ? -stretch : place + stretch
+                clip.scroll(to: CGPoint(x: 0, y: y))
+                scroll.reflectScrolledClipView(clip)
+                window.contentView?.layoutSubtreeIfNeeded()
+                XCTAssertEqual(clip.bounds.minY, y, accuracy: 0.5, "\(edge): the view stays where macOS stretched it")
+            }
+            // the list's measuring ahead once scrolling pauses leaves the stretch alone too
+            try await Task.sleep(nanoseconds: 300_000_000)
+            await settle(host)
+            let y = edge == "top" ? CGFloat(-8) : place + 8
+            XCTAssertEqual(clip.bounds.minY, y, accuracy: 0.5, "\(edge): still stretched after a pause")
+            XCTAssertFalse(visible(host, scroll).isEmpty, "\(edge): messages in view")
+        }
+        withExtendedLifetime(window) {}
+    }
+
     struct Thumb {
         var jumps = 0
         var blankFrames = 0

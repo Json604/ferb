@@ -373,6 +373,21 @@ final class TranscriptList: NSObject, NSTableViewDataSource, NSTableViewDelegate
         var key: String?
         var offset: CGFloat
         var end: Bool
+        /// How far past the top (negative) or the end (positive) the view is: macOS stretches a list past its edges when
+        /// scrolled there and springs it back itself, so the list keeps that stretch while it stays at that edge.
+        var over: CGFloat = 0
+    }
+
+    /// The stretch past the top (negative) or the end (positive) at `y`, else 0.
+    private func overscroll(_ y: CGFloat) -> CGFloat {
+        y < 0 ? y : y > most ? y - most : 0
+    }
+
+    /// `y` (a place inside the content) with `over` kept when `y` is still at that edge.
+    private func stretched(_ y: CGFloat, _ over: CGFloat) -> CGFloat {
+        if over < 0, y <= 0.5 { return y + over }
+        if over > 0, y >= most - 1 { return y + over }
+        return y
     }
 
     private var viewHeight: CGFloat { clip.bounds.height }
@@ -390,18 +405,19 @@ final class TranscriptList: NSObject, NSTableViewDataSource, NSTableViewDelegate
     /// already known (its place is real), else the first row in view; `changing`: a row whose own height changes counts
     /// as known, so a row that grows (a Show all, a reply filling) grows downwards from where it stands.
     private func currentAnchor(changing: Int? = nil) -> Anchor {
-        if atEnd && clip.bounds.minY > 0.5 { return Anchor(key: nil, offset: 0, end: true) }
-        let y = clip.bounds.minY
+        let over = overscroll(clip.bounds.minY)
+        if atEnd && clip.bounds.minY > 0.5 { return Anchor(key: nil, offset: 0, end: true, over: max(0, over)) }
+        let y = clip.bounds.minY - over
         let inView = shown(at: y)
         let pick = inView.first(where: { isMeasured($0) || $0 == changing }) ?? inView.first
         guard let pick else { return Anchor(key: nil, offset: 0, end: false) }
-        return Anchor(key: rows[pick].key, offset: table.rect(ofRow: pick).minY - y, end: false)
+        return Anchor(key: rows[pick].key, offset: table.rect(ofRow: pick).minY - y, end: false, over: over)
     }
 
     private func place(for anchor: Anchor) -> CGFloat {
-        if anchor.end { return most }
-        guard let key = anchor.key, let i = index[key] else { return min(clip.bounds.minY, most) }
-        return min(max(0, table.rect(ofRow: i).minY - anchor.offset), most)
+        if anchor.end { return stretched(most, anchor.over) }
+        guard let key = anchor.key, let i = index[key] else { return min(clip.bounds.minY, most + max(0, anchor.over)) }
+        return stretched(min(max(0, table.rect(ofRow: i).minY - anchor.offset), most), anchor.over)
     }
 
     private func restore(_ anchor: Anchor) {
@@ -415,9 +431,9 @@ final class TranscriptList: NSObject, NSTableViewDataSource, NSTableViewDelegate
         table.layoutSubtreeIfNeeded()
     }
 
-    /// Puts the view at `y` now, without measuring (the caller did).
+    /// Puts the view at `y` now, without measuring (the caller did); a stretch past an edge (`place(for:)`) is kept.
     private func set(_ y: CGFloat) {
-        let target = CGPoint(x: clip.bounds.minX, y: min(max(0, y), most))
+        let target = CGPoint(x: clip.bounds.minX, y: min(max(-viewHeight, y), most + viewHeight))
         guard abs(target.y - clip.bounds.minY) > 0.25 else { return }
         adjusting += 1
         clip.setBoundsOrigin(target)
@@ -427,11 +443,15 @@ final class TranscriptList: NSObject, NSTableViewDataSource, NSTableViewDelegate
     }
 
     /// Before the view moves to `point` (the owner's scroll, the thumb, FERB's own): the rows it will show are measured
-    /// and the place kept: the top at the top, the end at the end, else the first measured row in view.
+    /// and the place kept: the top at the top, the end at the end, else the first measured row in view. A point past
+    /// the top or the end (macOS stretching the list at its edge, then springing it back) keeps its stretch: pulling it
+    /// back inside fought the spring on every frame (owner 2026-11-09: "at the exteremes, the text and eveyrhgin kind of
+    /// jutters upndown").
     fileprivate func prepare(_ point: CGPoint) -> CGPoint {
         lastScrollAt = Date()
         guard width > 0, adjusting == 0, !rows.isEmpty else { return point }
-        var y = point.y
+        let over = overscroll(point.y)
+        var y = point.y - over
         for _ in 0..<8 {
             let end = table.frame.height > viewHeight && y >= most - 1
             let top = y <= 0.5
@@ -447,7 +467,7 @@ final class TranscriptList: NSObject, NSTableViewDataSource, NSTableViewDelegate
         }
         if hosts.count > 64 { evict() }               // a long scroll without a pause builds many rows
         queuePrefetch()
-        return CGPoint(x: point.x, y: min(max(0, y), most))
+        return CGPoint(x: point.x, y: stretched(min(max(0, y), most), over))
     }
 
     /// The rows in view measured (after a change of rows or of width), keeping the place.
