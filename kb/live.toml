@@ -3636,16 +3636,16 @@ pass = "Every Check line passes (planner with lookups, tools, worker, checker, p
 decisions = ["RUN-449", "RUN-450"]
 sitting = "after this change is installed"
 
-[LIVE-834]
+[LIVE-837]
 title = "A long day opens on its newest messages and scrolls to its top smoothly, loading as it goes"
 area = "app"
-surface = "FERB.app with this build, after its first launch imported the chat (LIVE-835)"
+surface = "FERB.app with this build, after its first launch imported the chat (LIVE-838)"
 request = "Open History, pick Nov 8, and scroll fast to the top with the trackpad; then scroll back down; then open Today and do the same."
 pass = "The day opens on its newest messages, never on empty space. Scrolling up is smooth: earlier messages come in by themselves near the top (a small loader at the top only if you get there before they arrive), nothing blank shows and what you are reading never jumps. No Load more button. Long answers and rows show folded with Show all / Show more from the start, never full height then folding."
 decisions = ["APP-806", "APP-809", "APP-811", "APP-800"]
 sitting = "after this change is installed"
 
-[LIVE-835]
+[LIVE-838]
 title = "After the update the chat comes back the same, from FERB's database"
 area = "app"
 surface = "FERB.app with this build installed over the older one, its saved chat in place"
@@ -3654,7 +3654,7 @@ pass = "Every day from Nov 4 on is listed in History and each shows the same mes
 decisions = ["APP-805", "APP-808", "APP-810"]
 sitting = "after this change is installed"
 
-[LIVE-836]
+[LIVE-839]
 title = "History lists every day with chat"
 area = "app"
 surface = "FERB.app with this build"

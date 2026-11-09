@@ -3107,7 +3107,7 @@ why = "The archive was rewritten whole on every chat event and read whole at lau
 evidence = "Owner 2026-11-09: \"what i understood is that all chet history and messages are stored in here when the db already has that??? is this hwo prodiction apps do it?? wont it fills the apps memory after years of use???\""
 supersedes = ["APP-569"]
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatHistoryStore.swift", "ui/mac/FERBNotch/Sources/NotchCore/ChatHistory.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Conversation.swift::NotchModel.saveConversation", "ferb/store/chat_history.py", "ferb/daemon/areas/chat_history.py"]
-live = ["LIVE-835", "LIVE-836"]
+live = ["LIVE-838", "LIVE-839"]
 
 [APP-806]
 title = "A day opens on its newest 30 entries and loads earlier ones by itself as the owner scrolls up"
@@ -3118,7 +3118,7 @@ words = "30, but on scroll up it should automatically loiad those, ahve a loader
 words_source = "Owner 2026-11-09, to \"When you open a day, how many messages should load first?\""
 rule = "Opening a day (Today or one from History) shows its newest 30 entries. As the owner scrolls up near the top, earlier entries come in by themselves, with no button; while a page comes from FERB's database a small loader shows at the top. What is in view stays where it is as they come in."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/ChatHistory.swift::DayWindow", "ui/mac/FERBNotch/Sources/FERBNotch/ChatHistoryStore.swift::NotchModel.loadEarlier", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::EarlierLoader"]
-live = ["LIVE-834"]
+live = ["LIVE-837"]
 
 [APP-807]
 title = "The scroll fix and the move to FERB's database ship in one build"
@@ -3139,7 +3139,7 @@ rule = "For APP-805 and STORE-403. Until the import is recorded, each connection
 why = "A downgraded FERB.app still shows the chat up to the upgrade and writes its own new messages there; when this build runs again and the archive's bytes differ from the record, it is sent again: new entries come over, nothing newer is taken back (import keeps what the daemon holds)."
 rejected = ["Rename the preferences key after the import: a downgraded FERB.app would open on an empty chat", "Delete the archive after the import: no way back, and APP-801 keeps every copy"]
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatHistoryStore.swift::NotchModel.openHistory", "ui/mac/FERBNotch/Sources/FERBNotch/ChatHistoryStore.swift::NotchModel.prepareHistory", "ui/mac/FERBNotch/Sources/FERBNotch/ChatHistoryStore.swift::NotchModel.everythingKept", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.init"]
-live = ["LIVE-835"]
+live = ["LIVE-838"]
 
 [APP-809]
 title = "A long text folds in the pass that measures it, and earlier entries come in near the top"
@@ -3151,8 +3151,8 @@ why = "The research probe (8 Nov, debug) found 38 of 400 steps blank, 18 jumps a
 evidence = "TranscriptScrollProbeTests, 300 mixed entries, debug: before (26c5b6ee) blank at open, 1 blank step, 264 jumps (51,904 pt), top never reached in 3,000 steps; after 0 blank, 0 jumps, open 100-155 ms, step mean about 5 ms, p95 17-39 ms, worst 100-170 ms."
 rejected = ["A custom fold Layout: it stopped scrollTo reaching items in later rows", "A non-lazy VStack over the window: 0 jumps but 654 ms to open 30 entries and about 1 s a page (debug)"]
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NativeMessageText.swift::MessageTextView", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::CollapsibleText", "ui/mac/FERBNotch/Sources/FERBNotch/ChatHistoryStore.swift::NotchModel.prefetchEarlier"]
-untestable = "How smooth it is on the owner's screen and trackpad is the live check (LIVE-834); the probe measures layout in an offscreen window."
-live = ["LIVE-834"]
+untestable = "How smooth it is on the owner's screen and trackpad is the live check (LIVE-837); the probe measures layout in an offscreen window."
+live = ["LIVE-837"]
 
 [APP-810]
 title = "When the daemon can't take the chat: the preferences or the outbox"
@@ -3161,7 +3161,7 @@ date = 2026-11-09
 status = "active"
 rule = "For APP-805 and APP-808. A daemon without the chat.history RPCs (an older one, -32601) or that refuses the app (-32005, -32001) leaves the chat in the preferences archive for that run, read and written as before. With the daemon as the store, entries a write couldn't deliver wait in FERBChatHistoryOutbox (only while there are any): they show at the next launch and are written at the next connection; a quit puts what changed and isn't written yet there. Launch reads today's newest page and every turn still waiting for FERB's answer before the status read places anything."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatHistoryStore.swift::NotchModel.writeHistory", "ui/mac/FERBNotch/Sources/FERBNotch/ChatHistoryStore.swift::NotchModel.keepUnsavedHistory", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift::NotchModel.connectDaemon"]
-live = ["LIVE-835"]
+live = ["LIVE-838"]
 
 [APP-811]
 title = "What is in view stays put while earlier entries are inserted above it"
@@ -3170,7 +3170,7 @@ date = 2026-11-09
 status = "active"
 rule = "For APP-806. Just before earlier entries are inserted, the transcript notes the message views in view. After SwiftUI lays the insertion out and before the frame is drawn (a run-loop observer ahead of Core Animation's commit), the scroll view's offset is set back by a surviving view, else by the distance from the content's end (else SwiftUI scrolls the noted entry back); each pass a noted message goes exactly where it stood until the content settles or the owner scrolls. An item brought forward inside an entry not built yet is placed by its marker view once the scroll to the entry has landed."
 why = "SwiftUI alone moved the view on 9 of 9 insertions in the probe (plain, defaultScrollAnchor(.bottom) and scrollPosition(id:) alike). The follow now reads the scroll view's own offset (macOS 15) and a growth while the owner is scrolled up no longer pulls the view down."
-rejected = ["Earlier entries as rows of no height that grow: blank on opening and a 3.3 s reveal", "An NSTableView transcript: every row must be built to know its height; the next step if LIVE-834 fails"]
+rejected = ["Earlier entries as rows of no height that grow: blank on opening and a 3.3 s reveal", "An NSTableView transcript: every row must be built to know its height; the next step if LIVE-837 fails"]
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::ScrollHold", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::AnchorMarks", "ui/mac/FERBNotch/Sources/NotchCore/TranscriptFollow.swift::TranscriptFollow.observe"]
-untestable = "Frames actually drawn on the owner's screen are the live check (LIVE-834)."
-live = ["LIVE-834"]
+untestable = "Frames actually drawn on the owner's screen are the live check (LIVE-837)."
+live = ["LIVE-837"]
