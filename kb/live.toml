@@ -3644,6 +3644,7 @@ request = "Open History, pick Nov 8, and scroll fast to the top with the trackpa
 pass = "The day opens on its newest messages, never on empty space. Scrolling and dragging the thumb anywhere show messages at once, never a blank area (a small loader at the very top only while earlier messages are on their way), and what you are reading never jumps. No Load more button. Long answers show folded with Show all from the start; Show all grows the answer in place and nothing overlaps."
 decisions = ["APP-815", "APP-806", "APP-809", "APP-800"]
 sitting = "after this change is installed"
+result = "passed 2026-11-09 on builds 202611091255 (\"smooth AF\") and 202611091450 after the edge-stretch fix (\"yesssirrr its fixed adn smooth af\")."
 
 [LIVE-838]
 title = "After the update the chat comes back the same, from FERB's database"
@@ -3671,6 +3672,7 @@ request = "Open the notch chat (Today) and History → Nov 8; find long answers 
 pass = "Each folded answer ends at its Show all and its card's edge; nothing of its text shows over the rows, cards or messages below it, in the notch and the window, on every day. Show all shows the whole answer and Show less folds it back."
 decisions = ["APP-813", "APP-809", "APP-788"]
 sitting = "after this change is installed"
+result = "passed 2026-11-09 on build 202611091154: owner, \"the show more thing is fixed\"."
 
 [LIVE-841]
 title = "A day opened for the first time opens at the chat's usual height"
@@ -3698,6 +3700,7 @@ request = "Make the chat window much wider than its standard size and look at ev
 pass = "Every message and card is as wide as in the standard-width chat; FERB's are on the left and yours on the right with the extra width between them; the input box is the window's full width. At the standard width the chat looks as before."
 decisions = ["APP-816"]
 sitting = "after this change is installed"
+result = "passed 2026-11-09 in the arrival playground (\"oh yeah it looks pretty good\") and on build 202611091512 (\"good\"), window mode."
 
 [LIVE-844]
 title = "FERB's own menus show in front of the chat window"
@@ -3707,3 +3710,4 @@ request = "With the chat window open, click the profile circle; then click FERB'
 pass = "Each menu shows in front of the chat window, and the window stays in front of other apps' windows; after the menu closes the window is where it was, in front, on every Space."
 decisions = ["APP-817"]
 sitting = "after this change is installed"
+result = "passed 2026-11-09 on build 202611091520: owner, \"works, menus come forward now\"."
