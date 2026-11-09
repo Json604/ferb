@@ -329,6 +329,26 @@ def test_a_failure_the_worker_explained_is_told_once(daemon: RunningDaemon) -> N
     assert "What I found" not in result["answer"] and "could not reach availability" not in result["answer"]
     assert "could not reach availability" in result["summary"]          # the checker's reason stays in the record
 
+
+# decision: ORCH-562
+def test_a_failures_own_explanation_gets_the_same_findings_round(daemon: RunningDaemon) -> None:
+    """Task 7b86c4ad (claims audit A1): a failure said "FERB cannot operate its own app", a capability claim drawn from
+    one task's limits that nothing checked. Now the checker's findings on a not-done report's words get the worker's
+    one fix turn, and the failed answer says the fixed words; the checker is given what FERB can use now."""
+    claim = "FERB cannot operate its own app."
+    said = f"I couldn't change the schedule. {claim}"
+    fixed = "I couldn't change the schedule. The edit didn't save."
+    script = install(daemon, [sup("task", "On it.", task("Change the visa schedule"))], {
+        "worker": json.dumps(report("not_done", said, reason=f"The edit didn't save. {claim}")),
+        "worker.verify": verdict(False, next="fail", findings=((claim, "contradicted",
+                                                                "FERB's facts list Mac control as available."),)),
+        "worker.fix": _fix(fixed), "worker.recheck": json.dumps({"findings": []})})
+    result = outcome(chat(daemon, "change my visa schedule"))
+    assert result["status"] == "failed" and script.calls("worker") == ["worker", "worker.fix"]
+    assert result["answer"].split("\n\n")[0] == f"I couldn't finish this task. {fixed}"
+    assert claim not in result["answer"] and claim not in result["summary"]      # the reason's quote, removed by code
+    assert "What FERB can use now" in _context_of(script, "worker.verify")
+
 # decision: ORCH-309
 def test_a_failure_says_plainly_what_happened(daemon: RunningDaemon) -> None:
     install(daemon, [sup("task", "On it.", task("Book a table"))], {

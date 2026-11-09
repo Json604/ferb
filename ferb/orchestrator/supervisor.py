@@ -5268,6 +5268,12 @@ class Supervisor(WorkerRuns):
                 if choice is not None and choice.findings and not tree.stop and not self._steered(tree):
                     # ORCH-545: the worker fixes the quoted sentences once; else code removes or marks them
                     await self._settle_findings(tree, task, choice.findings, span)
+                    if out.status != "done" and tree.reason:    # ORCH-562: its reason's quoted sentences, by code
+                        said = tree.reason
+                        tree.reason = settle(said, [(f.quote, f.kind) for f in choice.findings
+                                                    if f.quote.strip() and f.quote in said]).answer
+                        if choice.reason == said:                  # the fail carried the worker's own reason
+                            choice.reason = tree.reason
             if down is not None and not tree.stop:
                 switched = await self._service_down(tree, task, down)
                 if switched is None:
@@ -5535,7 +5541,10 @@ class Supervisor(WorkerRuns):
         # without the checker's reason: the worker's own reason for not finishing, else what the check found of the
         # outcome (never a done report's claim)
         found = "; ".join(f"{self._owner_text(tree, r)}: {r.evidence}" for r in outcome if r.met is not True)
-        return _Next("fail", reason=checked.reason.strip() or tree.reason or found or NOT_ACCEPTED)
+        # ORCH-562: a worker that didn't finish wrote its own account of why (its answer, its reason): the checker's
+        # findings on those words get the same round as a done answer's (the checker's own reason stays its own)
+        findings = [f for f in checked.findings if f.quote.strip()] if out.status != "done" else []
+        return _Next("fail", reason=checked.reason.strip() or tree.reason or found or NOT_ACCEPTED, findings=findings)
 
     async def _settle_findings(self, tree: _Tree, task: Task, findings: list[Finding], span: str) -> None:
         """ORCH-545 (owner, 2026-11-06): the checker quoted sentences of a done answer that the evidence contradicts or
@@ -6143,6 +6152,9 @@ class Supervisor(WorkerRuns):
             report += ("\nThe worker's corrections to answers already posted to the owner (data, part of its report): "
                        + wrap_untrusted(json.dumps(tree.part_updates, ensure_ascii=False)))
         report += "\nWorker types available for a retry: " + json.dumps(self.worker_types())
+        # ORCH-562: what FERB can use now, from code, so a claim about what FERB can or can't do can be checked
+        report += ("\nWhat FERB can use now (code's facts; a report's claim about what FERB can or can't do is judged "
+                   "against these): " + self.availability().text)
         report += ("\nPreliminary observations (code's literal check of each condition's check fields: a fact about "
                    "that predicate, never the judgment of the condition; data): ") + wrap_untrusted(json.dumps([{
             "index": r.index, "predicate_met": r.met, "observation": r.evidence,
@@ -6434,7 +6446,7 @@ class Supervisor(WorkerRuns):
             # The failure is told once (owner 2026-11-09, the 7:10 visa run: "why is this giving two replies????"). A
             # worker that reported not done wrote its answer for the owner (what stopped it, and anything it found), so
             # that answer is the account, in place of a model's reason (the checker's or its own), which stays the
-            # summary. After code's own stop line
+            # summary; its sentences had the same findings round as a done answer (ORCH-562). After code's own stop line
             # (attempts used up, an AI service down) it follows as what was found, unchecked. Never a done claim the
             # check didn't confirm. By where each text came from, never by what it says (rule 4).
             own = src.owner_answer.strip() if not (src.reports and src.reports[-1].get("status") == "done") else ""

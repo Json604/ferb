@@ -993,3 +993,14 @@ words_source = "Owner 2026-11-08, approving claims-audit.md section 5 P1 and P2 
 rule = "New literal check kinds a planner condition may name: sent {expected: recipient, site?}, paid {site?}, submitted {site}, trashed / deleted / downloaded {path}. Each is met only when a call of that kind ran without an error with that target in the task's records (a download: a taken browser download); a false one is false whatever the checker said. A task's end adds submit, trash, delete and download cards from the same calls; a file card only for a path that exists."
 why = "The audit (claims-audit.md section 4): sends, payments, submits and deletions rested on the checker's judgment alone, and a file card came from the worker's own list."
 paths = ["ferb/orchestrator/verify.py::Checks._action", "ferb/orchestrator/cards.py::done_cards", "ferb/orchestrator/cards.py::files", "ferb/orchestrator/supervisor.py::Supervisor.verify", "ferb/orchestrator/schemas.py::ACTION_CHECKS"]
+
+[ORCH-562]
+title = "A failure's own explanation gets the checker's findings round; the checker sees what FERB can use"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "yes"
+words_source = "Owner 2026-11-08, approving claims-audit.md section 5 P1 and P2 (agent-drafted, approved as a whole): P2-b."
+rule = "Refines ORCH-545. When the worker reported not done, the checker's findings on its answer go to the same one fix turn and re-check as a done answer's, and code removes or marks the quoted sentences of its reason; the checker's own fail reason stays its own. The checker's report includes the availability facts the planner gets (what FERB can use now), so a claim that FERB can't do something can be contradicted."
+why = "Task 7b86c4ad (2026-11-07): a failure said FERB \"cannot operate its own app\", a capability claim from one task's limits that nothing checked (claims audit A1)."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._next", "ferb/orchestrator/supervisor.py::Supervisor._worker", "ferb/orchestrator/supervisor.py::Supervisor._verifier"]
