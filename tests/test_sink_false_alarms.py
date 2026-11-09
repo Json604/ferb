@@ -436,3 +436,50 @@ def test_a_value_found_only_on_a_web_page_still_asks(daemon: RunningDaemon) -> N
     assert result["is_error"] and typed.calls == 0 and len(questions) == 1
     assert "this types +91 91234 56789, which FERB found only in outside content (the web page on mysite.example)" in \
         questions[0].reason
+
+
+# decision: GATE-555
+def test_an_address_in_the_owners_html_file_is_their_own_data() -> None:
+    """Past bug (an application task, 2026-11-09): the owner's resume is HTML, where the address is glued into one token
+    (`href="mailto:x">x</a>`), so the file never matched and the address counted as found only on Google's page."""
+    html = provenance.prepare('<a href="mailto:kai.owner@example.com">kai.owner@example.com</a> '
+                              '<a href="https://github.com/kai-owner">github</a>')
+    assert "kai.owner@example.com" in html.tokens and "github.com" in html.hosts
+    page = provenance.prepare("Google Account: Kai Owner (kai.owner@example.com)")
+    found = provenance.arg_sources_prepared(Target(recipients=("kai.owner@example.com",)), provenance.prepare(""),
+                                            [("private", html), ("external:web:www.google.com", page)])
+    assert found["recipient:0"] == ["external:web:www.google.com", "private"]
+
+
+# decision: GATE-555
+def test_typing_an_address_from_the_owners_html_file_asks_nothing(daemon: RunningDaemon) -> None:
+    typed = FakeCap("probe.type", "fill_form", {"probe"})
+    page = FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://www.google.com/search"),),
+                   content={"text": "Google Account: Kai Owner (kai.owner@example.com)"})
+    mine = FakeCap("probe.file", "read", {"probe"}, reads=(("file", "/Users/me/resume.html"),),
+                   content={"text": '<a href="mailto:kai.owner@example.com">kai.owner@example.com</a>'})
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("fill in the application"), [typed, page, mine])
+    gateway_tool_call(daemon, grant, "probe.web")
+    gateway_tool_call(daemon, grant, "probe.file")
+    result, questions = _call(daemon, grant, "probe.type", to="kai.owner@example.com")
+    assert not result["is_error"] and typed.calls == 1 and questions == []
+
+
+# decision: GATE-538, GATE-556
+def test_the_owners_own_address_typed_from_a_page_asks_nothing(daemon: RunningDaemon) -> None:
+    """Past bug (an application form, 2026-11-09; another form, 2026-11-08): GATE-538 held only for a form's submit, so the
+    owner's own address, seen only on a page, still asked when typed. Another address from that page still asks."""
+    typed = FakeCap("probe.type", "fill_form", {"probe"})
+    page = FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://www.google.com/search"),),
+                   content={"text": "Signed in as kai.owner@example.com. Contact: jordan.example@example.net"})
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("fill in the application"), [typed, page])
+
+    async def mine() -> None:
+        daemon.daemon.memory.save("fact", "owner", "email", "My email is kai.owner@example.com", "owner_stated",
+                                  [("journal", "t")], 1.0)
+    daemon.run(mine())
+    gateway_tool_call(daemon, grant, "probe.web")
+    result, questions = _call(daemon, grant, "probe.type", to="kai.owner@example.com")
+    assert not result["is_error"] and typed.calls == 1 and questions == []
+    result, questions = _call(daemon, grant, "probe.type", to="jordan.example@example.net")
+    assert result["is_error"] and typed.calls == 1 and len(questions) == 1

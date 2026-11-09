@@ -156,15 +156,24 @@ def foreground_need(tool: str, args: dict[str, Any]) -> "Need | None":
 def app_key(app: str) -> str:
     """One app however a Mac tool's `app` argument spells it (step 12e, fix 2; live 2026-10-31: "Terminal", then
     "pid:9040", asked twice): the running app's bundle id, casefolded, when the name, `pid:N` or bundle id names exactly
-    one running app (`apps.find`, the drivers' own lookup); else the argument without case or invisible marks
-    ("\u200eWhatsApp" is "WhatsApp")."""
+    one running app (`apps.find`, the drivers' own lookup); a name no running app has, the installed app's bundle id
+    macOS finds by that name (GATE-560: Safari quit between two inputs); else the argument without case or invisible
+    marks ("\u200eWhatsApp" is "WhatsApp")."""
     from ferb.act.mac import apps
     from ferb.act.mac.browsers import clean
     try:
-        found = apps.find(app.strip())
+        found = apps.candidates(app.strip())
     except Exception:                                    # the running-app list can't be read: the spelling decides
-        found = None
-    return found.bundle_id.casefold() if found is not None else clean(app)
+        return clean(app)
+    if len(found) == 1:
+        return found[0].bundle_id.casefold()
+    if found:                                            # several running: the spelling decides
+        return clean(app)
+    try:                                                 # GATE-560: not running (it quit, or isn't open yet): the
+        installed = apps.installed_bundle(app.strip())   # installed app's bundle id, as when it runs
+    except Exception:
+        installed = None
+    return installed.casefold() if installed else clean(app)
 
 
 _BUNDLE_ID = re.compile(r"(?:[A-Za-z0-9-]+\.){2,}[A-Za-z0-9-]+|pid:\d+")
@@ -974,14 +983,17 @@ def site_key(value: str | None) -> str:
 
 def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_sources: dict[str, list[str]], *,
            read_private: bool, read_external: bool, known: Known, outside_read: Iterable[str] = (),
-           place: str | None = None, content: str | None = None, approved: Known | None = None) -> list[Need]:
+           place: str | None = None, content: str | None = None, approved: Known | None = None,
+           own: Callable[[], Iterable[str]] = lambda: ()) -> list[Need]:
     """The needs of one call, in the order the owner reads them. `kind` is the physical kind; `declared` every kind a
     declared purpose or effect adds (SEND / CALL / PAY / ACCOUNT_SECURITY / DELETE_PERMANENT; one or several), which
     only widens what is checked. `arg_sources` is provenance.arg_sources of the target; `known(kind, value)` says
     whether a destination is known for normal use, `approved(kind, value)` whether the owner approved it (the sink rule's
     test, GATE-205; `known` when not given); `outside_read` is the outside content the tree read (origin labels), named in the
     sink question; `place` is where the call happens as the owner knows it (an app's name), else the target's site;
-    `content` is what a send carries, sized in the bulk question. A permanent delete of a folder (S4(c)) needs the
+    `content` is what a send carries, sized in the bulk question. `own()` gives the owner's own email addresses and
+    phone numbers (GATE-538), read only when S4(b) would ask: one of them is never a value found only outside
+    (GATE-556, the one definition `own_contact` the form sink uses too). A permanent delete of a folder (S4(c)) needs the
     folder counted: the gateway adds it (`bulk_delete`)."""
     kinds = {kind} | ({declared} if isinstance(declared, str) else set(declared or ()))
     approved = approved or known
@@ -1060,10 +1072,15 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
     # A payment's amount is shown and asked in its own question (one Yes per payment): a merchant's price always comes
     # from its page, so a separate "came from outside content" question only repeated it (live 2026-10-27)
     values = who + ([("amount", str(target.amount))] if target.amount is not None and Kind.PAY not in kinds else [])
+    mine: set[str] | None = None
     for k, value in values:                     # S4 (b): a value that came only from outside content
         outside = [s for s in arg_sources.get(k, []) if s != "unknown"]
         if not outside or _owner(outside) or origin.PRIVATE in outside:   # GATE-508: also in the owner's own data
             continue
+        if k != "amount":                       # GATE-538, GATE-556: the owner's own address or number
+            mine = set(own()) if mine is None else mine
+            if own_contact(value, mine):
+                continue
         dest = None if k == "amount" else destination_of(value)
         if dest is not None and known(*dest):
             continue

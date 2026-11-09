@@ -1,7 +1,8 @@
 """Owns matching a consequential call's targets against where they could have come from (S3). Must not decide or block.
 
 Structured values (account, site, path, recipient addresses) match only as a whole whitespace-delimited token of the
-owner's words or of outside content (case-insensitive; a site also matches the host of a URL token; a path also
+owner's words or of outside content, or as an email address or link standing inside markup there (GATE-555: the
+`mailto:` link of an HTML resume) (case-insensitive; a site also matches the host of a URL token; a path also
 matches its ~ form). A contact or recipient without @ is, by shape: a phone number (digits, spaces and + - ( ) .,
 at least 6 digits), matched when its digits equal the digits of a phone-like run in the text, exactly; a value with
 no whitespace, matched as a whole token; or a multi-word name, matched as a whole phrase with word boundaries by
@@ -61,6 +62,23 @@ def raw_tokens(text: str) -> list[str]:
     out = []
     for raw in text.split():
         tok = _strip(raw)[1]
+        if tok:
+            out.append(tok)
+    return out
+
+
+# An email address or a scheme:// link standing inside markup or punctuation, by shape only: `href="mailto:x@y.z">x@y.z</a>`
+# is one whitespace token, so the address in it is also a token of its own (GATE-555). A link ends at whitespace, a
+# quote or a bracket; trailing punctuation is dropped as for a token.
+_EMBEDDED = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s\"'<>()\[\]{}]+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+
+
+def embedded(text: str) -> list[str]:
+    """The email addresses and scheme:// links written in `text`, also where markup or punctuation glues them to other
+    characters (GATE-555), in order, as written. A shape, never a meaning."""
+    out = []
+    for m in _EMBEDDED.finditer(text):
+        tok = _strip(m.group(0))[1]
         if tok:
             out.append(tok)
     return out
@@ -143,9 +161,10 @@ class Text:
 
 
 def prepare(text: str) -> Text:
-    toks = tokens(text)
+    found = embedded(text)
+    toks = tokens(text) + [t.lower() for t in found]
     return Text(text.casefold(), frozenset(toks), frozenset(_norm_path(t) for t in toks),
-                 frozenset(h for t in raw_tokens(text) if (h := host_of(t))),
+                 frozenset(h for t in raw_tokens(text) + found if (h := host_of(t))),
                  tuple(n for t in toks if (n := _token_amount(t)) is not None),
                  frozenset(_digits(m.group(0)) for m in _PHONE_RUN.finditer(text)), _words(text))
 

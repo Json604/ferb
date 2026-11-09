@@ -91,3 +91,42 @@ def test_a_script_for_a_browser_asks_like_mac_input_there() -> None:
     page = 'tell window 1 to make new tab with properties {URL:"chrome://extensions/?id=abc"}'
     assert asyncio.run(tool.browser_page(SimpleNamespace(script=page))) == "chrome://extensions/?id=abc"
     assert asyncio.run(tool.browser_page(SimpleNamespace(script='open location "https://mysite.example"'))) is None
+
+
+# decision: GATE-560
+def test_a_script_macos_will_refuse_asks_nobody_and_the_worker_gets_the_fact(daemon, monkeypatch) -> None:
+    """Past bug (an application task, 2026-11-09): FERB asked "Let FERB run scripts in Google Chrome?", the owner said Yes,
+    and then macOS refused Automation for Chrome, so nothing ran. Rule 5: FERB prepares before asking; when macOS
+    already refuses, nobody is asked and the worker is told so it takes another way."""
+    from ferb.act.mac.apps import RunningApp
+    from ferb.device import permissions
+    from tests.conftest import Answers, gateway_tool_call
+    from tests.test_terminal_input import _script_setup
+    grant, ran = _script_setup(daemon, monkeypatch, RunningApp("com.google.Chrome", "Google Chrome", 701, False))
+
+    async def denied(bundle_id: str, ask: bool = False) -> object:
+        return permissions.Status.DENIED
+    monkeypatch.setattr(permissions, "automation_async", denied)
+    owner = Answers(daemon, granted=True)
+    try:
+        out = gateway_tool_call(daemon, grant, "mac.applescript", app="Google Chrome",
+                                script="get URL of every tab of every window")
+    finally:
+        owner.stop()
+    assert out["is_error"] and ran == [] and owner.asked == []
+    assert out["content"]["code"] == "needs_permission" and out["content"]["asked_owner"] is False
+
+
+# decision: GATE-201, GATE-560
+def test_one_question_covers_an_app_while_it_is_closed_and_after_it_opens(monkeypatch) -> None:
+    """Past bug (2026-11-07, task 1e5fe441): Safari quit between two inputs, so the second question was keyed "safari"
+    instead of "com.apple.safari" and the owner was asked again. A name that isn't running is keyed by the installed
+    app's bundle id."""
+    from ferb.act.mac import apps
+    from ferb.act.mac.apps import RunningApp
+    monkeypatch.setattr(apps, "running", lambda: [RunningApp("com.apple.Safari", "Safari", 95980, False)])
+    open_key = confirm.foreground_need("mac.act", {"app": "Safari", "mechanism": "foreground", "action": "press"}).key
+    monkeypatch.setattr(apps, "running", lambda: [])
+    monkeypatch.setattr(apps, "installed_bundle", lambda name: "com.apple.Safari" if name == "Safari" else None)
+    closed_key = confirm.foreground_need("mac.act", {"app": "Safari", "mechanism": "foreground", "action": "press"}).key
+    assert closed_key == open_key

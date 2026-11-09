@@ -1084,6 +1084,11 @@ class Gateway:
         if hasattr(cap, "precheck") and (refusal := await self._off_loop(cap, cap.precheck, args)):
             self._refused(grant, rec, name, refusal)
             return reply({"error": refusal}, True, {origin.FERB})
+        # rule 5, GATE-560: prepared before asking. What macOS already refuses (a denied Automation permission) is a
+        # fact the worker gets at once; the owner is never asked a question whose Yes couldn't take effect
+        if hasattr(cap, "unavailable") and (fact := await cap.unavailable(args)) is not None:
+            self._refused(grant, rec, name, str(fact.get("detail") or fact.get("code") or "unavailable"))
+            return reply(fact, True, {origin.FERB})
         if name == OWNER_ASK:
             answer = await self._ask_owner(grant, rec, args)
             return reply(answer, bool(answer.get("error")), ask_origins(answer))
@@ -1358,7 +1363,8 @@ class Gateway:
         read = self.spans.tool_origins(root) | self.spans.exposure_origins(root)
         outside = self._outside_read(root)
         common = dict(read_private=origin.PRIVATE in read, read_external=bool(outside), known=self.destinations.known,
-                      approved=self.destinations.approved, outside_read=outside)
+                      approved=self.destinations.approved, outside_read=outside,
+                      own=self.owner_contacts)   # GATE-538, GATE-556: read only when S4(b) would ask
         # the amount is the capability's or the page's, never the worker's declared number (GATE-204)
         target = dataclasses.replace(c.checked.target, amount=c.spec.target.amount, currency=c.spec.target.currency)
         sources = c.extra["arg_sources"]

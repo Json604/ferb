@@ -31,6 +31,7 @@ from ferb.policy.rules import Kind
 # D31 review round 2, N7: AppleScript's command that runs a program; its sandbox denies the exec, and the call is
 # refused first with the tool to use (an argument-validity check on the script's own command, never its meaning)
 SHELL_COMMAND = re.compile(r"(?i)\bdo\s+shell\s+script\b|(?:\u00ab|<<)\s*event\s+sysoexec\s*(?:\u00bb|>>)")
+PERMISSION_PRECHECK_S = 3.0     # how long the no-prompt Automation check may take before asking (speed only, GATE-560)
 CONTINUATION = re.compile(r"\u00ac[ \t]*(?:\r\n|\r|\n)")     # AppleScript's ¬ joins a line to the next (round 3)
 
 
@@ -850,6 +851,28 @@ class MacAppleScript(_Base):
         outside FERB's sandbox, and what it does to a path can't be told from the script, so each is checked as a
         change. FERB's own files are refused whatever the owner answered; a listed place asks."""
         return [(path, "write") for path in applescript.named_paths(str(getattr(args, "script", "")))]
+
+    async def unavailable(self, args: BaseModel) -> dict[str, Any] | None:
+        """Rule 5, GATE-560: before any question, macOS's own answer for scripting this app, read without a prompt. When
+        it is denied, the script can't run whatever the owner says: the fact, for the worker to take another way;
+        else None (granted, not asked yet: macOS's one-click prompt comes after the owner's Yes, as before; unknown,
+        or the check didn't answer in time: `_run` checks again)."""
+        bundle = await asyncio.to_thread(self._bundle, args)   # running apps: off the event loop
+        if "." not in bundle:                   # not running: no bundle id to check now; `_run` checks
+            return None
+        from ferb.device.permissions import Status, automation_async
+        try:
+            status = await asyncio.wait_for(automation_async(bundle, ask=False), timeout=PERMISSION_PRECHECK_S)
+        except Exception:                       # a timeout too: `_run` checks again, as before
+            return None
+        if status is not Status.DENIED:
+            return None
+        return {"code": "needs_permission", "permission": "Automation", "status": status.value, "bundle_id": bundle,
+                "performed": False, "asked_owner": False,
+                "detail": "macOS doesn't allow FERB to script this app (Automation is off for it), so nothing ran and "
+                          "the owner wasn't asked. Use another way (for web pages, the browser tools); only if "
+                          "there is none, say in your report that it can be allowed in System Settings → Privacy & "
+                          "Security → Automation."}
 
     async def browser_page(self, args: BaseModel) -> str | None:
         """A browser's own page (chrome://extensions…) the script names as a quoted address: the gateway asks before

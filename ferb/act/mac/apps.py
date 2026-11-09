@@ -124,6 +124,18 @@ def activate(bundle_id: str, pid: int | None = None) -> bool:
     return bool(app and app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps))
 
 
+def installed_bundle(name: str) -> str | None:
+    """The bundle id of the installed app macOS finds by this name (Launch Services' own lookup, as `open -a` does),
+    for an app that isn't running (GATE-560); None when it finds none or the name is a `pid:`. Lookup mechanics only."""
+    if not name.strip() or name.startswith("pid:"):
+        return None
+    from AppKit import NSBundle, NSWorkspace
+    path = NSWorkspace.sharedWorkspace().fullPathForApplication_(browsers.INVISIBLE.sub("", name).strip())
+    bundle = NSBundle.bundleWithPath_(path) if path else None
+    found = bundle.bundleIdentifier() if bundle is not None else None
+    return str(found) if found else None
+
+
 def launch(bundle_id: str) -> bool:
     """Open an installed app by bundle id in the background (`open -g`: not activated), leaving a running one as it
     is. Not hidden (`-j` is gone, step 12e fix 4): a hidden app's windows are off screen, so a window screenshot and

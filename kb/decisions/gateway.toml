@@ -829,3 +829,31 @@ status = "active"
 rule = "For GATE-546. scripts/question_run.py calls test.mode {off: true} on every exit it can catch (its end, Ctrl-C, an unhandled error, p.error after start, SIGTERM and SIGHUP raised as SystemExit) and prints whether test mode is off, or that it couldn't be turned off and to turn it off in Settings. A run needs --enable with the send allowlist each time; test mode is never left on for the next run."
 why = "2026-11-08 a cancelled run left test mode on; on 2026-11-09 07:12 a real scheduled visa run's password question was declined by the recorder."
 paths = ["scripts/question_run.py::main", "scripts/question_run.py::test_mode_off", "scripts/question_run.py::_exit_on_signal"]
+
+[GATE-555]
+title = "Provenance finds an email address or a link inside markup, by shape"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "Refines GATE-508 and S3. provenance.prepare also takes as tokens (and URL hosts) every email address and scheme:// link written in a text where markup or punctuation glues it to other characters (href=\"mailto:x\">x</a>, href=\"https://host/path\">), by shape only, as confirm._FINE already splits for the sink. The owner's own HTML file then holds its address as their own data (`private`), so typing it is not a value found only outside. Whole-token matching, phones, names and amounts are unchanged."
+why = "Live 2026-11-09 (an application task): the owner's address in their HTML resume was one token `href=\"mailto:…\">…</a`, so the file never matched and the address counted as found only on Google's account button."
+paths = ["ferb/policy/provenance.py::embedded", "ferb/policy/provenance.py::prepare"]
+
+[GATE-556]
+title = "The owner's own email or phone never asks as a value found only outside, in every path"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "Applies GATE-538 (owner) in the shared path. confirm.decide's S4(b) skips a recipient or typed value that is one of the owner's own email addresses or phone numbers (`own_contact`, the one definition the form sink uses), read from GatewayDeps.owner_contacts (paired profiles' accounts, the owner's own stated facts) only when S4(b) would ask. Anyone else's value found only outside still asks. New-recipient and the bulk question are unchanged."
+why = "GATE-538 was built only in the form-submit path, so the owner's own address typed into a form still asked (2026-11-08 twice, both refused, and 2026-11-09). An injected address can't already be the owner's own."
+paths = ["ferb/policy/confirm.py::decide", "ferb/daemon/gateway.py::Gateway._floor_needs"]
+
+[GATE-560]
+title = "A question is prepared first: a script macOS refuses asks nobody; a closed app keeps its Yes"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "Rule 5. Before any question the gateway runs a capability's `unavailable(args)` hook: mac.applescript reads macOS's Automation answer without a prompt; when it is denied, the call returns the fact (needs_permission, asked_owner false) and nobody is asked. Not asked yet keeps today's order (the owner's Yes, then macOS's prompt); no answer in time leaves `_run`'s check. Refines GATE-201: a name no running app has is keyed by the installed app's bundle id (`apps.installed_bundle`), so a Yes covers an app that quit and reopened."
+why = "Live 2026-11-09: \"Let FERB run scripts in Google Chrome?\" got a Yes, then macOS refused Automation and nothing ran. Live 2026-11-07: Safari quit between two inputs and the owner was asked again under the key \"safari\"."
+paths = ["ferb/act/mac/tools.py::MacAppleScript.unavailable", "ferb/daemon/gateway.py::Gateway._build", "ferb/policy/confirm.py::app_key", "ferb/act/mac/apps.py::installed_bundle"]
+live = ["LIVE-849"]

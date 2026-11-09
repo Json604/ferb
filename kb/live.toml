@@ -3732,3 +3732,21 @@ request = "Settings: hover off, Where FERB opens: Notch, FERB closed. Drag a fil
 pass = "Each held drag opens the chat or the window with hover off, and the file waits in the message box until you send. The window opened by the drag stays while you carry the file to it. A drag let go elsewhere closes what it opened."
 decisions = ["APP-820", "APP-821", "APP-737", "APP-739", "APP-742"]
 sitting = "after this change is installed"
+
+[LIVE-847]
+title = "Your own email typed into a form asks nothing"
+area = "gateway"
+surface = "FERB.app with this build; a kartikey.xyz form page; your resume as an HTML file in a disposable folder"
+request = "Ask FERB to fill the form on the kartikey.xyz test page with your details from the HTML resume (don't submit). Then ask it to type an address that appears only on a web page it reads (not yours, not in your files)."
+pass = "Typing your own email and phone asks nothing; the address found only on the web page still asks once."
+decisions = ["GATE-555", "GATE-556", "GATE-538"]
+sitting = "after this change is installed"
+
+[LIVE-849]
+title = "A browser script macOS refuses asks you nothing"
+area = "gateway"
+surface = "FERB.app with this build; System Settings → Privacy & Security → Automation with FERB's access to Google Chrome turned off"
+request = "Ask FERB to list the addresses of your open Chrome tabs using AppleScript."
+pass = "No \"run scripts in Chrome\" question appears; FERB lists them another way or says Automation for Chrome is off and where to turn it on. With access on and not yet asked, the question comes as before."
+decisions = ["GATE-560"]
+sitting = "after this change is installed"
