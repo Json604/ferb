@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 
 /// One `tasks.preview` answer (APP-404): what FERB is doing now (`state`, a short `line`), the
 /// frame if there is one, and why a frame is old (`problem`). Pure, so the notch's preview loop is testable.
@@ -19,6 +20,13 @@ public struct PreviewAnswer: Equatable {
     public let problemText: String?
     /// The worker held the surface, so the last frame came back.
     public let busy: Bool
+    /// Which frame it is (DMN-407): the app sends it back as `have`, and the daemon then leaves out an unchanged image.
+    public let seq: Int?
+    /// How old the frame is, in ms (DMN-407); nil from an older daemon.
+    public let ageMs: Int?
+
+    /// A frame younger than this shows no "Working in …" line while FERB works there: it is close enough to live.
+    public static let staleAfterMs = 3000
 
     public init(_ reply: [String: Any]) {
         func words(_ value: Any?) -> String? { (value as? String).flatMap { $0.isEmpty ? nil : $0 } }
@@ -33,15 +41,22 @@ public struct PreviewAnswer: Equatable {
         problemKind = words(problem?["kind"])
         problemText = words(problem?["text"])
         busy = reply["busy"] as? Bool ?? false
+        seq = (reply["seq"] as? NSNumber)?.intValue
+        ageMs = (reply["age_ms"] as? NSNumber)?.intValue
     }
 
-    /// The line drawn over the frozen frame: whenever FERB isn't working in this window now, or the frame is old. A
-    /// problem says why the frame is old.
+    /// The line drawn over the frozen frame: whenever FERB isn't working in this window now, or the frame is old
+    /// (APP-799: older than `staleAfterMs`, so it doesn't blink on and off while frames keep coming; an older daemon
+    /// sends no age, and then any frame that isn't fresh counts as old). A problem says why the frame is old.
     public var overlay: String? {
         guard state != "working" || !fresh else { return nil }
         if let problemText, state == "working" { return problemText }
+        if state == "working", let ageMs, ageMs < Self.staleAfterMs { return nil }
         return line.isEmpty ? nil : line
     }
+
+    /// Whether the answer carries a frame at all: its image, or only its number because the app has it (DMN-407).
+    public var hasFrame: Bool { hasImage || seq != nil }
 
     /// Shown in place of a frame when the app has none.
     public var emptyText: String {
@@ -50,7 +65,7 @@ public struct PreviewAnswer: Equatable {
     }
 
     /// The app keeps its last frame unless the daemon has nothing at all to show (no surface yet).
-    public var dropsLastFrame: Bool { state == "none" && !hasImage }
+    public var dropsLastFrame: Bool { state == "none" && !hasFrame }
 
     /// When to ask again: a fresh frame asks at once (the rate is the capture's own, APP-405: no
     /// cap until measured); the worker holding the surface is retried soon; a frozen or empty answer waits a second.
@@ -58,6 +73,16 @@ public struct PreviewAnswer: Equatable {
         if fresh && hasImage { return .zero }
         if busy { return .milliseconds(200) }
         return .seconds(1)
+    }
+}
+
+/// A preview frame decoded whole off the main thread (APP-799): the JPEG's pixels are decoded here, once, so drawing it
+/// on the main thread decodes nothing. nil for anything that isn't an image.
+public enum PreviewFrame {
+    public static func decode(base64 encoded: String) -> CGImage? {
+        guard let data = Data(base64Encoded: encoded),
+              let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
     }
 }
 

@@ -750,3 +750,33 @@ status = "active"
 rule = "FERB.app is the owner's side and the product (AGENTS.md rule 13): the notch, windows, setup and the macOS permissions granted to it. The background service (the daemon, a user LaunchAgent: DMN-513, before it DMN-2 and DMN-15) keeps running tasks, schedules and the gateway alive whether or not the app's windows are open, and runs before sign-in finishes (APP-506). The secrets helper is a separate small signed binary because Keychain items trust the binary that made them (GATE-548)."
 paths = ["ferb/daemon", "ui/mac/FERBNotch", "ferb/identity/secret_helper.swift"]
 untestable = "An explanation of the split; each part's own decisions carry their tests."
+
+[DMN-406]
+title = "A preview looks alongside reads and keeps to its own time"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "Refines DMN-403. A key held by a call that only reads (`observation`) counts as available to the preview when nobody waits for it: it looks alongside without taking the key; an acting or waiting call still makes it busy. A capture's own waits get only its time left (PREVIEW_DEADLINE): a tab's record_frame timeout; a window's two walks share it (all but FRAME_RESERVE_S 1 s, at least WALK_FLOOR_S 0.2 s) and are never cached as the app's tree; the capture lock is taken without waiting (busy). Limits unchanged."
+why = "preview-lag.md: 327 of 419 requests answered busy in one window (the worker's 30 s reads held the tab); Mac-heavy windows gave 0 fresh frames; a preview walk replaced the worker's cached tree. Owner 2026-11-08: \"its not only browsers btw, we have to chekc noramlly too\"."
+paths = ["ferb/act/locks.py::ResourceLocks.try_hold", "ferb/act/point.py::PREVIEW_DEADLINE", "ferb/act/mac/driver.py::MacComputerDriver._window_source", "ferb/act/mac/accessibility.py::read_tree"]
+live = ["LIVE-824", "LIVE-825"]
+
+[DMN-407]
+title = "A preview answer names its frame, says \"too long\" once, and keeps an app's window for app-only calls"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "Refines DMN-404. Each fresh frame gets a `seq`; an answer carries `seq` and `age_ms`, and leaves the image out when the app's `have` names that frame. \"The capture took too long\" is on the answer that ran out only; withheld, gone, failed and screen_locked stay until the next frame. A call that names only an app (a menu, a key press) keeps this step's last window of that app as its picture."
+why = "Owner 2026-11-08: \"it lags, shows sometime: 'capture too too long'\". preview-lag.md: the same frame re-sent 5 times a second, the warning stuck until the next frame; a slide show run by key presses had no picture."
+paths = ["ferb/daemon/task_preview.py::TaskPreviews.frame", "ferb/daemon/task_preview.py::TaskPreviews.declare", "ferb/daemon/areas/rpc.py"]
+live = ["LIVE-824", "LIVE-825"]
+
+[DMN-408]
+title = "Preview work is counted per surface kind and phase, and its problems are journaled"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "work_json.preview adds per surface kind (`tab_*`, `window_*`): requests, frames, busy, slow, failed, gone, withheld, locked, no_picture, capture_ms and phase ms (resolve, extension, walk1, capture, walk2, paint, ocr), and per sample window the peaks `max_<kind>_gap_ms` and `max_<kind>_age_ms` (read as they are). preview.slow (the phase) and preview.failed (error class) are journaled: the first at once, then one row per 10 minutes with a count."
+why = "preview-lag.md and hang-lab.md: nothing per frame or per surface was recorded, so \"too long\" had no count and no cause, and Mac-window frames couldn't be split into walk, capture and OCR."
+paths = ["ferb/daemon/task_preview.py::Counts", "ferb/daemon/resources.py", "ferb/store/retention.py::OPERATIONAL_KINDS"]
+live = ["LIVE-824"]

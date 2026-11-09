@@ -6,6 +6,8 @@ the site resolver, profile discovery, and the owner-only routing (never FERB's i
 """
 
 import json
+import plistlib
+import shutil
 import subprocess
 import sys
 import time
@@ -14,6 +16,7 @@ from typing import Any
 
 import pytest
 
+from ferb.act.browser.ext_bridge import _app_bundle
 from ferb.act.browser.pairing import Binding
 from ferb.act.browser.profiles import BrowserProfile, discover, open_known_profile, resolve
 from ferb.act.browser.resolver import NeedsOwner, Resolver
@@ -881,3 +884,23 @@ def test_a_paired_folder_missing_from_its_browsers_discovery_is_never_started() 
     with pytest.raises(NeedsOwner, match="no profile called"):
         r.choose("chrome/Profile 9")
     assert r.choose("vivaldi/Default").browser == "vivaldi"
+
+
+# decision: HAND-438
+def test_a_browser_running_from_its_code_signing_clone_is_still_known(tmp_path: Path) -> None:
+    """Lab 2026-11-09: 5 of 12 lab Chromes ran from "…/code_sign_clone.X/Google Chrome.app.bundle/…", and every native
+    host connection of theirs was refused ("couldn't tell which app started this browser connection")."""
+    for name in ("Clone.app.bundle", "Plain.app"):
+        contents = tmp_path / name / "Contents"
+        (contents / "MacOS").mkdir(parents=True)
+        (contents / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": f"com.example.{name[:5]}"}))
+        shutil.copy("/bin/sleep", contents / "MacOS" / "sleep")
+        proc = subprocess.Popen([str(contents / "MacOS" / "sleep"), "5"])
+        try:
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline and _app_bundle(proc.pid) is None:
+                time.sleep(0.02)
+            assert _app_bundle(proc.pid) == f"com.example.{name[:5]}"
+        finally:
+            proc.kill()
+            proc.wait()

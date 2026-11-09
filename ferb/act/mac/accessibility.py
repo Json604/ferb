@@ -428,15 +428,20 @@ def hit_element(pid: int, x: float, y: float) -> Any:
 
 # ---------- the walk ----------
 
-def read_tree(pid: int, browser: bool = False, window: Any = None, offset: int = 0) -> AxTree:
+def read_tree(pid: int, browser: bool = False, window: Any = None, offset: int = 0,
+              budget_s: float | None = None) -> AxTree:
     """One walk of the exact window (or sole reachable window), its sheet, the app's open menus,
-    popovers and dialogs. For a browser whose window shows no web area yet, or an empty one, re-read for ~2 s."""
-    deadline = time.monotonic() + (2.0 if browser else 0.0)
+    popovers and dialogs. For a browser whose window shows no web area yet, or an empty one, re-read for ~2 s.
+    `budget_s`: a shorter walk than WALK_BUDGET_S (a live preview frame's share of its time, DMN-406); never longer."""
+    walk_s = WALK_BUDGET_S if budget_s is None else max(0.0, min(WALK_BUDGET_S, budget_s))
+    started = time.monotonic()
+    deadline = started + (min(2.0, walk_s) if browser else 0.0)
     while True:
         app = _app(pid)
         win = window if window is not None else app_window(pid)
+        now = time.monotonic()                    # a shorter budget holds for the whole call, re-reads included
         tree = AxTree(title=_text(_attr(win, "AXTitle")) if win is not None else "", window=win, offset=offset,
-                      _deadline=time.monotonic() + WALK_BUDGET_S)
+                      _deadline=now + walk_s if budget_s is None else max(now, started + walk_s) + 1e-6)
         texts: list[str] = []
         seen = [0]
         if win is not None:

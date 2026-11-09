@@ -1682,7 +1682,8 @@ class Gateway:
         grant, cap, name = c.grant, c.cap, c.name
         self.observer.tool_call(grant, done=False)
         try:
-            async with self.locks.hold(c.lock_keys, grant.worker_id):
+            # a call that only reads lets the live preview look alongside it (DMN-406); every call is still exclusive
+            async with self.locks.hold(c.lock_keys, grant.worker_id, reading=observes(cap)):
                 self.hooks.preview(cap, c.args, grant, c.rec, c.lock_keys)
                 await self.hooks.point(cap, c.args, grant)
                 try:
@@ -1835,6 +1836,8 @@ class Gateway:
                 raise
         if result.facts is not None and (measured := result.facts.recorded()):
             output = output | {"facts": measured}      # what the tool measured (ActionFacts), on the record
+        if result.timing:                              # how long its own steps took (HAND-436): the record, not the model
+            output = output | {"timing": result.timing}
         self._finish_call(span, name, content, result.is_error,
                           output=output | ({"change_record": watched} if watched else {})
                           | ({"screen": screen} if screen else {}),

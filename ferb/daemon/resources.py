@@ -217,8 +217,10 @@ class ResourceLog:
         counts = self._perception()
         previews = self._preview()
         # the live preview's work in the window (APP-405: measured before any frame-rate cap is decided)
-        work["preview"] = {key: round(value - mark.preview.get(key, 0), 1) if isinstance(value, float)
-                           else value - int(mark.preview.get(key, 0)) for key, value in previews.items()}
+        # (`max_*`: the window's peak, read as it is; DMN-406)
+        work["preview"] = {key: value if key.startswith("max_") else round(value - mark.preview.get(key, 0), 1)
+                           if isinstance(value, float) else value - int(mark.preview.get(key, 0))
+                           for key, value in previews.items()}
         work["perception"] = {"wakes": max(0, counts[0] - mark.perception[0]),
                               "batches": {reason: n - mark.perception[1].get(reason, 0)
                                           for reason, n in sorted(counts[1].items())

@@ -156,7 +156,8 @@ class _Base:
         except DriverError as e:
             if type(e).__name__ == "OutcomeUnknown":
                 raise                                   # the gateway marks the ledger `unknown`; never retried blindly
-            return ToolResult({**e.facts, "error": f"browser error: {e}"}, is_error=True)
+            return ToolResult({**e.facts, "error": f"browser error: {e}"}, is_error=True,
+                              timing=getattr(e, "timing", None))          # HAND-436: where a read stopped, span only
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         raise NotImplementedError
@@ -502,7 +503,8 @@ class BrowserSnapshot(_Base):
             sources += (("owner_account", f"{_host(s.url) or ''}|"),)
         # e.g. a download link clicked before this; a loop's probe read leaves them for the next round (L31)
         news, more = ({}, ()) if ctx.probe else await _news(self.driver, ref)
-        return ToolResult(for_model(s, probe=ctx.probe) | news, read_sources=sources + more)
+        return ToolResult(for_model(s, probe=ctx.probe) | news, read_sources=sources + more,
+                          timing=getattr(self.driver, "timing", lambda r: None)(ref))   # HAND-436: span only
 
 
 class BrowserScreenshot(_Base):
@@ -532,7 +534,8 @@ class BrowserScreenshot(_Base):
         ready = getattr(self.driver, "input_note", lambda ref: "")(tab)
         if ready:                                    # captured although input readiness failed (round 5)
             out["input"] = ready
-        return ToolResult(out, read_sources=sources, image=jpeg)
+        return ToolResult(out, read_sources=sources, image=jpeg,
+                          timing=getattr(self.driver, "timing", lambda r: None)(tab))   # HAND-436: span only
 
 
 PDF_HTML_MAX = 5 * 1024 * 1024      # an HTML file FERB prints (T-1065): a document, never a site's worth of data

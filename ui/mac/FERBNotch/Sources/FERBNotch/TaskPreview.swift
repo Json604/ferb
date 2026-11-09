@@ -40,6 +40,8 @@ final class TaskPreview: ObservableObject {
     /// The latest answer: what FERB is doing now, drawn over the frozen frame.
     @Published private(set) var answer: PreviewAnswer?
     @Published private(set) var status = "Waiting for a visual task…"
+    /// The daemon's number for the frame shown (DMN-407, APP-799), sent back as `have`: an unchanged frame isn't sent again.
+    private var shownSeq: Int?
     private var readers = 0
     private var job: Task<Void, Never>?
     private let rpc: any DaemonRPCTransport
@@ -74,18 +76,28 @@ final class TaskPreview: ObservableObject {
                 }
                 var params: [String: Any] = ["task_id": self.taskID]
                 if let worker = self.worker { params["worker"] = worker }
+                if self.image != nil, let shown = self.shownSeq { params["have"] = shown }
                 do {
                     let frame = try await self.rpc.call("tasks.preview", params: params)
                     guard !Task.isCancelled else { return }
                     let answer = PreviewAnswer(frame)
+                    // decoded whole off the main thread; only a frame the app doesn't have yet comes with its image
                     if let encoded = frame["image"] as? String,
-                       let bytes = Data(base64Encoded: encoded), let decoded = NSImage(data: bytes) {
-                        self.image = decoded
+                       let decoded = await Task.detached(priority: .userInitiated, operation: {
+                           PreviewFrame.decode(base64: encoded)
+                       }).value {
+                        guard !Task.isCancelled else { return }
+                        self.image = NSImage(cgImage: decoded, size: NSSize(width: decoded.width, height: decoded.height))
+                        self.shownSeq = answer.seq
                     } else if answer.dropsLastFrame {
                         self.image = nil
+                        self.shownSeq = nil
                     }                           // otherwise the last frame stays, frozen, with the line over it
-                    self.answer = answer
-                    self.status = self.image == nil ? answer.emptyText : (answer.overlay ?? "Live")
+                    // published only when what it shows changed: a busy retry every 200 ms redraws nothing (APP-799)
+                    if self.answer?.overlay != answer.overlay || self.answer?.state != answer.state
+                        || self.answer?.emptyText != answer.emptyText { self.answer = answer }
+                    let status = self.image == nil ? answer.emptyText : (answer.overlay ?? "Live")
+                    if self.status != status { self.status = status }
                     let delay = answer.nextRequestDelay
                     if delay == .zero { await Task.yield() } else { try await Task.sleep(for: delay) }
                 } catch {
@@ -112,6 +124,7 @@ final class TaskPreview: ObservableObject {
         job?.cancel()
         job = nil
         image = nil
+        shownSeq = nil
         answer = nil
     }
 }

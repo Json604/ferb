@@ -359,6 +359,8 @@ class ToolResult:
     image: bytes | None = None                        # JPEG for the model and the evidence store (V1); never logged
     evidence: dict[str, Any] | None = None            # source observations used by result inspection
     facts: ActionFacts | None = None                  # what code measured while the call ran (ActionFacts)
+    timing: dict[str, Any] | None = None              # how long the call's own steps took (ms): its span only, never
+                                                      # the model (HAND-436)
 
 
 # ---------- browsers ----------
@@ -475,6 +477,7 @@ class PageSnapshot:
     # the addresses of the page's embedded frames (each child frame's own and each frame element's src, query strings
     # masked): structural facts such as a bot-check widget's challenge frame (HAND-208)
     frame_urls: list[str] = field(default_factory=list)
+    loading: bool = False                    # the tab was still loading when it was read (extension 0.19.6)
 
 
 # ---------- Mac / computer ----------

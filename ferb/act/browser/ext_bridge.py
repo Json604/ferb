@@ -64,6 +64,32 @@ MEDIA_FIELDS = ("playing", "paused", "current_time", "duration", "muted", "volum
 MEDIA_ID = re.compile(r"m[0-9]{1,9}-[0-9a-f]{6}")
 
 
+# What each step of a read is, for the worker's "the page isn't responding" (extension 0.19.6 names the step)
+READ_STEPS = {"wake": "keeping the tab awake", "attach": "preparing the tab", "inject": "loading FERB's reader into "
+              "the page", "script": "reading the page", "ax": "reading the page's accessibility tree",
+              "unbind": "tidying up after the read", "arm": "preparing the tab", "ready": "preparing the tab",
+              "look": "finding the page's secret fields", "capture": "taking the picture"}
+
+
+def _steps(raw: Any) -> dict[str, Any] | None:
+    """The extension's step times (0.19.6) as numbers only, for the call's span; None from an older extension."""
+    if not isinstance(raw, dict):
+        return None
+    return {str(k)[:40]: v for k, v in list(raw.items())[:30] if isinstance(v, (int, float)) and not isinstance(v, bool)}
+
+
+def not_responding(op: str, timeout: float, step: str | None, steps: Any = None) -> DriverError:
+    """A read of a tab that timed out (HAND-435): the page stopped answering. Says where (the extension's step, 0.19.6)
+    and what helps: the same tab usually stays stuck for minutes, while the page opened again in a new tab answers."""
+    where = f" (it stopped at: {READ_STEPS.get(step, step)})" if step else ""
+    e = DriverError(f"the page isn't responding: FERB's {op} got no answer from it within {timeout:g} s{where}. "
+                    "Trying this tab again usually hangs the same way; open the page again in a new tab (or navigate "
+                    "this tab to its address again) and read that instead",
+                    facts={"reason": "page_not_responding", **({"step": step} if step else {})})
+    e.timing = {"read": _steps(steps)} if _steps(steps) else None      # type: ignore[attr-defined]
+    return e
+
+
 def frame_urls(frames: list[dict[str, Any]]) -> list[str]:
     """The addresses of a snapshot's embedded frames, in order, once each: each child frame's own address (its content
     script reports it) and each frame element's `src` (a frame no script reaches, such as one in a closed shadow root,
@@ -98,7 +124,10 @@ class _Conn:
 
 def _app_bundle(pid: int | None) -> str | None:
     """The bundle id of the app whose executable this process runs (its path through libproc, then the enclosing
-    .app's Info.plist): kernel and file facts, never a window or a name the process claims. Blocking (a file read)."""
+    .app's Info.plist): kernel and file facts, never a window or a name the process claims. Blocking (a file read).
+    Chrome may run from its code-signing clone ("…/code_sign_clone.XXXX/Google Chrome.app.bundle/Contents/MacOS/…", a
+    copy of its own bundle made at launch): that bundle's Info.plist is read the same way (HAND-438; lab 2026-11-09:
+    5 of 12 lab Chromes ran from one, and every connection of theirs was refused as "couldn't tell which app")."""
     import ctypes
     import plistlib
     if not isinstance(pid, int) or pid <= 1:
@@ -108,10 +137,12 @@ def _app_bundle(pid: int | None) -> str | None:
         if ctypes.CDLL("/usr/lib/libproc.dylib").proc_pidpath(pid, buf, 4096) <= 0:
             return None
         path = buf.value.decode(errors="replace")
-        at = path.find(".app/Contents/")
-        if at < 0:
+        found = [(at, len(suffix)) for suffix in (".app/Contents/", ".app.bundle/Contents/")
+                 if (at := path.find(suffix)) >= 0]
+        if not found:
             return None
-        with open(path[:at + 4] + "/Contents/Info.plist", "rb") as f:
+        at, size = min(found)                                # the outermost bundle, as before
+        with open(path[:at + size - len("/Contents/")] + "/Contents/Info.plist", "rb") as f:
             bundle = plistlib.load(f).get("CFBundleIdentifier")
     except (OSError, ValueError, plistlib.InvalidFileException):
         return None
@@ -277,6 +308,8 @@ class Bridge:
         except asyncio.TimeoutError:
             if op == "pointer":
                 await self._cancel_pointer(args, cid)
+            if read and "tab_id" in args:
+                raise not_responding(op, timeout, None) from None
             if read:
                 raise DriverError(f"{op} timed out in {self.name}") from None
             self.lost.add(cid)                            # the next hello's seen / owned ids settle it (never resent)
@@ -306,6 +339,8 @@ class Bridge:
             raise OutcomeUnknown(f"{op}: {r.error}; outcome unknown")
         if str(r.error or "").startswith("debugger_refused:"):   # the browser refused the debugger: nothing was sent
             raise DriverError(str(r.error).removeprefix("debugger_refused:").strip(), facts={"reason": "debugger_refused"})
+        if read and r.error == "timeout" and "tab_id" in args:
+            raise not_responding(op, timeout, r.step, r.steps)
         raise DriverError(r.error or f"{op} failed")
 
     async def _cancel_pointer(self, args: dict[str, Any], cid: str) -> None:
@@ -912,6 +947,9 @@ class _Tab:
     unread_shot: str | None = None  # a screenshot of a page the extension can't read: no point resolves on it (I1)
     native_shot: bool = False       # the latest screenshot is the whole browser window (a debugger-proof tab)
     input_note: str = ""            # the latest capture went on although the tab's input readiness failed (round 5)
+    timing: dict[str, Any] | None = None   # the extension's step times for the latest read of it (0.19.6)
+    shot_timing: dict[str, Any] | None = None   # and for its latest screenshot
+    stuck: bool = False             # its latest snapshot timed out: the page isn't answering (HAND-435)
     # the page an owner's tab held when the task took it over: the tab is known by its id, wherever it navigates
     taken_over_from: dict[str, str] = field(default_factory=dict)
     closed: bool = False            # closed in the browser (the owner): listed as closed, never driven again
@@ -1451,7 +1489,12 @@ class _TabDriver:
         t = self._tab(tab)
         nav = t.bridge.navs.get(t.chrome_id, 0)
         gen = t.snap_gen + 1
-        v = await t.bridge.call("snapshot", {"tab_id": t.chrome_id, "snap": gen}, timeout=30)
+        try:
+            v = await t.bridge.call("snapshot", {"tab_id": t.chrome_id, "snap": gen}, timeout=30)
+        except DriverError as e:
+            t.stuck, t.timing, t.shot_timing = e.facts.get("reason") == "page_not_responding", None, None
+            raise
+        t.stuck, t.timing, t.shot_timing = False, _steps(v.get("steps")), None
         elements: dict[str, tuple[int, int, int, PageElement]] = {}
         containers: dict[str, tuple[int, str]] = {}
         text, title, url, truncated = "", "", t.url, False
@@ -1506,7 +1549,7 @@ class _TabDriver:
         t.containers, t.media, t.media_ids = containers, media_refs, media_ids
         t.page, t.motion, t.moved = _Page.of(v.get("window"), top), motion, False
         result = PageSnapshot(tab, gen, url, title, [e for *_, e in elements.values()], text, truncated, dialogs,
-                              scroll, scrollers, media, frame_urls(v["frames"]))
+                              scroll, scrollers, media, frame_urls(v["frames"]), loading=v.get("loading") is True)
         from ferb.act.browser.snapshot import for_model
         full = for_model(result, full=True)
         full["frames"] = [{k: f[k] for k in ("frame_id", "url", "text", "truncated") if k in f} for f in v["frames"]]
@@ -1899,15 +1942,19 @@ class _TabDriver:
             return False
         return bool(v.get("met"))
 
-    async def screenshot(self, tab: TabRef) -> bytes:
+    async def screenshot(self, tab: TabRef, looks: bool = True) -> bytes:
         """A jpeg of the tab (works minimized / in the background, 2.7), fetched in parts when one message would
         come near the 1 MB native-messaging line, with every secret field the extension reports painted over before
         anything else sees it (`painted`, L13). Never refused for what the page shows; withheld (Withheld) only when
-        the masking can't be done."""
+        the masking can't be done. `looks=False` (its read just timed out, HAND-435): captured without the page's own
+        looks, which would hang the same way, and masked as a page the extension can't read (extension 0.19.6; an
+        older one looks anyway)."""
         import base64
         t = self._tab(tab)
-        t.masking, t.native_shot = "", False
-        v = await t.bridge.call("screenshot", {"tab_id": t.chrome_id, "snap": t.snap_gen})
+        t.masking, t.native_shot, t.shot_timing = "", False, None
+        v = await t.bridge.call("screenshot", {"tab_id": t.chrome_id, "snap": t.snap_gen}
+                                | ({} if looks else {"looks": False}))
+        t.shot_timing = _steps(v.get("steps"))
         t.input_note = str(v.get("input_note") or "")[:300]                # protocol 17 (round 5)
         if v.get("undebuggable"):                        # protocol 16: no tab capture at all; maybe its window (I1)
             jpeg, t.masking = await self._native_window(t, v)
@@ -1959,6 +2006,12 @@ class _TabDriver:
     def masking(self, tab: TabRef) -> str:
         """How the latest screenshot of this tab had its secret fields found, when worth saying ("" otherwise)."""
         return self._tab(tab).masking
+
+    def timing(self, tab: TabRef) -> dict[str, Any] | None:
+        """The extension's step times (ms) for this tab's latest read and screenshot (0.19.6), for the call's span."""
+        t = self._tab(tab)
+        out = {k: v for k, v in (("read", t.timing), ("shot", t.shot_timing)) if v}
+        return out or None
 
     def input_note(self, tab: TabRef) -> str:
         """Why clicks on this tab may not land, when its latest capture went on although input readiness failed."""
@@ -2132,10 +2185,18 @@ class _TabDriver:
 
         async def capture() -> bytes | tuple[bytes, str]:    # with a note when the page couldn't be read (B6)
             import base64
+            from ferb.act.point import preview_left, preview_phase
             self.owned_by(tab.tab_id, owner)
             if self._tab(tab) is not t:
                 raise Refused('recording tab identity changed')
-            result = await t.bridge.call('record_frame', {'tab_id': t.chrome_id})
+            # a live preview's frame gives the extension only the time the preview has left (DMN-406), so a look it
+            # gave up on frees the tab then, not 30 s later; a tab whose read just timed out is captured without the
+            # page's own looks (HAND-435), masked as a page the extension can't read
+            left = preview_left()
+            timeout = CMD_TIMEOUT_S if left is None else max(0.5, left)
+            with preview_phase('extension'):
+                result = await t.bridge.call('record_frame', {'tab_id': t.chrome_id}
+                                             | ({'looks': False} if t.stuck else {}), timeout=timeout)
             if result.get('undebuggable'):               # as a screenshot: its window natively, or withheld with the
                 return await self._native_window(t, result)   # honest reason (round 4, item 5)
             if result.get('withheld'):
@@ -2145,8 +2206,10 @@ class _TabDriver:
             else:
                 parts = []
                 for i in range(int(result['parts'])):
+                    left = preview_left()
                     part = await t.bridge.call('record_frame', {'tab_id': t.chrome_id, 'part': i,
-                                                               'capture_id': result['capture_id']})
+                                                               'capture_id': result['capture_id']},
+                                               timeout=CMD_TIMEOUT_S if left is None else max(0.5, left))
                     parts.append(part['data'])
                 frame = base64.b64decode(''.join(parts))
             if result.get('unread'):                     # protocol 15 (B6): masked where it can be, said with it
@@ -2166,7 +2229,10 @@ class _TabDriver:
             await self.snapshot(tab)
         except FerbError as e:
             failed = e
-        jpeg = await self.screenshot(tab)   # secret fields painted from the extension's own rects, not this list (L13)
+        # secret fields painted from the extension's own rects, not this list (L13); after a read that timed out, no
+        # second wait on the same page's looks (HAND-435): masked as a page the extension can't read
+        stuck = isinstance(failed, DriverError) and failed.facts.get("reason") == "page_not_responding"
+        jpeg = await self.screenshot(tab, looks=not stuck)
         t = self._tab(tab)
         if failed is not None and not t.masking:
             raise failed

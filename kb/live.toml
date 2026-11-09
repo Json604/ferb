@@ -3536,5 +3536,23 @@ area = "hands"
 surface = "FERB.app with this build and the FERB extension 0.19.6 from the Chrome Web Store, in the profile FERB browses in"
 request = "Ask four short web questions, each a new task (for example \"what does example.com say?\", \"top story on news.ycombinator.com\", \"what's the price of the cheapest plan on supabase.com/pricing\", \"summarise the first review on rtings.com\"), then read each task's `ferb trace`."
 pass = "Every first read of a task's first tab answers in a few seconds; no read says \"the page isn't responding\" (if one does, the worker opens the page again in a new tab instead of reading the stuck one again). The tool.call spans of browser.snapshot carry `timing` with no step near 30 s. The task's tab group stays collapsed and nothing comes to the front."
-decisions = ["HAND-434", "HAND-439"]
+decisions = ["HAND-434", "HAND-439", "HAND-435", "HAND-436"]
 sitting = "after this change is installed and 0.19.6 is published"
+
+[LIVE-824]
+title = "The live preview keeps moving while FERB reads a page"
+area = "app"
+surface = "FERB.app with this build, the preview popover or the detached player open on a browser task"
+request = "Run a browser task that reads several pages (a news site, a long product page) and watch the preview."
+pass = "The picture keeps updating while FERB reads; \"Working in the browser\" appears only when the picture has stood still a few seconds, and goes when it moves again. \"The capture took too long\" shows at most briefly, never stuck. The notch stays smooth."
+decisions = ["DMN-406", "DMN-407", "DMN-408", "APP-799"]
+sitting = "after this change is installed"
+
+[LIVE-825]
+title = "The preview shows Mac app windows, key-press steps too, and says when the screen is locked"
+area = "app"
+surface = "FERB.app with this build; WhatsApp \"message yourself\", Notes, and a PowerPoint or Keynote file"
+request = "Run tasks that work in WhatsApp and Notes, and one that starts a slide show and moves through slides with key presses; watch the preview. Then lock the screen for a minute during a Mac task and unlock."
+pass = "The preview shows the app's window during the task, including the key-press and menu steps (not just \"Working in PowerPoint\" with no picture). After unlocking, the task's trace shows a mac.screenshot during the lock refused with \"the screen is locked\" (not a capture error), and the preview picks up again."
+decisions = ["DMN-406", "DMN-407", "HAND-437"]
+sitting = "after this change is installed"

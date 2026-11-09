@@ -75,8 +75,10 @@ class CallHooks:
     def __init__(self, gw: Any) -> None:
         from ferb.daemon.task_preview import TaskPreviews
         self.gw = gw
-        self.previews = TaskPreviews(self._frame_sanitized, lambda keys, holder: self.gw.locks.try_hold(keys, holder),
-                                     _screen_recording_allowed)
+        # a preview looks alongside a call that only reads (DMN-406); its problems go to the journal, bounded
+        self.previews = TaskPreviews(self._frame_sanitized,
+                                     lambda keys, holder: self.gw.locks.try_hold(keys, holder, during_reads=True),
+                                     _screen_recording_allowed, note=self._note_preview)
         self.looked: dict[tuple[str, str], set[str]] = {}   # (task, worker) -> apps whose window it has as evidence
         self._sampled: set[str] = set()                    # calls sampled before they ran (their span ids)
 
@@ -151,6 +153,13 @@ class CallHooks:
             return                                       # the result adds nothing: the call's own surface stands
         root = (getattr(rec, "tree_id", None) if rec is not None else None) or grant.task_id.split(".", 1)[0]
         self.previews.declare(root, grant.task_id, target, tuple(locks))
+
+    def _note_preview(self, kind: str, data: dict[str, Any]) -> None:
+        """A preview problem (preview.slow / preview.failed: surface kind, phase or error class, never a frame, title
+        or URL) in the daemon's journal; TaskPreviews bounds how often."""
+        note = getattr(self.gw, "journal_problem", None)
+        if callable(note):
+            note(kind, data)
 
     async def _frame_sanitized(self, image: bytes) -> bytes:
         """A preview frame through the same masking as every image (L13): its codes, card numbers and known secrets

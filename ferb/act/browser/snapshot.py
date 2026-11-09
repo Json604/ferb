@@ -131,6 +131,8 @@ def for_model(snap: PageSnapshot, *, full: bool = False, probe: bool = False) ->
         els = shown
     text = snap.text if full else snap.text[:MAX_TEXT]
     out: dict[str, Any] = {"tab": snap.tab.tab_id, "url": snap.url, "title": snap.title}
+    if snap.loading:                               # read at once, not after every frame loaded (HAND-434): a fact
+        out["loading"] = "the page was still loading when it was read; parts of it may be missing"
     check = bot_check(snap.frame_urls)
     if check is not None:                          # HAND-208: stated first, with the ability that covers it
         out["bot_check"] = check

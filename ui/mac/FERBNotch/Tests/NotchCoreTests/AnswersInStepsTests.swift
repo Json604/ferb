@@ -1,4 +1,6 @@
 import XCTest
+import ImageIO
+import CoreGraphics
 @testable import FERBNotch
 @testable import NotchCore
 
@@ -397,6 +399,43 @@ final class PreviewStateTests: XCTestCase {
         let none = PreviewAnswer(["state": "none", "line": "No window to show yet"])
         XCTAssertTrue(none.dropsLastFrame)
         XCTAssertEqual(none.emptyText, "No window to show yet")
+    }
+
+    // decision: APP-799, DMN-407
+    func testAFrameUnderAFewSecondsOldShowsNoLineAndAnUnchangedFrameKeepsItsNumber() {
+        // busy answers while FERB reads: the frame is a second old, so no "Working in" line blinks over it
+        let recent = PreviewAnswer(["state": "working", "line": "Working in Safari", "seq": 7, "age_ms": 900,
+                                    "fresh": false, "busy": true])
+        XCTAssertNil(recent.overlay)
+        XCTAssertEqual(recent.seq, 7)
+        XCTAssertTrue(recent.hasFrame)                                     // the app has it: no image came
+        XCTAssertFalse(recent.hasImage)
+        XCTAssertFalse(PreviewAnswer(["state": "none", "seq": 7]).dropsLastFrame)
+        let old = PreviewAnswer(["state": "working", "line": "Working in Safari", "seq": 7, "age_ms": 4200,
+                                 "fresh": false, "busy": true])
+        XCTAssertEqual(old.overlay, "Working in Safari")                   // honest once the picture is old
+        let slow = PreviewAnswer(["state": "working", "line": "Working in Safari", "seq": 7, "age_ms": 500,
+                                  "problem": ["kind": "slow", "text": "The capture took too long"]])
+        XCTAssertEqual(slow.overlay, "The capture took too long")         // the answer that ran out says so
+        let asking = PreviewAnswer(["state": "asking", "line": "Asking you: Send it?", "seq": 7, "age_ms": 100])
+        XCTAssertEqual(asking.overlay, "Asking you: Send it?")             // frozen states always say what FERB does
+    }
+
+    // decision: APP-799
+    func testAPreviewFrameIsDecodedWholeOffTheMainThread() throws {
+        let context = try XCTUnwrap(CGContext(data: nil, width: 4, height: 3, bitsPerComponent: 8, bytesPerRow: 0,
+                                              space: CGColorSpaceCreateDeviceRGB(),
+                                              bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 4, height: 3))
+        let data = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data as CFMutableData, "public.jpeg" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try XCTUnwrap(context.makeImage()), nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        let image = try XCTUnwrap(PreviewFrame.decode(base64: (data as Data).base64EncodedString()))
+        XCTAssertEqual(image.width, 4)
+        XCTAssertEqual(image.height, 3)
+        XCTAssertNil(PreviewFrame.decode(base64: "bm90IGFuIGltYWdl"))      // "not an image"
     }
 
     // decision: APP-407

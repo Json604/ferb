@@ -3027,3 +3027,13 @@ rule = "A press in FERB's other windows (Settings, Tasks) closes the notch only 
 why = "Logs 2026-11-08 13:15 (and 11-07 23:56): each refused drag ('no client initiated window drag trait gesture') came 3 ms after a no-op dismiss of the closed notch that ordered its panels out and in."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.pressedInAnotherFERBWindow", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
 untestable = "Whether the window server starts the drag is the owner's live check on the installed app; the test checks the press decision."
+
+[APP-799]
+title = "The preview fetches only new frames, decodes off the main thread, says \"Working in\" over old ones"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "FERB.app sends `have` (the seq of the frame it shows) with each tasks.preview and keeps its frame when the image is left out; a new frame is decoded whole off the main thread (PreviewFrame.decode) before it is shown; the preview publishes its answer only when what it shows changes. While FERB works in the window, the line over the frame shows only once the frame is 3 s old (age_ms; an older daemon's answer: whenever it isn't fresh); a problem's text (\"too long\" on the answer that ran out, withheld, gone, screen locked) and every frozen state's line (APP-404) show as before."
+why = "preview-lag.md: every 200 ms busy retry re-sent and re-decoded the same full frame on the main actor, and \"Working in the browser\" blinked on and off between fresh and busy answers. Owner 2026-11-08: \"it lags\"."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/PreviewState.swift::PreviewAnswer", "ui/mac/FERBNotch/Sources/NotchCore/PreviewState.swift::PreviewFrame", "ui/mac/FERBNotch/Sources/FERBNotch/TaskPreview.swift::TaskPreview"]
+live = ["LIVE-824"]

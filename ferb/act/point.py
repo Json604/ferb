@@ -6,7 +6,10 @@ A capability's `point()` must not block the event loop: synchronous Accessibilit
 `asyncio.to_thread`, so the POINT_TIMEOUT_S bound holds. `preview_target()` is synchronous and does no lookup at all: its
 `resolve` does that, off the loop, only when the app asks for a frame."""
 import math
-from collections.abc import Awaitable, Callable
+import time
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -51,3 +54,30 @@ class PreviewTarget:
     scope: str
     label: str
     resolve: Callable[[], Awaitable[tuple[dict[str, Any], Callable[[], Awaitable[Any]]]]] | None = None
+
+
+# ---------- one preview capture's own budget and phase times (DMN-406) ----------
+# Set by TaskPreviews around one capture, in that capture's task only (a context variable: worker threads started with
+# asyncio.to_thread see it too); unset everywhere else, so a worker's own call keeps its own limits. A capture uses the
+# time left to bound its own waits (a tab's record_frame, a window's Accessibility walks) and records how long each of
+# its phases took, for the preview's counters. Neither changes what a frame masks (L13).
+PREVIEW_DEADLINE: ContextVar[float | None] = ContextVar("preview_deadline", default=None)   # time.monotonic()
+PREVIEW_PHASES: ContextVar[dict[str, float] | None] = ContextVar("preview_phases", default=None)
+
+
+def preview_left() -> float | None:
+    """Seconds this preview capture has left (never below 0), or None outside one."""
+    deadline = PREVIEW_DEADLINE.get()
+    return None if deadline is None else max(0.0, deadline - time.monotonic())
+
+
+@contextmanager
+def preview_phase(name: str) -> Iterator[None]:
+    """Adds the block's time (ms) to this preview capture's phase `name`; nothing outside a preview capture."""
+    phases = PREVIEW_PHASES.get()
+    started = time.monotonic()
+    try:
+        yield
+    finally:
+        if phases is not None:
+            phases[name] = round(phases.get(name, 0.0) + (time.monotonic() - started) * 1000, 1)

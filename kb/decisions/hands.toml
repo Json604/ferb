@@ -876,3 +876,41 @@ why = "Lab 2026-11-08: one read of a 2,000-cell page spent 6.3 s adopting cells 
 evidence = "Lab 2026-11-09: identical element lists old vs new on 3 pages (2,131 on the 2,000-cell, 30-frame page; shadow roots, a cross-site frame, an ARIA grid); ax step 8.0 s -> 0.5 s."
 paths = ["extensions/chromium/ax.js::accessibilitySnapshot", "extensions/chromium/content.js::adoptAll", "extensions/chromium/protocol.js::CDP_ALLOW", "extensions/chromium/background.js::step", "extensions/chromium/background.js::withTimeout"]
 live = ["LIVE-823"]
+
+[HAND-435]
+title = "A hung read says the page isn't responding and what helps; the screenshot after it doesn't wait"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "A read of a tab (READS, with a tab_id) that times out is a DriverError, reason page_not_responding, with the extension's step when named (0.19.6), saying the same tab usually hangs again and a new tab, or navigating it to its address again, helps. browser.screenshot after such a snapshot, and a preview frame of that tab until a read answers, ask with `looks: false`: no page looks, masked as a page the extension can't read (B6)."
+why = "Live 2026-11-08: the worker saw only \"browser error: timeout\" and retried the stuck tab 2-3 times per task; every screenshot timeout (6 of 6) followed a snapshot timeout on the same tab and cost 30 s more."
+paths = ["ferb/act/browser/ext_bridge.py::not_responding", "ferb/act/browser/ext_bridge.py::_TabDriver.visual_snapshot", "ferb/act/browser/ext_bridge.py::_TabDriver.recording_source"]
+live = ["LIVE-823"]
+
+[HAND-436]
+title = "A browser read's step times are on its span, never the model's"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "A tool result's `timing` (ToolResult.timing: the extension's step times for a snapshot, a screenshot, or a read that hung) is recorded on the call's tool.call span output as `timing` and never reaches the model. A snapshot's `loading` is the worker's fact (\"the page was still loading when it was read\")."
+why = "No sub-step timing existed (browser-hang.md): which await blocked was never measured. Now `ferb trace` names the step of every slow read."
+paths = ["ferb/core/types.py::ToolResult", "ferb/daemon/gateway.py", "ferb/act/browser/tools.py::BrowserSnapshot", "ferb/act/browser/snapshot.py::for_model"]
+
+[HAND-437]
+title = "A locked or sleeping screen is said as such, never as a failed capture"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "Before a window capture, and when HAND-405's retry of a -3811 failure fails again, FERB reads whether the session's screen is locked (CGSSessionScreenIsLocked) or every online display sleeps; if so the capture raises ScreenOff: the worker's mac.screenshot is refused with \"the screen is locked (or asleep), and macOS lets no app capture windows until it's back: FERB can still read and act through Accessibility\", and a preview frame answers problem screen_locked with its last frame kept. When it can't be told, the capture is tried as before."
+why = "Owner 2026-11-08: \"its not only browsers btw, we have to chekc noramlly too\". Lab: every capture failed with SCStreamErrorDomain -3811 once the screen locked (12 of 12); live 2026-11-08: 6 mac.screenshot failures with -3811, at least 3 during display sleep."
+paths = ["ferb/act/mac/screenshot.py::screen_off", "ferb/act/mac/screenshot.py::capture"]
+live = ["LIVE-825"]
+
+[HAND-438]
+title = "A browser running from its code-signing clone is known by its bundle"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "Refines HAND-223's peer check: the browser behind a native-host connection is read from the Info.plist of the outermost `.app` or `.app.bundle` around its executable, so Chrome running from its code-signing clone (\"…/code_sign_clone.XXXX/Google Chrome.app.bundle/Contents/MacOS/Google Chrome\") is com.google.Chrome. Same-uid processes stay trusted, as before."
+why = "Lab 2026-11-09: the 1-in-3 \"extension never said hello\" starts were Chromes running from that clone (5 of 12), each connection refused as \"couldn't tell which app\". With the change 10 of 10 connected, 5 from a clone. An owner's Chrome launched so would be refused too."
+paths = ["ferb/act/browser/ext_bridge.py::_app_bundle"]

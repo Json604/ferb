@@ -28,6 +28,7 @@ from ferb.act.mac.input import (SCREEN_WIDE, PointerInterrupted, RealInput, Step
                                 type_steps, valid_combo, wheel_steps)
 from ferb.act.evidence.mask import PageState, page_masks
 from ferb.act.mac.profile import Profiles
+from ferb.act.point import preview_left, preview_phase
 from ferb.core import call_facts
 from ferb.core.errors import NoTarget, Refused, StaleRef, Withheld
 from ferb.core.types import ActionFacts, ActionResult, ComputerAction, ReceivedBy, TerminalGrant, TerminalInput
@@ -328,6 +329,17 @@ SECURE_KEYS = ("that's a password field, and this key would put text into it; FE
                "owner (the owner fills it, or mac.secret does from the Keychain)")
 WINDOW_GONE = "the window moved or closed since the screenshot; take a new one"
 SHOT_AGE_S = 30.0             # a screenshot's points are trusted this long (mac.click / mac.pointer)
+# DMN-406: a live preview frame's walks share the time its capture has left, keeping this much for the capture, the
+# paint and text recognition (each measured at 0.1-0.2 s, lab 2026-11-08); a walk never gets less than WALK_FLOOR_S
+FRAME_RESERVE_S = 1.0
+WALK_FLOOR_S = 0.2
+
+
+def _walk_budget(left: float | None, walks: int) -> float | None:
+    """The time one of a preview frame's `walks` remaining walks may take (None outside a live preview: HAND-221's)."""
+    if left is None:
+        return None
+    return max(WALK_FLOOR_S, (left - FRAME_RESERVE_S) / walks)
 
 
 def _pastes(parts: list[str]) -> bool:
@@ -582,16 +594,23 @@ class MacComputerDriver:
 
     # ---------- the one walk ----------
 
-    async def _walk(self, a: Any, window: Any = None, offset: int = 0) -> axm.AxTree:
+    async def _walk(self, a: Any, window: Any = None, offset: int = 0, *, keep: bool = True,
+                    budget_s: float | None = None) -> axm.AxTree:
         """One Accessibility walk of the app's window, cached per app: the snapshot, the signature before / after an
-        action and the password-field scan all read from it."""
+        action and the password-field scan all read from it. `keep=False` (a live preview's or a recording's frame,
+        DMN-406): the walk isn't cached, so it never replaces the tree the worker's own calls read. `budget_s`: a walk
+        shorter than HAND-221's (the time a preview capture has left); cut short, it can't tell about password fields
+        and the frame falls back to text recognition, as any walk out of budget."""
         browser = self.is_browser(a.bundle_id)
+        more = {"budget_s": budget_s} if budget_s is not None else {}
         if offset:
-            tree = await asyncio.to_thread(self.ax.read_tree, a.pid, browser, window, offset)
+            tree = await asyncio.to_thread(self.ax.read_tree, a.pid, browser, window, offset, **more)
         elif window is None:
-            tree = await asyncio.to_thread(self.ax.read_tree, a.pid, browser)
+            tree = await asyncio.to_thread(self.ax.read_tree, a.pid, browser, **more)
         else:
-            tree = await asyncio.to_thread(self.ax.read_tree, a.pid, browser, window)
+            tree = await asyncio.to_thread(self.ax.read_tree, a.pid, browser, window, **more)
+        if not keep:
+            return tree
         st = self._state.setdefault(a.bundle_id, _AppState())
         if st.pid and st.pid != a.pid:
             st = _AppState(gen=st.gen)
@@ -728,7 +747,8 @@ class MacComputerDriver:
 
     # ---------- screenshots ----------
 
-    async def _look(self, a: Any, w: Any, before: Look | None = None) -> Look:
+    async def _look(self, a: Any, w: Any, before: Look | None = None, *, keep: bool = True,
+                    budget_s: float | None = None) -> Look:
         """One look at the captured window `w` now, for its capture masks (`window_masks`): a fresh Accessibility walk
         (never an earlier one: a field may have moved since) and, for a browser, the extension's page, asked while the
         walk runs (review M6: one after the other, two looks could outlast the planner's wait for the front window).
@@ -740,7 +760,7 @@ class MacComputerDriver:
 
         async def walk() -> axm.AxTree | None:
             win = await asyncio.to_thread(self.ax.window_with_frame, a.pid, w.bounds, w.title or None, now_titled)
-            return await self._walk(a, win) if win is not None else None
+            return await self._walk(a, win, keep=keep, budget_s=budget_s) if win is not None else None
         browser = browsers.pair_key(a.bundle_id) if self.is_browser(a.bundle_id) else None
         earlier = before[1] if before is not None else None
         if not (browser and self.web_secrets) or (earlier is not None and earlier.late):
@@ -922,6 +942,9 @@ class MacComputerDriver:
         return self._window_source(a, w.id)
 
     def _window_source(self, a: Any, window_id: int) -> tuple[dict[str, Any], Any]:
+        """A live preview's or a recording's frames of one window (DMN-406): its walks are never cached (the worker's
+        own tree stays its own), and within a live preview each walk gets a share of the time the capture has left
+        (`_walk_budget`), each phase timed (resolve, walk1, capture, walk2, paint)."""
         async def current() -> Any:
             w = await asyncio.to_thread(self.shots.window, window_id)
             if w is None or w.pid != a.pid or (await self._resolve(a.bundle_id)).pid != a.pid:
@@ -929,14 +952,19 @@ class MacComputerDriver:
             return w
 
         async def capture() -> bytes | tuple[bytes, str]:
-            w = await current()
-            await self._expose(a)
+            with preview_phase("resolve"):
+                w = await current()
+                await self._expose(a)
             browser = self.is_browser(a.bundle_id)
-            first = await self._look(a, w)
+            with preview_phase("walk1"):
+                first = await self._look(a, w, keep=False, budget_s=_walk_budget(preview_left(), 2))
             image, width, height = await asyncio.to_thread(self.shots.capture, w)
             await current()
-            masks, note = window_masks(first, await self._look(a, w, first), browser)   # moved: OCR only
-            frame = await painted(image, masks, w.bounds, (width, height))
+            with preview_phase("walk2"):
+                second = await self._look(a, w, first, keep=False, budget_s=_walk_budget(preview_left(), 1))
+            masks, note = window_masks(first, second, browser)   # moved: OCR only
+            with preview_phase("paint"):
+                frame = await painted(image, masks, w.bounds, (width, height))
             return (frame, note) if note else frame
         return {'kind': 'window', 'app': a.bundle_id, 'pid': a.pid, 'window_id': window_id}, capture
 

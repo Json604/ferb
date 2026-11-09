@@ -155,6 +155,37 @@ class CaptureError(RuntimeError):
         self.domain, self.code = domain, code
 
 
+class ScreenOff(RuntimeError):
+    """The screen is locked or every display sleeps: macOS lets no app capture a window then (lab 2026-11-08: every
+    capture failed with -3811 once the screen locked). Said as such, never as a failed capture (HAND-437)."""
+
+    def __init__(self, why: str) -> None:
+        super().__init__(f"the screen is {why}, and macOS lets no app capture windows until it's back: FERB can still "
+                         "read and act through Accessibility")
+        self.why = why
+
+
+class CaptureBusy(RuntimeError):
+    """A live preview's capture found another capture under way (DMN-406): it never waits behind a worker's
+    screenshot; the preview keeps its last frame."""
+
+
+def screen_off() -> str | None:
+    """"locked" while the login session's screen is locked, "asleep" while every online display sleeps, else None
+    (also when it can't be told: a capture is then tried as before). Quartz facts, no window lookup."""
+    try:
+        import Quartz
+        info = Quartz.CGSessionCopyCurrentDictionary() or {}
+        if bool(info.get("CGSSessionScreenIsLocked", False)):
+            return "locked"
+        err, ids, count = Quartz.CGGetOnlineDisplayList(16, None, None)
+        if err == 0 and count and all(Quartz.CGDisplayIsAsleep(i) for i in list(ids)[:count]):
+            return "asleep"
+    except Exception:
+        return None
+    return None
+
+
 # userInfo keys that explain a failure; anything else in it (objects, paths) is left out.
 _REASONS = ("NSLocalizedFailureReason", "NSLocalizedRecoverySuggestion", "NSDebugDescription")
 
@@ -190,21 +221,36 @@ def _wait(start: Any) -> Any:
 
 def capture(w: Window, max_edge: int | None = MAX_EDGE) -> tuple[bytes, int, int]:
     """JPEG bytes of exactly this window, and the image size (px). A minimized window is refused by name before
-    ScreenCaptureKit is asked; FERB never unminimizes it (background first, I7). One capture at a time; a capture that
-    fails to start is tried once more after RETRY_AFTER_S (a read: nothing is delivered twice)."""
+    ScreenCaptureKit is asked; FERB never unminimizes it (background first, I7). A locked or sleeping screen is said
+    (ScreenOff, HAND-437) instead of trying. One capture at a time; a live preview's capture never waits for another
+    (CaptureBusy, DMN-406); a capture that fails to start is tried once more after RETRY_AFTER_S (a read: nothing is
+    delivered twice), and when it fails again on a screen that went off meanwhile, that is what is said."""
     from ferb.act.mac import accessibility
+    from ferb.act.point import preview_left, preview_phase
     from ferb.core.errors import Refused
     if accessibility.window_minimized(w.pid, w.bounds):
         raise Refused("that window is minimized, and FERB doesn't bring windows back on its own (it works in the "
                       "background): it can be captured once it's shown again")
-    with _capturing:
-        try:
-            return _capture_once(w, max_edge)
-        except CaptureError as e:
-            if e.code != START_FAILED:
+    if (off := screen_off()) is not None:
+        raise ScreenOff(off)
+    if not _capturing.acquire(blocking=preview_left() is None):
+        raise CaptureBusy("another capture is under way")
+    try:
+        with preview_phase("capture"):
+            try:
+                return _capture_once(w, max_edge)
+            except CaptureError as e:
+                if e.code != START_FAILED:
+                    raise
+            time.sleep(RETRY_AFTER_S)
+            try:
+                return _capture_once(w, max_edge)
+            except CaptureError as e:
+                if e.code == START_FAILED and (off := screen_off()) is not None:
+                    raise ScreenOff(off) from e
                 raise
-        time.sleep(RETRY_AFTER_S)
-        return _capture_once(w, max_edge)
+    finally:
+        _capturing.release()
 
 
 def _capture_once(w: Window, max_edge: int | None) -> tuple[bytes, int, int]:

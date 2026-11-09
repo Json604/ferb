@@ -619,3 +619,12 @@ kind = "live"
 status = "open"
 why = "HAND-434/439 reach the owner's browsers only through the store; FERB.app works with 0.19.5 meanwhile (every new field optional). Package: build/store/ferb-extension-0.19.6.zip, listing refreshed (HAND-404); 0.19.4's self-update (HAND-430) should install it."
 decisions = ["HAND-434", "HAND-439", "HAND-404", "HAND-430"]
+
+[T-1075]
+title = "Should a read give up early when the page doesn't answer its first step?"
+area = "hands"
+kind = "question"
+status = "open"
+why = "HAND-434/435 remove the freeze and the slow-frame cause; a page that still doesn't answer at all costs the full 30 s read limit. A bound on the first step alone would end such a read sooner. Rule 18: a limit that changes behaviour is the owner's."
+decisions = ["HAND-434", "HAND-435"]
+ask = "When a page doesn't let FERB's reader in at all, FERB now waits the full 30 s before saying \"the page isn't responding\". Should it give up sooner on that first step alone (say after 5 s), or keep waiting the full 30 s?"

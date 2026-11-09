@@ -51,7 +51,7 @@ class FakeAx:
     def __post_init__(self) -> None:
         self.calls: list[str] = []
 
-    def read_tree(self, pid: int, browser: bool = False, window: Any = None) -> AxTree:
+    def read_tree(self, pid: int, browser: bool = False, window: Any = None, budget_s: Any = None) -> AxTree:
         return self.tree
 
     def expose_tree(self, pid: int) -> bool:
@@ -210,7 +210,7 @@ class VisionAx(FakeAx):
         self.hit_el: Any = None                    # the app's own hit test: the element under the point
         self.clicks = 0                            # clicks posted to the app's process that it took
 
-    def read_tree(self, pid: int, browser: bool = False, window: Any = None) -> AxTree:
+    def read_tree(self, pid: int, browser: bool = False, window: Any = None, budget_s: Any = None) -> AxTree:
         secure = self.secure.pop(0) if self.secure else False
         return dataclasses.replace(self.tree, text=f"{self.tree.text} clicks={self.clicks}", secure=secure,
                                    window="win")          # the tree's masking inventory (secret rects, web areas) too
@@ -291,7 +291,7 @@ class Ax:
     calls: list[str] = field(default_factory=list)
     panels: list[tuple[str, Any]] = field(default_factory=list)
 
-    def read_tree(self, pid: int, browser: bool = False, window: Any = None) -> AxTree:
+    def read_tree(self, pid: int, browser: bool = False, window: Any = None, budget_s: Any = None) -> AxTree:
         nodes = [AxNode("box", "textbox", "Message", self.box, (0, 0, 10, 10), False, True)]
         if self.send_button:
             nodes.append(AxNode("send", "button", "Send", None, (20, 0, 10, 10), False, True))
@@ -425,7 +425,7 @@ class ScrollAx(Ax):
     keys_scroll: bool = True
     bar: bool = True
 
-    def read_tree(self, pid: int, browser: bool = False, window: Any = None) -> AxTree:
+    def read_tree(self, pid: int, browser: bool = False, window: Any = None, budget_s: Any = None) -> AxTree:
         return AxTree([AxNode("area", "textbox", "Document", "text", (0, 0, 10, 10), False, True, "AXTextArea",
                               ("menu",))], f"line {self.position}", "Untitled")
 

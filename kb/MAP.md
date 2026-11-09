@@ -6,10 +6,10 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 242 | 11 | 9 |
-| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 69 | 5 | 5 |
+| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 243 | 11 | 11 |
+| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 72 | 5 | 5 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 75 | 8 | 47 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 83 | 4 | 11 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 87 | 5 | 11 |
 | memory | Memory and memory import | `ferb/memory` | 58 | 3 | 0 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 81 | 7 | 7 |
 | perception | Perception | `ferb/sense` | 15 | 2 | 0 |
@@ -36,6 +36,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-1064 (app): While you're typing into a password field somewhere, should hovering over FERB open it without moving your typing into FERB (you'd click its box to type)?
 - T-1067 (prompts): Approve the review plan, then each proposed prompt wording and claim check.
 - T-1068 (tests): Approve the plan: which tasks, what quality measures, which surfaces.
+- T-1075 (hands): When a page doesn't let FERB's reader in at all, FERB now waits the full 30 s before saying "the page isn't responding". Should it give up sooner on that first step alone (say after 5 s), or keep waiting the full 30 s?
 
 ## Terms
 

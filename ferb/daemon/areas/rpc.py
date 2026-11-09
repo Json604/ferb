@@ -203,15 +203,20 @@ class Rpc:
         what FERB is doing, for the app to draw over the frame; `image`: the masked frame (base64 JPEG/PNG), fresh or
         the frozen last one (`fresh`); `step`/`worker`: which step's surface it shows (parallel steps each have one);
         `masking`: only text recognition masked it; `problem`: why the last capture gave no frame (withheld, gone,
-        not_allowed, slow, failed), the last frame kept; `busy`: FERB was acting there, so no new capture. Never
-        waits for the worker; ends when the app leaves. Pixels are in memory only."""
+        not_allowed, slow, failed, screen_locked), the last frame kept; `busy`: FERB was acting there, so no new
+        capture. DMN-406: `seq` and `age_ms` name the frame and how old it is; `have` (the app's frame's seq) leaves
+        the image out when it is that frame. Never waits for the worker; ends when the app leaves. Pixels are in
+        memory only."""
         import base64
         if self.gateway is None:
             return {"state": "unavailable"}
         task_id = str(params.get("task_id") or "")
         worker = params.get("worker")
+        have = params.get("have")
         try:
-            answer = await self.gateway.hooks.previews.frame(task_id, str(worker) if worker else None)
+            answer = await self.gateway.hooks.previews.frame(task_id, str(worker) if worker else None,
+                                                            have if isinstance(have, int) and not isinstance(have, bool)
+                                                            else None)
         except asyncio.CancelledError:
             raise
         except Exception:

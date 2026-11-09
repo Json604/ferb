@@ -357,7 +357,8 @@ class TwoWindowAx:
         self.button = AxNode("send", "button", "Send", None, (400.0, 190.0, 40.0, 20.0), False, True, "AXButton",
                              path=("AXWindow", "AXGroup"), index=3)
 
-    def read_tree(self, pid: int, browser: bool = False, window: Any = None, offset: int = 0) -> AxTree:
+    def read_tree(self, pid: int, browser: bool = False, window: Any = None, offset: int = 0,
+                  budget_s: Any = None) -> AxTree:
         if window is None:
             return AxTree(title="")                                       # no window to read without one named
         return AxTree([self.button], f"clicks={self.clicks}", "Chat A", secure=False, secret_rects=[], window=window)

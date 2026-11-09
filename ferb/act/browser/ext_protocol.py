@@ -110,7 +110,14 @@ Protocol 21 (step 12e, extension 0.19.0, the minimum; HAND-213, owner 2026-10-31
 - A `sound` tab event carries `muted_reason`: who last changed the tab's mute, as the browser reports it
   (`mutedInfo.reason`: "user", "capture" or "extension"; null when it was never changed). The owner's own mute or
   unmute ("user") is never recorded as a disturbance fact.
-An older extension sends no reason, so the owner's own mute could be counted against FERB."""
+An older extension sends no reason, so the owner's own mute could be counted against FERB.
+
+Extension 0.19.6 keeps protocol 21 and the minimum (HAND-434; an older extension keeps working, only without these):
+it keeps the tabs it holds awake (focus emulation at arm, before every read or act, and when Chrome reports a tab
+frozen), puts every page script in at once (injectImmediately), batches the accessibility pass, and gives a timed-out
+command up. Optional reply fields: a read's `steps` (ms per step, the accessibility counts), a snapshot's `loading`,
+and a failed command's `step` (the one in flight) and `steps`. `screenshot` and `record_frame` take `looks: false`:
+captured without the page's own looks, `unread` (the daemon masks it as a page the extension can't read)."""
 
 import base64
 import hashlib
@@ -187,6 +194,8 @@ class Result(BaseModel):
     value: Any = None
     error: str | None = None
     outcome: Literal["done", "failed", "unknown"] | None = None
+    step: str | None = Field(default=None, max_length=64)   # 0.19.6: the step a failed command was in
+    steps: dict[str, Any] | None = None                      # 0.19.6: how long each step took (ms)
 
 
 class TabEvent(BaseModel):

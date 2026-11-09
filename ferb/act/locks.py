@@ -23,13 +23,22 @@ def ordered(keys: list[str]) -> list[str]:
     return sorted(uniq, key=lambda k: (KIND_ORDER[k.split(":", 1)[0]], k))
 
 
+def _waited_for(lock: asyncio.Lock) -> bool:
+    """Someone waits for this lock (asyncio.Lock's private waiter list: a lock just released to a waiter that hasn't
+    woken yet looks free otherwise)."""
+    return any(not w.cancelled() for w in (getattr(lock, "_waiters", None) or ()))
+
+
 class ResourceLocks:
     def __init__(self) -> None:
         self._locks: dict[str, asyncio.Lock] = {}
         self._holders: dict[str, str] = {}
+        self._reading: set[str] = set()      # keys whose holder only reads (a call marked `observation`)
 
     @asynccontextmanager
-    async def hold(self, keys: list[str], holder: str) -> AsyncIterator[None]:
+    async def hold(self, keys: list[str], holder: str, reading: bool = False) -> AsyncIterator[None]:
+        """`reading`: the call only reads what these keys name (it declares `observation`); a bystander may look at
+        it meanwhile (`try_hold` with `during_reads`). It is still exclusive between calls."""
         taken: list[str] = []
         try:
             for k in ordered(keys):
@@ -37,28 +46,34 @@ class ResourceLocks:
                 await lock.acquire()
                 taken.append(k)
                 self._holders[k] = holder
+                if reading:
+                    self._reading.add(k)
             yield
         finally:
             for k in reversed(taken):
                 self._holders.pop(k, None)
+                self._reading.discard(k)
                 self._locks[k].release()
 
     @asynccontextmanager
-    async def try_hold(self, keys: list[str], holder: str) -> AsyncIterator[bool]:
+    async def try_hold(self, keys: list[str], holder: str, during_reads: bool = False) -> AsyncIterator[bool]:
         """Take every lock only if each is free and nobody waits for it, else take none and yield False at once: a
         bystander (the live preview, kb area app) never queues ahead of a worker's next call. Free locks are taken
         on asyncio's fast path, without yielding to the loop, so no worker can slip in between the look and the take.
-        (Whether anyone waits is read from asyncio.Lock's private waiter list: a lock just released to a waiter that
-        hasn't woken yet looks free otherwise.)"""
+        `during_reads` (DMN-406): a key held by a call that only reads, with nobody waiting for it, also counts as
+        available: the bystander looks alongside that read without taking the key, so it still never delays the
+        worker (a call queued behind the read makes the key busy again)."""
         order = ordered(keys)
         locks = [self._locks.setdefault(k, asyncio.Lock()) for k in order]
-        if any(lock.locked() or any(not w.cancelled() for w in (getattr(lock, "_waiters", None) or ()))
-               for lock in locks):
+        if any(_waited_for(lock) or (lock.locked() and not (during_reads and k in self._reading))
+               for k, lock in zip(order, locks)):
             yield False
             return
         taken: list[str] = []
         try:
             for k, lock in zip(order, locks):
+                if lock.locked():                    # a read holds it (during_reads): looked at alongside, not taken
+                    continue
                 await lock.acquire()
                 taken.append(k)
                 self._holders[k] = holder
