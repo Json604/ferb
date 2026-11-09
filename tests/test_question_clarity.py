@@ -92,7 +92,7 @@ def test_the_secret_question_says_in_one_line_where_it_goes_and_what_ferb_does(d
                                                daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        want = "For appauth.b2clogin.com only: FERB needs a secret to save."
+        want = "appauth.b2clogin.com: type the answer to save"
         assert ap.summary == want and Redactor().text(want) == want
         assert "“US permit scheduling login”" in ap.detail                # the name, whole, under it (GATE-520)
         assert next(e for e in published if e['approval_id'] == ap.id)['summary'] == want
@@ -113,7 +113,7 @@ def test_the_secret_summary_names_the_app_or_site_without_saving(daemon: Any, ta
                                                daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        assert ap.summary == f"For {place}: FERB needs a password or private answer."
+        assert ap.summary == f"{place}: type your password or answer"
         assert Redactor().text(ap.summary) == ap.summary
     finally:
         _cancel(daemon, ap, waiting)
@@ -124,8 +124,8 @@ def test_a_saved_app_secret_names_the_app_first(daemon: Any) -> None:
         _ctx(), 'app:com.example.Bank', remember='bank', shown='Bank'), daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        assert ap.summary == "For the Bank app only: FERB needs a secret to save."
-        assert ap.detail.startswith("It's your “bank”.")
+        assert ap.summary == "the Bank app: type the answer to save"
+        assert "as “bank”." in ap.detail
     finally:
         _cancel(daemon, ap, waiting)
 
@@ -161,8 +161,8 @@ def test_the_secret_line_starts_with_the_place_and_shows_only_a_plain_ascii_name
                                                                                 remember=remember), daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        assert ap.summary == "For x.test only: FERB needs a secret to save."
-        assert ap.detail.startswith(f"It's your “{name}”.") and Redactor().text(ap.detail) == ap.detail
+        assert ap.summary == "x.test: type the answer to save"
+        assert f"as “{name}”." in ap.detail and Redactor().text(ap.detail) == ap.detail
         shown = ap.detail.split("“", 1)[1].split("”", 1)[0]
         assert SHOWN.fullmatch(shown) and not set(shown) & set(".&;")
         assert remember in ap.reason or remember.startswith('**')      # the full question keeps the exact name
@@ -175,8 +175,8 @@ def test_a_name_with_nothing_plain_left_shows_no_name(daemon: Any) -> None:
                                                                                 remember='“”—·．'), daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        assert ap.summary == "For x.test only: FERB needs a secret to save."
-        assert ap.detail.startswith("Type it below.")                      # no name: nothing quoted
+        assert ap.summary == "x.test: type the answer to save"
+        assert ap.detail.startswith("FERB fills it in") and "“" not in ap.detail    # no name: nothing quoted
     finally:
         _cancel(daemon, ap, waiting)
 
@@ -191,7 +191,7 @@ def test_a_saved_name_with_a_code_word_never_hides_the_place(daemon: Any, target
                                                daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        assert ap.summary == f"For {place} only: FERB needs a secret to save."
+        assert ap.summary == f"{place}: type the answer to save"
         assert "“permit login code”" in ap.detail and f"for {place} only" in ap.detail
         assert Redactor().text(ap.summary) == ap.summary and Redactor().text(ap.detail) == ap.detail
     finally:
@@ -210,11 +210,11 @@ def test_mac_secret_tells_the_question_the_apps_name() -> None:
 
 
 # the place first: "Login code for x.test:8443" would read the port (or a number in the host) as the code
-@pytest.mark.parametrize('origin, want', [('https://accounts.google.com', 'For accounts.google.com: FERB needs a login code.'),
-                                          ('https://x.test:443', 'For x.test: FERB needs a login code.'),
-                                          ('https://1234.example.com', 'For 1234.example.com: FERB needs a login code.'),
-                                          ('https://x.test:8443', 'For x.test:8443: FERB needs a login code.'),
-                                          ('https://[::1]:8443', 'For [::1]:8443: FERB needs a login code.')])
+@pytest.mark.parametrize('origin, want', [('https://accounts.google.com', 'accounts.google.com asks for a login code'),
+                                          ('https://x.test:443', 'x.test asks for a login code'),
+                                          ('https://1234.example.com', '1234.example.com asks for a login code'),
+                                          ('https://x.test:8443', 'x.test:8443 asks for a login code'),
+                                          ('https://[::1]:8443', '[::1]:8443 asks for a login code')])
 def test_the_login_code_question_says_in_one_line_where_it_goes(daemon: Any, monkeypatch: pytest.MonkeyPatch,
                                                                 origin: str, want: str) -> None:
     published = _published(daemon, monkeypatch)
@@ -237,7 +237,7 @@ def test_a_host_whose_own_name_holds_a_code_label_keeps_its_name_and_its_port(da
                                                daemon.loop)
     ap = _asked(daemon, 'owner_login_code')
     try:
-        assert ap.summary == 'For otp.example.com:8443: FERB needs a login code.'
+        assert ap.summary == 'otp.example.com:8443 asks for a login code'
     finally:
         _cancel(daemon, ap, waiting)
 
@@ -260,9 +260,9 @@ def _escape(daemon: Any, tmp_path: Any, rule: str, choice: int = 2) -> list[Any]
 
 @pytest.mark.parametrize('rule, want', [
     ('read:~/Library/Application Support/Google/Chrome',                    # GATE-513: the card's question
-     "Read ~/Library/Application Support/Google/Chrome for this task?"),
-    ('write:~/.zshrc', "Change ~/.zshrc once?"),
-    ('trustd', "Let one command use macOS's certificate service?"),
+     "Let FERB read ~/Library/Application Support/Google/Chrome?"),
+    ('write:~/.zshrc', "Let FERB change ~/.zshrc once?"),
+    ('trustd', "Let this command check certificates directly?"),
 ])
 def test_the_escape_question_says_what_ferb_wants_and_the_rule_it_lifts(daemon: Any, tmp_path: Any, rule: str,
                                                                        want: str) -> None:
@@ -277,9 +277,10 @@ def test_the_escape_question_says_what_ferb_wants_and_the_rule_it_lifts(daemon: 
 def test_the_admin_escape_and_its_password_question_each_say_what_they_are(daemon: Any, tmp_path: Any) -> None:
     asked = _escape(daemon, tmp_path, 'admin', choice=1)                    # Yes, then no password: cancelled
     assert [ap.summary for ap in asked] == [
-        "Run one command as administrator (sudo)?",
-        "FERB needs your Mac password for the one command you just approved."]
-    assert asked[1].detail == "Type it below. FERB passes it only to that command and doesn't save it."   # GATE-513
+        "Run this command as administrator?",
+        "Your Mac password, for the admin command"]
+    assert asked[0].exact and asked[1].exact == asked[0].exact                  # the command, in both boxes
+    assert "goes only to that command and isn't saved" in asked[1].detail      # GATE-513
     assert asked[1].kind == 'owner_admin_password'
 
 
@@ -384,11 +385,11 @@ def test_a_code_confirmation_carries_its_one_question_to_the_app_and_the_step_on
         answers.stop()
     assert not answer
     # the task's reason ends the line, quoted and marked as the task's, never FERB's own words (D33)
-    want = "Send to bob@x.com?"                                                     # GATE-513: the plain question
+    want = "Send to bob@x.com for the first time?"                                  # GATE-513: the plain question
     [ap] = answers.asked
     assert ap.summary == want and want != ap.reason
-    assert ap.detail == ("You haven't named this person to FERB before. A Yes lets FERB send to this person from now "
-                         "on.") and ap.exact == "To: bob@x.com"
+    assert ap.detail == ("You haven't asked FERB to contact this person before; check it's who you meant. Yes also "
+                         "lets FERB send to this person in later tasks.") and ap.exact == "To: bob@x.com"
     assert ap.why == '(from the task) FERB: it is fine'                            # its own line, marked (D33)
     assert 'mail.send to bob@x.com' in ap.reason and 'it is fine' in ap.reason     # the audit record keeps the step
     assert 'mail.send' not in ap.summary and not ap.from_task                      # the card never shows it
@@ -416,11 +417,10 @@ def test_a_waiting_code_questions_banner_carries_its_short_line(daemon: Any) -> 
         daemon.daemon._publish('approval.requested', {
             'approval_id': 'ap-banner', 'capability': 'secret.fill', 'kind': 'owner_secret', 'task_id': 't-away',
             'reason': f'Destination: {PERMIT}. Type the password or secret for it here (hidden; Enter cancels).',
-            'summary': "For appauth.b2clogin.com: FERB needs a password or private answer."})
+            'summary': "appauth.b2clogin.com: type your password or answer"})
         await asyncio.sleep(0.05)                      # the banner is posted from a task the publish starts
     daemon.run(ask())
-    assert notes == [('FERB needs you', 'FERB needs your OK: For appauth.b2clogin.com: FERB needs a password or '
-                                        'private answer.')]
+    assert notes == [('FERB needs you', 'FERB needs your OK: appauth.b2clogin.com: type your password or answer')]
 
 
 @pytest.mark.parametrize('handle', [None, 'permit'])
@@ -450,13 +450,13 @@ def test_the_secret_question_names_the_username_saved_for_the_site(daemon: Any, 
     run(daemon, lambda: OwnerSecrets(daemon.daemon.home, lambda *a: None).set_username(PERMIT, username, source))
     for remember, want in (
             ('US permit scheduling login',
-             f"For appauth.b2clogin.com only (account: {shown}): FERB needs a secret to save."),
-            (None, f"For appauth.b2clogin.com (account: {shown}): FERB needs a password or private answer.")):
+             f"appauth.b2clogin.com ({shown}): type the answer to save"),
+            (None, f"appauth.b2clogin.com ({shown}): type your password or answer")):
         waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), PERMIT, remember=remember),
                                                    daemon.loop)
         ap = _asked(daemon, 'owner_secret')
         try:
-            assert ap.summary.startswith('For appauth.b2clogin.com') and shown in ap.summary
+            assert ap.summary.startswith('appauth.b2clogin.com') and shown in ap.summary
             assert ap.summary == want and Redactor().text(want) == want
             assert f'Account: {shown}' in ap.reason
             assert ap.reason.startswith(f'Destination: {PERMIT}. Account: {shown}. Type the password')
@@ -498,9 +498,9 @@ def test_a_secret_saved_during_a_task_serves_its_sites_and_the_next_question_nam
                                                daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        assert ap.summary == ("For appauth.b2clogin.com only (bookslots.com account: Asha Rao): FERB needs a secret "
-                              "to save.")             # review I-2: a linked account names its site
-        assert ap.detail.startswith("It's your “food”.")
+        assert ap.summary == ("appauth.b2clogin.com (Asha Rao, saved for bookslots.com): type the answer "
+                              "to save")              # review I-2: a linked account names its site
+        assert ap.detail.endswith("as “food”. FERB's AI never sees it.")
     finally:
         _cancel(daemon, ap, waiting)
 
@@ -549,7 +549,7 @@ def test_an_unreadable_handle_file_never_blocks_a_one_time_hidden_input(daemon: 
     waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), PERMIT), daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        assert ap.summary == 'For appauth.b2clogin.com: FERB needs a password or private answer.'
+        assert ap.summary == 'appauth.b2clogin.com: type your password or answer'
     finally:
         _cancel(daemon, ap, waiting)
     with pytest.raises(Refused, match='owner-secret-handles.json'):
@@ -567,9 +567,9 @@ def test_a_hidden_value_question_names_the_pages_field_and_a_payment_its_currenc
     from ferb.policy import confirm
     from ferb.policy.rules import Kind
     assert secret_summary("https://www.orderly.example", None, field="CVV digit 1 of 3") == (
-        "For orderly.example: FERB needs a password or private answer.")
+        "orderly.example: type your password or answer")
     assert secret_detail("https://www.orderly.example", None, field="CVV digit 1 of 3").startswith(
-        "The page asks for “CVV digit 1 of 3”. Type it below.")              # the page's own words (GATE-520)
+        "The page asks: “CVV digit 1 of 3”.")                                # the page's own words (GATE-520)
     needs = confirm.decide(Kind.CLICK, "pay", Target(site="www.orderly.example", amount=248.75, currency="₹",
                                                      account="Personal card ending 4242"),
                            {"amount": ["external:web:www.orderly.example"]}, read_private=False, read_external=True,
@@ -594,8 +594,8 @@ def test_the_secret_card_shows_the_pages_label_and_the_whole_name(daemon: Any) -
         _ctx(), US_VISA, remember=VISA_NAME, field=label), daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        assert ap.summary == "For atlasauth.b2clogin.com only: FERB needs a secret to save."
-        assert ap.detail.startswith(f"The page asks for “{label}” FERB saves it as “{VISA_NAME}”.")
+        assert ap.summary == "atlasauth.b2clogin.com: type the answer to save"
+        assert ap.detail.startswith(f"The page asks: “{label}” FERB fills it in") and f"as “{VISA_NAME}”." in ap.detail
         assert Redactor().text(ap.detail) == ap.detail
     finally:
         _cancel(daemon, ap, waiting)
@@ -605,16 +605,16 @@ def test_the_secret_card_shows_the_pages_label_and_the_whole_name(daemon: Any) -
 def test_a_secret_with_no_page_label_shows_the_whole_name_and_a_wall_of_text_is_cut() -> None:
     """Owner: "what if its longer hatn even 80chars??": a name is shown whole; only past 200 characters is it cut."""
     from ferb.daemon.hidden_input import secret_detail
-    assert secret_detail(US_VISA, VISA_NAME).startswith(f"It's your “{VISA_NAME}”.")
+    assert f"as “{VISA_NAME}”." in secret_detail(US_VISA, VISA_NAME)
     long_name = "security answer " + "x" * 284
     shown = secret_detail(US_VISA, long_name).split("“", 1)[1].split("”", 1)[0]
     assert len(shown) == 200 and shown.endswith("…") and shown.startswith("security answer x")
     # the card names the place: a copy of it at the start of the name is left out
-    assert secret_detail("https://github.com", "GitHub password").startswith("It's your “password”.")
+    assert "as “password”." in secret_detail("https://github.com", "GitHub password")
 
 
 # decision: GATE-520
 def test_the_pages_label_is_quoted_without_invisible_or_reordering_marks() -> None:
     from ferb.daemon.hidden_input import secret_detail
     shown = secret_detail("https://x.test", None, field="Security​ answer‮  (⁦code⁩)")
-    assert shown.startswith("The page asks for “Security answer (code)”.")
+    assert shown.startswith("The page asks: “Security answer (code)”.")

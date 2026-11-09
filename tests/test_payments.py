@@ -87,7 +87,7 @@ def test_the_orderly_flow_asks_once_and_the_otp_question_repeats_the_bank_page(d
         question = confirm_questions[0]["args"]["question"]
         assert "₹248.75" in question and "Orderly" in question
         codes = [ap for ap in owner.asked if ap.kind == "owner_login_code"]
-        assert len(codes) == 1 and codes[0].summary == "For secure.bank.example: FERB needs the OTP to pay INR 248.75 to ORDERLY."   # GATE-513
+        assert len(codes) == 1 and codes[0].summary == "secure.bank.example: code to pay INR 248.75 to ORDERLY"   # GATE-513
         assert len(tab.ran) == 5
         r = _pay(daemon, grant, amount="Pay ₹248.75", merchant="Orderly")         # back on the checkout: a new payment
         assert not r["is_error"] and len(_asked(daemon)) == 2

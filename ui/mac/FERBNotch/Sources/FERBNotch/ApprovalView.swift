@@ -20,7 +20,8 @@ struct ApprovalView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: inRow ? 6 : 9) {
             if !inRow {
-                Label(approval.isSecret ? "Private input needed" : approval.title ?? "FERB needs your answer",
+                // GATE-566: the header the daemon sends by the question's structure
+                Label(approval.title ?? (approval.isSecret ? "Private input needed" : "FERB needs your answer"),
                       systemImage: approval.isSecret ? "lock" : "questionmark.bubble")
                     .font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.secondary)
                 if let context = model.questionContext(approval) {
@@ -29,10 +30,10 @@ struct ApprovalView: View {
                 }
             }
             if approval.fromTask {                   // D33, GATE-225: a task's question, tagged by structure
-                Text("from the task").font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.secondary)
+                Text("asked by the AI").font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.secondary)
                     .padding(.horizontal, 6).padding(.vertical, 1.5)
                     .background(.white.opacity(0.07), in: Capsule())
-                    .accessibilityLabel("Question from the task")
+                    .accessibilityLabel("Question asked by the AI")
             }
             if approval.plainText {                  // FERB's own question: verbatim, never Markdown (D31)
                 // GATE-513 (refining GATE-225): one question in plain words, why FERB asks under it, and the exact
@@ -47,8 +48,9 @@ struct ApprovalView: View {
                 MarkdownContent(approval.visibleReason).equatable().font(.system(size: 12, weight: inRow ? .medium : .regular))
             }
             if let why = approval.why {                // the task's reason, its own words, smaller (2026-10-27)
-                // chat text draws through FERB's own text view (APP-788)
-                NativeMessageText(why, size: 11, secondary: true)
+                // chat text draws through FERB's own text view (APP-788); GATE-566: marked as the AI's words
+                NativeMessageText((approval.capability == "ferb.retry" ? "AI's note: " : "AI's reason: ") + why,
+                                  size: 11, secondary: true)
             }
             if !approval.evidence.isEmpty {
                 DisclosureGroup("App-use evidence") {
@@ -67,23 +69,26 @@ struct ApprovalView: View {
                 }
                 .padding(.top, 1)
             } else if !approval.isSecret {
-                ForEach(Array(approval.options.enumerated()), id: \.offset) { index, option in
-                    Button(option) { model.chooseApproval(approval, index: index) }
+                ForEach(Array(approval.options.indices), id: \.self) { index in
+                    Button(approval.optionLabel(index)) { model.chooseApproval(approval, index: index) }
                         .buttonStyle(FerbButtonStyle()).disabled(model.sendingAnswer)
                 }
             }
+            if !approval.isSecret, let note = approval.note {   // GATE-566: what the 30-minute answer covers
+                Text(note).font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if approval.isSecret {
-                SecureField(approval.kind == "owner_login_code" ? "Verification code" : "Password or secret", text: $answer)
+                SecureField(approval.fieldLabel ?? (approval.kind == "owner_login_code" ? "Code" : "Type it here"),
+                            text: $answer)
                     .textFieldStyle(.plain).padding(8)
                     .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
                     .focused($inputFocused)
                     .privacySensitive()
                     .onSubmit(send)
                     .accessibilityLabel(approval.kind == "owner_login_code" ? "Private verification code" : "Private password or secret")
-                Text("Sent privately to FERB’s sealed input path.")
-                    .font(.system(size: 10)).foregroundStyle(Palette.secondary)
             } else if takesTypedAnswer {
-                TextField(box == .correction ? "Or tell the task something else…" : "Your answer…", text: $answer)
+                TextField(box == .correction ? "Or tell FERB what to do instead…" : "Or type your answer…", text: $answer)
                     .textFieldStyle(.plain).padding(8)
                     .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
                     .focused($inputFocused).onSubmit(send)
@@ -109,8 +114,8 @@ struct ApprovalView: View {
     }
 
     @ViewBuilder private var optionButtons: some View {
-        ForEach(Array(approval.options.enumerated()), id: \.offset) { index, option in
-            Button(option) { model.chooseApproval(approval, index: index) }
+        ForEach(Array(approval.options.indices), id: \.self) { index in
+            Button(approval.optionLabel(index)) { model.chooseApproval(approval, index: index) }
                 .buttonStyle(FerbButtonStyle(primary: index == 0)).disabled(model.sendingAnswer)
         }
     }
@@ -118,13 +123,14 @@ struct ApprovalView: View {
     private var answerButtons: some View {
         HStack {
             if approval.isSecret || approval.options.isEmpty {     // with choices, the choices already answer it
-                Button(approval.isSecret ? "Cancel" : "Decline") {
+                Button(approval.isSecret ? approval.declineLabel ?? "Don't fill in" : "Skip") {
                     answer = ""
                     model.declineApproval(approval)
                 }.buttonStyle(FerbButtonStyle(quiet: true))
             }
             Spacer()
-            Button(model.sendingAnswer ? "Sending…" : "Send", action: send)
+            Button(model.sendingAnswer ? "Sending…" : approval.isSecret ? approval.sendLabel ?? "Fill in" : "Send",
+                   action: send)
                 .buttonStyle(FerbButtonStyle(primary: true)).disabled(answer.isEmpty || model.sendingAnswer)
         }.disabled(model.sendingAnswer)
     }

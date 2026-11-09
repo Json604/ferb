@@ -270,13 +270,15 @@ class ForgetPlan:
     # MEM-11: known destinations (people, sites, addresses) the item names: a send to them asks again
     destinations: list[tuple[str, str]] = field(default_factory=list)   # (kind, value)
 
-    def describe(self, db: Database) -> list[str]:
-        """Exactly what the forget deletes, and what it keeps."""
+    def describe(self, db: Database, plain: bool = False) -> list[str]:
+        """Exactly what the forget deletes, and what it keeps. `plain`: the owner's card (GATE-566): each item by its
+        own words, without FERB's internal kind, subject and key."""
         out = []
         for r in db.conn.execute(f"SELECT content, kind, subject, key FROM memory_items WHERE id IN "
                                  f"({','.join('?' * len(self.items))}) ORDER BY seq", self.items).fetchall() \
                 if self.items else []:
-            out.append(f"memory item “{' '.join(str(r['content']).split())}” ({r['kind']} · {r['subject']} · {r['key']})")
+            said = f"“{' '.join(str(r['content']).split())}”"
+            out.append(said if plain else f"memory item {said} ({r['kind']} · {r['subject']} · {r['key']})")
         if self.trail:
             out.append(f"{len(self.trail)} recorded activity row(s) it was learned from")
         if self.rebuild_days:

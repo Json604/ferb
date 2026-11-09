@@ -274,9 +274,11 @@ class Retention:
                 self._memory_questions().answered(approval_id)
                 if self.state.approvals.supersede(approval_id) is not None:
                     self._publish("approval.resolved", {"approval_id": approval_id, "state": "superseded"})
-        reason = (f"FERB's downloads folder is over its {_gb(over.cap)} limit ({_gb(over.total)} now). Delete its "
-                  f"{len(over.ids)} oldest file{'s' if len(over.ids) != 1 else ''} ({_gb(over.bytes)}) for good to get "
-                  "back under it? Nothing is deleted unless you say Yes.")
+        many = len(over.ids) != 1                       # GATE-566: the card's question, then its why line
+        reason = (f"Delete FERB's {f'{len(over.ids)} oldest downloads' if many else 'oldest download'} for good?\n"
+                  f"FERB's downloads folder is at {_gb(over.total)}, over its {_gb(over.cap)} limit; this frees "
+                  f"{_gb(over.bytes)}. {'They skip' if many else 'It skips'} the Trash. Nothing is deleted unless you "
+                  "choose Delete.")
         self._ask_owner("downloads:over_cap", json.dumps(list(over.ids)), reason,
                         f"downloads-cap-{self.clock.now().strftime('%Y%m%dT%H%M%S')}")
         self._journal().append("downloads.cap_asked", {"files": len(over.ids), "bytes": over.bytes,

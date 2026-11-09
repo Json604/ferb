@@ -257,6 +257,7 @@ class Owner:
     def __init__(self, d: RunningDaemon, answers: list[bool]) -> None:
         self.d, self.answers, self.asked, self.summaries = d, list(answers), [], []
         self.exacts: list[str] = []                       # GATE-513: each card's code box (the exact input)
+        self.details: list[str] = []                      # and its why line
         self._task = asyncio.run_coroutine_threadsafe(self._loop(), d.loop)
 
     async def _loop(self) -> None:
@@ -270,6 +271,7 @@ class Owner:
                 self.asked.append(ap.reason)
                 self.summaries.append(ap.summary)
                 self.exacts.append(ap.exact)
+                self.details.append(ap.detail)
             await asyncio.sleep(0.02)
 
     def stop(self) -> None:
@@ -323,8 +325,8 @@ def test_the_live_sequence_asks_first_and_a_yes_types_once_and_sends_its_return(
     assert ax.landed == [("term108", "type codex"), ("term108", "key ENTER")]     # once each, in FERB's terminal
     asked = _questions(daemon)[1:]                                                # after the menu's question
     assert len(asked) == 1 and asked[0]["confirm"][0]["rule"] == confirm.TERMINAL_INPUT and asked[0]["answer"] == YES
-    assert owner.summaries[1:] == ['Run this command in Code (terminal "Terminal 108, zsh Use ⌥F1 for…", window '
-                                   '"FERB")?']
+    assert owner.summaries[1:] == ["Run this command in Code?"]
+    assert 'terminal "Terminal 108, zsh Use ⌥F1 for…", window "FERB"' in owner.details[1]    # which terminal
     assert owner.exacts[1:] == ['codex']                                          # the exact input, in its box
     assert '"codex"' in asked[0]["question"] and "xterm" in asked[0]["question"]
     assert "this Yes covers this one input only" in asked[0]["question"]
@@ -383,7 +385,8 @@ def test_a_return_ferb_did_not_type_for_asks_and_says_what_it_runs(daemon: Runni
     finally:
         owner.stop()
     assert out["is_error"] and ax.landed == []
-    assert owner.summaries == ['Press Return in Code (terminal "Terminal 57, claude Use ⌥F1 f…", window "FERB")?']
+    assert owner.summaries == ["Press Return in Code's terminal?"]
+    assert 'terminal "Terminal 57, claude Use ⌥F1 f…", window "FERB"' in owner.details[0]
 
 
 def test_the_editor_needs_no_question(daemon: RunningDaemon, monkeypatch: Any) -> None:
@@ -403,8 +406,8 @@ def test_a_menu_paste_into_the_focused_terminal_asks_with_the_clipboards_text(da
     finally:
         owner.stop()
     assert not out["is_error"], out
-    assert owner.summaries == ['Paste this into Code (terminal "Terminal 108, zsh Use ⌥F1 for…", window "FERB") and '
-                               'press Return?']
+    assert owner.summaries == ["Paste this into Code's terminal and run it?"]
+    assert 'terminal "Terminal 108, zsh Use ⌥F1 for…", window "FERB"' in owner.details[0]
     assert owner.exacts == ['codex']                                              # the clipboard's text, in its box
     assert ax.landed == [("term108", "paste")]
 
@@ -656,8 +659,8 @@ def test_a_secret_into_vscodes_terminal_asks_first_and_a_no_fills_nothing(daemon
     finally:
         owner.stop()
     assert out["is_error"] and asked == [] and ax.landed == []                     # no hidden prompt, nothing set
-    assert owner.summaries == ['FERB wants to fill your secret "sudo password" (FERB never shows it) into the terminal '
-                               '"Terminal 108, zsh Use ⌥F1 for…" in Code (window "FERB").']
+    assert owner.summaries == ["Fill your secret “sudo password” into Code's terminal?"]
+    assert "FERB never shows it" in owner.details[0] and '"Terminal 108, zsh Use ⌥F1 for…"' in owner.details[0]
 
 
 def test_a_secret_into_a_terminal_without_the_yes_is_refused_by_the_tool_itself(monkeypatch: Any) -> None:
@@ -717,7 +720,7 @@ def test_a_script_for_a_terminal_app_or_system_events_asks_and_a_no_runs_nothing
     finally:
         owner.stop()
     assert out["is_error"] and ran == []
-    assert owner.summaries[0].startswith(f'FERB wants to run the AppleScript "do script \\"rm -rf ~/x\\"" in {name}')
+    assert owner.summaries[0] == f"Let {name} run this script?" and owner.exacts[0] == 'do script "rm -rf ~/x"'
 
 
 def test_a_script_for_an_ordinary_app_runs_without_a_question(daemon: RunningDaemon, monkeypatch: Any) -> None:
@@ -934,7 +937,8 @@ def test_a_script_for_an_app_that_runs_code_asks(daemon: RunningDaemon, monkeypa
         out = gateway_tool_call(daemon, grant, "mac.applescript", app=name, script="get name of front window")
     finally:
         owner.stop()
-    assert out["is_error"] and ran == [] and owner.summaries[0].startswith("FERB wants to run the AppleScript")
+    assert out["is_error"] and ran == [] and owner.summaries[0] == f"Let {name} run this script?"
+    assert owner.exacts[0] == "get name of front window"                          # the script, in its box
 
 
 def test_a_finder_script_naming_a_file_that_runs_in_a_terminal_shows_and_binds_its_text(monkeypatch: Any,
@@ -1337,4 +1341,4 @@ def test_a_finder_script_that_copies_ferbs_own_files_asks_showing_it(daemon: Run
     finally:
         owner.stop()
     assert out["is_error"] and ran == []
-    assert "auth.json" in owner.summaries[0] and "its own access, past FERB's protection lists" in owner.summaries[0]
+    assert "auth.json" in owner.exacts[0] and "its own access, outside FERB's safety limits" in owner.details[0]

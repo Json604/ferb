@@ -3849,3 +3849,30 @@ request = "Ask FERB to type a word into the test page's field and then stop ther
 pass = "Nothing comes to the front when the task ends. FERB says it couldn't close that one tab; the tab is in FERB's own window with the page's question, and closing it there works."
 decisions = ["HAND-448"]
 sitting = "after this change is installed and 0.19.7 is published"
+
+[LIVE-861]
+title = "FERB's questions read as reviewed, and their action buttons still answer"
+area = "gateway"
+surface = "FERB.app with this build"
+request = "Run a task that types into Terminal (say Yes), one that opens a link carrying a value from a file of yours (say Don't open), and one that needs a login code (Don't enter). Then answer one card by typing \"yes\" in chat."
+pass = "Each card has a short question, a why line and the exact thing in a box; buttons say the action (Run it / Don't run, Open it / Don't open, Enter code / Don't enter); each button does what it says, and typed \"yes\" counts as Yes. Headers read \"Check before FERB goes on\" or \"Private — only the page gets this\"."
+decisions = ["GATE-566", "GATE-567", "APP-826"]
+sitting = "after this change is installed"
+
+[LIVE-862]
+title = "A public page's id goes out unasked; a value from your mail still asks"
+area = "gateway"
+surface = "FERB.app with this build, a paired profile signed in to Gmail"
+request = "Ask FERB to find a Hacker News story through Hacker News search and open its comments by id; then to open a job from a LinkedIn job alert in your Gmail by its id on another job site."
+pass = "The Hacker News id goes out without a question (when the page shows it without your sign-in); the id from your mail asks before it is sent elsewhere."
+decisions = ["GATE-568", "GATE-569"]
+sitting = "after this change is installed"
+
+[LIVE-863]
+title = "\"cs50\" goes to cs50.harvard.edu without a question"
+area = "gateway"
+surface = "FERB.app with this build"
+request = "Ask FERB to open the CS50 SQL problem set 0 page on cs50.harvard.edu after it read the course's home page."
+pass = "No question about sending \"cs50\" to cs50.harvard.edu."
+decisions = ["GATE-570", "GATE-571"]
+sitting = "after this change is installed"

@@ -26,6 +26,7 @@ RULES: dict[str, dict[str, str]] = {
     confirm.SINK_DESTINATION: {"text": "reaching forms.example.com"},
     "sink:private_url": {"destination": "www.overleaf.com", "value": "ceae41", "matched": "ceae41",
                          "source": "the result of browser.snapshot on mail.google.com", "read": "mail.google.com",
+                         "source_plain": "your signed-in mail.google.com page",
                          "url": "https://www.overleaf.com/latex/templates/ceae41"},
     "sink:outside_value": {"what": "typed", "value": "4417 1234 5678", "origin": "a page on example.com"},
     confirm.BULK: {"what": "send", "count": "3", "bytes": "2 KB", "sample": '"a", "b", "c"'},
@@ -50,9 +51,10 @@ def test_every_rule_has_a_plain_question_with_its_facts_and_with_none(rule: str)
 # decision: GATE-513
 def test_the_overleaf_question_reads_plainly_with_the_address_in_its_box() -> None:
     made = confirm.card([_need("sink:private_url", RULES["sink:private_url"])])
-    assert made.question == 'Send "ceae41" to www.overleaf.com by opening this page?'
-    assert made.detail == ("FERB read it on mail.google.com, and the page's address carries it. A Yes also lets FERB "
-                           "open www.overleaf.com in later tasks.")              # what the Yes allows (GATE-205)
+    assert made.question == "Open www.overleaf.com? The link includes “ceae41”"
+    assert made.detail == ("FERB treats “ceae41” as yours because it read it in your signed-in mail.google.com page. "
+                           "Opening this link shows it to www.overleaf.com. Yes also lets FERB open www.overleaf.com in "
+                           "later tasks.")                                       # what the Yes allows (GATE-205)
     assert made.exact == "https://www.overleaf.com/latex/templates/ceae41"
 
 
@@ -61,8 +63,8 @@ def test_several_needs_make_one_question_with_every_exact_part() -> None:
     made = confirm.card([_need("floor:new_recipient", RULES["floor:new_recipient"]),
                          _need("sink:outside_value", {"what": "recipient", "value": "rahul@example.com",
                                                       "origin": "an email"})], typed='"see you at 5"')
-    assert made.question == "Send to rahul@example.com?"
-    assert "Send to this address, which came from something FERB read?" in made.detail
+    assert made.question == "Send to rahul@example.com for the first time?"
+    assert "You never gave FERB this address; it came from an email." in made.detail
     assert 'Text last typed there: ""see you at 5""' in made.detail
     assert made.exact.split("\n") == ["To: rahul@example.com", "rahul@example.com"]
 
@@ -104,8 +106,9 @@ def test_the_app_gets_the_why_line_and_the_exact_part(daemon: RunningDaemon, mon
     ap = _ask(daemon, [_need("floor:new_recipient", RULES["floor:new_recipient"])])
     event = next(e for e in published if e["approval_id"] == ap.id)
     assert (event["summary"], event["detail"], event["exact"]) == (
-        "Send to rahul@example.com?",
-        "You haven't named this person to FERB before. A Yes lets FERB send to this person from now on.",
+        "Send to rahul@example.com for the first time?",
+        "You haven't asked FERB to contact this person before; check it's who you meant. Yes also lets FERB send to "
+        "this person in later tasks.",
         "To: rahul@example.com")
 
 
@@ -120,11 +123,11 @@ def test_a_payments_code_question_says_what_it_pays() -> None:
     read = Approval(cid="c1", chain="t1", host="orderly.example", amount="₹248.75", merchant="Orderly", at=at,
                     bank_amount="INR 248.75", bank_merchant="ORDERLY")
     question, why, exact = otp_card("secure.bank.example", read)
-    assert question == "For secure.bank.example: FERB needs the OTP to pay INR 248.75 to ORDERLY."
-    assert exact == "INR 248.75 → ORDERLY · secure.bank.example" and "used once" in why
+    assert question == "secure.bank.example: code to pay INR 248.75 to ORDERLY"
+    assert exact == "INR 248.75 → ORDERLY · secure.bank.example" and "once" in why
     unread = Approval(cid="c1", chain="t1", host="orderly.example", amount="₹248.75", merchant="Orderly", at=at)
     question, why, exact = otp_card("secure.bank.example", unread)
-    assert question == "For secure.bank.example: FERB needs the OTP for the payment you approved (₹248.75 to Orderly)."
+    assert question == "secure.bank.example: code for the payment you approved (₹248.75 to Orderly)"
     assert why.startswith("FERB couldn't read the amount on this page.")
 
 
@@ -141,7 +144,7 @@ def test_a_yes_that_makes_a_destination_known_for_good_says_so(rule: str, values
     """The fresh review's main finding: a Yes to these makes the person or site known for good (SQ6, GATE-205,
     Gateway._known_from), so the card must say what the Yes allows, not only what happens now."""
     made = confirm.card([confirm.Need(rule, rule + ":k", values, destinations=destinations)])
-    assert "from now on" in made.detail or "in later tasks" in made.detail, made
+    assert any(said in made.detail for said in ("from now on", "in later tasks", "again later", "to it later")), made
 
 
 # decision: GATE-514
@@ -154,7 +157,7 @@ def test_a_question_that_types_into_a_terminal_leads_with_the_command() -> None:
                                                         "surface": "a terminal app"})])
     assert made.question == "Run this command in Terminal?"
     assert made.exact.split("\n")[0] == "rm -f -- a.pdf"
-    assert "Delete this for good?" in made.detail and "Let FERB use your screen in Terminal" in made.detail
+    assert "permanently deletes" in made.detail and "Terminal comes to the front" in made.detail
 
 
 # decision: GATE-514
@@ -172,18 +175,18 @@ def test_a_card_names_a_running_app_by_its_name_never_its_bundle_id(monkeypatch:
 
 # decision: GATE-564, GATE-561
 def test_a_saved_ordinary_word_never_blanks_ferbs_own_words(daemon: RunningDaemon) -> None:
-    """Past bug (an application task, 2026-11-09): a saved security answer that is an ordinary word ("anything" here) is
-    hidden wherever it appears, and the whole card was scanned, so FERB's own sentence read "not in [redacted] you said
-    or wrote", which also showed which word is sealed. Values are redacted each by itself; FERB's words are not scanned,
+    """Past bug (an application task, 2026-11-09): a saved security answer that is an ordinary word ("anything" then,
+    "plant" here) is hidden wherever it appears, and the whole card was scanned, so FERB's own sentence read "not in
+    [redacted] you said or wrote", which also showed which word is sealed. Values are redacted each by itself; FERB's words are not scanned,
     in the card, its record and what clients get."""
     from types import SimpleNamespace
     gateway = daemon.daemon.gateway
-    gateway.redact.add_secret_value("anything")
-    need = confirm.Need("sink:outside_value", "k", {"what": "typed", "value": "anything",
+    gateway.redact.add_secret_value("plant")
+    need = confirm.Need("sink:outside_value", "k", {"what": "typed", "value": "plant",
                                                   "origin": "the web page on mysite.example"})
     ap = SimpleNamespace(summary="", detail="", exact="")
     gateway._set_card(ap, [need], "", False)
-    assert "anything" in ap.detail and "[redacted]" not in ap.detail     # FERB's own words stay whole
+    assert "plant" in ap.detail and "[redacted]" not in ap.detail     # FERB's own words stay whole
     assert ap.exact == "[redacted]"                                     # the secret value itself is still hidden
 
     async def stored() -> str:
@@ -193,3 +196,18 @@ def test_a_saved_ordinary_word_never_blanks_ferbs_own_words(daemon: RunningDaemo
     assert "[redacted]" not in daemon.run(stored())                      # the record keeps them whole too
     assert gateway.built(f"a secret for {gateway.value('https://site.example')}") == \
         "a secret for https://site.example"                             # GATE-546's record of a secret question
+
+
+# decision: GATE-566, GATE-512
+def test_action_word_buttons_still_answer_yes_or_no(daemon: RunningDaemon) -> None:
+    """The reviewed cards' buttons say the action ("Send", "Don't send"), but the answer recorded is still the option:
+    the app answers by number, and a typed answer picks by the option's words or its button's words."""
+    from ferb.daemon.questions import Approval, card_parts
+    ap = _ask(daemon, [_need("floor:new_recipient", RULES["floor:new_recipient"])])   # the app's second button
+    assert len(ap.labels) == len(ap.options) == 3 and ap.options[:2] == ("Yes", "No")
+    assert ap.choice == "No"
+    typed = Approval("ap-1", "ferb.confirm", "r", "req", options=ap.options, labels=ap.labels)
+    for said, picked in ((ap.labels[0], 1), ("yes", 1), (ap.labels[1], 2), ("No", 2), (ap.labels[2], 3)):
+        assert typed.option_for(said) == picked, said
+    assert typed.option_for("1") is None                          # FERB's checks take words, never a number
+    assert card_parts(typed)["labels"] == list(ap.labels) and card_parts(typed)["title"]

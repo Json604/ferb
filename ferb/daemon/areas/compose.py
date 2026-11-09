@@ -9,6 +9,7 @@ from ferb.act.fs import recovery
 from ferb.act.fs.changes import Changes
 from ferb.core import origin as origin_
 from ferb.core.errors import FerbError
+from ferb.daemon import signed_out
 from ferb.daemon.gateway import FsRoots, Gateway
 from ferb.memory import search as memory_search
 from ferb.orchestrator.supervisor import Supervisor
@@ -125,7 +126,8 @@ class Compose:
                                    on_path=self.attribution.ferb_touched, route_question=questions,
                                    shadow_action=self._destructive_shadow, test_send_allowlist=allowlist,
                                    test_questions=record_questions,
-                                   standing=StandingPermissions(self.db)))
+                                   standing=StandingPermissions(self.db),
+                                   signed_out=lambda url: signed_out.fetch(url)))     # GATE-569
         self.supervisor = Supervisor(
             make_runtime=self._make_runtime, gateway=self.gateway, state=self.state, tokens=self.tokens,
             tasks=self.tasks, spans=self.spans, journal=self.journal, publish=self._publish, clock=self.clock,

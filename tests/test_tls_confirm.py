@@ -33,10 +33,10 @@ def test_the_live_pip_command_asks_with_the_exact_command_and_a_no_runs_nothing(
     [asked] = owner.asked
     expected = QUESTION.format(command=_one_line(LIVE), host="pypi.org or files.pythonhosted.org")
     assert expected in asked.reason                                          # the record keeps the full question
-    assert asked.summary == "Run this with certificate checks turned off?"    # GATE-513: the card's parts
+    assert asked.summary == "Run this without checking the site is real?"    # GATE-513: the card's parts
     assert asked.exact == _one_line(LIVE)                                    # the exact command, word for word
-    assert asked.detail == ("It won't check that it's really talking to pypi.org or files.pythonhosted.org, so "
-                            "someone in between could read or change what's sent.")
+    assert asked.detail == ("It skips the check that it's really talking to pypi.org or files.pythonhosted.org, so "
+                            "someone on your network could swap what it downloads. Yes covers only this command.")
     assert "already said no" in again["content"]["error"]
 
 
@@ -63,9 +63,9 @@ def test_a_command_with_no_named_site_says_so(daemon: RunningDaemon) -> None:
     gateway_tool_call(daemon, grant, "probe.shell", text="PYTHONHTTPSVERIFY=0 python3 fetch.py")
     owner.stop()
     ap = owner.asked[0]                                     # GATE-513: the question, its why line, the exact command
-    assert ap.summary == "Run this with certificate checks turned off?"
-    assert ap.detail == ("It won't check that it's really talking to each site it reaches, so someone in between "
-                         "could read or change what's sent.")
+    assert ap.summary == "Run this without checking the site is real?"
+    assert ap.detail == ("It skips the check that it's really talking to each site it reaches, so someone on your "
+                         "network could swap what it downloads. Yes covers only this command.")
     assert ap.exact == "PYTHONHTTPSVERIFY=0 python3 fetch.py"
 
 

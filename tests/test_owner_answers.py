@@ -151,7 +151,7 @@ def test_a_floor_check_never_takes_anything_but_a_plain_yes_or_no(daemon: Runnin
     install(daemon, [_routed(pay.id, "Yes"), _routed(pay.id, "Yes")])
     events = chat(daemon, "sure, sounds good I guess", session="s")
     assert pay.state == "pending" and [e["type"] for e in events] == ["clarify"]
-    assert pay.reason in events[0]["text"] and "/answer" not in events[0]["text"]
+    assert pay.summary in events[0]["text"] and "/answer" not in events[0]["text"]   # GATE-566: the card's question
     chat(daemon, "Yes", session="s")                                      # asked about exactly this one: unambiguous
     assert pay.state == "granted" and pay.choice == "Yes"
     assert not call.result(timeout=5)["is_error"]

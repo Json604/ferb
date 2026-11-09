@@ -13,6 +13,7 @@ from typing import Any, Awaitable, Callable
 from ferb.core import origin as origin_
 from ferb.core.errors import Deferred, FerbError, Refused
 from ferb.daemon.areas.shared import EDIT_HIDDEN, _all_hidden
+from ferb.daemon.questions import card_parts
 from ferb.daemon.server import Session
 from ferb.memory.learning import SEARCH_TEXT_VERSION, reindex_search, search_indexed
 from ferb.orchestrator.worker import reason
@@ -21,8 +22,11 @@ from ferb.store.db import Database
 
 def _named_node(node: dict[str, Any]) -> str:
     """How FERB names a learned item to the owner in a "Forget for good?" question."""
-    return f"learned item “{' '.join(str(node['key']).split())}” ({node['kind']})"
+    return f"“{' '.join(str(node['key']).split())}”"
 
+
+# GATE-566: the buttons' words of FERB's own questions outside tasks (Yes, No)
+OWN_LABELS = {"forget": ("Forget it", "Keep it"), "downloads": ("Delete them", "Keep them")}
 
 # Step 9a: FERB's questions about memory that no longer exist (MEM-12: no Keep / Edit / Drop, no Retire / Keep);
 # rows an older build left waiting are dropped at start
@@ -571,15 +575,19 @@ class MemoryGlue:
         ident = str(node["body"].get("id", "")) if node and node["kind"] == "fact" else item_id
         if self.memory is not None and self.memory.get(ident) is not None:
             plan = self.memory.plan_forget(ident)
-            target, lines, keeps = ("memory", ident), plan.describe(self.db), plan.keeps()
+            target, lines, keeps = ("memory", ident), plan.describe(self.db, plain=True), plan.keeps()
         elif node is not None and node["kind"] not in ("fact", "identity") and self.learning is not None:
             doomed = sorted(self.learning.descendants([item_id]))
             target = ("learning", item_id)
-            lines, keeps = [f"{_named_node(node)} and {len(doomed) - 1} record(s) built on it"], ""
+            built = len(doomed) - 1
+            lines = [_named_node(node) + (f" and {built} thing{'s' if built != 1 else ''} it learned from it"
+                                          if built else "")]
+            keeps = ""
         else:
             return "I couldn't find that memory, so nothing was deleted."
-        reason = ("Forget for good? This deletes:\n" + "\n".join("- " + line for line in lines) +
-                  (f"\n{keeps}" if keeps else ""))
+        # GATE-566: the card's question, then its why line: exactly what goes and what stays
+        reason = ("Forget this for good?\nFERB deletes: " + "; ".join(lines) + "." + (f" {keeps}" if keeps else "")
+                  + " It can't be brought back.")
         self._ask_owner("forget:" + target[0], target[1], reason, "memory-forget-" + request_id)
         return reason + "\nAnswer Yes or No."
 
@@ -597,10 +605,16 @@ class MemoryGlue:
         action = ActionRequest(capability, "owner_question", Identity.OWNER, frozenset(), "", "", request_id,
                                frozenset())
         ap = self.state.approvals.question(action, reason, list(options if options is not None else fixed), approval_id)
+        # GATE-566: the card shows the question's first line, the rest under it, and the buttons' action words
+        title, _, rest = reason.partition("\n")
+        if rest.strip():
+            ap.summary, ap.detail = title.strip(), " ".join(rest.split())
+        ap.labels = OWN_LABELS.get(kind.split(":", 1)[0], ())
         self._memory_questions().keep(ap.id, kind, ident, reason, request_id, self.clock.now().isoformat())
         self._owner_followups[ap.id] = (kind, ident)
         self._publish("approval.requested", {"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind,
-                                             "reason": ap.reason, "task_id": None, "options": list(ap.options)})
+                                             "reason": ap.reason, "task_id": None, "options": list(ap.options)}
+                      | ({"summary": ap.summary} if ap.summary else {}) | card_parts(ap))
         return ap.id
 
     def _memory_questions(self) -> Any:

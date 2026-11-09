@@ -147,7 +147,7 @@ def test_a_picked_profile_that_is_gone_is_asked_about_again_and_one_question_is_
     first = run(daemon, lambda: d._browsing(True, "r1"))
     assert run(daemon, lambda: d._browsing(True, "r2")) == first                                       # the open question, not a second
     ap = d.state.approvals.get(first["ask"])
-    assert ap.reason.startswith(browsing.GONE.format(label="Google Chrome “Profile 1”"))
+    assert browsing.GONE.format(label="Google Chrome “Profile 1”") in ap.reason
     assert run(daemon, lambda: d._browsing(False, "r3"))["note"].startswith("This run had no browser: the profile")
     d.config.set("identity", "profile", "Profile 7")                              # FERB's own profile: as before
     assert run(daemon, lambda: d._browsing(True, "r4")) == {}

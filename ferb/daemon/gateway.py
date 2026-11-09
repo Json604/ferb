@@ -142,6 +142,10 @@ RETRY_STALE = ("the action was tried again while the owner was being asked, so t
 # D33, S4: FERB's own question about a call, and what the worker is told when it doesn't run.
 YES, NO = "Yes", "No"
 ALLOW_WINDOW = "Yes, and don't ask for 30 min"   # a routine question's third answer (owner 2026-10-27)
+# GATE-566 (owner): the third button's words on a reviewed card, and what it covers (GATE-207's routine questions)
+ALLOW_WINDOW_LABEL = "Allow, and don't ask again for 30 min"
+ALLOW_WINDOW_NOTE = ("Covers only screen use, browser settings pages, private-folder reads, new people and profile "
+                     "pairing — never money, deleting, terminals or sending your data.")
 SAID_NO = "the owner said no to this: {line}"
 ALREADY_NO = "the owner already said no to this in this task: {line}"
 NO_ANSWER = "the owner didn't answer FERB's question, so it didn't run: {line}"
@@ -319,11 +323,19 @@ def _app_name(app: str) -> str:
 
 
 def retry_question(action: str, attempts: list[LedgerRow]) -> str:
-    """A retry question as its card shows it (P19, GATE-225): the action in plain words (`action`, built by code from the
-    tool and its target) and what a Yes risks: the attempts that may have happened or did, plus this one. The full
-    retry_line (the attempts, the call and its unknown-outcome error) stays the approval's reason and the span's."""
+    """A retry question as its card shows it (P19, GATE-225; GATE-566's words): the action in plain words (`action`,
+    built by code from the tool and its target). What a Yes risks is its why line (`retry_detail`). The full retry_line
+    (the attempts, the call and its unknown-outcome error) stays the approval's reason and the span's."""
+    return f"Try {action} again?"
+
+
+RETRY_LABELS = ("Try again", "Don't retry")      # GATE-566: the retry's buttons (Yes, No)
+
+
+def retry_detail(attempts: list[LedgerRow]) -> str:
+    """What a retry's Yes risks (GATE-566): the attempts that may have happened or did, plus this one."""
     times = sum(a.intent.state in ("unknown", "done") for a in attempts) + 1
-    return (f"Try {action} again? The last try may already have gone through, so it could happen "
+    return ("FERB lost track of the last try, so it may already have worked; trying again could do it "
             f"{'twice' if times == 2 else f'up to {times} times'}.")
 
 
@@ -420,6 +432,7 @@ class OutsideTexts:
     said: dict[int, str] = field(default_factory=dict)
     ready_owners: dict[int, list[tuple[frozenset[str], provenance.Text]]] = field(default_factory=dict)
     preparing: asyncio.Lock = field(default_factory=asyncio.Lock)     # one off-loop preparation per tree at a time
+    signed_out: dict[str, str | None] = field(default_factory=dict)   # GATE-569: each page's signed-out text, once
 
 
 @dataclass
@@ -460,6 +473,8 @@ class GatewayDeps:
     test_send_allowlist: set[str] | None                # test mode only: send-class actions may reach just these
     test_questions: bool                                # GATE-546: test mode records questions, answers from a table
     standing: Any = None                                # D30: standing permissions (None: every question is asked)
+    # GATE-569: a page's signed-out text (ferb/daemon/signed_out.py), None when FERB can't tell; None: never fetched
+    signed_out: Callable[[str], Awaitable[str | None]] | None = None
 
 
 class Observer:
@@ -617,6 +632,7 @@ class Gateway:
         # L36 §6: the memory sources a login record's username may still come from (the daemon's memory; None: any)
         self.username_sources: Callable[[], Container[str] | None] = deps.username_sources
         self.owner_contacts: Callable[[], frozenset[str]] = deps.owner_contacts
+        self.signed_out = deps.signed_out
         self.disturbance: Any = deps.disturbance
         self.test_send_allowlist: set[str] | None = deps.test_send_allowlist   # test mode: sends reach just these
         self.test_questions: bool = deps.test_questions       # GATE-546: questions recorded, answered by TEST_ANSWERS
@@ -1243,7 +1259,8 @@ class Gateway:
             # rule 5: input on a browser's own page (chrome://extensions…) asks every time, by the driver's facts now
             page = await c.cap.browser_page(c.args) if hasattr(c.cap, "browser_page") else None
             if page is not None:
-                needs.append(confirm.browser_page_need(str(c.arguments.get("app") or "the browser"), page))
+                needs.append(confirm.browser_page_need(str(c.arguments.get("app") or "the browser"), page,
+                                                       confirm.input_verb(c.name, c.arguments)))
         if c.name == "browser.pair":                     # the owner's word is what pairs a profile (2026-10-27)
             pair = self._pair_need(c)
             if pair is not None:
@@ -1305,6 +1322,7 @@ class Gateway:
         owner_text = self._sink_owner_text(c, root)
         values = confirm.url_private_values(url, private, outside_only, owner_text, self._sink_origins(root),
                                             self._site_texts(root), self._outside.setdefault(root, OutsideTexts()).pages)
+        values = await self._not_public(root, host, values, private)       # GATE-568: only signed-in pages count
         if not values:
             return None
         first = values[0]
@@ -1312,8 +1330,49 @@ class Gateway:
         return confirm.Need("sink:private_url", key, {"destination": host, "value": first.piece,
                                                       "matched": first.matched, "url": shown_url,
                                                       "source": self._read_as(root, first.first_read),
+                                                      "source_plain": self._read_as(root, first.first_read, True),
                                                       "read": confirm.shown_origins(outside_labels)},
                             destinations=(("host", host),))
+
+    async def _not_public(self, root: str, host: str, values: list[confirm.PrivateValue],
+                          private: list[tuple[int, provenance.Text]]) -> list[confirm.PrivateValue]:
+        """GATE-568 (owner): only pages that need the owner's sign-in to show it are the owner's private data. A value
+        whose every private record is a page read in the owner's signed-in browser (`confirm.signed_in_page`), each of
+        which shows it to anyone too (its signed-out text, `confirm.shown_signed_out`), isn't theirs: it doesn't ask.
+        Any other record that holds it (a file, mail FERB can't see signed out, FERB's conversation, a page that
+        wouldn't answer) keeps it the owner's. Each page is fetched once per tree (GATE-569), never a page of a host the
+        owner excluded, and only when the question would otherwise be asked."""
+        if self.signed_out is None or not values:
+            return values
+        known = self._outside.setdefault(root, OutsideTexts())
+        origins = self._sink_origins(root)
+        kept: list[confirm.PrivateValue] = []
+        for value in values:
+            holders = [rowid for rowid, t in private if value.matched in confirm.value_forms(t)]
+            pages = [known.pages.get(rowid, "") for rowid in holders]
+            if not holders or not all(page and confirm.signed_in_page(origins.get(rowid, set()))
+                                      for rowid, page in zip(holders, pages)):
+                kept.append(value)
+                continue
+            public = True
+            for page in dict.fromkeys(pages):
+                page_host = urlsplit(page).hostname or ""
+                if self.excluded_host(page_host):
+                    public = False
+                    break
+                if page not in known.signed_out:
+                    try:
+                        known.signed_out[page] = await self.signed_out(page)
+                    except Exception as e:                 # it can't tell: the value stays the owner's
+                        self.journal_problem("sink.signed_out_failed", {"host": page_host, "error": error_name(e)})
+                        known.signed_out[page] = None
+                text = known.signed_out[page]
+                if text is None or not confirm.shown_signed_out(value.matched, page, text):
+                    public = False
+                    break
+            if not public:
+                kept.append(value)
+        return kept
 
     def _sink_owner_text(self, c: "Call", root: str) -> provenance.Text:
         """The owner's words for the sink rule: this request's words, the owner's answers in this task and their earlier
@@ -1338,21 +1397,26 @@ class Gateway:
         found.update({rowid: labels for joined in known.joined_files.values() for rowid, labels, _ in joined})
         return found
 
-    def _read_as(self, root: str, rowid: int) -> str:
+    def _read_as(self, root: str, rowid: int, plain: bool = False) -> str:
         """Where this task read a record, in the owner's terms (GATE-507): a file by its path, a tool's result by the
-        tool and the site it read, the context FERB gave the model. Names only, never the record's content."""
+        tool and the site it read, the context FERB gave the model. Names only, never the record's content. `plain`:
+        the card's words (GATE-566, no tool names): "your file <name>", "your signed-in <site> page", "your chats or
+        FERB's memory"."""
         known = self._outside.setdefault(root, OutsideTexts())
         path = next((p for p, chunks in known.file_chunks.items() if rowid in chunks), "")
         if path:
-            return f"your file {path}"
+            return f"your file {Path(path).name or path}" if plain else f"your file {path}"
         row = self.spans.db.conn.execute(
             "SELECT kind, json_extract(input_json, '$.tool') AS tool, origin FROM spans WHERE rowid = ?",
             (rowid,)).fetchone()
         if row is None:
             return "your own data"
         if row["kind"] != "tool.call":
-            return "the context FERB gave the model (your conversation, memory or earlier results)"
+            return "your chats or FERB's memory" if plain else \
+                "the context FERB gave the model (your conversation, memory or earlier results)"
         sites = sorted({o.split(":", 2)[2] for o in origin.split(row["origin"]) if o.startswith("external:web:")})
+        if plain:
+            return f"your signed-in {' and '.join(sites[:2])} page" if sites else "your own data"
         on = f" on {', '.join(sites[:2])}" if sites else ""
         return f"the result of {row['tool'] or 'a tool'}{on}"
 
@@ -1440,12 +1504,30 @@ class Gateway:
         # tools read, never labels inherited from FERB's memory. Its Yes covers this site for this task only: no
         # destination is stored for good, so another task asks again
         sent = [(v.piece, self._read_as(c.root, v.first_read)) for v in values[:SINK_VALUES_SHOWN]]
+        plain = list(dict.fromkeys(self._read_as(c.root, v.first_read, True) for v in values[:SINK_VALUES_SHOWN]))
         control = (c.facts.control_label or "").strip() if c.facts is not None else ""
         return confirm.Need("sink:new_destination", confirm.key("sink:new_destination", host),
                             {"destination": host, "value": sent[0][0], "source": sent[0][1],
                              "sent": confirm.shown_sent(sent, len(values)), "control": control,
-                             "form": "yes", "read": confirm.shown_origins(self._visited_outside(c.root))},
+                             "form": "yes", "read": confirm.shown_origins(self._visited_outside(c.root)),
+                             # GATE-566: the card's box (each value on its line), where they were read and the outside
+                             # page that named the site first
+                             "values": "\n".join(value for value, _ in sent),
+                             "more": str(len(values) - len(sent)) if len(values) > len(sent) else "",
+                             "sources_plain": " and ".join(plain), "found_via": self._found_via(c.root, host)},
                             reaches=target)
+
+    def _found_via(self, root: str, host: str) -> str:
+        """GATE-566: how the task came to a site it sends to, in the owner's terms: "on a <host> page", the first page
+        of another host this task read whose text names the site (a search result, a link), "" when none did."""
+        known = self._outside.setdefault(root, OutsideTexts())
+        bare = host.removeprefix("www.")
+        for rowid in sorted(known.payloads):
+            labels, text = known.payloads[rowid]
+            sites = [o.split(":", 2)[2] for o in labels if o.startswith(origin.EXTERNAL + ":web:") and o.count(":") >= 2]
+            if len(sites) == 1 and sites[0].removeprefix("www.") != bare and bare in text.folded:
+                return f"on a {sites[0]} page"
+        return ""
 
     def _refused_fill(self, c: "Call", span: Any, content: dict[str, Any]) -> dict[str, Any]:
         """GATE-562 (owner GATE-563): this read of a tab shows the page asking again for the field a sealed fill filled
@@ -1553,7 +1635,8 @@ class Gateway:
             shown = next(row for row in protection.rules() if row["id"] == rule)["path"]
             c.escape_need = confirm.Need("escape:" + rule, escape_key(rule, command, cwd),
                                          {"text": f"this exact command needs rule {rule} lifted once: {shown}",
-                                          "lift": kind, "path": shown}, always=True, spent_on_ask=True)
+                                          "lift": kind, "path": shown, "command": command},
+                                         always=True, spent_on_ask=True)
         return c.escape_need
 
     async def _terminal_need(self, c: "Call") -> confirm.Need | dict[str, Any] | None:
@@ -1667,7 +1750,7 @@ class Gateway:
         if c.escape is not None and c.escape_need is not None:
             rule, command, cwd, _ = c.escape
             cid = covered.rows.get(c.escape_need.key) or self._granted_row(c, c.escape_need.key)
-            secret = await self.hidden.admin_password(c.grant, c.rec) if rule == "admin" else None
+            secret = await self.hidden.admin_password(c.grant, c.rec, command) if rule == "admin" else None
             if rule == "admin" and not secret:
                 return {"error": "the approved admin command was cancelled without a password"}
             escape = EscapeGrant(rule, cid or "", command, cwd, secret)
@@ -2042,9 +2125,12 @@ class Gateway:
             ap.summary = self.built(made.question)
             ap.detail = self.built(made.detail)
             ap.exact = "\n".join(self.built(line, terminal) for line in made.exact.split("\n") if line.strip())
+            # GATE-566: the buttons' action words (still Yes and No when answered); a kind without them shows Yes / No
+            ap.labels = (self.built(made.yes), self.built(made.no or NO)) if made.yes else ()
         except Exception as e:                                       # display only: never stops the question
             self.journal_problem("confirm.card_failed", {"rules": [n.rule for n in needs], "error": error_name(e)})
             ap.summary, ap.detail, ap.exact = self._summary_line(needs, typed, terminal), "", ""
+            ap.labels = ()
         if not ap.summary:
             ap.summary = self._summary_line(needs, typed, terminal)
 
@@ -2123,6 +2209,8 @@ class Gateway:
             shown_typed = quoted(self.redact({"t": typed})["t"]) if typed.strip() else ""
             terminal = any(n.rule == confirm.TERMINAL_INPUT for n in needs)
             self._set_card(ap, needs, shown_typed, terminal)
+            if ap.labels and routine:                    # GATE-566, GATE-207: the 30-minute answer, and what it covers
+                ap.labels, ap.note = (*ap.labels, ALLOW_WINDOW_LABEL), ALLOW_WINDOW_NOTE
             ap.why = self.built(confirm.reason_line(quoted(self.value(why)) if why.strip() else ""))
             self.publish("approval.requested", {"approval_id": ap.id, "capability": CONFIRM_ASK,
                                                 "kind": "owner_question", "reason": text, "options": options,
@@ -2160,11 +2248,12 @@ class Gateway:
 
     def _test_card(self, needs: list[confirm.Need], typed: str, why: str) -> dict[str, str]:
         """The card the owner would have seen (GATE-513's parts), for a test run's record (GATE-546)."""
-        card = SimpleNamespace(summary="", detail="", exact="")
+        card = SimpleNamespace(summary="", detail="", exact="", labels=())
         shown = quoted(self.redact({"t": typed})["t"]) if typed.strip() else ""
         self._set_card(card, needs, shown, any(n.rule == confirm.TERMINAL_INPUT for n in needs))
         reason = self.built(confirm.reason_line(quoted(self.value(why)) if why.strip() else ""))
-        return {"question": card.summary, "detail": card.detail, "exact": card.exact, "why": reason}
+        return {"question": card.summary, "detail": card.detail, "exact": card.exact, "why": reason} | (
+            {"buttons": list(card.labels)} if card.labels else {})
 
     def _known_from(self, needs: list[confirm.Need], rec: Any, span_id: str) -> None:
         """SQ6, GATE-205: the destinations the owner's Yes approved stay known (approved) for good."""
@@ -2472,6 +2561,7 @@ class Gateway:
         """owner.ask: the worker's question goes to chat as an approval with options (or free text); the call waits
         for the answer. A scheduled run (nobody at chat) is declined at once."""
         question = str(getattr(args, "question"))
+        asked = question                             # the task's own words (a retry's why line, GATE-566)
         options = [str(o) for o in getattr(args, "options", []) if str(o).strip()]
         retry = str(getattr(args, "retry_action", "") or "").strip()
         # A retry of a dropped call matches its question on the worker's own words, before the orchestrator rewords
@@ -2556,11 +2646,15 @@ class Gateway:
             # span); a task's question carries the structural tag the app draws ("from the task", D33)
             ap.summary, ap.from_task = (retry_said if retry else ""), from_task
             ap.corrects = bool(retry)        # GATE-510: a retry is FERB's safety check of this task
+            if retry:                        # GATE-566: what a Yes risks, the task's words and the buttons' words
+                ap.detail = self.built(retry_detail(attempts))
+                ap.why = self.built(confirm.reason_line(quoted(self.value(asked)))) if asked.strip() else ""
+                ap.labels = RETRY_LABELS
             self.publish("approval.requested", {"approval_id": ap.id, "capability": capability,
                                                 "kind": "owner_question", "reason": question, "options": options,
                                                 "task_id": grant.task_id}
                          | ({"summary": ap.summary} if ap.summary else {}) | ({"from_task": True} if from_task else {})
-                         | card_flags(ap))
+                         | ({"why": ap.why} if ap.why else {}) | card_parts(ap) | card_flags(ap))
         self.observer.tool_call(grant, done=False)
         try:
             answer = await self._wait_answer(grant, ap.id)

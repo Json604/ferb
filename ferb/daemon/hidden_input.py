@@ -77,6 +77,8 @@ class HiddenInput:
         ap.detail = self.gw.built(refused_line(refused) + secret_detail(r_target, r_remember, r_shown, r_field))
         ap.exact = self.gw.built(v(paying)) if paying else ""   # GATE-204: the payment it serves, in its own box
         ap.why = self._why(ctx)                        # GATE-559: the worker's reason, as confirmations show it
+        ap.secret_labels = SAVE_LABELS if remember else ONE_TIME_LABELS     # GATE-566
+        ap.title = "Private — only the app gets this" if target.startswith("app:") else ""
         self.gw.publish("approval.requested", {"approval_id": ap.id, "kind": ap.kind,
                      "capability": ask.capability, "reason": question, "task_id": ctx.task_id,
                      "summary": ap.summary, "why": ap.why} | card_parts(ap))
@@ -210,13 +212,20 @@ class HiddenInput:
         v = self.gw.value                              # GATE-564: each value redacted by itself, FERB's words not
         paying = self._payment_line(ctx, origin, exact=False)
         question = self.gw.built(login_code_question(v(origin)) + ((" " + v(paying)) if paying else ""))
+        site = _site(origin)
+        # GATE-566: which code this is for the site in this request (the questions kept for it: open or answered)
+        count = 1 + sum(a.kind == "owner_login_code" and a.site == site
+                        for a in self.gw.state.approvals.of_request(ctx.request_id))
         ap = self.gw.state.approvals.question(ask, question, [])
-        ap.kind = "owner_login_code"
+        ap.kind, ap.site = "owner_login_code", site
         payment = self._payment(ctx, origin, exact=False)
         if payment is not None:     # GATE-204, GATE-513: the code says in its question which payment it approves
-            summary, detail, exact = (v(part) for part in payments.otp_card(_site(origin), payment))
+            summary, detail, exact = (v(part) for part in payments.otp_card(site, payment))
+            ap.secret_labels = OTP_LABELS
         else:                       # GATE-559: the page's own label for the field, quoted as the page's words
-            summary, detail, exact = login_code_summary(v(origin)), login_code_detail(v(self._label(ctx))), ""
+            summary, detail, exact = (login_code_summary(v(origin)),
+                                      login_code_detail(v(self._label(ctx)), v(site), count), "")
+            ap.secret_labels = CODE_LABELS
         ap.summary, ap.detail, ap.exact = (self.gw.built(summary), self.gw.built(refused_line(refused) + detail),
                                            self.gw.built(exact) if exact else "")
         ap.why = self._why(ctx)                        # GATE-559: the worker's reason (where the code was sent, why)
@@ -231,7 +240,7 @@ class HiddenInput:
             ap.answer = None
             ap.state = "used" if ap.state == "granted" else _unfilled(ap.state)
 
-    async def admin_password(self, grant: RunGrant, rec: Any) -> str | None:
+    async def admin_password(self, grant: RunGrant, rec: Any, command: str = "") -> str | None:
         from ferb.sanitize.redact import Redactor
         if not isinstance(self.gw.redact, Redactor) or rec.task.request_id in self.gw.state.approvals.unattended:
             return None
@@ -242,6 +251,8 @@ class HiddenInput:
         ap = self.gw.state.approvals.question(ask, question, [])
         ap.kind = "owner_admin_password"
         ap.summary, ap.detail = ADMIN_SUMMARY, ADMIN_DETAIL
+        ap.exact = self.gw.built(self.gw.value(command)) if command.strip() else ""   # GATE-566: the command it is for
+        ap.title, ap.secret_labels = ADMIN_TITLE, ADMIN_LABELS
         self.gw.publish("approval.requested", {"approval_id": ap.id, "capability": ask.capability,
                                             "kind": ap.kind, "reason": question, "task_id": grant.task_id,
                                             "summary": ap.summary} | card_parts(ap))
@@ -355,11 +366,11 @@ def secret_summary(target: str, remember: str | None, app: str | None = None, us
     it is saved under, are in `secret_detail` in full (GATE-520: no worker or page text in the heading)."""
     place = secret_place(target, app)
     account = _account(username or "")
-    whose = f"{_site(username_place)} " if username_place else ""
-    account = f" ({whose}account: {account})" if account else ""
+    saved = f", saved for {_site(username_place)}" if username_place else ""
+    account = f" ({account}{saved})" if account else ""
     if remember:
-        return f"For {place} only{account}: FERB needs a secret to save."
-    return f"For {place}{account}: FERB needs a password or private answer."
+        return f"{place}{account}: type the answer to save"
+    return f"{place}{account}: type your password or answer"
 
 
 def secret_detail(target: str, remember: str | None, app: str | None = None, field: str | None = None) -> str:
@@ -370,31 +381,31 @@ def secret_detail(target: str, remember: str | None, app: str | None = None, fie
     place = secret_place(target, app)
     label = _page_label(field)
     name = shown_name(remember, place) if remember else ""
-    what = (f"The page asks for “{label}”{'' if label[-1] in '.?!…' else '.'} " if label else
-            f"It's your “{name}”. " if name else "")
-    if remember:
-        saved = f"FERB saves it as “{name}”. " if label and name else ""
-        return (f"{what}{saved}Type it below. FERB fills it in without seeing it, and saves it in your Mac's Keychain "
-                f"for {place} only.")
-    return f"{what}Type it below. FERB fills it in without seeing it. It's used once and not saved."
+    what = f"The page asks: “{label}”{'' if label[-1] in '.?!…' else '.'} " if label else ""
+    if remember:                 # the place before the name: a code word in the name never hides its port (review M4)
+        named = f", as “{name}”" if name else ""
+        return (f"{what}FERB fills it in and saves it in your Mac's Keychain, for {place} only{named}. FERB's AI never "
+                "sees it.")
+    into = "that app" if target.startswith("app:") else "that page"
+    return f"{what}FERB types it into {into} once and doesn't keep it. FERB's AI never sees it."
 
 
 def login_code_summary(origin: str) -> str:
     """The login-code question in one line (P27): the origin's host first (a code word before it would read its port
     or a number in it as a code), then what it is. A host whose own name holds a code label before a code-shaped port
     (otp.example.com:8443) still loses that port to redaction (review M4)."""
-    return f"For {_site(origin)}: FERB needs a login code."
+    return f"{_site(origin)} asks for a login code"
 
 
-LOGIN_CODE_DETAIL = "Type it below. FERB fills it in only there, and it's used once."   # GATE-513
-
-
-def login_code_detail(field: str | None) -> str:
+def login_code_detail(field: str | None, site: str = "", count: int = 1) -> str:
     """GATE-559 (as GATE-520 for a secret): the page's own label for the code field, quoted as the page's words, then
-    what happens to the code."""
+    what happens to the code (GATE-566), and which code this is for that site in the task when it isn't the first."""
     label = _page_label(field)
     what = f"The page asks for “{label}”{'' if label[-1] in '.?!…' else '.'} " if label else ""
-    return what + LOGIN_CODE_DETAIL
+    nth = f" This is code {count} for this site in this task." if count > 1 else ""
+    # the heading names the site; here it is "the site", since a code word before a host reads its port as the code
+    return (what + "Type the code the site sent you (by email or text). FERB enters it on that page once and doesn't "
+            "keep it; FERB's AI never sees it." + nth)
 
 
 def refused_line(refusal: Any) -> str:
@@ -405,8 +416,16 @@ def refused_line(refusal: Any) -> str:
     return f"The last {refusal.what} wasn't accepted: the page asked for it again.{said} "
 
 
-ADMIN_DETAIL = "Type it below. FERB passes it only to that command and doesn't save it."   # GATE-513
-ADMIN_SUMMARY = "FERB needs your Mac password for the one command you just approved."
+ADMIN_DETAIL = ("macOS needs it to run the one command you just allowed as administrator. It goes only to that command "
+                "and isn't saved; FERB's AI never sees it.")             # GATE-513, GATE-566
+ADMIN_SUMMARY = "Your Mac password, for the admin command"
+ADMIN_TITLE = "Private — only the command gets this"
+# GATE-566: a hidden input's field, decline and send words, by what it is
+ONE_TIME_LABELS = ("Type it here", "Don't fill in", "Fill in")
+SAVE_LABELS = ("Type it here", "Don't save", "Fill in and save")
+CODE_LABELS = ("Code", "Don't enter", "Enter code")
+OTP_LABELS = ("Code", "Don't pay", "Enter code")
+ADMIN_LABELS = ("Mac password", "Cancel", "Run command")
 
 
 def login_code_question(origin: str) -> str:

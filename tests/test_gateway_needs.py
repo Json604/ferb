@@ -241,7 +241,7 @@ def test_the_send_data_card_names_the_value_its_source_the_site_and_the_click(da
         owner.stop()
     [ap] = owner.asked
     card = " ".join([ap.summary, ap.detail, ap.exact])
-    for fact in (PRIVATE, "probe.file", "collect.example", "Next", "mysite.example"):   # where read: GATE-507
+    for fact in (PRIVATE, "your own data", "collect.example", "Next"):   # where read (GATE-507), in plain words
         assert fact in card
     assert "about.x.com" not in card and "127.0.0.1" not in card and "more" not in card
 

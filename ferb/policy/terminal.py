@@ -245,6 +245,11 @@ def need(inp: TerminalInput) -> confirm.Need:
               "files": "; ".join(f"{visible(path)}, which can run when opened and holds {visible(text)}"
                                  for path, _, text in inp.files),
               "named": "; ".join(f"{visible(path)}, which can't run when opened" for path in inp.named),
+              # GATE-566: the card's words for the files a script names, and the first file that runs when opened
+              "names": "; ".join([f"{visible(path, False)} (can run when opened)" for path, _, _ in inp.files]
+                                 + [f"{visible(path, False)} (can't run)" for path in inp.named]),
+              "open_path": visible(inp.files[0][0]) if inp.files else "",
+              "open_text": visible(inp.files[0][2]) if inp.files else "",
               "paste": "yes" if inp.paste else "", "concealed": "yes" if inp.concealed else "",
               "enter": "yes" if inp.enter else "", "opens": "yes" if inp.opens else ""}
     return confirm.Need(RULE, confirm.key(RULE, inp.bundle_id.casefold(), inp.text, inp.keys, inp.paste, inp.menu,

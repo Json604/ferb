@@ -171,6 +171,18 @@ def network_route(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.fixture(autouse=True)
+def signed_out_offline(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Offline tests never fetch a page's signed-out view from the network (GATE-569): FERB can't tell, so every value
+    stays the owner's, as before. Tests of the rule give their own pages."""
+    if not request.node.get_closest_marker("real"):
+        import ferb.daemon.signed_out as signed_out
+
+        async def offline(url: str) -> None:
+            return None
+        monkeypatch.setattr(signed_out, "fetch", offline)
+
+
+@pytest.fixture(autouse=True)
 def fake_browser_peer(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
     """Offline, the fake extension's native host is started by the test process, not a browser: the daemon's check of
     who started a native-host connection (ext_bridge.peer_refusal, protocol 18) takes it. test_browser_groups tests the

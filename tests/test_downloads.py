@@ -606,7 +606,7 @@ def test_over_the_cap_the_owner_is_asked_and_yes_deletes_the_oldest_for_good(bd:
         d.call_soon(d.daemon.clock.advance, 1)
     assert sorted(p.split("-", 2)[-1] for p in _kept(d)) == ["0.bin", "1.bin", "2.bin"]   # nothing went by itself
     [ap] = _cap_question(d)
-    assert ap.task_id == "" and ap.options == ("Yes", "No") and "1 oldest file (0.4 MB)" in ap.reason
+    assert ap.task_id == "" and ap.options == ("Yes", "No") and "oldest download for good" in ap.reason and "frees 0.4 MB" in ap.reason
     assert "Deleted 1 file (0.4 MB)" in _answer_cap(d, "Yes")
     assert sorted(p.split("-", 2)[-1] for p in _kept(d)) == ["1.bin", "2.bin"] and not list(trash.iterdir())
     [gone] = [r for r in _records(d) if r["name"] == "0.bin"]
@@ -660,7 +660,7 @@ def test_the_yes_deletes_only_files_in_the_folder_and_never_follows_a_link(bd: A
     Path(b["path"]).symlink_to(outside)
     _deliver(d, ext, chrome_id, name="c.bin", data=os.urandom(800_000), source_url="https://x.example/c")
     [ap] = _cap_question(d)
-    assert "2 oldest files" in ap.reason                                           # a and b, as recorded
+    assert "2 oldest downloads" in ap.reason                                           # a and b, as recorded
     _answer_cap(d, "Yes")
     assert outside.read_text() == "the owner's own file"
     rows = {r["name"]: r for r in _records(d)}

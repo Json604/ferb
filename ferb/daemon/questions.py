@@ -49,11 +49,24 @@ class Approval:
     # also takes the owner's words for that task as a correction (`chat.correct`), never as an answer.
     options_only: bool = False
     corrects: bool = False
+    # GATE-566 (owner): how the app words the card, set by whoever asks it. `labels`: each option's button words (an
+    # action word, "Send" for Yes; "" shows the option itself); the answer recorded is still the option. `note`: a line
+    # under the buttons (what the 30-minute answer covers). `title`: the card's header when the asker sets one.
+    # `secret_labels`: a hidden input's field, decline and send words. `site`: where a login code goes (its count).
+    labels: tuple[str, ...] = ()
+    note: str = ""
+    title: str = ""
+    secret_labels: tuple[str, ...] = ()
+    site: str = ""
 
     def option_for(self, text: str) -> int | None:
-        """The option (1-based) a typed answer picks: its exact words in any case, else, for a task's own question, its
-        number. FERB's own checks and check-ins take only an option's words (`OWN_CHECKS`)."""
-        matches = [i for i, o in enumerate(self.options, 1) if o.strip().casefold() == text.casefold()]
+        """The option (1-based) a typed answer picks: its exact words, or its button's words (GATE-566: "Send" picks
+        Yes), in any case, else, for a task's own question, its number. FERB's own checks and check-ins take only an
+        option's words (`OWN_CHECKS`)."""
+        said = text.casefold()
+        matches = sorted({i for i, o in enumerate(self.options, 1) if o.strip().casefold() == said}
+                         | {i for i, label in enumerate(self.labels[:len(self.options)], 1)
+                            if label.strip() and label.strip().casefold() == said})
         if len(matches) == 1:
             return matches[0]
         if self.options_only or self.capability in OWN_CHECKS:
@@ -61,9 +74,36 @@ class Approval:
         return int(text) if text.isdecimal() and 1 <= int(text) <= len(self.options) else None
 
 
+SECRET_KINDS = frozenset({"owner_login_code", "owner_admin_password", "owner_secret"})
+
+
+def header(ap: Approval) -> str:
+    """The card's header by structure (GATE-566, owner): its asker's own title, else FERB's safety check, a retry, a
+    task's question, a question about whether the task goes on, a hidden input; "" leaves the app's own."""
+    if ap.title:
+        return ap.title
+    if ap.kind in SECRET_KINDS:
+        return "Private — only the page gets this"
+    if ap.capability in ("ferb.confirm", "conversation.approve"):
+        return "Check before FERB goes on"
+    if ap.capability == "ferb.retry":
+        return "Check before FERB retries"
+    if ap.from_task:
+        return "Your task has a question"
+    if ap.options_only or ap.runtime_switch:
+        return "Your task needs a decision"
+    return ""
+
+
 def card_parts(ap: Approval) -> dict[str, Any]:
-    """GATE-513: the card's why line and exact part, when it has them (`approval.requested` and `chat.status`)."""
-    return ({"detail": ap.detail} if ap.detail else {}) | ({"exact": ap.exact} if ap.exact else {})
+    """GATE-513: the card's why line and exact part, when it has them; GATE-566: its header, its buttons' words, the
+    note under them and a hidden input's words (`approval.requested` and `chat.status`)."""
+    title = header(ap)
+    return (({"detail": ap.detail} if ap.detail else {}) | ({"exact": ap.exact} if ap.exact else {})
+            | ({"title": title} if title else {})
+            | ({"labels": list(ap.labels)} if any(ap.labels) else {}) | ({"note": ap.note} if ap.note else {})
+            | (dict(zip(("field_label", "decline_label", "send_label"), ap.secret_labels)) if ap.secret_labels
+               else {}))
 
 
 def card_flags(ap: Approval) -> dict[str, Any]:

@@ -3316,3 +3316,12 @@ status = "active"
 rule = "For ORCH-579. An outcome carrying told_in (the request of the owner's stop message whose reply tells this end) is filed on the task's own turn: its status and answer there, no late reply below. Without told_in a late end posts below as before (L6)."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationArchive.applyOutcome", "ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationArchive.finish"]
 live = ["LIVE-860"]
+
+[APP-826]
+title = "Question cards show the daemon's header, button words and note; the AI's words are marked"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For GATE-566's app chrome. The card shows the daemon's `title` as its header, each option's `labels` word on its button (the answer is still the option's number), the `note` under the buttons, a hidden input's field, decline and send words, the tag \"asked by the AI\" and the why line as \"AI's reason:\" (\"AI's note:\" for a retry). Boxes read \"Or tell FERB what to do instead…\" and \"Or type your answer…\"; a text-only question's decline is \"Skip\"; the hidden-input footer is gone (each card's why line says the AI never sees it)."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ApprovalView.swift", "ui/mac/FERBNotch/Sources/NotchCore/DaemonApproval.swift::DaemonApproval.optionLabel"]
+live = ["LIVE-861"]

@@ -210,7 +210,8 @@ class Browsers:
             if kind == browsing.KIND and ap is not None and ap.state == "pending":
                 return {"ask": approval_id}             # one question at a time, whichever task or schedule asked
         options = {browser_profiles.shown(p): f"{p.browser}/{p.folder}" for p in known}
-        reason = (browsing.GONE.format(label=gone) if gone else "") + browsing.QUESTION
+        reason = browsing.QUESTION_TITLE + "\n" + (browsing.GONE.format(label=gone) if gone else "") + \
+            browsing.QUESTION_DETAIL
         return {"ask": self._ask_owner(browsing.KIND, json.dumps({"options": options}), reason,
                                        f"browsing-{self.clock.now().strftime('%Y%m%dT%H%M%S')}",
                                        options=[*options, browsing.NONE])}

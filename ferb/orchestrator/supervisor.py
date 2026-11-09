@@ -36,7 +36,7 @@ from ferb.trace.lines import clip
 from ferb.core.types import Identity, ModelImage, Outcome, RunHandle, Span, Task, ToolContext
 from ferb.daemon.auth import RunGrant, RunTokens
 from ferb.daemon.gateway import DESTINATION_HELP, EFFECT_HELP, OWNER_ASK, FsRoots, Gateway, Observer, observes
-from ferb.daemon.questions import card_flags
+from ferb.daemon.questions import card_flags, card_parts
 from ferb.memory.items import CAPTURE_TOLD, capture, owner_span_at, query_terms, quoted
 from ferb.memory.journal import Journal, JournalEntry
 from ferb.memory.lineage import ENTRY, REQUEST_REFERENCE, TASK
@@ -218,8 +218,8 @@ CARD_TASK_ENDED = "That task isn't running any more, so nothing was sent to it."
 WHICH_QUESTION = "I couldn't tell which question that answers. Which one is it for?"
 NO_QUESTION = "No question is waiting for your answer right now."
 PASTED_ANSWER = "I take an answer only in your own words, not pasted text. What's your answer?"
-PLAIN_YES_NO = "Is that a Yes or a No to this? {question}"
-PLAIN_CHOICE = "Is that {choices} for this? {question}"
+PLAIN_YES_NO = "Is that a Yes or a No to “{question}”?"      # GATE-566: the card's own question, never the record
+PLAIN_CHOICE = "Is that {choices} for “{question}”?"
 WHICH_ONE = "More than one question is waiting, and “{words}” could answer either. Which one is it for?"
 PLAN_STATED = "Here's the plan; I'm starting now. Reply to change anything:"
 PAUSED_SAID = "I've paused it; nothing is lost. Tell me how you'd like to go on, or say stop."
@@ -236,10 +236,25 @@ def _takes_words(ap: Any) -> bool:
 
 
 def _plain_choice(ap: Any) -> str:
-    """FERB's "which is it?" about its own check (L3): Yes or No, or that check's own options ("Keep, Edit or Drop")."""
+    """FERB's "which is it?" about its own check (L3): Yes or No, or that check's own options ("Keep, Edit or Drop"), as
+    its buttons say them (GATE-566), about the card's own question (its summary; the record line stays the reason)."""
+    question = ap.summary or ap.reason
+    labels = getattr(ap, "labels", ())
+    if any(labels):
+        return PLAIN_CHOICE.format(choices=choices(l or o for l, o in zip(labels, ap.options)), question=question)
     if tuple(ap.options) in ((), ("Yes", "No")):
-        return PLAIN_YES_NO.format(question=ap.reason)
-    return PLAIN_CHOICE.format(choices=choices(ap.options), question=ap.reason)
+        return PLAIN_YES_NO.format(question=question)
+    return PLAIN_CHOICE.format(choices=choices(ap.options), question=question)
+
+
+def _day(at: datetime, now: datetime) -> str:
+    """A day as a card says it (GATE-566): "today", "yesterday", a weekday within the week, else the date ("3 Nov")."""
+    days = (now.astimezone().date() - at.astimezone().date()).days
+    if days <= 0:
+        return "today"
+    if days == 1:
+        return "yesterday"
+    return at.astimezone().strftime("%A") if days < 7 else f"{at.astimezone().day} {at.astimezone().strftime('%b')}"
 
 
 def _reminder_time(asked: Any, now: datetime, present: bool) -> tuple[datetime, datetime | None]:
@@ -812,9 +827,12 @@ RESTORED_WAITS = ("check_in", "runtime_switch")
 # ORCH-315: the offer of another runtime after a usage limit or sign-in failure. Only the owner answers it
 # (a tap, or `runtimes.switch_task`): it isn't routable, so the planner can't choose a runtime from chat words.
 RUNTIME_ASK = "runtime.switch"
+RUNTIME_SWITCH_DETAIL = ("This task stopped there. Pick another AI to finish it; each uses its own account and billing.")
 CONTINUE, STOP = "Continue", "Stop"
 RESUME = "Resume"
-PAUSED_MENTION = "{goal} is still paused. Resume?"     # ORCH-312: once a day, from the task's record
+PAUSED_MENTION = "“{goal}” is still paused. Resume it?"   # ORCH-312, GATE-566: once a day, from the task's record
+PAUSED_SINCE = "Paused since {day}."
+STOP_LABEL = "Stop it"                                   # GATE-566: the mention's Stop button
 
 
 @dataclass
@@ -840,6 +858,8 @@ class _Wait:
     capability: str = TASK_ASK
     approval: Any = None
     extra: dict[str, Any] = field(default_factory=dict)   # more for the app with the question (runtime_switch)
+    # GATE-566: the card's own words when code wrote them (summary, detail, exact, labels); the question stays the record
+    card: dict[str, Any] = field(default_factory=dict)
     attempts: int = 0                    # a check-in: the failed attempts it asks about (kept for a restart)
     # a check-in after a report-only retry (ORCH-541): the latest answer and its artifacts, kept for a restart, so a No
     # or nobody there still ends done-unconfirmed with that answer
@@ -1664,6 +1684,9 @@ class Supervisor(WorkerRuns):
         earlier = wait.approval
         wait.approval = ap = self.state.approvals.question(action, question, options)
         ap.options_only = True                       # ORCH-536: Resume or Stop, never typed words
+        paused = [e.at for e in self.journal.of_kind('task.paused', 'task_id', tree.id)]
+        ap.detail = PAUSED_SINCE.format(day=_day(max(paused), self.clock.now())) if paused else ''   # GATE-566
+        ap.labels = (RESUME, STOP_LABEL)
         row = self._part_of(tree, tree.step_id)
         ap.part = row[1].id if row is not None else ""
         wait.extra = {**wait.extra, 'mention': question}
@@ -1675,7 +1698,7 @@ class Supervisor(WorkerRuns):
         self.publish('approval.requested', {'approval_id': ap.id, 'capability': TASK_ASK, 'kind': 'owner_question',
                                             'reason': question, 'options': options, 'task_id': task.id,
                                             'request_id': task.request_id, 'question_kind': 'paused'}
-                     | card_flags(ap) | ({'part': row[1].id} if row is not None else {}))
+                     | card_parts(ap) | card_flags(ap) | ({'part': row[1].id} if row is not None else {}))
         if row is not None:
             row[0].show(row[1], 'asks', question={'approval_id': ap.id, 'text': question, 'options': options})
 
@@ -1760,6 +1783,9 @@ class Supervisor(WorkerRuns):
             # task, whose card also takes a correction
             ap.options_only = not from_task and bool(options)
             ap.corrects = wait.capability == CONVERSATION_ASK
+            if wait.card:                                # GATE-566: code's own words for the card
+                ap.summary, ap.detail = str(wait.card.get('summary') or ''), str(wait.card.get('detail') or '')
+                ap.exact, ap.labels = str(wait.card.get('exact') or ''), tuple(wait.card.get('labels') or ())
             self._questions[tree.id] = question
             self.journal.append('loop.question' if loop else 'plan.question',
                                 {'task_id': tree.id, 'step': step_id, 'approval_id': ap.id, 'question': question,
@@ -1768,7 +1794,8 @@ class Supervisor(WorkerRuns):
                                                 'kind': 'owner_question', 'reason': question, 'options': options,
                                                 'task_id': task.id, 'request_id': task.request_id}
                          | ({'part': row[1].id} if row is not None else {}) | ({'from_task': True} if from_task else {})
-                         | card_flags(ap) | wait.extra)
+                         | ({'summary': ap.summary} if ap.summary else {}) | card_parts(ap) | card_flags(ap)
+                         | wait.extra)
             if row is not None:      # ORCH-319: the question sits in its part's row; the other rows keep going
                 check_in = wait.extra.get('question_kind') == 'check_in'
                 row[0].show(row[1], 'paused' if check_in else 'asks',
@@ -2002,7 +2029,7 @@ class Supervisor(WorkerRuns):
             page = str((gone[0].get('taken_over_from') or {}).get('url') or '')
             host = urlsplit(page).hostname or '' if page else ''
             what = f'The {host} tab' if host else 'The tab'
-            return f'{what} you asked me to keep going was closed. Stop this task?', [LOOP_STOP, LOOP_KEEP], \
+            return f'{what} FERB was watching was closed. Stop watching?', [LOOP_STOP, LOOP_KEEP], \
                 origins_.FERB
         words = ' '.join(str((result or {}).get('question') or (result or {}).get('summary')
                              or self._paused_words(tree_id, step.id)
@@ -4229,14 +4256,16 @@ class Supervisor(WorkerRuns):
             self.spans.finish(captured, output=_exposure_output(exposure), origin=exposure['origin'])
 
     async def _plan_question(self, tree: _Tree, question: str, options: list[str],
-                             capability: str = 'plan.ask', step_id: str = WORKER) -> dict[str, Any]:
+                             capability: str = 'plan.ask', step_id: str = WORKER,
+                             card: dict[str, Any] | None = None) -> dict[str, Any]:
         """A plan's ask step (D30), or a delegated conversation's scope approval (`CONVERSATION_ASK`, F9: answered like
         FERB's own checks), labelled as the task's (D33), through the one wait for the owner: the step pauses and waits
         for the answer (a reply in chat answers it only through the planner's answer); a run nobody attends can't be
         asked and reports it at once. A stop of the task closes it as superseded, never a No (L3)."""
         while True:
             wait = _Wait(tree.id, question, tuple(options), origins_.INFERRED, capability,
-                         extra={'question_kind': 'conversation_scope' if capability == CONVERSATION_ASK else 'task'})
+                         extra={'question_kind': 'conversation_scope' if capability == CONVERSATION_ASK else 'task'},
+                         card=dict(card or {}))
             reply = await self._wait_for_owner(tree, tree.worker, wait, step_id=step_id, steer_resumes=False)
             # set aside by the owner's correction (ORCH-538): the step's question is asked again, never skipped
             if reply.kind != 'steer' or tree.stop:
@@ -4784,7 +4813,8 @@ class Supervisor(WorkerRuns):
                 tree.resources.extend(member.resources)
                 tree.cleanup_errors.extend(member.cleanup_errors)
         runner = ConversationRunner(self.conversations,
-            lambda question, options: self._plan_question(tree, question, options, CONVERSATION_ASK, step.id), turn,
+            lambda question, options, card=None: self._plan_question(tree, question, options, CONVERSATION_ASK,
+                                                                      step.id, card), turn,
             queue.put, lambda: self._stopped(tree))
         result = await runner.run(ident, tree.id, scope)
         self.journal.append('conversation.digest', result, origin=origins_.join({origins_.INFERRED,
@@ -5787,9 +5817,12 @@ class Supervisor(WorkerRuns):
         if not tree.asks_in_place:
             return False
         options = tuple(f"Use {label(name)}" for name in choices) + (STOP,)
+        down_said = (f"{label(down.runtime)} hit its usage limit. Switch AI?" if down.problem == "usage_limit" else
+                     f"{label(down.runtime)} isn't signed in for FERB. Switch AI?")      # GATE-566
         wait = _Wait(tree.id, down.summary + f" Carry on with {' or '.join(label(n) for n in choices)} instead?",
                      options, origins_.FERB, RUNTIME_ASK,
-                     extra={"runtime_switch": offer, "question_kind": "runtime_switch"})
+                     extra={"runtime_switch": offer, "question_kind": "runtime_switch"},
+                     card={"summary": down_said, "detail": RUNTIME_SWITCH_DETAIL})
         reply = await self._wait_for_owner(tree, task, wait, step_id=tree.step_id)
         if reply.kind == 'stopped' or tree.stop:
             return None

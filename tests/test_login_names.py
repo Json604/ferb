@@ -241,7 +241,7 @@ def test_a_username_whose_memory_has_ended_is_never_offered(daemon: Any, monkeyp
         assert waiting.result(5) is None
         return listed, ap.summary
     listed, summary = offered("q1")
-    assert listed == "Asha Rao" and "(account: Asha Rao)" in summary
+    assert listed == "Asha Rao" and "(Asha Rao)" in summary
     daemon.call_soon(daemon.daemon.clock.set_wall, datetime(2026, 10, 26, 0, 1, tzinfo=zone))
     listed, summary = offered("q2")
     assert listed is None and "Asha Rao" not in summary
@@ -379,8 +379,8 @@ def test_the_first_sign_in_on_a_form_names_the_account_through_the_tasks_typed_s
                                                daemon.loop)
     ap = asked(daemon)
     try:
-        shown = " (bookslots.com account: Asha Rao)" if linked else ""
-        assert ap.summary == f"For {_site(place)} only{shown}: FERB needs a secret to save."
+        shown = " (Asha Rao, saved for bookslots.com)" if linked else ""
+        assert ap.summary == f"{_site(place)}{shown}: type the answer to save"
         assert ("Account: Asha Rao (saved for bookslots.com)." in ap.reason) == linked
     finally:
         daemon.call_soon(daemon.daemon.state.approvals.resolve, ap.id, False)
@@ -410,7 +410,7 @@ def test_a_login_saved_in_a_task_with_two_typed_sites_links_neither(daemon: Any,
     waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(ctx, google, remember="password"),
                                                daemon.loop)
     ap = asked(daemon)
-    assert ap.summary == "For accounts.google.com only: FERB needs a secret to save."
+    assert ap.summary == "accounts.google.com: type the answer to save"
     daemon.call_soon(daemon.daemon.state.approvals.resolve, ap.id, True, None, "hidden-canary-1")
     assert waiting.result(5) == "hidden-canary-1"
     store = OwnerSecrets(daemon.daemon.home)
@@ -612,7 +612,7 @@ def test_a_username_said_in_a_live_correction_reaches_the_next_tasks_login(daemo
     assert keychain == {f"{ATLAS} · password": "hidden-canary-1"}
     assert run(daemon, lambda: OwnerSecrets(daemon.daemon.home).records()[ATLAS]["sites"]) == ["bookslots.com"]
     assert len(shown) == 2
-    assert all(line.startswith("For appauth.b2clogin.com only (bookslots.com account: Asha Rao): ")
+    assert all(line.startswith("appauth.b2clogin.com (Asha Rao, saved for bookslots.com): ")
                for line in shown), shown
     step = next(ctx for _, key, ctx, _ in script.contexts if key == "step.login")
     system = next(req.system for _, key, req in script.requests if key == "step.login")

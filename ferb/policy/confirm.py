@@ -102,10 +102,22 @@ def browser_page(address: str | None) -> bool:
     return text.startswith(BROWSER_SCHEMES) and not text.startswith(NOT_BROWSER_PAGES)
 
 
-def browser_page_need(app: str, page: str) -> "Need":
-    """Every input on that browser page asks (always): one Yes covers one input."""
-    return Need(BROWSER_PAGE, key(BROWSER_PAGE, app.casefold(), page.strip()), {"app": app, "page": page.strip()},
-                always=True)
+def browser_page_need(app: str, page: str, verb: str = "") -> "Need":
+    """Every input on that browser page asks (always): one Yes covers one input. `verb`: what the input does, as its
+    card says it ("Click", "Type"; display only, never part of the key)."""
+    return Need(BROWSER_PAGE, key(BROWSER_PAGE, app.casefold(), page.strip()),
+                {"app": app, "page": page.strip()} | ({"verb": verb} if verb else {}), always=True)
+
+
+TYPING_ACTIONS = frozenset({"type", "set_value", "edit", "key", "select"})   # a Mac input that enters text or keys
+
+
+def input_verb(tool: str, args: dict[str, Any]) -> str:
+    """What a Mac input does, as a card says it (GATE-566): "Type" for text or keys, "Run a script" for a script,
+    else "Click". From the call's own arguments (structure), display only."""
+    if tool == "mac.applescript":
+        return "Run a script"
+    return "Type" if tool == "mac.act" and str(args.get("action") or "") in TYPING_ACTIONS else "Click"
 SHOWN = 3                                 # display only: items one question names (outside sources, recipients,
                                           # paths); the rest are counted. It decides nothing.
 QUOTED_CHARS = 200                        # display only: a page or item quoted in FERB's question is clipped to
@@ -150,7 +162,8 @@ def foreground_need(tool: str, args: dict[str, Any]) -> "Need | None":
         return None
     app = str(args.get("app") or "an app")
     return Need(FOREGROUND, key(FOREGROUND, app_key(app)),
-                {"app": app} | ({"script": "yes"} if tool == "mac.applescript" else {}))
+                {"app": app} | ({"script": "yes", "script_text": str(args.get("script") or "")}
+                                if tool == "mac.applescript" else {}))
 
 
 def app_key(app: str) -> str:
@@ -320,6 +333,36 @@ def shown_origins(labels: Iterable[str]) -> str:
     return "; ".join(items[:SHOWN]) + f"; and {len(items) - SHOWN} more"
 
 
+def shown_place(label: str) -> str:
+    """One origin label as the place a card says FERB saw something (GATE-566): "a www.google.com page", "a message",
+    "an email"; the other kinds as `shown_origin` says them."""
+    head, _, rest = label.partition(":")
+    kind, _, detail = rest.partition(":")
+    if head == "external" and kind == "web" and detail not in ("excluded", "trail"):
+        return f"a {detail} page" if detail else "a web page"
+    if head == "external" and kind == "message":
+        return "a message"
+    return shown_origin(label)
+
+
+def shown_places(labels: Iterable[str]) -> str:
+    """The places a card names, the first SHOWN said and the rest counted ("a www.google.com page and a message")."""
+    items = list(dict.fromkeys(shown_place(o) for o in sorted(set(labels), key=lambda o: (o.count(":") < 2, o))))
+    if len(items) > SHOWN:
+        items = items[:SHOWN] + [f"{len(items) - SHOWN} more places"]
+    return ", ".join(items[:-1]) + (" and " if len(items) > 1 else "") + items[-1] if items else ""
+
+
+def value_kind(value: str) -> str:
+    """What a value is by its shape (GATE-509), for a card's words: "email address", "phone number", else "text"."""
+    text = value.strip().strip('"')
+    if _EMAIL.fullmatch(text):
+        return "email address"
+    if _PHONE.fullmatch(text) and len([c for c in text if c.isdigit()]) >= 7:
+        return "phone number"
+    return "text"
+
+
 def destination_key(host: str) -> str:
     """The shared confirmation key for one host (SQ6): a Yes or No to this host covers it for the whole tree, whether
     FERB reached it from a shell command or a browser URL. `host` is already normalized."""
@@ -427,6 +470,11 @@ def _toks(t: provenance.Text) -> frozenset[str]:
     if found is None:
         found = _FORMS[t] = _value_forms(t.folded, t.tokens)
     return found
+
+
+def value_forms(t: provenance.Text) -> frozenset[str]:
+    """A read text's value forms (`_toks`), for a caller that asks which record holds a value."""
+    return _toks(t)
 
 
 def _sequence(t: provenance.Text) -> tuple[tuple[str, ...], frozenset[str]]:
@@ -788,6 +836,53 @@ def _variants(piece: str) -> tuple[set[str], set[str]]:
     return shown, decoded
 
 
+def signed_in_page(labels: Iterable[str]) -> bool:
+    """Whether a record is a page read in the owner's signed-in browser (GATE-506's shape): web pages of its site and the
+    private label, nothing else (never context FERB assembled, a file or a mixed record)."""
+    labels = set(labels)
+    web = [o for o in labels if o.startswith(origin.EXTERNAL + ":web:") and o.count(":") >= 2]
+    return bool(web) and origin.PRIVATE in labels and all(o == origin.PRIVATE or o in web for o in labels)
+
+
+def shown_signed_out(value: str, page: str, text: str) -> bool:
+    """GATE-568 (owner), GATE-569: whether a value of the owner's read on `page` is on that page for anyone: the page's
+    signed-out `text` (no sign-in, the same address) holds it as one of its values, and the value isn't part of the
+    page's own address (a sign-in wall can echo the address it was asked for). Shape only."""
+    form = value.strip().lower()
+    if not form or not text:
+        return False
+    if any(form in _variants(piece)[0] | {piece.strip().lower()} for piece in _url_pieces(page)):
+        return False
+    return form in _toks(provenance.prepare(text))
+
+
+def _own_name(host: str, private: list[tuple[int, provenance.Text]], outside: list[tuple[int, provenance.Text]],
+              origins: dict[int, set[str]] | None) -> set[str]:
+    """GATE-570 (owner), GATE-571: the labels of the destination's own host name (cs50 of cs50.harvard.edu) and their
+    spellings, which tell that site nothing: only when the task read that host's name before (a page of that host, or
+    the host written in what it read), so a host made up around a value (VALUE.attacker.com, N3) never counts."""
+    host = host.rstrip(".").lower()
+    bare = host.removeprefix("www.")
+    if not bare or "." not in bare:
+        return set()
+    named = re.compile(r"(?<![\w.-])(?:www\.)?" + re.escape(bare) + r"(?![\w-]|\.[\w-])")
+    pages = {o.split(":", 2)[2].lower().rstrip(".").removeprefix("www.")
+             for labels in (origins or {}).values() for o in labels
+             if o.startswith(origin.EXTERNAL + ":web:") and o.count(":") >= 2}
+    if bare not in pages and not any(named.search(t.folded) for _, t in [*private, *outside]):
+        return set()
+    forms: set[str] = set()
+    for label in host.split("."):
+        if label and label != "www":
+            forms |= {label} | _spellings(label)
+            if label.startswith("xn--"):
+                try:
+                    forms.add(idna.ulabel(label))
+                except idna.IDNAError:
+                    pass
+    return forms
+
+
 @dataclass(frozen=True)
 class PrivateValue:
     """A URL piece carrying the owner's data (GATE-507): the piece as it leaves, the token of the owner's data it
@@ -829,7 +924,7 @@ def url_private_values(url: str, private: list[tuple[int, provenance.Text]],
         return []
     dest = urls.parse(url)
     known_to_site = _same_site_only(private, dest.host, origins, sites, dest.path, pages) \
-        if dest is not None and dest.host else set()
+        | _own_name(dest.host, private, outside, origins) if dest is not None and dest.host else set()
     hits = _private_hits(_url_pieces(url), private, outside, owner, known_to_site)
     if not hits:
         return []
@@ -1094,7 +1189,8 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
         what = "amount" if k == "amount" else ("recipient" if sends else "typed")
         needs.append(Need("sink:outside_value", key("sink:outside_value", k, value),
                           {"what": what, "value": shown_amount(target.amount) if k == "amount" else value,
-                           "origin": shown_origins(outside)},
+                           "origin": shown_origins(outside), "places": shown_places(outside),
+                           "site": _host(where)},
                           destinations=(dest,) if dest is not None else ()))
     return [replace(n, reaches=target) for n in needs]
 
@@ -1362,10 +1458,19 @@ def summary(needs: list[Need], typed: str = "") -> str:
 class Card:
     """FERB's question as its card shows it (GATE-513, refining GATE-225): the question in plain words, why FERB asks
     (one line, "" when the question says it), and the exact thing the owner approves (the command, address, value,
-    path or amount; "" when there is none), shown apart in a code box. Display only: it decides nothing."""
+    path or amount; "" when there is none), shown apart in a code box. GATE-566 (owner): the reviewed kinds' words, and
+    their buttons' action words (`yes`, `no`: what the app shows for Yes and No; "" keeps "Yes"/"No"); `aside` is the
+    card's own sentence when it is folded under another card, `clause` its fact folded into a terminal command's
+    sentence (`tail` marks a card that takes them: the detail, the clauses, then `tail`). Display only: it decides
+    nothing; the answer is still Yes or No."""
     question: str
     detail: str = ""
     exact: str = ""
+    yes: str = ""
+    no: str = ""
+    aside: str = ""
+    clause: str = ""
+    tail: str = ""
 
 
 def _bare(text: str) -> str:
@@ -1381,35 +1486,113 @@ def _place_of(source: str) -> str:
     return source.rsplit(" on ", 1)[1] if " on " in source else source
 
 
+def _unquoted(text: str) -> str:
+    """A JSON-quoted value from the needs' facts (terminal.visible, `shown_quoted`) as plain text for a code box, each
+    line apart (the gateway's card strips control characters line by line); as written when it isn't quoted."""
+    try:
+        value = json.loads(text) if text[:1] == '"' else text
+    except ValueError:
+        return text
+    return value if isinstance(value, str) else text
+
+
+def _word(text: str) -> str:
+    """A value inside a card's sentence: one line, clipped, in curly quotes (never a JSON escape)."""
+    one = " ".join(_unquoted(text).split())
+    return "“" + (one if len(one) <= QUOTED_CHARS else one[:QUOTED_CHARS - 1] + "…") + "”"
+
+
+def _in_terminal(v: dict[str, str]) -> str:
+    """The terminal a card names: the app's terminal ("VS Code's terminal"); the window and label stay in the record."""
+    return f"{v.get('app') or 'the app'}'s terminal"
+
+
+def _which(v: dict[str, str]) -> str:
+    """Which terminal of the app it is (its label, its window), a sentence after the card's own words: the app may
+    hold several terminals, the owner's own among them."""
+    parts = [f"terminal {v['label']}" if v.get("label") else "", f"window {v['window']}" if v.get("window") else ""]
+    said = ", ".join(p for p in parts if p)
+    return f" It's {v.get('app') or 'the app'}'s {said}." if said else ""
+
+
 def _terminal_card(v: dict[str, str]) -> Card | None:
-    """The common terminal inputs (typed text, a paste, a key); None for the rest (a code editor's run control, an
-    AppleScript, files that run when opened, a menu, a fill, a drag), which keep their full sentence."""
-    if any(v.get(k) for k in ("runs", "script", "files", "menu", "secret", "drag")):
-        return None
-    facts = [f"terminal {v['label']}" if v.get("label") else "", f"window {v['window']}" if v.get("window") else ""]
-    where = (v.get("app") or "its terminal") + "".join(f" ({', '.join(f for f in facts if f)})" for _ in [0]
-                                                       if any(facts))
-    runs = "It runs as you, with full access."
+    """GATE-566: every terminal input as one question naming the app, the exact input in the box, and that a Yes
+    covers this one input (D31: asked every time). A code editor's run control, an AppleScript, a file that runs when
+    opened, a terminal app's menu, a dragged text and a saved secret have their own words."""
+    app = v.get("app") or "the app"
+    where, which = _in_terminal(v), _which(v)
+    if v.get("runs"):                                  # a code editor's run control or menu item
+        pressed = v.get("menu") or v.get("control") or "this"
+        pressed = f"{v['keys']} ({pressed})" if v.get("keys") else pressed
+        if v.get("selection"):
+            what, unread = "the selected text", ""
+        else:
+            what = f"the selection or current line in {v['file']}" if v.get("file") else \
+                "the selection or current line"
+            unread = "; FERB can't read what it runs"
+        return Card(f"Press {pressed} in {app}? It runs code", f"It runs {what} in {v.get('runs_where') or app} with "
+                    f"your full access{unread}. Yes covers only this.", _unquoted(v.get("selection", "")),
+                    "Do it", "Don't")
+    if v.get("script"):                                # an AppleScript to a terminal-like app (Finder, System Events)
+        named = "; ".join(f for f in (v.get("names", ""),) if f)
+        files = (f" Files it names: {named}" + ("; FERB can't see others it may open" if v.get("opens") else "")
+                 + ".") if named else (" FERB can't see which file this opens, if it opens one." if v.get("opens")
+                                       else "")
+        return Card(f"Let {app} run this script?", f"{app} acts with its own access, outside FERB's safety limits."
+                    f"{files} Yes covers only this script.", _unquoted(v["script"]), "Run script", "Don't run")
+    if v.get("files"):                                 # a file that runs when it is opened
+        path = _unquoted(v.get("open_path", "")) or "this file"
+        name = path.rstrip("/").rsplit("/", 1)[-1] or path
+        return Card(f"Open {name}? It runs when opened", f"Opening it in {app} runs what's inside with your access. "
+                    "Its contents are below. Yes covers these exact contents.",
+                    "\n".join(p for p in (path, _unquoted(v.get("open_text", ""))) if p), "Open it", "Don't open")
+    if v.get("menu"):
+        return Card(f"Press {_unquoted(v['menu'])} in {app}? It can type into its terminal",
+                    "A terminal app's menu command can type into its terminal, which runs with your full access. Yes "
+                    "covers only this.", yes="Do it", no="Don't")
+    if v.get("secret"):
+        return Card(f"Fill your secret {_word(v['secret'])} into {where}?", "FERB never shows it. Text in a terminal "
+                    "can run with your full access. Yes covers only this." + which, yes="Fill it in", no="Don't")
+    if v.get("drag"):
+        return Card(f"Drag this onto {where}?", "Dropped text goes into the terminal, where it can run with your full "
+                    "access. Yes covers only this." + which, _unquoted(v.get("text", "")), "Drag it", "Don't")
     if v.get("paste"):
-        then = " and press Return" if v.get("enter") else ""
+        then = " and run it" if v.get("enter") else ""
         if v.get("concealed"):
-            return Card(f"Paste a secret item into {where}{then}?",
-                        "An app marked it secret, so FERB doesn't show it here. " + runs
-                        + " This Yes covers only this paste.")
-        return Card(f"Paste this into {where}{then}?", runs + " This Yes covers only this paste.",
-                    _bare(v.get("text", "")))
+            return Card(f"Paste a secret item into {where}{then}?", "An app marked it secret, so FERB doesn't show it "
+                        "here. Pasted text can run with your full access. Yes covers only this paste." + which,
+                        yes="Paste it", no="Don't paste")
+        return Card(f"Paste this into {where}{then}?", "Pasted text can run with your full access. Yes covers only this "
+                    "paste." + which, _bare(v.get("text", "")), "Paste it", "Don't paste")
     if v.get("text"):
         if v.get("enter"):
-            return Card(f"Run this command in {where}?", runs + " This Yes covers only this one command.",
-                        _bare(v["text"]))
-        return Card(f"Type this into {where}?", "FERB won't press Return; if Return is pressed, it runs as you. This "
-                    "Yes covers only this typing.", _bare(v["text"]))
+            return Card(f"Run this command in {app}?", "It runs with full access to your Mac and files",
+                        _bare(v["text"]), "Run it", "Don't run", tail=". Yes covers only this command." + which)
+        return Card(f"Type this into {where}?", "FERB won't press Return. If Return gets pressed, it runs with your full "
+                    "access. Yes covers only this typing." + which, _bare(v["text"]), "Type it", "Don't type")
     if v.get("keys") in ("return", "enter"):
-        return Card(f"Press Return in {where}?", "That runs whatever is already on its command line, which FERB didn't "
-                    "type and can't show you. This Yes covers only this key press.")
+        return Card(f"Press Return in {where}?", "That runs whatever is on its command line now. FERB didn't type it and "
+                    "can't show it to you." + which, yes="Press Return", no="Don't")
     if v.get("keys"):
-        return Card(f"Press {v['keys']} in {where}?", "This Yes covers only this key press.")
+        return Card(f"Press {v['keys']} in {where}?", "Yes covers only this key press." + which,
+                    yes=f"Press {v['keys']}", no="Don't")
     return None
+
+
+def _source_words(source: str) -> str:
+    """Where this task read a value of the owner's, in the owner's terms (GATE-566): the gateway's plain words for it
+    (`source_plain`), else "your own data"."""
+    return source or "your own data"
+
+
+def _page_name(page: str) -> str:
+    """A browser's own page by its address (GATE-566): the address's first label, capitalized (chrome://extensions →
+    Extensions, chrome://settings/passwords → Settings); an extension's page is "extension"."""
+    scheme, _, rest = page.strip().partition(":")
+    if scheme.casefold().endswith("extension"):
+        return "extension"
+    first = rest.lstrip("/").split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    return first[:1].upper() + first[1:] if first else "settings"
 
 
 def _card(n: Need, alongside: frozenset[str]) -> Card | None:
@@ -1418,125 +1601,163 @@ def _card(n: Need, alongside: frozenset[str]) -> Card | None:
     if n.rule == BULK and "floor:new_recipient" in alongside:      # the new recipients are named beside it
         return None
     if n.rule == "sink:private_url":
-        where = _place_of(v.get("source", "")) or "your own data"
         dest = v.get("destination", "")
         value = v.get("matched") or v.get("value", "")
-        return Card(f"Send {shown_quoted(value)} to {dest} by opening this page?",
-                    f"FERB read it on {where}, and the page's address carries it. A Yes also lets FERB open {dest} in "
-                    "later tasks.", v.get("url") or dest)
+        piece = v.get("value", "")
+        inside = f" (inside {_word(piece)})" if piece and piece.casefold() != value.casefold() else ""
+        return Card(f"Open {dest}? The link includes {_word(value)}",
+                    f"FERB treats {_word(value)}{inside} as yours because it read it in "
+                    f"{_source_words(v.get('source_plain', ''))}. Opening this link shows it to {dest}. Yes also lets "
+                    f"FERB open {dest} in later tasks.", v.get("url") or dest, "Open it", "Don't open")
     if n.rule == "sink:new_destination" and v.get("form"):
         # GATE-557 (owner GATE-558): the values and where each was read, the site, what the click does; one Yes per
-        # site per task
+        # site per task (no destination is stored, so the card says this task)
         dest = v.get("destination", "")
-        does = (f"Clicking {shown_quoted(v['control'])} sends this page's answers to {dest}." if v.get("control")
-                else f"This sends this page's answers to {dest}.")
-        return Card(f"Send {v.get('sent') or 'your own data'} to {dest}?",
-                    f"{does} You haven't named this site"
-                    + (f", and this task read {v['read']}" if v.get("read") else "") + f". A Yes covers {dest} for this "
-                    "task.",
-                    v.get("value") or dest)
+        values = [x for x in v.get("values", "").split("\n") if x] or [_unquoted(v.get("value", ""))]
+        sources = v.get("sources_plain") or "your own data"
+        which = "the values below" if len(values) > 1 else "the value below"
+        click = f"Clicking {_word(v['control'])}" if v.get("control") else "This click"
+        found = f"; it found it {v['found_via']}" if v.get("found_via") else ""
+        more = f" (and {v['more']} more)" if v.get("more") else ""
+        return Card(f"Send your details to {dest}?",
+                    f"{click} submits the form to {dest}, including {which}{more} from {sources}. You haven't named "
+                    f"this site to FERB{found}. Yes covers {dest} for this task.", "\n".join(values), "Send",
+                    "Don't send")
     if n.rule == "sink:new_destination":
         dest = v.get("destination", "")
-        return Card(f"Send data to {dest}?", "This task has read your own data and outside content"
-                    + (f" ({v['read']})" if v.get("read") else "") + ", and you haven't named this site, so FERB asks "
-                    f"first. A Yes lets FERB send to {dest} from now on.", dest)
+        return Card(f"Send your details to {dest}?", f"This sends to {dest}, and this task has read your own data and "
+                    f"outside content. You haven't named this site to FERB. Yes also lets FERB send to {dest} in later "
+                    "tasks.", dest, "Send", "Don't send")
     if n.rule == "sink:outside_value":
         what = v.get("what", "value")
-        said = (f"FERB found it only in {v.get('origin', 'outside content')}, not in anything you said or wrote."
-                + (" A Yes lets FERB use it from now on." if n.destinations else ""))
         value = v.get("value", "")
+        places = v.get("places") or v.get("origin") or "something FERB read"
+        later = bool(n.destinations)
         if what == "typed":
-            return Card("Type this, which came from something FERB read?", said, value)
+            kind = value_kind(value)
+            on = f" on {v['site']}" if v.get("site") else ""
+            return Card(f"Type this {kind}{on}?", f"You didn't give FERB this {kind}; it only saw it on {places}. A page "
+                        "can plant an address to get your data, so check it's right."
+                        + (" Yes also lets FERB use it again later." if later else ""), value, "Type it",
+                        "Don't type it")
         if what == "recipient":
-            return Card("Send to this address, which came from something FERB read?", said, value)
-        return Card(f"Use this {what}, which came from something FERB read?", said, value)
+            said = (f"You never gave FERB this address; it came from {places}. A page can plant an address to get "
+                    "your data.")
+            title = f"Send to {value}?" if len(value) <= 40 else "Send to this address?"
+            return Card(title, said + (" Yes also lets FERB send to it later." if later else ""), value, "Send",
+                        "Don't send", aside=said)
+        return Card(f"Use {value}, from {places}?", f"You didn't give FERB this amount; it was on {places}. Check it's "
+                    "the amount you want.", value, "Use it", "Don't")
     if n.rule == "floor:new_recipient":
         calls = v.get("verb") == "calls"
-        where = (f" in {v['place']}" if v.get("place") else "") + (f" as {v['account']}" if v.get("account") else "")
+        verb, act = ("Start a call", "starts a call") if calls else ("Send", "sends")
         if not v.get("recipients"):
-            return Card(f"{'Start a call' if calls else 'Send something'}{where} to someone the step doesn't name?",
-                        "FERB can't see who it goes to, so it checks with you first.")
+            place = v.get("place", "")
+            account = f" as {v['account']}" if v.get("account") else ""
+            return Card(f"{verb}{' in ' + place if place else ''} without seeing who gets it?",
+                        f"This button {act}{account}, but FERB can't tell to whom. Say {'Call' if calls else 'Send'} "
+                        f"only if that's what you asked for. Yes covers {place or 'it'} for this task.",
+                        yes="Call" if calls else "Send", no="Don't call" if calls else "Don't send")
         people = v["recipients"]
         them = "them" if "," in people else "this person"
-        return Card(f"{'Call' if calls else 'Send to'} {people}?",
-                    f"You haven't named {them} to FERB before. A Yes lets FERB {'call' if calls else 'send to'} "
-                    f"{them} from now on.",
+        return Card(f"{'Call' if calls else 'Send to'} {people} for the first time?",
+                    f"You haven't asked FERB to contact {them} before; check it's who you meant. Yes also lets FERB "
+                    f"{'call' if calls else 'send to'} {them} in later tasks.",
                     f"{'Call' if calls else 'To'}: {people}" + (f" · in {v['place']}" if v.get("place") else "")
-                    + (f" · from {v['account']}" if v.get("account") else ""))
+                    + (f" · from {v['account']}" if v.get("account") else ""),
+                    "Call" if calls else "Send", "Don't call" if calls else "Don't send")
     if n.rule == "floor:pay":
         amount = v.get("amount") or UNREAD_AMOUNT
         to = v.get("merchant") or v.get("recipients") or ""
-        detail = "This takes money from your account. This Yes covers this payment only."
+        detail = "Money leaves your account. Yes covers only this payment."
         if v.get("approved"):
             detail = (f"This is different from what you approved ({v['approved']}): the bank page"
                       f"{' on ' + v['bank'] if v.get('bank') else ''} shows {amount}. " + detail)
         exact = " · ".join(p for p in (f"{amount} → {to}" if to else amount, v.get("site", ""),
                                        f"from {v['account']}" if v.get("account") else "") if p)
-        if not v.get("amount"):
-            return Card(f"Pay{' ' + to if to else ''}? FERB couldn't read the amount.", detail, exact)
-        return Card(f"Pay {amount}{' to ' + to if to else ''}?", detail, exact)
+        if not v.get("amount") or amount.startswith(UNREAD_AMOUNT):     # GATE-204: no amount read
+            return Card(f"Pay{' ' + to if to else ''}? FERB couldn't read the amount", detail, exact, "Pay", "Don't pay")
+        return Card(f"Pay {amount}{' to ' + to if to else ''}?", detail, exact, f"Pay {amount}", "Don't pay")
     if n.rule == "floor:account_security":
-        return Card("Change a security setting" + (f" on {v['site']}" if v.get("site") else "")
-                    + (f" for {v['account']}" if v.get("account") else "") + "?",
-                    f"Changes like this ask first: {ACCOUNT_SECURITY}. This Yes covers this one change.")
-    if n.rule == "floor:delete_permanent":
+        account = v.get("account") or "your account"
+        return Card("Change sign-in security" + (f" on {v['site']}" if v.get("site") else "") + "?",
+                    f"This changes how you sign in to {account} (password, two-factor or recovery) or deletes the "
+                    "account; a mistake can lock you out. Yes covers this one change.",
+                    " · ".join(p for p in (v.get("account", ""), v.get("site", "")) if p), "Change it", "Don't change")
+    if n.rule == "floor:delete_permanent":             # not reviewed (GATE-566): today's words; its fact folds in
         detail = f"It's on {v['place']}, and it can't be undone." if v.get("place") else \
             "It skips the Trash and can't be undone."
-        return Card("Delete this for good?", detail, v.get("path", ""))
+        return Card("Delete this for good?", detail, v.get("path", ""),
+                    clause=f"it permanently deletes {v.get('path') or 'something'}")
     if n.rule == BULK and v.get("what") == "delete":
-        return Card("Delete this folder and everything in it, for good?",
-                    f"It skips the Trash, so it can't be undone: {v.get('files', '')} in {v.get('folders', '')}, "
-                    f"{v.get('bytes', '')}" + (f", for example {v['sample']}" if v.get("sample") else "") + ".",
-                    v.get("path", ""))
+        path = v.get("path", "")
+        name = path.rstrip("/").rsplit("/", 1)[-1] or path or "this folder"
+        return Card(f"Delete {name} and all {v.get('files', 'the files')} in it?",
+                    f"{v.get('files', '')} in {v.get('folders', '')}, {v.get('bytes', '')}"
+                    + (f", e.g. {v['sample']}" if v.get("sample") else "")
+                    + ". They skip the Trash, so you can't get them back.", path, "Delete all", "Keep them")
     if n.rule == BULK:
         calls = v.get("what") == "call"
-        return Card(f"{'Call' if calls else 'Send to'} {v.get('count', 'several')} recipients at once?",
-                    "You didn't name them in this request.", v.get("sample", ""))
+        count = v.get("count", "several")
+        return Card(f"{'Call' if calls else 'Send to'} {count} people at once?",
+                    "You didn't name them" + ("." if calls else f", and once {count} people have it you can't take it "
+                                              "back."), v.get("sample", ""),
+                    f"{'Call' if calls else 'Send to'} all {count}", "Don't call" if calls else "Don't send")
     if n.rule == TERMINAL_INPUT:
         return _terminal_card(v)
     if n.rule.startswith("escape:") and v.get("lift") == "read":
-        return Card(f"Read {v.get('path', 'this folder')} for this task?", "FERB normally stays out of it: it's a "
-                    "private store. One Yes covers it until this task ends.", v.get("path", ""))
+        path = v.get("path", "this folder")
+        return Card(f"Let FERB read {path}?", "It's on your private list, so FERB normally stays out. Yes lets it read "
+                    "there (not change anything) until this task ends.", v.get("path", ""), "Allow reading",
+                    "Keep out")
     if n.rule.startswith("escape:") and v.get("lift") == "write":
-        return Card(f"Change {v.get('path', 'this')} once?", "FERB never changes it on its own. This Yes covers this "
-                    "one change.", v.get("path", ""))
+        return Card(f"Let FERB change {v.get('path', 'this')} once?", "It's on your do-not-change list. Yes covers only "
+                    "this one change.", "\n".join(p for p in (v.get("path", ""), v.get("command", "")) if p),
+                    "Change it once", "Don't")
     if n.rule.startswith("escape:") and v.get("lift") == "admin":
-        return Card("Run one command as administrator (sudo)?", "FERB's shell never uses admin rights otherwise. Next, "
-                    "FERB asks for your Mac password.")
+        return Card("Run this command as administrator?", "Admin commands can change anything on your Mac. Next, macOS "
+                    "needs your Mac password. Yes covers only this command.", v.get("command", ""), "Run as admin",
+                    "Don't")
     if n.rule.startswith("escape:") and v.get("lift") == "service":
-        return Card("Let one command use macOS's certificate service?", "It reaches certificate addresses outside "
-                    "FERB's proxy. This Yes covers one command.")
+        return Card("Let this command check certificates directly?", "macOS will contact certificate servers outside "
+                    "FERB's network filter for it. Yes covers only this command.", v.get("command", ""), "Allow once",
+                    "Don't")
     if n.rule == FOREGROUND and v.get("script"):
         app = v.get("app", "your browser")
-        return Card(f"Let FERB run scripts in {app} for this task?",
-                    f"Scripts can act in all of {app}'s windows and tabs, including where you're signed in. One Yes "
-                    f"covers {app} until this task ends.")
-    if n.rule == FOREGROUND:
+        return Card(f"Let FERB run a script in {app}?",
+                    f"A script can read and act in every {app} window and tab, including sites you're signed in to. "
+                    f"Yes covers scripts in {app} until this task ends.", v.get("script_text", ""), "Allow scripts",
+                    "Don't")
+    if n.rule == FOREGROUND:                           # not reviewed (GATE-566): today's words; its fact folds in
         app = v.get("app", "the app")
         return Card(f"Let FERB use your screen in {app} for this task?",
-                    f"{app} will come to the front while FERB works in it. One Yes covers {app} until this task ends.")
+                    f"{app} will come to the front while FERB works in it. One Yes covers {app} until this task ends.",
+                    clause=f"{app} comes to the front while FERB types")
     if n.rule == BROWSER_PAGE:
-        return Card(f"Change something on {v.get('app', 'the browser')}'s own page?",
-                    "Pages like its settings and extensions. This Yes covers only this one change.",
-                    v.get("page", ""))
+        app, page = v.get("app", "the browser"), v.get("page", "")
+        return Card(f"{v.get('verb') or 'Click'} on {app}'s {_page_name(page)} page?",
+                    f"It's {app}'s own settings area, where one change affects all your browsing (extensions, "
+                    "passwords, privacy). Yes covers this one action.", page, "Allow", "Don't")
     if n.rule == PAIR:
-        return Card(f"Pair your {v.get('browser', '')} profile “{v.get('name', '')}”{_account(v)} with FERB?",
-                    "FERB can then open tabs and work in that profile's signed-in accounts. Its pairing page opens there "
-                    "and closes itself.")
+        browser, name, account = v.get("browser", ""), v.get("name", ""), v.get("email", "")
+        return Card(f"Let FERB work in your {browser} “{name}” profile?",
+                    "FERB could then open tabs there and act as you on sites you're signed in to"
+                    + (f" ({account})" if account else "") + ". A pairing page opens and closes itself.",
+                    " · ".join(p for p in (browser, name, account) if p), "Pair it", "Don't pair")
     if n.rule == TLS_OFF:
-        site = f"the site is really {v['hosts']}" if v.get("hosts") else "each site it reaches is really that site"
         whom = v["hosts"] if v.get("hosts") else "each site it reaches"
-        return Card("Run this with certificate checks turned off?",
-                    f"It won't check that it's really talking to {whom}, so someone in between could read or change "
-                    "what's sent.", v.get("command", ""))
+        return Card("Run this without checking the site is real?",
+                    f"It skips the check that it's really talking to {whom}, so someone on your network could swap "
+                    "what it downloads. Yes covers only this command.", v.get("command", ""), "Run it", "Don't run")
     return None
 
 
 def card(needs: list[Need], typed: str = "") -> Card:
-    """FERB's question card (GATE-513), built from the needs' facts like `summary`: the first need's question, the
-    others' questions after its reason, and every exact part, one per line. A need with no card of its own keeps
-    today's sentence (`_short`, else its own words), so every question has words; `typed` (the text last typed where
-    it sends, quoted and clipped by the caller) closes the reason."""
+    """FERB's question card (GATE-513), built from the needs' facts like `summary`: the first need's question and its
+    buttons' words, the others' sentences after its reason (a terminal command takes their facts into its own
+    sentence, GATE-566), and every exact part, one per line. A need with no card of its own keeps today's sentence
+    (`_short`, else its own words), so every question has words; `typed` (the text last typed where it sends, quoted
+    and clipped by the caller) closes the reason."""
     rules = frozenset(n.rule for n in needs)
     said = {n.values.get("covers") for n in needs if n.rule == BULK}
     cards: list[Card] = []
@@ -1562,11 +1783,14 @@ def card(needs: list[Need], typed: str = "") -> Card:
         return Card(summary(needs, typed))
     # (`card` itself never raises for a missing fact; the gateway still keeps today's line if anything else does)
     first, rest = cards[0], cards[1:]
-    detail = " ".join(p for p in [first.detail, *(c.question + (" " + c.detail if c.detail else "") for c in rest),
+    lead = first.detail
+    if first.tail:                              # a terminal command: the other needs' facts, as clauses of its sentence
+        lead += "".join("; " + c.clause for c in rest if c.clause) + first.tail
+        rest = [c for c in rest if not c.clause]
+    detail = " ".join(p for p in [lead, *(c.aside or c.question + (" " + c.detail if c.detail else "") for c in rest),
                                   f'Text last typed there: "{typed}".' if typed else ""] if p)
     exact = "\n".join(c.exact for c in cards if c.exact)
-    return Card(first.question, detail, exact)
-
+    return Card(first.question, detail, exact, first.yes, first.no)
 
 def reason_line(why: str) -> str:
     """The task's reason as the small line under a question: its own words, a line that reads like FERB's own check

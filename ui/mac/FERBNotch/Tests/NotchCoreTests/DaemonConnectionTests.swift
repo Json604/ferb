@@ -38,6 +38,29 @@ final class DaemonConnectionTests: XCTestCase {
         XCTAssertTrue(model.pendingApprovals.isEmpty)
     }
 
+    // decision: APP-826, GATE-566
+    func testAButtonShowsTheDaemonsWordsAndStillAnswersByItsOptionsNumber() async throws {
+        let approval = DaemonApproval(["approval_id": "w1", "kind": "owner_question", "capability": "ferb.confirm",
+                                       "options": ["Yes", "No", "Yes, and don't ask for 30 min"],
+                                       "labels": ["Send", "Don't send", ""], "title": "Check before FERB goes on",
+                                       "note": "Covers only routine questions."])!
+        XCTAssertEqual([0, 1, 2].map(approval.optionLabel), ["Send", "Don't send", "Yes, and don't ask for 30 min"])
+        XCTAssertEqual(approval.title, "Check before FERB goes on")
+        XCTAssertEqual(approval.note, "Covers only routine questions.")
+        let secret = DaemonApproval(["approval_id": "s1", "kind": "owner_login_code", "field_label": "Code",
+                                     "decline_label": "Don't enter", "send_label": "Enter code"])!
+        XCTAssertEqual([secret.fieldLabel, secret.declineLabel, secret.sendLabel], ["Code", "Don't enter", "Enter code"])
+
+        let rpc = RecordingRPC()
+        let model = makeModel(rpc)
+        model.pendingApprovals = [approval]
+        model.chooseApproval(approval, index: 0)                                           // "Send"
+        await Task.yield()
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertEqual(rpc.calls.first?.0, "chat.approve")
+        XCTAssertEqual(rpc.calls.first?.1["choice"] as? Int, 1)                            // the daemon's Yes
+    }
+
     // decision: APP-726, GATE-510, ORCH-536
     func testEachCardTakesWordsOnlyWhereTheDaemonSaysAndASafetyChecksWordsAreACorrection() async throws {
         func card(_ extra: [String: Any]) -> DaemonApproval {

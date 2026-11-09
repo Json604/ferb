@@ -26,6 +26,16 @@ public struct DaemonApproval: Identifiable, Equatable {
     public var plainText: Bool { !(summary ?? "").isEmpty || capability == "ferb.confirm" }
     public let capability: String?
     public let options: [String]
+    /// GATE-566: each option's button words from the daemon (an action word such as "Send" for Yes); an empty or missing
+    /// one shows the option itself. The answer sent is still the option's number.
+    public let labels: [String]
+    /// GATE-566: a line under the buttons (what the 30-minute answer covers).
+    public let note: String?
+    /// GATE-566: a hidden input's field placeholder, decline and send words from the daemon.
+    public let fieldLabel: String?
+    public let declineLabel: String?
+    public let sendLabel: String?
+    /// The card's header, by the question's structure (GATE-566), from the daemon; nil keeps the app's own.
     public let title: String?
     public let evidence: [String]
     /// The task id the question was asked for, before the notch filed it under its root task (`task_id` is the root):
@@ -35,6 +45,11 @@ public struct DaemonApproval: Identifiable, Equatable {
     public let part: String?
     /// The offer of another AI service (`runtime.switch`, ORCH-315): answered only with its buttons.
     public let runtimeSwitch: RuntimeSwitch?
+    /// The words on option `index`'s button: the daemon's label for it, else the option itself (GATE-566).
+    public func optionLabel(_ index: Int) -> String {
+        let label = labels.indices.contains(index) ? labels[index].trimmingCharacters(in: .whitespaces) : ""
+        return label.isEmpty ? options[index] : label
+    }
     public var isSecret: Bool { ["owner_login_code", "owner_admin_password", "owner_secret"].contains(kind) }
     /// FERB's own question about whether the task goes on (a check-in, "Resume?", a closed tab, a runtime offer):
     /// answered only with its buttons; the daemon refuses typed words (ORCH-536). The daemon's flag, never the text.
@@ -65,7 +80,12 @@ public struct DaemonApproval: Identifiable, Equatable {
         detail = (value["detail"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         exact = (value["exact"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         options = value["options"] as? [String] ?? []
-        title = value["title"] as? String
+        labels = value["labels"] as? [String] ?? []
+        note = (value["note"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        fieldLabel = (value["field_label"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        declineLabel = (value["decline_label"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        sendLabel = (value["send_label"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        title = (value["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         evidence = value["evidence"] as? [String] ?? []
         sourceTaskID = value["source_task_id"] as? String ?? taskID
         part = (value["part"] as? String).flatMap { $0.isEmpty ? nil : $0 }

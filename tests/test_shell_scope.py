@@ -242,7 +242,7 @@ def test_a_read_escape_yes_covers_the_task_and_the_file_tools(daemon: RunningDae
     finally:
         yes.stop()
     first, second = shell.grants
-    assert len(yes.asked) == 1 and "for this task" in yes.asked[0].summary
+    assert len(yes.asked) == 1 and "until this task ends" in yes.asked[0].detail
     assert first.command == "cat config" and second.command == "ls -la"
     assert first.confirmation_id == second.confirmation_id
     assert not read["is_error"] and "eu-west-1" in read["content"]["text"]

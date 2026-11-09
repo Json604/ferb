@@ -555,7 +555,7 @@ def test_a_never_read_store_asks_once_per_task_for_reads_and_per_call_for_change
     finally:
         no.stop()
     assert r["is_error"] and "eu-west-1" not in str(r) and len(no.asked) == 1
-    assert no.asked[0].summary == "Read ~/.aws for this task?"                     # GATE-514: the card
+    assert no.asked[0].summary == "Let FERB read ~/.aws?"                     # GATE-514: the card
     r = gateway_tool_call(daemon, grant, "fs.read", path=str(fake / ".aws" / "credentials"))   # the No is final
     assert r["is_error"] and "already said no" in r["content"]["error"]
 
@@ -582,7 +582,7 @@ def test_a_yes_to_reading_a_protected_folder_covers_the_task_and_changes_ask_eac
     assert not first["is_error"] and "eu-west-1" in first["content"]["text"]
     assert not again["is_error"] and not listed["is_error"] and asked_reads == 1
     assert not w1["is_error"] and not w2["is_error"] and len(yes.asked) == 3              # each change asked
-    assert yes.asked[1].summary == "Change ~/.aws once?"                         # GATE-514: the card
+    assert yes.asked[1].summary == "Let FERB change ~/.aws once?"                         # GATE-514: the card
     assert (fake / ".aws" / "new").read_text() == "x" and (fake / ".aws" / "new2").read_text() == "y"
 
 
@@ -1293,7 +1293,7 @@ def test_a_script_naming_ferbs_own_files_is_refused_and_a_listed_place_asks(daem
         yes.stop()
     assert all(r["is_error"] and "never" in r["content"]["error"].lower() for r in refused), refused
     assert not listed["is_error"] and not plain["is_error"] and tool.runs == 2
-    assert len(yes.asked) == 1 and "Change ~/.zshrc once?" == yes.asked[0].summary   # only the listed place asked
+    assert len(yes.asked) == 1 and "Let FERB change ~/.zshrc once?" == yes.asked[0].summary   # only the listed place asked
 
 
 # decision: GATE-224

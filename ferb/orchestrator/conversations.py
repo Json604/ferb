@@ -37,6 +37,19 @@ class ConversationScope(BaseModel):
                 'You can pause, correct the scope or take over at any time. '
                 'Message sends still follow the separately displayed standing permission and security checks.')
 
+    def card(self) -> dict[str, Any]:
+        """The scope question as its card shows it (GATE-566): who FERB chats with and where, the account, app and
+        thread in the box, the topic, the hand-over and the account risk; Yes / No as action words. The full
+        `approval_text` stays the question's record."""
+        who = ', '.join(self.recipients)
+        as_whom = 'as you' if self.identity == 'owner' else 'as FERB'
+        return {'summary': f'Let FERB chat {as_whom} with {who} on {self.site}?',
+                'exact': f'{self.account} · {self.app} · thread {self.thread}',
+                'detail': (f'About: {self.topic}. It hands back to you when {self.handover_when}. Automating '
+                           f'{self.site} may break its rules and risk the account. You can pause or take over any '
+                           'time; each send still follows your send rules.'),
+                'labels': ['Let FERB chat', "Don't"]}
+
 
 class ConversationStore:
     def __init__(self, db: Any, clock: Any, redact: Callable[[Any], Any],
@@ -291,7 +304,7 @@ class ConversationRunner:
     async def run(self, ident: str, tree_id: str, scope: ConversationScope) -> dict[str, Any]:
         row = self.store.open(ident, tree_id, scope)
         if row['status'] == 'proposed':
-            answer = await self.approve(scope.approval_text(), ['Yes', 'No'])
+            answer = await self.approve(scope.approval_text(), ['Yes', 'No'], scope.card())
             if not answer.get('approval_id'):
                 return {'status': 'blocked', 'summary': 'Conversation scope is waiting for your answer.', 'conversation_id': ident}
             self.store.approve(ident, answer['approval_id'], answer.get('answer', ''))

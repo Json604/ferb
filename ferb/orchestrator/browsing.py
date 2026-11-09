@@ -7,10 +7,12 @@ NONE = "None"                        # the question's last option: no profile; w
 KIND = "browsing"                    # its `memory_questions.kind`
 ASKED = "owner_profile_asked"        # [browsing] key: the owner answered the question (a profile, or None)
 
-QUESTION = ("Which of your browser profiles should FERB use for web work, like searches? FERB doesn't have one of "
-            "its own. It works there in the background, as you: its searches show in that profile's history and "
-            "sites see your accounts there. Anything risky still asks you first. With None, web tasks are slower and "
-            "less reliable. You can change this anytime in Settings → Browsers.")
+# GATE-566: the question's first line is its card's question, the rest its why line
+QUESTION_TITLE = "Which browser profile should FERB use for web work?"
+QUESTION_DETAIL = ("FERB has no profile of its own. It works there in the background, as you: sites see your accounts and "
+                   "its searches show in that profile's history. Risky steps still ask you. With None, web tasks are "
+                   "slower and often fail. Change it any time in Settings → Browsers.")
+QUESTION = QUESTION_TITLE + "\n" + QUESTION_DETAIL
 GONE = "The profile FERB used for web work, {label}, isn't there any more. "
 CHOSEN = "FERB will do its web work in {label} from now on. You can change it in Settings → Browsers."
 NONE_CHOSEN = ("Done: FERB won't use any of your profiles for web work. Some tasks will be much slower and less "
