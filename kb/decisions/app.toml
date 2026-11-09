@@ -3182,3 +3182,14 @@ date = 2026-11-09
 status = "active"
 rule = "For ORCH-570. The app draws no acknowledgement words anywhere: the chat has drawn none since 2026-10-29, the unused QuickReplyBubble is removed, and a task's title in the Tasks list falls back to its plan line, never an ack. An `ack` still binds the request, replaces the request bubble's text with the recorded message, shows the hidden-secret notice and starts the typing dots. A phrase an older daemon sent stays in the saved turn (`ack`, read tolerantly, APP-801) and is never drawn. The playground's fake daemon sends the ack without text, as the daemon does."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TaskList.swift::NotchModel.title", "ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationArchive.acknowledge", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift::NotchModel.handleChatEvent"]
+
+[APP-813]
+title = "A folded text draws nothing outside its frame"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "For APP-809 and APP-788. MessageTextView clips to its own bounds (clipsToBounds), so a folded text's row is its folded height and none of its hidden lines paint over the rows below it, in the notch chat and the window's History alike, on every day."
+why = "Owner 2026-11-09: \"btw the spill is in eveyr date, today also\": a folded answer's lines drew over the rows below. Since macOS 14 a view doesn't clip unless asked, and APP-809 made the frame the folded height."
+evidence = "FoldClipTests: before the fix the pixels below a folded answer's row had alpha 0.85; after, 0."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NativeMessageText.swift::MessageTextView"]
+live = ["LIVE-840"]

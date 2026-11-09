@@ -3662,3 +3662,12 @@ request = "Open History."
 pass = "Every day you chatted with FERB is listed, newest first, each opening on its own messages."
 decisions = ["APP-805", "APP-806"]
 sitting = "after this change is installed"
+
+[LIVE-840]
+title = "A folded answer never draws over the messages below it"
+area = "app"
+surface = "FERB.app with this build"
+request = "Open the notch chat (Today) and History → Nov 8; find long answers folded with Show all; scroll past them; press Show all and Show less on one."
+pass = "Each folded answer ends at its Show all and its card's edge; nothing of its text shows over the rows, cards or messages below it, in the notch and the window, on every day. Show all shows the whole answer and Show less folds it back."
+decisions = ["APP-813", "APP-809", "APP-788"]
+sitting = "after this change is installed"

@@ -231,6 +231,10 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
         container.heightTracksTextView = false
         super.init(frame: .zero, textContainer: container)
         wantsLayer = true                                  // its own backing: a collapsed fade erases only its pixels
+        // Nothing draws outside its frame: since macOS 14 a view doesn't clip unless asked, and a folded text's frame is
+        // its folded height while its layout holds all of the text (APP-809; owner 2026-11-09: the folded lines painted
+        // over the rows below).
+        clipsToBounds = true
         isEditable = false
         isSelectable = true
         drawsBackground = false
