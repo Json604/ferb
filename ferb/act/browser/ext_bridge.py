@@ -343,6 +343,9 @@ class Bridge:
             raise DriverError(str(r.error).removeprefix("debugger_refused:").strip(), facts={"reason": "debugger_refused"})
         if read and r.error == "timeout" and "tab_id" in args:
             raise not_responding(op, timeout, r.step, r.steps)
+        if str(r.error or "").startswith("dialog_pending:"):   # 0.19.7 (HAND-442): nothing was sent; the dialog's type
+            raise DriverError(str(r.error).removeprefix("dialog_pending:").strip(),
+                              facts={"reason": "dialog_pending", **({"dialog": r.dialog} if r.dialog else {})})
         raise DriverError(r.error or f"{op} failed")
 
     async def _cancel_pointer(self, args: dict[str, Any], cid: str) -> None:
@@ -1417,9 +1420,12 @@ class _TabDriver:
         tasks = {task} | ({p} if (p := self.inspection_parent(task)) else set())
         return self.downloads.facts_for(tasks, self.identity.value)
 
-    async def navigate(self, tab: TabRef, url: str) -> None:
+    async def navigate(self, tab: TabRef, url: str, leave_page: str | None = None) -> None:
+        """`leave_page` (HAND-442): the worker's choice for a page that asks before it is left, carried out by the
+        extension; without it such a page ends the call with its dialog (`reason: dialog_pending`)."""
         t = self._tab(tab)
-        v = await t.bridge.call("navigate", {"tab_id": t.chrome_id, "url": url}, timeout=30)
+        v = await t.bridge.call("navigate", {"tab_id": t.chrome_id, "url": url,
+                                             **({"leave_page": leave_page} if leave_page else {})}, timeout=30)
         if v.get("navigated") is False:                  # e.g. download_capture_unavailable: the URL never loaded
             raise DriverError(str(v.get("detail") or "the tab didn't navigate"), facts=v)
         t.url = str(v.get("url") or url)
@@ -1457,7 +1463,7 @@ class _TabDriver:
             raise DriverError("browser did not confirm keeping the tab open and releasing control")
         return self._lifecycle(t, v)
 
-    async def close(self, tab: TabRef) -> dict[str, Any]:
+    async def close(self, tab: TabRef, leave_page: str | None = None) -> dict[str, Any]:
         t = self._tabs.get(tab.tab_id)
         if t is None:
             return {"tab": tab.tab_id, "released": True, "closed": False, "already_released": True}
@@ -1475,7 +1481,11 @@ class _TabDriver:
             if t.bridge.gen != t.ref.generation:
                 raise DriverError(f"cannot confirm cleanup of {tab.tab_id}: browser connection changed")
             t.closing = True                             # its removal is FERB's own, no owner's stop
-            v = await t.bridge.call("close", {"tab_id": t.chrome_id}, timeout=10)
+            v = await t.bridge.call("close", {"tab_id": t.chrome_id,
+                                              **({"leave_page": leave_page} if leave_page else {})}, timeout=10)
+            if v.get("reason") in ("dialog_pending", "stayed"):   # HAND-442: the page asked; the tab stays the task's
+                t.closing = False
+                raise DriverError(str(v.get("detail") or "the page asked before closing"), facts=v)
             if v.get("reason") == "not_ferbs":           # the extension never closes a tab it has no record of opening
                 v = {**v, "released": True, "left_open": True}
             elif not v.get("closed") and not (v.get("kept_open") and v.get("released")):

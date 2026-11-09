@@ -563,17 +563,27 @@ async function executeCommand(m) {
     await send('result', {id:m.id, gen:m.gen, status:claimed}); return;
   }
   const handler = OPS.includes(m.op) ? commands[m.op] : null;
-  let body, nothingSent = false;
+  let body, nothingSent = false, watch = null;
   const run = newRun(), tabId = m.args && Number.isInteger(m.args.tab_id) ? m.args.tab_id : null;
+  const pageOp = tabId !== null && DIALOG_BLOCKED.has(m.op) && m.args.part === undefined;
   try {
     if (!handler) throw beforeInput(new Error(`unknown op ${m.op}`));
+    // 0.19.7 (HAND-442): a page showing a dialog does nothing else until it is answered, so a command for it is
+    // refused at once with the dialog's type (its text only through `dialog`); a snapshot says so in its frame
+    const pending = pageOp ? (TABS.get(tabId) || {}).pendingDialog : null;
+    if (pending && m.op !== "snapshot" && m.op !== "close") throw dialogPending(pending);   // a tab may still close
     if (ACTING.has(m.op) && tabId !== null) await awake(tabId);
+    if (INPUT_OPS.has(m.op) && tabId !== null) noteInput(tabId);
+    if (pageOp) watch = watchDialog(tabId);
     const work = (async () => {
-      // 0.19.6: a tab FERB reads or acts in is kept awake first (focus emulation), so a frozen page answers (wake)
-      if (WAKES.has(m.op) && tabId !== null && m.args.part === undefined) await step(run, "wake", () => wake(tabId));
+      // 0.19.6: a tab FERB reads or acts in is kept awake first (focus emulation), so a frozen page answers (wake);
+      // never under a dialog (0.19.7): the debugger's call would wait for the dialog like the page does
+      if (WAKES.has(m.op) && tabId !== null && m.args.part === undefined && !pending) await step(run, "wake", () => wake(tabId));
       return handler({ ...(m.args || {}), _timeout_ms: m.timeout_ms || 30000, _run: run }, m.id);
     })();
-    const value = await withTimeout(work, m.timeout_ms || 30000, run);
+    // a dialog the page opens during the command (none expected) ends it at once, as a fact (dialogOpened)
+    const value = await withTimeout(watch ? Promise.race([work, watch.opened.then((d) => dialogOpened(m.op, d, run))]) : work,
+                                    m.timeout_ms || 30000, run);
     body = { id: m.id, gen: m.gen, status: "ok", value };
   } catch (e) {
     if (m.op === "pointer") cancelPointer(m.args.tab_id, m.id);
@@ -583,6 +593,10 @@ async function executeCommand(m) {
     // out, and how long each step took, so the daemon can say where a page stopped answering
     if (run.step) body.step = run.step;
     if (Object.keys(run.steps).length) body.steps = { ...run.steps };
+    if (e && e.dialog) body.dialog = e.dialog;           // 0.19.7, optional: the pending dialog's type
+  } finally {
+    if (watch) watch.done();
+    if (INPUT_OPS.has(m.op) && tabId !== null) noteInput(tabId);   // a tab its input opens may follow the command
   }
   // A handler error may follow partial input; a timeout does not cancel the renderer operation. Only an error raised
   // before anything reached the page (nothingSent: refusedCommand, awake, the preparation before input, HAND-422) is a
@@ -648,6 +662,61 @@ async function wake(tabId) {
   catch (_) { return false; }                        // the read itself says what's wrong
 }
 function wakeFrozen(id, info) { if (info && info.frozen === true) wake(id).catch(() => {}); }
+
+// ---------- JavaScript dialogs as facts (0.19.7, HAND-442) ----------
+// A page showing alert, confirm, prompt or "Leave site?" (beforeunload) runs nothing else, so every command that reads
+// or acts in it would wait out its timeout (live 2026-11-09: a navigate 20 s, a wait 10 s, a snapshot 30 s). Instead a
+// command for a tab with a dialog pending is refused at once, and one that is running when the page opens a dialog
+// nobody declared ends at once: a read or a refused command with the error `dialog_pending` and `dialog: {type}`; an
+// input command with what it delivered and `dialog`; navigate and close with `reason: "dialog_pending"`. Code never
+// answers it: the worker reads it and decides with `dialog`, or said beforehand (act's expect_dialog, navigate's and
+// close's leave_page). Its text goes only through `dialog`, which labels it as the page's.
+const DIALOG_BLOCKED = new Set([...WAKES, "navigate", "close", "read_source"]);
+const dialogFact = (d) => ({ type: d.type });
+function dialogPending(d) {
+  const e = beforeInput(new Error(`dialog_pending: the page shows a ${d.type} dialog and does nothing else until it is ` +
+                                  "answered; read it and answer it with the dialog tool (accept or dismiss)"));
+  e.dialog = dialogFact(d);
+  return e;
+}
+const dialogWatchers = new Map();      // tabId -> Set of watchers of the commands running in it
+function watchDialog(tabId) {
+  const w = {};
+  w.opened = new Promise((resolve) => { w.fire = resolve; });
+  if (!dialogWatchers.has(tabId)) dialogWatchers.set(tabId, new Set());
+  dialogWatchers.get(tabId).add(w);
+  w.done = () => { const set = dialogWatchers.get(tabId); if (set) { set.delete(w); if (!set.size) dialogWatchers.delete(tabId); } };
+  return w;
+}
+function dialogOpened(op, d, run) {
+  run.aborted = true;                                  // the command's handler goes no further
+  const fact = dialogFact(d);
+  if (op === "navigate") return { ok: false, navigated: false, reason: "dialog_pending", dialog: fact,
+    detail: `the page opened a ${d.type} dialog instead of leaving; nothing else happens until it is answered: read ` +
+            "it and answer with the dialog tool (for a beforeunload dialog, accept leaves the page and dismiss stays), " +
+            "or say leave_page when navigating" };
+  if (op === "close") return { ok: false, closed: false, reason: "dialog_pending", dialog: fact,
+    detail: `the page opened a ${d.type} dialog instead of closing; answer it with the dialog tool (accept closes the ` +
+            "tab, dismiss keeps it), or say leave_page when closing" };
+  if (op === "act" || op === "pointer") return { ok: true, dialog: fact,
+    detail: `the input reached the page, and the page then opened a ${d.type} dialog, which waits for an answer; read ` +
+            "it and answer it with the dialog tool" };
+  if (READ_OPS.has(op)) throw dialogPending(d);
+  // a sealed fill, an upload, media or a scroll the dialog cut short: how much of it the page took isn't known
+  const e = new Error(`dialog_opened: the page opened a ${d.type} dialog during this; answer it with the dialog tool, ` +
+                      "then look at the page");
+  e.dialog = fact;
+  throw e;
+}
+
+// A tab the task's own input opened (0.19.7, HAND-443): within INPUT_OPENS_MS of an input command in a task tab, a new
+// tab whose first address is http(s) is checked: the browser's own openerId (Target.getTargetInfo, as for a hook's
+// popup) must be that task tab's target. Then it is claimed like a popup (`popup` event; the daemon makes it the task's,
+// so the opener's next result names it), even when the page opened it with no opener link (noopener: Chrome still
+// reports the opener, measured). Any other new tab is let go of at once. No address or page text decides it.
+const INPUT_OPS = new Set(["act", "pointer", "fill"]);
+const INPUT_OPENS_MS = 3000;
+function noteInput(tabId) { const t = TABS.get(tabId); if (t && t.armed) t.lastInput = Date.now(); }
 chrome.tabs.onUpdated.addListener(wakeFrozen);
 
 const maskUrl = (u) => ferbMaskUrl(u);               // mask.js: one rule with content.js
@@ -683,6 +752,31 @@ function waitComplete(tabId, ms) {
     chrome.tabs.onUpdated.addListener(check);
     chrome.tabs.get(tabId).then((t) => { if (t.status === "complete") done(); }).catch(done);
   });
+}
+
+// The worker's choice for a page that asks before it is left (navigate, close: `leave_page`, 0.19.7, HAND-442). Code
+// never makes it (rule 4). "leave": the page hook skips the page's own beforeunload listeners for this leave (all its
+// frames are told, at most 1 s), so no dialog is raised; one raised anyway (a page FERB's hook reached only after it
+// loaded, or a listener the hook can't precede) is accepted by the debugger within milliseconds. "stay": a "Leave site?"
+// dialog is dismissed at once and the command says it stayed (`stayed` resolves true). Chrome brings the tab forward
+// in its window for that dialog (measured), so "leave" is the choice that keeps it in the background. No choice: the
+// dialog is the command's answer (dialogOpened).
+async function leaveChoice(tabId, choice) {
+  const t = tabState(tabId);
+  const none = { stayed: new Promise(() => {}), done() {} };
+  if (choice !== "leave" && choice !== "stay") return none;
+  let stay;
+  const stayed = new Promise((resolve) => { stay = () => resolve(true); });
+  t.onStay = stay;
+  t.expect = { accept: choice === "leave", text: "", leave: true };
+  if (choice === "leave") {
+    try {
+      await Promise.race([script({ target: { tabId, allFrames: true },
+        func: (name) => { document.dispatchEvent(new CustomEvent(name)); return true; }, args: [FERB_TOKEN + ":leave"] }),
+        sleep(1000)]);
+    } catch (_) { /* a page scripts can't reach: the debugger still answers its dialog */ }
+  }
+  return { stayed, done() { if (t.onStay === stay) t.onStay = null; if (t.expect && t.expect.leave) t.expect = null; } };
 }
 
 // ---------- Reuse FERB's window; cold creation requires explicit foreground permission ----------
@@ -1147,11 +1241,15 @@ chrome.debugger.onEvent.addListener((src, method, params) => {
   t.pendingDialog = d;
   t.dialogs.push(d);
   send("event", { event: "dialog", tab_id: src.tabId, ...d });
-  if (t.expect) {
+  // the worker's choice made beforehand: act's expect_dialog for any dialog, leave_page (`leave`) only for "Leave site?"
+  if (t.expect && (!t.expect.leave || d.type === "beforeunload")) {
     const expected = t.expect; t.expect = null;
     commands.dialog({tab_id:src.tabId,decision:expected.accept ? "accept" : "dismiss",text:expected.text})
+      .then(() => { if (expected.leave && !expected.accept && t.onStay) t.onStay(); })
       .catch(e => send("event",{event:"dialog",tab_id:src.tabId,...d,reason:String(e.message || e)}));
+    return;
   }
+  for (const w of dialogWatchers.get(src.tabId) || []) w.fire(d);   // nobody said: the running command ends with it
 });
 
 chrome.tabs.onRemoved.addListener(tabId => {
@@ -1322,7 +1420,7 @@ function pageHookPopup(tabId, frameId, p) {
 }
 function popupCandidate(tabId, url) {              // a new tab's first URL
   const m = POPUP_URL.exec(String(url || ""));
-  if (!m) return;
+  if (!m) { openedByInput(tabId, url); return; }
   const now = Date.now();
   prunePopups(now);
   if (popupRelays.has(m[1])) claimPopup(m[1], tabId);
@@ -1370,6 +1468,45 @@ async function claimPopup(token, tabId) {
     t.claiming = false;
     await send("event", { event: "popup", tab_id: tabId, opener_tab_id: relay.opener, url: maskUrl(relay.url) });
   } catch (e) { console.warn("FERB popup:", String(e.message || e)); }
+  finally { t.claiming = false; }
+}
+// A new tab right after a task tab's input (0.19.7, HAND-443; INPUT_OPENS_MS): looked at only when it is in that task
+// tab's window or Chrome names a task tab as its openerTabId (a popup window's), so the owner's own new tab in their
+// window is never touched; the task's when the browser's openerId names that task tab, else let go of at once.
+async function openedByInput(tabId, url) {
+  if (!/^https?:/i.test(String(url || "")) || !port) return;
+  const now = Date.now();
+  let openers = [...TABS].filter(([id, t]) => id !== tabId && t.armed && t.lastInput && now - t.lastInput <= INPUT_OPENS_MS)
+    .sort((a, b) => b[1].lastInput - a[1].lastInput).map(([id]) => id);
+  if (!openers.length || (TABS.get(tabId) || {}).attached) return;
+  let tab;
+  try { tab = await chrome.tabs.get(tabId); } catch (_) { return; }
+  const near = [];
+  for (const id of openers) {
+    try { const o = await chrome.tabs.get(id); if (o.windowId === tab.windowId || tab.openerTabId === id) near.push(id); }
+    catch (_) { /* closed */ }
+  }
+  if (!near.length && !(Number.isInteger(tab.openerTabId) && (TABS.get(tab.openerTabId) || {}).armed)) return;
+  openers = near.length ? near : openers;
+  if ((TABS.get(tabId) || {}).attached) return;
+  const t = tabState(tabId);
+  t.claiming = true;
+  try {
+    await chrome.debugger.attach({ tabId }, "1.3");
+    t.attached = true; t.detached = null; t.ready = false; t.armed = false;
+    let opener = null;
+    for (const id of openers) if (await openedBy(tabId, id)) { opener = id; break; }
+    if (opener === null) {
+      TABS.delete(tabId);
+      try { await chrome.debugger.detach({ tabId }); } catch (_) { /* already gone */ }
+      return;
+    }
+    await arm(tabId);
+    t.popup = true;
+    t.popupFor = { opener, frameId: null, token: null };   // loaded by the browser already: nothing to tell the page
+    t.claiming = false;
+    await send("event", { event: "popup", tab_id: tabId, opener_tab_id: opener, url: maskUrl(url) });
+  } catch (e) { console.warn("FERB new tab:", String(e.message || e)); }
   finally { t.claiming = false; }
 }
 // The browser's own word on who opened a tab: the popup's openerId must be the relaying task tab's own target id. Each
@@ -1695,6 +1832,7 @@ const commands = {
     const t = TABS.get(tab_id), f = t && t.popupFor;
     if (!f) return { ready: false };
     t.popupFor = null;
+    if (!f.token) return { ready: true, told: false };   // opened by the browser itself (openedByInput): already loading
     const told = await chrome.tabs.sendMessage(f.opener, { ferbPopupReady: f.token }, { frameId: f.frameId });
     return { ready: true, told: told === true };
   },
@@ -1804,7 +1942,7 @@ const commands = {
     const after = await chrome.tabs.update(tab_id, { muted });
     return { tab_id, changed: true, muted: !!(after.mutedInfo && after.mutedInfo.muted), audible: !!after.audible };
   },
-  async navigate({ tab_id, url }) {
+  async navigate({ tab_id, url, leave_page }) {
     const st = tabState(tab_id);
     // A URL that is a download is held, never the browser's (D35). A page the debugger can't attach to (a new-tab page,
     // chrome:// or brave://, the Web Store, another extension) is left for a blank page first; only if that fails too
@@ -1823,12 +1961,18 @@ const commands = {
       } finally { st.leaving = false; }
     }
     st.leaving = true; st.frames = {};
-    try { await load(tab_id, url); }
-    finally { st.leaving = false; }
+    const choice = await leaveChoice(tab_id, leave_page);
+    try {
+      if (await Promise.race([load(tab_id, url).then(() => false), choice.stayed])) {
+        const t = await chrome.tabs.get(tab_id);
+        return { ok: false, navigated: false, reason: "stayed", tab_id, url: maskUrl(t.url || ""),
+                 detail: "the page asked before leaving (it may hold unsaved changes) and FERB stayed, as leave_page said" };
+      }
+    } finally { st.leaving = false; choice.done(); }
     const t = await chrome.tabs.get(tab_id);
     return { tab_id: t.id, url: maskUrl(t.url || t.pendingUrl || ""), title: t.title || "" };
   },
-  async close({ tab_id }) {
+  async close({ tab_id, leave_page }) {
     if ((await keptTabs()).includes(tab_id)) {
       const released = await commands.release_tab({tab_id, keep_open:true});
       return {...released, closed:false};
@@ -1844,9 +1988,19 @@ const commands = {
     }
     const st = TABS.get(tab_id);
     if (st) st.leaving = true;
+    const choice = st ? await leaveChoice(tab_id, leave_page) : { stayed: new Promise(() => {}), done() {} };
     await dropDownloads(tab_id, true);
-    try { await chrome.tabs.remove(tab_id); }
-    catch (e) { if (!/No tab with id/i.test(String(e && e.message))) throw e; }
+    // the browser runs the page's beforeunload for this too (a "Leave site?" dialog, without activating the tab:
+    // measured); a dialog nobody declared ends the command at once (dialogOpened), and the removal goes on if answered
+    const removed = chrome.tabs.remove(tab_id).then(() => false,
+      (e) => { if (!/No tab with id/i.test(String(e && e.message))) throw e; return false; });
+    try {
+      if (await Promise.race([removed, choice.stayed])) {
+        st.leaving = false;
+        return { ok: false, closed: false, reason: "stayed", detail: "the page asked before closing (it may hold unsaved changes) " +
+                 "and FERB kept it open, as leave_page said" };
+      }
+    } finally { choice.done(); }
     TABS.delete(tab_id); // Closing the tab destroys its debugger target; onRemoved may arrive later.
     await mutateRecords(r => { delete r.tabs[tab_id]; });
     await settleGroup(rec.group);
@@ -2107,7 +2261,7 @@ const commands = {
       let t;
       try { t = await chrome.tabs.get(tab_id); } catch (_) { return { met: false, detail: "tab closed" }; }
       if (until === "load" && t.status === "complete") return { met: true };
-      if (until === "url" && (t.url || "").includes(value || "")) return { met: true };
+      if (until === "url" && urlHas(t.url, value)) return { met: true, url: maskUrl(t.url || "") };
       if (until === "text" && t.status === "complete") {
         try {
           const found=await commands.find({tab_id,text:value || ""});

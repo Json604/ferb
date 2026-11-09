@@ -40,7 +40,7 @@ class IdentityDriver(BrowserDriver, Protocol):
 
     async def open_for(self, url: str, owner: str, profile: str | None = None, *,
                        window_id: int | None = None, allow_foreground: bool = False) -> TabRef: ...
-    async def navigate(self, tab: TabRef, url: str) -> None: ...
+    async def navigate(self, tab: TabRef, url: str, leave_page: str | None = None) -> None: ...
     def claim(self, tab: TabRef, owner: str) -> None: ...
     def owned_by(self, tab_id: str, owner: str, borrow: bool = True) -> TabRef: ...
     def tab_url(self, tab_id: str) -> str | None: ...
@@ -201,6 +201,16 @@ class _Base:
 
 class _Tab(BaseModel):
     tab: str = Field(description="Tab id from open (e.g. t1)")
+
+
+# HAND-442: the worker's choice for a page that asks before it is left ("Leave site? Changes you made may not be
+# saved", a beforeunload dialog). Code never makes it (rule 4); without it such a page stops the call with the dialog.
+LEAVE_PAGE = Field(default=None, description=(
+    "What to do if the page asks before it is left (\"Leave site? Changes you made may not be saved\"): leave (go on; "
+    "what the page didn't save is lost) or stay (don't leave). Decide from the task, e.g. leave once what you typed is "
+    "saved. Say it whenever you leave a page you typed into: FERB then answers the page itself, in the background. "
+    "Without it, a page that asks stops this call and its dialog waits for the dialog tool (accept leaves, dismiss "
+    "stays)"))
 
 
 class _El(_Tab):
@@ -455,6 +465,7 @@ class BrowserNavigate(_Base):
 
     class Input(_Tab):
         url: str
+        leave_page: Literal["leave", "stay"] | None = LEAVE_PAGE
 
     @property
     def observation(self) -> bool:
@@ -477,7 +488,8 @@ class BrowserNavigate(_Base):
                               f"new tab with {self.family.prefix}_open") from None
         else:
             ref = self.driver.owned_by(tab, ctx.task_id)
-        await self.driver.navigate(ref, str(getattr(args, "url")))
+        leave = getattr(args, "leave_page", None)
+        await self.driver.navigate(ref, str(getattr(args, "url")), **({"leave_page": leave} if leave else {}))
         out: dict[str, Any] = {"tab": ref.tab_id, "url": self.driver.tab_url(ref.tab_id)}
         news, more = await _news(self.driver, ref, SETTLE_S)
         return ToolResult(out | news, read_sources=self._page(ref.tab_id) + more)
@@ -1025,13 +1037,17 @@ class BrowserDownloads(_Base):
 class BrowserClose(_Base):
     verb, blurb = "close", ("Close a task-created tab ({whose}), or release a borrowed/kept tab without closing it. "
                            "Ordinary task-created tabs also close when the task ends; use {p}_keep_open to preserve one.")
-    Input = _Tab
+
+    class Input(_Tab):
+        leave_page: Literal["leave", "stay"] | None = LEAVE_PAGE
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.OPEN_TAB)
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        result = await self.driver.close(self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id))
+        leave = getattr(args, "leave_page", None)
+        result = await self.driver.close(self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id),
+                                         **({"leave_page": leave} if leave else {}))
         return ToolResult(result if isinstance(result, dict) else {"closed": True})
 
 

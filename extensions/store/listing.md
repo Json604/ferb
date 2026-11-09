@@ -84,7 +84,8 @@ activity history on their Mac.
   - `Page.captureScreenshot`: a screenshot of the task's tab.
   - `Page.getFrameTree`: the tab's frames, to place masks over password fields inside embedded frames.
   - `Page.addScriptToEvaluateOnNewDocument`: allowed only with exactly one bundled script (FERB's page hook, compared
-    character for character), which lets FERB catch a download or a popup the page opens with script.
+    character for character), which lets FERB catch a download or a popup the page opens with script, and, when the
+    task chose to leave a page, skip that page's "Leave site?" prompt for that one leave (version 0.19.7).
   - `Page.removeScriptToEvaluateOnNewDocument`: removes that page hook.
   - `Emulation.setFocusEmulationEnabled`: makes typed input land in a tab that isn't focused, so FERB works in the
     background, and keeps a task's tab in its collapsed group from being frozen by the browser while FERB still reads it

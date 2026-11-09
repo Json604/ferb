@@ -934,3 +934,56 @@ status = "active"
 rule = "Refines HAND-435's words for PRM-341. A tab read that times out (page_not_responding) says: refresh this tab once (navigate it to its address again); if it still doesn't answer, open the same address in a new tab and read that; if that fails too, report it. Its reason, step and facts are unchanged."
 paths = ["ferb/act/browser/ext_bridge.py::not_responding"]
 untestable = "Error wording: TEST-500 keeps no wording tests; HAND-435's tests guard the code side (the reason and step)."
+
+[HAND-442]
+title = "A JavaScript dialog is a fact at once, never a wait"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.7. A command for a tab with a dialog pending is refused at once, `dialog_pending` with `dialog: {type}` (close still goes; a snapshot keeps its blocked frame), and the keep-awake step is skipped under it. A dialog nobody declared that opens during a command ends it at once: navigate and close `reason: dialog_pending`; act and pointer what was delivered plus `dialog`; a read `dialog_pending`; a sealed fill, upload, media or scroll `dialog_opened`, outcome unknown. Its text reaches the worker only through browser.dialog. Code never answers it."
+why = "Live 2026-11-09 (EF task, rows 21171-21175): a navigate that raised \"Leave site?\" waited 20 s and returned the old URL; the next wait and snapshot hung 10 s and 30 s in the 0.19.6 wake step; the worker found the dialog only by calling browser.dialog."
+evidence = "Owner 2026-11-09 on the \"Leave site? Changes you made may not be saved\" dialog: \"have to solve for this chrom gamil popup to quit. it shifts tab and maximizes hte browser.\""
+paths = ["extensions/chromium/background.js::dialogOpened", "extensions/chromium/background.js::dialogPending", "ferb/act/browser/ext_bridge.py::call"]
+live = ["LIVE-853"]
+
+[HAND-446]
+title = "The worker says beforehand whether to leave a page that asks; FERB then answers it in the background"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "browser.navigate and browser.close take `leave_page` (leave or stay), the worker's choice; code never makes it (rule 4). Leave: the page hook, registered at document start, skips the page's own beforeunload listeners for that one leave (all frames told, at most 1 s), so no dialog is raised; one raised anyway is accepted by the debugger within milliseconds. Stay: the dialog is dismissed at once and the call says `reason: stayed`. No choice: HAND-442's dialog fact."
+why = "Headless lab 2026-11-09: for a beforeunload Chrome activates the tab 5-10 ms before Page.javascriptDialogOpening (not for tabs.remove), so no answer is fast enough. Window listeners run in the order added: only the hook's, added first, stops the page's (no dialog, no activation)."
+evidence = "Owner 2026-11-09: \"have to solve for this chrom gamil popup to quit. it shifts tab and maximizes hte browser.\""
+rejected = ["Answering through Page.handleJavaScriptDialog alone: Chrome has already brought the tab forward (measured)", "A main-world script adding a stopping listener just before leaving: runs after the page's (measured)", "Code choosing leave or stay: rule 4"]
+paths = ["extensions/chromium/background.js::leaveChoice", "extensions/chromium/protocol.js::ferbPageHook", "ferb/act/browser/tools.py::LEAVE_PAGE", "ferb/act/browser/ext_bridge.py::navigate"]
+live = ["LIVE-853"]
+
+[HAND-443]
+title = "A tab the task's own input opened is the task's, even with no opener link"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.7. Within 3 s of an input command (act, pointer, fill) in a task tab, a new http(s) tab in that tab's window, or one Chrome gives a task tab as openerTabId, is checked: when the browser's openerId (Target.getTargetInfo) is that task tab it is claimed as its popup (the daemon makes it the task's within the tab cap; the opener's next result names it), else the debugger lets go of it at once. Time, window and the browser's opener only; no address or page text decides it."
+why = "Live 2026-11-09 (23:09:20): Gmail's \"Continue application\" click returned no opened_tabs and browser.tabs listed nothing, so the worker tried an AppleScript over all of Chrome. Headless lab: a noopener tab still reports the clicking tab as openerId."
+rejected = ["browser.tabs listing FERB's own window's unowned tabs: shows tabs that aren't the task's", "Adopting every new tab after a click without the browser's opener: could take the owner's"]
+paths = ["extensions/chromium/background.js::openedByInput", "extensions/chromium/background.js::noteInput"]
+live = ["LIVE-854"]
+
+[HAND-444]
+title = "browser.wait until url looks at the page's own address, not its query"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.7: `wait` until url looks for the value in the address's origin and path (decoded); only a value that itself holds \"?\" or \"#\" is looked for in the whole address. A met url wait returns the tab's (masked) url."
+why = "Live 2026-11-09 (EF task, 23:09:27): a wait for \"joinef\" was met by Gmail's own #search/from%3Ajoinef.com while the tab was still Gmail, a false sign that the link had navigated."
+paths = ["extensions/chromium/protocol.js::urlHas"]
+live = ["LIVE-855"]
+
+[HAND-445]
+title = "Extension 0.19.7 keeps protocol 21 and the minimum 0.19.0"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "HAND-442..446 ship as extension 0.19.7 with optional fields only (`leave_page`, a reply's `dialog`, a met wait's `url`, `popup` events for tabs a task's input opened), so the protocol and the minimum stay: an older extension keeps working without them, and an older FERB never sends `leave_page`. The owner publishes 0.19.7 to the Chrome Web Store."
+why = "A protocol bump would stop every installed FERB until its browsers update (protocol.js, 0.19.3)."
+paths = ["extensions/chromium/manifest.json", "ferb/act/browser/ext_protocol.py::Result"]

@@ -117,7 +117,21 @@ it keeps the tabs it holds awake (focus emulation at arm, before every read or a
 frozen), puts every page script in at once (injectImmediately), batches the accessibility pass, and gives a timed-out
 command up. Optional reply fields: a read's `steps` (ms per step, the accessibility counts), a snapshot's `loading`,
 and a failed command's `step` (the one in flight) and `steps`. `screenshot` and `record_frame` take `looks: false`:
-captured without the page's own looks, `unread` (the daemon masks it as a page the extension can't read)."""
+captured without the page's own looks, `unread` (the daemon masks it as a page the extension can't read).
+
+Extension 0.19.7 keeps protocol 21 and the minimum (HAND-442..445; an older extension keeps working, only without these):
+- A JavaScript dialog (alert, confirm, prompt, beforeunload) is a fact at once: a command for a tab with one pending is
+  refused (`dialog_pending`, a known failure, and `dialog: {type}`; `close` still goes, a snapshot keeps its "blocked"
+  frame), the keep-awake step is skipped under it, and one the page opens during a command nobody declared ends that
+  command at once (navigate and close: `ok: false`, `reason: "dialog_pending"`; act and pointer: what was delivered and
+  `dialog`; a read: `dialog_pending`; a sealed fill, upload, media or scroll: `dialog_opened`, outcome unknown).
+- `navigate` and `close` take `leave_page` ("leave" or "stay"), the worker's choice for a page that asks before it is
+  left: leave arms the page hook's skip of the page's beforeunload listeners (no dialog, so Chrome never brings the
+  tab forward) and accepts one raised anyway within milliseconds; stay dismisses it and answers `reason: "stayed"`.
+- `wait` until url looks for the value in the address's origin and path (decoded), the whole address only when the
+  value holds "?" or "#"; a met url wait returns the tab's `url`.
+- A new tab opened within 3 s of an input command in a task tab, whose browser-reported opener is that tab, is claimed
+  as its popup (`popup` event) though the page opened it with no opener link; `popup_ready` answers it at once."""
 
 import base64
 import hashlib
@@ -196,6 +210,7 @@ class Result(BaseModel):
     outcome: Literal["done", "failed", "unknown"] | None = None
     step: str | None = Field(default=None, max_length=64)   # 0.19.6: the step a failed command was in
     steps: dict[str, Any] | None = None                      # 0.19.6: how long each step took (ms)
+    dialog: dict[str, Any] | None = None                     # 0.19.7: the dialog that ended or refused it ({type})
 
 
 class TabEvent(BaseModel):

@@ -15,6 +15,11 @@
 // Extension 0.19.6 keeps protocol 21 and the minimum (HAND-434): tabs kept awake (focus emulation), scripts in at once,
 // the accessibility pass batched, a timed-out command given up, and optional reply fields (`steps`, `loading`, a
 // failure's `step`) plus `looks: false` on captures, which an older FERB never sends and never reads.
+// Extension 0.19.7 keeps protocol 21 and the minimum (HAND-442..445): a JavaScript dialog is a fact at once (a command
+// in a tab with one pending, or one opening during it, ends with `dialog`, never a wait), `navigate` and `close` take
+// the worker's `leave_page` (leave or stay), `wait` until url looks at the address's origin and path, and a tab the
+// task's own input opened without an opener link is the task's (`popup`, confirmed by the browser's openerId). An
+// older FERB never sends `leave_page` and reads the new reply fields as before.
 const FERB_PROTOCOL = 21;
 const FERB_HOST = "com.ferb.native_host";
 
@@ -73,6 +78,16 @@ function ferbPageHook(token) {
   const MARK = Symbol.for(token);
   if (window[MARK]) return;
   Object.defineProperty(window, MARK, { value: true });
+  // Extension 0.19.7 (HAND-442): the worker said to leave this page (navigate or close with leave_page "leave"), so
+  // its own beforeunload listeners are skipped for that leave and Chrome raises no "Leave site?" dialog, for which it
+  // activates the tab (measured). Registered at document start, before the page's own listeners (listeners on the
+  // window run in the order they were added, capture or not: measured), and armed only by the service worker's
+  // "<token>:leave" event for the next 10 s. A page that fakes the event only skips its own prompt.
+  let leaveUntil = 0;
+  if (typeof window.addEventListener === "function" && typeof document.addEventListener === "function") {
+    window.addEventListener("beforeunload", (e) => { if (Date.now() < leaveUntil) e.stopImmediatePropagation(); }, true);
+    document.addEventListener(token + ":leave", () => { leaveUntil = Date.now() + 10000; });
+  }
   const dispatch = EventTarget.prototype.dispatchEvent, click = HTMLElement.prototype.click, open = window.open;
   const armed = () => !dispatch.call(document, new CustomEvent(token + ":armed", { cancelable: true }));
   const unseenSave = (el) => (el instanceof HTMLAnchorElement || el instanceof HTMLAreaElement) && !el.isConnected &&
@@ -348,6 +363,20 @@ const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait"
              "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media", "rest", "show_tab",
              "adopt_tab", "mute_tab", "popup_refused", "pdf", "pdf_part"];
 
+// browser.wait until "url" (HAND-444): the value is looked for in the page's own address, its origin and path (decoded),
+// never in its query or fragment, so a search page whose query names a site (Gmail's #search/from%3Ajoinef.com) isn't
+// that site. A value that itself holds "?" or "#" asks about the query or fragment: the whole address is searched.
+function urlHas(url, value) {
+  const v = String(value || ""), u = String(url || "");
+  if (!v) return true;
+  const decoded = (s) => { try { return decodeURIComponent(s); } catch (_) { return s; } };
+  if (/[?#]/.test(v)) return u.includes(v) || decoded(u).includes(v);
+  let p;
+  try { p = new URL(u); } catch (_) { return u.includes(v); }
+  const own = p.origin !== "null" ? p.origin + p.pathname : p.protocol + p.pathname;
+  return own.includes(v) || decoded(own).includes(v);
+}
+
 // Whether a key press puts text into the focused field (a character without ⌘/⌃/⌥, Space, or a paste): such a press
 // into a secret field is refused, as typing is; Return, Tab, Escape, arrows and other shortcuts still go (kb area hands
 // rulings, step 5b). Mirrored by ext_bridge.enters_text.
@@ -360,4 +389,4 @@ function entersText(spec) {
 if (typeof module !== "undefined") module.exports = { FERB_PROTOCOL, FERB_HOST, cdpAllowed, cdpFilter, OPS, seal, unseal,
                                                       FEED_URL, keyEvent, EDIT_COMMANDS, DOWNLOAD_PART, DOWNLOAD_PATTERNS,
                                                       PAGE_HOOK, ferbPageHook, READ_OPS, DAEMON_SIGNED, daemonMacText,
-                                                      FERB_TOKEN, BIND_ATTR, STAMP_ATTR, entersText };
+                                                      FERB_TOKEN, BIND_ATTR, STAMP_ATTR, entersText, urlHas };

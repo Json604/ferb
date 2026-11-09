@@ -3786,3 +3786,39 @@ request = "Run a task that makes FERB ask a question whose wording holds that wo
 pass = "The question's own words are whole (no [redacted] in FERB's sentence); the secret still never shows where it is the value itself."
 decisions = ["GATE-564", "GATE-561"]
 sitting = "after this change is installed"
+
+[LIVE-853]
+title = "Leaving a page FERB typed into raises no \"Leave site?\" and nothing comes forward"
+area = "hands"
+surface = "FERB.app with this build and the FERB extension 0.19.7 from the Chrome Web Store, in a Chrome profile FERB drives; a disposable Gmail draft in FERB's Gmail"
+request = "Ask FERB to start a reply in FERB's Gmail, type a line into it, then open a different page in the same tab (e.g. \"type hello into a new Gmail draft, then go to example.com in that tab\"). Work in another app meanwhile."
+pass = "Chrome never comes forward and its window doesn't un-minimize; no \"Leave site?\" dialog shows; the trace's browser.navigate carries leave_page and loads in a second or two. If a navigate is sent without leave_page and the page asks, it returns dialog_pending at once and the worker answers with browser.dialog."
+decisions = ["HAND-442", "HAND-446", "HAND-445"]
+sitting = "after this change is installed and 0.19.7 is published"
+
+[LIVE-854]
+title = "A link the task clicks that opens a new tab reaches the worker"
+area = "hands"
+surface = "FERB.app with this build and the FERB extension 0.19.7, FERB's Gmail with a test email holding a link"
+request = "Ask FERB to open the test email in FERB's Gmail and click its link, then say what the linked page shows."
+pass = "The click's next snapshot of the Gmail tab names the new tab in opened_tabs, the worker reads it there, and no AppleScript or foreground question is used to find it."
+decisions = ["HAND-443"]
+sitting = "after this change is installed and 0.19.7 is published"
+
+[LIVE-855]
+title = "Waiting for a site's address isn't met by a search that names it"
+area = "hands"
+surface = "FERB.app with this build and the FERB extension 0.19.7, FERB's Gmail"
+request = "Ask FERB to search FERB's Gmail for mail from a site, open a message's link to that site, and wait until the tab is on it."
+pass = "The trace's browser.wait until url is met only once the tab's address is the site's own (its result's url shows it), never while the tab is still Gmail's search."
+decisions = ["HAND-444"]
+sitting = "after this change is installed and 0.19.7 is published"
+
+[LIVE-856]
+title = "A page's own new tab from FERB's click: does Chrome come forward?"
+area = "hands"
+surface = "FERB.app with this build and the FERB extension 0.19.7, FERB's Gmail with a disposable test email; another app full screen in front"
+request = "With a full-screen app in front and hands off the Mac, ask FERB to download the test email through Gmail's message menu (\"Download message\"), then read the task's disturbance records."
+pass = "Recorded as a measurement for the owner: whether Chrome became frontmost or its window un-minimized when Gmail opened the download's tab after FERB's click (live 2026-11-09 23:10:15 it did, by temporal correlation only). If it does, the owner decides what FERB should do about page-opened tabs."
+decisions = ["HAND-212", "HAND-443"]
+sitting = "after this change is installed and 0.19.7 is published"

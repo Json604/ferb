@@ -292,6 +292,7 @@ def test_the_downloads_folder_stays_outside_content_when_config_drops_every_untr
         shutil.rmtree(base, ignore_errors=True)
 
 
+# decision: HAND-445
 def test_protocol_and_extension_versions_move_together() -> None:
     from ferb.act.browser.ext_protocol import MIN_EXTENSION_VERSION, PROTOCOL_VERSION
     manifest = json.loads((EXT / "manifest.json").read_text())
@@ -300,9 +301,9 @@ def test_protocol_and_extension_versions_move_together() -> None:
     # Protocol 21 (step 12e: the sound event's muted_reason; protocol 20's 512 KiB download parts, popup_refused, every
     # dropped save reported) moves with the minimum at 0.19.0; the shipped bundle is 0.19.6 (HAND-427's `pdf` in 0.19.3,
     # HAND-430's held store updates in 0.19.4, the pairing status pointing at Pair all in 0.19.5, HAND-434's awake
-    # tabs and batched reads in 0.19.6; no protocol change, so every installed FERB keeps working with it); protocol
-    # 18's tabGroups stays
-    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (21, 21, "0.19.0", "0.19.6")
+    # tabs and batched reads in 0.19.6, HAND-442..444's dialogs as facts, leave_page, url waits and tabs a task's input
+    # opened in 0.19.7; no protocol change, so every installed FERB keeps working with it); protocol 18's tabGroups stays
+    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (21, 21, "0.19.0", "0.19.7")
     assert "tabGroups" in manifest["permissions"]
     assert "downloads" not in manifest["permissions"]            # the debugger's Fetch domain needs no new permission
 
