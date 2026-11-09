@@ -3618,3 +3618,12 @@ request = "In the playground, look at every card in FERB — record cards. Then 
 pass = "Each answer shows its card (reminders, the task's card with status, Checked or the couldn't-confirm note, the questions answered and what it did, tasks, memory, logins with names and sites only, about) and the line the card stands for is not repeated in the text. Older chats load in full. A task that trashed, deleted, submitted or downloaded shows that card at its end."
 decisions = ["APP-802", "APP-803", "ORCH-563", "ORCH-564", "ORCH-561"]
 sitting = "after this change is installed"
+
+[LIVE-833]
+title = "Settings opened over a full-screen app drags anywhere"
+area = "app"
+surface = "FERB.app with this build; an app in full screen (VS Code or Brave) and the home desktop"
+request = "In the full-screen app's Space, open Settings from the menu bar icon (Settings…) and drag it by its top bar to the left, the middle and the bottom. Close it, open it again from the notch's profile menu and drag it again. Then go to the home desktop, open Settings there (it comes to you) and drag it; go back to the full-screen app, open Settings again and drag it once more."
+pass = "Each time Settings opens on the Space you're on, over the full-screen app too, without moving you to another Space, and it follows the pointer wherever you drag it; it never sticks to one edge."
+decisions = ["APP-804", "APP-796", "APP-773"]
+sitting = "after this change is installed"

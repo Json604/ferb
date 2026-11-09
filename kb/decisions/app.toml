@@ -3080,3 +3080,16 @@ status = "active"
 rule = "For APP-802 and DMN-554. ResultCard reads each record kind from its payload (one without what makes it one, e.g. a task without task_id, isn't a card; an unreadable row is left out) and from the saved chat by APP-801's rules. Each draws on its own surface and stands for its line (ORCH-329); an unknown kind is dropped and its line stays. Logins keep names, places, kinds and sites only (the account hint isn't kept). A task card shows its name, status, Checked, the couldn't-confirm note, answered questions and each record card as one line. Long lists fold behind Show all."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/ResultCard.swift", "ui/mac/FERBNotch/Sources/NotchCore/RecordCards.swift", "ui/mac/FERBNotch/Sources/FERBNotch/RecordCardViews.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift::ResultCardView"]
 live = ["LIVE-832"]
+
+[APP-804]
+title = "FERB's windows shown over a full-screen app are that Space's auxiliary windows, so they drag"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "Refines APP-796, APP-773 and APP-630. Every FERB window the Space rule shows or brings to the owner's Space (FERB's own window: Settings and every page; alerts, file pickers and the update window it brings here) carries the fullScreenAuxiliary collection behavior, so it may be on a full-screen app's Space as that Space's auxiliary window, besides moveToActiveSpace (one Space, never every Space). Menus are left as AppKit makes them. Nothing switches Spaces and Settings still opens over the full-screen app."
+why = "Logs 2026-11-09 14:20-14:22: FERB's window, never auxiliary, first shown on full-screen VS Code's Space; all 16 title-bar presses logged \"no client initiated window drag trait gesture\" and didn't move it, notch closed (APP-798 n/a). That this fixes the drag is inferred (LIVE-833)."
+evidence = "Owner 2026-11-09 (Settings stuck right, full-screen VS Code): \"settings drag is still not fixed. but i checked it a step further this time and thsi stickiness to one side only happens when window is opened in a space alerayd ackquired … when i opened settings in home i was able to drag it anywheer.\""
+rejected = ["Open Settings on a desktop instead of over the full-screen app: it switches the owner's Space (APP-796, APP-773)", "Make FERB's window join every Space (canJoinAllSpaces): Settings left open would follow the owner everywhere"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift::AppWindowPresentation.mayShowOverFullScreen", "ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift::AppWindowPresentation.bringHere", "ui/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift::AppWindowPresentation.show"]
+untestable = "Whether the window server starts a title-bar drag on a full-screen app's Space is the owner's live check (LIVE-833); the tests check that every window the rule shows carries the behavior and menus don't."
+live = ["LIVE-833"]

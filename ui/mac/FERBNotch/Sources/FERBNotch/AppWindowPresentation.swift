@@ -60,13 +60,24 @@ enum AppWindowPresentation {
         return !spaces.contains(active)
     }
 
-    /// The rule's one move: a FERB window or menu that is elsewhere comes to the Space showing. True when it moved.
+    /// The rule's one move: a FERB window or menu that is elsewhere comes to the Space showing. True when it moved. A
+    /// window (not a menu) comes allowed over a full-screen app (`mayShowOverFullScreen`).
     @discardableResult
     static func bringHere(_ window: NSWindow, _ what: String) -> Bool {
         guard isElsewhere(window) else { return false }
+        if window.level < .popUpMenu { mayShowOverFullScreen(window) }
         move(window)
         log.notice("FERB \(what, privacy: .public) \(window.windowNumber, privacy: .public) was on another Space: brought to the Space showing")
         return true
+    }
+
+    /// A FERB window the rule shows on the owner's Space may be there over a full-screen app, as that Space's auxiliary
+    /// window (APP-804). Without it, FERB's window put on a full-screen app's Space showed but none of the owner's
+    /// title-bar drags began (2026-11-09, over full-screen VS Code: every press logged the window server's "no client
+    /// initiated window drag trait gesture" and AppKit's "Window move completed without beginning"); opened on a
+    /// desktop it dragged. It still joins only the Space showing (`moveToActiveSpace`), never every Space.
+    static func mayShowOverFullScreen(_ window: NSWindow) {
+        window.collectionBehavior.insert(.fullScreenAuxiliary)
     }
 
     /// Whether FERB may become the active app now without the Dock switching the owner's Space: it already is the
@@ -89,6 +100,7 @@ enum AppWindowPresentation {
         start()
         // Ordering it in or making it key brings the window to the owner's Space instead of switching Spaces (APP-688).
         window.collectionBehavior.insert(.moveToActiveSpace)
+        mayShowOverFullScreen(window)
         // While FERB is the active app, pointer moves go to FERB itself, which the notch's global monitor never sees:
         // its local monitor sees them only through a key window that accepts them, so the notch still opens on hover
         // with this window in front (APP-656).
@@ -284,7 +296,8 @@ enum AppWindowPresentation {
 extension AppWindowPresentation {
     /// How a path meets the rule.
     enum Mechanism: String {
-        /// `show`: FERB's own titled window; joins the Dock first, comes here, activates only when that can't switch.
+        /// `show`: FERB's own titled window; joins the Dock first, comes here (over a full-screen app too), activates
+        /// only when that can't switch.
         case window
         /// `opening`/`runModal`: AppKit or a library puts it on screen; new windows that land elsewhere come here.
         case opening

@@ -135,6 +135,8 @@ final class SpaceRuleTests: XCTestCase {
             let ferb = window(FERBAppWindow.self)
             AppWindowPresentation.show(ferb)
             XCTAssertTrue(ferb.collectionBehavior.contains(.moveToActiveSpace), path.name)
+            XCTAssertTrue(ferb.collectionBehavior.contains(.fullScreenAuxiliary),
+                          "\(path.name): allowed over a full-screen app")
             if let order = events.firstIndex(of: "order in"), let dock = events.firstIndex(of: "dock true") {
                 XCTAssertLessThan(dock, order, "\(path.name): FERB joins the Dock before its window shows")
             }
@@ -235,6 +237,40 @@ final class SpaceRuleTests: XCTestCase {
         XCTAssertEqual(events.first, "move")
         XCTAssertTrue(events.contains("activate"), "already in the Dock: activating switched nothing in the logs")
         XCTAssertTrue(isHere(ferb))
+        endMoment()
+    }
+
+    /// Owner 2026-11-09: "settings drag is still not fixed. but i checked it a step further this time and thsi
+    /// stickiness to one side only happens when window is opened in a space alerayd ackquired … when i opened settings
+    /// in home i was able to drag it anywheer." A FERB window the rule shows on the owner's Space (here 2896,
+    /// full-screen VS Code in the logs) is that Space's auxiliary window, so the window server lets the owner drag it;
+    /// it still joins only the Space showing. A window AppKit puts elsewhere (an alert) comes here the same way; menus
+    /// are left as AppKit makes them.
+    // decision: APP-804, APP-796
+    func testAWindowShownOnTheOwnersSpaceIsAllowedOverAFullScreenApp() {
+        let ferb = window(FERBAppWindow.self)
+        AppWindowPresentation.show(ferb)
+        XCTAssertTrue(isHere(ferb))
+        XCTAssertTrue(ferb.collectionBehavior.isSuperset(of: [.fullScreenAuxiliary, .moveToActiveSpace]))
+        XCTAssertFalse(ferb.collectionBehavior.contains(.canJoinAllSpaces), "it stays on the one Space it opened on")
+        endMoment()
+
+        let alert = window(NSPanel.self)
+        AppWindowPresentation.opening("an alert") { appear(alert, on: [home]) }
+        AppWindowPresentation.tick()
+        XCTAssertTrue(isHere(alert))
+        XCTAssertTrue(alert.collectionBehavior.contains(.fullScreenAuxiliary),
+                      "brought here, allowed over a full-screen app")
+        endMoment()
+
+        let menuWindow = window(NSPanel.self, styleMask: [.borderless], level: .popUpMenu)
+        menus = [menuWindow]
+        AppWindowPresentation.menuOpening()
+        appear(menuWindow, on: [home])
+        AppWindowPresentation.tick()
+        XCTAssertTrue(isHere(menuWindow))
+        XCTAssertFalse(menuWindow.collectionBehavior.contains(.fullScreenAuxiliary),
+                       "a menu is left as AppKit makes it")
         endMoment()
     }
 
