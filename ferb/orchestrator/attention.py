@@ -116,6 +116,8 @@ def expire_derived(db: Any, refs: set[str], replacement: str, now: str) -> int:
                                      "json_extract(data_json,'$.id')=?", (row["id"],)).fetchall():
             entries[ENTRY + entry["id"]] = notice_payload(json.loads(entry["data_json"]))
         db.conn.execute("DELETE FROM journal WHERE kind='chat.notice' AND json_extract(data_json,'$.id')=?", (row["id"],))
+        from ferb.store.chat_history import clear_notice     # the chat FERB.app shows (APP-805) says it no more
+        clear_notice(db, row["id"], replacement)
         for ref in cited:
             db.conn.execute("UPDATE notification_told SET text=? WHERE event_id=? AND text=?",
                             (replacement, ref.removeprefix("trail:"), text))

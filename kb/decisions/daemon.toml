@@ -800,3 +800,20 @@ rule = "Supersedes DMN-553: FERB.app draws them (APP-803). Reply cards, each wit
 supersedes = ["DMN-553"]
 paths = ["ferb/daemon/areas/records.py", "ferb/orchestrator/cards.py", "ferb/daemon/about.py::SECTIONS"]
 untestable = "The payload shapes are exercised by tests/test_claims_records.py under ORCH-561..ORCH-565 and read by ui/mac/FERBNotch/Tests/NotchCoreTests/RecordCardsTests.swift under APP-803."
+
+[DMN-555]
+title = "chat_history and the chat.history writes"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "For APP-805. Migration 0062 adds chat_history (id, kind turn|reply|notice, at in UTC ISO with microseconds, day as the app's calendar gives it, open, ref, body_json, updated_at), kept forever and in cleanup.PROTECTED. FERB.app only (auth.APP_ONLY): chat.history.put {entries} replaces each entry, chat.history.import {entries} keeps one already held; each checks every entry (a UUID id, a known kind, a time with offset, YYYY-MM-DD, a body object), refuses the call on a bad one or over 500, redacts each body and returns {changed, held}."
+rejected = ["The daemon records each streamed event for the app to replay: late-reply placement, merges and the owner's choices are the app's, and the import is entries"]
+paths = ["ferb/store/chat_history.py::ChatHistory.write", "ferb/daemon/areas/chat_history.py", "ferb/store/migrations/0062_chat_history.sql", "ferb/daemon/auth.py::APP_ONLY", "ferb/store/cleanup.py::PROTECTED"]
+
+[DMN-556]
+title = "chat.history reads, and a notice's text follows FERB's record"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "For APP-805 and APP-806. chat.history.page {day, before?, limit? (30, at most 200), open?} gives the day's newest entries before the cursor, oldest first, with more, cursor (the oldest's at|id) and context (turns its replies answer that aren't on it); open adds every turn still waiting for FERB's answer. chat.history.days {} lists the days, newest first. A notice whose ref is one of attention_notices says that record's text and quotes, and attention.expire_derived (a forget, the typed-text purge) clears it in chat_history too."
+paths = ["ferb/store/chat_history.py::ChatHistory.page", "ferb/store/chat_history.py::clear_notice", "ferb/orchestrator/attention.py::expire_derived"]

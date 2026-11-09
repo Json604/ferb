@@ -43,7 +43,8 @@ METHODS: dict[Role, frozenset[str]] = {
                          "setup.browsers", "setup.browser_open", "setup.browser_pair", "setup.browsers_pair_all", "setup.browsers_pairing", "browser.show_handoff", "reports.diagnostic", "update.prepare", "tasks.list", "notices.list", "settings.get", "settings.set", "notifications.subscribe", "notifications.categories", "runtimes.sign_in", "runtimes.status", "runtimes.use", "runtimes.models", "runtimes.model", "runtimes.check_calls", "runtimes.switch_task", "setup.permissions", "setup.permission_request", "setup.finish",
                          "about.get", "about.guide", "secrets.saved", "secrets.delete", "identity.find",
                          "identity.choose", "seen.list", "seen.image", "intro.suggest", "intro.preview", "keys.store",
-                         "keys.delete"}),
+                         "keys.delete", "chat.history.put", "chat.history.import", "chat.history.page",
+                         "chat.history.days"}),
     Role.MCP_SHIM: frozenset({"ping", "tools.list", "tools.call"}),
     Role.NATIVE_HOST: frozenset(),
 }
@@ -60,7 +61,10 @@ METHODS: dict[Role, frozenset[str]] = {
 APP_ONLY: frozenset[str] = frozenset({"tasks.preview", "secrets.saved", "secrets.delete", "identity.find",
                                       "identity.choose", "identity.pair", "about.guide", "seen.list", "seen.image",
                                       "setup.finish", "intro.suggest", "intro.preview", "keys.store", "keys.delete",
-                                      "runtimes.check_calls"})   # GATE-547: paid model calls, FERB.app's Check only
+                                      "runtimes.check_calls",    # GATE-547: paid model calls, FERB.app's Check only
+                                      # APP-805: the chat as FERB.app shows it, written and read by FERB.app only
+                                      "chat.history.put", "chat.history.import", "chat.history.page",
+                                      "chat.history.days"})
 
 
 def allowed(role: Role, method: str) -> bool:

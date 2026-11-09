@@ -60,7 +60,7 @@ PROTECTED = ("memory_items", "memory_sources", "memory_profile", "memory_context
              "memory_import_runs", "memory_import_done", "memory_import_items", "memory_forgotten", "forgotten_refs",
              "episodes", "episode_how", "journal", "tasks", "task_results", "task_result_cards", "task_result_names", "task_context",
              "schedules", "schedule_ends", "schedule_names", "timers", "timer_names", "conversations", "owner_verdicts", "spans", "trail",
-             "known_destinations", "standing_permissions", "recall_vectors", "chat_fts", "learning_nodes")
+             "known_destinations", "standing_permissions", "recall_vectors", "chat_fts", "learning_nodes", "chat_history")
 # The protected rows of a table a run also removes from: every learned node (episode cards, playbooks, how-notes) but
 # the old rollups
 PROTECTED_ROWS = {"learning_nodes": f"made_by IS NOT '{ROLLUP_MAKER}'"}

@@ -128,6 +128,8 @@ class Rpc:
             "ping": self._ping, "sense.pause": self._sense_pause, "schedules.list": self._schedules_list,
             "schedules.change": self._schedules_change, "chat.status": self._chat_status,
             "results.ack": self._results_ack, "chat.attach": self._chat_attach, "setup.persona": self._setup_persona,
+            "chat.history.put": self._chat_history_put, "chat.history.import": self._chat_history_import,
+            "chat.history.page": self._chat_history_page, "chat.history.days": self._chat_history_days,
             "task.stop": self._task_stop, "reminders.list": self._reminders_list,
             "reminders.cancel": self._reminders_cancel, "timers.repeat": self._timers_repeat,
             "timers.states": self._timers_states,
