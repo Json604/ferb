@@ -3619,6 +3619,7 @@ request = "Settings → AI → Check on ChatGPT; then send one real chat message
 pass = "Every Check line passes (planner with lookups, tools, worker, checker, picture). The message is answered with no \"tool catalog was not observed\" and no isolation error. The planner's first model call's runtime_ms is clearly below the 2.5 s median it had (expected about 0.8-1.2 s), and start plus runtime_ms below 2.6 s. Codex's own trace isn't kept, so the WebSocket's absence shows as that drop (offline: scripts/codex_standin.py)."
 decisions = ["RUN-449", "RUN-450"]
 sitting = "after this change is installed"
+result = "partial 2026-11-10, build 202611092113: works (answered via trail_days, no catalog error); first call not faster on one sample (runtime_ms 2460). Measure in the live run."
 
 [LIVE-837]
 title = "A long day opens on its newest messages and scrolls smoothly, even dragging the scroll thumb"
