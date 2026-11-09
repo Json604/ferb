@@ -3822,3 +3822,12 @@ request = "Open History on Nov 9 and read the EF Bridge task and the \"cancel th
 pass = "Nov 9 opens with every message; no task box with questions, Submitted, Downloaded or Visited rows shows; the site chip (\"apply.joinef.com +2\") and file cards for files FERB made still show. The new task's end shows no submit or download card."
 decisions = ["APP-823", "APP-824", "ORCH-576"]
 sitting = "after this change is installed"
+
+[LIVE-860]
+title = "Stopping a running task from chat says it once"
+area = "orchestration"
+surface = "FERB.app with this build"
+request = "Start a task that takes a few minutes, then send \"cancel the task\" in chat."
+pass = "One reply under the message says \"Stopped, as you asked.\" with what the task had found; the task's own message up the chat shows it stopped, and no second \"Stopped\" reply appears below."
+decisions = ["ORCH-579", "APP-825"]
+sitting = "after this change is installed"

@@ -400,6 +400,9 @@ public struct ConversationArchive: Codable, Equatable {
     public internal(set) var turns: [ConversationTurn] = []
     public internal(set) var replies: [ConversationReply] = []
     public internal(set) var notices: [ConversationNotice] = []
+    /// Turns whose next answer is told elsewhere (ORCH-579: a task the owner stopped from a later message, whose reply
+    /// tells the stop and what the task had found): that answer is filed on its own turn, never posted again below.
+    private var toldElsewhere: Set<UUID> = []
     public init() {}
 
     private enum CodingKeys: String, CodingKey { case turns, replies, notices }
@@ -764,6 +767,11 @@ public struct ConversationArchive: Codable, Equatable {
         turns[index].runtimeSwitch = RuntimeSwitch(event["runtime_switch"])
         if let card = TurnCard(event["card"], taskID: taskID) { place(card, at: index) }
         if let cards = ResultCard.list(event["cards"]) { turns[index].cards = keepingSettled(cards, turns[index].cards) }
+        // ORCH-579: the reply to the owner's stop tells this task's end (`told_in`: that message's request)
+        // (only while the turn awaits its answer: this runs again once the answer is filed)
+        if words("told_in") != nil, Self.awaitingAnswer.contains(turns[index].status) {
+            toldElsewhere.insert(turns[index].id)
+        }
         return turns[index] != before
     }
 
@@ -895,6 +903,8 @@ public struct ConversationArchive: Codable, Equatable {
         // streams as a plan line (plan_delta, plan_end) and ends as `reply`, with no plan event to clear it (APP-714)
         turns[index].streamingPlan = nil
         // A card fills in place (ORCH-319): its rows and footer are the answer, never a reply further down.
+        // A task's end the reply to the owner's stop tells (ORCH-579) is filed here, never posted again below.
+        guard toldElsewhere.remove(id) == nil else { return }
         guard firstAnswer || afterQuestion, turns[index].card == nil, let newest = turns.last else { return }
         if firstAnswer && replies.contains(where: { $0.turnID == id }) { return }
         // Its words so far are shown on the turn, or in the reply below it that showed the question.

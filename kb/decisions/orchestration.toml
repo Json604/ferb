@@ -1138,3 +1138,13 @@ words_source = "Owner 2026-11-10 (APP-823), applied to ORCH-565 (\"yes\", claims
 rule = "Supersedes ORCH-565 and ORCH-567, dropping their cards. about.read is a planner lookup; the self-description carries permissions_in_force (standing send scopes and who holds them, known destinations and whether approved, the ask-free window's end) and saved_logins (by place and name; FERB's own by name, account hint and sites; never a value or username). A pause reply starts with PAUSED_SAID; the profile line names the FERB extension's version; each running task names its worker type; memory.read forgotten lists forgets (when, how many), never contents. No task card lists a task's questions."
 supersedes = ["ORCH-565", "ORCH-567"]
 paths = ["ferb/daemon/areas/records.py::Records._permissions_in_force", "ferb/daemon/areas/records.py::Records._saved_logins", "ferb/daemon/areas/about.py::About._about_document", "ferb/orchestrator/supervisor.py::PLANNER_TOOLS", "ferb/orchestrator/supervisor.py::Supervisor._control", "ferb/daemon/areas/environment.py::Environment._live_facts", "ferb/memory/items.py::forgets_on_record"]
+
+[ORCH-579]
+title = "A stop the owner asks for in chat is told once, by that message's reply"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "When a chat message stops a running task and the task ends within the stop's wait, the message's reply is the task's end as code recorded it (\"Stopped, as you asked.\", what it had found, its code lines and cards), and that end carries told_in = the message's request, so FERB.app files it on the task's own turn (APP-825). A task still finishing after the wait gets STOP_SETTLING and its end, without told_in, tells itself later. Every other stop (the Stop button, a schedule) is told by the task's end alone."
+why = "Owner 2026-11-10, the EF Bridge run 28ae258f: the stop message's reply (\"Stopped, as you asked.\") and the task's own end (\"Stopped, as you asked.\" and its findings), 0.1 s apart, were both posted below the message, the reply quoting its own message."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._control", "ferb/orchestrator/supervisor.py::Supervisor._stop_told", "ferb/orchestrator/supervisor.py::Supervisor._told_in", "ferb/orchestrator/supervisor.py::_Tree"]
+live = ["LIVE-860"]

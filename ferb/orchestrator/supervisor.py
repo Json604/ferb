@@ -731,6 +731,7 @@ class _Tree:
     owner_question: str = ""
     stop_reason: str = ""                # why the work failed, in the owner's terms (the checker's reason, or code's)
     stop_by_code: bool = False           # stop_reason is code's own line (attempts used up, an AI service down)
+    stop_told_in: str = ""               # ORCH-579: the request whose reply tells the owner's stop of this task
     stands_unconfirmed: bool = False     # the last attempt's done report stands, though no check confirmed it (V4)
     kept_contradicted: bool = False      # the fix round's fallback marked a contradicted sentence it couldn't remove
     check_problem: str = ""              # why the current attempt's check couldn't run, in the owner's words
@@ -2482,7 +2483,7 @@ class Supervisor(WorkerRuns):
             code_lines = confirm.from_task_lines(self.gateway.redact("\n".join(effects.lines)))
             said = said.rstrip() + "\n" + code_lines
         if effects.cards:                              # step 8e: the app draws these in place of their lines
-            extra = {**(extra or {}), "cards": self._said_cards(effects.cards)}
+            extra = {**(extra or {}), "cards": [*(extra or {}).get("cards", []), *self._said_cards(effects.cards)]}
         written = made or ({origins_.FERB} if by == origins_.FERB and not effects.lines else
                            {origins_.INFERRED} | turn.turn_origins)
         await self._record_reply(turn, kind, said, written, lines=code_lines)
@@ -2619,9 +2620,23 @@ class Supervisor(WorkerRuns):
             tree = self._tree_of.get(control.task_id)
             ids = self._tree_task_ids(tree) if tree is not None else set()
             finished = tree is not None and (tree.work_done or not tree.accepting_updates) and not tree.stop
+            if control.action == "stop" and tree is not None:
+                tree.stop_told_in = turn.request_id      # ORCH-579: this reply tells the stop, if its end comes in time
             was_running = self.stop_tree(control.task_id)
             settled = await self._settled(control.task_id, ids, 10)
             if control.action == "stop":
+                told = self._stop_told(control.task_id, turn.request_id) if was_running else None
+                if tree is not None and told is None:
+                    tree.stop_told_in = ""               # still finishing: its own end, when it comes, tells it
+                if told is not None:
+                    # ORCH-579: the stop is told once, here, under the owner's message: the task's own end as code
+                    # recorded it ("Stopped, as you asked." and what it had found), its cards with it; FERB.app files
+                    # that end on the task's own turn (`told_in`) instead of posting it again
+                    answer, cards, made = told
+                    async for event in self._exit(turn, out, "reply", answer, ready=True, made=made,
+                                                  extra={"cards": cards} if cards else None):
+                        yield event
+                    return
                 text = (STOP_SETTLING if not settled else STOPPED if was_running else
                         ALREADY_FINISHED if finished else ALREADY_ENDED)
                 async for event in self._exit(turn, out, "reply", text, by=origins_.FERB):
@@ -2634,6 +2649,17 @@ class Supervisor(WorkerRuns):
                 await self._settled(control.task_id, ids, None)
         async for event in self._resume(turn, out, conversation):
             yield event
+
+    def _stop_told(self, task_id: str, request_id: str) -> tuple[str, list[dict[str, Any]], set[str]] | None:
+        """ORCH-579: the end of a task the owner stopped from this request, when it was recorded with this request as
+        the one telling it (`told_in`): its answer, its cards and what wrote it. None when it hasn't ended yet."""
+        if task_id in self._tree_of:
+            return None
+        recorded = json.loads(self.tasks.column(task_id, "outcome_json") or "{}")
+        if recorded.get("told_in") != request_id or not str(recorded.get("answer") or "").strip():
+            return None
+        cards = [c for c in recorded.get("cards") or [] if isinstance(c, dict)]
+        return str(recorded["answer"]), cards, origins_.split(self._task_made(task_id))
 
     async def _browse_as(self, tree: _Tree) -> None:
         """APP-777 (refining APP-1): a task the planner gave to FERB, while FERB has no browser profile of its own,
@@ -6499,7 +6525,7 @@ class Supervisor(WorkerRuns):
                 # ORCH-317: nothing to tell only when the worker says so and no call of the run acted (a fact)
                 {"nothing_to_tell": True} if src.nothing_to_tell and status in ("done", "done_unverified")
                 and not cards_.acted(self.spans, tree.id) else {}) | (
-                {"cards": cards} if cards else {})
+                {"cards": cards} if cards else {}) | self._told_in(tree)
 
     def _final_card(self, tree: _Tree) -> dict[str, Any]:
         """A multi-part task's end (ORCH-319): no model writes anything after the last part. Code adds the done count
@@ -6541,7 +6567,13 @@ class Supervisor(WorkerRuns):
                 "card": self._card_payload(tree) | {"line": done_line(done, total), "lines": lines,
                                                     **({"headline": headline} if headline else {})}} | (
                 {"runtime_switch": tree.runtime_switch} if tree.runtime_switch and status == "failed" else {}) | (
-                {"cards": cards} if cards else {})
+                {"cards": cards} if cards else {}) | self._told_in(tree)
+
+    @staticmethod
+    def _told_in(tree: _Tree) -> dict[str, Any]:
+        """ORCH-579: a stop the owner asked for in chat is told once, by that message's reply, which carries this end;
+        `told_in` names it, so FERB.app files this end on the task's own turn instead of posting it again."""
+        return {"told_in": tree.stop_told_in} if tree.stop == STOPPED_BY_YOU and tree.stop_told_in else {}
 
     def _code_lines(self, tree: _Tree, sites: list[str]) -> list[str]:
         """Code's own lines after the answer, in one fixed order (fix list): what code did with the turn's memory,

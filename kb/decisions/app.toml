@@ -3307,3 +3307,12 @@ date = 2026-11-10
 status = "active"
 rule = "For APP-823 and STORE-403, with APP-801. A saved turn or notice (FERB's database, APP-805, or the older archive) holding a card of a type this build doesn't draw (the removed record cards, or a newer build's) reads in full: the card is kept as saved, draws nothing, and the line it stood for stays in the text (CardLayout.lines counts only ResultCard.types). The rest of the entry shows as before."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/ResultCard.swift::CardLayout.lines"]
+
+[APP-825]
+title = "A task's end that the stop's reply tells is filed on its own turn"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For ORCH-579. An outcome carrying told_in (the request of the owner's stop message whose reply tells this end) is filed on the task's own turn: its status and answer there, no late reply below. Without told_in a late end posts below as before (L6)."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationArchive.applyOutcome", "ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationArchive.finish"]
+live = ["LIVE-860"]
