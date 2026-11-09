@@ -53,7 +53,10 @@ struct ConversationTranscript: View {
             ScrollView {
                 // One box per timer, reminder and schedule: drawn only at its last entry (APP-769)
                 let moved = CardBoxes.moved(entries)
-                VStack(alignment: .leading, spacing: 10) {
+                // Lazy: only the entries near the view are built, kept up to date and laid out, so a long day's chat
+                // opens, scrolls and takes each update as fast as a short one (owner 2026-11-09: "when i pressed on
+                // 8nov(prev day) - it is laggggin sooooo much"). Items not built are reached through their entry.
+                LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach(entries) { entry in
                         let hidden = moved[entry.id] ?? []
                         Group {
@@ -195,8 +198,10 @@ struct ConversationTranscript: View {
         DispatchQueue.main.async {
             var scroll: (TranscriptScrollRequest.Reason, String, Bool)?
             for request in pending {
-                let frame = place.anchors[request.target]
-                switch place.follow.decide(request, target: frame.map { $0.minY...max($0.minY, $0.maxY) },
+                let frame = place.anchors[request.target].map { $0.minY...max($0.minY, $0.maxY) }
+                    ?? TranscriptTarget.outOfView(request.target, entries: entries, laidOut: place.anchors,
+                                                  viewport: model.chatTranscriptHeight)
+                switch place.follow.decide(request, target: frame,
                                            viewport: model.chatTranscriptHeight, reduceMotion: reduceMotion, at: Date()) {
                 case .none:
                     break
@@ -216,7 +221,18 @@ struct ConversationTranscript: View {
 
     private func bring(_ target: String, _ proxy: ScrollViewProxy, animated: Bool, anchor: UnitPoint = .top) {
         place.follow.scrolledByFERB(at: Date(), settle: animated ? 0.6 : 0.15)
-        withAnimation(animated ? .spring(duration: 0.4, bounce: 0) : nil) { proxy.scrollTo(target, anchor: anchor) }
+        let motion: Animation? = animated ? .spring(duration: 0.4, bounce: 0) : nil
+        // An item inside an entry the lazy stack hasn't built has no place yet: its entry first, then the item once
+        // that entry is laid out.
+        if place.anchors[target] == nil, !TranscriptTarget.isEntry(target),
+           let holder = TranscriptTarget.entry(holding: target, in: entries) {
+            withAnimation(motion) { proxy.scrollTo(TranscriptTarget.entry(holder), anchor: anchor) }
+            DispatchQueue.main.async {
+                withAnimation(motion) { proxy.scrollTo(target, anchor: anchor) }
+            }
+            return
+        }
+        withAnimation(motion) { proxy.scrollTo(target, anchor: anchor) }
     }
 
     private func toBottom(_ proxy: ScrollViewProxy, animated: Bool) {
@@ -491,34 +507,46 @@ private struct AnswerView: View {
     var hidden: Set<String> = []
     @ObservedObject var model: NotchModel
 
-    /// The answer's own lines drawn on their own (ORCH-319), cut from its text.
-    private var split: AnswerParts {
-        AnswerParts(answer: turn.visibleAnswer, note: turn.note, lines: turn.codeLines ?? [])
-    }
-    private var codeSites: String? {
-        split.lines.first { $0.hasPrefix("Sites contacted:") }.map {
-            $0.dropFirst("Sites contacted:".count).trimmingCharacters(in: .whitespaces)
+    /// What the body draws, worked out from the turn once per body rather than once per read (each read parsed the
+    /// whole answer again; a long chat redraws many answers).
+    private struct Parts {
+        /// The answer's own lines drawn on their own (ORCH-319), cut from its text.
+        let split: AnswerParts
+        let visibleParts: SitesContactedParts
+        let fullParts: SitesContactedParts
+        let displayedSites: String
+        let codeLines: [String]
+        /// Typed cards (step 8e): each drawn in place of the line it stands for; a turn saved before cards has none.
+        let cards: [ResultCard]
+        let drawn: [ResultCard]
+        let cardFiles: Set<String>
+
+        init(turn: ConversationTurn, hidden: Set<String>) {
+            split = AnswerParts(answer: turn.visibleAnswer, note: turn.note, lines: turn.codeLines ?? [])
+            let codeSites = split.lines.first { $0.hasPrefix("Sites contacted:") }.map {
+                $0.dropFirst("Sites contacted:".count).trimmingCharacters(in: .whitespaces)
+            }
+            visibleParts = SitesContactedParts(split.body)
+            fullParts = SitesContactedParts(turn.answer)
+            displayedSites = codeSites ?? (visibleParts.sites.isEmpty ? fullParts.sites : visibleParts.sites)
+            cards = turn.cards ?? []
+            drawn = CardBoxes.shown(cards, hiding: hidden)
+            cardFiles = Set(CardLayout.files(cards).compactMap(\.path))
+            codeLines = CardLayout.remaining(split.lines.filter { !$0.hasPrefix("Sites contacted:") }, cards)
+        }
+
+        /// A collapsed answer's own lines ("Couldn't confirm", code's lines) stay in view under the fade.
+        var collapsedLines: AnyView? {
+            guard split.note != nil || !codeLines.isEmpty else { return nil }
+            return AnyView(AnswerLinesView(note: split.note, lines: codeLines))
         }
     }
-    private var visibleParts: SitesContactedParts { SitesContactedParts(split.body) }
-    private var fullParts: SitesContactedParts { SitesContactedParts(turn.answer) }
-    private var displayedSites: String { codeSites ?? (visibleParts.sites.isEmpty ? fullParts.sites : visibleParts.sites) }
-
-    private var codeLines: [String] {
-        CardLayout.remaining(split.lines.filter { !$0.hasPrefix("Sites contacted:") }, cards)
-    }
-    /// A collapsed answer's own lines ("Couldn't confirm", code's lines) stay in view under the fade.
-    private var collapsedLines: AnyView? {
-        guard split.note != nil || !codeLines.isEmpty else { return nil }
-        return AnyView(AnswerLinesView(note: split.note, lines: codeLines))
-    }
-
-    /// Typed cards (step 8e): each drawn in place of the line it stands for; a turn saved before cards has none.
-    private var cards: [ResultCard] { turn.cards ?? [] }
-    private var drawn: [ResultCard] { CardBoxes.shown(cards, hiding: hidden) }
-    private var cardFiles: Set<String> { Set(CardLayout.files(cards).compactMap(\.path)) }
 
     var body: some View {
+        let parts = Parts(turn: turn, hidden: hidden)
+        let split = parts.split, visibleParts = parts.visibleParts, fullParts = parts.fullParts
+        let displayedSites = parts.displayedSites, codeLines = parts.codeLines, cards = parts.cards
+        let drawn = parts.drawn, cardFiles = parts.cardFiles, collapsedLines = parts.collapsedLines
         // A card's rows and footer are the answer; its text is kept for history, voice and older clients.
         if !turn.answer.isEmpty && turn.card == nil {
             VStack(alignment: .leading, spacing: 4) {

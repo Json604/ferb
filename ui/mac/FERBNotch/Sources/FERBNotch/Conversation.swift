@@ -29,7 +29,13 @@ extension NotchModel {
         guard let id = work.backendTaskID, let loop = standingWork[id] else { return false }
         return loop.state != "acting"
     }
-    var visibleEntries: [TranscriptEntry] { conversation.transcript(on: followsToday ? Date() : selectedDay) }
+    var visibleEntries: [TranscriptEntry] {
+        let day = Calendar.current.startOfDay(for: followsToday ? Date() : selectedDay)
+        if let shown = shownTranscript, shown.day == day { return shown.entries }
+        let entries = conversation.transcript(on: day)
+        shownTranscript = (day, entries)
+        return entries
+    }
     /// Open questions, shown at the end of today's chat; one that belongs to a card row shown here is in that row instead
     /// (APP-300).
     var inlineQuestions: [DaemonApproval] {

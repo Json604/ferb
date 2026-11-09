@@ -98,9 +98,13 @@ extension NotchModel {
             // a newer event makes the rest of the snapshot stale, and then acknowledged one by one, so `ferb chat`
             // replays only what this chat didn't show.
             let status = try await rpc.call("chat.status", params: ["peek": true])
-            daemonLink.succeeded()
-            daemonPaused = status["paused"] as? Bool ?? false
-            daemonStopped = status["stopped"] as? Bool ?? false
+            // Every 5 s: each value is set only when it changed, since setting one, even unchanged, redraws every view
+            // of the model (the whole chat).
+            var link = daemonLink
+            link.succeeded()
+            changeIfNeeded(\.daemonLink, link)
+            changeIfNeeded(\.daemonPaused, status["paused"] as? Bool ?? false)
+            changeIfNeeded(\.daemonStopped, status["stopped"] as? Bool ?? false)
             let results = status["results"] as? [[String: Any]] ?? []
             for result in results { receiveOutcome(result, announce: false, recordEvent: false) }
             acknowledgeResults(results.compactMap { $0["task_id"] as? String })
@@ -108,37 +112,36 @@ extension NotchModel {
             // A newer event wins over this older request's snapshot. The existing
             // reconciliation cadence will fetch a fresh snapshot next time.
             guard taskStateRevision == snapshotRevision else { return }
-            connectionStatus = "Connected to FERB"
+            changeIfNeeded(\.connectionStatus, "Connected to FERB")
             let running = status["running"] as? [[String: Any]] ?? []
-            runningTasks = Dictionary(running.compactMap { row in
+            changeIfNeeded(\.runningTasks, Dictionary(running.compactMap { row in
                 guard let id = row["task_id"] as? String, !id.isEmpty else { return nil }
                 return (id, Self.heading(row))
-            }, uniquingKeysWith: { _, last in last })
+            }, uniquingKeysWith: { _, last in last }))
             for row in running {
                 if let id = row["task_id"] as? String, runningTasks[id] != nil,
-                   let started = LiveProgress.time(row["started_at"]) { runningSince[id] = started }
+                   let started = LiveProgress.time(row["started_at"]), runningSince[id] != started { runningSince[id] = started }
             }
             // A multi-part task's rows as they stand (ORCH-319): live rows after a reconnect, or for a task this
             // chat has no turn for.
             var cardsChanged = false
             for row in running {
                 guard let id = row["task_id"] as? String, let card = TurnCard(row["card"], taskID: id) else { continue }
-                if conversation.showCard(card, goal: Self.heading(row, empty: "")) { cardsChanged = true }
+                if changeConversation({ $0.showCard(card, goal: Self.heading(row, empty: "")) }) { cardsChanged = true }
             }
             if cardsChanged { saveConversation() }
             // Standing work only for a task still running (L31).
             let loops = status["loops"] as? [[String: Any]] ?? []
-            standingWork = Dictionary(loops.compactMap { row in
+            changeIfNeeded(\.standingWork, Dictionary(loops.compactMap { row in
                 guard let id = row["task_id"] as? String, runningTasks[id] != nil,
                       let work = StandingWork(loopStatus: row) else { return nil }
                 return (id, work)
-            }, uniquingKeysWith: { _, last in last })
+            }, uniquingKeysWith: { _, last in last }))
             // chat.status names a question's root task only: what the live event said (the step's task id, the part,
             // a runtime offer) is kept, so a question stays in its card row.
             let approvals = (status["approvals"] as? [[String: Any]] ?? []).map(keepKnownFields).compactMap(normalizeApproval)
             let changed = pendingApprovals != approvals
-            pendingApprovals = approvals
-            if changed { promptError = nil; onBackgroundChange?(true) }
+            if changed { pendingApprovals = approvals; promptError = nil; onBackgroundChange?(true) }
             for approval in approvals { announceApproval(approval) }
             if let approval = approvals.first(where: { $0.taskID == session.backendTaskID && $0.taskID != nil }) { session.waitForOwner(approval.reason) }
             for taskID in rootsBefore where runningTasks[taskID] == nil && !knownCompletedTasks.contains(taskID)
@@ -168,7 +171,8 @@ extension NotchModel {
             }
             if let taskID = session.backendTaskID, session.activeTaskID != nil {
                 if runningTasks[taskID] != nil {
-                    if !approvals.contains(where: { $0.taskID == taskID }) { session.resumeAfterOwnerAnswer() }
+                    if !approvals.contains(where: { $0.taskID == taskID }),
+                       session.phase != .working || session.attentionMessage != nil { session.resumeAfterOwnerAnswer() }
                 } else if let result = results.first(where: { $0["task_id"] as? String == taskID }) {
                     receiveOutcome(result, announce: true, recordEvent: false)
                 } else {
@@ -759,7 +763,7 @@ extension NotchModel {
     }
 
     private func showLearningNotice(id: String, text: String, proposals: [LearningProposal]) {
-        guard conversation.addNotice(id: id, text: text, tag: nil, proposals: proposals) else { return }
+        guard changeConversation({ $0.addNotice(id: id, text: text, tag: nil, proposals: proposals) }) else { return }
         saveConversation()
         onBackgroundChange?(true)
     }

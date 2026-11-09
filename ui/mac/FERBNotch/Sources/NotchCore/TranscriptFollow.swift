@@ -14,6 +14,41 @@ public enum TranscriptTarget {
     public static func question(_ id: String) -> String { "question-\(id)" }
     public static func entry(_ id: UUID) -> String { "entry-\(id.uuidString)" }
     public static func isEntry(_ target: String) -> Bool { target.hasPrefix("entry-") }
+
+    /// The turn an item drawn inside a turn belongs to: its answer, a card row or the card's footer; nil for an entry
+    /// or a question.
+    public static func turn(of target: String) -> UUID? {
+        for prefix in ["answer-", "footer-", "row-"] where target.hasPrefix(prefix) {
+            return UUID(uuidString: String(target.dropFirst(prefix.count).prefix(36)))
+        }
+        return nil
+    }
+
+    /// The entry that draws `target`: the entry itself; for a row or the footer, its turn; for an answer, its turn,
+    /// or the last reply below it when it was answered below (APP-580). Nil when no shown entry draws it.
+    public static func entry(holding target: String, in entries: [TranscriptEntry]) -> UUID? {
+        if isEntry(target) { return entries.first { entry($0.id) == target }?.id }
+        guard let turn = turn(of: target) else { return nil }
+        if target.hasPrefix("answer-"), let reply = entries.last(where: {
+            if case let .reply(reply, _) = $0 { return reply.turnID == turn } else { return false }
+        }) { return reply.id }
+        return entries.first { if case let .turn(shown, _) = $0 { return shown.id == turn } else { return false } }?.id
+    }
+
+    /// Where an item stands when the transcript hasn't laid it out: a lazy transcript lays out only the entries near
+    /// the view, so an item in an entry before the first laid-out entry is above the view, after the last one below
+    /// it. Nil when that can't be told (nothing laid out, or its entry is among those laid out).
+    public static func outOfView(_ target: String, entries: [TranscriptEntry], laidOut anchors: [String: CGRect],
+                                 viewport: CGFloat) -> ClosedRange<CGFloat>? {
+        guard let holder = entry(holding: target, in: entries),
+              let index = entries.firstIndex(where: { $0.id == holder }) else { return nil }
+        let shown = entries.indices.filter { anchors[entry(entries[$0].id)] != nil }
+        guard let first = shown.first, let last = shown.last else { return nil }
+        let height = max(1, viewport)
+        if index < first { return -2 * height ... -height }
+        if index > last { return 2 * height ... 3 * height }
+        return nil
+    }
 }
 
 /// Where the transcript was when its host let go of it (the chat moving between the notch and the window, APP-745):

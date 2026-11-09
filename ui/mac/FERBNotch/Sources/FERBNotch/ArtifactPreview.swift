@@ -118,15 +118,21 @@ final class SelectableNameView: NSTextView {
         guard !attributedString().isEqual(to: value) else { return }
         shownFont = font
         textStorage?.setAttributedString(value)
+        natural = nil
         invalidateIntrinsicContentSize()
     }
 
+    /// The whole name's one-line size, measured once per text: SwiftUI asks on every layout pass, and typesetting
+    /// each name again on each one was most of a long chat's update time.
+    private var natural: CGSize?
+
     /// One line: the whole name when it fits, else the offered width (the middle is truncated).
     func measuredSize(width: CGFloat?) -> CGSize {
-        let full = ceil(attributedString().size().width) + 1
-        let offered = width.flatMap { $0.isFinite ? $0 : nil } ?? full
-        let height = ceil(layoutManager?.defaultLineHeight(for: shownFont) ?? shownFont.pointSize * 1.25)
-        return CGSize(width: max(1, min(full, offered)), height: height)
+        let size = natural ?? CGSize(width: ceil(attributedString().size().width) + 1,
+                                     height: ceil(layoutManager?.defaultLineHeight(for: shownFont) ?? shownFont.pointSize * 1.25))
+        natural = size
+        let offered = width.flatMap { $0.isFinite ? $0 : nil } ?? size.width
+        return CGSize(width: max(1, min(size.width, offered)), height: size.height)
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

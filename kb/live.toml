@@ -3556,3 +3556,12 @@ request = "Run tasks that work in WhatsApp and Notes, and one that starts a slid
 pass = "The preview shows the app's window during the task, including the key-press and menu steps (not just \"Working in PowerPoint\" with no picture). After unlocking, the task's trace shows a mac.screenshot during the lock refused with \"the screen is locked\" (not a capture error), and the preview picks up again."
 decisions = ["DMN-406", "DMN-407", "HAND-437"]
 sitting = "after this change is installed"
+
+[LIVE-826]
+title = "A long day's chat and Tasks open and scroll smoothly"
+area = "app"
+surface = "FERB.app with this build, after a day of 100+ tasks (the 8 Nov run chat is in History)"
+request = "Open the chat, press History and pick 8 Nov; scroll it top to bottom and back while a task runs. Open Tasks. Then, at the bottom of today's chat, wait for a task to finish; scroll up and let another finish; tap the pill."
+pass = "8 Nov opens at once with its newest messages, scrolls without hitching, and Tasks opens at once. A finishing task still scrolls its answer or card into view (or shows the pill when you just scrolled), and the pill brings it forward. Nothing looks different from before."
+decisions = ["APP-800", "APP-720"]
+sitting = "after this change is installed"

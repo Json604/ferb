@@ -3037,3 +3037,14 @@ rule = "FERB.app sends `have` (the seq of the frame it shows) with each tasks.pr
 why = "preview-lag.md: every 200 ms busy retry re-sent and re-decoded the same full frame on the main actor, and \"Working in the browser\" blinked on and off between fresh and busy answers. Owner 2026-11-08: \"it lags\"."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/PreviewState.swift::PreviewAnswer", "ui/mac/FERBNotch/Sources/NotchCore/PreviewState.swift::PreviewFrame", "ui/mac/FERBNotch/Sources/FERBNotch/TaskPreview.swift::TaskPreview"]
 live = ["LIVE-824"]
+
+[APP-800]
+title = "A long day's chat builds only what is near the view, and an unchanged status read redraws nothing"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "The chat transcript and the notch's Tasks list are lazy stacks: only the entries near the view are built and updated. A scroll request for an item inside an entry not built yet goes to that entry, then the item; one not laid out counts as above or below the view by its entry's place. The 5 s chat.status read, a card it already shows and a learning notice already shown set nothing when nothing changed. The shown day's entries are built once per change of the chat or the day."
+why = "Every model change redrew all of a day's entries (every view observes the model) and opening a day built all of them: the 95-turn 8 Nov chat took 3.3 s to open and 63 ms per update in a debug build (now 0.14-0.22 s and 4-6 ms); 300 turns 9.6 s and 490 ms."
+evidence = "Owner 2026-11-08: \"a bit lagginess in UI after so much tasks now\"; 2026-11-09: \"when i open today's hcat that is short there no lag. but when i pressed on 8nov(prev day) - it is laggggin sooooo much\""
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::ConversationTranscript", "ui/mac/FERBNotch/Sources/NotchCore/TranscriptFollow.swift::TranscriptTarget", "ui/mac/FERBNotch/Sources/FERBNotch/TaskList.swift::TaskListView", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Conversation.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ArtifactPreview.swift::SelectableNameView"]
+live = ["LIVE-826"]

@@ -76,9 +76,28 @@ final class NotchModel: ObservableObject {
     @Published var isNotchDocked = false
     var workSessions: [UUID: NotchSession] = [:] { didSet { taskListCache.invalidate() } }
     var taskListCache = TaskListCache()
+
+    /// Sets a published value only when it differs: setting one, even to the same value, tells every view of the model
+    /// to redraw (the whole chat), so a periodic read that finds nothing new must not set anything.
+    func changeIfNeeded<Value: Equatable>(_ path: ReferenceWritableKeyPath<NotchModel, Value>, _ value: Value) {
+        if self[keyPath: path] != value { self[keyPath: path] = value }
+    }
+
+    /// Changes the conversation through `change` and publishes it only when it really changed (a mutating call on the
+    /// published archive publishes even when it changes nothing). Returns what `change` returned.
+    @discardableResult
+    func changeConversation<Result>(_ change: (inout ConversationArchive) -> Result) -> Result {
+        var archive = conversation
+        let result = change(&archive)
+        if archive != conversation { conversation = archive }
+        return result
+    }
     var submissions: [UUID: Task<Void, Never>] = [:]
     @Published var pendingStops = Set<UUID>()
-    @Published var conversation = ConversationArchive() { didSet { taskListCache.invalidate() } }
+    @Published var conversation = ConversationArchive() { didSet { taskListCache.invalidate(); shownTranscript = nil } }
+    /// The shown day's entries as last built (`visibleEntries`): the chat, the notch's size on every pointer move and
+    /// frame, and the questions all read them, so they are built once per change of the conversation or the day.
+    var shownTranscript: (day: Date, entries: [TranscriptEntry])?
     @Published var followsToday = true
     @Published var selectedDay = Calendar.current.startOfDay(for: Date())
     @Published var handleWidth: CGFloat = 180

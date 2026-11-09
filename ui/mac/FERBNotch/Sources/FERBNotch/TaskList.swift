@@ -266,7 +266,8 @@ struct TaskListView: View {
                 Button("Back", action: model.toggleTasks).buttonStyle(.plain)
             }
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                // Lazy: a day of a hundred tasks opens and updates as fast as a few (owner 2026-11-08).
+                LazyVStack(alignment: .leading, spacing: 14) {
                     if model.taskItems.isEmpty { Text("No tasks yet.").foregroundStyle(Palette.secondary) }
                     ForEach(model.taskItems) { item in
                         VStack(alignment: .leading, spacing: 7) {
