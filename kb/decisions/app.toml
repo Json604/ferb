@@ -3218,3 +3218,14 @@ rejected = ["Keep the lazy stack and tune its estimates: SwiftUI's estimate for 
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TranscriptList.swift::TranscriptList", "ui/mac/FERBNotch/Sources/FERBNotch/TranscriptList.swift::ListClip", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::ConversationTranscript", "ui/mac/FERBNotch/Sources/FERBNotch/NativeMessageText.swift::MessageTextView.measuredSize"]
 untestable = "How it feels on the owner's screen and trackpad is the live check (LIVE-837); the probes measure layout in an offscreen window."
 live = ["LIVE-837", "LIVE-840"]
+
+[APP-816]
+title = "A wide chat keeps messages at their standard width; the extra width goes between the two sides"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "what iw as thinking was that the space between ferb res and my msg shodl increase with reply boxes adn ohther boxes not affected"
+words_source = "Owner 2026-11-09, shown a wide chat whose answers and cards spanned the window; confirmed the restatement: \"yes its rgiht\", to check in the arrival playground."
+rule = "In a chat (notch or window) wider than its standard 440 pt, every message keeps the width it has at the standard width (ChatSide.width: 440 less the chat's 25 pt sides, 390 pt): FERB's replies, cards (timers, reminders, records, task cards), questions, notices and late replies on the left; the owner's messages on the right, no wider than at the standard width. The extra width is the space between them. The composer stays the chat's full width. At the standard width or narrower nothing changes."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::ChatSide", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::TurnView", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::RequestView", "ui/mac/FERBNotch/Sources/FERBNotch/TranscriptList.swift::TranscriptList.textHeight"]
+live = ["LIVE-843"]

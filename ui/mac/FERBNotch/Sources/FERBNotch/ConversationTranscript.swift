@@ -204,6 +204,7 @@ struct ConversationTranscript: View {
         case .loader: return AnyView(EarlierLoader())
         case let .question(question):
             return AnyView(ApprovalView(model: model, approval: question)
+                .frame(maxWidth: ChatSide.width, alignment: .leading)
                 .transcriptAnchor(TranscriptTarget.question(question.id)))
         case let .entry(entry, hidden):
             let shown: AnyView
@@ -211,9 +212,11 @@ struct ConversationTranscript: View {
             case let .turn(turn, answeredBelow):
                 shown = AnyView(TurnView(turn: turn, answeredBelow: answeredBelow, hidden: hidden, model: model))
             case let .reply(reply, turn):
-                shown = AnyView(LateReplyView(reply: reply, turn: turn, hidden: hidden, model: model))
+                shown = AnyView(LateReplyView(reply: reply, turn: turn, hidden: hidden, model: model)
+                    .frame(maxWidth: ChatSide.width, alignment: .leading))
             case let .notice(notice):
-                shown = AnyView(NoticeView(notice: notice, hidden: hidden, model: model))
+                shown = AnyView(NoticeView(notice: notice, hidden: hidden, model: model)
+                    .frame(maxWidth: ChatSide.width, alignment: .leading))
             }
             // Another day's chat is a record: its cards draw without live state (APP-769)
             return AnyView(shown.transcriptAnchor(TranscriptTarget.entry(entry.id))
@@ -290,6 +293,13 @@ struct ConversationTranscript: View {
 /// Canned transport acknowledgements stay archived but are not presented (owner, 2026-10-29). Ordinary steps
 /// never reach the live line (owner, 2026-10-24: only the "N active tasks" row stays; DaemonConnection's `progress`).
 /// Several asks (ORCH-319): the first reply's bubble, then the card, whose rows and footer are the answer.
+/// How wide a message gets (owner 2026-11-09: "the space between ferb res and my msg shodl increase with reply boxes adn
+/// ohther boxes not affected"): what it has in the chat at its standard width (440 pt less the chat's 25 pt sides). A
+/// wider chat keeps FERB's messages on the left and the owner's on the right at this size, the extra width between them.
+enum ChatSide {
+    static let width: CGFloat = ChatWindowFrames.standardSize.width - 50
+}
+
 private struct TurnView: View {
     let turn: ConversationTurn
     let answeredBelow: Bool
@@ -305,6 +315,13 @@ private struct TurnView: View {
                     .font(.system(size: 10.5, weight: .medium)).foregroundStyle(Palette.secondary)
             }
             RequestView(turn: turn)
+            ferbSide.frame(maxWidth: ChatSide.width, alignment: .leading)
+        }
+    }
+
+    /// FERB's side of the turn, at most a message's width (ChatSide).
+    private var ferbSide: some View {
+        VStack(alignment: .leading, spacing: 7) {
             if let lead = turn.mergedInto {
                 let turns = model.conversation.turns
                 let leadIndex = turns.firstIndex { $0.requestID == lead }
@@ -353,6 +370,7 @@ private struct RequestView: View {
             Label(goal.isEmpty ? "A task from earlier" : goal, systemImage: "arrow.triangle.2.circlepath")
                 .font(.system(size: 11)).foregroundStyle(Palette.secondary).lineLimit(2)
                 .help("A task this chat didn’t send")
+                .frame(maxWidth: ChatSide.width, alignment: .leading)
         } else {
             HStack {
                 Spacer(minLength: 28)
@@ -365,6 +383,7 @@ private struct RequestView: View {
                 .padding(.horizontal, 11).padding(.vertical, 8)
                 .background(Palette.chatBlue, in: RoundedRectangle(cornerRadius: 15))
                 .help(turn.createdAt.formatted(date: .omitted, time: .shortened))
+                .frame(maxWidth: ChatSide.width - 28, alignment: .trailing)     // as wide as at the standard width
             }
             // A secret FERB hid in the message (task 11): code's reminder under it
             if let notice = turn.hiddenNotice {
@@ -373,6 +392,7 @@ private struct RequestView: View {
                     Label(notice, systemImage: "eye.slash")
                         .font(.system(size: 10)).foregroundStyle(Palette.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: ChatSide.width - 28, alignment: .trailing)
                 }
             }
         }

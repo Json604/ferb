@@ -246,7 +246,7 @@ final class TranscriptList: NSObject, NSTableViewDataSource, NSTableViewDelegate
     }
 
     private func textHeight(_ row: TranscriptRow) -> CGFloat {
-        let w = max(120, (width > 0 ? width : 400) - 50)
+        let w = max(120, min(width > 0 ? width : 400, ChatSide.width) - 50)      // a message is at most ChatSide wide
         func lines(_ text: String, _ cap: Int = .max) -> CGFloat {
             var total = 0
             for paragraph in text.split(separator: "\n", omittingEmptySubsequences: false) {

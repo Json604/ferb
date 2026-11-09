@@ -3689,3 +3689,12 @@ request = "Let FERB update; once it has restarted, don't quit it; open History."
 pass = "Every earlier day is listed and opens with its messages; no reopen of FERB.app was needed (Console, category history: \"chat history is available from this FERB now\" if the app started before the new daemon)."
 decisions = ["APP-810", "APP-808"]
 sitting = "after this change is installed"
+
+[LIVE-843]
+title = "A wide chat keeps its messages at their normal size, FERB's left and the owner's right"
+area = "app"
+surface = "The FERB Arrival Concept playground (playground.sh --arrival --app: All message cards, Play 0.27.1, --cards), then FERB.app's chat window made wide"
+request = "Make the chat window much wider than its standard size and look at every kind of message: a short and a long answer, the owner's short and long messages, a task card with rows, timers and reminders (set and done), record cards, a question with buttons, a notice, a late reply, link chips and file cards."
+pass = "Every message and card is as wide as in the standard-width chat; FERB's are on the left and yours on the right with the extra width between them; the input box is the window's full width. At the standard width the chat looks as before."
+decisions = ["APP-816"]
+sitting = "after this change is installed"
