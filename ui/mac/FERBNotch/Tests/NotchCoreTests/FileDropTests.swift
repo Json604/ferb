@@ -227,7 +227,7 @@ final class FileDropTests: XCTestCase {
 final class FileDragRoutingTests: XCTestCase {
     /// macOS 27.2 never routes a drag to a window in FERB's overlay space (probed: no draggingEntered at any alpha or
     /// level), so during a file drag the drop windows leave it and nothing puts them back until the drag ends.
-    // decision: APP-742, APP-731
+    // decision: APP-742, APP-731, APP-821
     func testHeldOutWindowsStayOutOfTheOverlaySpaceUntilTheDragEnds() throws {
         _ = NSApplication.shared
         guard NSScreen.screens.first != nil else { throw XCTSkip("Needs a display") }
@@ -300,6 +300,176 @@ final class FileDragRoutingTests: XCTestCase {
 
         coordinator.noticeDragPasteboard()
         XCTAssertFalse(coordinator.fileDragActive, "the same drag pasteboard is no new drag")
+    }
+
+    // MARK: The pointer, read by FERB itself, opens the chat (APP-820)
+
+    private var pointer = CGPoint.zero
+    private var buttonDown = true
+
+    @MainActor private struct DragHarness {
+        let model: NotchModel
+        let coordinator: PanelCoordinator
+        let board: NSPasteboard
+        let screen: NSScreen
+        /// The handle's place at the screen's top edge, where the pointer stops: the housing's or the pill's centre.
+        var top: CGPoint { CGPoint(x: coordinator.indicatorPanel.frame.midX, y: screen.frame.maxY) }
+        var away: CGPoint { CGPoint(x: screen.frame.midX, y: screen.frame.minY + 20) }
+    }
+
+    /// FERB as it runs (overlay attached, monitors' callers driven by hand), hover off, closed, with a file on a scratch
+    /// drag pasteboard. Nothing here calls a drop target's `entered`: only the pointer moves.
+    private func dragHarness(notchless: Bool, host: ChatHost) throws -> DragHarness {
+        _ = NSApplication.shared
+        guard let screen = NSScreen.screens.first else { throw XCTSkip("Needs a display") }
+        let defaults = scratchDefaults()
+        NotchDocking.save(true, in: defaults)
+        if let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
+            defaults.set(id.intValue, forKey: "notch.indicatorDisplayID")
+        }
+        defaults.set(host.rawValue, forKey: ChatHost.defaultsKey)
+        let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
+        model.setHoverEnabled(false)
+        model.drops.wait = { _ in }
+        let coordinator = PanelCoordinator(model: model, defaults: defaults, overlaySpace: NotchOverlaySpace())
+        if notchless { coordinator.cameraHousing = { _ in (0, nil, nil) } }   // the friend's M1: a virtual notch
+        coordinator.fullScreenSpace = { _ in false }
+        coordinator.missionControlShowing = { _ in false }
+        coordinator.activeSpace = { 1 }
+        coordinator.hoverWait = { _ in }
+        coordinator.restWait = { _ in }
+        pointer = CGPoint(x: screen.frame.midX, y: screen.frame.minY + 20)
+        coordinator.pointerLocation = { [unowned self] in self.pointer }
+        buttonDown = true
+        coordinator.leftButtonDown = { [unowned self] in self.buttonDown }
+        coordinator.fileDragWait = { _ in await Task.yield() }
+        coordinator.updateScreen()
+        coordinator.attachOverlay()
+        coordinator.observeWorkspace()
+        coordinator.indicatorControl?.pointerLocation = { [unowned self] in self.pointer }
+        let board = NSPasteboard(name: NSPasteboard.Name("ferb-drag-test-\(UUID().uuidString)"))
+        addTeardownBlock { board.releaseGlobally() }
+        coordinator.dragPasteboard = { board }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("ferb-drag-\(UUID().uuidString).txt")
+        try Data("x".utf8).write(to: url)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        board.clearContents()
+        board.writeObjects([url as NSURL])
+        return DragHarness(model: model, coordinator: coordinator, board: board, screen: screen)
+    }
+
+    /// The monitors' work for one drag event at `point`: the drag watch, hover, then FERB's own pointer reading.
+    private func dragMove(_ h: DragHarness, to point: CGPoint) {
+        pointer = point
+        h.coordinator.noticeFileDrag()
+        h.coordinator.updatePointer()
+        h.coordinator.fileDragPointerMoved()
+    }
+
+    private func endDrag(_ h: DragHarness) async {
+        buttonDown = false
+        await h.coordinator.fileDragWatch?.value
+        XCTAssertFalse(h.coordinator.fileDragActive)
+    }
+
+    /// Owner, 2026-11-09: "drag n drop not wrokign in his ferb - btw works fine in mine in both notch adn window" (a
+    /// friend's M1 without a notch, hover off). On the owner's Mac hover opened the chat during each drag; the closed
+    /// pill itself had to be reached by the window server, under the menu bar's strip. Now FERB's own pointer reading
+    /// over the closed handle or pill springs the chat (or the sticky window) open whatever the hover setting, on a
+    /// notchless display and in the notch alike; the sticky window stays out of the overlay space for the drop.
+    // decision: APP-820, APP-737, APP-739, APP-742
+    func testOnANotchlessDisplayAFileDragHeldOverTheRestingPillOpensTheChatWithHoverOff() async throws {
+        for notchless in [true, false] {
+            for host in [ChatHost.notch, .window] {
+                let label = "\(notchless ? "notchless" : "this display"), \(host.rawValue)"
+                let h = try dragHarness(notchless: notchless, host: host)
+                defer { h.coordinator.tearDown() }
+                if notchless {
+                    XCTAssertFalse(h.model.isNotchDocked, label)
+                    await h.coordinator.indicatorRestTask?.value
+                    XCTAssertTrue(h.coordinator.pillResting, "\(label): the pill didn't rest")
+                }
+                let top = h.top
+                h.coordinator.noticeDragPasteboard()               // a drag elsewhere put the file on the drag pasteboard
+                XCTAssertTrue(h.coordinator.fileDragActive, label)
+                XCTAssertFalse(h.model.expanded, "\(label): opened before the drag reached FERB")
+                dragMove(h, to: top)
+                XCTAssertTrue(h.coordinator.dragPointerOverHandle, label)
+                await h.model.drops.springTask?.value
+                XCTAssertTrue(h.model.bodyVisible, "\(label): the held drag didn't open the chat with hover off")
+                if host == .window {
+                    let window = try XCTUnwrap(h.coordinator.chatWindow, label)
+                    XCTAssertTrue(window.isShown, "\(label): the window didn't open")
+                    if let place = h.coordinator.overlayMembership(of: window.panel) {
+                        XCTAssertFalse(place.member, "\(label): the window opened into the overlay space, where no drag reaches")
+                    }
+                    // On its way to the window the drag crosses empty screen: the window waits for the drop.
+                    dragMove(h, to: h.away)
+                    await h.model.drops.leaveTask?.value
+                    XCTAssertTrue(h.model.bodyVisible, "\(label): the window folded on the way to it")
+                }
+                XCTAssertTrue(h.model.drops.drop(h.board), label)  // the open chat's own drop target
+                XCTAssertEqual(h.model.session.attachments.count, 1, label)
+                await endDrag(h)
+                XCTAssertTrue(h.model.bodyVisible, "\(label): the chat holding the dropped file closed")
+                if host == .window, let window = h.coordinator.chatWindow,
+                   let place = h.coordinator.overlayMembership(of: window.panel) {
+                    XCTAssertTrue(place.member, "\(label): the window didn't go back into the overlay space")
+                }
+            }
+        }
+    }
+
+    /// A drag that only passes over the closed pill, or ends without a drop, opens nothing for good: leaving before
+    /// the spring opens nothing, and the chat a held drag opened folds when the drag ends with nothing dropped.
+    // decision: APP-820, APP-739
+    func testAFileDragPassingOverThePillOrEndingWithoutADropLeavesFERBClosed() async throws {
+        for host in [ChatHost.notch, .window] {
+            let h = try dragHarness(notchless: true, host: host)
+            defer { h.coordinator.tearDown() }
+            let top = h.top
+            h.coordinator.noticeDragPasteboard()
+            h.model.drops.wait = { _ in try await Task.sleep(for: .seconds(5)) }
+            dragMove(h, to: top)
+            let spring = h.model.drops.springTask
+            dragMove(h, to: h.away)
+            await spring?.value
+            XCTAssertFalse(h.model.expanded, "\(host.rawValue): a drag passing over the pill opened FERB")
+            h.model.drops.wait = { _ in }
+            dragMove(h, to: top)
+            await h.model.drops.springTask?.value
+            XCTAssertTrue(h.model.bodyVisible, host.rawValue)
+            await endDrag(h)
+            await h.model.drops.leaveTask?.value
+            XCTAssertFalse(h.model.expanded, "\(host.rawValue): the chat the drag opened stayed with nothing dropped")
+            XCTAssertFalse(h.coordinator.dragPointerOverHandle)
+        }
+    }
+
+    /// The sticky window was shown (in the overlay space) and closed before the drag: opened mid-drag it stays out of
+    /// the space until the drag ends, so it takes the drop.
+    // decision: APP-820, APP-742, APP-760
+    func testTheStickyWindowOpenedMidDragStaysOutOfTheOverlaySpaceUntilTheDragEnds() async throws {
+        let h = try dragHarness(notchless: true, host: .window)
+        defer { h.coordinator.tearDown() }
+        h.coordinator.toggleByShortcut()
+        let window = try XCTUnwrap(h.coordinator.chatWindow)
+        guard let before = h.coordinator.overlayMembership(of: window.panel) else {
+            throw XCTSkip("FERB's overlay space isn't available here")
+        }
+        XCTAssertTrue(before.member, "the shown window isn't in the overlay space")
+        h.model.collapse(keyboard: true)
+        XCTAssertFalse(window.isShown)
+        h.coordinator.noticeDragPasteboard()
+        XCTAssertTrue(h.coordinator.fileDragActive)
+        dragMove(h, to: h.top)
+        await h.model.drops.springTask?.value
+        XCTAssertTrue(window.isShown, "the held drag didn't open the window")
+        XCTAssertEqual(h.coordinator.overlayMembership(of: window.panel)?.member, false,
+                       "the window opened mid-drag went back into the overlay space")
+        XCTAssertTrue(h.model.drops.drop(h.board))
+        await endDrag(h)
+        XCTAssertEqual(h.coordinator.overlayMembership(of: window.panel)?.member, true)
     }
 }
 

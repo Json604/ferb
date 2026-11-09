@@ -3723,3 +3723,12 @@ request = "Record an Option-only shortcut (for example ⌥Space), then press it 
 pass = "The Option shortcut is accepted and opens and closes FERB; Shift with a letter is refused with a line saying to use ⌘, ⌃ or ⌥."
 decisions = ["APP-818", "APP-819"]
 sitting = "after this change is installed"
+
+[LIVE-846]
+title = "Hover off, a file held on the closed notch or pill opens FERB, in the notch and the window"
+area = "app"
+surface = "FERB.app with this build, on a Mac with a notch and on one without (a friend's M1); Finder with a disposable file"
+request = "Settings: hover off, Where FERB opens: Notch, FERB closed. Drag a file onto the closed notch (on the Mac without a notch: the top-centre pill, waiting until it is the thin line), hold a moment, drop on the chat that opens. Then Where FERB opens: Window: once with the window closed (drag onto the pill, hold, then carry the file to the window that opens and drop it there) and once with the window already open (drop straight on it). Once more, hold over the pill and let go elsewhere."
+pass = "Each held drag opens the chat or the window with hover off, and the file waits in the message box until you send. The window opened by the drag stays while you carry the file to it. A drag let go elsewhere closes what it opened."
+decisions = ["APP-820", "APP-821", "APP-737", "APP-739", "APP-742"]
+sitting = "after this change is installed"

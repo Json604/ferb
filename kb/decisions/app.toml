@@ -3266,3 +3266,24 @@ why = "Carbon hot keys need no permission and arrive under secure input; one tog
 evidence = "macOS 27.2 probe (APP-741): ⌥F alone registers with noErr; an exclusive registration of a combination another process holds exclusively returns -9878 (eventHotKeyExistsErr)."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/KeyCombo.swift", "ui/mac/FERBNotch/Sources/FERBNotch/HotKeyCenter.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchShortcutMonitor.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroDemoBeats.swift"]
 live = ["LIVE-793", "LIVE-845"]
+
+[APP-820]
+title = "A file drag over the closed handle springs FERB open by FERB's own pointer reading"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "Refines APP-738, APP-739, APP-742. During a file drag the monitors that detect it read the pointer: inside the closed handle's place as hover finds it (housing and strip, or pill and resting line, past the top edge) is FileDropSession's `pointer` handle target, so the spring opens the chat or sticky window whatever the hover setting or routing. A spring-opened window folds only when the drag ends undropped. The sticky window stays out of the overlay space for the whole drag, shown or not."
+why = "Owner, 2026-11-09: \"drag n drop not wrokign in his ferb - btw works fine in mine in both notch adn window\" (friend's notchless M1, hover off). The owner's drops all followed a hover open; the closed handle under the menu bar strip never logged a drag."
+evidence = "Owner's log 2026-11-09 22:54: 'A file drag … leave', 'Hover opens the chat', 'Drag entered handle' (in the open panel), 'Drop: 1 files taken'; same at 14:22, 17:17. Probe: a window stepped forward mid-hold-out joined the overlay space."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchFileDrop.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift"]
+live = ["LIVE-846"]
+
+[APP-821]
+title = "A file drag's hold-out is read back from the window server, with one fallback move"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "Refines APP-742 like APP-704. Each drop window that leaves the overlay space is checked against the space's member list and its ordinary Spaces; one still a member, or on no Space, is moved onto the Space showing with attach's move call and read again. The spaces log gets one line per window ('is out of' or, as an error, 'could not leave'), and a drag without an overlay space says so. The drops log is at notice level."
+why = "Owner, 2026-11-09: on the friend's older macOS \"the drag was not working on his already open ferb window mode too\". The hold-out was assumed from private SkyLight calls checked only on 27.2."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchFileDrop.swift"]
+live = ["LIVE-846"]

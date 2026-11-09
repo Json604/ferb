@@ -343,6 +343,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         }
         model.drops.onSpring = { [weak self] in self?.openForFileDrag() }
         model.drops.pointerOver = { [weak self] in self?.pointerIsOverSurface ?? false }
+        // The sticky window may be far from the pill: a window the spring opened waits for the drop and folds only when
+        // the drag ends with nothing dropped (APP-820).
+        model.drops.foldsWhenLeft = { [weak self] in !(self?.model.chatInWindow ?? false) }
         model.drops.onFold = { [weak self] in
             guard let self, self.model.expanded else { return }
             Self.spacesLog.notice("A file drag left FERB with nothing dropped: the chat it opened folds")
@@ -455,10 +458,12 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { [weak self] event in
             if event.type == .leftMouseDragged { self?.noticeFileDrag() }
             self?.updatePointer()
+            self?.fileDragPointerMoved()
         }) { eventMonitors.append(monitor) }
         if let monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { [weak self] event in
             if event.type == .leftMouseDragged { self?.noticeFileDrag() }
             self?.updatePointer()
+            self?.fileDragPointerMoved()
             return event
         }) { eventMonitors.append(monitor) }
         dragPasteboardCount = dragPasteboard().changeCount
@@ -2127,15 +2132,20 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         beginFileDrag()
     }
 
-    /// The windows a file drag must reach: the notch's, and the sticky window while it shows (APP-742, APP-760).
+    /// The windows a file drag must reach: the notch's, and the sticky window, shown or not: a held drag can open it
+    /// mid-drag (APP-742, APP-760, APP-820). One created mid-drag stays out too (NotchOverlaySpace.stepForward).
     private var dropWindows: [NSWindow] {
-        [indicatorPanel, edgeRowPanel, panel] + (chatWindow.map { $0.isShown ? [$0.panel] : [] } ?? [])
+        [indicatorPanel, edgeRowPanel, panel] + (chatWindow.map { [$0.panel] } ?? [])
     }
 
     func beginFileDrag() {
         guard !fileDragActive else { return }
         fileDragActive = true
+        if !overlaySpace.isAttached {
+            Self.spacesLog.notice("A file drag: no overlay space, FERB's windows take it as ordinary windows")
+        }
         overlaySpace.holdOut(dropWindows)
+        fileDragPointerMoved()
         fileDragWatch = Task { [weak self, fileDragWait] in
             while let self, !Task.isCancelled, self.leftButtonDown() {
                 do { try await fileDragWait(.milliseconds(200)) } catch { return }
@@ -2151,9 +2161,35 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         fileDragActive = false
         fileDragWatch?.cancel()
         fileDragWatch = nil
+        dragPointerOverHandle = false
         // The panel while FERB yields is out on purpose; its yield brings it back.
         overlaySpace.endHoldOut(keepOut: model.isYielded ? [panel] : [])
         model.drops.dragEnded()
+    }
+
+    /// The pointer is over the closed handle's place, as FERB reads it during a file drag (`fileDragPointerMoved`).
+    private(set) var dragPointerOverHandle = false
+
+    /// Where the handle sits on screen, as hover finds it: docked, the camera housing and the strip below it;
+    /// otherwise the pill and its resting line (which is wider than the pill). Reaches past the screen's top edge, where
+    /// the pointer stops. Nil before a layout and while the pill is hidden (D21: nothing to drag onto).
+    private var handleDropFrame: CGRect? {
+        guard geometry != nil, !pillHidden else { return nil }
+        let frame = isDocked ? cutoutFrame.union(indicatorFrame)
+                             : indicatorFrame.union(indicatorControl?.isAttached == true ? .null : indicatorPanel.frame)
+        return CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height + 2)
+    }
+
+    /// During a file drag FERB reads the pointer itself (the drag-detecting monitors): over the closed handle or pill
+    /// it counts as the drag over the handle, and leaving as the drag leaving it, so a held drag springs the chat open
+    /// (or the sticky window) whatever the hover setting, and whether or not the window server routes the drag to the
+    /// handle's window at the screen's top edge, where the menu bar's strip lies over it (APP-820). The drop lands on
+    /// the open chat. Notch and pill alike: the geometry is hover's own.
+    func fileDragPointerMoved() {
+        let over = fileDragActive && (handleDropFrame?.contains(pointerLocation()) ?? false)
+        guard over != dragPointerOverHandle else { return }
+        dragPointerOverHandle = over
+        if over { _ = model.drops.entered(.pointer, dragPasteboard()) } else { model.drops.exited(.pointer) }
     }
 
     /// A file drag held over the handle or pill (D17): opens the chat as a press does (APP-705/707), bringing FERB

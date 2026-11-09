@@ -14,12 +14,20 @@ import os
 ///   the pill un-rests at once;
 /// - a drop attaches every file at once (`NotchModel.dropFiles`): the files wait in the composer until the owner sends
 ///   them, with or without words; nothing is sent;
-/// - a chat the spring opened with nothing dropped folds once the drag has left every target for `leaveGrace`.
+/// - a chat the spring opened with nothing dropped folds once the drag has left every target for `leaveGrace` (the
+///   sticky window, which the pointer must travel to, folds only when the drag ends with nothing dropped);
+/// - FERB reads the pointer itself during a file drag (`pointer`): over the closed handle or pill it counts as the drag
+///   over the handle, whether or not the window server routes the drag to that window (APP-820).
 @MainActor
 final class FileDropSession {
-    enum Target: Hashable { case handle, edgeRow, chat, composer }
+    /// `pointer`: the handle's place on screen as FERB's own pointer reading finds it during a file drag (the
+    /// coordinator), beside the handle's and edge row's AppKit destinations.
+    enum Target: Hashable { case handle, edgeRow, pointer, chat, composer }
+    /// The targets over the handle: the spring opens the chat from these.
+    static let handleTargets: Set<Target> = [.handle, .edgeRow, .pointer]
 
-    /// Each target's enter, exit and drop with the operation given (structure only: no names or paths).
+    /// Each target's enter, exit and drop with the operation given (structure only: no names or paths), at notice level
+    /// so the system keeps them for a later `log show`.
     static let log = Logger(subsystem: "com.ferb.FERB", category: "drops")
     static let springDelay: Duration = .milliseconds(300)
     static let leaveGrace: Duration = .milliseconds(250)
@@ -37,6 +45,9 @@ final class FileDropSession {
     /// The pointer is over FERB's surface (the coordinator): a target can go quiet while the chat opens under a still
     /// pointer (the handle moves into the opening chat), so the fold waits until the pointer is really away.
     var pointerOver: () -> Bool = { false }
+    /// The spring-opened chat folds when the drag leaves every target (false: only when the drag ends; the sticky
+    /// window, which the pointer must travel to from the pill).
+    var foldsWhenLeft: () -> Bool = { true }
     /// Attach dropped files (NotchModel.dropFiles); false when nothing was taken.
     var onDrop: ([URL]) -> Bool = { _ in false }
     /// How the spring delay and the leave grace pass (tests end them at once).
@@ -81,13 +92,13 @@ final class FileDropSession {
     func entered(_ target: Target, _ pasteboard: NSPasteboard) -> NSDragOperation {
         let operation = operation(pasteboard)
         if !over.contains(target) {
-            Self.log.info("Drag entered \(String(describing: target), privacy: .public): operation \(operation.rawValue, privacy: .public)")
+            Self.log.notice("Drag entered \(String(describing: target), privacy: .public): operation \(operation.rawValue, privacy: .public)")
         }
         guard !operation.isEmpty else { return operation }
         over.insert(target)
         leaveTask?.cancel()
         leaveTask = nil
-        if target == .handle || target == .edgeRow {
+        if Self.handleTargets.contains(target) {
             onReach()
             if !isOpen(), springTask == nil {
                 springTask = Task { [weak self, wait] in
@@ -109,12 +120,12 @@ final class FileDropSession {
 
     func exited(_ target: Target) {
         guard over.remove(target) != nil else { return }
-        Self.log.info("Drag left \(String(describing: target), privacy: .public); still over \(self.over.count, privacy: .public)")
+        Self.log.notice("Drag left \(String(describing: target), privacy: .public); still over \(self.over.count, privacy: .public)")
         if !overHandle {
             springTask?.cancel()
             springTask = nil
         }
-        guard over.isEmpty, springOpened else { return }
+        guard over.isEmpty, springOpened, foldsWhenLeft() else { return }
         leaveTask?.cancel()
         leaveTask = Task { [weak self, wait] in
             while true {
@@ -132,7 +143,7 @@ final class FileDropSession {
     /// A drop on any target: every file at once.
     func drop(_ pasteboard: NSPasteboard) -> Bool {
         let urls = accepts() ? Self.files(on: pasteboard) : nil
-        Self.log.info("Drop: \(urls?.count ?? 0, privacy: .public) files taken")
+        Self.log.notice("Drop: \(urls?.count ?? 0, privacy: .public) files taken")
         reset()
         guard let urls else { return false }
         return onDrop(urls)
@@ -158,7 +169,7 @@ final class FileDropSession {
         springOpened = false
     }
 
-    private var overHandle: Bool { over.contains(.handle) || over.contains(.edgeRow) }
+    private var overHandle: Bool { !over.isDisjoint(with: Self.handleTargets) }
 }
 
 /// The open chat as a drop target (SwiftUI): the same session as the handle. SwiftUI's DropInfo doesn't carry the
