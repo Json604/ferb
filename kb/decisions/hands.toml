@@ -914,3 +914,14 @@ status = "active"
 rule = "Refines HAND-223's peer check: the browser behind a native-host connection is read from the Info.plist of the outermost `.app` or `.app.bundle` around its executable, so Chrome running from its code-signing clone (\"…/code_sign_clone.XXXX/Google Chrome.app.bundle/Contents/MacOS/Google Chrome\") is com.google.Chrome. Same-uid processes stay trusted, as before."
 why = "Lab 2026-11-09: the 1-in-3 \"extension never said hello\" starts were Chromes running from that clone (5 of 12), each connection refused as \"couldn't tell which app\". With the change 10 of 10 connected, 5 from a clone. An owner's Chrome launched so would be refused too."
 paths = ["ferb/act/browser/ext_bridge.py::_app_bundle"]
+
+[HAND-440]
+title = "A read that gets no answer from the page keeps the full 30 s limit"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "but where can this even happen?? and i thnk this limit is good, right?"
+words_source = "Owner 2026-11-09, answering T-1075: when a page doesn't let FERB's reader in at all, should FERB give up sooner on that first step alone (say after 5 s), or keep waiting the full 30 s?"
+rule = "A tab read keeps one limit, CMD_TIMEOUT_S (30 s), for the whole command; no shorter bound on its first step. A read that runs out is HAND-435's page_not_responding error."
+paths = ["ferb/act/browser/ext_bridge.py::CMD_TIMEOUT_S"]
+untestable = "Keeps an existing limit unchanged; a test of the constant would be a wiring test (TEST-500). HAND-435's error names the seconds a read waited, seen live."

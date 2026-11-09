@@ -962,3 +962,14 @@ rule = "Refines ORCH-557 and ORCH-516, for RUN-445 and RUN-446. A planner call t
 why = "The owner chose the last call over failing at the cap (RUN-445). The empties came after real lookups as often as after made-up calls, so the same recovery serves both."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._supervise", "ferb/orchestrator/supervisor.py::LAST_CALL_NOTE", "ferb/daemon/gateway.py::Gateway._admit"]
 live = ["LIVE-822"]
+
+[ORCH-559]
+title = "Ten lookups per planner call stays: after ten, the planner answers or hands the request to a task"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "oh yeah 10 is good if after 10 it hands of the task to an agent. i thouthgt it just fails and nothgin happens"
+words_source = "Owner 2026-11-09, asked whether ORCH-516's PLANNER_LOOKUPS 10 (an agent's number, 2026-11-03) is right; told that after ten the planner answers or makes a task."
+rule = "Confirms ORCH-516's PLANNER_LOOKUPS = 10 as the owner's limit. When a planner call has made its ten lookups, an eleventh is refused with the gateway's LOOKUPS_SPENT words (answer from what it has, or make the request a task whose worker can look further); a call that then fails gets ORCH-557's one last call, given what its lookups found. The planner chooses an answer or a task; the turn never ends with nothing."
+paths = ["ferb/orchestrator/supervisor.py::PLANNER_LOOKUPS", "ferb/daemon/gateway.py::LOOKUPS_SPENT", "ferb/orchestrator/supervisor.py::Supervisor._supervise"]
+live = ["LIVE-828"]

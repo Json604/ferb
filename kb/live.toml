@@ -3582,3 +3582,12 @@ request = "Install the build and open FERB once. Open the chat's History (date t
 pass = "Nov 4, 5, 6 and 7 (and the morning of Nov 8) show their messages and FERB's answers again, in order, with their cards; Nov 8 and 9 still show everything they showed before. The log says it restored entries from FERBConversationArchive.unreadable-2026-11-08T02:42:50Z. After the second launch nothing is duplicated and nothing more is restored."
 decisions = ["APP-801", "APP-569", "STORE-403"]
 sitting = "after this change is installed"
+
+[LIVE-828]
+title = "A question needing more than ten lookups ends in an answer or a task, never a dead end"
+area = "orchestration"
+surface = "FERB.app with this build, on an API connection (Anthropic or OpenAI)"
+request = "Ask something that needs many lookups across days, e.g. \"for each day last week, what was the first site I opened and which app I used most?\"; then read `ferb trace` of the turn."
+pass = "The turn makes at most ten lookups; the eleventh, if tried, is refused with the \"answer from what you have, or make the request a task\" words. The turn ends with a reply from what was found or a task whose worker looks further; it never ends with no answer or only an error line."
+decisions = ["ORCH-559", "ORCH-516", "ORCH-557"]
+sitting = "after this change is installed"
