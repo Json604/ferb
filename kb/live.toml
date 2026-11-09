@@ -3859,15 +3859,6 @@ pass = "Each card has a short question, a why line and the exact thing in a box;
 decisions = ["GATE-566", "GATE-567", "APP-826"]
 sitting = "after this change is installed"
 
-[LIVE-862]
-title = "A public page's id goes out unasked; a value from your mail still asks"
-area = "gateway"
-surface = "FERB.app with this build, a paired profile signed in to Gmail"
-request = "Ask FERB to find a Hacker News story through Hacker News search and open its comments by id; then to open a job from a LinkedIn job alert in your Gmail by its id on another job site."
-pass = "The Hacker News id goes out without a question (when the page shows it without your sign-in); the id from your mail asks before it is sent elsewhere."
-decisions = ["GATE-568", "GATE-569"]
-sitting = "after this change is installed"
-
 [LIVE-863]
 title = "\"cs50\" goes to cs50.harvard.edu without a question"
 area = "gateway"

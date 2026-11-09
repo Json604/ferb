@@ -472,11 +472,6 @@ def _toks(t: provenance.Text) -> frozenset[str]:
     return found
 
 
-def value_forms(t: provenance.Text) -> frozenset[str]:
-    """A read text's value forms (`_toks`), for a caller that asks which record holds a value."""
-    return _toks(t)
-
-
 def _sequence(t: provenance.Text) -> tuple[tuple[str, ...], frozenset[str]]:
     """A read text's fine tokens in order (every length, for `_phrase`), and its value forms."""
     seq = _SEQUENCES.get(t)
@@ -834,26 +829,6 @@ def _variants(piece: str) -> tuple[set[str], set[str]]:
                 shown |= _spellings(low)                      # its other spellings (GATE-517)
             decoded |= _decodings(base)
     return shown, decoded
-
-
-def signed_in_page(labels: Iterable[str]) -> bool:
-    """Whether a record is a page read in the owner's signed-in browser (GATE-506's shape): web pages of its site and the
-    private label, nothing else (never context FERB assembled, a file or a mixed record)."""
-    labels = set(labels)
-    web = [o for o in labels if o.startswith(origin.EXTERNAL + ":web:") and o.count(":") >= 2]
-    return bool(web) and origin.PRIVATE in labels and all(o == origin.PRIVATE or o in web for o in labels)
-
-
-def shown_signed_out(value: str, page: str, text: str) -> bool:
-    """GATE-568 (owner), GATE-569: whether a value of the owner's read on `page` is on that page for anyone: the page's
-    signed-out `text` (no sign-in, the same address) holds it as one of its values, and the value isn't part of the
-    page's own address (a sign-in wall can echo the address it was asked for). Shape only."""
-    form = value.strip().lower()
-    if not form or not text:
-        return False
-    if any(form in _variants(piece)[0] | {piece.strip().lower()} for piece in _url_pieces(page)):
-        return False
-    return form in _toks(provenance.prepare(text))
 
 
 def _own_name(host: str, private: list[tuple[int, provenance.Text]], outside: list[tuple[int, provenance.Text]],

@@ -432,7 +432,6 @@ class OutsideTexts:
     said: dict[int, str] = field(default_factory=dict)
     ready_owners: dict[int, list[tuple[frozenset[str], provenance.Text]]] = field(default_factory=dict)
     preparing: asyncio.Lock = field(default_factory=asyncio.Lock)     # one off-loop preparation per tree at a time
-    signed_out: dict[str, str | None] = field(default_factory=dict)   # GATE-569: each page's signed-out text, once
 
 
 @dataclass
@@ -473,8 +472,6 @@ class GatewayDeps:
     test_send_allowlist: set[str] | None                # test mode only: send-class actions may reach just these
     test_questions: bool                                # GATE-546: test mode records questions, answers from a table
     standing: Any = None                                # D30: standing permissions (None: every question is asked)
-    # GATE-569: a page's signed-out text (ferb/daemon/signed_out.py), None when FERB can't tell; None: never fetched
-    signed_out: Callable[[str], Awaitable[str | None]] | None = None
 
 
 class Observer:
@@ -632,7 +629,6 @@ class Gateway:
         # L36 §6: the memory sources a login record's username may still come from (the daemon's memory; None: any)
         self.username_sources: Callable[[], Container[str] | None] = deps.username_sources
         self.owner_contacts: Callable[[], frozenset[str]] = deps.owner_contacts
-        self.signed_out = deps.signed_out
         self.disturbance: Any = deps.disturbance
         self.test_send_allowlist: set[str] | None = deps.test_send_allowlist   # test mode: sends reach just these
         self.test_questions: bool = deps.test_questions       # GATE-546: questions recorded, answered by TEST_ANSWERS
@@ -1322,7 +1318,6 @@ class Gateway:
         owner_text = self._sink_owner_text(c, root)
         values = confirm.url_private_values(url, private, outside_only, owner_text, self._sink_origins(root),
                                             self._site_texts(root), self._outside.setdefault(root, OutsideTexts()).pages)
-        values = await self._not_public(root, host, values, private)       # GATE-568: only signed-in pages count
         if not values:
             return None
         first = values[0]
@@ -1333,46 +1328,6 @@ class Gateway:
                                                       "source_plain": self._read_as(root, first.first_read, True),
                                                       "read": confirm.shown_origins(outside_labels)},
                             destinations=(("host", host),))
-
-    async def _not_public(self, root: str, host: str, values: list[confirm.PrivateValue],
-                          private: list[tuple[int, provenance.Text]]) -> list[confirm.PrivateValue]:
-        """GATE-568 (owner): only pages that need the owner's sign-in to show it are the owner's private data. A value
-        whose every private record is a page read in the owner's signed-in browser (`confirm.signed_in_page`), each of
-        which shows it to anyone too (its signed-out text, `confirm.shown_signed_out`), isn't theirs: it doesn't ask.
-        Any other record that holds it (a file, mail FERB can't see signed out, FERB's conversation, a page that
-        wouldn't answer) keeps it the owner's. Each page is fetched once per tree (GATE-569), never a page of a host the
-        owner excluded, and only when the question would otherwise be asked."""
-        if self.signed_out is None or not values:
-            return values
-        known = self._outside.setdefault(root, OutsideTexts())
-        origins = self._sink_origins(root)
-        kept: list[confirm.PrivateValue] = []
-        for value in values:
-            holders = [rowid for rowid, t in private if value.matched in confirm.value_forms(t)]
-            pages = [known.pages.get(rowid, "") for rowid in holders]
-            if not holders or not all(page and confirm.signed_in_page(origins.get(rowid, set()))
-                                      for rowid, page in zip(holders, pages)):
-                kept.append(value)
-                continue
-            public = True
-            for page in dict.fromkeys(pages):
-                page_host = urlsplit(page).hostname or ""
-                if self.excluded_host(page_host):
-                    public = False
-                    break
-                if page not in known.signed_out:
-                    try:
-                        known.signed_out[page] = await self.signed_out(page)
-                    except Exception as e:                 # it can't tell: the value stays the owner's
-                        self.journal_problem("sink.signed_out_failed", {"host": page_host, "error": error_name(e)})
-                        known.signed_out[page] = None
-                text = known.signed_out[page]
-                if text is None or not confirm.shown_signed_out(value.matched, page, text):
-                    public = False
-                    break
-            if not public:
-                kept.append(value)
-        return kept
 
     def _sink_owner_text(self, c: "Call", root: str) -> provenance.Text:
         """The owner's words for the sink rule: this request's words, the owner's answers in this task and their earlier

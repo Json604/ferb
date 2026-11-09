@@ -971,18 +971,7 @@ words = "Only signed-in pages (Recommended)"
 words_source = "Owner 2026-11-10, asked: FERB asks before opening a link with words from your private data; today anything read in your signed-in browser counts, even public pages. What should count?"
 evidence = "16 sink:private_url questions 11-07..11-08, all Yes: an HN id, a Lenovo part number, an Apple support id, a BBC id, a nobroker slug, a Google Maps phrase, all from public pages read in the owner's profile."
 rule = "Only pages that need the owner's sign-in to show their content (mail, accounts, documents) count as the owner's private data. A public page read in the owner's signed-in profile (search results, shops, news, Hacker News) does not."
-live = ["LIVE-862"]
-
-[GATE-569]
-title = "A signed-in page's value is public when the same page shows it to anyone"
-by = "agent"
-date = 2026-11-10
-status = "active"
-rule = "For GATE-568. When the URL sink would ask about a value whose every private record is a page read in the owner's signed-in browser (web and private labels only, its address known), FERB fetches each page once per tree with no cookies, credentials or redirects (HTTPS, public addresses, 5 s, 2 MB, never an excluded host). It doesn't ask when every page shows the value signed out and it isn't in that page's address. Anything else keeps it the owner's; Google results need JavaScript, so their values still ask."
-why = "The only structural test of \"needs sign-in\" is what the page shows without it; fails closed, and the address only goes back to the host that served it."
-rejected = ["A list of public or account sites: a keyword list (rule 4)", "Cookies or the profile's account: a site can know the owner and still serve public pages", "The owner's contacts on the page: a bank page needn't show them"]
-paths = ["ferb/daemon/signed_out.py::fetch", "ferb/daemon/gateway.py::Gateway._not_public", "ferb/policy/confirm.py::signed_in_page", "ferb/policy/confirm.py::shown_signed_out"]
-live = ["LIVE-862"]
+untestable = "Not built yet: FERB has no structural fact that a page needs the owner's sign-in, and the coordinator declined a fetch of the page without it (a new outbound request outside FERB's proxy). T-1075 finds one."
 
 [GATE-570]
 title = "A value that is part of the destination's own host name goes there without asking"

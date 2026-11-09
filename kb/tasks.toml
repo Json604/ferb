@@ -619,3 +619,11 @@ kind = "live"
 status = "open"
 why = "HAND-434/439 reach the owner's browsers only through the store; FERB.app works with 0.19.5 meanwhile (every new field optional). Package: build/store/ferb-extension-0.19.6.zip, listing refreshed (HAND-404); 0.19.4's self-update (HAND-430) should install it."
 decisions = ["HAND-434", "HAND-439", "HAND-404", "HAND-430"]
+
+[T-1075]
+title = "Find a structural signal for 'a page that needs the owner's sign-in' without a new outbound request"
+area = "gateway"
+kind = "build"
+status = "open"
+why = "GATE-568: only signed-in pages count. Today every page read in the owner's profile is private (owner_account on snapshots). Cookies, the profile's account, the owner's contacts don't tell it; a signed-out refetch was removed (outbound request outside the proxy; Google results need JavaScript)."
+decisions = ["GATE-568", "GATE-506", "GATE-524"]
