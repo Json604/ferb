@@ -15,7 +15,8 @@ blocks, call `browser_handoff` with the check's own words (see the handoff secti
 Use a fresh snapshot and redacted screenshot in the task's authorized tab and profile. Record the visible
 instruction, frame/element or image reference, and the expected next application state. A vendor badge, HTTP error,
 failed login or empty result alone does not establish a verification challenge. If the page is unreadable, report
-that fact. The worker interprets the page; code validates references, ownership and input safety.
+that fact. A block or error page with no check on it follows your rule for a page that doesn't work:
+refresh it once, then the same address in a new tab once, then report. The worker interprets the page; code validates references, ownership and input safety.
 
 ## Choose a grounded interaction
 

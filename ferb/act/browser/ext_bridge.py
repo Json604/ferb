@@ -80,11 +80,13 @@ def _steps(raw: Any) -> dict[str, Any] | None:
 
 def not_responding(op: str, timeout: float, step: str | None, steps: Any = None) -> DriverError:
     """A read of a tab that timed out (HAND-435): the page stopped answering. Says where (the extension's step, 0.19.6)
-    and what helps: the same tab usually stays stuck for minutes, while the page opened again in a new tab answers."""
+    and what helps, as the worker's rule for a page that doesn't work says it (PRM-341, HAND-441): refresh once, then
+    the same address in a new tab, then report."""
     where = f" (it stopped at: {READ_STEPS.get(step, step)})" if step else ""
     e = DriverError(f"the page isn't responding: FERB's {op} got no answer from it within {timeout:g} s{where}. "
-                    "Trying this tab again usually hangs the same way; open the page again in a new tab (or navigate "
-                    "this tab to its address again) and read that instead",
+                    "Reading this tab again usually hangs the same way: refresh it once (navigate it to its address "
+                    "again); if it still doesn't answer, open the same address in a new tab and read that; if that "
+                    "fails too, report it",
                     facts={"reason": "page_not_responding", **({"step": step} if step else {})})
     e.timing = {"read": _steps(steps)} if _steps(steps) else None      # type: ignore[attr-defined]
     return e

@@ -181,3 +181,12 @@ def test_a_task_card_carries_the_questions_the_owner_answered(daemon: RunningDae
     from tests.support.schedules import run
     got = run(daemon, lambda: daemon.daemon.supervisor._answered_questions(grant.task_id.split(".", 1)[0]))
     assert got == [{"question": "Which branch should I deploy?", "answer": "main"}]
+
+
+# decision: PRM-341
+def test_the_page_that_doesnt_work_rule_reaches_every_worker(daemon: RunningDaemon) -> None:
+    """Owner 2026-11-09: a page that doesn't work (blocked, an error) is refreshed once, then opened in a new tab and
+    tried once more, then reported. It is in the shared worker instructions every browser route reads."""
+    from tests.support.schedules import run
+    system = run(daemon, lambda: daemon.daemon.supervisor._system("worker.md"))
+    assert "refresh it once" in system and "new tab" in system and "Never loop" in system

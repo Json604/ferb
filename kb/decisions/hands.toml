@@ -925,3 +925,12 @@ words_source = "Owner 2026-11-09, answering T-1075: when a page doesn't let FERB
 rule = "A tab read keeps one limit, CMD_TIMEOUT_S (30 s), for the whole command; no shorter bound on its first step. A read that runs out is HAND-435's page_not_responding error."
 paths = ["ferb/act/browser/ext_bridge.py::CMD_TIMEOUT_S"]
 untestable = "Keeps an existing limit unchanged; a test of the constant would be a wiring test (TEST-500). HAND-435's error names the seconds a read waited, seen live."
+
+[HAND-441]
+title = "The hung-read error follows PRM-341: refresh once, then a new tab, then report"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "Refines HAND-435's words for PRM-341. A tab read that times out (page_not_responding) says: refresh this tab once (navigate it to its address again); if it still doesn't answer, open the same address in a new tab and read that; if that fails too, report it. Its reason, step and facts are unchanged."
+paths = ["ferb/act/browser/ext_bridge.py::not_responding"]
+untestable = "Error wording: TEST-500 keeps no wording tests; HAND-435's tests guard the code side (the reason and step)."

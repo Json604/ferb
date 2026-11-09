@@ -3600,3 +3600,12 @@ request = "With a schedule and a reminder set and a task done today, ask \"how m
 pass = "Each answer agrees with the line or card under it, drawn from FERB's records (schedules, reminders, tasks, permissions, logins; the task's own card with its status and send card). No count or claim comes from the conversation alone. Until FERB.app draws the new card types, their lines show in the reply."
 decisions = ["ORCH-563", "ORCH-564", "ORCH-565"]
 sitting = "after this change is installed"
+
+[LIVE-830]
+title = "A blocked or broken page: one refresh, one new tab, then a report"
+area = "prompts"
+surface = "FERB.app with this build; a kartikey.xyz page the request-logging server answers with a block page for its first two requests"
+request = "Ask FERB to read that page and say what it shows; then read `ferb trace` of the task."
+pass = "The trace shows the first load blocked, one refresh (the same tab navigated to the address again) still blocked, then the same address opened in a new tab and read. Had that failed too, the task reports the block instead of trying again."
+decisions = ["PRM-341", "HAND-441"]
+sitting = "after this change is installed"
