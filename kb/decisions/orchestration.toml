@@ -425,7 +425,8 @@ rule = "For a big job the plan line states the plan, estimates and any standing 
 title = "The instant acknowledgement comes from the approved phrase list"
 by = "owner"
 date = 2026-11-02
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-570"
 words = "recommeded all"
 why = "Answer to T-520: the owner accepted the recommendation for every open question."
 rule = "The daemon sends an instant acknowledgement from the owner's approved phrase list (ferb/orchestrator/acks.py, without the starred phrase), never one of the last eight used."
@@ -1082,3 +1083,23 @@ words = "A: reason + findings (Recommended)"
 words_source = "Owner 2026-11-09, shown a side-by-side of a failed reply as the reason plus \"What I found (not checked):\" with partial findings (A) versus the reason only (B)."
 rule = "Confirms ORCH-568 as the owner's choice: a failed task's reply is \"I couldn't finish this task.\" with the worker's reason, then, only when the worker found something, its findings as \"What I found (not checked):\". Partial results are kept, marked unchecked; with nothing found there is no second part."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._final"]
+
+[ORCH-570]
+title = "No canned acknowledgement: the phrase list is cut"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "didnt i say in a rpev decisin to cut this short corpus of ack texts we had, it was nto taht good adn felt unreal / yeah cut. anyways i havent seen it in ferb ina  long time so it wasnt gettign fired or maybe not shown."
+words_source = "Owner 2026-11-09, two messages: the first about the acknowledgement phrase list; the second answering \"should I cut the list now?\""
+rule = "Supersedes ORCH-504 and the acknowledgement part of APP-579. FERB says no canned acknowledgement: the daemon no longer picks or sends a phrase (the approved list in ferb/orchestrator/acks.py is deleted), and FERB.app draws no acknowledgement text."
+why = "FERB.app stopped drawing the ack bubble on 2026-10-29 (commit 758ce419) while the daemon kept sending a phrase (105 chat.ack rows in the owner's chat), so the owner never saw it. A short model-written acknowledgement may come later, only after it is tried; nothing is decided."
+supersedes = ["ORCH-504"]
+paths = ["ferb/daemon/areas/chat.py::Chat._chat_ack"]
+
+[ORCH-571]
+title = "The ack event stays as a receipt with no words"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "For ORCH-570. chat.send still opens with its `ack` event on receipt, before routing: request_id, at, the owner's message as chat.message records it (APP-712) and any hidden kinds (GATE-502), with no `text` field. chat.ack is still journaled (session_id, request_id, received_at), without text; it times the turn (L8) and dates a failure report's request. FERB.app's typing dots, the request bubble's recorded message and the secret notice still come from it. An older FERB.app reads the missing text as empty and stores and draws nothing (ConversationArchive.acknowledge)."
+paths = ["ferb/daemon/areas/chat.py::Chat._chat_ack", "ferb/daemon/reports.py"]

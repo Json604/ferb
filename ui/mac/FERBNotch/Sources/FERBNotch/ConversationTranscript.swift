@@ -815,16 +815,6 @@ private struct LiveLineView: View {
     }
 }
 
-/// Acknowledgements appear as soon as the daemon delivers them.
-struct QuickReplyBubble: View {
-    let text: String
-    var body: some View {
-        NativeMessageText(text, size: 11, secondary: true)
-            .padding(.horizontal, 9).padding(.vertical, 4)
-            .background(.white.opacity(0.07), in: Capsule())
-    }
-}
-
 private struct AnswerView: View {
     let turn: ConversationTurn
     /// The boxes a later entry draws (APP-769): their cards aren't drawn here; their lines still leave the text.

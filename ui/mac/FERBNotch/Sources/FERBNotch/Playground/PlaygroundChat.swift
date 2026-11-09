@@ -29,7 +29,7 @@ extension PlaygroundWorkspace {
         if !playTurns.isEmpty { return try await playChat(playTurns.removeFirst(), yield: yield) }
         let selected = scenario
         let requestID = "sample-request-" + UUID().uuidString
-        yield(["type": "ack", "request_id": requestID, "text": "On it.", "at": PlaygroundSamples.time()])
+        yield(["type": "ack", "request_id": requestID, "at": PlaygroundSamples.time()])
         await state.pause(0.35)
         try Task.checkCancellation()
         if [.working, .approval, .question, .completed, .failed].contains(selected) {

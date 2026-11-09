@@ -3174,3 +3174,11 @@ rejected = ["Earlier entries as rows of no height that grow: blank on opening an
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::ScrollHold", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::AnchorMarks", "ui/mac/FERBNotch/Sources/NotchCore/TranscriptFollow.swift::TranscriptFollow.observe"]
 untestable = "Frames actually drawn on the owner's screen are the live check (LIVE-837)."
 live = ["LIVE-837"]
+
+[APP-812]
+title = "No acknowledgement text is drawn, not even an older daemon's"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "For ORCH-570. The app draws no acknowledgement words anywhere: the chat has drawn none since 2026-10-29, the unused QuickReplyBubble is removed, and a task's title in the Tasks list falls back to its plan line, never an ack. An `ack` still binds the request, replaces the request bubble's text with the recorded message, shows the hidden-secret notice and starts the typing dots. A phrase an older daemon sent stays in the saved turn (`ack`, read tolerantly, APP-801) and is never drawn. The playground's fake daemon sends the ack without text, as the daemon does."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TaskList.swift::NotchModel.title", "ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationArchive.acknowledge", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift::NotchModel.handleChatEvent"]

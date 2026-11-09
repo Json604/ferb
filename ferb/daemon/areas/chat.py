@@ -11,7 +11,6 @@ from ferb.core import origin as origin_
 from ferb.core.errors import FerbError, Refused
 from ferb.daemon.questions import card_flags, card_parts
 from ferb.daemon.server import Session
-from ferb.orchestrator import acks
 from ferb.orchestrator.continuity import RESERVED_SESSIONS
 from ferb.orchestrator.names import shown_name
 from ferb.orchestrator.worker import couldnt
@@ -324,18 +323,16 @@ class Chat:
 
     def _chat_ack(self, session_id: str, request_id: str, message: str = "",
                   received: datetime | None = None, hidden: list[str] | None = None) -> dict[str, Any]:
-        """TQ3/P25: a neutral phrase said on receipt, never one of the last eight said; journaled into chat history,
-        with when the message arrived (`ferb baseline` times the ack, plan line and answer from it, L8). `message`:
-        the owner's message as the daemon redacted it, as `chat.message` records it, for clients to keep (L7).
-        `hidden`: the kinds of secret masked in it (`_secret_kinds`), for the notice under the owner's message."""
-        said = [str(text) for text in self._journal().recent_values("chat.ack", "text", acks.RECENT)]
-        text = acks.pick(said[::-1])
-        entry = self._journal().append("chat.ack", {"session_id": session_id, "request_id": request_id, "text": text,
+        """The receipt of a message (ORCH-571): no words of FERB's (ORCH-570: no canned phrase), journaled into chat
+        history with when the message arrived (`ferb baseline` times the ack, plan line and answer from it, L8).
+        `message`: the owner's message as the daemon redacted it, as `chat.message` records it, for clients to keep
+        (L7). `hidden`: the kinds of secret masked in it (`_secret_kinds`), for the notice under the owner's message."""
+        entry = self._journal().append("chat.ack", {"session_id": session_id, "request_id": request_id,
                                                     "received_at": (received or self.clock.now()).isoformat()})
         if hidden:
             self._journal().append("chat.secret_hidden", {"session_id": session_id, "request_id": request_id,
                                                           "kinds": hidden})
-        return {"type": "ack", "request_id": request_id, "text": text, "message": message.strip(),
+        return {"type": "ack", "request_id": request_id, "message": message.strip(),
                 "at": entry.at.isoformat(), **({"hidden": hidden} if hidden else {})}
 
     def _secret_kinds(self, raw: str) -> list[str]:

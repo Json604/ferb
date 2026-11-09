@@ -48,7 +48,8 @@ def _stamped(event: dict[str, Any], request_id: str) -> bool:
     return event.get('request_id') == request_id and datetime.fromisoformat(event['at']).tzinfo is not None
 
 
-# decision: ORCH-504
+# decision: ORCH-570
+# decision: ORCH-571
 def test_ack_arrives_before_the_planner_is_called(daemon):
     called, release = threading.Event(), threading.Event()
 
@@ -66,14 +67,13 @@ def test_ack_arrives_before_the_planner_is_called(daemon):
     rest = _rest(events)
     assert called.is_set()
     assert first is not None and first['type'] == 'ack'
-    from ferb.orchestrator import acks
-    assert first['text'] in acks.PHRASES
+    assert 'text' not in first                     # a receipt, with no words of FERB's (ORCH-570)
     assert _stamped(first, first['request_id'])
     assert [e['type'] for e in rest if e['type'] in ('ack', 'reply')] == ['reply']
     # Journaled into chat history before the message is routed (the planner runs after chat.message).
     [(ack_seq, ack_row)] = _journal(daemon, 'chat.ack')
     [(message_seq, message_row)] = _journal(daemon, 'chat.message')
-    assert ack_row == {'session_id': 's1', 'request_id': first['request_id'], 'text': first['text'],
+    assert ack_row == {'session_id': 's1', 'request_id': first['request_id'],
                        'received_at': ack_row['received_at']}             # when the message arrived (L8 baseline)
     assert datetime.fromisoformat(ack_row['received_at']) <= datetime.fromisoformat(first['at'])
     assert message_row['request_id'] == first['request_id'] and ack_seq < message_seq
@@ -156,27 +156,6 @@ def test_a_result_names_its_request_even_after_the_stream_dropped_before_the_pla
                                           shown=True))
     again = [data for topic, data in published if topic == 'task.result'][-1]
     assert again['request_id'] == ack['request_id'] and datetime.fromisoformat(again['at']).tzinfo is not None
-
-
-# decision: ORCH-504
-def test_pick_never_repeats_one_of_the_last_eight():
-    from ferb.orchestrator import acks
-    said: list[str] = []
-    for _ in range(200):
-        phrase = acks.pick(said)
-        assert phrase in acks.PHRASES and phrase not in said[-8:]
-        said.append(phrase)
-    assert len(set(said)) > 8
-
-
-# decision: ORCH-504
-def test_daemon_acks_never_repeat_one_of_the_last_eight_said(daemon):
-    """The daemon's window is what it journaled, across messages and chats (the CLI no longer keeps its own)."""
-    async def acknowledge() -> list[str]:
-        return [daemon.daemon._chat_ack(f's{n % 3}', f'r{n}')['text'] for n in range(40)]
-    said = daemon.run(acknowledge())
-    assert all(phrase not in said[max(0, n - 8):n] for n, phrase in enumerate(said))
-    assert [row['text'] for _, row in _journal(daemon, 'chat.ack')] == said
 
 
 def test_approval_requested_carries_its_request_id_only_when_it_belongs_to_a_task(daemon):

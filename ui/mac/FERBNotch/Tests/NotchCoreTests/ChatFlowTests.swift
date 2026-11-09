@@ -32,6 +32,30 @@ final class ChatFlowTests: XCTestCase {
         XCTAssertEqual(try savedArchive(model).turns.first?.ferbLines, ["On it.", "Looking through Notes for yesterday's notes."])
     }
 
+    // decision: ORCH-570
+    // decision: APP-812
+    func testTheDaemonsWordlessAckShowsTypingDotsAndNoAcknowledgementAnywhere() throws {
+        let model = makeModel()
+        let id = begin("Find my notes from yesterday", in: model)
+        // As the daemon sends it now: a receipt with the message as recorded, no words of FERB's.
+        model.receiveChatEvent(["type": "ack", "request_id": "req-a", "at": Contract.at, "message": "Find my notes"],
+                               localID: id)
+        let turn = try XCTUnwrap(model.conversation.turns.first)
+        XCTAssertNil(turn.ack)
+        XCTAssertTrue(turn.showsTyping)
+        XCTAssertEqual(turn.request, "Find my notes")
+        XCTAssertEqual(turn.requestID, "req-a")
+
+        // An older daemon's phrase is kept as saved, but no title is ever made from it (a turn with no request).
+        var archive = ConversationArchive()
+        let older = UUID()
+        archive.begin(id: older, request: "", sources: [])
+        archive.acknowledge(id: older, text: "On it.")
+        let saved = try XCTUnwrap(archive.turns.first)
+        XCTAssertEqual(saved.ack, "On it.")
+        XCTAssertEqual(NotchModel.title(of: saved), NotchModel.unknownTaskTitle)
+    }
+
     // decision: APP-579
     func testProgressUpdatesOneLiveLineInPlaceAndClearsOnOutcome() throws {
         let model = makeModel()

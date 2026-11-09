@@ -20,7 +20,8 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     public var isProvisional: Bool { status == "working" && backendTaskID == nil && !answer.isEmpty }
     /// The daemon's `request_id` for this message. Every contract event names it, so it ties events to this turn.
     public var requestID: String?
-    /// The daemon's instant acknowledgement (`ack`, L7).
+    /// The words an older daemon's `ack` carried (a canned phrase), kept as saved and never drawn (ORCH-570,
+    /// APP-812). Today's `ack` is a receipt with no words: it starts the typing dots and carries the message as recorded.
     public var ack: String?
     /// The plan line: the planner's words when it returned a task (`plan`, L7).
     public var plan: String?
@@ -139,7 +140,8 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
         guard reportID != nil, statusInferred != true else { return false }
         return status == "failed" || (status == "interrupted" && backendTaskID != nil)
     }
-    /// FERB's lines above the answer, in the order shown: the acknowledgement, the plan line, then each told part.
+    /// FERB's lines above the answer, in order: an older daemon's acknowledgement (saved, not drawn), the plan line,
+    /// then each told part.
     public var ferbLines: [String] { [ack, plan].compactMap { $0 } + (parts ?? []) }
     /// The request as one line, for a late reply's quote.
     public var quote: String { (taskGoal ?? request).split(whereSeparator: \.isWhitespace).joined(separator: " ") }

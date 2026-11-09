@@ -170,12 +170,12 @@ extension NotchModel {
     }
 
     /// The task's short name (T-1055), else the owner's message, or for a task this chat didn't send, the daemon's
-    /// goal (already its heading).
+    /// goal (already its heading). Never an acknowledgement an older daemon sent (APP-812).
     static func title(of turn: ConversationTurn) -> String {
         if let name = turn.taskName, !name.isEmpty { return name }
         if !turn.request.isEmpty { return turn.request }
         if let goal = turn.taskGoal, !goal.isEmpty { return goal }
-        return turn.plan ?? turn.ack ?? unknownTaskTitle
+        return turn.plan ?? unknownTaskTitle
     }
 
     static let unknownTaskTitle = "A task from earlier"

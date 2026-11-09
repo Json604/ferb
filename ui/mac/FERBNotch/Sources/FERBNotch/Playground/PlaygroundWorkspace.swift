@@ -209,7 +209,7 @@ final class PlaygroundWorkspace {
 
     /// One of the play's owner messages: the ack, then its reply at once, or the task's events as the play pushes them.
     func playChat(_ feed: PlayFeed, yield: ([String: Any]) -> Void) async throws {
-        yield(["type": "ack", "request_id": feed.requestID, "text": "On it.", "at": PlaygroundSamples.time()])
+        yield(["type": "ack", "request_id": feed.requestID, "at": PlaygroundSamples.time()])
         if let events = feed.events {
             await state.pause(0.6)
             for event in events {

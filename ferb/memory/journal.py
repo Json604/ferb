@@ -91,7 +91,7 @@ class Journal:
         return [_entry(r) for r in self._db.conn.execute(sql + " ORDER BY seq", params)]
 
     def recent_values(self, kind: str, field: str, limit: int) -> list[Any]:
-        """One field of a kind's newest `limit` rows, newest first (e.g. the last acks said)."""
+        """One field of a kind's newest `limit` rows, newest first (e.g. the last start's facts)."""
         return [row[0] for row in self._db.conn.execute(
             "SELECT json_extract(data_json, ?) FROM journal WHERE kind = ? ORDER BY seq DESC LIMIT ?",
             ("$." + field, kind, limit))]

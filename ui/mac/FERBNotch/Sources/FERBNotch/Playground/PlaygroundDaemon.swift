@@ -214,7 +214,7 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
             let id = "playground-" + UUID().uuidString.prefix(8)
             let task = "task-" + id
             state.note("daemon ← chat.send (a simulated task; nothing real runs)")
-            yield(["type": "ack", "request_id": id, "at": Self.now(), "text": "On it."])
+            yield(["type": "ack", "request_id": id, "at": Self.now()])
             await state.pause(1.0)
             let plan = Self.plan(for: request)
             yield(["type": "plan", "request_id": id, "task_id": task, "at": Self.now(), "text": plan.line,
