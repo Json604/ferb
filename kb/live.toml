@@ -3565,6 +3565,7 @@ request = "Open the chat, press History and pick 8 Nov; scroll it top to bottom 
 pass = "8 Nov opens at once with its newest messages, scrolls without hitching, and Tasks opens at once. A finishing task still scrolls its answer or card into view (or shows the pill when you just scrolled), and the pill brings it forward. Nothing looks different from before."
 decisions = ["APP-800", "APP-720"]
 sitting = "after this change is installed"
+result = "passed 2026-11-09 on builds 202611091255/202611091450 (the long Nov 8 day): owner, \"smooth AF\"."
 
 [LIVE-827]
 title = "Anthropic API planner answers through its answer tool, looks things up itself, and its reply streams"
@@ -3626,6 +3627,7 @@ surface = "FERB.app with this build; an app in full screen (VS Code or Brave) an
 request = "In the full-screen app's Space, open Settings from the menu bar icon (Settings…) and drag it by its top bar to the left, the middle and the bottom. Close it, open it again from the notch's profile menu and drag it again. Then go to the home desktop, open Settings there (it comes to you) and drag it; go back to the full-screen app, open Settings again and drag it once more."
 pass = "Each time Settings opens on the Space you're on, over the full-screen app too, without moving you to another Space, and it follows the pointer wherever you drag it; it never sticks to one edge."
 decisions = ["APP-804", "APP-796", "APP-773"]
+result = "passed 2026-11-09 on build 202611091520: owner confirmed Settings drags over a full-screen app's Space."
 
 [LIVE-834]
 title = "Codex sends each turn's request without a WebSocket attempt, and still runs FERB's tools only"
@@ -3682,6 +3684,7 @@ request = "Open the notch chat, then History, and click a day you haven't opened
 pass = "Each day opens at the same height as the others, a small loader in it for a moment if its messages are still coming; it never opens short or grows after. The height you set is kept."
 decisions = ["APP-814", "APP-806", "APP-587"]
 sitting = "after this change is installed"
+result = "passed 2026-11-09 on build 202611091520: owner confirmed a day opened for the first time keeps the chat's height."
 
 [LIVE-842]
 title = "After FERB updates itself, the chat moves to FERB's database without reopening the app"
