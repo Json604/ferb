@@ -12,6 +12,7 @@ import pytest
 
 from ferb.orchestrator.attempts import CHECK_IN_AFTER
 from ferb.orchestrator.plans import Plan, Step
+from ferb.orchestrator.supervisor import PAUSED_SAID
 from ferb.policy.targets import Targets
 from tests.conftest import (STALL, RunningDaemon, answer_question, chat, done, install, outcome, report, sup, task,
                             cond, verdict, writes)
@@ -172,6 +173,7 @@ def test_a_stopped_task_shows_only_a_reports_answer_as_found(daemon: RunningDaem
 
 # decision: ORCH-308
 # decision: TEST-502
+# decision: ORCH-567
 def test_pause_keeps_everything_in_place_and_the_owners_reply_resumes_it(daemon: RunningDaemon) -> None:
     """ORCH-308: pause ends the current attempt and marks the task paused, not cancelled: nothing is released
     (the browser keeps the task's tab group: `task_paused`), no answer is given, and the owner's reply (the planner's
@@ -195,7 +197,7 @@ def test_pause_keeps_everything_in_place_and_the_owners_reply_resumes_it(daemon:
                                     "supersedes": []}})
     turn_script.sup.append(pause)
     said = [e for e in chat(daemon, "wait, hold on") if e["type"] == "reply"]
-    assert said and "Paused" in said[0]["text"]
+    assert said and said[0]["text"] == PAUSED_SAID + "\n\nPaused; tell me how you'd like it."   # code's words first
     _until(daemon, lambda: _row(daemon, tree) == "paused" and _row(daemon, tree + ".worker") == "paused")
     assert run(daemon, lambda: sv.task_paused(tree + ".worker")) and turn.thread.is_alive()
     assert released == [] and not [t for t, _ in published if t == "task.finished"]

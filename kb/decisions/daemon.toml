@@ -780,3 +780,12 @@ rule = "work_json.preview adds per surface kind (`tab_*`, `window_*`): requests,
 why = "preview-lag.md and hang-lab.md: nothing per frame or per surface was recorded, so \"too long\" had no count and no cause, and Mac-window frames couldn't be split into walk, capture and OCR."
 paths = ["ferb/daemon/task_preview.py::Counts", "ferb/daemon/resources.py", "ferb/store/retention.py::OPERATIONAL_KINDS"]
 live = ["LIVE-824"]
+
+[DMN-553]
+title = "New card types for FERB's records; about.get and about.read gain permissions and logins"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "For ORCH-561, ORCH-563..ORCH-565. New reply cards, each with count and line: reminders {reminders: [{id, kind, name, at}]}, tasks {tasks: [task cards]}, task {task_id, name, status, verified, note?, questions?, cards?}, memory {items, forgotten}, permissions {standing_sends, known_destinations, routine_questions_off_until}, logins {owner_saved, ferb_own}, about {version, models, permissions}; at a task's end submit {site}, trash, delete, download {path, name}. FERB.app draws none yet, so their lines stay in the text. about.get/about.read gain permissions_in_force and saved_logins. No new RPC."
+paths = ["ferb/daemon/areas/records.py", "ferb/orchestrator/cards.py", "ferb/daemon/about.py::SECTIONS"]
+untestable = "The payload shapes are exercised by tests/test_claims_records.py under ORCH-561..ORCH-565; this records the protocol for FERB.app."

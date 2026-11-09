@@ -184,7 +184,7 @@ def test_the_planners_streamed_reply_reads_reshaped_fields() -> None:
     from ferb.sanitize.redact import Redactor
     shape = for_anthropic(core.SUPERVISOR_SCHEMA)
     answer = {k: ([] if isinstance(v, list) else v) for k, v in sample(core.SUPERVISOR_SCHEMA, False).items()}
-    answer |= {"kind": "reply", "text": "Hello there", "show_schedules": False}     # a plain reply: no flag set
+    answer |= {"kind": "reply", "text": "Hello there", "show": [], "about_tasks": []}   # a plain reply: nothing to show
     wire = as_wire(core.SUPERVISOR_SCHEMA, shape.wire, answer)
     assert wire["task"] == [] and wire["control"] == []              # the provider's form, not null
     text = json.dumps({k: wire[k] for k in [*[k for k in wire if k != "text"], "text"]})

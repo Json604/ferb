@@ -3583,11 +3583,20 @@ pass = "Nov 4, 5, 6 and 7 (and the morning of Nov 8) show their messages and FER
 decisions = ["APP-801", "APP-569", "STORE-403"]
 sitting = "after this change is installed"
 
-[LIVE-828]
+[LIVE-831]
 title = "A question needing more than ten lookups ends in an answer or a task, never a dead end"
 area = "orchestration"
 surface = "FERB.app with this build, on an API connection (Anthropic or OpenAI)"
 request = "Ask something that needs many lookups across days, e.g. \"for each day last week, what was the first site I opened and which app I used most?\"; then read `ferb trace` of the turn."
 pass = "The turn makes at most ten lookups; the eleventh, if tried, is refused with the \"answer from what you have, or make the request a task\" words. The turn ends with a reply from what was found or a task whose worker looks further; it never ends with no answer or only an error line."
 decisions = ["ORCH-559", "ORCH-516", "ORCH-557"]
+sitting = "after this change is installed"
+
+[LIVE-829]
+title = "Asked about its own state or a task's result, FERB shows its records beside its words"
+area = "orchestration"
+surface = "FERB.app with this build"
+request = "With a schedule and a reminder set and a task done today, ask \"how many schedules and reminders do I have?\", \"what are you running?\", \"can you message <someone> without asking me?\", \"what logins do you have saved?\" and, after a send task, \"did you send it or not?\"; then read `ferb trace` of each turn."
+pass = "Each answer agrees with the line or card under it, drawn from FERB's records (schedules, reminders, tasks, permissions, logins; the task's own card with its status and send card). No count or claim comes from the conversation alone. Until FERB.app draws the new card types, their lines show in the reply."
+decisions = ["ORCH-563", "ORCH-564", "ORCH-565"]
 sitting = "after this change is installed"

@@ -265,7 +265,7 @@ class Provider(FakeProvider):
 
 
 REPLY = sample(core.SUPERVISOR_SCHEMA, False) | {
-    "kind": "reply", "text": "Your dentist is Dr. Rao.", "show_schedules": False,
+    "kind": "reply", "text": "Your dentist is Dr. Rao.", "show": [], "about_tasks": [],
     **{k: [] for k in ("remember", "timers", "schedules", "schedule_changes", "reminder_cancels", "forget",
                        "conversation_changes")}}
 

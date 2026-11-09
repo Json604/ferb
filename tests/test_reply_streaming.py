@@ -43,7 +43,7 @@ def test_conversation_words_arrive_before_final_validation():
     {'kind': 'task'}, {'control': {'task_id': 'mail', 'action': 'stop', 'standing_sends': 'unchanged', 'supersedes': []}},
     {'remember': [{'text': 'secret'}]}, {'timers': [{'message': 'Ping'}]},
     {'answer_question': {'approval_id': 'mail', 'answer': 'yes'}},
-    {'schedules': [{}]}, {'show_schedules': True}, {'conversation_changes': [{}]},
+    {'schedules': [{}]}, {'show': ['schedules']}, {'about_tasks': ['t1']}, {'conversation_changes': [{}]},
     {'schedule_changes': [{}]}, {'reminder_cancels': [{}]}, {'task': {}},
 ])
 def test_action_bearing_turns_never_stream_receipts(changes):

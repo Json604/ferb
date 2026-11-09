@@ -165,6 +165,16 @@ def quoted(owner_words: str, quote: str, *, clause: bool = False) -> bool:
     return bool(parts) and all(check(owner_words, part) for part in parts)
 
 
+
+def forgets_on_record(db: Database) -> list[dict[str, Any]]:
+    """ORCH-567: what FERB can say of what it forgot: each forget the memory store journaled (`memory.forgot`, its own
+    record, once per forget), when and how many items. A forgotten item's contents are never kept (memory_forgotten
+    holds only fingerprints)."""
+    import json
+    rows = db.conn.execute("SELECT at, data_json FROM journal WHERE kind = 'memory.forgot' ORDER BY seq").fetchall()
+    return [{"at": str(r[0]), "items": data["items"]} for r in rows
+            if "via" not in (data := json.loads(r[1] or "{}")) and isinstance(data.get("items"), int)]
+
 @dataclass(frozen=True)
 class Capture:
     """What chat capture saves from the owner's typed words (`capture`)."""

@@ -972,7 +972,7 @@ words = "oh yeah 10 is good if after 10 it hands of the task to an agent. i thou
 words_source = "Owner 2026-11-09, asked whether ORCH-516's PLANNER_LOOKUPS 10 (an agent's number, 2026-11-03) is right; told that after ten the planner answers or makes a task."
 rule = "Confirms ORCH-516's PLANNER_LOOKUPS = 10 as the owner's limit. When a planner call has made its ten lookups, an eleventh is refused with the gateway's LOOKUPS_SPENT words (answer from what it has, or make the request a task whose worker can look further); a call that then fails gets ORCH-557's one last call, given what its lookups found. The planner chooses an answer or a task; the turn never ends with nothing."
 paths = ["ferb/orchestrator/supervisor.py::PLANNER_LOOKUPS", "ferb/daemon/gateway.py::LOOKUPS_SPENT", "ferb/orchestrator/supervisor.py::Supervisor._supervise"]
-live = ["LIVE-828"]
+live = ["LIVE-831"]
 
 [ORCH-560]
 title = "A failure is told once: the worker's own answer, else the reason"
@@ -1004,3 +1004,60 @@ words_source = "Owner 2026-11-08, approving claims-audit.md section 5 P1 and P2 
 rule = "Refines ORCH-545. When the worker reported not done, the checker's findings on its answer go to the same one fix turn and re-check as a done answer's, and code removes or marks the quoted sentences of its reason; the checker's own fail reason stays its own. The checker's report includes the availability facts the planner gets (what FERB can use now), so a claim that FERB can't do something can be contradicted."
 why = "Task 7b86c4ad (2026-11-07): a failure said FERB \"cannot operate its own app\", a capability claim from one task's limits that nothing checked (claims audit A1)."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._next", "ferb/orchestrator/supervisor.py::Supervisor._worker", "ferb/orchestrator/supervisor.py::Supervisor._verifier"]
+
+[ORCH-563]
+title = "FERB's own state is shown from its records: one show list, one card per kind"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "yes"
+words_source = "Owner 2026-11-08, approving claims-audit.md section 5 P1 and P2 (agent-drafted, approved as a whole): P1-a."
+rule = "Refines ORCH-554. The planner's show (a list of schedules, reminders, tasks, memory, permissions, logins, about; replaces show_schedules, which an older answer still maps to schedules) makes code add each kind's card and line, once, from FERB's rows after the turn's own changes. Every planner turn's live facts list the pending reminders and timers as the schedules are listed: a count by kind, one line each, marked as the truth. The tasks card holds every running task and this chat's ended tasks, each as ORCH-564's task card."
+why = "Owner 2026-11-08: \"where is honesty in ferb stating how many schedules are there and not from jsut its memory???\" and \"ok, what about other things ferb shdol tell and not just see in its plan or memroy??\"."
+paths = ["ferb/daemon/areas/records.py::Records", "ferb/orchestrator/supervisor.py::Supervisor._side_entries", "ferb/orchestrator/supervisor.py::Supervisor._tasks_card", "ferb/orchestrator/schemas.py::SHOW_KINDS"]
+live = ["LIVE-829"]
+
+[ORCH-564]
+title = "A reply about what a task did names it; code shows that task's records under it"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "yes"
+words_source = "Owner 2026-11-08, approving claims-audit.md section 5 P1 and P2 (agent-drafted, approved as a whole): P1-b."
+rule = "The planner's about_tasks (a plain list of task ids, ORCH-330) names the tasks a reply states what they did. An id that isn't a running task or one of this chat's is told back once with the side entries' problems; after that it shows nothing. Code adds a task card per id: name, status as code set it, verified, code's couldn't-confirm note, the questions the owner answered for it and its record cards (sends, payments, submits, trash, deletes, downloads, files, sites), with its one line; the record cards are also drawn on their own."
+why = "Journal 1066 (2026-11-07): the owner had to ask \"did you do it or not?\"; FERB's words and FERB's records were never side by side."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._task_record", "ferb/orchestrator/supervisor.py::Supervisor._shown_tasks", "ferb/orchestrator/supervisor.py::Supervisor._about_task_problems"]
+live = ["LIVE-829"]
+
+[ORCH-565]
+title = "The planner and the cards read the rest of FERB's state: about.read with permissions and logins"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "yes"
+words_source = "Owner 2026-11-08, approving claims-audit.md section 5 P1 and P2 (agent-drafted, approved as a whole): P2-c."
+rule = "Refines ORCH-516: about.read joins PLANNER_TOOLS. The self-description gains permissions_in_force (the standing send scopes in force with who holds them, the known destinations and whether each was approved, a digest-kept one named as such, and the end of the owner's ask-free window) and saved_logins (the owner's saved entries by place and name, FERB's own secrets by name, account hint and sites; never a value or a username). The permissions, logins and about cards draw from the same builders."
+why = "Claims audit section 3: standing permissions, known recipients and the allow window were in no planner context or tool, so \"can you message Rahul without asking?\" could only be guessed."
+paths = ["ferb/daemon/areas/records.py::Records._permissions_in_force", "ferb/daemon/areas/records.py::Records._saved_logins", "ferb/daemon/areas/about.py::About._about_document", "ferb/orchestrator/supervisor.py::PLANNER_TOOLS"]
+live = ["LIVE-829"]
+
+[ORCH-566]
+title = "The planner's history tells code's records from FERB's own unchecked words"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "yes"
+words_source = "Owner 2026-11-08, approving claims-audit.md section 5 P1 and P2 (agent-drafted, approved as a whole): P1-c."
+rule = "A reply's code lines are also recorded apart (chat.reply lines). The planner's history shows a reply code alone wrote as \"FERB (code record)\"; any other reply as \"FERB (reply, model-written, unchecked)\" with its prose, then code's lines as \"FERB (code record): ...\". summary.md never carries current state, and supervisor.md says FERB's earlier replies and the summary are never a source for FERB's state or for what a task did (PRM-340)."
+why = "Journal 1128-1136 (2026-11-07): code's \"Scheduled ... 05:20\" line and the planner's \"six checks daily\" were one reply; the next turn read its own words as fact."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._record_reply", "ferb/orchestrator/supervisor.py::Supervisor._timeline", "ferb/orchestrator/supervisor.py::Supervisor._exit"]
+
+[ORCH-567]
+title = "Claims audit P3: code's pause line, extension version, task runtime, forgets, answered questions"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "do p3 now"
+words_source = "Owner 2026-11-08 on claims-audit.md section 5 P3, then \"ok drop item 3, do the rest\" (relayed: the dropped item is A2, a condition required for a do step)."
+rule = "A pause reply starts with code's PAUSED_SAID, the planner's words after it. The profile line in the live facts names the FERB extension's version (its live hello, else the pairing record). Each running task in the status facts names the worker type its runs use (default, or the runtime the owner switched it to). memory.read forgotten lists each forget on record (when, how many items), never contents. A task card lists the questions it asked and the owner's answers, from its owner.ask records."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._control", "ferb/daemon/areas/environment.py::Environment._live_facts", "ferb/orchestrator/supervisor.py::Supervisor._task_state", "ferb/memory/items.py::forgets_on_record", "ferb/orchestrator/supervisor.py::Supervisor._answered_questions"]

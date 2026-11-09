@@ -39,7 +39,7 @@ SCHEMA = core.SUPERVISOR_SCHEMA
 def reply(text: str) -> dict[str, Any]:
     """A plain reply in the core form, its text last (as the schema orders it), so the draft can stream it."""
     value = sample(SCHEMA, False) | {
-        "kind": "reply", "show_schedules": False,
+        "kind": "reply", "show": [], "about_tasks": [],
         **{k: [] for k in ("remember", "timers", "schedules", "schedule_changes", "reminder_cancels", "forget",
                            "conversation_changes")}}
     return {**{k: v for k, v in value.items() if k != "text"}, "text": text}

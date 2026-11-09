@@ -269,9 +269,8 @@ class Environment:
                             f"this, never from memory): {shown}"]
         # T-1066: the owner's schedules as FERB's records hold them, counted, marked as the truth
         lines += self._schedule_facts() if self.schedules is not None and owner_state else []
-        for t in (self.timers.pending(("reminder", "timer")) if self.timers is not None and owner_state else []):
-            lines.append(f"- {t.kind.capitalize()} {t.id} “{t.label}”: {t.message} — "
-                         f"{t.fire_at.astimezone():%a %d %b %Y %H:%M}")
+        # ORCH-563: the reminders and timers the same way, counted by kind, marked as the truth
+        lines += self._reminder_facts() if self.timers is not None and owner_state else []
         if self.pairings is not None and self.hub is not None:           # the owner's browsers, as FERB can use them
             ferb = self._identity_profile()
             from ferb.act.browser.profiles import named, shown
@@ -283,7 +282,11 @@ class Environment:
                 if found is None:            # one profile discovery per call, kept fresh off the loop (`_fresh`)
                     found = self._fresh_profiles()
                 name = shown(named(found, b.browser, b.folder), "")        # with its signed-in account (HAND-424)
-                lines.append(f"- The owner's {b.browser} profile {name}: paired{self._paired_state(b, br)}")
+                # ORCH-567: the FERB extension's version as it last reported it (its live hello, else the pairing record)
+                version = (getattr(br, "version", "") if br is not None and br.conn else "") or \
+                    (self.pairings.version(b.install_id) if hasattr(self.pairings, "version") else "")
+                lines.append(f"- The owner's {b.browser} profile {name}: paired{self._paired_state(b, br)}"
+                             + (f" (FERB extension {version})" if version else ""))
             for browser in sorted(set(self.hub.unpaired.values())):
                 note = self._unpaired_note(browser)
                 if note:
