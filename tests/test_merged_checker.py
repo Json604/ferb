@@ -307,6 +307,28 @@ def test_an_unverifiable_outcome_is_done_unconfirmed_with_the_answer_first(daemo
     assert "Why work stopped" not in result["answer"] and "Send the invite to Sam" not in result["answer"]
 
 
+
+SIGNED_OUT = ("I couldn't check availability at 7:10 AM because your session had expired and the saved password "
+              "could not be filled during this unattended run. No appointment was booked.")
+
+
+# decision: ORCH-560
+def test_a_failure_the_worker_explained_is_told_once(daemon: RunningDaemon) -> None:
+    """Owner 2026-11-09, the 7:10 visa run: "why is this giving two replies????". The worker's reason, its answer and
+    the checker's reason all said the same failure; the owner reads it once: the worker's own answer to them."""
+    not_done = json.dumps({"status": "not_done", "question": None, "artifacts": [], "how": "",
+                           "reason": "The session had expired; secure filling was declined, so I could not sign in.",
+                           "answer": SIGNED_OUT})
+    install(daemon, [sup("task", "On it.", task("Check visa slots"))], {
+        "worker": not_done,
+        "worker.verify": verdict(False, True, next="fail",
+                                 reason="The 7:10 AM check could not reach availability: the session had expired.")})
+    result = outcome(chat(daemon, "check visa slots"))
+    assert result["status"] == "failed"
+    assert result["answer"].split("\n\n")[0] == f"I couldn't finish this task. {SIGNED_OUT}"
+    assert "What I found" not in result["answer"] and "could not reach availability" not in result["answer"]
+    assert "could not reach availability" in result["summary"]          # the checker's reason stays in the record
+
 # decision: ORCH-309
 def test_a_failure_says_plainly_what_happened(daemon: RunningDaemon) -> None:
     install(daemon, [sup("task", "On it.", task("Book a table"))], {

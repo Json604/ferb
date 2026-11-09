@@ -724,6 +724,7 @@ class _Tree:
     context_sources: dict[str, str] = field(default_factory=dict)
     owner_question: str = ""
     stop_reason: str = ""                # why the work failed, in the owner's terms (the checker's reason, or code's)
+    stop_by_code: bool = False           # stop_reason is code's own line (attempts used up, an AI service down)
     stands_unconfirmed: bool = False     # the last attempt's done report stands, though no check confirmed it (V4)
     kept_contradicted: bool = False      # the fix round's fallback marked a contradicted sentence it couldn't remove
     check_problem: str = ""              # why the current attempt's check couldn't run, in the owner's words
@@ -5302,7 +5303,7 @@ class Supervisor(WorkerRuns):
                 tree.outcome = Outcome(task.id, "done", tree.owner_answer, out.artifacts, [])
                 return tree.outcome
             if choice.action == "fail":
-                tree.stop_reason = choice.reason or tree.reason or NOT_ACCEPTED
+                tree.stop_reason, tree.stop_by_code = choice.reason or tree.reason or NOT_ACCEPTED, False
                 return Outcome(task.id, "failed", tree.stop_reason, out.artifacts, [])
             if choice.action == "ask":
                 tree.owner_question = choice.question
@@ -5338,7 +5339,7 @@ class Supervisor(WorkerRuns):
         one "Couldn't confirm" line in the owner's terms (ORCH-309), never the checker's evidence."""
         tree.unconfirmed = REPORT_UNCONFIRMED
         tree.stands_unconfirmed = True
-        tree.stop_reason = ''
+        tree.stop_reason, tree.stop_by_code = '', False
         if not tree.hold_resources:
             if self._tree_of.get(tree.id) is tree:
                 tree.work_done = True
@@ -5718,7 +5719,7 @@ class Supervisor(WorkerRuns):
         choices = [name for name in self.worker_types() if name not in ("default", down.runtime)]
         offer = {"runtime": down.runtime, "problem": down.problem, "role": role, "choices": choices}
         self.journal.append("runtime.account_problem", {"task_id": tree.id, **offer})
-        tree.runtime_switch, tree.stop_reason = offer, down.summary
+        tree.runtime_switch, tree.stop_reason, tree.stop_by_code = offer, down.summary, True
         if not choices:
             tree.stop_reason = down.summary + " No other AI service is signed in for FERB (Settings → AI)."
             return False
@@ -5732,12 +5733,12 @@ class Supervisor(WorkerRuns):
         if reply.kind == 'stopped' or tree.stop:
             return None
         if reply.kind == 'steer':           # the owner replied in chat instead: carry on as they said
-            tree.runtime_switch, tree.stop_reason = None, ''
+            tree.runtime_switch, tree.stop_reason, tree.stop_by_code = None, '', False
             return True
         asked = list(wait.approval.options) if wait.approval is not None else []
         if reply.kind == 'answer' and reply.choice in asked[:len(choices)]:
             tree.runtime = choices[asked.index(reply.choice)]
-            tree.runtime_switch, tree.stop_reason = None, ''
+            tree.runtime_switch, tree.stop_reason, tree.stop_by_code = None, '', False
             self.journal.append("runtime.switched", {"task_id": tree.id, "runtime": tree.runtime, "role": role},
                                 origin=origins_.OWNER)
             return True
@@ -5827,7 +5828,7 @@ class Supervisor(WorkerRuns):
                 return '' if reply.choice == KEEP_GOING else self._owner_continuation(reply)
         self.journal.append('task.check_in', {'task_id': tree.id, 'step': tree.step_id, 'attempts': attempts.failed,
                                               'keep_going': False, 'unattended': unattended})
-        tree.stop_reason = stopped_after(attempts.failed, unattended=unattended)
+        tree.stop_reason, tree.stop_by_code = stopped_after(attempts.failed, unattended=unattended), True
         return False
 
     def _look_only(self, tree: _Tree) -> str:
@@ -6419,11 +6420,17 @@ class Supervisor(WorkerRuns):
             status = "failed"
             why = src.stop_reason or src.reason or (out.summary if out.status != "done" else NOT_ACCEPTED)
             summary = answer = f"{NOT_FINISHED} {_sentence(why)}".strip()
-            # what an unfinished attempt had found, as its own words say it, marked unchecked; never a done claim the
-            # check didn't confirm
-            if src.owner_answer.strip() and src.owner_answer.strip() != why.strip() and \
-                    not (src.reports and src.reports[-1].get("status") == "done"):
-                answer += f"\n\n{FOUND_UNCHECKED} {src.owner_answer.strip()}"
+            # The failure is told once (owner 2026-11-09, the 7:10 visa run: "why is this giving two replies????"). A
+            # worker that reported not done wrote its answer for the owner (what stopped it, and anything it found), so
+            # that answer is the account, in place of a model's reason (the checker's or its own), which stays the
+            # summary. After code's own stop line
+            # (attempts used up, an AI service down) it follows as what was found, unchecked. Never a done claim the
+            # check didn't confirm. By where each text came from, never by what it says (rule 4).
+            own = src.owner_answer.strip() if not (src.reports and src.reports[-1].get("status") == "done") else ""
+            if own and not src.stop_by_code:
+                answer = f"{NOT_FINISHED} {own}"
+            elif own and own != why.strip():
+                answer += f"\n\n{FOUND_UNCHECKED} {own}"
         # D33: the answer and summary carry model-written lines (reports, the checker's question and reason); one that
         # reads like FERB's own check is marked as the task's. Code's own lines here never start with "FERB".
         summary, answer = confirm.from_task_lines(summary), confirm.from_task_lines(answer)
