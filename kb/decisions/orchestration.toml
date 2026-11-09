@@ -1072,3 +1072,13 @@ rule = "Supersedes ORCH-560, for PRM-344. When the worker's last report was not 
 why = "With PRM-344 the not-done answer no longer says what stopped the work; ORCH-560's answer-only account would have lost it. The owner approved the field line on the explanation that the failed reply then shows the reason once and the findings under it."
 supersedes = ["ORCH-560"]
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrator/supervisor.py::_Tree"]
+
+[ORCH-569]
+title = "A failed task's reply keeps what was found: the reason, then the findings marked unchecked"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "A: reason + findings (Recommended)"
+words_source = "Owner 2026-11-09, shown a side-by-side of a failed reply as the reason plus \"What I found (not checked):\" with partial findings (A) versus the reason only (B)."
+rule = "Confirms ORCH-568 as the owner's choice: a failed task's reply is \"I couldn't finish this task.\" with the worker's reason, then, only when the worker found something, its findings as \"What I found (not checked):\". Partial results are kept, marked unchecked; with nothing found there is no second part."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._final"]

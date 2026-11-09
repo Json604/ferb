@@ -312,7 +312,7 @@ SIGNED_OUT = "The session had expired and the saved password could not be filled
 FOUND = "The visa site's sign-in page loaded; no appointment was booked."
 
 
-# decision: ORCH-568
+# decision: ORCH-568, ORCH-569
 def test_a_failure_the_worker_explained_is_told_once(daemon: RunningDaemon) -> None:
     """Owner 2026-11-09, the 7:10 visa run: "why is this giving two replies????". The worker's reason, its answer and
     the checker's reason all said the same failure. The owner reads it once: the worker's own reason (what stopped
