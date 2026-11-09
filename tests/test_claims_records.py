@@ -1,7 +1,9 @@
 """What FERB says about its own state and its work comes from its records (owner 2026-11-08: "ferb should not lie";
 "where is honesty in ferb stating how many schedules are there and not from jsut its memory???"; claims audit §5,
 approved P1, P2, P3). Through the real daemon, gateway and scripted model: an action check reads the task's own calls
-and a false one fails the work whatever the checker said; result cards come from calls and files that exist."""
+and a false one fails the work whatever the checker said; a file card comes only from a file that exists. Owner
+2026-11-10 (APP-823): the record cards of 2026-11-09 are gone; what FERB says still rests on its records (facts,
+lookups), never on cards."""
 import json
 from typing import Any
 
@@ -16,7 +18,7 @@ def _cards(event: dict[str, Any], kind: str) -> list[dict[str, Any]]:
     return [c for c in event.get("cards") or [] if c["type"] == kind]
 
 
-# decision: ORCH-561
+# decision: ORCH-576
 def test_a_send_the_records_dont_show_fails_however_the_checker_judged(daemon: RunningDaemon) -> None:
     """The worker says it sent; no send ran. The checker accepts; code's sent check is false, so the task fails."""
     spec = task("Email Alex the report", conds=(cond("Alex got the report", "sent", expected="alex@work.example"),))
@@ -29,7 +31,7 @@ def test_a_send_the_records_dont_show_fails_however_the_checker_judged(daemon: R
     assert result["met"] is False and result["path"] == "code" and "no send to alex@work.example" in result["evidence"]
 
 
-# decision: ORCH-561
+# decision: ORCH-576
 def test_a_send_that_ran_meets_its_check_and_is_a_card(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     ferb_yes.expect("floor:new_recipient")
     daemon.daemon.registry.capabilities["probe.send"] = FakeCap("probe.send", "send", {"probe"})
@@ -44,11 +46,11 @@ def test_a_send_that_ran_meets_its_check_and_is_a_card(ferb_yes: FerbAnswers, da
     assert _cards(final, "send")[0]["recipient"] == "Alex@Work.example"
 
 
-# decision: ORCH-561
-def test_trash_and_files_are_cards_only_from_calls_and_paths_that_exist(daemon: RunningDaemon,
-                                                                        monkeypatch: pytest.MonkeyPatch) -> None:
-    """A trashed file is a trash card from the fs.trash call; a file the worker lists that doesn't exist gets no card;
-    a trashed check on another path is false."""
+# decision: ORCH-576
+def test_trashed_checks_read_the_calls_and_files_are_cards_only_when_they_exist(daemon: RunningDaemon,
+                                                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    """A trashed check on a path no fs.trash call named is false; the trash itself is no card (APP-823);
+    a file the worker lists that doesn't exist gets no card."""
     bin_ = daemon.daemon.home.parent / ".Trash"
     bin_.mkdir(parents=True, exist_ok=True)
     use_trash(monkeypatch, bin_)
@@ -70,7 +72,7 @@ def test_trash_and_files_are_cards_only_from_calls_and_paths_that_exist(daemon: 
     final = outcome(chat(daemon, "tidy the folder"))
     met = final["verification"][1]                          # kept.md was never trashed: code's false stands
     assert met["met"] is False and met["path"] == "code" and final["status"] == "failed"
-    assert [c["path"] for c in _cards(final, "trash")] == [str(old)]
+    assert not [c for c in final.get("cards") or [] if c["type"] in ("submit", "trash", "delete", "download")]
     assert [c["path"] for c in _cards(final, "file")] == [str(kept)]
 
 
@@ -82,49 +84,34 @@ def _reply_of(evs: list[dict[str, Any]]) -> dict[str, Any]:
     return next(e for e in evs if e["type"] == "reply")
 
 
-# decision: ORCH-563, ORCH-565
-def test_each_kind_of_ferbs_state_is_a_card_from_its_records(daemon: RunningDaemon) -> None:
-    """The planner names what the owner asked about; code draws each from FERB's rows after the turn's own changes
-    (a reminder set in the same turn is in the list), and the planner's live facts count the reminders as the truth."""
-    from tests.support.schedules import mins
+# decision: ORCH-577
+def test_the_planner_counts_reminders_from_the_records_and_shows_no_record_cards(daemon: RunningDaemon) -> None:
+    """The planner's live facts count the reminders as FERB's records hold them, marked as the truth. An answer in the
+    2026-11-09 form (show, about_tasks) reads as before them: its schedules list is shown, nothing else is a card."""
     from datetime import timedelta
-    script = install(daemon, [_reply("Here is what I have.", timers=[
+    from tests.support.schedules import mins
+    install(daemon, [_reply("Set.", timers=[
         {"when": mins(timedelta(minutes=30)), "message": "stretch", "quote": "remind me in 30 minutes to stretch",
-         "kind": "reminder", "name": "Stretch", "when_active": False}],
-        show=["reminders", "tasks", "memory", "permissions", "logins", "about", "reminders"])])
-    reply = _reply_of(chat(daemon, "remind me in 30 minutes to stretch, and what do you have set up for me?"))
-    kinds = [c["type"] for c in reply["cards"] if c["type"] not in ("event",)]
-    assert kinds == ["reminders", "tasks", "memory", "permissions", "logins", "about"]       # each once, in order
-    reminders = _cards(reply, "reminders")[0]
-    assert reminders["count"] == 1 and reminders["reminders"][0]["name"] == "Stretch"
-    assert all(c["line"] in reply["text"] for c in reply["cards"] if c["type"] != "event")
-    assert "routine questions on" in _cards(reply, "permissions")[0]["line"]
-    script = install(daemon, [_reply("One reminder.")])
-    chat(daemon, "how many reminders?")
+         "kind": "reminder", "name": "Stretch", "when_active": False}])])
+    chat(daemon, "remind me in 30 minutes to stretch")
+    script = install(daemon, [_reply("One reminder, no schedules.", show=["schedules", "reminders", "tasks", "memory",
+                                                                          "permissions", "logins", "about"],
+                                     about_tasks=["nope"])])
+    reply = _reply_of(chat(daemon, "how many reminders and schedules do I have?"))
     planner = next(ctx for mode, key, ctx, _ in script.contexts)
     assert "pending reminders and timers, from FERB's records (the truth" in planner and ": 1 (1 reminder)" in planner
+    assert [c["type"] for c in reply.get("cards") or []] == ["schedules"]
+    assert len(script.contexts) == 1                         # no repair round for the old about_tasks
 
 
-# decision: ORCH-564
-def test_a_reply_about_a_task_shows_its_records_beside_its_words(ferb_yes: FerbAnswers,
-                                                               daemon: RunningDaemon) -> None:
-    """"Did you do it or not?" (journal 1066): the planner names the task its reply is about; code shows that task's
-    status and its send card from its records. An id the planner may not name is told back once, then shows nothing."""
-    ferb_yes.expect("floor:new_recipient")
-    daemon.daemon.registry.capabilities["probe.send"] = FakeCap("probe.send", "send", {"probe"})
-
-    def sends(token: str) -> str:
-        assert not tool(daemon.sock, token, "probe.send", to="alex@work.example", site="mail.google.com")["is_error"]
-        return done("Sent it.")
-    install(daemon, [sup("task", "Sending.", task("Email Alex the report"))], {"worker": sends})
-    first = outcome(chat(daemon, "email alex the report"))
-    script = install(daemon, [_reply("Yes, I sent it.", about_tasks=[first["task_id"], "nope"]),
-                              _reply("Yes, I sent it.", about_tasks=[first["task_id"], "nope"])])
-    reply = _reply_of(chat(daemon, "did you send it or not?"))
-    [card] = _cards(reply, "task")
-    assert card["task_id"] == first["task_id"] and card["status"] == first["status"] and card["line"] in reply["text"]
-    assert card["cards"][0]["recipient"] == "alex@work.example" and _cards(reply, "send")
-    assert any("about_tasks: 'nope'" in ctx for _, _, ctx, _ in script.contexts)        # told back once
+# decision: ORCH-578
+def test_the_self_description_names_permissions_and_logins_without_values(daemon: RunningDaemon) -> None:
+    """about.read (one of the planner's lookups) carries the permissions in force and the saved logins by name."""
+    from ferb.orchestrator.supervisor import PLANNER_TOOLS
+    doc = daemon.run(daemon.daemon._about_document())
+    held = doc["permissions_in_force"]
+    assert set(held) == {"standing_sends", "known_destinations", "routine_questions_off_until"}
+    assert set(doc["saved_logins"]) == {"owner_saved", "ferb_own"} and "about.read" in PLANNER_TOOLS
 
 
 # decision: ORCH-566
@@ -145,7 +132,7 @@ def test_the_history_tells_ferbs_unchecked_words_from_codes_records(daemon: Runn
     assert f"FERB (code record): {code_line}" in planner
 
 
-# decision: ORCH-567
+# decision: ORCH-578
 def test_forgets_are_on_record_without_their_contents(daemon: RunningDaemon) -> None:
     """A forgotten-items lookup: memory.read forgotten says when FERB forgot and how many items; never what they were."""
     from tests.mackit import gateway_call as call, grant_task as granted_task
@@ -159,34 +146,3 @@ def test_forgets_are_on_record_without_their_contents(daemon: RunningDaemon) -> 
     r = call(daemon, g, "memory.read", forgotten=True)
     assert not r["is_error"] and [f["items"] for f in r["content"]["forgotten"]] == [1]
     assert "4512" not in json.dumps(r["content"])
-
-
-# decision: ORCH-567
-def test_a_task_card_carries_the_questions_the_owner_answered(daemon: RunningDaemon) -> None:
-    """The tasks card's rows hold each question a task asked and the owner's answer, from its owner.ask records."""
-    import asyncio
-    import time
-    from tests.conftest import gateway_request, gateway_setup
-    grant, _ = gateway_setup(daemon, set(), gateway_request("deploy the site"), [])
-    daemon.daemon.gateway.route_question = None              # straight to the owner (no orchestrator in this test)
-    asked = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.call(grant, "owner.ask", {
-        "question": "Which branch should I deploy?", "options": []}), daemon.loop)
-    for _ in range(400):
-        pending = [ap for ap in daemon.daemon.state.approvals.pending() if ap.capability == "owner.ask"]
-        if pending:
-            break
-        time.sleep(0.05)
-    daemon.run(daemon.daemon._chat_answer(None, {"approval_id": pending[0].id, "text": "main"}))
-    asked.result(timeout=10)
-    from tests.support.schedules import run
-    got = run(daemon, lambda: daemon.daemon.supervisor._answered_questions(grant.task_id.split(".", 1)[0]))
-    assert got == [{"question": "Which branch should I deploy?", "answer": "main"}]
-
-
-# decision: PRM-341
-def test_the_page_that_doesnt_work_rule_reaches_every_worker(daemon: RunningDaemon) -> None:
-    """Owner 2026-11-09: a page that doesn't work (blocked, an error) is refreshed once, then opened in a new tab and
-    tried once more, then reported. It is in the shared worker instructions every browser route reads."""
-    from tests.support.schedules import run
-    system = run(daemon, lambda: daemon.daemon.supervisor._system("worker.md"))
-    assert "refresh it once" in system and "new tab" in system and "Never loop" in system

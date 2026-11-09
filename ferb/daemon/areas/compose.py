@@ -146,7 +146,8 @@ class Compose:
                 timers=self.timers, on_schedule=self._schedule_create,
                 on_schedule_change=self._schedule_change_from_chat,
                 on_reminder_cancel=self._reminder_cancel_from_chat, schedule_live=self._schedule_live,
-                on_schedule_edit=self._schedule_edit_from_chat, schedule_problems=self._schedule_problems),
+                on_schedule_edit=self._schedule_edit_from_chat, schedule_problems=self._schedule_problems,
+                schedules_card=self._schedules_card),
             environment=ports.EnvironmentPort(
                 environment=self._environment, live_facts=self._live_facts, availability=self._availability,
                 apps=self._installed_apps,
@@ -154,7 +155,7 @@ class Compose:
                 relevant_context=self._relevant_context,           # its fourth element: the search's source refs
                 worker_types=self._worker_types, runtime_signed_out=self._runtime_signed_out,
                 signals=self.signals, skills_catalog=skills.catalog,
-                abilities_catalog=self.registry.abilities.catalog, records_card=self._records_card),
+                abilities_catalog=self.registry.abilities.catalog),
             desktop=ports.DesktopPort(
                 on_task_start=self.disturbance.start, on_task_finish=self._tree_finished,
                 disturbance=self.disturbance, disturbance_context=self.disturbance.context, changes=self.changes),

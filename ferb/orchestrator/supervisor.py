@@ -90,7 +90,7 @@ from ferb.policy.standing import SCHEDULE_GRANT, StandingPermissions
 from ferb.policy.targets import Request, Targets
 from ferb.sanitize.untrusted import (EARLIER_QUESTION, EARLIER_QUESTION_DATA, WRAPPED, as_data, mark, typed_lines_of,
                                      wrap_untrusted)
-from ferb.store.spans import SpanStore, tree_where
+from ferb.store.spans import SpanStore
 
 HEARTBEAT_POLL_S = 5.0
 
@@ -165,7 +165,7 @@ NO_CATALOG_ROLES = TOOLLESS_ROLES | {"supervisor.md"}
 # PLANNER_LOOKUPS calls per planner call (an agent's technical bound against a looping call; the silence guard still
 # holds, ORCH-528)
 PLANNER_TOOLS = frozenset({"memory.read", "chat.history", "task.evidence", "trail.query", "trail.days",
-                           "about.read"})       # ORCH-565: FERB's self-description, its permissions and logins too
+                           "about.read"})       # ORCH-578: FERB's self-description, its permissions and logins too
 PLANNER_SCOPES = frozenset({"task:read", "trail:read"})
 PLANNER_LOOKUPS = 10
 LOOKUPS = ".lookups"                # a planner turn's lookup record: its request id with this suffix (no task row)
@@ -179,11 +179,6 @@ LAST_CALL_NOTE = ("Layer 6 — this is your last call for this message: no looku
                   "answer from what you have. What your lookups found (data, as returned):")
 NOTHING_LOOKED_UP = ("Layer 6 — this is your last call for this message: no lookup is offered now and nothing was "
                      "looked up, so give your final answer from what you have.")
-# ORCH-564: a task's status as a task card's line says it (code's status, never a model's words)
-TASK_STATUS_SAID = {"running": "running", "paused": "paused", "stopping": "stopping", "done": "done and checked",
-                    "done_unverified": "done, not all of it confirmed", "failed": "couldn't finish",
-                    "cancelled": "stopped", "needs_user": "waiting for your answer",
-                    "interrupted": "interrupted by a restart"}
 RECENT_EXCHANGES = 20               # owner decision: the last 20 exchanges, always, never folded or dropped
 RECENT_CONVERSATION_TOKENS = 15_000  # with FOLD_CHUNK_TOKENS, a whole tail past both folds what lies beyond the 20
 FOLD_CHUNK_TOKENS = 20_000          # the unfolded tail folds once it holds this much beyond them; one summary call
@@ -385,7 +380,7 @@ def _carries_more(out: SupervisorOutcome) -> bool:
     """Whether a planner turn carries anything besides an answer: a control (stop, retry, continue), a new
     task, or a side output (memory, reminders, schedules, conversation changes)."""
     return bool(out.control is not None or (out.kind == "task" and out.task is not None) or out.remember or
-                out.forget or out.timers or out.schedules or out.schedule_changes or out.show or out.about_tasks or
+                out.forget or out.timers or out.schedules or out.schedule_changes or out.show_schedules or
                 out.reminder_cancels or
                 out.conversation_changes)
 
@@ -988,8 +983,6 @@ class Supervisor(WorkerRuns):
         self.settle_identity: Callable[[str], None] = memory.settle_identity
         self.on_episode: Callable[[str], Any] = memory.on_episode
         self.skills_catalog: Callable[[], list[dict[str, str]]] = environment.skills_catalog
-        # ORCH-563: a kind of FERB's own state as a line and its card, from its records (the planner's `show`)
-        self.records_card: Callable[[str], Awaitable[tuple[str, dict[str, Any]] | None]] = environment.records_card
         self.abilities_catalog: Callable[[], list[dict[str, Any]]] = environment.abilities_catalog
         self.on_resumed_outcome: Callable[[dict[str, Any]], Awaitable[None]] | None = notify.on_resumed_outcome
         self._active: dict[str, tuple[AgentRuntime, RunHandle]] = {}
@@ -1014,6 +1007,7 @@ class Supervisor(WorkerRuns):
         self.on_schedule_change: Callable[[Any, str], str] = schedules.on_schedule_change
         self.on_schedule_edit: Callable[..., tuple[str, dict[str, Any] | None]] = schedules.on_schedule_edit
         self.schedule_problems: Callable[[Any], list[str]] = schedules.schedule_problems
+        self.schedules_card: Callable[[], tuple[str, dict[str, Any]]] = schedules.schedules_card
         self.on_reminder_cancel: Callable[[Any, str], str] = schedules.on_reminder_cancel
         self.schedule_live: Callable[[str], bool] = schedules.schedule_live
         self.typed_behind_memory: Callable[[str], list[str]] = memory.typed_behind_memory
@@ -1249,14 +1243,6 @@ class Supervisor(WorkerRuns):
             words += "\n" + held.words
         return words, ""
 
-    def _about_task_problems(self, turn: "_Turn", out: SupervisorOutcome) -> list[str]:
-        """ORCH-564: an about_tasks id that isn't a task the planner may name (a running task, or one of this chat's),
-        told back once as a control's id is; after the repair an unknown id shows no card (`_shown_tasks`)."""
-        unknown = [t for t in out.about_tasks if self._control_conversation(t, turn.session.id) is None]
-        return [f"about_tasks: {', '.join(map(repr, unknown))} isn't a running task or one of this chat's tasks; name "
-                "the task ids of this chat's tasks your reply states what they did (chat.history include_tasks=true "
-                "lists them), or leave them out."] if unknown else []
-
     def _side_quote_problems(self, turn: "_Turn", out: SupervisorOutcome) -> list[str]:
         """The side entries the quote check would refuse, told back to the planner before its reply stands (owner
         2026-11-04, ORCH-520: FERB never claims in its reply an action code then refuses). The same checks, on the same
@@ -1339,8 +1325,7 @@ class Supervisor(WorkerRuns):
         # A side entry the quote check would refuse is told back once too (ORCH-520), so the planner writes its reply
         # knowing it; after that repair applying it still refuses it, said as a safety check (ORCH-519), and it never
         # fails the turn as an invalid task does
-        problems = (await self._problems(turn, out) + self._side_quote_problems(turn, out)
-                    + self._about_task_problems(turn, out))
+        problems = await self._problems(turn, out) + self._side_quote_problems(turn, out)
         if not problems:
             return out
         self.journal.append("task.repair", {"request_id": turn.request_id, "problems": problems})
@@ -1949,7 +1934,7 @@ class Supervisor(WorkerRuns):
                                    "a scheduled run" if tree.schedule_id else "another chat",
                                    "goal": first_line(tree.spec.goal), "state": state,
                                    "worker_reports": len(tree.reports),
-                                   # ORCH-567: the worker type its runs use ("default": the worker AI in the live facts;
+                                   # ORCH-578: the worker type its runs use ("default": the worker AI in the live facts;
                                    # a runtime the owner switched it to wins)
                                    "runtime": tree.runtime or tree.spec.worker_type or "default"}
             if paused and (question := self._questions.get(key) or getattr(self._pauses.get(key), 'question', '')):
@@ -1996,72 +1981,6 @@ class Supervisor(WorkerRuns):
                              "chat's other ended tasks: chat.history include_tasks=true):\n" +
                              wrap_untrusted(json.dumps(facts, ensure_ascii=False)), "chat.history include_tasks=true",
                              protected=True, source_refs=tuple(refs)), origins)
-
-    def _task_record(self, task_id: str) -> dict[str, Any] | None:
-        """ORCH-564: one task as FERB's records hold it, as a card (type task): its name, its status as code set it
-        (running, paused, stopping; done, done_unverified, failed, cancelled, needs_user …), whether it was verified,
-        code's "Couldn't confirm" note, the questions the owner answered for it and the record cards its outcome
-        carries (sends, payments, submits, trash, deletes, downloads, files, sites); with the one line it stands for.
-        None for a task FERB has no row of. Never a model's words about what the task did."""
-        tree = self._tree_of.get(task_id)
-        cards: list[dict[str, Any]] = []
-        note = ""
-        if tree is not None and tree.id == task_id:
-            paused = task_id in self._pauses or self._waiting.get(task_id, 0) > 0
-            status = "stopping" if tree.stop else "paused" if paused else "running"
-            name, verified = shown_name(tree.spec.name, tree.spec.goal), False
-        else:
-            status = self.tasks.column(task_id, "status")
-            if status is None:
-                return None
-            outcome = json.loads(self.tasks.column(task_id, "outcome_json") or "{}")
-            name = str(outcome.get("name") or shown_name("", str(self.tasks.column(task_id, "goal") or "")))
-            verified, note = outcome.get("verified") is True, str(outcome.get("note") or "")
-            cards = [c for c in outcome.get("cards") or [] if isinstance(c, dict) and c.get("type") != "task"]
-        line = f"📋 {name}: {TASK_STATUS_SAID.get(str(status), str(status))}" + (
-            f" (couldn't confirm: {note})" if note else "") + "."
-        asked = self._answered_questions(task_id)
-        return {"type": "task", "task_id": task_id, "name": name, "status": str(status), "verified": verified,
-                "line": line} | ({"note": note} if note else {}) | ({"questions": asked} if asked else {}) | (
-                {"cards": [{k: v for k, v in c.items() if k != "line"} for c in cards]} if cards else {})
-
-    def _answered_questions(self, task_id: str) -> list[dict[str, str]]:
-        """P3: the questions a task asked the owner and the answers they gave, from its owner.ask calls (the gateway's
-        records: question and answer as recorded, redacted); a declined or unanswered one is left out."""
-        where, params = tree_where(task_id)
-        out = []
-        for row in self.spans.db.conn.execute(
-                "SELECT input_json, output_json FROM spans WHERE kind = 'tool.call' AND ended_at IS NOT NULL AND "
-                f"{where} ORDER BY started_at, rowid", params).fetchall():
-            data, given = json.loads(row["input_json"] or "{}"), json.loads(row["output_json"] or "{}")
-            if data.get("tool") != OWNER_ASK or not isinstance(given, dict) or not str(given.get("answer") or ""):
-                continue
-            question = str((data.get("args") or {}).get("question") or "")
-            if question:
-                out.append({"question": question, "answer": str(given["answer"])})
-        return self.gateway.redact(out)       # type: ignore[no-any-return]
-
-    def _shown_tasks(self, turn: "_Turn", ids: list[str]) -> list[dict[str, Any]]:
-        """ORCH-564: the task cards for a reply's about_tasks, each once; an id the planner may not name has none."""
-        return [record for t in dict.fromkeys(ids)
-                if self._control_conversation(t, turn.session.id) is not None
-                and (record := self._task_record(t)) is not None]
-
-    def _tasks_card(self, session_id: str) -> tuple[str, dict[str, Any]]:
-        """ORCH-563: the owner's tasks as FERB's records hold them: every running task (any chat or schedule), then this
-        chat's ended tasks, newest first, each as `_task_record` draws it; the line counts them by status."""
-        running = [key for key, tree in list(self._tree_of.items()) if key == tree.id]
-        ended = [str(r["task_id"]) for r in self.continuity.candidates(session_id) if r["task_id"] not in running]
-        rows = [r for t in running + ended if (r := self._task_record(t)) is not None]
-        counts: dict[str, int] = {}
-        for r in rows:
-            counts[TASK_STATUS_SAID.get(r["status"], r["status"])] = counts.get(
-                TASK_STATUS_SAID.get(r["status"], r["status"]), 0) + 1
-        line = (f"📋 Your tasks ({len(rows)}): " + ", ".join(f"{n} {said}" for said, n in counts.items())
-                + "".join(f"; running: {r['name']}" for r in rows if r["status"] in ("running", "paused", "stopping"))
-                if rows else "📋 No tasks in this chat yet.")
-        return line, {"type": "tasks", "count": len(rows), "line": line,
-                      "tasks": [{k: v for k, v in r.items() if k != "line"} for r in rows]}
 
     def _paused_words(self, tree_id: str, step_id: str) -> str:
         """The question of a loop's latest round as journaled (no round runs while it waits): its first line."""
@@ -2665,7 +2584,7 @@ class Supervisor(WorkerRuns):
             # (a correction of the task, action continue) or stop it
             paused = active is not None and not active.stop and active.accepting_updates and \
                 self.pause_tree(active.id)
-            if paused and out.text.strip():     # ORCH-567: code's own words say it paused, the planner's follow
+            if paused and out.text.strip():     # ORCH-578: code's own words say it paused, the planner's follow
                 text, by = PAUSED_SAID + "\n\n" + out.text.strip(), origins_.INFERRED
             else:
                 text, by = (PAUSED_SAID if paused else NOT_RUNNING), origins_.FERB
@@ -3168,17 +3087,10 @@ class Supervisor(WorkerRuns):
             events.append({"type": "timer", "text": changed[-1]})
             if change_card is not None:
                 cards.append(change_card)
-        # ORCH-563 (generalizes T-1066's schedules list): each kind of FERB's own state the owner asked about, as its
-        # records hold it after this turn's own changes, drawn by code; ORCH-564: each task the reply states what it
-        # did, with its status and record cards
-        for kind in dict.fromkeys(out.show):
-            shown = self._tasks_card(turn.session.id) if kind == "tasks" else await self.records_card(kind)
-            if shown is not None:
-                changed.append(shown[0])
-                cards.append(shown[1])
-        for record in self._shown_tasks(turn, out.about_tasks):
-            changed.append(record["line"])
-            cards += [record, *record.get("cards", [])]
+        if out.show_schedules:          # T-1066: the owner's schedules as FERB's records hold them, after this turn's
+            line, card = self.schedules_card()                  # own changes, drawn by code
+            changed.append(line)
+            cards.append(card)
         refused = [("timer", line) for line in [_not_set(unset), *map(_already_set, existing)] if line] + \
             [("memory", line) for line in [_not_saved(unsaved)] if line] + stopped
         side_lines = (saved + changed
@@ -4024,8 +3936,7 @@ class Supervisor(WorkerRuns):
         schedules (not said in a first reply), each payment the owner said Yes to that ran, each send, the sites the
         task contacted (in place of the "Sites contacted" line) and the files it made."""
         said = self._said_cards(tree.side_cards, marked=False)
-        ran = (cards_.payments(self.spans, tree.id) + cards_.sends(self.spans, tree.id)
-               + cards_.done_cards(self.spans, tree.id))            # ORCH-561: submits, trash, deletes, downloads
+        ran = cards_.payments(self.spans, tree.id) + cards_.sends(self.spans, tree.id)
         reached = cards_.links(sites, sites_line(sites)) if sites else []
         return said + ran + reached + cards_.files(artifacts)
 
@@ -6218,7 +6129,7 @@ class Supervisor(WorkerRuns):
         # A true literal predicate does not establish the planner described the right outcome.
         # The checker compares every condition and these observations against the complete request.
         results, verdict = await self._verifier(tree, task, judged, span, observations)
-        # ORCH-561: an action check code found false (no such call ran without an error in the task's records) is
+        # ORCH-576: an action check code found false (no such call ran without an error in the task's records) is
         # false whatever the checker said: the work can't be accepted on words the records don't bear
         refuted = {r.index: r for r in observations if r.met is False and
                    judged_kind(judged, r.index) in ACTION_CHECKS}

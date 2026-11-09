@@ -50,7 +50,7 @@ class Checks:
         k = c.check
         if k.kind in ("after_change", "after_value"):     # V2: the task's last acting call read something back
             return self.spans is not None and task_id is not None
-        if k.kind in ACTION_CHECKS:                       # ORCH-561: an action the task's own records show
+        if k.kind in ACTION_CHECKS:                       # ORCH-576: an action the task's own records show
             return self.spans is not None and task_id is not None and (
                 k.kind == "paid" or bool(k.expected if k.kind == "sent" else k.site if k.kind == "submitted"
                                          else k.path))
@@ -114,7 +114,7 @@ class Checks:
         return ConditionResult(i, c.text, None, "code", "Inspect the requested outcome with current source evidence")
 
     def _action(self, i: int, c: Condition, task_id: str, ctx: ToolContext) -> ConditionResult:
-        """ORCH-561: met only when a call of that kind ran without an error with that target in the task's own records
+        """ORCH-576: met only when a call of that kind ran without an error with that target in the task's own records
         (its tool calls, as the cards read them; a download: the browser's taken file). A literal predicate: who, where
         or which file, compared as the gateway compares them, never what a report says."""
         assert self.spans is not None

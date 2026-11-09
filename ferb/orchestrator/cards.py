@@ -21,11 +21,8 @@ Card types and their fields (every field but `type` may be absent when FERB has 
 - send: a send-class call that ran. `recipient` (the call's checked destination), `kind` (send, reply, post,
   mailbox_send, call), `site` or `app` (a Mac app's bundle id), `account`.
 - link: a site the task contacted. `host`, `line` (the "Sites contacted" line).
-- file: a file the task made. `path`, `name`; only a path that exists when the card is drawn (ORCH-561: never from the
+- file: a file the task made. `path`, `name`; only a path that exists when the card is drawn (ORCH-576: never from the
   worker's list alone).
-- submit (ORCH-561): a form-submit call that ran. `site`.
-- trash / delete: a file the task moved to the Trash (fs.trash) / deleted permanently (a destroy call). `path`, `name`.
-- download: a file a task's browser tab downloaded and FERB took. `path`, `name`.
 """
 
 import json
@@ -67,7 +64,7 @@ def links(sites: list[str], line: str) -> list[dict[str, Any]]:
 
 def files(paths: list[str]) -> list[dict[str, Any]]:
     """The task's artifacts (the last attempt's, as the outcome lists them), each only when the path exists now: the
-    worker's list alone never makes a file card (ORCH-561)."""
+    worker's list alone never makes a file card (ORCH-576)."""
     return [{"type": "file", "path": p, "name": Path(p).name} for p in paths if p and _exists(p)]
 
 
@@ -166,7 +163,8 @@ def sends(spans: SpanStore, tree_id: str) -> list[dict[str, Any]]:
 
 
 def ran(spans: SpanStore, tree_id: str, *kinds: str) -> list[dict[str, Any]]:
-    """The tree's calls of any of these kinds (their own, declared or fact kinds) that ran without an error (ORCH-561)."""
+    """The tree's calls of any of these kinds (their own, declared or fact kinds) that ran without an error: what
+    ORCH-576's action checks read (no card is drawn from them, owner 2026-11-10)."""
     return [c for c in _calls(spans, tree_id) if _kinds(c) & set(kinds)]
 
 
@@ -194,23 +192,3 @@ def downloaded(spans: SpanStore, tree_id: str) -> list[str]:
 
 def target_path(call: dict[str, Any]) -> str:
     return str((call.get("target") or {}).get("path") or "")
-
-
-def done_cards(spans: SpanStore, tree_id: str) -> list[dict[str, Any]]:
-    """Submit, trash, delete and download cards from the tree's records (ORCH-561), one per site or path."""
-    out: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
-
-    def add(kind: str, field: str, value: str) -> None:
-        if value and (kind, value) not in seen:
-            seen.add((kind, value))
-            out.append({"type": kind, field: value} | ({"name": Path(value).name} if field == "path" else {}))
-    for c in ran(spans, tree_id, Kind.SUBMIT):
-        add("submit", "site", str((c.get("target") or {}).get("site") or ""))
-    for c in ran(spans, tree_id, Kind.TRASH):
-        add("trash", "path", target_path(c))
-    for c in ran(spans, tree_id, Kind.DELETE_PERMANENT):
-        add("delete", "path", target_path(c))
-    for path in downloaded(spans, tree_id):
-        add("download", "path", path)
-    return out

@@ -240,7 +240,7 @@ def test_the_planner_sees_the_schedule_list_and_the_owner_gets_it_as_a_card(daem
     install(daemon, [_reply("Set.", schedules=[_schedule("Check the visa site at 5:20 AM", "daily at 5:20 check the "
                                                          "visa site", _at("05:20"), "daily", name="Visa check")])])
     chat(daemon, "daily at 5:20 check the visa site")
-    script = install(daemon, [_reply("You have one schedule.", show=["schedules"])])
+    script = install(daemon, [_reply("You have one schedule.", show_schedules=True)])
     evs = chat(daemon, "how many schedules do we have??")
     planner = next(ctx for mode, key, ctx, _ in script.contexts)
     assert "The owner's schedules, from FERB's records (the truth" in planner and ": 1 (1 active)" in planner

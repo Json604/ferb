@@ -167,7 +167,7 @@ def quoted(owner_words: str, quote: str, *, clause: bool = False) -> bool:
 
 
 def forgets_on_record(db: Database) -> list[dict[str, Any]]:
-    """ORCH-567: what FERB can say of what it forgot: each forget the memory store journaled (`memory.forgot`, its own
+    """ORCH-578: what FERB can say of what it forgot: each forget the memory store journaled (`memory.forgot`, its own
     record, once per forget), when and how many items. A forgotten item's contents are never kept (memory_forgotten
     holds only fingerprints)."""
     import json

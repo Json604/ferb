@@ -108,7 +108,7 @@ class ReplyDraft:
             self.channel = 'plan'
             return True
         return (metadata.get('kind') in ('reply', 'clarify')
-                and all(value is None or value == [] or value is False   # an unset flag
+                and all(value is None or value == [] or value is False   # an unset flag (show_schedules)
                         for key, value in metadata.items() if key != 'kind'))
 
     def feed(self, fragment: str) -> None:

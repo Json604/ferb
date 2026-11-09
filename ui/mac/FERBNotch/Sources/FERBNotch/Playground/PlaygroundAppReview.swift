@@ -19,7 +19,6 @@ final class PlaygroundAppReview: PlayHost {
     let updates: UpdateCoordinator
     private let updater: PlaygroundUpdater
     private var previewWindow: NSWindow?
-    private var galleryWindow: NSWindow?
     private let openReview: () -> Void
 
     init(services: PlaygroundServices, coordinator: PanelCoordinator,
@@ -109,22 +108,6 @@ final class PlaygroundAppReview: PlayHost {
             coordinator.showFromMenu()
             services.notch.send(scene.request)
         }
-    }
-
-    /// FERB's record cards, all at once (APP-802), each labelled with what it is and when FERB shows it.
-    func showCardGallery() {
-        guard services.state.exploringApp else { openReview(); return }
-        if galleryWindow == nil {
-            let created = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: 860),
-                styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-            created.title = "FERB — record cards"
-            created.isReleasedWhenClosed = false
-            let entries = PlaygroundRecordCards.entries(download: services.daemon.workspace.sampleDownload())
-            created.contentView = NSHostingView(rootView: PlaygroundCardGallery(entries: entries, model: coordinator.model))
-            created.center()
-            galleryWindow = created
-        }
-        if let galleryWindow { AppWindowPresentation.show(galleryWindow) }
     }
 
     /// Starts Play 0.27.1 (from the top when it already finished).

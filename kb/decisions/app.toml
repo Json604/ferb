@@ -3068,21 +3068,21 @@ live = ["LIVE-828"]
 title = "FERB.app draws FERB's record cards, and the playground shows them all at once"
 by = "owner"
 date = 2026-11-09
-status = "active"
+status = "superseded"
+superseded_by = "APP-823"
 words = "yes draw them. BUT show them in the playground for me to see htem all at once what are they and how they look"
 words_source = "Owner 2026-11-09, asked whether FERB.app should draw the record cards DMN-553 left as text lines."
 rule = "FERB.app draws every record card the daemon sends (reminders, tasks, task, memory, permissions, logins, about; submit, trash, delete, download), plain and functional in the typed cards' look. The playground shows every one of them at once, each labelled with what it is and when FERB shows it, from invented sample data (playground.sh --cards)."
-paths = ["ui/mac/FERBNotch/Sources/FERBNotch/RecordCardViews.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundCardGallery.swift", "ui/mac/FERBNotch/playground.sh"]
-live = ["LIVE-832"]
+paths = ["ui/mac/FERBNotch/playground.sh"]
 
 [APP-803]
 title = "Record cards: how they decode, draw and save"
 by = "agent"
 date = 2026-11-09
-status = "active"
+status = "superseded"
+superseded_by = "APP-823"
 rule = "For APP-802 and DMN-554. ResultCard reads each record kind from its payload (one without what makes it one, e.g. a task without task_id, isn't a card; an unreadable row is left out) and from the saved chat by APP-801's rules. Each draws on its own surface and stands for its line (ORCH-329); an unknown kind is dropped and its line stays. Logins keep names, places, kinds and sites only (the account hint isn't kept). A task card shows its name, status, Checked, the couldn't-confirm note, answered questions and each record card as one line. Long lists fold behind Show all."
-paths = ["ui/mac/FERBNotch/Sources/NotchCore/ResultCard.swift", "ui/mac/FERBNotch/Sources/NotchCore/RecordCards.swift", "ui/mac/FERBNotch/Sources/FERBNotch/RecordCardViews.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift::ResultCardView"]
-live = ["LIVE-832"]
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/ResultCard.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift::ResultCardView"]
 
 [APP-804]
 title = "FERB's windows shown over a full-screen app are that Space's auxiliary windows, so they drag"
@@ -3287,3 +3287,23 @@ rule = "Refines APP-742 like APP-704. Each drop window that leaves the overlay s
 why = "Owner, 2026-11-09: on the friend's older macOS \"the drag was not working on his already open ferb window mode too\". The hold-out was assumed from private SkyLight calls checked only on 27.2."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchFileDrop.swift"]
 live = ["LIVE-846"]
+
+[APP-823]
+title = "The cards built on 2026-11-08/09 are removed; the cards from before stay"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "why do we even have thse cards, you said lets add htem discard these cards, we were good with previous cards. why did we even need them? / all the cards and their appearance you built today/tom. rest prev ones staty"
+words_source = "Owner 2026-11-10 (00:0x IST) after a cancelled task (EF Bridge application) showed its reply twice and then boxes; the second quote answers which boxes should go."
+rule = "Supersedes APP-802 and with it APP-803 and DMN-554. Every card added on 2026-11-08/09 and its drawing are gone: the record cards (reminders, tasks, task with its questions and its Visited/Submitted/Downloaded rows, memory, permissions, logins, about), the task-end submit, trash, delete and download cards, their views, the playground gallery (playground.sh --cards) and its notch sample. The cards from before stay: reminder, event, note, payment, send, link (the site chip), file, page and schedules."
+supersedes = ["APP-802", "APP-803", "DMN-554"]
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/ResultCard.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ResultCards.swift", "ferb/orchestrator/cards.py", "ferb/daemon/areas/records.py"]
+live = ["LIVE-859"]
+
+[APP-824]
+title = "A saved chat holding a card this build doesn't draw reads in full without it"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For APP-823 and STORE-403, with APP-801. A saved turn or notice (FERB's database, APP-805, or the older archive) holding a card of a type this build doesn't draw (the removed record cards, or a newer build's) reads in full: the card is kept as saved, draws nothing, and the line it stood for stays in the text (CardLayout.lines counts only ResultCard.types). The rest of the entry shows as before."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/ResultCard.swift::CardLayout.lines"]

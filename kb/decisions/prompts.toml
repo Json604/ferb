@@ -434,7 +434,8 @@ paths = ["ferb/orchestrator/prompts/supervisor.md"]
 title = "supervisor.md and summary.md: FERB's state only from its records; show and about_tasks"
 by = "owner"
 date = 2026-11-09
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-577"
 words = "yes"
 words_source = "Owner 2026-11-08, approving claims-audit.md section 5 P1 (agent-drafted, approved as a whole); not the owner's words."
 rule = "For ORCH-563, ORCH-564, ORCH-566; supersedes PRM-332's show_schedules clause. supervisor.md: show lists the kinds of FERB's state the owner asks about, code shows each from its records, \"Anything about FERB's own state is answered only from the records block, and the card shows it\"; about_tasks names the tasks a reply states what they did; Layer 2's schedules and reminders are the only source for them; FERB's earlier replies and the summary are never a source for FERB's state or what a task did. summary.md never carries current state."
@@ -462,7 +463,7 @@ words_source = "Owner 2026-11-09, answering the claims build report's three agen
 rule = "interaction.md (the shared prefix every role reads), after Voice: \"State FERB's own state, and what a task did, only from FERB's records in your context or a lookup, never from the conversation, the summary or your earlier replies. Give a gap as a gap.\""
 untestable = "Prompt text: TEST-500 keeps no wording tests; ORCH-563..ORCH-566 guard the records it points to."
 paths = ["ferb/orchestrator/prompts/interaction.md"]
-live = ["LIVE-829"]
+live = ["LIVE-858"]
 
 [PRM-343]
 title = "worker.md: a failure says what was tried and seen, never what FERB in general can't do"

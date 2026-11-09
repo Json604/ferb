@@ -20,7 +20,6 @@ struct PlaygroundActions {
     var showScene: (PlaygroundChatScenario) -> Void = { _ in }
     var finishTask: () -> Void = {}
     var showTaskPreview: () -> Void = {}
-    var showCardGallery: () -> Void = {}
     var previewSetup: () -> Void = {}
     /// Play 0.27.1: the player behind the controls (nil before the app playground opens).
     var player: () -> PlaygroundPlayer? = { nil }
@@ -117,7 +116,6 @@ struct PlaygroundPanel: View {
                         Button(scene.rawValue) { actions.showScene(scene) }
                     }
                 }
-                Button("FERB's record cards: all at once") { actions.showCardGallery() }
                 Button("Finish running sample tasks") { actions.finishTask() }
                 Text("You can type in the chat too. Replies use the last selected sample state. Restart the app playground to reset its records.")
                     .font(.caption).foregroundStyle(.secondary)

@@ -74,7 +74,7 @@ class About:
                     "where_settings_live": places or "FERB.app hasn't sent its guide since FERB started",
                     # FERB.app's own settings as they are now (APP-728: re-sent by the app whenever one changes)
                     "settings": guide.get("app_settings") or []},
-            # ORCH-565: the standing send scopes, known destinations and the ask-free window in force; the saved
+            # ORCH-578: the standing send scopes, known destinations and the ask-free window in force; the saved
             # logins by place and name only (never a value or a username)
             "permissions_in_force": self._permissions_in_force() if self.db is not None else {},
             "saved_logins": await asyncio.to_thread(self._saved_logins),

@@ -173,7 +173,7 @@ def test_a_stopped_task_shows_only_a_reports_answer_as_found(daemon: RunningDaem
 
 # decision: ORCH-308
 # decision: TEST-502
-# decision: ORCH-567
+# decision: ORCH-578
 def test_pause_keeps_everything_in_place_and_the_owners_reply_resumes_it(daemon: RunningDaemon) -> None:
     """ORCH-308: pause ends the current attempt and marks the task paused, not cancelled: nothing is released
     (the browser keeps the task's tab group: `task_paused`), no answer is given, and the owner's reply (the planner's

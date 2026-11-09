@@ -462,7 +462,7 @@ class MemoryRead(_PagedFacts):
     class Input(BaseModel):
         query: str = ""
         item_id: str | None = None
-        forgotten: bool = False             # ORCH-567: the forgets on record instead of the items
+        forgotten: bool = False             # ORCH-578: the forgets on record instead of the items
         after: int = Field(0, ge=0)
         limit: int = Field(20, ge=1, le=100)
         offset: int = Field(0, ge=0)
@@ -481,7 +481,7 @@ class MemoryRead(_PagedFacts):
         memory = self.memory()
         if memory is None:
             return ToolResult({"error": "durable memory is unavailable"}, is_error=True)
-        if args.forgotten:                   # ORCH-567: what FERB can say of what it forgot: when, and how many
+        if args.forgotten:                   # ORCH-578: what FERB can say of what it forgot: when, and how many
             from ferb.memory.items import forgets_on_record
             return ToolResult({"forgotten": forgets_on_record(memory.db), "note": "a forgotten item's contents are not kept, so FERB can't say "
                                                           "what it was"})

@@ -3593,15 +3593,6 @@ pass = "The turn makes at most ten lookups; the eleventh, if tried, is refused w
 decisions = ["ORCH-559", "ORCH-516", "ORCH-557"]
 sitting = "after this change is installed"
 
-[LIVE-829]
-title = "Asked about its own state or a task's result, FERB shows its records beside its words"
-area = "orchestration"
-surface = "FERB.app with this build"
-request = "With a schedule and a reminder set and a task done today, ask \"how many schedules and reminders do I have?\", \"what are you running?\", \"can you message <someone> without asking me?\", \"what logins do you have saved?\" and, after a send task, \"did you send it or not?\"; then read `ferb trace` of each turn."
-pass = "Each answer agrees with the line or card under it, drawn from FERB's records (schedules, reminders, tasks, permissions, logins; the task's own card with its status and send card). No count or claim comes from the conversation alone. Until FERB.app draws the new card types, their lines show in the reply."
-decisions = ["ORCH-563", "ORCH-564", "ORCH-565"]
-sitting = "after this change is installed"
-
 [LIVE-830]
 title = "A blocked or broken page: one refresh, one new tab, then a report"
 area = "prompts"
@@ -3609,15 +3600,6 @@ surface = "FERB.app with this build; a kartikey.xyz page the request-logging ser
 request = "Ask FERB to read that page and say what it shows; then read `ferb trace` of the task."
 pass = "The trace shows the first load blocked, one refresh (the same tab navigated to the address again) still blocked, then the same address opened in a new tab and read. Had that failed too, the task reports the block instead of trying again."
 decisions = ["PRM-341", "HAND-441"]
-sitting = "after this change is installed"
-
-[LIVE-832]
-title = "FERB's record cards show in the notch in place of their lines"
-area = "app"
-surface = "FERB.app with this build; first the playground (ui/mac/FERBNotch/playground.sh --cards)"
-request = "In the playground, look at every card in FERB — record cards. Then in FERB.app, with a reminder set and a task done today, ask \"what reminders do I have?\", \"what did you do for <that task>?\", \"what are you running?\", \"what do you remember about me?\", \"what logins do you have saved?\" and \"which version are you?\"."
-pass = "Each answer shows its card (reminders, the task's card with status, Checked or the couldn't-confirm note, the questions answered and what it did, tasks, memory, logins with names and sites only, about) and the line the card stands for is not repeated in the text. Older chats load in full. A task that trashed, deleted, submitted or downloaded shows that card at its end."
-decisions = ["APP-802", "APP-803", "ORCH-563", "ORCH-564", "ORCH-561"]
 sitting = "after this change is installed"
 
 [LIVE-833]
@@ -3822,3 +3804,21 @@ request = "With a full-screen app in front and hands off the Mac, ask FERB to do
 pass = "Recorded as a measurement for the owner: whether Chrome became frontmost or its window un-minimized when Gmail opened the download's tab after FERB's click (live 2026-11-09 23:10:15 it did, by temporal correlation only). If it does, the owner decides what FERB should do about page-opened tabs."
 decisions = ["HAND-212", "HAND-443"]
 sitting = "after this change is installed and 0.19.7 is published"
+
+[LIVE-858]
+title = "Asked about its own state, FERB answers from its records, with no record cards"
+area = "orchestration"
+surface = "FERB.app with this build"
+request = "With a schedule and a reminder set, ask \"how many schedules and reminders do I have?\", \"can you message <someone> without asking me?\" and \"what logins do you have saved?\"; then read `ferb trace` of each turn."
+pass = "Each answer agrees with FERB's records (the reminders and schedules facts, about.read's permissions and logins); the schedules question shows the schedules card as before; no reminders, permissions, logins, about or task box appears."
+decisions = ["ORCH-577", "ORCH-578", "PRM-342"]
+sitting = "after this change is installed"
+
+[LIVE-859]
+title = "The cards of 2026-11-08/09 are gone and older chats still load in full"
+area = "app"
+surface = "FERB.app with this build, on the Mac whose chat holds the 2026-11-09 EF Bridge messages"
+request = "Open History on Nov 9 and read the EF Bridge task and the \"cancel the task\" message; then run a task that submits a form or downloads a file."
+pass = "Nov 9 opens with every message; no task box with questions, Submitted, Downloaded or Visited rows shows; the site chip (\"apply.joinef.com +2\") and file cards for files FERB made still show. The new task's end shows no submit or download card."
+decisions = ["APP-823", "APP-824", "ORCH-576"]
+sitting = "after this change is installed"

@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ferb.core.types import ActionSpec, Identity, RiskLevel, ToolContext, ToolResult
 
 SECTIONS = ("version", "models", "account", "permissions", "settings", "records", "health", "cost", "app",
-            "permissions_in_force", "saved_logins")     # ORCH-565: what lets FERB act without asking; logins by name
+            "permissions_in_force", "saved_logins")     # ORCH-578: what lets FERB act without asking; logins by name
 # The app guide FERB.app sends (`about.guide`): at most this many entries of each list, each string at most this long
 GUIDE_ITEMS, GUIDE_CHARS = 80, 400
 # FERB.app's own settings in it (APP-728): each with its key, name, place, effect and current value (a value only when the

@@ -15,11 +15,9 @@ from ferb.policy.targets import Targets
 from ferb.orchestrator.plans import STEP_KINDS, Part, Plan, SendScope
 from ferb.orchestrator.probes import PROBE_SCHEMA, Probe
 
-# ORCH-561: code checks of an action from the task's own records (fields reused: sent {expected: the recipient, site?},
+# ORCH-576: code checks of an action from the task's own records (fields reused: sent {expected: the recipient, site?},
 # paid {site?}, submitted {site}, trashed / deleted / downloaded {path}); no new union type (ORCH-330)
 ACTION_CHECKS = ("sent", "paid", "submitted", "trashed", "deleted", "downloaded")
-# ORCH-563: FERB's own state the planner can show from its records (a card per kind)
-SHOW_KINDS = ("schedules", "reminders", "tasks", "memory", "permissions", "logins", "about")
 CHECK_KINDS = ["none", "file_exists", "file_contains", "tab_url", "account", "after_change", "after_value",
                *ACTION_CHECKS]
 
@@ -193,11 +191,8 @@ SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "timers": {"type": "array", "items": TIMER_SCHEMA},
     "schedules": {"type": "array", "items": SCHEDULE_SCHEMA},          # T-1066: several in one message
     "schedule_changes": {"type": "array", "items": SCHEDULE_CHANGE_SCHEMA},
-    # ORCH-563 (generalizes T-1066's show_schedules): the kinds of FERB's own state the owner asked about; code shows
-    # each from its records, as a card under the reply
-    "show": _strings(list(SHOW_KINDS)),
-    # ORCH-564: the tasks a reply states what they did; code shows each one's records under it
-    "about_tasks": _strings(),
+    # T-1066: the owner asked about their schedules; code shows its list of them, from FERB's records
+    "show_schedules": {"type": "boolean"},
     "reminder_cancels": {"type": "array", "items": REMINDER_CHANGE_SCHEMA},
     # memory review I2: a forget the owner asked for in chat, by the id the planner was shown; code asks Yes/No first
     "forget": {"type": "array", "items": _obj({"item_id": {"type": "string"}, "quote": {"type": "string"}})},
@@ -427,8 +422,7 @@ class SupervisorOutcome(BaseModel):
     timers: list["TimerRequest"] = []
     schedules: list["ScheduleRequest"] = []
     schedule_changes: list["ScheduleChange"] = []
-    show: list[Literal["schedules", "reminders", "tasks", "memory", "permissions", "logins", "about"]] = []
-    about_tasks: list[str] = []              # ORCH-564: the tasks this reply states what they did
+    show_schedules: bool = False             # T-1066: code shows the owner's schedules from its records
     reminder_cancels: list["ReminderCancel"] = []
     conversation_changes: list["ConversationChange"] = []
 
@@ -441,11 +435,13 @@ class SupervisorOutcome(BaseModel):
             data = {k: v for k, v in data.items() if k != "schedule"}
             if one is not None:
                 data["schedules"] = [*(data.get("schedules") or []), one]
-        if isinstance(data, dict) and "show_schedules" in data:    # an answer for the schema before ORCH-563
-            asked = data["show_schedules"] is True
-            data = {k: v for k, v in data.items() if k != "show_schedules"}
-            if data.get("show") is None:
-                data["show"] = ["schedules"] if asked else []
+        if isinstance(data, dict) and ("show" in data or "about_tasks" in data):
+            # ORCH-577: an answer in the 2026-11-09 form (show, about_tasks) reads as before them: its schedules are
+            # shown, nothing else
+            shown = data.get("show")
+            data = {k: v for k, v in data.items() if k not in ("show", "about_tasks")}
+            if "show_schedules" not in data:
+                data["show_schedules"] = isinstance(shown, list) and "schedules" in shown
         return data
 
     @model_validator(mode="after")
