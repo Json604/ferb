@@ -276,7 +276,8 @@ def browser_lab(*, ferb_identity: bool = False, headless: bool = False, prefs: d
 
             token = d.run(issue())
             chrome.sw = chrome.worker_session(FERB_EXTENSION_ID)
-            chrome.evaluate(chrome.sw, f"send('pair', {{token: {json.dumps(token)}}})")
+            # as pair.js's message does: the extension takes a `paired` only while its pairing is pending (HAND-222)
+            chrome.evaluate(chrome.sw, f"pairingPending = Date.now(); send('pair', {{token: {json.dumps(token)}}})")
             wait_for(lambda: (br := dm.hub.bridges.get(("chrome", "Default"))) is not None and br.conn is not None,
                      30, "pairing never completed")
             yield d, chrome, front

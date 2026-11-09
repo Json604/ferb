@@ -47,7 +47,8 @@ def test_local_bundle_reload_keeps_pairing_and_reconnects_without_a_window():
         async def token():
             return d.daemon.pairings.issue_token('chrome', 'Default')
         worker = chrome.worker_session(FERB_EXTENSION_ID)
-        chrome.evaluate(worker, f"send('pair', {{token:{json.dumps(d.run(token()))}}})")
+        # as pair.js's message does: a `paired` is taken only while the pairing is pending (HAND-222)
+        chrome.evaluate(worker, f"pairingPending = Date.now(); send('pair', {{token:{json.dumps(d.run(token()))}}})")
         _wait(lambda: (br := d.daemon.hub.bridges.get(('chrome', 'Default'))) and br.conn, 15, 'not paired')
         bridge = d.daemon.hub.bridges[('chrome', 'Default')]
         original_id, original_gen = bridge.binding.install_id, bridge.gen
