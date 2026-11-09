@@ -420,3 +420,12 @@ supersedes = ["PRM-335"]
 rule = "Supersedes PRM-335's wording, for ORCH-557 and ORCH-558. The last call has no lookup tools; where the planner's form is stated it keeps its answer tool (RUN-447), which answers and looks nothing up. Its notes say \"no lookup is offered now\" where PRM-335 said \"no tool is offered now\": LAST_CALL_NOTE, NOTHING_LOOKED_UP and ORCH-557's LOOKUPS_SPENT_NOTE; the rest of each line is unchanged."
 why = "After RUN-447 the stated planner's last call still offered ferb_answer while its note said no tool was offered (step 2 report, open item 2): the note now says what code does on every route."
 paths = ["ferb/orchestrator/supervisor.py::LAST_CALL_NOTE", "ferb/orchestrator/supervisor.py::NOTHING_LOOKED_UP", "ferb/orchestrator/supervisor.py::LOOKUPS_SPENT_NOTE"]
+
+[PRM-339]
+title = "supervisor.md lists the action check kinds"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "For ORCH-561. supervisor.md's check list adds sent {expected: the recipient, site optional}, paid {site optional}, submitted {site}, trashed / deleted / downloaded {path}, beside the existing kinds; nothing else in the line changes."
+untestable = "Prompt text: TEST-500 keeps no wording tests; tests/test_claims_records.py guards the code side."
+paths = ["ferb/orchestrator/prompts/supervisor.md"]

@@ -95,8 +95,9 @@ A task (kind "task"):
   boilerplate or steps); layer (intake: memory or scheduling this chat layer completes, whose receipts prove it;
   artifact: saved content, where the reported artifact paths count; external: an observed remote result; outcome:
   other state); check: a code check when one fits (file_exists {path}, file_contains {path, text}, after_change /
-  after_value (the acting tool's own read-back, tool optional), tab_url {url_contains}, account {site, expected}),
-  else kind "none" and a checker judges it from evidence. Unused check fields are null.
+  after_value (the acting tool's own read-back, tool optional), tab_url {url_contains}, account {site, expected},
+  sent {expected: the recipient, site optional}, paid {site optional}, submitted {site}, trashed / deleted /
+  downloaded {path}), else kind "none" and a checker judges it from evidence. Unused check fields are null.
 - parts: several asks in one message are listed in the owner's order, one part per ask (never per plan step): id;
   quote (their exact words for that ask); label (a few words for its row); exactly one of direct (its answer now, for
   an ask needing no work on the Mac, such as who you are, general knowledge or what you looked up; "" when a reminder,

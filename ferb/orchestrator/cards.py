@@ -21,7 +21,12 @@ Card types and their fields (every field but `type` may be absent when FERB has 
 - send: a send-class call that ran. `recipient` (the call's checked destination), `kind` (send, reply, post,
   mailbox_send, call), `site` or `app` (a Mac app's bundle id), `account`.
 - link: a site the task contacted. `host`, `line` (the "Sites contacted" line).
-- file: a file the task made. `path`, `name`."""
+- file: a file the task made. `path`, `name`; only a path that exists when the card is drawn (ORCH-561: never from the
+  worker's list alone).
+- submit (ORCH-561): a form-submit call that ran. `site`.
+- trash / delete: a file the task moved to the Trash (fs.trash) / deleted permanently (a destroy call). `path`, `name`.
+- download: a file a task's browser tab downloaded and FERB took. `path`, `name`.
+"""
 
 import json
 from pathlib import Path
@@ -61,8 +66,16 @@ def links(sites: list[str], line: str) -> list[dict[str, Any]]:
 
 
 def files(paths: list[str]) -> list[dict[str, Any]]:
-    """The task's artifacts (the last attempt's, as the outcome lists them)."""
-    return [{"type": "file", "path": p, "name": Path(p).name} for p in paths if p]
+    """The task's artifacts (the last attempt's, as the outcome lists them), each only when the path exists now: the
+    worker's list alone never makes a file card (ORCH-561)."""
+    return [{"type": "file", "path": p, "name": Path(p).name} for p in paths if p and _exists(p)]
+
+
+def _exists(path: str) -> bool:
+    try:
+        return Path(path).expanduser().exists()
+    except (OSError, ValueError):
+        return False
 
 
 def _calls(spans: SpanStore, tree_id: str) -> list[dict[str, Any]]:
@@ -150,3 +163,54 @@ def sends(spans: SpanStore, tree_id: str) -> list[dict[str, Any]]:
             out[key] = {"type": "send", "kind": sorted(kinds)[0], **({"recipient": recipient} if recipient else {}),
                         **place, **({"account": str(target["account"])} if target.get("account") else {})}
     return list(out.values())
+
+
+def ran(spans: SpanStore, tree_id: str, *kinds: str) -> list[dict[str, Any]]:
+    """The tree's calls of any of these kinds (their own, declared or fact kinds) that ran without an error (ORCH-561)."""
+    return [c for c in _calls(spans, tree_id) if _kinds(c) & set(kinds)]
+
+
+def paid(spans: SpanStore, tree_id: str) -> list[dict[str, Any]]:
+    """The payment-class calls that ran under a granted Yes to a payment (as `payments` counts them)."""
+    calls = ran(spans, tree_id, Kind.PAY)
+    ids = {str(i) for c in calls for i in [*(c.get("confirmations") or []),
+                                           (c.get("payment") or {}).get("covered_by")] if i}
+    if not ids:
+        return []
+    granted = {row["id"] for row in spans.db.conn.execute(
+        f"SELECT id FROM confirmations WHERE rule = ? AND granted = 1 AND id IN ({','.join('?' * len(ids))})",
+        (PAY_RULE, *sorted(ids)))}
+    return [c for c in calls if any(str(i) in granted for i in [*(c.get("confirmations") or []),
+                                                                (c.get("payment") or {}).get("covered_by")] if i)]
+
+
+def downloaded(spans: SpanStore, tree_id: str) -> list[str]:
+    """The paths of the files the tree's browser tabs downloaded and FERB took (`downloads` rows), in order."""
+    where, params = tree_where(tree_id)
+    return [str(row["path"]) for row in spans.db.conn.execute(
+        f"SELECT path FROM downloads WHERE state = 'taken' AND path IS NOT NULL AND {where} ORDER BY at, rowid",
+        params).fetchall()]
+
+
+def target_path(call: dict[str, Any]) -> str:
+    return str((call.get("target") or {}).get("path") or "")
+
+
+def done_cards(spans: SpanStore, tree_id: str) -> list[dict[str, Any]]:
+    """Submit, trash, delete and download cards from the tree's records (ORCH-561), one per site or path."""
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add(kind: str, field: str, value: str) -> None:
+        if value and (kind, value) not in seen:
+            seen.add((kind, value))
+            out.append({"type": kind, field: value} | ({"name": Path(value).name} if field == "path" else {}))
+    for c in ran(spans, tree_id, Kind.SUBMIT):
+        add("submit", "site", str((c.get("target") or {}).get("site") or ""))
+    for c in ran(spans, tree_id, Kind.TRASH):
+        add("trash", "path", target_path(c))
+    for c in ran(spans, tree_id, Kind.DELETE_PERMANENT):
+        add("delete", "path", target_path(c))
+    for path in downloaded(spans, tree_id):
+        add("download", "path", path)
+    return out

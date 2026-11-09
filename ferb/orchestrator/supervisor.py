@@ -67,7 +67,7 @@ from ferb.orchestrator.loops import (LOOP_ROUND, LoopRunner, LoopStore, look_onl
                                      round_reason, short_label)
 from ferb.orchestrator.probes import MISSING, Probe, field_value, refusal, resolve_tool
 from ferb.orchestrator.answer_marks import only_quoted_changed, settle
-from ferb.orchestrator.schemas import (CHECKER_SCHEMA, FIX_SCHEMA, QUESTION_SCHEMA, RECHECK_SCHEMA, SUMMARY_SCHEMA,
+from ferb.orchestrator.schemas import (ACTION_CHECKS, CHECKER_SCHEMA, FIX_SCHEMA, QUESTION_SCHEMA, RECHECK_SCHEMA, SUMMARY_SCHEMA,
                                        SUPERVISOR_SCHEMA, WORKER_SCHEMA, AnswerQuestion, Check, CheckerOutcome, Condition,
                                        Finding, FixOutcome, QuestionOutcome, RecheckOutcome, SummaryOutcome,
                                        SupervisorOutcome, TaskSpec, WorkerReport, worker_schema)
@@ -572,6 +572,11 @@ class _ChatLine:
         batch[0].role.set_result(("lead", self.holder))
         for other in batch[1:]:
             other.role.set_result(("merged", batch[0].request_id))
+
+
+def judged_kind(judged: list[tuple[int, Condition]], index: int) -> str:
+    """The check kind of the judged condition at `index` ("" when none)."""
+    return next((c.check.kind for i, c in judged if i == index), "")
 
 
 def without_whole(text: str, piece: str) -> str:
@@ -3910,7 +3915,8 @@ class Supervisor(WorkerRuns):
         schedules (not said in a first reply), each payment the owner said Yes to that ran, each send, the sites the
         task contacted (in place of the "Sites contacted" line) and the files it made."""
         said = self._said_cards(tree.side_cards, marked=False)
-        ran = cards_.payments(self.spans, tree.id) + cards_.sends(self.spans, tree.id)
+        ran = (cards_.payments(self.spans, tree.id) + cards_.sends(self.spans, tree.id)
+               + cards_.done_cards(self.spans, tree.id))            # ORCH-561: submits, trash, deletes, downloads
         reached = cards_.links(sites, sites_line(sites)) if sites else []
         return said + ran + reached + cards_.files(artifacts)
 
@@ -6093,7 +6099,12 @@ class Supervisor(WorkerRuns):
                 observations.append(await self.checks.run(i, condition, task.id, ctx))
         # A true literal predicate does not establish the planner described the right outcome.
         # The checker compares every condition and these observations against the complete request.
-        return await self._verifier(tree, task, judged, span, observations)
+        results, verdict = await self._verifier(tree, task, judged, span, observations)
+        # ORCH-561: an action check code found false (no such call ran without an error in the task's records) is
+        # false whatever the checker said: the work can't be accepted on words the records don't bear
+        refuted = {r.index: r for r in observations if r.met is False and
+                   judged_kind(judged, r.index) in ACTION_CHECKS}
+        return [refuted.get(r.index, r) for r in results], verdict
 
     def _carry(self, tree: _Tree, results: list[ConditionResult]) -> list[ConditionResult]:
         """Conditions confirmed in an earlier attempt of this loop carry over (fix list): a later check that can't see

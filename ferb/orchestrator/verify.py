@@ -13,7 +13,10 @@ from typing import Any, Callable
 from ferb.act import aftercheck
 from ferb.act.fs.files import PathRefused, resolve
 from ferb.core.types import ToolContext
-from ferb.orchestrator.schemas import Condition
+from ferb.orchestrator import cards
+from ferb.orchestrator.schemas import ACTION_CHECKS, Condition
+from ferb.policy.confirm import account_key, site_key
+from ferb.policy.rules import Kind
 from ferb.store.spans import SpanStore
 
 
@@ -47,6 +50,10 @@ class Checks:
         k = c.check
         if k.kind in ("after_change", "after_value"):     # V2: the task's last acting call read something back
             return self.spans is not None and task_id is not None
+        if k.kind in ACTION_CHECKS:                       # ORCH-561: an action the task's own records show
+            return self.spans is not None and task_id is not None and (
+                k.kind == "paid" or bool(k.expected if k.kind == "sent" else k.site if k.kind == "submitted"
+                                         else k.path))
         return (k.kind == "file_exists" and bool(k.path)) or (k.kind == "file_contains" and bool(k.path and k.text)) \
             or (k.kind == "tab_url" and bool(k.url_contains))
 
@@ -96,6 +103,8 @@ class Checks:
                                        "isn't confirmed")
             got = aftercheck.compare(expect, after)
             return ConditionResult(i, c.text, got["met"], "code", got["evidence"])
+        if k.kind in ACTION_CHECKS:
+            return self._action(i, c, task_id, ctx)
         if k.kind == "tab_url":
             urls = self.urls_of(task_id)
             matches = [url for url in urls if (k.url_contains or "") in url]
@@ -103,3 +112,56 @@ class Checks:
             return ConditionResult(i, c.text, bool(matches), "code", json.dumps({
                 "url_contains": k.url_contains, "all_task_urls": urls, "matching_urls": matches}))
         return ConditionResult(i, c.text, None, "code", "Inspect the requested outcome with current source evidence")
+
+    def _action(self, i: int, c: Condition, task_id: str, ctx: ToolContext) -> ConditionResult:
+        """ORCH-561: met only when a call of that kind ran without an error with that target in the task's own records
+        (its tool calls, as the cards read them; a download: the browser's taken file). A literal predicate: who, where
+        or which file, compared as the gateway compares them, never what a report says."""
+        assert self.spans is not None
+        k = c.check
+
+        def result(met: bool | None, evidence: str) -> ConditionResult:
+            return ConditionResult(i, c.text, met, "code", evidence)
+        if k.kind == "sent":
+            want = account_key(k.expected)
+            for call in cards.ran(self.spans, task_id, *cards.SEND_KINDS):
+                target = call.get("target") or {}
+                reached = [account_key(r) for r in [*(target.get("recipients") or []), target.get("contact")] if r]
+                if want in reached and (not k.site or site_key(k.site) == site_key(target.get("site"))):
+                    return result(True, f"a {call.get('tool')} call to {k.expected} ran without an error")
+            return result(False, f"no send to {k.expected} ran without an error in this task")
+        if k.kind == "paid":
+            calls = [x for x in cards.paid(self.spans, task_id)
+                     if not k.site or site_key(k.site) == site_key((x.get("target") or {}).get("site"))]
+            return result(bool(calls), f"{len(calls)} payment call(s) ran under the owner's Yes to a payment"
+                          if calls else "no payment ran under the owner's Yes to one in this task")
+        if k.kind == "submitted":
+            for call in cards.ran(self.spans, task_id, Kind.SUBMIT):
+                if site_key((call.get("target") or {}).get("site")) == site_key(k.site):
+                    return result(True, f"a form on {k.site} was submitted without an error")
+            return result(False, f"no form on {k.site} was submitted without an error in this task")
+        try:
+            want_path = str(resolve(k.path or "", ctx, must_exist=False))
+        except PathRefused as e:
+            return result(False, f"{k.path}: {e}")
+        if k.kind == "downloaded":
+            if any(_same(p, want_path) for p in cards.downloaded(self.spans, task_id)):
+                return result(True, f"{want_path} was downloaded by the task's browser tab")
+            if Path(want_path).exists():         # a download FERB has no record of (a command's): for the checker
+                return result(None, f"{want_path} exists, but no browser download of it is recorded in this task")
+            return result(False, f"{want_path} doesn't exist and no download of it is recorded in this task")
+        kind = Kind.TRASH if k.kind == "trashed" else Kind.DELETE_PERMANENT
+        done = [x for x in cards.ran(self.spans, task_id, kind) if _same(cards.target_path(x), want_path)]
+        verb = "moved to the Trash" if k.kind == "trashed" else "deleted permanently"
+        return result(bool(done), f"{want_path} was {verb} by a call that ran without an error" if done
+                      else f"no call in this task {verb} {want_path} without an error")
+
+
+def _same(a: str, b: str) -> bool:
+    """Two paths naming the same place, as written or resolved (a deleted file can't be resolved: as written)."""
+    if not a or not b:
+        return False
+    try:
+        return Path(a).expanduser().resolve(strict=False) == Path(b).expanduser().resolve(strict=False)
+    except (OSError, ValueError):
+        return a == b

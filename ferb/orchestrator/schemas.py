@@ -15,7 +15,11 @@ from ferb.policy.targets import Targets
 from ferb.orchestrator.plans import STEP_KINDS, Part, Plan, SendScope
 from ferb.orchestrator.probes import PROBE_SCHEMA, Probe
 
-CHECK_KINDS = ["none", "file_exists", "file_contains", "tab_url", "account", "after_change", "after_value"]
+# ORCH-561: code checks of an action from the task's own records (fields reused: sent {expected: the recipient, site?},
+# paid {site?}, submitted {site}, trashed / deleted / downloaded {path}); no new union type (ORCH-330)
+ACTION_CHECKS = ("sent", "paid", "submitted", "trashed", "deleted", "downloaded")
+CHECK_KINDS = ["none", "file_exists", "file_contains", "tab_url", "account", "after_change", "after_value",
+               *ACTION_CHECKS]
 
 
 def _strings(enum: list[str] | None = None) -> dict[str, Any]:
@@ -301,7 +305,7 @@ class TargetsSpec(BaseModel):
 
 class Check(BaseModel):
     kind: Literal["none", "file_exists", "file_contains", "tab_url", "account",
-                  "after_change", "after_value"]
+                  "after_change", "after_value", "sent", "paid", "submitted", "trashed", "deleted", "downloaded"]
     path: str | None
     text: str | None
     url_contains: str | None
