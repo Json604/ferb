@@ -3626,4 +3626,12 @@ surface = "FERB.app with this build; an app in full screen (VS Code or Brave) an
 request = "In the full-screen app's Space, open Settings from the menu bar icon (Settings…) and drag it by its top bar to the left, the middle and the bottom. Close it, open it again from the notch's profile menu and drag it again. Then go to the home desktop, open Settings there (it comes to you) and drag it; go back to the full-screen app, open Settings again and drag it once more."
 pass = "Each time Settings opens on the Space you're on, over the full-screen app too, without moving you to another Space, and it follows the pointer wherever you drag it; it never sticks to one edge."
 decisions = ["APP-804", "APP-796", "APP-773"]
+
+[LIVE-834]
+title = "Codex sends each turn's request without a WebSocket attempt, and still runs FERB's tools only"
+area = "runtimes"
+surface = "FERB.app with this build on Codex (FERB's ChatGPT sign-in), once the owner's Codex limit has reset"
+request = "Settings → AI → Check on ChatGPT; then send one real chat message that needs a lookup (\"what did I work on yesterday?\") and read its planner turn with `ferb trace --json`."
+pass = "Every Check line passes (planner with lookups, tools, worker, checker, picture). The message is answered with no \"tool catalog was not observed\" and no isolation error. The planner's first model call's runtime_ms is clearly below the 2.5 s median it had (expected about 0.8-1.2 s), and start plus runtime_ms below 2.6 s. Codex's own trace isn't kept, so the WebSocket's absence shows as that drop (offline: scripts/codex_standin.py)."
+decisions = ["RUN-449", "RUN-450"]
 sitting = "after this change is installed"

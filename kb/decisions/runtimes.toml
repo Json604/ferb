@@ -504,3 +504,26 @@ rule = "For RUN-447. ApiRuntime(planner=True) adds ANSWER_TOOL whenever it state
 why = "One shared path for every provider whose form is stated. The gateway and the wrong-call count see only FERB's tools, and the reply draft needs the answer's JSON from its first character."
 paths = ["ferb/runtimes/api.py::ApiRuntime._events", "ferb/runtimes/api.py::ApiRuntime._send", "ferb/runtimes/anthropic_api.py::AnthropicStream", "ferb/runtimes/openai_api.py::OpenAIStream", "ferb/runtimes/google_api.py::GoogleStream", "ferb/orchestrator/worker.py::WorkerRuns._run_once", "scripts/question_run.py::typed_forms"]
 live = ["LIVE-827"]
+
+[RUN-449]
+title = "Codex runs on FERB's own ChatGPT provider entry, with the Responses WebSocket off"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "Every Codex run gets `model_providers.ferb_chatgpt` and `model_provider = \"ferb_chatgpt\"` (codex_stream.provider_entry): what Codex 0.166.0's built-in `openai` provider resolves to for ChatGPT sign-in (name OpenAI, base_url https://chatgpt.com/backend-api/codex, wire_api responses, requires_openai_auth, its version and organization/project headers), with supports_websockets false. Threads and the planner's template name that id; `_isolated` refuses any other. RUN-405, 410, 416 and 422 are unchanged."
+why = "Codex tried the Responses WebSocket before every turn's request and ChatGPT refused it: a round trip on the path (inferred 0.5-1.5 s). Over HTTP the trace line the catalog check needs is certain. Owner 2026-11-09: \"both but the real test to be done 10hrrs from now, when my codex limit rests\"."
+rejected = ["`model_providers.openai.supports_websockets = false`: accepted under --strict-config but ignored (Codex merges only a catalog URL into the built-in entry)", "An entry not named \"OpenAI\": Codex's is_openai() gates workspace routing, zstd bodies and the Codex backend's headers"]
+evidence = "Codex rust-v0.166.0 source: create_openai_provider, merge_configured_model_providers, is_openai. scripts/codex_standin.py (RUN-412's stand-in): built-in tries the upgrade; this entry doesn't, and sends the same POST header names, zstd, version and six tools; lockdown off stops on exec and wait."
+paths = ["ferb/runtimes/codex_stream.py::PROVIDER_ID", "ferb/runtimes/codex_stream.py::provider_entry", "ferb/runtimes/codex_stream.py::_command", "ferb/runtimes/codex_stream.py::_isolated", "ferb/runtimes/codex_stream.py::write_template", "scripts/codex_standin.py::main"]
+live = ["LIVE-834"]
+
+[RUN-450]
+title = "RUN-422's gain didn't hold: Codex's routing lookup moved into the first call"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "Refines RUN-422, whose rule stands (no account/read; the ChatGPT-only guard reads the login file). Its evidence is corrected: Codex makes the workspace routing lookup (GET /backend-api/wham/accounts/check) itself at each thread's start and the turn's request waits for it, so removing account/read moved that wait from start_steps into the first model call's runtime_ms; it did not remove it. Taking the lookup off a message's path needs a Codex process started before the message (research; not built)."
+why = "RUN-422 recorded \"the turn's request went out at 0.12 s while that lookup was held 2 s\"; LIVE-765 asked that the lookup not just move into the call. It did: Codex planner turns' start + first-call runtime_ms, median 2.64 s before (n=16) and 2.62 s after (n=90)."
+evidence = "FERB's database, read-only, 106 planner turns 11-04..11-09. Codex 0.166.0 against a stand-in that answers routing: routing held 1 s, the request left 1291 ms after turn/start without account/read, 494 ms with it first. Inferred: the earlier stand-in's routing never ran (no account id)."
+paths = ["ferb/runtimes/codex_stream.py::start"]
+live = ["LIVE-834"]

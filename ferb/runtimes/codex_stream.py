@@ -68,7 +68,7 @@ def write_template(codex_home: Path, workdir: Path, thread_id: str, model: str, 
     from ferb.runtimes.codex_exec import CODEX_VERSION
     meta = {'timestamp': TEMPLATE_DATE, 'ordinal': 0, 'type': 'session_meta', 'payload': {
         'id': thread_id, 'timestamp': TEMPLATE_DATE, 'cwd': str(workdir), 'originator': 'ferb',
-        'cli_version': CODEX_VERSION, 'model_provider': 'openai',
+        'cli_version': CODEX_VERSION, 'model_provider': PROVIDER_ID,
         'base_instructions': {'text': system, 'provenance': {'type': 'custom'}}}}
     context = {'timestamp': TEMPLATE_DATE, 'ordinal': 1, 'type': 'turn_context', 'payload': {
         'turn_id': 'auto-compact-0', 'cwd': str(workdir), 'approval_policy': 'never',
@@ -249,6 +249,40 @@ def _save_refresh(state: dict[str, Any]) -> None:
         return
 
 
+# RUN-449: FERB's own provider entry for ChatGPT's Codex backend, so Codex never tries the Responses WebSocket. The
+# built-in `openai` provider has supports_websockets on, and Codex 0.166.0 tries the WebSocket first on every turn (its
+# "startup prewarm", on the request's path; ChatGPT refuses it for FERB, so every request went out over HTTP anyway).
+# Codex refuses to override the built-in entry beyond its catalog URL (config_toml.rs
+# validate_reserved_model_provider_ids, model-provider-info merge_configured_model_providers), so this is a copy of
+# what `create_openai_provider` (codex-rs/model-provider-info/src/lib.rs, tag rust-v0.166.0) resolves to for a
+# ChatGPT sign-in, with the WebSocket off: the name "OpenAI" (Codex's `is_openai()`: workspace routing, zstd request
+# bodies, the Codex backend's headers and routes), base_url exactly CHATGPT_CODEX_BASE_URL (what the built-in uses for
+# ChatGPT auth; Codex binds workspace routing to that URL), the Responses wire API, FERB's ChatGPT sign-in
+# (requires_openai_auth), the `version` header and the OpenAI organization/project headers from the environment.
+# Left at their defaults, like the built-in: retries and timeouts. Off, unlike it: the standalone web-search endpoint
+# (web_search is disabled anyway). The request's tools and the request trace the catalog check reads are unchanged
+# (RUN-405): over HTTP the trace line is certain, where a WebSocket would carry the request past it.
+PROVIDER_ID = 'ferb_chatgpt'
+CHATGPT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
+
+
+def provider_entry() -> dict[str, Any]:
+    """The `model_providers.<PROVIDER_ID>` table every Codex run is given (RUN-449)."""
+    from ferb.runtimes.codex_exec import CODEX_VERSION
+    return {'name': 'OpenAI', 'base_url': CHATGPT_CODEX_BASE_URL, 'wire_api': 'responses',
+            'requires_openai_auth': True, 'supports_websockets': False,
+            'http_headers': {'version': CODEX_VERSION},
+            'env_http_headers': {'openai-organization': 'OPENAI_ORGANIZATION', 'openai-project': 'OPENAI_PROJECT'}}
+
+
+def _toml(value: Any) -> str:
+    """A `-c` value as TOML: strings and keys quoted as JSON strings (valid TOML basic strings), booleans, numbers and
+    inline tables."""
+    if isinstance(value, dict):
+        return '{' + ', '.join(f'{json.dumps(key)} = {_toml(item)}' for key, item in value.items()) + '}'
+    return json.dumps(value)
+
+
 def _command(runtime: CodexRuntime, catalog: Path | None, token_file: Path | None = None) -> list[str]:
     from ferb.runtimes.codex_exec import DISABLED, NO_AUTO_COMPACT, SKILLS_OFF, SUPERVISOR_SETTINGS
     cmd = [str(runtime.binary), 'app-server', '--stdio', '--strict-config']
@@ -259,10 +293,10 @@ def _command(runtime: CodexRuntime, catalog: Path | None, token_file: Path | Non
         cmd += SUPERVISOR_SETTINGS + NO_AUTO_COMPACT
     if runtime.mode == "worker" or token_file is not None:   # RUN-415: FERB's tools come with a run token
         cmd += runtime._mcp_settings(token_file)
-    for key, value in {'model_provider': 'openai', 'approval_policy': 'never', 'sandbox_mode': 'read-only',
-                       'web_search': 'disabled', 'cli_auth_credentials_store': 'file',
-                       'analytics.enabled': False}.items():
-        cmd += ['-c', key + '=' + json.dumps(value)]
+    for key, value in {f'model_providers.{PROVIDER_ID}': provider_entry(), 'model_provider': PROVIDER_ID,
+                       'approval_policy': 'never', 'sandbox_mode': 'read-only', 'web_search': 'disabled',
+                       'cli_auth_credentials_store': 'file', 'analytics.enabled': False}.items():
+        cmd += ['-c', key + '=' + _toml(value)]
     if catalog:
         cmd += ['-c', 'model_catalog_json=' + json.dumps(str(catalog))]
     return cmd
@@ -367,18 +401,19 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
 
 def _isolated(thread: dict[str, Any], runtime: CodexRuntime) -> bool:
     """Whether Codex's answer to thread/start or thread/resume matches FERB's isolation: it never asks for approval, runs
-    read-only without network, uses FERB's model on OpenAI and loaded no instruction files."""
+    read-only without network, uses FERB's model on FERB's ChatGPT provider entry (RUN-449) and loaded no instruction
+    files."""
     sandbox = thread.get('sandbox') or {}
     return (thread.get('approvalPolicy') == 'never' and sandbox.get('type') == 'readOnly'
             and not sandbox.get('networkAccess', False) and thread.get('model') == runtime.model
-            and thread.get('modelProvider') == 'openai' and not thread.get('instructionSources'))
+            and thread.get('modelProvider') == PROVIDER_ID and not thread.get('instructionSources'))
 
 
 def _start_params(runtime: CodexRuntime, request: ModelRequest, workdir: Path) -> dict[str, Any]:
     """An ephemeral thread with FERB's instructions in place of Codex's own base instructions, for every run: a worker
     is FERB's Mac worker, not Codex's coding agent (its base prompt about repositories, patches and approvals was sent
     with every worker run before 2026-10-30)."""
-    return {'model': runtime.model, 'modelProvider': 'openai', 'cwd': str(workdir), 'approvalPolicy': 'never',
+    return {'model': runtime.model, 'modelProvider': PROVIDER_ID, 'cwd': str(workdir), 'approvalPolicy': 'never',
             'sandbox': 'read-only', 'baseInstructions': request.system, 'developerInstructions': '', 'ephemeral': True,
             'dynamicTools': [], 'environments': [], 'selectedCapabilityRoots': [],
             'allowProviderModelFallback': False, 'experimentalRawEvents': False}
@@ -400,7 +435,7 @@ def _resume_params(runtime: CodexRuntime, request: ModelRequest, workdir: Path, 
     2026-10-25). Without `developer` the developer instructions are empty, as on an ephemeral thread (RUN-410), and the
     whole context goes in the user turn (RUN-416)."""
     return {'threadId': thread_id, 'path': str(path), 'excludeTurns': True, 'model': runtime.model,
-            'modelProvider': 'openai', 'cwd': str(workdir), 'approvalPolicy': 'never', 'sandbox': 'read-only',
+            'modelProvider': PROVIDER_ID, 'cwd': str(workdir), 'approvalPolicy': 'never', 'sandbox': 'read-only',
             'baseInstructions': request.system,
             'developerInstructions': (CONTEXT_FRAMING + '\n\n' + '\n\n'.join(request.parts[:request.cacheable])
                                       if developer else '')}

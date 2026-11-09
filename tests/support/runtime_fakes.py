@@ -151,13 +151,16 @@ class Process:
             self.stdout.put({'id': ident, 'result': {'account': {'type': self.account}}})
         elif method == 'thread/start':
             self.thread = 'th'
+            # Codex answers with the provider id the thread runs on: the one asked for (RUN-449)
             self.stdout.put({'id': ident, 'result': {'thread': {'id': 'th', 'ephemeral': True},
-                'model': msg['params'].get('model') or 'test-model', 'modelProvider': 'openai', 'approvalPolicy': 'never',
-                'sandbox': {'type': 'readOnly', 'networkAccess': False}, 'instructionSources': []}})
+                'model': msg['params'].get('model') or 'test-model', 'modelProvider': msg['params'].get('modelProvider'),
+                'approvalPolicy': 'never', 'sandbox': {'type': 'readOnly', 'networkAccess': False},
+                'instructionSources': []}})
         elif method == 'thread/resume':                    # Codex (0.157.1, 0.166.0) resuming the rollout at params['path']
             result = {'thread': {'id': msg['params']['threadId'], 'ephemeral': False},
-                      'model': msg['params'].get('model'), 'modelProvider': 'openai', 'approvalPolicy': 'never',
-                      'sandbox': {'type': 'readOnly', 'networkAccess': False}, 'instructionSources': []}
+                      'model': msg['params'].get('model'), 'modelProvider': msg['params'].get('modelProvider'),
+                      'approvalPolicy': 'never', 'sandbox': {'type': 'readOnly', 'networkAccess': False},
+                      'instructionSources': []}
             result.update(self.resume_changes)
             self.thread = result['thread']['id']
             self.stdout.put({'id': ident, 'result': result})

@@ -70,6 +70,39 @@ def test_a_codex_supervisor_run_gets_ferbs_tools_only_with_a_run_token(tmp_path:
     assert rt.allowed == cx.BASE_TOOLS | {"mcp__ferb.memory_read"}
 
 
+def _config(cmd: list[str]) -> dict[str, Any]:
+    """Every `-c key=value` of a Codex command, each value read as the TOML Codex reads it."""
+    import tomllib
+    return {cmd[i + 1].split("=", 1)[0]: tomllib.loads("v = " + cmd[i + 1].split("=", 1)[1])["v"]
+            for i, arg in enumerate(cmd) if arg == "-c"}
+
+
+# decision: RUN-449
+@pytest.mark.parametrize("mode", ["supervisor", "worker"])
+def test_every_codex_run_uses_ferbs_chatgpt_entry_with_the_websocket_off(tmp_path: Path, mode: str) -> None:
+    """Live 2026-11-04..09: every planner turn waited on a Responses WebSocket attempt ChatGPT refused. Each run gets
+    FERB's own entry for the same ChatGPT backend and sign-in, as the built-in `openai` provider resolves for ChatGPT
+    (Codex 0.166.0's create_openai_provider), with the WebSocket off; the thread asks for that entry, and Codex
+    answering on any other provider is not FERB's isolation."""
+    from ferb.runtimes import codex_stream as stream
+    rt = cx.CodexRuntime(Path("/x/codex"), mode, tmp_path, shim_cmd=["ferb", "mcp"])
+    config = _config(stream._command(rt, tmp_path / "catalog.json", tmp_path / "tok"))
+    assert config["model_provider"] == stream.PROVIDER_ID != "openai"
+    assert config[f"model_providers.{stream.PROVIDER_ID}"] == {
+        "name": "OpenAI", "base_url": "https://chatgpt.com/backend-api/codex", "wire_api": "responses",
+        "requires_openai_auth": True, "supports_websockets": False, "http_headers": {"version": cx.CODEX_VERSION},
+        "env_http_headers": {"openai-organization": "OPENAI_ORGANIZATION", "openai-project": "OPENAI_PROJECT"}}
+    request = ModelRequest("FERB instructions", ("context",))
+    assert stream._start_params(rt, request, tmp_path)["modelProvider"] == stream.PROVIDER_ID
+    assert stream._resume_params(rt, request, tmp_path, "th", tmp_path / "r", False)["modelProvider"] == \
+        stream.PROVIDER_ID
+    template = stream.write_template(tmp_path, tmp_path, "th", "m", "FERB instructions")
+    assert json.loads(template.read_text().splitlines()[0])["payload"]["model_provider"] == stream.PROVIDER_ID
+    thread = {"approvalPolicy": "never", "sandbox": {"type": "readOnly"}, "model": rt.model, "instructionSources": []}
+    assert stream._isolated({**thread, "modelProvider": stream.PROVIDER_ID}, rt)
+    assert not stream._isolated({**thread, "modelProvider": "openai"}, rt)
+
+
 # decision: RUN-410
 @pytest.mark.anyio
 async def test_a_worker_gets_ferbs_instructions_in_place_of_codexs_base_prompt(tmp_path, monkeypatch) -> None:
