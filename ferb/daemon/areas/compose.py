@@ -234,6 +234,7 @@ class Compose:
         self.events.on({'perception.attention'}, attention)
         self.events.on(None, lambda topic, data: self.bus.publish(topic, data))   # the bus as it is then
         self.events.on({'approval.requested'}, lambda topic, data: self._approval_notice(data))
+        self.events.on({'secret.refused'}, lambda topic, data: self._spawn(self._tell_refused(data), topic))   # GATE-562
         self.events.on({'approval.requested', 'approval.resolved'}, self._question_record)
         # ORCH-312: a pause stops the task's terminal commands and listening, and a scheduled run's
         # pause pauses its schedule (resumed with it)

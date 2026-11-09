@@ -822,6 +822,9 @@ class BrowserAct(_Base):
             spec = dataclasses.replace(spec, target=dataclasses.replace(spec.target, recipients=(typed,)))
         facts = getattr(self.driver, "act_facts", None)
         found = facts(str(getattr(args, "tab")), str(getattr(args, "element")), action, text) if callable(facts) else None
+        el = self._element(args)
+        if el is not None and el.label.strip() and isinstance(found, ActionFacts):   # GATE-557: the page's own label
+            found = dataclasses.replace(found, control_label=el.label)
         return dataclasses.replace(spec, facts=found) if isinstance(found, ActionFacts) else spec
 
     def _where(self, args: BaseModel, key: str) -> str:
@@ -951,6 +954,7 @@ def _fill_facts(tool: Any, args: BaseModel) -> ActionFacts | None:
     chain = getattr(tool.driver, "tab_chain", None)
     return ActionFacts(field_kinds=(el.field_kind,) if el.field_kind else (),
                        secure_field=el.secret or None, target_role=el.role or None,
+                       control_label=el.label if el.label.strip() else None,   # GATE-559: the card quotes it
                        page_url=tool.driver.tab_url(tab) or None,
                        tab_chain=chain(tab) if callable(chain) else None)
 

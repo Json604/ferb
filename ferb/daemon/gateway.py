@@ -86,6 +86,8 @@ from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
 from ferb.sanitize.untrusted import earlier_questions, pasted_parts
 from ferb.store.spans import SpanStore, PayloadOutput, tree_where
+from ferb.daemon import refused_fills
+from ferb.daemon.refused_fills import RefusedFills
 from ferb.trace import lines
 
 Publish = Callable[[str, dict[str, Any]], None]
@@ -161,6 +163,7 @@ NEEDS_OWNER_NEXT = "This step needs the owner; don't do it another way. Report t
 REASON_CHARS = 200                        # the task's own words in FERB's question, clipped like a call excerpt
 # ORCH-321: the owner-secret fills (ferb/daemon/hidden_input.py), whose `secret` argument names a saved entry
 SEALED_FILLS = ("browser.secret", "ferb_browser.secret", "mac.secret")
+SINK_VALUES_SHOWN = 3            # a form sink's card names at most this many values, then counts the rest (display)
 # GATE-206: card details go in only sealed (browser.secret / mac.secret with the owner's saved card or hidden input)
 CARD_TYPED = ("card details go into a page only through FERB's sealed fill (browser.secret, with a card the owner saved "
               "or the owner's hidden input), never typed: nothing was typed")
@@ -586,6 +589,7 @@ class Gateway:
         self.locks = ResourceLocks()
         self.hooks = CallHooks(self)                       # what only records or shows, around a call
         self.hidden = HiddenInput(self)                    # hidden-input questions (secrets, codes, admin password)
+        self.refused = RefusedFills(self.spans)            # GATE-562: a page that asked again after a sealed fill
         self.payments = payments.Payments(lambda: clock.now())   # GATE-204: each tab's approved payment
         # where a fault the gateway survives is journaled (the daemon's journal): kind, redacted data
         self.journal_problem: Callable[[str, dict[str, Any]], None] = deps.journal_problem
@@ -832,6 +836,7 @@ class Gateway:
         self.hooks.forget(task_ids)
         self.payments.forget(task_ids)
         self._cancelled_tasks.difference_update(task_ids)
+        self.refused.forget(set(task_ids))
         for task_id in task_ids:
             self._outside.pop(task_id, None)
             self._confirming.pop(task_id, None)
@@ -1424,15 +1429,55 @@ class Gateway:
             return None
         private, outside_only = await self._sink_texts_ready(c.root)
         owner_text = self._sink_owner_text(c, c.root)
-        values = confirm.text_carries_private("\n".join(typed), private, outside_only, owner_text)
+        values = confirm.text_private_values("\n".join(typed), private, outside_only, owner_text)
         if values:                       # GATE-538 (owner D7): the owner's own email or phone doesn't ask
             own = self.owner_contacts()          # memory rows are the loop's; profile names are read as for pairing
-            values = [v for v in values if not confirm.own_contact(v, own)]
+            values = [v for v in values if not confirm.own_contact(v.piece, own)]
         if not values:
             return None
+        # GATE-557 (owner GATE-558): the card names each value and where this task read it, the site, and what the
+        # click does (the control's own label, page words); the outside pages it names are those this task's own
+        # tools read, never labels inherited from FERB's memory. Its Yes covers this site for this task only: no
+        # destination is stored for good, so another task asks again
+        sent = [(v.piece, self._read_as(c.root, v.first_read)) for v in values[:SINK_VALUES_SHOWN]]
+        control = (c.facts.control_label or "").strip() if c.facts is not None else ""
         return confirm.Need("sink:new_destination", confirm.key("sink:new_destination", host),
-                            {"destination": host, "read": confirm.shown_origins(outside)},
-                            destinations=(("host", host),), reaches=target)
+                            {"destination": host, "value": sent[0][0], "source": sent[0][1],
+                             "sent": confirm.shown_sent(sent, len(values)), "control": control,
+                             "form": "yes", "read": confirm.shown_origins(self._visited_outside(c.root))},
+                            reaches=target)
+
+    def _refused_fill(self, c: "Call", span: Any, content: dict[str, Any]) -> dict[str, Any]:
+        """GATE-562 (owner GATE-563): this read of a tab shows the page asking again for the field a sealed fill filled
+        before a submit. The owner is told at once, quoting the page's new words (page text, already redacted), and the
+        worker gets the fact; the next hidden-input card for that field says the last one wasn't accepted."""
+        tab = getattr(c.args, "tab", None)
+        if not isinstance(tab, str) or not tab:
+            return content
+        row = self.spans.db.conn.execute("SELECT rowid FROM spans WHERE id = ?", (span.id,)).fetchone()
+        refusal = self.refused.check(c.root, tab, content, row["rowid"]) if row is not None else None
+        if refusal is None:
+            return content
+        left = max(0, refused_fills.ASKS_AFTER_REFUSAL - refusal.asked_after)
+        self.publish("secret.refused", {"task_id": c.root, "place": refusal.place, "what": refusal.what,
+                                        "count": refusal.count, "words": refusal.words, "span_id": span.id})
+        return content | {"sealed_fill_refused": {
+            "fact": f"The page asked again for the {refusal.what} the owner gave (the same field, empty, after the "
+                    "submit). FERB told the owner.",
+            "page_says": refusal.words, "times": refusal.count, "owner_asks_left": left}}
+
+    def _visited_outside(self, root: str) -> list[str]:
+        """The outside places this task tree's own tools read (GATE-557): each tool result's outside label when it has
+        exactly one (a page's host, a message's app). A result carrying several outside labels passed them through
+        from FERB's own records (memory, history: GATE-515), so it names no place the task visited."""
+        where, params = tree_where(root)
+        found: set[str] = set()
+        for (labels,) in self.spans.db.conn.execute(
+                f"SELECT origin FROM spans WHERE kind = 'tool.call' AND origin IS NOT NULL AND {where}", params):
+            outside = {o for o in origin.split(labels) if origin.is_external(o)}
+            if len(outside) == 1:
+                found |= outside
+        return sorted(found)
 
     def _card_entry(self, root: str, chain: str) -> str | None:
         """ORCH-321: the name of the owner's saved card entry that filled a card-number field in this tab chain: the
@@ -1832,6 +1877,8 @@ class Gateway:
         origins = without_excluded_hosts(result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind),
                                          self.excluded_host)
         content = self.redact(raw)                       # redacted once; the reply and the record use this
+        if not result.is_error and isinstance(content.get("elements"), list):
+            content = self._refused_fill(c, span, content)   # GATE-562: the page asked again for a sealed value
         output = content
         if (result.image is not None or raw.get("image_withheld")) and not result.is_error and self.evidence is not None:
             try:
@@ -1963,15 +2010,38 @@ class Gateway:
         control characters (its facts can hold a page's or an app's text)."""
         return self._squash(printable(self.redact({"s": text})["s"]), keep_spaces)
 
+    def value(self, text: str) -> str:
+        """One value FERB puts into its own fixed words (a page's label, an address, a value, the task's reason),
+        redacted by itself (GATE-564): the words around it are FERB's code's and are never scanned."""
+        return str(self.redact({"v": text})["v"])
+
+    def built(self, text: str, keep_spaces: bool = False) -> str:
+        """A line FERB's code built from its fixed words and values each already redacted (`value`, GATE-564): one
+        line, no terminal control characters, marked as redacted, so no later pass (the record, an event) scans
+        FERB's own words again: a saved secret that is an ordinary word never blanks or reveals itself in them."""
+        return self._marked(self._squash(printable(text), keep_spaces))
+
+    def _marked(self, text: str) -> str:
+        """FERB's own built text, its values already redacted each by itself, marked so it isn't scanned again
+        (GATE-564; the redactor's mark is trusted only under the current known values)."""
+        mark = getattr(self.redact, "marked", None)
+        return mark()(text) if callable(mark) else text
+
+    def _redacted_needs(self, needs: list[confirm.Need]) -> list[confirm.Need]:
+        """GATE-564: each need with every value redacted by itself, before FERB's sentences are built around them."""
+        return [dataclasses.replace(n, values={k: self.value(v) if isinstance(v, str) else v
+                                               for k, v in n.values.items()}) for n in needs]
+
     def _set_card(self, ap: Any, needs: list[confirm.Need], typed: str, terminal: bool) -> None:
-        """GATE-513: the card's question in plain words, why FERB asks, and the exact part for its code box, each
-        redacted and without control characters (the exact part keeps its lines, and a terminal's its spaces). If the
-        card can't be built, the question keeps today's one line (`confirm.summary`): it is always asked, never blank."""
+        """GATE-513: the card's question in plain words, why FERB asks, and the exact part for its code box, without
+        control characters (the exact part keeps its lines, and a terminal's its spaces). GATE-564: the needs' values
+        are redacted each by itself first (`typed` comes redacted), and FERB's own words are not scanned. If the card
+        can't be built, the question keeps today's one line (`confirm.summary`): it is always asked, never blank."""
         try:
-            made = confirm.card(needs, typed)
-            ap.summary = self._one_line(made.question)
-            ap.detail = self._one_line(made.detail)
-            ap.exact = "\n".join(self._one_line(line, terminal) for line in made.exact.split("\n") if line.strip())
+            made = confirm.card(self._redacted_needs(needs), typed)
+            ap.summary = self.built(made.question)
+            ap.detail = self.built(made.detail)
+            ap.exact = "\n".join(self.built(line, terminal) for line in made.exact.split("\n") if line.strip())
         except Exception as e:                                       # display only: never stops the question
             self.journal_problem("confirm.card_failed", {"rules": [n.rule for n in needs], "error": error_name(e)})
             ap.summary, ap.detail, ap.exact = self._summary_line(needs, typed, terminal), "", ""
@@ -1981,7 +2051,7 @@ class Gateway:
     def _summary_line(self, needs: list[confirm.Need], typed: str, terminal: bool) -> str:
         """Today's one line (`confirm.summary`), or, if even that can't be written, a plain question: never blank."""
         try:
-            return self._one_line(confirm.summary(needs, typed), terminal)
+            return self.built(confirm.summary(self._redacted_needs(needs), typed), terminal)
         except Exception:
             return "FERB needs your OK to go ahead with this step."
 
@@ -1990,10 +2060,10 @@ class Gateway:
         their own, P19's rule), no terminal control characters, the text a send carries and the reason quoted and
         clipped, redacted. A terminal question keeps runs of spaces as typed."""
         keep = any(n.rule == confirm.TERMINAL_INPUT for n in needs)
-        text = confirm.line(needs, " ".join(printable(call).split()),
-                            quoted(self.redact({"w": why})["w"]) if why.strip() else "",   # redacted, then clipped
-                            quoted(self.redact({"t": typed})["t"]) if typed.strip() else "")
-        return self._squash(printable(self.redact({"q": text})["q"]), keep)
+        text = confirm.line(self._redacted_needs(needs), self.value(" ".join(printable(call).split())),
+                            quoted(self.value(why)) if why.strip() else "",   # redacted, then clipped
+                            quoted(self.value(typed)) if typed.strip() else "")
+        return self.built(text, keep)                    # GATE-564: FERB's own words are not scanned
 
     def _typed_into(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> str:
         """The text this worker last typed into the page a send-declared input acts on (the same tool, the same tab),
@@ -2053,7 +2123,7 @@ class Gateway:
             shown_typed = quoted(self.redact({"t": typed})["t"]) if typed.strip() else ""
             terminal = any(n.rule == confirm.TERMINAL_INPUT for n in needs)
             self._set_card(ap, needs, shown_typed, terminal)
-            ap.why = self._one_line(confirm.reason_line(quoted(self.redact({"w": why})["w"]) if why.strip() else ""))
+            ap.why = self.built(confirm.reason_line(quoted(self.value(why)) if why.strip() else ""))
             self.publish("approval.requested", {"approval_id": ap.id, "capability": CONFIRM_ASK,
                                                 "kind": "owner_question", "reason": text, "options": options,
                                                 "task_id": grant.task_id, "summary": ap.summary, "why": ap.why}
@@ -2093,7 +2163,7 @@ class Gateway:
         card = SimpleNamespace(summary="", detail="", exact="")
         shown = quoted(self.redact({"t": typed})["t"]) if typed.strip() else ""
         self._set_card(card, needs, shown, any(n.rule == confirm.TERMINAL_INPUT for n in needs))
-        reason = self._one_line(confirm.reason_line(quoted(self.redact({"w": why})["w"]) if why.strip() else ""))
+        reason = self.built(confirm.reason_line(quoted(self.value(why)) if why.strip() else ""))
         return {"question": card.summary, "detail": card.detail, "exact": card.exact, "why": reason}
 
     def _known_from(self, needs: list[confirm.Need], rec: Any, span_id: str) -> None:
@@ -2377,12 +2447,12 @@ class Gateway:
 
     async def ask_secret(self, ctx: ToolContext, target: str, **kw: Any) -> str | None:
         if self.test_questions:                 # GATE-546: a password, card or other secret is never given in a test
-            return self._test_declined(ctx, "secret", f"a secret for {target}")
+            return self._test_declined(ctx, "secret", self.built(f"a secret for {self.value(target)}"))   # GATE-564
         return await self.hidden.secret(ctx, target, **kw)
 
     async def ask_login_code(self, ctx: ToolContext, origin: str) -> str | None:
         if self.test_questions:                 # GATE-546: nor a login code
-            return self._test_declined(ctx, "login_code", f"a login code for {origin}")
+            return self._test_declined(ctx, "login_code", self.built(f"a login code for {self.value(origin)}"))
         return await self.hidden.login_code(ctx, origin)
 
     def _test_declined(self, ctx: ToolContext, kind: str, question: str) -> None:
@@ -2421,11 +2491,13 @@ class Gateway:
             retry = row.intent.id                    # the latest unknown attempt: the one the approval goes on
             asked_about = [a.intent.id for a in attempts]
             tool, call, action = self._earlier_call(row)
+            # GATE-564: the action and the task's words are values, redacted each by itself; the retry line's targets
+            # come from the ledger inside its sentence, so that line is still redacted whole
             ferb_line = printable(self.redact({"q": retry_line(row, attempts, call, tool)})["q"])
-            retry_said = self._one_line(retry_question(action, attempts))
+            retry_said = self.built(retry_question(self.value(action), attempts))
             # one quoted paragraph, no terminal control characters: the task's text can't open a paragraph of its own,
             # or rewrite a line on the owner's terminal, that looks like FERB's
-            question = f'{ferb_line}\n\nWhat the task found: "{quoted(self.redact({"q": question})["q"])}".'
+            question = self._marked(f'{ferb_line}\n\nWhat the task found: "{quoted(self.value(question))}".')
             options = [RETRY_YES, RETRY_NO]
             key = json.dumps({"retry_question": question, "options": options}, ensure_ascii=False)
         elif self.route_question is not None:

@@ -24,6 +24,7 @@ class _Form(FakeCap):
         action: str | None = None
         kinds: list[str] = []
         text: str = ""
+        label: str = ""
 
     def __init__(self) -> None:
         super().__init__("probe.form", Kind.CLICK, {"probe"})
@@ -33,7 +34,8 @@ class _Form(FakeCap):
         return ActionSpec(typed, Target(site=args.host), content=args.text or f"submit:{args.host}:{args.kinds}",
                           facts=ActionFacts(page_url=f"https://{args.host}/form", form_action_host=args.action,
                                             submits_form=None if args.text else True,
-                                            field_kinds=tuple(args.kinds)))    # type: ignore[arg-type]
+                                            field_kinds=tuple(args.kinds),     # type: ignore[arg-type]
+                                            control_label=args.label or None))
 
 
 class _Deletes(FakeCap):
@@ -208,6 +210,46 @@ def test_a_private_submit_to_the_site_the_owner_named_runs(daemon: RunningDaemon
     gateway_tool_call(daemon, grant, "probe.form", tab="t1", text=PRIVATE)
     assert not gateway_tool_call(daemon, grant, "probe.form", tab="t1", action="jobs.example")["is_error"]
     assert _asked(daemon) == []
+
+
+# decision: GATE-557, GATE-558
+def test_the_send_data_card_names_the_value_its_source_the_site_and_the_click(daemon: RunningDaemon) -> None:
+    """Past bug (an application task, 2026-11-09): the form sink asked "Send data to <the site>?" naming no value and
+    listing "127.0.0.1; about.x.com; and 146 more", labels FERB's memory inherited, pages the task never visited. The
+    card now carries the value, the file it was read from, the site and the control's own label; a Yes covers the site
+    for this task only (owner: keep asking once per site per task)."""
+    form = _Form()
+    memory = FakeCap("probe.memory", "read", {"probe"}, content={"text": "earlier notes"})
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("read my file and the page"),
+                             [form, memory, *_readers_with_private()])
+    _read_private_and_outside(daemon, grant)
+
+    async def inherited() -> None:              # a result passing through FERB's records: many outside labels
+        spans = daemon.daemon.spans
+        span = spans.start("tool.call", task_id=grant.task_id, input={"tool": "memory.learned", "kind": "read"})
+        spans.finish(span, output={"text": "notes"},
+                     origin="external:web:about.x.com,external:web:127.0.0.1,external:message,private")
+    daemon.run(inherited())
+    gateway_tool_call(daemon, grant, "probe.form", tab="t1", text=PRIVATE)
+    owner = Answers(daemon, granted=True, choice=1)
+    try:
+        assert not gateway_tool_call(daemon, grant, "probe.form", tab="t1", action="collect.example",
+                                     label="Next")["is_error"]
+        assert not gateway_tool_call(daemon, grant, "probe.form", tab="t1", action="collect.example",
+                                     label="Next")["is_error"]           # the same site again in this task
+    finally:
+        owner.stop()
+    [ap] = owner.asked
+    card = " ".join([ap.summary, ap.detail, ap.exact])
+    for fact in (PRIVATE, "probe.file", "collect.example", "Next", "mysite.example"):   # where read: GATE-507
+        assert fact in card
+    assert "about.x.com" not in card and "127.0.0.1" not in card and "more" not in card
+
+    async def known() -> bool:
+        return await daemon.daemon.gateway.destinations.approved_async("host", "collect.example") \
+            if hasattr(daemon.daemon.gateway.destinations, "approved_async") else \
+            daemon.daemon.gateway.destinations.approved("host", "collect.example")
+    assert not daemon.run(known())               # not stored for good: another task asks again
 
 
 # ---------- card details only sealed (GATE-206) ----------

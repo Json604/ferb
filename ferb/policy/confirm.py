@@ -895,10 +895,17 @@ def text_carries_private(text: str, private: list[tuple[int, provenance.Text]],
     owner's own data (a private tool result), not the owner's typed words and not already public before they were
     read privately, by the same rules as `url_carries_private` (values only, never ordinary words, unless hidden in
     base64/hex). Shape and provenance only, never a meaning (rule 6)."""
+    return [h.piece for h in text_private_values(text, private, outside, owner)]
+
+
+def text_private_values(text: str, private: list[tuple[int, provenance.Text]],
+                        outside: list[tuple[int, provenance.Text]], owner: provenance.Text) -> list[PrivateValue]:
+    """`text_carries_private` with each value's first private read (span order), so the form sink's question can say
+    where FERB read it (GATE-557, as GATE-507 for an address)."""
     if not private or not text.strip():
         return []
     pieces = [text.strip()] + [t for t in _FINE.split(text) if t]
-    return [h.piece for h in _private_hits(pieces, private, outside, owner, set())]
+    return _private_hits(pieces, private, outside, owner, set())
 
 
 def _private_hits(pieces: list[str], private: list[tuple[int, provenance.Text]],
@@ -1215,6 +1222,9 @@ def _part(n: Need, alongside: frozenset[str] = frozenset()) -> str:
         return f"this sends{where} to a contact it doesn't name"
     if n.rule == "floor:new_recipient":
         return f"this {v['verb']} {v['recipients']}, whom you didn't name in this request"
+    if n.rule == "sink:new_destination" and v.get("form"):
+        return (f"this sends the page's answers to {v['destination']}{_clicking(v)}, a place you haven't named: "
+                f"{v.get('sent') or 'your own data'}" + (f"; this task read {v['read']}" if v.get("read") else ""))
     if n.rule == "sink:new_destination":
         return (f"this sends to {v['destination']}, a place you haven't named, after this task read your own data and "
                 f"outside content ({v['read']})")
@@ -1242,6 +1252,19 @@ def _part(n: Need, alongside: frozenset[str] = frozenset()) -> str:
         return (f"this sends {v['bytes']} to {v['count']} recipients you didn't name in this request at once: "
                 f"{v['sample']}")
     return v.get("text", n.rule)                # a rule another part of FERB asks about in its own words
+
+
+def shown_sent(sent: list[tuple[str, str]], total: int) -> str:
+    """GATE-557: the values a form would send, each with where this task read it (`value` from `where`), the rest
+    counted. Display only."""
+    parts = [f"{shown_quoted(value)} (from {where})" for value, where in sent]
+    more = total - len(sent)
+    return "; ".join(parts) + (f"; and {more} more" if more > 0 else "")
+
+
+def _clicking(v: dict[str, str]) -> str:
+    """What the click is, as the page labels the control (GATE-557: page words, quoted), else nothing."""
+    return f" by clicking {shown_quoted(v['control'])}" if v.get("control") else ""
 
 
 def _carried(v: dict[str, str]) -> str:
@@ -1297,6 +1320,8 @@ def _short(n: Need, alongside: frozenset[str]) -> str | None:
         return f"send something{where}, to someone the step doesn't name"
     if n.rule == "floor:new_recipient":
         return f"{'call' if v['verb'] == 'calls' else 'send to'} {v['recipients']}, whom you didn't name"
+    if n.rule == "sink:new_destination" and v.get("form"):
+        return f"send {v.get('sent') or 'your own data'} to {v['destination']}{_clicking(v)}"
     if n.rule == "sink:new_destination":
         return (f"send to {v['destination']}, a place you haven't named, after reading "
                 f"{v['read'] or 'outside content'}")
@@ -1399,6 +1424,17 @@ def _card(n: Need, alongside: frozenset[str]) -> Card | None:
         return Card(f"Send {shown_quoted(value)} to {dest} by opening this page?",
                     f"FERB read it on {where}, and the page's address carries it. A Yes also lets FERB open {dest} in "
                     "later tasks.", v.get("url") or dest)
+    if n.rule == "sink:new_destination" and v.get("form"):
+        # GATE-557 (owner GATE-558): the values and where each was read, the site, what the click does; one Yes per
+        # site per task
+        dest = v.get("destination", "")
+        does = (f"Clicking {shown_quoted(v['control'])} sends this page's answers to {dest}." if v.get("control")
+                else f"This sends this page's answers to {dest}.")
+        return Card(f"Send {v.get('sent') or 'your own data'} to {dest}?",
+                    f"{does} You haven't named this site"
+                    + (f", and this task read {v['read']}" if v.get("read") else "") + f". A Yes covers {dest} for this "
+                    "task.",
+                    v.get("value") or dest)
     if n.rule == "sink:new_destination":
         dest = v.get("destination", "")
         return Card(f"Send data to {dest}?", "This task has read your own data and outside content"

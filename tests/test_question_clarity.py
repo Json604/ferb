@@ -228,14 +228,16 @@ def test_the_login_code_question_says_in_one_line_where_it_goes(daemon: Any, mon
         _cancel(daemon, ap, waiting)
 
 
-def test_a_host_whose_own_name_holds_a_code_label_keeps_its_name_but_not_its_port(daemon: Any) -> None:
-    """Review M4, a known limit: "otp" in the host labels the port after it as a code, wherever FERB shows it (Details
-    too), and FERB's redaction has no bypass for its own text. The place-first line still shows the host's name."""
+# decision: GATE-564
+def test_a_host_whose_own_name_holds_a_code_label_keeps_its_name_and_its_port(daemon: Any) -> None:
+    """Review M4 was a known limit: "otp" in the host labelled the port after it as a code once FERB's whole sentence
+    was scanned. Since GATE-564 the origin is redacted by itself and FERB's own words are not scanned, so the place
+    shows whole."""
     waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_login_code(_ctx(), 'https://otp.example.com:8443'),
                                                daemon.loop)
     ap = _asked(daemon, 'owner_login_code')
     try:
-        assert ap.summary == 'For otp.example.com:[redacted]: FERB needs a login code.'
+        assert ap.summary == 'For otp.example.com:8443: FERB needs a login code.'
     finally:
         _cancel(daemon, ap, waiting)
 

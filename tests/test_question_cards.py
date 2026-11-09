@@ -168,3 +168,28 @@ def test_a_card_names_a_running_app_by_its_name_never_its_bundle_id(monkeypatch:
     assert "com.google" not in made.detail
     assert confirm.app_label("pid:42") == "Google Chrome" and confirm.app_label("Terminal") == "Terminal"
     assert confirm.app_label("docs.google.com") == "docs.google.com"               # a site stays as written
+
+
+# decision: GATE-564, GATE-561
+def test_a_saved_ordinary_word_never_blanks_ferbs_own_words(daemon: RunningDaemon) -> None:
+    """Past bug (an application task, 2026-11-09): a saved security answer that is an ordinary word ("anything" here) is
+    hidden wherever it appears, and the whole card was scanned, so FERB's own sentence read "not in [redacted] you said
+    or wrote", which also showed which word is sealed. Values are redacted each by itself; FERB's words are not scanned,
+    in the card, its record and what clients get."""
+    from types import SimpleNamespace
+    gateway = daemon.daemon.gateway
+    gateway.redact.add_secret_value("anything")
+    need = confirm.Need("sink:outside_value", "k", {"what": "typed", "value": "anything",
+                                                  "origin": "the web page on mysite.example"})
+    ap = SimpleNamespace(summary="", detail="", exact="")
+    gateway._set_card(ap, [need], "", False)
+    assert "anything" in ap.detail and "[redacted]" not in ap.detail     # FERB's own words stay whole
+    assert ap.exact == "[redacted]"                                     # the secret value itself is still hidden
+
+    async def stored() -> str:
+        span = daemon.daemon.spans.start("tool.call", input={"tool": "owner.ask", "args": {"question": ap.detail}})
+        row = daemon.daemon.db.conn.execute("SELECT input_json FROM spans WHERE id = ?", (span.id,)).fetchone()
+        return str(row["input_json"])
+    assert "[redacted]" not in daemon.run(stored())                      # the record keeps them whole too
+    assert gateway.built(f"a secret for {gateway.value('https://site.example')}") == \
+        "a secret for https://site.example"                             # GATE-546's record of a secret question

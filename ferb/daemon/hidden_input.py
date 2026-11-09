@@ -5,6 +5,7 @@ gateway's authorization (kb area gateway): asking for a hidden value is not a de
 may run. An OTP question for a payment repeats the bank page's amount and merchant (GATE-204)."""
 
 import asyncio
+import json
 import logging
 import re
 import unicodedata
@@ -12,6 +13,7 @@ from typing import Any, Literal
 
 from ferb.core.errors import Refused
 from ferb.core.types import ToolContext
+from ferb.daemon import refused_fills
 from ferb.daemon.auth import RunGrant
 from ferb.daemon.questions import card_parts
 from ferb.policy import payments, provenance, urls
@@ -57,20 +59,27 @@ class HiddenInput:
             if remember:                               # the save would fail after the owner typed: say why now
                 raise
             username = source = None                   # m17: a one-time input needs no saved names
-        question = secret_question(target, remember, username, source)
+        refused = self._refused(ctx, target, refused_fills.field_key("secret", kind))   # GATE-562: before asking
+        v = self.gw.value                              # GATE-564: each value redacted by itself, FERB's words not
+        question = secret_question(v(target), v(remember) if remember else remember, v(username) if username else
+                                   username, v(source) if source else source)
         paying = self._payment_line(ctx, target, exact=True)
-        question += (" " + paying) if paying else ""
+        question = self.gw.built(question + ((" " + v(paying)) if paying else ""))
         ask = ActionRequest(capability="secret.fill", kind="owner_secret", identity=ctx.identity,
                             scopes=ctx.scopes, task_id=ctx.task_id, worker_id=ctx.worker_id,
                             request_id=ctx.request_id, task_scopes=ctx.scopes, effect="edit")
         ap = self.gw.state.approvals.question(ask, question, [])
         ap.kind = "owner_secret"
-        ap.summary = self.gw._one_line(secret_summary(target, remember, shown, username, source, field))
-        ap.detail = self.gw._one_line(secret_detail(target, remember, shown, field))
-        ap.exact = self.gw._one_line(paying) if paying else ""   # GATE-204: the payment it serves, in its own box
+        r_target, r_remember, r_shown, r_field = (v(target), v(remember) if remember else remember,
+                                                  v(shown) if shown else shown, v(field) if field else field)
+        ap.summary = self.gw.built(secret_summary(r_target, r_remember, r_shown, v(username) if username else username,
+                                                  v(source) if source else source, r_field))
+        ap.detail = self.gw.built(refused_line(refused) + secret_detail(r_target, r_remember, r_shown, r_field))
+        ap.exact = self.gw.built(v(paying)) if paying else ""   # GATE-204: the payment it serves, in its own box
+        ap.why = self._why(ctx)                        # GATE-559: the worker's reason, as confirmations show it
         self.gw.publish("approval.requested", {"approval_id": ap.id, "kind": ap.kind,
                      "capability": ask.capability, "reason": question, "task_id": ctx.task_id,
-                     "summary": ap.summary} | card_parts(ap))
+                     "summary": ap.summary, "why": ap.why} | card_parts(ap))
         grant = RunGrant(ctx.task_id, ctx.worker_id, ctx.scopes, ctx.identity, float("inf"))
         delivered = False
         try:
@@ -150,6 +159,46 @@ class HiddenInput:
             self.gw.redact.remember_hidden_secret(value)
             self.gw.redact.release_secret(value)
 
+    def _call(self, ctx: ToolContext) -> dict[str, Any]:
+        """The fill call this question serves, as its record has it (its reason, its facts), or {}."""
+        if not ctx.span_id:
+            return {}
+        row = self.gw.spans.db.conn.execute("SELECT input_json FROM spans WHERE id = ?", (ctx.span_id,)).fetchone()
+        try:
+            call = json.loads(row["input_json"] or "{}") if row is not None else {}
+        except ValueError:
+            return {}
+        return call if isinstance(call, dict) else {}
+
+    def _why(self, ctx: ToolContext) -> str:
+        """GATE-559: the worker's reason for the fill, as the small why line confirmations show (D33: the task's words,
+        marked so when they read like FERB's)."""
+        from ferb.daemon.gateway import quoted
+        from ferb.policy import confirm
+        why = str(self._call(ctx).get("why") or "")
+        return self.gw.built(confirm.reason_line(quoted(self.gw.value(why)))) if why.strip() else ""
+
+    def _label(self, ctx: ToolContext) -> str:
+        """The page's own label for the field the fill fills (the call's `control_label` fact), or ""."""
+        facts = self._call(ctx).get("facts")
+        return str(facts.get("control_label") or "") if isinstance(facts, dict) else ""
+
+    def _refused(self, ctx: ToolContext, target: str, key: str) -> Any:
+        """GATE-562, owner GATE-563: the page refused this field in this task. The count of fresh asks since the first
+        refusal is kept here; past ASKS_AFTER_REFUSAL FERB asks no more and the step stops, saying what the page said.
+        None when the page never refused it."""
+        root = (self.gw.tasks.tree_of(ctx.task_id) or ctx.task_id).split(".", 1)[0]
+        refusal = self.gw.refused.get(root, refused_fills.host_of(target) or target, key)
+        if refusal is None or not refusal.count:
+            return None
+        if refusal.asked_after >= refused_fills.ASKS_AFTER_REFUSAL:
+            said = f" It says: “{refusal.words}”" if refusal.words else ""
+            raise Refused(f"{refusal.place} refused the {refusal.what} the owner gave {refusal.count} times in this "
+                          f"task, and FERB has asked the owner {refusal.asked_after} more times since the first; it asks "
+                          f"no more for it. Stop this step and report what the page said.{said}")
+        refusal.asked_after += 1
+        return refusal
+
     async def login_code(self, ctx: ToolContext, origin: str) -> str | None:
         """Owner-only hidden input, passed directly to a sealed fill; never returned in a tool result or span."""
         if ctx.request_id in self.gw.state.approvals.unattended:
@@ -157,20 +206,23 @@ class HiddenInput:
         ask = ActionRequest(capability="browser.login_code", kind="owner_login_code", identity=ctx.identity,
                             scopes=ctx.scopes, task_id=ctx.task_id, worker_id=ctx.worker_id,
                             request_id=ctx.request_id, task_scopes=ctx.scopes, effect="edit")
+        refused = self._refused(ctx, origin, refused_fills.field_key("login_code", None))   # GATE-562: before asking
+        v = self.gw.value                              # GATE-564: each value redacted by itself, FERB's words not
         paying = self._payment_line(ctx, origin, exact=False)
-        question = login_code_question(origin) + ((" " + paying) if paying else "")
+        question = self.gw.built(login_code_question(v(origin)) + ((" " + v(paying)) if paying else ""))
         ap = self.gw.state.approvals.question(ask, question, [])
         ap.kind = "owner_login_code"
         payment = self._payment(ctx, origin, exact=False)
         if payment is not None:     # GATE-204, GATE-513: the code says in its question which payment it approves
-            summary, detail, exact = payments.otp_card(_site(origin), payment)
-        else:
-            summary, detail, exact = login_code_summary(origin), LOGIN_CODE_DETAIL, ""
-        ap.summary, ap.detail, ap.exact = (self.gw._one_line(summary), self.gw._one_line(detail),
-                                           self.gw._one_line(exact) if exact else "")
+            summary, detail, exact = (v(part) for part in payments.otp_card(_site(origin), payment))
+        else:                       # GATE-559: the page's own label for the field, quoted as the page's words
+            summary, detail, exact = login_code_summary(v(origin)), login_code_detail(v(self._label(ctx))), ""
+        ap.summary, ap.detail, ap.exact = (self.gw.built(summary), self.gw.built(refused_line(refused) + detail),
+                                           self.gw.built(exact) if exact else "")
+        ap.why = self._why(ctx)                        # GATE-559: the worker's reason (where the code was sent, why)
         self.gw.publish("approval.requested", {"approval_id": ap.id, "capability": ask.capability, "kind": ap.kind,
-                                            "reason": question, "task_id": ctx.task_id, "summary": ap.summary}
-                        | card_parts(ap))
+                                            "reason": question, "task_id": ctx.task_id, "summary": ap.summary,
+                                            "why": ap.why} | card_parts(ap))
         grant = RunGrant(ctx.task_id, ctx.worker_id, ctx.scopes, ctx.identity, float("inf"))
         try:
             state = await self.gw._wait_answer(grant, ap.id)
@@ -335,6 +387,22 @@ def login_code_summary(origin: str) -> str:
 
 
 LOGIN_CODE_DETAIL = "Type it below. FERB fills it in only there, and it's used once."   # GATE-513
+
+
+def login_code_detail(field: str | None) -> str:
+    """GATE-559 (as GATE-520 for a secret): the page's own label for the code field, quoted as the page's words, then
+    what happens to the code."""
+    label = _page_label(field)
+    what = f"The page asks for “{label}”{'' if label[-1] in '.?!…' else '.'} " if label else ""
+    return what + LOGIN_CODE_DETAIL
+
+
+def refused_line(refusal: Any) -> str:
+    """GATE-562: a fresh ask after the page refused the last value says so, with the page's own words; "" else."""
+    if refusal is None:
+        return ""
+    said = f" It says “{_page_label(refusal.words)}”." if refusal.words else ""
+    return f"The last {refusal.what} wasn't accepted: the page asked for it again.{said} "
 
 
 ADMIN_DETAIL = "Type it below. FERB passes it only to that command and doesn't save it."   # GATE-513

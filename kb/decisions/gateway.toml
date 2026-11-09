@@ -848,6 +848,37 @@ rule = "Applies GATE-538 (owner) in the shared path. confirm.decide's S4(b) skip
 why = "GATE-538 was built only in the form-submit path, so the owner's own address typed into a form still asked (2026-11-08 twice, both refused, and 2026-11-09). An injected address can't already be the owner's own."
 paths = ["ferb/policy/confirm.py::decide", "ferb/daemon/gateway.py::Gateway._floor_needs"]
 
+[GATE-557]
+title = "The send-data card names each value and its source, the site and the click; once per site per task"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "For GATE-558, refining GATE-215/514. The form sink's Need carries the matched values (up to SINK_VALUES_SHOWN, the rest counted), each with where this task first read it (`_read_as`), the site, the clicked control's own label (ActionFacts.control_label, page words, quoted), and the outside places this task's own tools read (a result's outside label only when it has exactly one: labels passed through from memory or history are never listed). Its Yes covers the site for this task only: no destination is stored for good."
+why = "Live 2026-11-09: \"Send data to apply.…?\" named no value, listed \"127.0.0.1; about.x.com; and 146 more\" from memory.learned, and didn't say that Next saves the page on that site; the Yes stored the site for good."
+paths = ["ferb/daemon/gateway.py::Gateway._submit_sink", "ferb/daemon/gateway.py::Gateway._visited_outside", "ferb/policy/confirm.py::text_private_values", "ferb/policy/confirm.py::shown_sent", "ferb/core/types.py::ActionFacts", "ferb/act/browser/tools.py::BrowserAct.describe"]
+live = ["LIVE-848"]
+
+[GATE-558]
+title = "A site FERB found by searching for what the owner described still asks, clearly, once per task"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "Keep asking, clearly (Recommended)"
+words_source = "Owner 2026-11-09, asked whether a site FERB finds by searching for what the owner described should count as named; chose to keep asking once per site per task, with a clearer card"
+evidence = "The site was found by searching for \"Join the Bridge, by EF\" (apply.joinef.com); the card is to name the data, the site and what the click does."
+rule = "GATE-537 stays: a site FERB found itself (a search for what the owner described) is not named. Sending the owner's private data there in a form keeps the sink question, asked once per site per task, with a card that names the data, the site and what the click does."
+live = ["LIVE-848"]
+
+[GATE-559]
+title = "The login-code and secret cards show the worker's reason and the page's own label"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "Applies GATE-513 and GATE-520 to login codes. A login-code card's detail quotes the page's own label for the field (the fill's ActionFacts.control_label, page words with GATE-520's display rules) before what happens to the code; a login-code and a secret card carry the fill call's `why` as the small why line, as confirmations do (D33: marked when it reads like FERB's). A fresh ask after the page refused the last value starts its detail with that fact and the page's words (GATE-562). A payment's code card keeps GATE-204's. Display only."
+why = "Live 2026-11-09: five login-code cards read \"For apply.…: FERB needs a login code.\" word for word, though the worker's reason said where the code was sent and that the last one was rejected."
+paths = ["ferb/daemon/hidden_input.py::HiddenInput.login_code", "ferb/daemon/hidden_input.py::HiddenInput._why", "ferb/daemon/hidden_input.py::login_code_detail", "ferb/act/browser/tools.py::_fill_facts"]
+live = ["LIVE-850"]
+
 [GATE-560]
 title = "A question is prepared first: a script macOS refuses asks nobody; a closed app keeps its Yes"
 by = "agent"
@@ -857,3 +888,54 @@ rule = "Rule 5. Before any question the gateway runs a capability's `unavailable
 why = "Live 2026-11-09: \"Let FERB run scripts in Google Chrome?\" got a Yes, then macOS refused Automation and nothing ran. Live 2026-11-07: Safari quit between two inputs and the owner was asked again under the key \"safari\"."
 paths = ["ferb/act/mac/tools.py::MacAppleScript.unavailable", "ferb/daemon/gateway.py::Gateway._build", "ferb/policy/confirm.py::app_key", "ferb/act/mac/apps.py::installed_bundle"]
 live = ["LIVE-849"]
+
+[GATE-561]
+title = "FERB's built questions redact each inserted value and mark the result: its own words aren't scanned"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "For GATE-564. Confirmation cards and lines, the why line, hidden-input cards and questions, a retry's card and quoted question, and test mode's record of a hidden-input question redact each inserted value by itself (Gateway.value) and mark the finished text redacted (Gateway.built), so the record, events and chat.status keep FERB's words whole. The mark is the redactor's own, trusted only under the current known values. A retry line whose ledger targets sit inside its sentence is still redacted whole."
+paths = ["ferb/daemon/gateway.py::Gateway.value", "ferb/daemon/gateway.py::Gateway.built", "ferb/daemon/gateway.py::Gateway._set_card", "ferb/daemon/gateway.py::Gateway._ferb_line", "ferb/daemon/hidden_input.py::HiddenInput.secret"]
+live = ["LIVE-852"]
+
+[GATE-562]
+title = "A page asking again for a sealed value: told at once, said on the next card, two more asks at most"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "For GATE-563. After a sealed browser fill and a form submit on a tab, the tab's next read showing the same page (host, path) with the same field (kind, else label) empty is a refusal; no page word decides it. The read carries the fact for the worker; the owner is told at once in chat, quoting the page's text new since the fill (page origin); the next card for that field says so. After ASKS_AFTER_REFUSAL fresh asks since the first refusal, an ask is refused with the page's words: stop and report. In memory per tree."
+why = "Live 2026-11-09: two codes the owner gave were refused by the site (its bot check), the page's error said so, and FERB asked for a 4th and 5th code with identical cards, telling the owner nothing."
+paths = ["ferb/daemon/refused_fills.py::RefusedFills.check", "ferb/daemon/gateway.py::Gateway._refused_fill", "ferb/daemon/hidden_input.py::HiddenInput._refused", "ferb/daemon/areas/notify.py::Notify._tell_refused"]
+live = ["LIVE-851"]
+
+[GATE-563]
+title = "FERB tells the owner when a page refuses a password or code it filled, and asks at most twice more"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "i think it also doesnt communixate on a wrong pass or code, see the same ef trace - IT SHUODL / Twice"
+words_source = "Owner 2026-11-09 after the EF Bridge task asked for a 4th and 5th login code with identical cards; then, asked how many re-asks for the same field after a rejection, chose \"Twice\""
+evidence = "EF's reCAPTCHA blocked the attempts; the page said so, and FERB told the owner nothing."
+rule = "When a page refuses a password, login code or card detail FERB filled (it asks for the same field again or shows an error), FERB records it, tells the owner at once with the page's own words, and the next question for it says the last one was refused. After a refusal FERB asks the owner again for the same field at most twice in one task; then that step stops and FERB reports what the page said."
+live = ["LIVE-851"]
+
+[GATE-564]
+title = "Secrets are hidden in everything that comes in; FERB's own fixed words are never scanned"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "Yes, that (Recommended)"
+words_source = "Owner 2026-11-09, shown that a saved common-word security answer blanked FERB's own question wording and so revealed it; chose to keep hiding it in incoming text, not FERB's own sentences"
+evidence = "The card read \"not in [redacted] you said or wrote\": the sealed answer is an ordinary word. Incoming text: pages, emails, AI replies, typed values."
+rule = "Refines GATE-210, keeping its details (the address-code exemption, CODE_REACH 8, dictionary-word secrets matched as whole words). Secrets are hidden in everything that comes in: page text, emails, AI replies, values typed or inserted. FERB's own fixed wording (its code's templates) is never scanned, so a common-word secret can't blank FERB's own sentence: only the values inserted into it are redacted."
+live = ["LIVE-852"]
+
+[GATE-565]
+title = "FERB never fetches a login code from the owner's inbox by itself"
+by = "owner"
+date = 2026-11-09
+status = "active"
+words = "No, keep asking me"
+words_source = "Owner 2026-11-09, asked whether FERB should fetch a code emailed to an inbox it can read and fill it through the sealed path."
+rule = "FERB does not read one-time login codes from the owner's inbox to fill them, sealed or not; it asks the owner for the code, with the clearer card (GATE-559)."
+untestable = "A capability FERB doesn't build: nothing in the code fetches codes; there is no behaviour to test."

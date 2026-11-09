@@ -194,15 +194,29 @@ class Notify:
         except Exception as e:
             self._journal().append("home.set_aside_failed", {"error": f"{type(e).__name__}: {e}"[:300]})
 
+    async def _tell_refused(self, data: dict[str, Any]) -> None:
+        """GATE-562 (owner GATE-563): a page asked again for a value FERB filled sealed: told at once, in FERB's own
+        words with the page's new words as a quote (page text, the page's own origin), once per refusal."""
+        what, place = str(data.get("what") or "value"), str(data.get("place") or "the page")
+        words = str(data.get("words") or "").strip()
+        text = (f"{place} didn't accept the {what} you gave: the page asked for it again"
+                + (". It says:" if words else "."))
+        await self._tell_owner(f"refused-{data.get('span_id')}", [f"task:{data.get('task_id')}"], text,
+                               origin_.FERB, category="alert", task_id=str(data.get("task_id") or ""),
+                               quotes=[{"text": words}] if words else None,
+                               quote_origin=origin_.external("web", place))
+
     async def _tell_owner(self, ident: str, refs: list[str], text: str, notice_origin: str, *, category: str = "",
-                          task_id: str = "", cards: list[dict[str, Any]] | None = None) -> None:
+                          task_id: str = "", cards: list[dict[str, Any]] | None = None, quotes: Any = None,
+                          quote_origin: str | None = None) -> None:
         """One notice line in the owner's chat, posted once per `ident` (`AttentionNotices.add`, `_post_notice`): a
         loop's notice (L31), or a fact distillation retired or replaced on the owner's words (L36 §6, re-review ruling
         (c), `Distiller.tell`). `refs`: what it cites. `cards`: typed cards from FERB's own records (step 8e), on the
         event and the journaled row."""
         if self.attention_notices is None:
             return
-        notice = self.attention_notices.add(ident, refs, text, notice_origin=notice_origin, cards=cards)
+        notice = self.attention_notices.add(ident, refs, text, notice_origin=notice_origin, cards=cards, quotes=quotes,
+                                            **({"quote_origin": quote_origin} if quote_origin else {}))
         if notice is not None:
             await self._post_notice(notice, category=category, task_id=task_id, cards=cards)
 

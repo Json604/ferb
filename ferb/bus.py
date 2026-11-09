@@ -33,7 +33,7 @@ CRITICAL = {"task.created", "task.started", "task.finished", "task.retried", "ta
             "memory.forgot",   # a forget the owner said Yes to from the notch's buttons (I2)
             "task.part"}       # ORCH-319: a multi-part task's row filled, failed, asks, was updated (never missed)
 TELEMETRY = {"tool.called", "tool.finished", "trail.event", "action.observed", "browser.connected", "browser.disconnected", "browser.profiles_changed",
-             "memory.proposed", "browser.dialog", "browser.file_chooser", "browser.download", "browser.cleanup_failed",
+             "memory.proposed", "secret.refused", "browser.dialog", "browser.file_chooser", "browser.download", "browser.cleanup_failed",
              "browser.connection_refused",   # protocol 18: a native-host connection no known browser started
              "disturbance.observed", "memory.derived", "memory.digest",
              "memory.embedding_unavailable", "perception.attention", "perception.batch", "security.alignment",

@@ -165,6 +165,9 @@ class ActionFacts:
                                              # and so on): one payment's checkout and its bank page share it
     deletes: tuple[str, ...] = ()            # paths the call takes away from where they are (Trash or deleted)
     writes: tuple[str, ...] = ()             # paths the call creates or changes
+    # The page's own label for the control acted on or the field filled, as the page shows it (page text, display only:
+    # a question card and a done card quote it as the page's words, GATE-557, GATE-559; it never decides anything)
+    control_label: str | None = None
 
     def recorded(self) -> dict[str, Any]:
         """The known facts only, for a call's record (empty fields left out)."""
