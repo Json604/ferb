@@ -611,3 +611,11 @@ kind = "build"
 status = "open"
 why = "Planner-answer design 2.7: a Check line whose planner makes one memory.read then answers, showing stop and blocks per call; then, owner present, the experiment's empty-prone requests replayed through ApiRuntime 4 times each (~$0.40) before rerunning RUN-442's Claude run."
 decisions = ["RUN-446", "RUN-434", "RUN-435"]
+
+[T-1074]
+title = "Publish extension 0.19.6 to the Chrome Web Store"
+area = "hands"
+kind = "live"
+status = "open"
+why = "HAND-434/439 reach the owner's browsers only through the store; FERB.app works with 0.19.5 meanwhile (every new field optional). Package: build/store/ferb-extension-0.19.6.zip, listing refreshed (HAND-404); 0.19.4's self-update (HAND-430) should install it."
+decisions = ["HAND-434", "HAND-439", "HAND-404", "HAND-430"]

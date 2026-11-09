@@ -3529,3 +3529,12 @@ request = "Chat requests that need a lookup first (\"how much did I spend on foo
 pass = "No turn fails with \"ended without an answer\" on its first empty; a turn either answers or says plainly it couldn't. Each model.usage span shows stop and blocks; an empty call shows follow_up asked, the next fixed. No turn runs on for minutes calling made-up tools: a model.tool_loop span appears by the 10th wrong call and the reply still comes from the last call (model.turn last_call)."
 decisions = ["RUN-445", "RUN-446", "ORCH-558", "PRM-334"]
 sitting = "after this change is installed"
+
+[LIVE-823]
+title = "A task's first tab answers at once, and a heavy page reads whole"
+area = "hands"
+surface = "FERB.app with this build and the FERB extension 0.19.6 from the Chrome Web Store, in the profile FERB browses in"
+request = "Ask four short web questions, each a new task (for example \"what does example.com say?\", \"top story on news.ycombinator.com\", \"what's the price of the cheapest plan on supabase.com/pricing\", \"summarise the first review on rtings.com\"), then read each task's `ferb trace`."
+pass = "Every first read of a task's first tab answers in a few seconds; no read says \"the page isn't responding\" (if one does, the worker opens the page again in a new tab instead of reading the stuck one again). The tool.call spans of browser.snapshot carry `timing` with no step near 30 s. The task's tab group stays collapsed and nothing comes to the front."
+decisions = ["HAND-434", "HAND-439"]
+sitting = "after this change is installed and 0.19.6 is published"

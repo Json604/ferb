@@ -87,7 +87,8 @@ activity history on their Mac.
     character for character), which lets FERB catch a download or a popup the page opens with script.
   - `Page.removeScriptToEvaluateOnNewDocument`: removes that page hook.
   - `Emulation.setFocusEmulationEnabled`: makes typed input land in a tab that isn't focused, so FERB works in the
-    background.
+    background, and keeps a task's tab in its collapsed group from being frozen by the browser while FERB still reads it
+    (version 0.19.6).
   - `Emulation.setDeviceMetricsOverride`: a fixed 1280×900 layout, so the page doesn't change with the window size.
   - `Target.setAutoAttach`: reaches out-of-process frames through the same tab session.
   - `Target.getTargetInfo`: the tab's own id and its opener's id (never its URL or title), to know which tab opened a
@@ -95,8 +96,8 @@ activity history on their Mac.
   - `Input.dispatchMouseEvent`, `Input.dispatchKeyEvent`, `Input.insertText`: trusted clicks, keys and typing, which
     many sites require instead of synthetic DOM events.
   - `Accessibility.getFullAXTree`: the accessibility tree, for pages built on canvas or ARIA.
-  - `DOM.getFrameOwner`, `DOM.describeNode`, `DOM.pushNodesByBackendIdsToFrontend`, `DOM.getBoxModel`: find an element
-    FERB marked and where it is on the page.
+  - `DOM.getFrameOwner`, `DOM.describeNode`, `DOM.pushNodesByBackendIdsToFrontend` (up to 1,000 node ids at once),
+    `DOM.getBoxModel`: find the elements FERB marked and where they are on the page.
   - `DOM.setAttributeValue`: only the `data-ferb-ax` marker attribute, with a 16-character hex value.
   - `DOM.getDocument` (depth 0, the document node only), `DOM.querySelector`, `DOM.performSearch`,
     `DOM.getSearchResults`, `DOM.discardSearchResults`: find the one element FERB marked (`data-ferb-node`) for an

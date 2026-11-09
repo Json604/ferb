@@ -77,6 +77,29 @@
     els.set(id, new WeakRef(el)); bindings.set(token, new WeakRef(el));
     return {...describe(el, id), binding: token};
   }
+  // Extension 0.19.6: many adoptions in one script, in the given order (each id as one adopt after another gives it):
+  // the stamped elements are found in one pass (light DOM and every shadow root, closed ones too), not one per token.
+  function adoptAll(gen, tokens, attr) {
+    if (gen !== snapGen || !Array.isArray(tokens)) return null;
+    if (attr) ATTR = attr;
+    if (!ATTR) return tokens.map(() => null);
+    const stamped = new Map();
+    const gather = (root) => {
+      for (const el of root.querySelectorAll(`[${ATTR}]`)) {
+        const t = el.getAttribute(ATTR);
+        if (!stamped.has(t)) stamped.set(t, el);
+      }
+      for (const host of root.querySelectorAll("*")) { const sr = shadowOf(host); if (sr) gather(sr); }
+    };
+    gather(document);
+    return tokens.map((token) => {
+      const el = stamped.get(token);
+      if (!el || !visible(el)) return null;
+      const id = els.size;
+      els.set(id, new WeakRef(el)); bindings.set(token, new WeakRef(el));
+      return {...describe(el, id), binding: token};
+    });
+  }
   function findBound(root, token) {                 // the element CDP stamped, inside closed shadow roots too
     if (!ATTR) return null;
     const hit = root.querySelector(`[${ATTR}="${token}"]`);
@@ -1186,7 +1209,7 @@
     return { ok, unknown: !ok, detail: ok ? "filled" : "field_state_changed_after_input" };
   }
 
-  window.__ferb = { snapshot, unbind, media, uploadFiles, adopt, point, frameRect, visualState, captureState, listenForFrames,
+  window.__ferb = { snapshot, unbind, media, uploadFiles, adopt, adoptAll, point, frameRect, visualState, captureState, listenForFrames,
     announceFrame,
     supportsSplitSecretFill: true,
     pointerArm: () => { pointerSeen = null; }, pointerSeen: () => pointerSeen || [],

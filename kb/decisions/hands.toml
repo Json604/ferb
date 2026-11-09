@@ -853,3 +853,26 @@ status = "active"
 rule = "Refines HAND-227. When LocalAccess.connected finds the connection held by no socket and nothing queued on a visible listener of that port, it reads again up to SETTLE_READS (3) more times before refusing. No visible listener still refuses at once; the socket that holds the connection is checked as before (pinned executable or FERB's containment), so a server another program runs is still refused."
 why = "Measured 2026-11-08: a libproc reading taken while the server accepted showed its listener with nothing queued and the accepted socket not yet listed; 3 ms later it was there. The proxy refused a contained dev server with 403 (test_egress_proxy, T-20)."
 paths = ["ferb/act/shell/local.py::SETTLE_READS", "ferb/act/shell/local.py::LocalAccess.connected"]
+
+[HAND-434]
+title = "Extension 0.19.6 keeps FERB's tabs awake and puts page scripts in at once"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "Extension 0.19.6: focus emulation (Emulation.setFocusEmulationEnabled true, already allowed) is sent when a tab is armed, before every command that reads or acts in a tab FERB's debugger holds, and when Chrome reports one of them frozen; a snapshot attaches (so wakes) its tab before injecting. Every page script goes in at once (injectImmediately); only read_source (the inbox feed) waits for its document. Protocol stays 21 and the minimum 0.19.0: an older extension keeps working without this (HAND-439)."
+why = "Lab 2026-11-08: Chrome froze a task's group-creating tab 2.0 s after load (20/20; joiners 0/40), so executeScript never answered; focus emulation kept it awake (0/4) and woke it (4/4). A never-loading frame held executeScript 96.7 s. Live 11-08: creators' first reads hung in 25/33 and 31/56 tasks."
+evidence = "Owner 2026-11-08: \"why the hung is even happenign??? first we need ot investigate hatt\"; \"i want a detailed, throught and correct fix wuthouth breaking ferb now\"."
+rejected = ["Page.setWebLifecycleState active before each read: works too but needs a new CDP_ALLOW entry", "Not collapsing the group: changes HAND-201, the owner's"]
+paths = ["extensions/chromium/background.js::wake", "extensions/chromium/background.js::script", "extensions/chromium/manifest.json"]
+live = ["LIVE-823"]
+
+[HAND-439]
+title = "The accessibility pass is batched, a timed-out command stops, and reads report their step times"
+by = "agent"
+date = 2026-11-09
+status = "active"
+rule = "Extension 0.19.6: the accessibility pass asks each frame's node descriptions together, pushes unbound nodes together (up to 1,000 ids per call) and adopts them with one script per frame, giving the same elements, order and ids. A command past its timeout is given up: each step, maskState's rounds and the pass check first. Reads return `steps` (ms per step, the pass's counts), a snapshot `loading` while its tab loads, a failure `step`/`steps`; captures take `looks: false`."
+why = "Lab 2026-11-08: one read of a 2,000-cell page spent 6.3 s adopting cells one by one (four CDP calls and a whole-tab script each); a timed-out read went on working; no step was ever timed."
+evidence = "Lab 2026-11-09: identical element lists old vs new on 3 pages (2,131 on the 2,000-cell, 30-frame page; shadow roots, a cross-site frame, an ARIA grid); ax step 8.0 s -> 0.5 s."
+paths = ["extensions/chromium/ax.js::accessibilitySnapshot", "extensions/chromium/content.js::adoptAll", "extensions/chromium/protocol.js::CDP_ALLOW", "extensions/chromium/background.js::step", "extensions/chromium/background.js::withTimeout"]
+live = ["LIVE-823"]

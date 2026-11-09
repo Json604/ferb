@@ -151,7 +151,9 @@ def test_extension_record_frame_preserves_action_references_and_never_activates(
       return {frame,calls,visual:st.visual,shot:st.shot};
     })()''')
     page = {'top': 'doc', 'viewport': [0, 0, 100, 50], 'items': []}
+    steps = out['frame'].pop('steps')                   # 0.19.6 (HAND-439): each step's time, an optional field
     assert out['frame'] == {'data': 'jpeg', 'mask': {'before': page, 'after': page}}
+    assert set(steps) == {'arm_ms', 'ready_ms', 'look_ms', 'capture_ms'}
     assert out['visual'] == {'snap':7} and out['shot'] == 'other screenshot'
     assert out['calls'] == [{'id':19, 'method':'Page.captureScreenshot',
                             'args':{'format':'jpeg','quality':70,'fromSurface':True,'captureBeyondViewport':False}}]

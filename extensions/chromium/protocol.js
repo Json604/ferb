@@ -12,6 +12,9 @@
 // disturbance fact.
 // Extension 0.19.3 keeps protocol 21 (FERB refuses any other number, so a bump would stop every installed FERB until it
 // updates): it only adds `pdf` and `pdf_part` (Page.printToPDF), which an older FERB never sends.
+// Extension 0.19.6 keeps protocol 21 and the minimum (HAND-434): tabs kept awake (focus emulation), scripts in at once,
+// the accessibility pass batched, a timed-out command given up, and optional reply fields (`steps`, `loading`, a
+// failure's `step`) plus `looks: false` on captures, which an older FERB never sends and never reads.
 const FERB_PROTOCOL = 21;
 const FERB_HOST = "com.ferb.native_host";
 
@@ -165,8 +168,9 @@ const CDP_ALLOW = {
   "Page.getFrameTree": (p) => Object.keys(p).length === 0,
   "DOM.getFrameOwner": (p) => typeof p.frameId === "string" && Object.keys(p).length === 1,
   "DOM.describeNode": (p) => Number.isInteger(p.backendNodeId) && [0, 1].includes(p.depth) && Object.keys(p).length === 2,
-  "DOM.pushNodesByBackendIdsToFrontend": (p) => Array.isArray(p.backendNodeIds) && p.backendNodeIds.length === 1
-    && Number.isInteger(p.backendNodeIds[0]) && Object.keys(p).length === 1,
+  // the accessibility pass's adoptions, together (0.19.6, ax.js ADOPT_BATCH): node ids only, nothing in the page changes
+  "DOM.pushNodesByBackendIdsToFrontend": (p) => Array.isArray(p.backendNodeIds) && p.backendNodeIds.length >= 1
+    && p.backendNodeIds.length <= 1000 && p.backendNodeIds.every(Number.isInteger) && Object.keys(p).length === 1,
   "DOM.setAttributeValue": (p) => Number.isInteger(p.nodeId) && p.name === BIND_ATTR
     && /^[a-f0-9]{16}$/.test(p.value) && Object.keys(p).length === 3,
   "DOM.getBoxModel": (p) => Number.isInteger(p.backendNodeId) && Object.keys(p).length === 1,

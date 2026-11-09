@@ -564,16 +564,25 @@ async function executeCommand(m) {
   }
   const handler = OPS.includes(m.op) ? commands[m.op] : null;
   let body, nothingSent = false;
+  const run = newRun(), tabId = m.args && Number.isInteger(m.args.tab_id) ? m.args.tab_id : null;
   try {
     if (!handler) throw beforeInput(new Error(`unknown op ${m.op}`));
-    if (ACTING.has(m.op) && m.args && Number.isInteger(m.args.tab_id)) await awake(m.args.tab_id);
-    const value = await withTimeout(handler({ ...(m.args || {}), _timeout_ms: m.timeout_ms || 30000 }, m.id),
-                                    m.timeout_ms || 30000);
+    if (ACTING.has(m.op) && tabId !== null) await awake(tabId);
+    const work = (async () => {
+      // 0.19.6: a tab FERB reads or acts in is kept awake first (focus emulation), so a frozen page answers (wake)
+      if (WAKES.has(m.op) && tabId !== null && m.args.part === undefined) await step(run, "wake", () => wake(tabId));
+      return handler({ ...(m.args || {}), _timeout_ms: m.timeout_ms || 30000, _run: run }, m.id);
+    })();
+    const value = await withTimeout(work, m.timeout_ms || 30000, run);
     body = { id: m.id, gen: m.gen, status: "ok", value };
   } catch (e) {
     if (m.op === "pointer") cancelPointer(m.args.tab_id, m.id);
     body = { id: m.id, gen: m.gen, status: "error", error: String((e && e.message) || e) };
     nothingSent = !!(e && e.nothingSent);
+    // 0.19.6, optional fields (an older daemon ignores them): the step the command was in when it failed or timed
+    // out, and how long each step took, so the daemon can say where a page stopped answering
+    if (run.step) body.step = run.step;
+    if (Object.keys(run.steps).length) body.steps = { ...run.steps };
   }
   // A handler error may follow partial input; a timeout does not cancel the renderer operation. Only an error raised
   // before anything reached the page (nothingSent: refusedCommand, awake, the preparation before input, HAND-422) is a
@@ -595,10 +604,51 @@ async function executeCommand(m) {
   await send("result", body);
 }
 
-function withTimeout(p, ms) {
-  return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+// The command's deadline. A timeout can't cancel what a page or the browser is already doing, but from then on the
+// command is given up (`run.aborted`): its handler stops at its next step instead of working on for nobody (0.19.6;
+// before, a stuck read kept its tab's work going for minutes after FERB had moved on).
+function withTimeout(p, ms, run) {
+  let timer;
+  const expired = new Promise((_, rej) => { timer = setTimeout(() => { if (run) run.aborted = true; rej(new Error("timeout")); }, ms); });
+  return Promise.race([p, expired]).finally(() => clearTimeout(timer));
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// One command's run (0.19.6): the step in flight, the time each step took (`<step>_ms`; reads return them as `steps`,
+// a failure as `step`/`steps`), and whether the command was given up. A helper called without one gets its own.
+function newRun() { return { aborted: false, step: null, steps: {} }; }
+class Aborted extends Error {}
+async function step(run, name, fn) {
+  if (run.aborted) throw new Aborted(`given up before ${name}`);
+  run.step = name;
+  const t0 = Date.now();
+  try { return await fn(); }
+  finally { run.steps[`${name}_ms`] = (run.steps[`${name}_ms`] || 0) + (Date.now() - t0); }
+}
+
+// Every script FERB runs in a page goes in at once (`injectImmediately`, 0.19.6), never waiting for each frame to
+// reach document_idle: one frame that never finished loading (a stuck embed or ad) held every read of its page until
+// the command timed out (lab 2026-11-08: 96.7 s; at once, the same page read whole in 6.3 s). A read can so see a page
+// still loading: the snapshot says so (`loading`), and a frame not parsed yet gives less, never an error.
+const script = (injection) => chrome.scripting.executeScript({ ...injection, injectImmediately: true });
+
+// Chrome freezes the page of a tab that is in a group at the moment the group collapses, 2 s after its load ends: the
+// task's first tab, which makes the task's collapsed group (HAND-201). A frozen page runs no script, so executeScript
+// (every read's first step) never answers (lab 2026-11-08: 20 of 20 first tabs; joiners, added to a group already
+// collapsed, 0 of 40). Focus emulation, which every tab FERB reads has had since its first read (inputSetup), keeps a
+// page from freezing and wakes one that froze (0 of 4 froze with it set at open; 4 of 4 frozen tabs woke for a read).
+// It is the debugger's own call, answered while the page is frozen; the owner sees nothing (the group stays collapsed).
+// Sent when a tab is armed, before every command that reads or acts in it, and whenever Chrome reports one frozen.
+const WAKES = new Set(["snapshot", "find", "wait", "screenshot", "record_frame", "point", "frame_origin", "pdf",
+  "act", "fill", "upload", "media", "scroll", "pointer"]);
+async function wake(tabId) {
+  const t = TABS.get(tabId);
+  if (!t || !t.attached) return false;               // not FERB's debugger: nothing to send it through
+  try { await cdp(tabId, "Emulation.setFocusEmulationEnabled", { enabled: true }); return true; }
+  catch (_) { return false; }                        // the read itself says what's wrong
+}
+function wakeFrozen(id, info) { if (info && info.frozen === true) wake(id).catch(() => {}); }
+chrome.tabs.onUpdated.addListener(wakeFrozen);
 
 const maskUrl = (u) => ferbMaskUrl(u);               // mask.js: one rule with content.js
 
@@ -666,18 +716,21 @@ async function getFerbWindow(allowForeground = false) {
 
 async function inject(tabId, frameIds) {
   const target = frameIds ? { tabId, frameIds } : { tabId, allFrames: true };
-  await chrome.scripting.executeScript({ target, files: ["mask.js", "content.js"] });
+  await script({ target, files: ["mask.js", "content.js"] });
 }
 
 async function inFrame(tabId, frameId, func, args) {
   await inject(tabId, [frameId]);
-  const [r] = await chrome.scripting.executeScript({ target: { tabId, frameIds: [frameId] }, func, args });
+  const [r] = await script({ target: { tabId, frameIds: [frameId] }, func, args });
   if (!r || r.result == null) throw new Error("script failed in the page");   // null = threw (spike 4)
   return r.result;
 }
 
 // A capture's mask fields (protocol 15): both looks when the page was read; when it wasn't, `unread` (why), the look
 // before if only the look after failed (`mask.after` null), and the tab's window (`tabWindow`).
+// A capture asked for without the page's looks (`looks: false`, 0.19.6): unread, as a page scripts can't reach.
+const NOT_ANSWERING = {withheld: "the page didn't answer FERB's last read in time, so its secret fields weren't looked " +
+                                 "for", unread: true};
 async function unreadCapture(tabId, first, last) {
   if (!first.withheld && !last.withheld) return {mask: {before: first, after: last}};
   return {unread: (first.withheld || last.withheld), mask: first.withheld ? null : {before: first, after: null},
@@ -718,7 +771,7 @@ async function readyForCapture(tabId) {
 }
 
 async function scriptable(tabId, frameId = 0) {
-  try { await chrome.scripting.executeScript({ target: { tabId, frameIds: [frameId] }, func: () => true }); return true; }
+  try { await script({ target: { tabId, frameIds: [frameId] }, func: () => true }); return true; }
   catch (_) { return false; }
 }
 
@@ -735,12 +788,12 @@ async function undebuggable(tabId, e) {
 // until its deadline, and is skipped (withheld, the page never touched) when that passes first. A skipped look still
 // keeps its place, so the look after it waits for the one before it: the chain stays strictly serial.
 const maskLooks = new Map();                       // tabId -> the end of that tab's chain of looks
-function maskState(tabId, deadline) {
+function maskState(tabId, deadline, run) {
   let timer;
   const expired = new Promise(resolve => { timer = setTimeout(resolve, Math.max(0, deadline - Date.now())); });
   const prev = maskLooks.get(tabId) || Promise.resolve();
   const turn = Promise.race([prev.then(() => true), expired.then(() => false)]);
-  const look = turn.then(mine => mine && Date.now() < deadline ? readMaskState(tabId)
+  const look = turn.then(mine => mine && Date.now() < deadline && !(run && run.aborted) ? readMaskState(tabId, run)
     : {withheld: "this look at the page ran out of time waiting for its turn, so its secret fields can't be found",
        unread: true});
   const done = Promise.all([prev, Promise.race([look.catch(() => {}), expired]).then(() => clearTimeout(timer))]);
@@ -764,15 +817,20 @@ function maskState(tabId, deadline) {
 // the mask), or the page can't be read.
 // Items carry keys, so the daemon can tell what moved between the looks before and after a capture. Geometry only,
 // never page content.
-async function readMaskState(tabId) {
+async function readMaskState(tabId, run) {
   const round = crypto.randomUUID();
   let results;
+  // a command given up (0.19.6) stops between rounds: the page is touched no further for nobody
+  const live = () => { if (run && run.aborted) throw new Aborted("given up"); };
   try {
     await inject(tabId);
     const target = {tabId, allFrames: true}, args = [round];
-    await chrome.scripting.executeScript({target, args, func: r => window.__ferb.listenForFrames(r)});
-    await chrome.scripting.executeScript({target, args, func: r => window.__ferb.announceFrame(r)});
-    results = await chrome.scripting.executeScript({target, args, func: r => window.__ferb.captureState(r)});
+    live();
+    await script({target, args, func: r => window.__ferb.listenForFrames(r)});
+    live();
+    await script({target, args, func: r => window.__ferb.announceFrame(r)});
+    live();
+    results = await script({target, args, func: r => window.__ferb.captureState(r)});
   } catch (_) { return {withheld: "the page can't be read, so its secret fields can't be found", unread: true}; }
   const frames = results.filter(r => r && r.result).map(r => ({frameId: r.frameId, ...r.result}));
   const top = frames.find(f => f.frameId === 0);
@@ -944,6 +1002,7 @@ async function arm(tabId) {
     try { await chrome.debugger.detach({tabId}); } catch (_) {}
     throw e;
   }
+  await wake(tabId);                                         // kept from freezing from the start (0.19.6, `wake`)
   t.hookId = await installHook(tabId);
   await armPage(tabId, true);
   return t;
@@ -989,7 +1048,7 @@ async function armPage(tabId, on) {                          // content.js in do
   // is FERB's, and a handed-back one could open a dialog).
   const drop = profileIdentity === "ferb";
   try {
-    await Promise.resolve(chrome.scripting.executeScript({ target: { tabId, allFrames: true },
+    await Promise.resolve(script({ target: { tabId, allFrames: true },
       func: (v, d, k) => { if (window.__ferb && window.__ferb.armDownloads) window.__ferb.armDownloads(v, d, k); },
       args: [on, drop, FERB_TOKEN] }));
   } catch (_) { /* a page scripts can't reach holds no listener of ours */ }
@@ -1474,7 +1533,7 @@ const CLICKS = { click: { button: "left", count: 1 }, dblclick: { button: "left"
 const SUBMITTING = new Set(["click", "dblclick", "press"]);
 async function formSubmits(tabId) {
   try {
-    const results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true },
+    const results = await script({ target: { tabId, allFrames: true },
       func: () => (window.__ferb && window.__ferb.takeSubmits ? window.__ferb.takeSubmits() : []) });
     return results.flatMap((r) => Array.isArray(r && r.result) ? r.result.map((s) => ({ ...s, frame_id: r.frameId })) : []).slice(0, 10);
   } catch (_) { return []; }
@@ -1886,7 +1945,7 @@ const commands = {
     return r;
   },
   async find({tab_id, text}) {
-    const results = await chrome.scripting.executeScript({target:{tabId:tab_id,allFrames:true},
+    const results = await script({target:{tabId:tab_id,allFrames:true},
       func:q => {
         const needle=(q || "").toLowerCase();
         const lines=(document.body ? document.body.innerText : "").split(/\n+/).map(line=>line.trim()).filter(Boolean);
@@ -1907,33 +1966,46 @@ const commands = {
                                       ferb: !kept.has(t.id) && ((mine[t.id] && !mine[t.id].borrowed) ||
                                                                 (s.windowId != null && t.windowId === s.windowId)) })) };
   },
-  async snapshot({ tab_id, snap }) {
+  // 0.19.6 (optional reply fields, no protocol change): `steps`, how long each step took (wake, attach, inject,
+  // script, ax, unbind, in ms) with the accessibility pass's counts (ax_nodes, adopted) and `frames`; `loading` when
+  // the tab was still loading as it was read (scripts go in at once, `script`). The debugger is attached (and the tab
+  // woken) before anything is injected, so a frozen page is awake by the time a script goes in.
+  async snapshot({ tab_id, snap, _run }) {
+    const run = _run || newRun();
     tabState(tab_id).visual = null;
     if (tabState(tab_id).pendingDialog) return {frames:[{frame_id:0,url:maskUrl((await chrome.tabs.get(tab_id)).url || ""),title:"",text:"[Page blocked by pending dialog; use browser.dialog]",elements:[],truncated:true}],dialogs:tabState(tab_id).dialogs.splice(0)};
-    await inject(tab_id);
     const st = tabState(tab_id);
     st.axErrors = [];
     let attached = false;
-    try { await attach(tab_id); attached = true; }
-    catch (e) { st.axErrors.push(String(e.message || e)); }
-    const results = await chrome.scripting.executeScript({ target: { tabId: tab_id, allFrames: true },
-                                                           func: (g, a) => window.__ferb.snapshot(g, a), args: [snap, BIND_ATTR] });
+    try { await step(run, "attach", () => attach(tab_id)); attached = true; }
+    catch (e) { if (e instanceof Aborted) throw e; st.axErrors.push(String(e.message || e)); }
+    await step(run, "inject", () => inject(tab_id));
+    const results = await step(run, "script", () => script({ target: { tabId: tab_id, allFrames: true },
+                                                           func: (g, a) => window.__ferb.snapshot(g, a), args: [snap, BIND_ATTR] }));
     const frames = results.filter((r) => r && r.result).map((r) => ({ frame_id: r.frameId, ...r.result }));
     const top = frames.find((f) => f.frame_id === 0);
     if (!top) throw new Error("snapshot failed in the page");
-    try { if (attached) await accessibilitySnapshot(tab_id, snap, frames); }
+    let counts = {};
+    const unbind = () => script({ target: { tabId: tab_id, allFrames: true },
+                                  func: () => window.__ferb && window.__ferb.unbind && window.__ferb.unbind() });
+    try { if (attached) counts = await step(run, "ax", () => accessibilitySnapshot(tab_id, snap, frames, run)) || {}; }
     finally {                                        // the linking attributes leave the page right after (protocol 18)
-      try { await chrome.scripting.executeScript({ target: { tabId: tab_id, allFrames: true },
-                                                   func: () => window.__ferb && window.__ferb.unbind && window.__ferb.unbind() }); }
-      catch (_) { /* a frame went meanwhile: its document took them along */ }
+      if (run.aborted) unawaited(unbind());          // even for a command given up, never waited for
+      else {
+        try { await step(run, "unbind", unbind); }
+        catch (_) { /* a frame went meanwhile: its document took them along */ }
+      }
     }
     st.frames = composeFrames(frames);
     st.frameRefs = new Map(frames.map(f => [f.frame_id, f]));
     if (st.axErrors.length) top.truncated = true;
     if (st.axErrors.length) top.text = `[Accessibility view incomplete: ${st.axErrors.join("; ")}]\n${top.text}`;
     const dialogs = st.dialogs.splice(0);
+    let loading = false;
+    try { loading = (await chrome.tabs.get(tab_id)).status === "loading"; } catch (_) { /* gone: the read stands */ }
     // L33 (0.15.9, optional): where the tab is shown, so FERB's cursor can point at an element on screen
-    return { frames, dialogs, window: await tabWindow(tab_id) };
+    return { frames, dialogs, window: await tabWindow(tab_id), ...(loading ? { loading: true } : {}),
+             steps: { ...run.steps, ...counts, frames: frames.length } };
   },
   async point({tab_id, snap, x, y, image_width, image_height}) {
     const visual = tabState(tab_id).visual;
@@ -2056,20 +2128,27 @@ const commands = {
   // `undebuggable` and `window`) for a page the debugger can't attach to, which the daemon may capture natively.
   // The tab is attached fully when its page can be scripted, with the debugger alone when not (`readyForCapture`);
   // `input_note` says when the input setup or readiness probe failed and the capture went on without it.
-  async screenshot({ tab_id, format, quality, snap, _timeout_ms }) {
-    const deadline = Date.now() + _timeout_ms;
-    try { await arm(tab_id); }           // the debugger can't attach: no tab capture at all (round 3, I1)
-    catch (e) { return await undebuggable(tab_id, e); }
-    const inputNote = await readyForCapture(tab_id);
+  // 0.19.6 (optional, no protocol change): `looks: false` (the daemon's read of this page just timed out) captures
+  // without the page's own looks, which would wait the same way: `unread`, so the daemon masks it as any page the
+  // extension can't read (Accessibility and text recognition, B6). The reply carries `steps` (arm, ready, look,
+  // capture, in ms). An older daemon never sends `looks`.
+  async screenshot({ tab_id, format, quality, snap, looks, _timeout_ms, _run }) {
+    const run = _run || newRun(), deadline = Date.now() + _timeout_ms;
+    try { await step(run, "arm", () => arm(tab_id)); }   // the debugger can't attach: no tab capture (round 3, I1)
+    catch (e) { if (e instanceof Aborted) throw e; return await undebuggable(tab_id, e); }
+    const skip = looks === false;
+    const inputNote = skip ? "" : await step(run, "ready", () => readyForCapture(tab_id));
     const st = tabState(tab_id);
     st.shot = null; st.visual = null;
-    const first = await maskState(tab_id, deadline);
+    const first = skip ? NOT_ANSWERING : await step(run, "look", () => maskState(tab_id, deadline, run));
     if (first.withheld && !first.unread) return {withheld: first.withheld};
     const before = snap == null || first.withheld ? null : JSON.stringify(await visualStates(tab_id));
-    const { data } = await cdp(tab_id, "Page.captureScreenshot", { format: format || "jpeg", quality: quality || 70 });
-    const last = first.withheld ? first : await maskState(tab_id, deadline);
+    const { data } = await step(run, "capture", () => cdp(tab_id, "Page.captureScreenshot",
+                                                          { format: format || "jpeg", quality: quality || 70 }));
+    const last = first.withheld ? first : await step(run, "look", () => maskState(tab_id, deadline, run));
     if (last.withheld && !last.unread) return {withheld: last.withheld};
-    const extra = {...await unreadCapture(tab_id, first, last), ...(inputNote ? {input_note: inputNote} : {})};
+    const extra = {...await unreadCapture(tab_id, first, last), ...(inputNote ? {input_note: inputNote} : {}),
+                   steps: { ...run.steps }};
     if (before !== null && !extra.unread) {
       if (before !== JSON.stringify(await visualStates(tab_id))) throw new Error("page_changed_during_screenshot");
       st.visual = {at: Date.now(), snap, states: before, points: new Map()};
@@ -2078,8 +2157,9 @@ const commands = {
     st.shot = data;
     return { parts: Math.ceil(data.length / SHOT_PART), size: data.length, format: format || "jpeg", ...extra };
   },
-  async record_frame({tab_id, part, capture_id, _timeout_ms}) {
-    const deadline = Date.now() + _timeout_ms;
+  // As a screenshot: `looks: false`, `steps` (0.19.6).
+  async record_frame({tab_id, part, capture_id, looks, _timeout_ms, _run}) {
+    const run = _run || newRun(), deadline = Date.now() + _timeout_ms;
     const st = tabState(tab_id);
     if (part !== undefined) {
       const saved = st.recordFrame;
@@ -2089,16 +2169,19 @@ const commands = {
       if ((part+1)*SHOT_PART >= saved.data.length) st.recordFrame = null;
       return {data};
     }
-    try { await arm(tab_id); }           // as a screenshot
-    catch (e) { return await undebuggable(tab_id, e); }
-    const inputNote = await readyForCapture(tab_id);
-    const first = await maskState(tab_id, deadline);   // as a screenshot (L13): the page before and after, or unread
+    try { await step(run, "arm", () => arm(tab_id)); }   // as a screenshot
+    catch (e) { if (e instanceof Aborted) throw e; return await undebuggable(tab_id, e); }
+    const skip = looks === false;
+    const inputNote = skip ? "" : await step(run, "ready", () => readyForCapture(tab_id));
+    // as a screenshot (L13): the page before and after, or unread
+    const first = skip ? NOT_ANSWERING : await step(run, "look", () => maskState(tab_id, deadline, run));
     if (first.withheld && !first.unread) return {withheld: first.withheld};
-    const {data} = await cdp(tab_id, 'Page.captureScreenshot',
-      {format:'jpeg', quality:70, fromSurface:true, captureBeyondViewport:false});
-    const last = first.withheld ? first : await maskState(tab_id, deadline);
+    const {data} = await step(run, "capture", () => cdp(tab_id, 'Page.captureScreenshot',
+      {format:'jpeg', quality:70, fromSurface:true, captureBeyondViewport:false}));
+    const last = first.withheld ? first : await step(run, "look", () => maskState(tab_id, deadline, run));
     if (last.withheld && !last.unread) return {withheld: last.withheld};
-    const extra = {...await unreadCapture(tab_id, first, last), ...(inputNote ? {input_note: inputNote} : {})};
+    const extra = {...await unreadCapture(tab_id, first, last), ...(inputNote ? {input_note: inputNote} : {}),
+                   steps: { ...run.steps }};
     if (data.length <= SHOT_PART) return {data, ...extra};
     const id = crypto.randomUUID(); st.recordFrame = {id, data};
     return {parts:Math.ceil(data.length/SHOT_PART), capture_id:id, ...extra};
@@ -2107,10 +2190,10 @@ const commands = {
   // (Page.printToPDF: backgrounds on, the page's own page size when it sets one), for a document FERB makes from a page
   // it opened. A read. Nothing paints over a PDF, so a page with a password, code or card field anywhere in it, or one
   // whose secret fields can't be found, is withheld (L13). Split into parts like a screenshot.
-  async pdf({ tab_id, landscape, _timeout_ms }) {
+  async pdf({ tab_id, landscape, _timeout_ms, _run }) {
     const deadline = Date.now() + _timeout_ms;
     await arm(tab_id);
-    const state = await maskState(tab_id, deadline);
+    const state = await maskState(tab_id, deadline, _run);
     if (state.withheld) return {withheld: state.withheld};
     if (!state.whole) return {withheld: "the page has a password, code or card field, and nothing can paint over it in a PDF"};
     const { data } = await cdp(tab_id, "Page.printToPDF", { printBackground: true, preferCSSPageSize: true,
@@ -2178,7 +2261,7 @@ const commands = {
   // title is the captured window's `title`: the window server names a Chromium window after its active tab. A
   // minimized window is never the one on screen. Geometry, URL and title only, never page content. complete:false:
   // the page can't be read.
-  async window_secrets({ bounds, title, _timeout_ms }) {
+  async window_secrets({ bounds, title, _timeout_ms, _run }) {
     const deadline = Date.now() + _timeout_ms;
     const [x, y, w, h] = bounds;
     const wins = await chrome.windows.getAll({ windowTypes: ["normal", "popup"] });
@@ -2197,7 +2280,8 @@ const commands = {
     const [tab] = await chrome.tabs.query({ active: true, windowId: matches[0].id });
     if (!tab) return {matched: true, complete: false, reason: "no_active_tab"};
     const page = {url: maskUrl(tab.url || tab.pendingUrl || ""), title: String(tab.title || "")};
-    const state = await maskState(tab.id, deadline);
+    await wake(tab.id);                              // a tab FERB holds is kept awake for its look (0.19.6)
+    const state = await maskState(tab.id, deadline, _run);
     if (state.withheld) return {matched: true, complete: false, reason: state.withheld, tab: page};
     return {matched: true, complete: true, state, tab: page};
   },
