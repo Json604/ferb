@@ -250,7 +250,7 @@ class Rule:
         if self.repeat == "none":
             return "once"
         if self.repeat == "every":
-            return f"every {self.every_minutes} minutes"
+            return every_said(self.every_minutes or 0)
         at = "" if self.when_active and self.at == "00:00" else f" at {self.at}"   # due from the day's start
         if self.repeat == "weekly":
             return f"every {DAYS[self.weekday or 0].capitalize()}{at}"
@@ -302,7 +302,7 @@ class Schedule:
         if timing is None:
             return rule.describe()
         if rule.repeat == "every":
-            said = f"every {rule.every_minutes} minutes"
+            said = every_said(rule.every_minutes or 0)
             if timing.times:
                 said += f", and at {said_list(list(timing.times))} each day"
         elif rule.repeat == "none":
@@ -441,6 +441,22 @@ class Plan:
     timing: Timing | None
     schedule: Schedule               # as it would stand (its words and its times)
     missing: list[str]               # clock times its request names that it never runs at
+
+
+def every_said(minutes: int) -> str:
+    """An "every N minutes" repeat as a person says it: "every 6 hours", "every 3 days and 12 hours", "every week",
+    "every 45 minutes" (owner 2026-11-09, a schedule card read "Every 5040 minutes")."""
+    if minutes <= 0:
+        return f"every {minutes} minutes"
+    if minutes % (7 * DAY_MINUTES) == 0:
+        weeks = minutes // (7 * DAY_MINUTES)
+        return "every week" if weeks == 1 else f"every {weeks} weeks"
+    days, rest = divmod(minutes, DAY_MINUTES)
+    hours, mins = divmod(rest, 60)
+    parts = [f"{n} {unit}{'' if n == 1 else 's'}" for n, unit in ((days, "day"), (hours, "hour"), (mins, "minute")) if n]
+    if len(parts) == 1 and parts[0].startswith("1 "):
+        return "every " + parts[0][2:]                  # every day, every hour, every minute
+    return "every " + (parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1])
 
 
 def _own_minute(rule: Rule) -> int | None:

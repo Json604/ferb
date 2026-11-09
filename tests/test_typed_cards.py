@@ -138,7 +138,7 @@ def test_a_repeating_schedules_run_is_a_reminder_card_counting_down_to_its_next_
     [card] = _cards(result, "reminder")
     after = run(daemon, lambda: daemon.daemon.schedules.get(s.id))
     assert card["title"] == shown_name("", YC) and card["title"] != YC and card["kind"] == "schedule"
-    assert card["schedule_id"] == s.id and card["repeat"] == "every 180 minutes"
+    assert card["schedule_id"] == s.id and card["repeat"] == "every 3 hours"
     assert card["next_run"] == after.next_run.isoformat() and card["due"] == s.first_run.isoformat()
     assert set(card) == {"type", "title", "kind", "schedule_id", "due", "repeat", "next_run"}   # no deadline from words
     assert result["answer"].startswith("Reminder: you wanted to apply")                    # FERB's text under it

@@ -57,7 +57,7 @@ def test_random_times_are_drawn_per_day_from_the_seed_and_keep_off_other_runs() 
                           When(time="06:00"), "every", 360, random=({"count": 2, "start": "05:00", "end": "08:00"},)),
                     NOW, "seed-a")
     s = plan.schedule
-    assert s.when_said() == "every 360 minutes, plus 2 at random times between 05:00 and 08:00 each day"
+    assert s.when_said() == "every 6 hours, plus 2 at random times between 05:00 and 08:00 each day"
     day = _runs(s, NOW, 6)
     morning = [r for r in day if r.day == 8 and r.hour < 9 and r.minute + r.hour * 60 != 360]
     assert len(morning) == 2 and all(datetime(2026, 11, 8, 5, 0, tzinfo=IST) <= r <= datetime(2026, 11, 8, 8, 0,
@@ -97,7 +97,7 @@ def test_an_edit_changes_timing_and_words_in_place_and_checks_them() -> None:
     assert kept_words.missing == ["5:20 AM"]                   # the old words name a time the new timing drops
     edit = plan_edit(old, "check the visa site every 6 hours from 6:00 AM and twice between 5 and 8", timing, NOW,
                      "e")
-    assert edit.missing == [] and edit.schedule.when_said().startswith("every 360 minutes, plus 2 at random")
+    assert edit.missing == [] and edit.schedule.when_said().startswith("every 6 hours, plus 2 at random")
     words_only = plan_edit(old, "check the visa site and book any slot, at 5:20 AM", SimpleNamespace(repeat=""),
                            NOW, "e")
     assert words_only.rule == old.rule and words_only.missing == []
@@ -149,10 +149,10 @@ def test_the_visa_schedule_end_to_end(daemon: RunningDaemon) -> None:
     install(daemon, [_reply("Setting that up.", schedules=[visa])])
     evs = chat(daemon, VISA_WORDS)
     line = _lines(evs)[0]
-    assert line.startswith("🗓 Scheduled: Visa checks — every 360 minutes, plus 2 at random times between 05:00 and "
+    assert line.startswith("🗓 Scheduled: Visa checks — every 6 hours, plus 2 at random times between 05:00 and "
                            "08:00 each day, first on ")
     card = next(c for c in _reply_of(evs)["cards"] if c["type"] == "event")
-    assert card["repeat"].startswith("every 360 minutes, plus 2 at random")
+    assert card["repeat"].startswith("every 6 hours, plus 2 at random")
     s = run(daemon, daemon.daemon.schedules.all)[0]
     assert s.timing is not None and s.next_run == s.next_after(daemon.daemon.clock.now())
     stored = run(daemon, lambda: daemon.daemon.db.conn.execute("SELECT rule_json, intent_json FROM schedules")
@@ -205,10 +205,10 @@ def test_an_edit_keeps_the_schedule_and_shows_old_and_new(daemon: RunningDaemon)
               "timing": {"repeat": "every", "times": ["06:00"], "every_minutes": 360, "weekday": "", "random": []}}
     install(daemon, [_reply("Changing it.", schedule_changes=[change])])
     evs = chat(daemon, "make it every 6 hours from 6 am instead")
-    assert _lines(evs)[0].startswith("🗓 Changed: Visa check — now every 360 minutes (was every day at 05:20); next "
+    assert _lines(evs)[0].startswith("🗓 Changed: Visa check — now every 6 hours (was every day at 05:20); next "
                                      "run ")
     card = next(c for c in _reply_of(evs)["cards"] if c["type"] == "event")
-    assert card["changed"] and card["was_repeat"] == "every day at 05:20" and card["repeat"] == "every 360 minutes"
+    assert card["changed"] and card["was_repeat"] == "every day at 05:20" and card["repeat"] == "every 6 hours"
     after = run(daemon, daemon.daemon.schedules.all)
     assert [x.id for x in after] == [s.id] and after[0].request == "Check the visa site every 6 hours from 6:00 AM"
     assert after[0].next_run is not None and after[0].next_run.astimezone().strftime("%H:%M") in (
@@ -249,3 +249,13 @@ def test_the_planner_sees_the_schedule_list_and_the_owner_gets_it_as_a_card(daem
     assert card["count"] == 1 and card["schedules"][0]["name"] == "Visa check"
     assert card["schedules"][0]["repeat"] == "every day at 05:20" and card["schedules"][0]["next_run"]
     assert card["line"] in _reply_of(evs)["text"]
+
+
+# decision: ORCH-334
+def test_a_long_interval_is_said_in_days_and_hours_never_in_thousands_of_minutes() -> None:
+    """Owner 2026-11-09: a friend's Coursera schedule (Tuesdays 10:37 AM and Fridays 10:37 PM, saved as every 5,040
+    minutes from Tuesday 10:37) showed "Every 5040 minutes" on its card."""
+    plan = plan_new(_spec("check Coursera for due assignments on Tuesdays at 10:37 AM and Fridays at 10:37 PM",
+                          When(time="10:37"), "every", 5040), NOW, "seed")
+    said = plan.schedule.when_said()
+    assert "5040" not in said and "3 days and 12 hours" in said

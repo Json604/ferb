@@ -422,7 +422,7 @@ def test_a_schedule_made_before_ends_existed_runs_on_unchanged(tmp_path: Path, d
     for statement in dbmod._split_sql((dbmod.MIGRATIONS / "0052_schedule_ends.sql").read_text()):
         db.conn.execute(statement)                                   # re-runnable
     old = Schedules(db, clock, SequentialIds("x")).get("sc-old")
-    assert old is not None and old.until is None and old.describe() == "every 60 minutes"
+    assert old is not None and old.until is None and old.describe() == "every hour"
     assert old.next_after(first + timedelta(days=30)) is not None and not old.ends_after(first + timedelta(days=30))
     s = make_schedule(daemon, "check the build", "every hour check the build", Targets.of(),
                       daemon.daemon.clock.now() + timedelta(minutes=1), "every", 60)
