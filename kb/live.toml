@@ -4065,3 +4065,12 @@ request = "While it runs, send one message that stops it and asks something abou
 pass = "One reply: \"Stopped, as you asked.\" with what it had found, then FERB's answer to your question; the stop isn't told twice, and your next message's model.turn input shows it once."
 decisions = ["ORCH-596"]
 sitting = "after this change is installed"
+
+[LIVE-896]
+title = "A task that has to wait says until when and why, and FERB can tell you how much longer"
+area = "orchestration"
+surface = "FERB.app with this build; a task that has to wait for something (an export or sign-in email, a file being prepared)"
+request = "Start such a task and watch its status line in the notch and the Tasks page while it waits; then ask \"how much more time?\"."
+pass = "While it waits the status line reads \"waiting until HH:MM: “<what it waits for>”\" and goes back to its normal line when it wakes; no chat message per wait; FERB's answer names the wake time and the reason; the planner's model.turn input shows the task row's waiting field."
+decisions = ["ORCH-598", "ORCH-599"]
+sitting = "after this change is installed"

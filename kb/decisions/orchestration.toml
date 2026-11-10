@@ -1305,6 +1305,27 @@ why = "2026-11-09 23:55 (\"cancel the task man. btw wha do you need hte code for
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._control", "ferb/orchestrator/supervisor.py::Supervisor._record_reply", "ferb/orchestrator/supervisor.py::Supervisor._timeline", "ferb/orchestrator/supervisor.py::Supervisor._told_in_reply"]
 live = ["LIVE-895"]
 
+[ORCH-598]
+title = "A task that waits tells the owner it is waiting"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "also i think teh worker was usign time.until tool, how does it figure out till hen to wait for?? take example of thsi run and if its waiting then it has to notify me"
+words_source = "Owner 2026-11-10 on task 11e9c45f (13:37-13:47): it slept twice in time.sleep_until (2 and 3 min) while FERB.app showed only \"1 active task\"."
+rule = "While a task waits (its worker asleep in time.sleep_until, a plan wait step, a loop resting between rounds), the owner is told without asking: the task's status says it is waiting, until when and why, and returns to normal when it goes on; the planner is told the same. No chat message per wait."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor.task_sleeping"]
+live = ["LIVE-896"]
+
+[ORCH-599]
+title = "How a sleeping task's wait is shown: the live line, the preview and the planner's task row"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For ORCH-598. time.sleep_until hands its call's span to the daemon's sleep, which reads that call's recorded why (redacted at write). Supervisor.task_sleeping keeps until/reason per task tree and puts one live line on the task's stream: \"waiting until HH:MM: “reason”\" (printable, one line, 160 chars, redacted, quoted as the task's words), then \"working\" when it wakes. preview_status says the same; the planner's running row has waiting {until, reason (model-written)}, or a plan wait's or resting loop's preview line. The tool's description asks for a reason the owner reads."
+why = "The live line otherwise never shows model text (progress.py); this one reason is shown quoted and clipped so the owner sees why the task waits. A long-wait threshold for anything louder (a banner or chat line) is the owner's to set; none is invented."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor.task_sleeping", "ferb/orchestrator/supervisor.py::Supervisor.preview_status", "ferb/orchestrator/supervisor.py::Supervisor._task_state", "ferb/daemon/areas/schedules.py::Schedules._sleep_until", "ferb/clock/tools.py::TimeSleepUntil"]
+live = ["LIVE-896"]
+
 [ORCH-597]
 title = "A scheduled run is given the owner's own messages beside the planner's instructions"
 by = "agent"

@@ -48,6 +48,7 @@ from ferb.orchestrator.steering import (CONVERSATION_ASK, FERB_CHECKS, JUST_ENDE
 from ferb.sanitize.formats import hidden_note
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
+from ferb.orchestrator import progress
 from ferb.orchestrator.plans import (DONE, SINGLE, Part, Plan, SendScope, Step, answer_steps, inventory, part_problems,
                                      problems as plan_problems, resolve_inputs)
 from ferb.orchestrator.parts import Card, composed, done_line
@@ -196,6 +197,12 @@ SUMMARY_KIND = "chat.summary"      # FERB's running summary of the older convers
 # L3: what the owner's chat message can answer, by the question's id from the planner's context, and FERB's own words
 # when it can't be used as an answer. Plain words: never an id, a command or a method (I12).
 ROUTABLE_QUESTIONS = frozenset({"owner.ask", "plan.ask"}) | FERB_CHECKS
+WAIT_REASON_CHARS = 160                 # ORCH-598: a sleeping worker's reason in its task's status, at most
+
+
+def sleeping_line(asleep: dict[str, str]) -> str:
+    """ORCH-598: a sleeping task's status line: the time it wakes, then the worker's reason quoted as its own words."""
+    return f"waiting until {asleep['until']}" + (f": “{asleep['reason']}”" if asleep.get("reason") else "")
 # ORCH-595: the hidden inputs (a code, a secret, the Mac's password): a card names its kind, never a value
 SECRET_CARDS = frozenset({"owner_login_code", "owner_admin_password", "owner_secret"})
 ANSWERED = "Got your answer."
@@ -1024,6 +1031,8 @@ class Supervisor(WorkerRuns):
         self._questions: dict[str, str] = {}      # tree id -> the question its latest open wait asked
         # ORCH-595: tree id -> its latest tool step as code wrote its live line (tool, where, when), while it runs
         self._last_steps: dict[str, dict[str, str]] = {}
+        # ORCH-598: tree id -> its worker's time.sleep_until while it sleeps: until when and the worker's reason
+        self._sleeping: dict[str, dict[str, str]] = {}
         self._stalled: set[str] = set()                                 # worker ids the watchdog cancelled
         self._retrying: dict[str, tuple[str, str]] = {}   # worker id -> (runtime, last retry) since its last progress
         self._connection: dict[str, ConnectionNotice] = {}   # worker id -> its run's connection lines (fix wave 7)
@@ -1967,6 +1976,13 @@ class Supervisor(WorkerRuns):
                 row["waiting_on_cards"] = cards
             if (step_at := self._last_steps.get(key)) is not None:
                 row["last_tool_step"] = step_at
+            # ORCH-598: asleep in time.sleep_until (until when; the worker's reason, model-written), or a plan wait or
+            # a loop resting between rounds, as its preview says it
+            if (asleep := self._sleeping.get(key)) is not None:
+                row["waiting"] = {"until": asleep["until"], "reason (the worker's words, model-written)":
+                                  asleep["reason"]}
+            elif (status := self.preview_status(key, "")) is not None and status[0] == "waiting":
+                row["waiting"] = status[1]
             if last is not None:
                 row["last_report"] = first_line(last.get("summary"))
             if tree.spec.plan:              # this plan's steps (a replaced plan's kept results aren't steps: L11)
@@ -4367,6 +4383,26 @@ class Supervisor(WorkerRuns):
         tree = self._tree_of.get(tree_id)
         return self._card_payload(tree) if getattr(tree, "card", None) is not None else None
 
+    def task_sleeping(self, task_id: str, until: datetime | None, why: str) -> None:
+        """ORCH-598: a worker of this task went to sleep (time.sleep_until) until `until`, for `why` (its call's
+        reason, model-written), or woke (`until` None). The task's live line says "waiting until HH:MM: “why”" for the
+        whole sleep and "working" when it wakes (one line each, never a chat message); its preview and the planner's
+        task state read the same record. The reason is one line, printable, clipped and redacted, quoted as the task's."""
+        root = self.tasks.tree_of(task_id) or task_id.split(".", 1)[0]
+        if self._tree_of.get(root) is None:
+            return
+        if until is None:
+            if self._sleeping.pop(root, None) is None:
+                return
+            text = progress.WORKING
+        else:
+            reason = clip(" ".join(printable(why).split()), WAIT_REASON_CHARS)
+            self._sleeping[root] = self.gateway.redact({"until": f"{until.astimezone():%H:%M}",
+                                                        "until_at": until.isoformat(), "reason": reason})
+            text = sleeping_line(self._sleeping[root])
+        self._tell_tree(root, {"type": "progress", "step_task_id": task_id, "text": self.gateway.redact(text),
+                               "started_at": self.clock.now().isoformat()})
+
     def preview_status(self, root: str, worker: str) -> tuple[str, str] | None:
         """What a task is doing now, for its live preview (APP-404), from FERB's own records: done
         (the task isn't running), asking (a question of it waits for the owner: its words), paused, waiting (a plan
@@ -4380,6 +4416,9 @@ class Supervisor(WorkerRuns):
             return ("asking", "Asking you: " + clip(" ".join(str(asked.summary or asked.reason).split()), 160))
         if self.task_paused(root):
             return ("paused", "Paused")
+        if (asleep := self._sleeping.get(root)) is not None:          # ORCH-598: a worker's time.sleep_until
+            text = sleeping_line(asleep)
+            return ("waiting", text[:1].upper() + text[1:])
         try:
             steps = {s.id: s for s in self.plans.load(root)['plan'].steps}
             states = self.plans.steps(root)

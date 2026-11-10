@@ -196,13 +196,21 @@ class Schedules:
             seen.add(earlier)
         return first
 
-    async def _sleep_until(self, worker_id: str, task_id: str, at: datetime) -> str:
-        """time.sleep_until: a durable sleep timer; waiting on it is the owner's kind of wait (not a stall)."""
+    async def _sleep_until(self, worker_id: str, task_id: str, at: datetime, span_id: str | None = None) -> str:
+        """time.sleep_until: a durable sleep timer; waiting on it is the owner's kind of wait (not a stall). ORCH-598:
+        while it sleeps, the task's status says until when and the worker's reason (its call's `why`, as the call's
+        span recorded it, redacted)."""
         assert self.timers is not None
         t = self.timers.add("sleep", at, "", task_id=task_id)
         ev = self._sleepers[t.id] = asyncio.Event()
+        why = ""
+        if span_id and self.db is not None:
+            row = self.db.conn.execute("SELECT json_extract(input_json, '$.why') FROM spans WHERE id = ?",
+                                       (span_id,)).fetchone()
+            why = str(row[0] or "") if row is not None else ""
         if self.supervisor is not None:
             self.supervisor.activity.waiting(worker_id, True)
+            self.supervisor.task_sleeping(task_id, at, why)
         try:
             await ev.wait()
             return str(t.id)
@@ -210,6 +218,7 @@ class Schedules:
             self._sleepers.pop(t.id, None)
             if self.supervisor is not None:
                 self.supervisor.activity.waiting(worker_id, False)
+                self.supervisor.task_sleeping(task_id, None, "")
             self.timers.cancel(t.id)
 
     def _schedule_create(self, spec: Any, own_words: str, request_id: str, origins: set[str],

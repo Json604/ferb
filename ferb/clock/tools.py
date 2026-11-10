@@ -73,7 +73,9 @@ class TimeSetTimer(_Base):
 class TimeSleepUntil(_Base):
     name = "time.sleep_until"
     description = ("Pause this task until a time, e.g. to wait for something to be ready. Within the task's time "
-                   "limit; waiting doesn't count as being stuck. " + WHEN_HELP)
+                   "limit; waiting doesn't count as being stuck. Say in why what you are waiting for, in a few words "
+                   "the owner reads: while it waits, the task's status shows the time it wakes and that reason. "
+                   + WHEN_HELP)
     origin = "ferb"                                    # FERB's own clock: when the sleep ended
 
     class Input(When):
@@ -98,5 +100,5 @@ class TimeSleepUntil(_Base):
         sleep = self.sleep()
         if sleep is None:
             return _err("timers aren't available")
-        await sleep(ctx.worker_id, ctx.task_id, at)
+        await sleep(ctx.worker_id, ctx.task_id, at, ctx.span_id)   # ORCH-598: its call's `why` is the shown reason
         return ToolResult({"woke_at": self.now().astimezone().isoformat(timespec="seconds")})

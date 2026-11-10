@@ -1,7 +1,8 @@
 """Owns the live progress line (L8): what a task is doing right now, in a few plain words, built by code from the tool
 and its target. Must not use model text: the worker's `why`, typed text, message bodies, commands, queries, page
 content and its own names for apps never appear, so injected text can't speak through the line. The one exception is a
-file's name the worker chose (its basename). Describes; never gates or judges a call.
+file's name the worker chose (its basename). Describes; never gates or judges a call. (Outside these lines, a task asleep
+in time.sleep_until shows its worker's reason quoted as the task's own words, one clipped line: ORCH-598.)
 
 The target is the page's host (parsed as the browser opens it), an app's name as FERB knows it (`app_name`: the Mac's
 app list, never the worker's argument) or a file's name; every other argument is ignored. A tool not named here is

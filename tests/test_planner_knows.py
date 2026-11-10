@@ -194,3 +194,42 @@ def test_a_scheduled_run_is_given_the_owners_own_messages_beside_the_planners_in
     worker = next(c for _, k, c, _ in script.contexts if k == "worker")
     assert "This scheduled run's instructions" in worker and "Owner's complete original request" not in worker
     assert SCHEDULE_MESSAGES in worker and words in worker.split(SCHEDULE_MESSAGES, 1)[1]
+
+
+# decision: ORCH-598, ORCH-599
+def test_a_sleeping_task_says_until_when_and_why_to_the_owner_and_the_planner(daemon: RunningDaemon) -> None:
+    """Owner 2026-11-10 ("if its waiting then it has to notify me"): task 11e9c45f slept twice in time.sleep_until
+    waiting for an export email while the owner saw only "1 active task" and the planner had no fact of it. The live
+    line says until when and the worker's reason for the whole sleep and goes back to working when it wakes; a message
+    sent meanwhile gets the same in the task's row."""
+    import threading
+    why = "Waiting for Claude to email the new export link"
+
+    def sleeps(token: str) -> str:
+        assert not tool(daemon.sock, token, "time.sleep_until", in_minutes=2, why=why)["is_error"]
+        return json.dumps(report("done", "Downloaded all six files."))
+    install(daemon, [sup("task", "Downloading.", task("Download the six export files"))], {"worker": sleeps})
+    events: list[dict[str, object]] = []
+
+    def stream() -> None:
+        client = Client(daemon.sock, timeout=60)
+        try:
+            events.extend(client.stream("chat.send", {"session_id": "s1", "text": "download the six export files"}))
+        finally:
+            client.close()
+    first = threading.Thread(target=stream, daemon=True)
+    first.start()
+    sv = daemon.daemon.supervisor
+    _until(lambda: bool(sv._sleeping))
+    wake = (daemon.daemon.clock.now() + timedelta(minutes=2)).astimezone()
+    script = install(daemon, [sup("reply", f"It is waiting until {wake:%H:%M}.")])
+    chat(daemon, "how much more time???", session="s2")
+    [row] = _tasks_block(_planner(script))["running"]                  # type: ignore[call-overload]
+    assert row["waiting"] == {"until": f"{wake:%H:%M}", "reason (the worker's words, model-written)": why}
+    [tree] = [k for k, t in sv._tree_of.items() if k == t.id]
+    assert run(daemon, lambda: sv.preview_status(tree, "")) == ("waiting", f"Waiting until {wake:%H:%M}: “{why}”")
+    fire(daemon, 121)
+    first.join(30)
+    lines = [str(e.get("text")) for e in events if e.get("type") == "progress"]
+    waiting = lines.index(f"waiting until {wake:%H:%M}: “{why}”")
+    assert "working" in lines[waiting + 1:] and not sv._sleeping
