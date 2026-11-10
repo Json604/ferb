@@ -50,43 +50,29 @@ def test_catalog_16_network_rule_is_never_liftable(tmp_path):
     assert not p.liftable('network')
 
 
-def test_catalog_30_test_switch_is_not_a_worker_rpc():
-    from ferb.daemon.auth import Role, allowed
-    # The CLI-only switch restricts sends; it is not an escape or worker approval bypass.
-    assert allowed(Role.CLI, 'test.mode') and not allowed(Role.MCP_SHIM, 'test.mode')
-
-
-def test_manual_test_mode_status_is_read_only_and_send_gate_is_exact(daemon):
-    from ferb.cli.client import Client
-    client = Client(daemon.sock)
-    try:
-        assert client.call('test.mode', {'status': True}) == {'enabled': False, 'allow_send': [], 'questions': 'ask'}
-        assert client.call('test.mode', {'allow_send': ['owner@controlled.test']}) == {
-            'enabled': True, 'allow_send': ['owner@controlled.test'], 'questions': 'ask'}
-        assert client.call('test.mode', {'status': True})['allow_send'] == ['owner@controlled.test']
-        assert client.call('test.mode', {'off': True}) == {'enabled': False, 'allow_send': [], 'questions': 'ask'}
-    finally:
-        client.close()
-
-
-def test_manual_test_mode_survives_daemon_restart(home):
+# decision: DMN-581, DMN-582
+def test_an_older_ferbs_test_mode_is_gone_after_the_upgrade(home):
+    """Test mode is removed (owner 2026-11-10). A config an older FERB left with test mode on (questions recorded, a
+    send allowlist) starts with it simply gone: the key is removed once and journaled, nothing reads it, and an older
+    script's test.mode call gets the same refusal as any method FERB doesn't have."""
+    from ferb.cli.client import Client, RpcError
+    from ferb.config import TEST_MODE_DECIDED, Config
     from tests.conftest import RunningDaemon
-    from ferb.cli.client import Client
-    first = RunningDaemon(home, watch_owner_input=False)
-    client = Client(first.sock)
+    Config(home).set('test_mode', 'state', {'enabled': True, 'allow_send': ['owner@controlled.test'],
+                                            'questions': 'record'})
+    d = RunningDaemon(home, watch_owner_input=False)
+    client = Client(d.sock)
     try:
-        client.call('test.mode', {'allow_send': ['owner@controlled.test'], 'questions': 'record'})   # GATE-546
+        assert d.daemon.config.section('test_mode') == {} and '[test_mode]' not in (home / 'config.toml').read_text()
+        async def journaled():
+            return [e.data for e in d.daemon.journal.of_kind('config.upgraded', 'upgrade', TEST_MODE_DECIDED)]
+        upgraded = d.run(journaled())
+        assert not hasattr(d.daemon.gateway, 'test_send_allowlist') and not hasattr(d.daemon.gateway, 'test_questions')
+        assert upgraded == [{'upgrade': TEST_MODE_DECIDED, 'changes': [{'key': 'test_mode.state', 'to': None}]}]
+        for params in ({'status': True}, {'off': True}, {}):
+            with pytest.raises(RpcError, match='test.mode not allowed'):
+                client.call('test.mode', params)
+        assert client.call('ping') is not None
     finally:
         client.close()
-        first.stop()
-    second = RunningDaemon(home, watch_owner_input=False)
-    client = Client(second.sock)
-    try:
-        assert client.call('test.mode', {'status': True}) == {
-            'enabled': True, 'allow_send': ['owner@controlled.test'], 'questions': 'record'}
-        client.call('test.mode', {'off': True})
-        assert second.daemon.config.get('test_mode', 'state') == {'enabled': False, 'allow_send': [],
-                                                                  'questions': 'ask'}
-    finally:
-        client.close()
-        second.stop()
+        d.stop()

@@ -228,42 +228,14 @@ class Chat:
                 "message": mark(text).for_model, "reply": told["text"], **({"hidden": hidden} if hidden else {})}
 
     def _test_run_tag(self, given: Any) -> dict[str, str] | None:
-        """GATE-550: a test run's tag on a chat message, {run, connection}, taken only while test mode records
-        questions (the run tool's chats); anything else is refused, never silently dropped."""
+        """GATE-550: a developer run's tag on a chat message, {run, connection} (the run tool's chats: kept apart and
+        never learned from); anything malformed is refused, never silently dropped. It changes no question or send."""
         if given is None:
             return None
-        if self.gateway is None or not self.gateway.test_questions:
-            raise FerbError("test_run needs test mode with questions recorded")
         if not isinstance(given, dict) or not all(isinstance(given.get(k), str) and given[k].strip()
                                                   for k in ("run", "connection")):
             raise FerbError("test_run must be {run, connection}")
         return {"run": given["run"].strip(), "connection": given["connection"].strip()}
-
-    async def _test_mode(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        if self.gateway is None:
-            raise FerbError("the tool gateway is not ready")
-        if params.get("status") is True:
-            return {"enabled": self.gateway.test_send_allowlist is not None,
-                    "allow_send": sorted(self.gateway.test_send_allowlist or ()),
-                    "questions": "record" if self.gateway.test_questions else "ask"}
-        questions = params.get("questions", "ask")         # GATE-546: "record" only with the send allowlist on
-        if questions not in ("ask", "record"):
-            raise FerbError('questions must be "ask" or "record"')
-        allowed = params.get("allow_send", [])
-        if not isinstance(allowed, list) or not all(isinstance(x, str) and x.strip() for x in allowed):
-            raise FerbError('allow_send must be a list of exact recipients or "SITE @ACCOUNT" entries for posts')
-        from ferb.daemon.gateway import allowlist_problem
-        problems = [p for p in (allowlist_problem(x) for x in allowed) if p]
-        if problems:
-            raise FerbError("; ".join(problems))
-        next_allowlist = None if params.get("off") is True else set(allowed)
-        record = {"enabled": next_allowlist is not None, "allow_send": sorted(next_allowlist or ()),
-                  "questions": questions if next_allowlist is not None else "ask"}
-        self.config.set('test_mode', 'state', record)  # one atomic config write before the running state changes
-        self.gateway.test_send_allowlist = next_allowlist
-        self.gateway.test_questions = record["questions"] == "record"
-        self._journal().append("test.mode", record)
-        return record
 
     def _resolve_approval(self, approval_id: str, granted: bool, choice: int | None = None,
                           text: str | None = None) -> dict[str, Any]:

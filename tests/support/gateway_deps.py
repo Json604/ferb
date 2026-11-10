@@ -15,6 +15,6 @@ def stub_deps(**overrides: Any) -> GatewayDeps:
         journal_problem=lambda kind, data: None, profile_name=lambda browser, folder: folder,
         profile_account=lambda browser, folder: "", disturbance=None,
         username_sources=lambda: None, owner_contacts=lambda: frozenset(), on_path=lambda path, task_id: None, route_question=None,
-        shadow_action=None, test_send_allowlist=None, test_questions=False)
+        shadow_action=None)
     values.update(overrides)
     return GatewayDeps(**values)

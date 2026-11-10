@@ -194,7 +194,7 @@ class _Base:
 
     def _spec(self, kind: str, args: BaseModel, content: str | None = None) -> ActionSpec:
         """The input's kind on the tab's site, with the page the tab shows (a fact: it names and keys a delete the
-        worker declares, and lets test mode tell a page from an app)."""
+        worker declares)."""
         page = self.driver.tab_url(str(getattr(args, "tab", ""))) or None
         return ActionSpec(kind, Target(site=_host(page), page=page), content=content)
 

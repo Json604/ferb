@@ -55,8 +55,8 @@ patches. Judge designs by quality, the owner's goals and security, never by buil
 15. Acceptance is the owner's live verdict. A passing offline test never proves a live workflow.
 16. Live tests are real scenarios on owner-controlled surfaces (FERB's Gmail and Discord, WhatsApp "message yourself"
     and a self-only group, kartikey.xyz pages with the request-logging server, disposable files). Tests reach real
-    third parties only in a run the owner approves; tests that can send enable the test-mode send allowlist. Tests
-    close only what they created; no installed-host rewrites or global process kills.
+    third parties only in a run the owner approves. Tests close only what they created; no installed-host rewrites or
+    global process kills.
 17. Do not install, restart or stop the running FERB.app, its daemon or the owner's browsers without the owner's
     authorization; the owner installs FERB.app builds (a checkout's `ferb setup --update` refuses while FERB.app's
     service is registered). Never commit secrets.

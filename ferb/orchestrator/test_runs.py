@@ -1,7 +1,7 @@
 """Own which chats, requests and tasks belong to a test run (GATE-550): the tag `test_run` {run, connection} on their
-chat message, which chat.send accepts only while test mode records questions. Code keeps those records out of
-learning (memory captures, episode cards, summary folds, the daily distill) and out of other runs' context (the
-activity trail). Must not judge content: the tag is structure."""
+chat message, which the developer run tool (scripts/question_run.py) sets; it changes no question or send. Code keeps
+those records out of learning (memory captures, episode cards, summary folds, the daily distill) and out of other
+runs' context (the activity trail). Must not judge content: the tag is structure."""
 
 import json
 import weakref

@@ -522,7 +522,7 @@ def test_a_site_ferb_knows_from_an_earlier_request_still_asks_outside_the_scope(
 
 def test_a_declared_effect_never_drops_a_send_the_capability_declared(daemon: RunningDaemon) -> None:
     """I3: mac.click purpose=send plus effect=destroy keeps both kinds: the floor asks both, no scope covers it, and
-    test mode sees the send."""
+    the owner's No to that one question leaves the click undone."""
     from ferb.core.types import ActionSpec, Target
     from ferb.policy.rules import Kind, declare, declared_kinds
     from ferb.policy.standing import StandingPermissions
@@ -536,9 +536,12 @@ def test_a_declared_effect_never_drops_a_send_the_capability_declared(daemon: Ru
     assert rules == ["floor:delete_permanent", "floor:new_recipient"]
     tap = DeclaredClick("probe.click_send")
     grant, _ = campaign_grant(daemon, "reply on WhatsApp", [tap])
-    daemon.daemon.gateway.test_send_allowlist = {"net.whatsapp.whatsapp"}
-    result = gateway_tool_call(daemon, grant, "probe.click_send", effect="destroy")
-    assert result["is_error"] and "test-mode send allowlist" in result["content"]["error"] and tap.calls == 0
+    owner = _answering(daemon, yes=False)
+    try:
+        result = gateway_tool_call(daemon, grant, "probe.click_send", effect="destroy")
+    finally:
+        owner.stop()
+    assert result["is_error"] and tap.calls == 0 and len(ferb_questions(daemon)) == 1
 
 
 def test_send_means_delivering_the_owners_words_not_signing_in(daemon: RunningDaemon) -> None:
@@ -645,23 +648,6 @@ def test_one_answer_covers_an_account_however_it_is_written(daemon: RunningDaemo
     assert len(browser.clicks()) == 2 and len(ferb_questions(daemon)) == 1
 
 
-def test_test_mode_lets_a_post_through_only_to_an_allowed_site_and_account(daemon: RunningDaemon) -> None:
-    """Rule 22 (controller ruling): an allowlist entry names a site and account; the page's host is a fact."""
-    grant, browser = campaign_grant(daemon, WORDS)
-    stand(daemon, grant.task_id, SendScope(capability="browser.act", identity="owner", site="x.com",
-                                           account="@samxyz", recipients=[], content=None),
-          SendScope(capability="browser.act", identity="owner", site="x.com", recipients=[], content=None),
-          SendScope(capability="browser.act", identity="owner", site="www.linkedin.com", recipients=[], content=None))
-    daemon.daemon.gateway.test_send_allowlist = {"x.com @samxyz"}
-    ok = _post(daemon, grant, "https://x.com/compose/post", effect="send", destination={"account": "@SamXYZ"})
-    other = _post(daemon, grant, "https://x.com/compose/post", effect="send", destination={"account": "@other"})
-    bare = _post(daemon, grant, "https://x.com/compose/post", effect="send")
-    elsewhere = _post(daemon, grant, "https://www.linkedin.com/feed/", effect="send")
-    assert not ok["is_error"] and browser.clicks() == ["https://x.com/compose/post"]
-    for refused in (other, bare, elsewhere):
-        assert refused["is_error"] and "test-mode send allowlist" in refused["content"]["error"]
-
-
 # ---------- fix round 2 ----------
 
 def test_a_delegated_conversation_reply_is_guarded_by_what_the_tool_targets(daemon: RunningDaemon) -> None:
@@ -703,17 +689,6 @@ def test_one_answer_covers_a_site_however_the_host_is_written(daemon: RunningDae
     finally:
         owner.stop()
     assert len(browser.clicks()) == 2 and len(ferb_questions(daemon)) == 1
-
-
-def test_test_mode_refuses_an_allowlist_entry_that_is_a_url(daemon: RunningDaemon) -> None:
-    """Nit: an entry is an exact recipient or "SITE @ACCOUNT"; a URL is refused with a clear message."""
-    c = Client(daemon.sock)
-    try:
-        with pytest.raises(Exception, match="not a URL"):
-            c.call("test.mode", {"allow_send": ["https://x.com/samxyz"]})
-        assert c.call("test.mode", {"allow_send": ["x.com @samxyz", "ferb.helper@mail.example"]})["enabled"]
-    finally:
-        c.close()
 
 
 # ---------- with Task 7: a schedule's recorded scope covers its runs' declared posts (D30, L3) ----------

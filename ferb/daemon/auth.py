@@ -27,7 +27,7 @@ class Role(Enum):
 # Fixed method list per role. New RPC methods declare their allowed roles here, never per-connection.
 METHODS: dict[Role, frozenset[str]] = {
     Role.CLI: frozenset({"ping", "logs.subscribe", "trace.get", "stop.engage", "stop.lift",
-                         "doctor.check", "clipboard.request", "automation.request", "chat.send", "test.mode", "setup.persona",
+                         "doctor.check", "clipboard.request", "automation.request", "chat.send", "setup.persona",
                          "chat.approve", "chat.answer", "chat.correct", "identity.check", "identity.pair", "browsers.list",
                          "browsers.pair",
                          "browsers.unpair", "browsers.installed", "ps.list", "ps.kill", "ps.attach", "ps.send", "sense.pause", "sense.resume", "sense.status",

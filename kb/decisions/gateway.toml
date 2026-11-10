@@ -185,7 +185,7 @@ title = "A submitted form is a sink question only when it carries the owner's pr
 by = "agent"
 date = 2026-10-30
 status = "active"
-rule = "Every submitted form goes to the sink rule only: asked when a value typed or chosen into that tab carries the owner's private data by provenance, after outside content was read, to the form's action host (else the page's) that the owner neither named in this request nor approved. A submit with no private value never asks (GET or POST) and never raises the new-recipient question. The test-mode allowlist covers fact payments, not fact form submits."
+rule = "Every submitted form goes to the sink rule only: asked when a value typed or chosen into that tab carries the owner's private data by provenance, after outside content was read, to the form's action host (else the page's) that the owner neither named in this request nor approved. A submit with no private value never asks (GET or POST) and never raises the new-recipient question."
 paths = ["ferb/policy/confirm.py::text_carries_private", "ferb/store/spans.py"]
 legacy = "notes/gateway.md Rulings (step 6b): facts to kinds, form submits (coordinator ruling)"
 
@@ -741,16 +741,17 @@ superseded_by = "GATE-549"
 words = "Yes-for-this-task-only (never saved as known) for URL-sink questions; run inside the installed FERB, no cleanup"
 words_source = "Owner 2026-11-08, choosing option A of the real-task question test (questions recorded with card and rule), as relayed by the coordinator"
 rule = "With test mode on and its questions set to record, every question FERB would ask in a task is recorded with its card and rules and answered by a fixed table in code, never by a model or the owner: the URL sink's question Yes for that task tree only (never a known destination); every other FERB question No (payment, account security, deletion, terminal, certificates, foreground, forms, the rest); a task's own question declined; a retry No. Runs happen in the installed FERB with no clean-up."
-paths = ["ferb/daemon/gateway.py::TEST_YES_RULES", "ferb/daemon/areas/chat.py::Chat._test_mode"]
+paths = ["ferb/daemon/gateway.py::Gateway.ask_confirmation"]
 
 [GATE-546]
 title = "The question recorder: its answer table, one hook per asking path, a run script"
 by = "agent"
 date = 2026-11-08
-status = "active"
+status = "superseded"
+superseded_by = "DMN-581"
 rule = "For GATE-549 (test.mode questions \"record\", only with the send allowlist on). Every question is recorded as an owner.ask span with its card, needs and answer, never asked. Table: the URL sink's question Yes for that tree only (never a known destination); every other FERB question No; FERB's own option check-ins that wait in the supervisor (attempt-5, a closed tab, a paused loop, a runtime offer) No; a task's question declined; a retry No; the paused-task mention and the browsing choice not asked (stays paused; setting kept). scripts/question_run.py runs a task list."
 why = "The table is the question hunter's design (fq-hunt.md section C), relayed by the coordinator, not the owner's words: so no test run ever waits, and the URL sink's Yes lets research tasks go on past it."
-paths = ["ferb/daemon/gateway.py::Gateway.ask_confirmation", "ferb/daemon/gateway.py::Gateway._ask_owner", "ferb/orchestrator/supervisor.py::Supervisor._test_reply", "ferb/daemon/areas/browsers.py::Browsers._browsing", "scripts/question_run.py"]
+paths = ["ferb/daemon/gateway.py::Gateway.ask_confirmation", "ferb/daemon/gateway.py::Gateway._ask_owner", "ferb/daemon/areas/browsers.py::Browsers._browsing", "scripts/question_run.py"]
 
 [GATE-547]
 title = "API keys: older items moved whenever they exist, one lock per provider, the Check is FERB.app's only"
@@ -776,12 +777,13 @@ untestable = "The Keychain's access list and prompts: the owner's Mac only; test
 title = "Real-task question tests run inside the installed FERB with all the owner's profiles"
 by = "owner"
 date = 2026-11-08
-status = "active"
+status = "superseded"
+superseded_by = "DMN-581"
 supersedes = ["GATE-545"]
 words = "test inside my real febr that is currenlty installed, anyways im going to do a fresh isntall of ferb later. BUt this time we'll preserve al lthis data in a separte folder ir somerhing bfor use to look up later. JSUT AMKE SURE TAH TFERB DOESNT CLOSESE MY TABS - i thinkgi it wont cause it already performs in its own griups but just my concern / we can use all my prifiles for this test whatever ferb needs. we can go till payment pages too and all othe r extremes to chekc ferb"
 words_source = "Owner 2026-11-08: separate test FERB or the real one (first part); and the earlier authorization for the run (after the slash)"
 rule = "Supersedes GATE-545. The real-task question test runs inside the owner's installed FERB, using every profile FERB needs, as far as payment pages and other extremes; its data is kept in a separate folder for later lookup (the owner reinstalls FERB afterwards). FERB never closes the owner's tabs, only its own (HAND-201). How questions are answered in it is GATE-546."
-paths = ["ferb/daemon/areas/chat.py::Chat._test_mode"]
+paths = ["scripts/question_run.py"]
 untestable = "The run itself is the owner's, on their installed FERB and profiles; the recorder's behaviour is tested under GATE-546."
 
 [GATE-550]
@@ -798,7 +800,8 @@ paths = ["ferb/orchestrator/test_runs.py::TestRuns", "scripts/question_run.py"]
 title = "How test runs are kept apart: one tag on the chat message, checked where records are learned or read"
 by = "agent"
 date = 2026-11-08
-status = "active"
+status = "superseded"
+superseded_by = "GATE-577"
 rule = "For GATE-550 and GATE-552. chat.send takes test_run {run, connection} only while test mode records questions; it is stored on the chat.message row and TestRuns answers by session, request or task. Per chat already: chat.history, task.evidence, the running summary (a run's own chat folds as usual). Gated by the tag: trail rows of a test task aren't written; the daily distill skips test messages and outcomes; remember/forget entries are dropped (test_run.memory_skipped); no episode card. Episode rows stay (the trace's record)."
 why = "The run script adds --turn-limit (default 20 min, stopped through task.stop and recorded), --cost-cap (unset by default) and --chat-per-task; scripts/question_compare.py puts connections side by side."
 paths = ["ferb/orchestrator/test_runs.py", "ferb/daemon/areas/chat.py::Chat._test_run_tag", "ferb/sense/trail.py::Trail.record", "ferb/memory/summary.py::_journal", "scripts/question_compare.py"]
@@ -827,10 +830,11 @@ paths = ["scripts/question_run.py::send", "scripts/question_compare.py::tangled"
 title = "The run tool turns test mode off whenever it exits and says so; --enable is needed per run"
 by = "agent"
 date = 2026-11-09
-status = "active"
+status = "superseded"
+superseded_by = "GATE-577"
 rule = "For GATE-546. scripts/question_run.py calls test.mode {off: true} on every exit it can catch (its end, Ctrl-C, an unhandled error, p.error after start, SIGTERM and SIGHUP raised as SystemExit) and prints whether test mode is off, or that it couldn't be turned off and to turn it off in Settings. A run needs --enable with the send allowlist each time; test mode is never left on for the next run."
 why = "2026-11-08 a cancelled run left test mode on; on 2026-11-09 07:12 a real scheduled visa run's password question was declined by the recorder."
-paths = ["scripts/question_run.py::main", "scripts/question_run.py::test_mode_off", "scripts/question_run.py::_exit_on_signal"]
+paths = ["scripts/question_run.py::main", "scripts/question_run.py::_exit_on_signal"]
 
 [GATE-555]
 title = "Provenance finds an email address or a link inside markup, by shape"
@@ -896,7 +900,7 @@ title = "FERB's built questions redact each inserted value and mark the result: 
 by = "agent"
 date = 2026-11-09
 status = "active"
-rule = "For GATE-564. Confirmation cards and lines, the why line, hidden-input cards and questions, a retry's card and quoted question, and test mode's record of a hidden-input question redact each inserted value by itself (Gateway.value) and mark the finished text redacted (Gateway.built), so the record, events and chat.status keep FERB's words whole. The mark is the redactor's own, trusted only under the current known values. A retry line whose ledger targets sit inside its sentence is still redacted whole."
+rule = "For GATE-564. Confirmation cards and lines, the why line, hidden-input cards and questions, a retry's card and quoted question redact each inserted value by itself (Gateway.value) and mark the finished text redacted (Gateway.built), so the record, events and chat.status keep FERB's words whole. The mark is the redactor's own, trusted only under the current known values. A retry line whose ledger targets sit inside its sentence is still redacted whole."
 paths = ["ferb/daemon/gateway.py::Gateway.value", "ferb/daemon/gateway.py::Gateway.built", "ferb/daemon/gateway.py::Gateway._set_card", "ferb/daemon/gateway.py::Gateway._ferb_line", "ferb/daemon/hidden_input.py::HiddenInput.secret"]
 live = ["LIVE-852"]
 
@@ -1024,10 +1028,11 @@ live = ["LIVE-867"]
 title = "The run tool starts the next task in a fresh chat when FERB's question is left open"
 by = "agent"
 date = 2026-11-10
-status = "active"
+status = "superseded"
+superseded_by = "GATE-577"
 rule = "Refines GATE-553 and GATE-554. When FERB asks again after the run tool's MAX_CLARIFY (3) declines, no decline follows and the question is recorded as left unanswered (UNANSWERED); FERB has no RPC that withdraws its question in a chat, so the next task of the run starts in a chat of its own (the run's session with a -N suffix); later turns of the same task stay in its chat. test_mode_off tries once more on a new connection when the run's own one broke."
 why = "Live 2026-11-10 (Codex): after the declines the runner sent the hotel and table tasks into the chat where FERB's Amazon question was still open, and FERB read them with it, so neither ran."
-paths = ["scripts/question_run.py::send", "scripts/question_run.py::run", "scripts/question_run.py::test_mode_off", "scripts/question_run.py::UNANSWERED"]
+paths = ["scripts/question_run.py::send", "scripts/question_run.py::run", "scripts/question_run.py::UNANSWERED"]
 
 [GATE-575]
 title = "With no amount read on the page, the payment card shows the AI's amount, marked unconfirmed"
@@ -1049,3 +1054,13 @@ rule = "Refines GATE-575. With no amount code read, the AI's declared amount is 
 why = "Owner 2026-11-10 about GATE-575: \"then whats the fix for it??\". Amazon's checkout shows its total only as page text (\"Order Total: ₹70.00\" beside other amounts); picking the total by its words would be a keyword rule (rule 4), so code checks the AI's number against the page's amounts instead."
 paths = ["ferb/act/browser/ext_bridge.py::page_amounts", "ferb/core/types.py::ActionFacts", "ferb/policy/payments.py::need", "ferb/policy/confirm.py::unconfirmed_amount", "ferb/policy/confirm.py::_card"]
 live = ["LIVE-876"]
+
+[GATE-577]
+title = "The run tool only sends and records; a run's chats stay apart by their tag alone"
+by = "agent"
+date = 2026-11-10
+status = "active"
+supersedes = ["GATE-551", "GATE-554", "GATE-574"]
+rule = "For DMN-581, GATE-550, GATE-552 and GATE-553. scripts/question_run.py switches nothing in FERB and answers none of its questions: sends are real and every question waits for the owner in FERB.app (a turn left waiting ends at --turn-limit). It still records turns, questions, timings, costs and CPU, puts the roles and models back on exit, declines FERB's clarifying question in chat (GATE-553) and starts a fresh chat after one left open (UNANSWERED). chat.send takes the test_run tag from any cli caller; it keeps runs apart as GATE-551 said and changes no question or send."
+why = "Test mode is removed (DMN-581): the tag was gated on it only so that a tagged chat was always a recorded run; without the recorder the tag still keeps runs apart (GATE-550) and changes nothing else."
+paths = ["scripts/question_run.py::send", "scripts/question_run.py::main", "scripts/question_run.py::_exit_on_signal", "scripts/question_run.py::UNANSWERED", "ferb/daemon/areas/chat.py::Chat._test_run_tag", "ferb/orchestrator/test_runs.py", "ferb/sense/trail.py::Trail.record", "ferb/memory/summary.py::_journal"]

@@ -199,13 +199,6 @@ class Browsers:
             return {}
         if not attended:
             return {"note": browsing.GONE_RUN.format(label=gone) if gone else browsing.NO_BROWSER_RUN}
-        if getattr(self.gateway, "test_questions", False):   # GATE-546: recorded, not asked: the setting stays
-            span = self.spans.start("tool.call", task_id=None, input={
-                "tool": "owner.ask", "request_id": request_id, "ferb_question": True, "question_kind": "browsing",
-                "args": {"question": browsing.QUESTION, "options": [*map(browser_profiles.shown, known),
-                                                                     browsing.NONE]}})
-            self.spans.finish(span, output={"test_mode": True, "answer": "not asked: the browsing setting stays"})
-            return {"note": browsing.GONE_RUN.format(label=gone) if gone else browsing.NO_BROWSER_RUN}
         for approval_id, (kind, _) in self._owner_followups.items():
             ap = self.state.approvals.get(approval_id)
             if kind == browsing.KIND and ap is not None and ap.state == "pending":

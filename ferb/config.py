@@ -49,8 +49,12 @@ FEEDBACK_RETIRED = (("feedback", "address"),)
 # record of FERB.app's signature for hearing) is not a speech setting and stays.
 VOICE_DECIDED = "no-voice-2026-11-04"
 VOICE_RETIRED = (("voice", "tts"), ("voice", "voice"), ("voice", "rate"))
+# Test mode is removed (owner 2026-11-10): the saved state an older FERB kept (`[test_mode] state`, possibly on) is
+# read by no build, and goes. A config that still holds it starts with test mode simply gone either way.
+TEST_MODE_DECIDED = "no-test-mode-2026-11-10"
+TEST_MODE_RETIRED = (("test_mode", "state"),)
 # The owner's decisions applied to config.toml once each, in this order, each journaled (`config.upgraded`).
-UPGRADES = (LIMITS_DECIDED, DOWNLOADS_DECIDED, FEEDBACK_DECIDED, VOICE_DECIDED)
+UPGRADES = (LIMITS_DECIDED, DOWNLOADS_DECIDED, FEEDBACK_DECIDED, VOICE_DECIDED, TEST_MODE_DECIDED)
 
 
 class InsecureConfig(FerbError):
@@ -210,6 +214,8 @@ class Config:
             return self.retire(FEEDBACK_RETIRED)
         if name == VOICE_DECIDED:
             return self.retire(VOICE_RETIRED)
+        if name == TEST_MODE_DECIDED:
+            return self.retire(TEST_MODE_RETIRED)
         raise ValueError(f"no config upgrade {name!r}")
 
     def retire(self, keys: tuple[tuple[str, str], ...]) -> list[dict[str, Any]]:

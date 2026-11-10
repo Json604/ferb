@@ -35,7 +35,7 @@ from ferb.core.timing import Steps
 from ferb.trace.lines import clip
 from ferb.core.types import Identity, ModelImage, Outcome, RunHandle, Span, Task, ToolContext
 from ferb.daemon.auth import RunGrant, RunTokens
-from ferb.daemon.gateway import DESTINATION_HELP, EFFECT_HELP, OWNER_ASK, FsRoots, Gateway, Observer, observes
+from ferb.daemon.gateway import DESTINATION_HELP, EFFECT_HELP, FsRoots, Gateway, Observer, observes
 from ferb.daemon.questions import card_flags, card_parts
 from ferb.memory.items import CAPTURE_TOLD, capture, owner_span_at, query_terms, quoted
 from ferb.memory.journal import Journal, JournalEntry
@@ -1679,14 +1679,6 @@ class Supervisor(WorkerRuns):
         new question goes on the wait first, so the waiting step never reads the old one's closing as a reply."""
         task = tree.worker
         question = PAUSED_MENTION.format(goal=short_label(tree.spec.goal))
-        if getattr(self.gateway, "test_questions", False):   # GATE-546: recorded, not asked: the task stays paused
-            span = self.spans.start("tool.call", task_id=task.id, input={
-                "tool": OWNER_ASK, "args": {"question": question, "options": [RESUME, STOP]}, "ferb_question": True,
-                "question_kind": "paused"})
-            self.spans.finish(span, output={"test_mode": True, "answer": "not asked: stays paused"})
-            self.journal.append('task.pause_mentioned', {'task_id': tree.id, 'question': question, 'test_mode': True},
-                                origin=origins_.FERB)
-            return
         options = [confirm.from_task(o) for o in (RESUME, STOP)]
         action = ActionRequest(TASK_ASK, 'owner_question', task.identity, frozenset(), task.id, task.id,
                                task.request_id, frozenset(task.scopes), content=question)
@@ -1735,8 +1727,6 @@ class Supervisor(WorkerRuns):
         once (`decline`). Waiters that share `wait` (a pause of the tree) get its one reply."""
         if decline and self._unattended(task):
             return OwnerReply('declined', question=wait.question)
-        if wait.question and getattr(self.gateway, "test_questions", False):
-            return self._test_reply(task, wait)         # GATE-546: a test run's question never waits
         self._mark_waiting(tree, task, step_id, wait, True)
         try:
             if wait.opened:
@@ -1747,24 +1737,6 @@ class Supervisor(WorkerRuns):
             return await self._ask_and_wait(tree, task, step_id, wait, steer_resumes)
         finally:
             self._mark_waiting(tree, task, step_id, wait, False)
-
-    def _test_reply(self, task: Task, wait: _Wait) -> OwnerReply:
-        """GATE-546: in test mode's question recorder, a question that would wait for the owner (a check-in, a closed
-        tab's or paused loop's question, a runtime offer, a plan's ask step, a task's own question) is recorded as an
-        owner.ask span and answered from the table at once: FERB's own option question gets the owner's No (stop, don't
-        switch); a question from the task is declined, as for a run nobody attends. Shared waiters get the same reply."""
-        if wait.opened:
-            return wait.reply or OwnerReply('declined', question=wait.question)
-        own = wait.origin == origins_.FERB and bool(wait.options)
-        reply = OwnerReply('denied' if own else 'declined', question=wait.question)
-        span = self.spans.start("tool.call", task_id=task.id, input={
-            "tool": OWNER_ASK, "args": {"question": wait.question, "options": list(wait.options)},
-            "ferb_question": own, "question_kind": wait.extra.get("question_kind", "")})
-        given = {"test_mode": True, "answer": "No" if own else "", "declined": not own}
-        self.spans.finish(span, output=given)
-        wait.opened, wait.reply = True, reply
-        wait.done.set()
-        return reply
 
     async def _ask_and_wait(self, tree: _Tree, task: Task, step_id: str, wait: _Wait,
                             steer_resumes: bool) -> OwnerReply:

@@ -205,6 +205,9 @@ address = "reports@example.org"
 [voice]
 tts = "macos"
 rate = 190
+
+[test_mode]
+state = { enabled = true, allow_send = ["me@example.com"], questions = "record" }
 """
 
 
@@ -238,12 +241,14 @@ def test_the_first_start_on_an_older_store_and_config_upgrades_both(home: Path) 
     finally:
         d.stop()
     assert got["schema"] == NEWEST
-    first, second, third, fourth = got["upgraded"]  # 2026-10-09's limits, HAND-210, the report relay, no voice
+    # 2026-10-09's limits, HAND-210, the report relay, no voice, no test mode
+    first, second, third, fourth, fifth = got["upgraded"]
     assert {c["key"] for c in first["changes"]} >= {"browser.download_max_mb", "browser.task_max_tabs",
                                                      "retention.download_days"}
     assert {"key": "browser.download_max_mb", "from": 512, "to": None} in second["changes"]
     assert third["changes"] == [{"key": "feedback.address", "to": None}]       # the email address isn't journaled
     assert fourth["changes"] == [{"key": "voice.tts", "to": None}, {"key": "voice.rate", "to": None}]   # VOICE-410
+    assert fifth["changes"] == [{"key": "test_mode.state", "to": None}]     # DMN-581: left on by an older FERB, gone
     assert got["memory"] == ["memory.cleanup", "memory.profile_seeded"]
     assert got["pending"]["summary"] == "Uses a browser and an editor."  # moved to persona.json when read
     config = Config(home)
@@ -252,6 +257,7 @@ def test_the_first_start_on_an_older_store_and_config_upgrades_both(home: Path) 
     assert config.get("browser", "download_task_max_gb") == 32 and config.get("browser", "download_task_max_files") == 300
     assert config.get("gates", "owner_profiles") == ["Default"]          # a key no longer read is left alone
     assert config.section("feedback") == {} and "reports@example.org" not in (home / "config.toml").read_text()
+    assert config.section("test_mode") == {} and "[test_mode]" not in (home / "config.toml").read_text()
     assert (home / "persona.json").exists()
     assert not list(home.glob("*.broken-*")) and not (home / "set-aside.json").exists()   # readable: nothing set aside
     shown = cleanup.preview(home / "ferb.db")

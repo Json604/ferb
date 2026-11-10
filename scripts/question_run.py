@@ -1,5 +1,5 @@
-"""Developer toolbox (GATE-546): run a list of tasks in the running FERB, on one connection, in test mode's question
-recorder, and write each task's results to a report outside the repository.
+"""Developer toolbox: send a list of tasks to the running FERB, on one connection, and record each task's turns,
+questions, timings and costs in a report outside the repository. Sends are real and FERB's questions wait for you.
 
     uv run python scripts/question_run.py TASKS --runtime anthropic --out ~/ferb-runs/run1.json [--repeat 3]
 
@@ -7,20 +7,22 @@ TASKS is a text file, one task per line ("||" splits the turns of a multi-turn t
 list of {"id", "turns": [...]}. A run sends every task, in file order, into one chat (GATE-552: one provider runs the
 whole test, the next gets a fresh chat), so context builds up as in real use (--chat-per-task: a fresh chat per task).
 Every message is tagged with the run and the connection (GATE-550), so no run sees another's chats, summary, memory,
-learning or activity, and FERB learns nothing from any of them. The run
-needs test mode with questions recorded: pass `--enable "me@example.com" ...` on every run, which turns it on with that
-send allowlist. The run turns test mode off whenever it exits (its end, Ctrl-C, an error, SIGTERM or SIGHUP; only a
-SIGKILL can't be caught) and prints that it did, so FERB never keeps declining the owner's own questions after a run
-(2026-11-09: a cancelled run left it on). The connection is used for every role during the run and the roles go back
-as they were at the end.
+learning or activity, and FERB learns nothing from any of them. The tag changes no question and no send.
+
+The runner is a plain sender and recorder: it turns nothing on or off in FERB. Every send, post, payment or other
+action a task takes is real, exactly as when you type the task in FERB.app; FERB's questions (confirmations,
+passwords, login codes, check-ins, a task's own question) wait for you in FERB.app and the runner never answers them.
+A turn whose question you leave unanswered ends at --turn-limit. FERB's clarifying question in chat (no task started)
+is the one the runner replies to (GATE-553), and a task after one left open starts in a fresh chat (GATE-574). The
+connection is used for every role during the run and the roles go back as they were at the end (its end, Ctrl-C, an
+error, SIGTERM or SIGHUP; only a SIGKILL can't be caught).
 
 The run tool's own limits (not FERB's): --turn-limit minutes per turn (default 20), after which the runner stops that
 turn's task through FERB's stop and records it; --cost-cap dollars for the whole run (unset by default), after which
 no new task starts. The report is rewritten after every turn.
 
 Per task: start and end, seconds (each step's and each model call's too), steps (tool calls), model calls, tokens
-(input, cache reads, cache writes by TTL, output), cost, each question FERB recorded (card, rules, the table's answer,
-when), the typed-answer forms and repairs (RUN-440), the outcome and FERB's final answer, and the acting calls that may
+(input, cache reads, cache writes by TTL, output), cost, each question FERB asked (its rules, your answer, when), the typed-answer forms and repairs (RUN-440), the outcome and FERB's final answer, and the acting calls that may
 have left something in the owner's accounts (a cart add, a draft: check by hand). Nothing is cleaned up: FERB closes
 only its own tabs (HAND-201). scripts/question_compare.py puts several connections' reports side by side.
 
@@ -360,8 +362,8 @@ def add_forms(total: dict[str, Any], one: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-# GATE-553: the reply the runner gives FERB's clarifying question (the line record mode gives a task's own question,
-# GATE-546), so the next task's text never answers it; at most this many in one turn
+# GATE-553: the reply the runner gives FERB's clarifying question in chat (no task started), so the next task's text
+# never answers it; at most this many in one turn. FERB's other questions wait for the owner
 DECLINE = "No answer in this test run; decide yourself or report what you need"
 MAX_CLARIFY = 3
 # GATE-574: FERB has no way to withdraw its question in a chat (no RPC closes it), and its next message there would be
@@ -481,11 +483,9 @@ def collect(client: Client, turn: dict[str, Any]) -> dict[str, Any]:
         questions.append({"at": n["started_at"], "ferb_question": bool(inp.get("ferb_question")),
                           "question": (inp.get("args") or {}).get("question"),
                           "rules": [c.get("rule") for c in (inp.get("args") or {}).get("confirm") or []],
-                          "card": out.get("card"), "needs": out.get("needs"),
-                          "answer": out.get("answer") or out.get("reason") or out.get("state"),
-                          "recorded": bool(out.get("test_mode"))})
+                          "answer": out.get("answer") or out.get("reason") or out.get("state")})
     questions += [{"at": q["at"], "kind": "clarify", "ferb_question": True, "question": q["question"],
-                   "answer": q["answer"], "recorded": True} for q in turn.get("clarify") or []]   # GATE-553
+                   "answer": q["answer"]} for q in turn.get("clarify") or []]   # GATE-553
     answer = next((e["answer"] for e in reversed(episodes) if e.get("answer")), "") or \
         next((o["summary"] for o in reversed(turn["outcomes"]) if o.get("summary")), "") or \
         next((r["text"] for r in reversed(turn["replies"]) if r.get("text")), "")
@@ -562,38 +562,20 @@ def secs(n: dict[str, Any]) -> float | None:
     return round((datetime.fromisoformat(n["ended_at"]) - datetime.fromisoformat(n["started_at"])).total_seconds(), 1)
 
 
-def test_mode_off(client: Any) -> None:
-    """Test mode off, said on the terminal: every way out of a run comes through here."""
-    try:
-        got = client.call("test.mode", {"off": True})
-    except Exception:
-        try:                                               # the run's own connection broke: once more on a new one
-            fresh = Client(socket_path(), timeout=60)
-            try:
-                got = fresh.call("test.mode", {"off": True})
-            finally:
-                fresh.close()
-        except Exception as e:                             # the daemon gone: say so, never claim it is off
-            print(f"test mode: couldn't turn it off ({e}); turn it off in Settings", file=sys.stderr)
-            return
-    print("test mode: off" if not got.get("enabled") else "test mode: still on; turn it off in Settings",
-          file=sys.stderr)
-
-
 def _exit_on_signal(signum: int, frame: Any) -> None:
-    """SIGTERM and SIGHUP end the run the way Ctrl-C does, so its clean-up (test mode off) runs."""
+    """SIGTERM and SIGHUP end the run the way Ctrl-C does, so its clean-up (the roles and models put back, the
+    report written) runs."""
     raise SystemExit(128 + signum)
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
+                                epilog="Sends are real: every task runs as if you typed it in FERB.app. FERB's "
+                                       "questions wait for you in FERB.app; the runner never answers them.")
     p.add_argument("tasks", type=Path)
     p.add_argument("--runtime", required=True, help="codex, claude, anthropic, openai or google")
     p.add_argument("--out", type=Path, required=True, help="the report (JSON), outside the repository")
     p.add_argument("--repeat", type=int, default=1)
-    p.add_argument("--enable", nargs="*", metavar="RECIPIENT",
-                   help="needed on every run: turns on test mode with questions recorded and this send allowlist "
-                        "(the run turns it off when it exits)")
     p.add_argument("--model", default="", help="the connection's model for every role during the run (checked first, "
                                                "as Settings does; the models go back at the end)")
     p.add_argument("--turn-limit", "--task-limit", dest="turn_limit", type=float, default=20.0,
@@ -610,16 +592,11 @@ def main() -> int:
     try:
         return run(p, args, tasks, out, client)
     finally:
-        test_mode_off(client)                          # every exit: the end, Ctrl-C, an error, SIGTERM, SIGHUP
+        client.close()
 
 
 def run(p: argparse.ArgumentParser, args: argparse.Namespace, tasks: list[dict[str, Any]], out: Path,
         client: Any) -> int:
-    if args.enable is not None:
-        client.call("test.mode", {"allow_send": args.enable, "questions": "record"})
-    mode = client.call("test.mode", {"status": True})
-    if mode.get("questions") != "record":
-        p.error("FERB's test mode isn't recording questions: pass --enable with the send allowlist (needed per run)")
     before = client.call("runtimes.status").get("roles") or {}
     models = client.call("runtimes.models", {"runtime": args.runtime})
     if args.model:                                     # every role on this model: the roles' own ones set aside
@@ -631,7 +608,7 @@ def run(p: argparse.ArgumentParser, args: argparse.Namespace, tasks: list[dict[s
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     report: dict[str, Any] = {"started": datetime.now().isoformat(timespec="seconds"), "runtime": args.runtime,
                               "model": client.call("runtimes.models", {"runtime": args.runtime}).get("model"),
-                              "run": stamp, "test_mode": mode, "turn_limit_min": args.turn_limit,
+                              "run": stamp, "turn_limit_min": args.turn_limit,
                               "chat": "per task" if args.chat_per_task else "one per run",
                               "cost_cap_usd": args.cost_cap,
                               "resources_note": {"cpu": CPU_NOTE, "ferb_groups": FERB_BASIS,

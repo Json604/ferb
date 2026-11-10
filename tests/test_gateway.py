@@ -153,59 +153,17 @@ def test_tool_call_span_records_action_kind_and_target(daemon: RunningDaemon) ->
     assert spans[-1].input["target"]["recipients"] == ["mom@example.com"]
 
 
-def test_test_mode_allowlist_blocks_unlisted_recipient_and_allows_listed(daemon: RunningDaemon) -> None:
+def test_a_send_to_someone_new_asks_first_and_a_no_sends_nothing(daemon: RunningDaemon) -> None:
+    """What guards a send (TEST-502): a recipient in the owner's words goes without a question; anyone else is asked
+    about first, and the owner's No leaves no ledger row and sends nothing."""
     send = FakeCap("fake.send", "send", {"browser:act"})
     grant, _ = setup(daemon, {"browser:act"}, request("message ok@example.com"), [send])
-    daemon.daemon.gateway.test_send_allowlist = {"ok@example.com"}
-    try:
+    with FerbAnswers(daemon, yes=False) as owner:
         blocked = call(daemon, grant, "fake.send", to="attacker@evil.example", effect="send")
-        assert blocked["is_error"] and "allowlist" in str(blocked["content"])
-        ok = call(daemon, grant, "fake.send", to="ok@example.com", effect="send")
-        assert not ok["is_error"]
-    finally:
-        daemon.daemon.gateway.test_send_allowlist = None
-    assert send.calls == 1  # only the allowed one executed
-
-
-def test_allowlist_refusal_leaves_no_ledger_row_and_span_carries_error(daemon: RunningDaemon) -> None:
-    send = FakeCap("fake.send", "send", {"browser:act"})
-    grant, _ = setup(daemon, {"browser:act"}, request("message people"), [send])
-    daemon.daemon.gateway.test_send_allowlist = {"ok@example.com"}
-    try:
-        blocked = call(daemon, grant, "fake.send", to="attacker@evil.example")
-    finally:
-        daemon.daemon.gateway.test_send_allowlist = None
-    assert blocked["is_error"] and blocked["content"]["recipients"] == ["attacker@evil.example"]
-    assert daemon.run(_ledger(daemon, "fake.send")) == []
-    spans = [r.span for r in daemon.run(_tree(daemon)) if r.span.input.get("tool") == "fake.send"]
-    assert "allowlist" in str(spans[-1].error) and send.calls == 0
-
-
-def test_allowlist_refuses_send_without_checkable_recipient_only_in_test_mode(ferb_yes: FerbAnswers,
-                                                                             daemon: RunningDaemon) -> None:
-    ferb_yes.expect("floor:new_recipient")       # outside test mode, the floor asks about a send it can't see the
-    send = FakeCap("fake.send", "send", {"browser:act"})   # recipient of (F5a); the allowlist refuses before asking
-    grant, _ = setup(daemon, {"browser:act"}, request("message people"), [send])
-    daemon.daemon.gateway.test_send_allowlist = {"ok@example.com"}
-    try:
-        blocked = call(daemon, grant, "fake.send", to="")
-        assert blocked["is_error"] and blocked["content"]["recipients"] == [] and "recipient" in str(blocked["content"]["error"])
-        assert send.calls == 0
-    finally:
-        daemon.daemon.gateway.test_send_allowlist = None
-    assert not call(daemon, grant, "fake.send", to="")["is_error"]
-    assert send.calls == 1
-
-
-def test_allowlist_never_affects_non_send_kinds(daemon: RunningDaemon) -> None:
-    look = FakeCap("fake.look", "read", {"browser:act"})
-    grant, _ = setup(daemon, {"browser:act"}, request("look"), [look])
-    daemon.daemon.gateway.test_send_allowlist = {"ok@example.com"}
-    try:
-        assert not call(daemon, grant, "fake.look", to="anyone@evil.example")["is_error"]
-    finally:
-        daemon.daemon.gateway.test_send_allowlist = None
-    assert look.calls == 1
+        assert blocked["is_error"] and send.calls == 0
+        assert not call(daemon, grant, "fake.send", to="ok@example.com", effect="send")["is_error"]
+    assert owner.rules() == {"floor:new_recipient": 1} and send.calls == 1
+    assert len(daemon.run(_ledger(daemon, "fake.send"))) == 1                  # the refused send left no row
 
 
 class _ContactCap(FakeCap):
@@ -221,23 +179,9 @@ class _ContactCap(FakeCap):
                           content=getattr(args, "text"))
 
 
-def test_allowlist_checks_contact_even_when_recipients_are_listed(daemon: RunningDaemon) -> None:
+def test_a_contact_the_owner_never_named_asks_even_beside_a_named_recipient(daemon: RunningDaemon) -> None:
     send = _ContactCap("fake.msg", "send", {"browser:act"})
-    grant, _ = setup(daemon, {"browser:act"}, request("message"), [send])
-    daemon.daemon.gateway.test_send_allowlist = {"ok@example.com"}
-    try:
+    grant, _ = setup(daemon, {"browser:act"}, request("message ok@example.com"), [send])
+    with FerbAnswers(daemon, yes=False) as owner:
         blocked = call(daemon, grant, "fake.msg", to="ok@example.com", contact="+15550000")
-        assert blocked["is_error"] and blocked["content"]["recipients"] == ["+15550000"] and send.calls == 0
-    finally:
-        daemon.daemon.gateway.test_send_allowlist = None
-
-
-def test_allowlist_allows_contact_only_destination_when_listed(daemon: RunningDaemon) -> None:
-    send = _ContactCap("fake.msg", "send", {"browser:act"})
-    grant, _ = setup(daemon, {"browser:act"}, request("message +15550000"), [send])
-    daemon.daemon.gateway.test_send_allowlist = {"+15550000"}
-    try:
-        assert not call(daemon, grant, "fake.msg", to="", contact="+15550000")["is_error"]
-        assert send.calls == 1
-    finally:
-        daemon.daemon.gateway.test_send_allowlist = None
+    assert blocked["is_error"] and send.calls == 0 and owner.rules() == {"floor:new_recipient": 1}

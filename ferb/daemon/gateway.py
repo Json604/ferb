@@ -5,7 +5,7 @@ One pipeline per call (kb area gateway): admission (FERB not stopped, the task r
 the worker's scopes and identity, an acting tool never for the final checker) → validate (arguments, the agent's notes
 stripped: why / effect / destination) → facts (the capability's description and the structural facts its tool reads:
 `ActionSpec.facts`) → boundaries that need nobody (a delegated conversation's scope, FERB's own files, card digits typed
-in the clear, test mode, P19's unresolved repeat) → `_needs`: every reason to ask, each a `confirm.Need` produced from
+in the clear, P19's unresolved repeat) → `_needs`: every reason to ask, each a `confirm.Need` produced from
 facts (the protection lists' lifts, a payment, an account-security change, a permanent delete, a new recipient, the
 sink rule and its URL form, certificate checks off, foreground input, a browser's own page, pairing a profile, the
 escape hatch, terminal input, irreversible bulk work) → `_authorize`: the one step that finds the owner's earlier
@@ -96,7 +96,6 @@ Redact = Callable[[Any], Any]
 OWNER_ASK = "owner.ask"
 CONFIRM_ASK = "ferb.confirm"             # the approval behind FERB's own question (D33): journaled apart from a worker's
 RETRY_ASK = "ferb.retry"                 # P19: FERB's own Yes/No to one more attempt at an action with an unknown outcome
-_SEND_KINDS = confirm.SEND_CLASS | {Kind.PAY}           # what the test-mode allowlist covers (calls included)
 CHECKER_READ_ONLY = ("the final check is read-only: this tool acts and is not available to a checker; report what you "
                      "could not confirm as unknown")
 # ORCH-516: a grant limited to named tools (the planner's lookups) gets only those, at most its `max_calls` calls
@@ -104,11 +103,6 @@ LOOKUPS_SPENT = ("this turn has made its {n} lookups: answer from what you have,
                  "worker can look further")
 SAME_LOOKUP = ("same as your earlier call with these arguments: its result is below; looking again won't change it, so "
                "answer from it or try other words")
-# GATE-546 (the recorder for GATE-549's test runs: questions answered from a fixed table in code, never by a model):
-# only the URL sink's question is Yes, for this task tree only (never made a known destination); every other FERB
-# question is No; a task's own question gets TEST_TASK_ANSWER and a P19 retry is No
-TEST_YES_RULES = frozenset({"sink:private_url"})
-TEST_TASK_ANSWER = "No answer in this test run; decide yourself or report what you need"
 # P19. The error is a fact the owner reads in step lines; what the agent should do is in `next`.
 UNKNOWN_NOT_REPEATED = ("A previous attempt at this exact action may have gone through (its outcome is unknown); it was "
                         "not repeated without the owner.")
@@ -470,8 +464,6 @@ class GatewayDeps:
     on_path: Callable[[str, str], None]                 # trail attribution of a path FERB touched
     route_question: Callable[[str, str, list[str]], Awaitable[dict[str, Any]]] | None   # a worker's question
     shadow_action: Callable[[dict[str, Any], str], Awaitable[None]] | None   # advice only (D23 shadow)
-    test_send_allowlist: set[str] | None                # test mode only: send-class actions may reach just these
-    test_questions: bool                                # GATE-546: test mode records questions, answers from a table
     standing: Any = None                                # D30: standing permissions (None: every question is asked)
 
 
@@ -631,8 +623,6 @@ class Gateway:
         self.username_sources: Callable[[], Container[str] | None] = deps.username_sources
         self.owner_contacts: Callable[[], frozenset[str]] = deps.owner_contacts
         self.disturbance: Any = deps.disturbance
-        self.test_send_allowlist: set[str] | None = deps.test_send_allowlist   # test mode: sends reach just these
-        self.test_questions: bool = deps.test_questions       # GATE-546: questions recorded, answered by TEST_ANSWERS
         self.allow_until: datetime | None = None          # the owner's "don't ask for 30 min" for routine questions
         self.evidence: Any = deps.evidence                 # the evidence store (ferb/act/evidence/store.py)
         # The daemon's app-window picture (ferb/act/mac/tools.py app_window): (app, scopes) -> AppWindow | None.
@@ -1173,7 +1163,7 @@ class Gateway:
     async def _boundaries(self, c: "Call", reply: Callable[..., dict[str, Any]]) -> dict[str, Any] | None:
         """What refuses a call without asking anyone: a delegated conversation's scope, FERB's own files (never
         lifted), card details typed in the clear (GATE-206), an address with no site, an escape the rules never
-        lift, test mode's allowlist (D17), an identical call that already ran for a caller who left, P19's unresolved
+        lift, an identical call that already ran for a caller who left, P19's unresolved
         repeat. The reply, else None."""
         grant, rec, cap, name = c.grant, c.rec, c.cap, c.name
         # a delegated conversation is guarded by what the call itself targets (as the capability describes it), with
@@ -1210,9 +1200,6 @@ class Gateway:
             c.escape = (rule, command, str(cwd), kind)
         if isinstance(c.ident, tuple) and (earlier := self._undelivered.pop((grant.task_id, *c.ident), None)):
             return self._earlier_result(grant, rec, name, c.arguments, c.spec, *earlier)
-        blocked = self._send_blocked(c)                  # test mode: before FERB asks the owner anything
-        if blocked is not None:
-            return self._refuse_call(c, reply, {"error": blocked[0], "recipients": blocked[1]}, origins=set())
         repeat = self._repeat_refusal(c.ident, grant)
         if repeat is not None:                           # P19, refused as the ledger refuses it: nothing was asked
             span = self._call_span(c, boundary_refused=True)
@@ -1994,26 +1981,6 @@ class Gateway:
                                          {"retry_action": e.intent_id, "next": RETRY_NEXT}),
                      True, {origin.FERB})
 
-    def _send_blocked(self, c: "Call") -> tuple[str, list[str]] | None:
-        """Test mode only (D17, rule 22): a send-class call (by its kind, any declared one, or a payment its facts
-        show) may reach only the allowlisted recipients; a post on a page (no recipient) only an allowlisted site and
-        account: an entry "x.com @account", or "x.com" for a post that declares no account. The site is the page's
-        host, a fact the tab shows, never the worker's word. A form submit its facts show is not covered: the
-        allowlist is for sends, not every form (rule 22). (The error, the unlisted recipients) when it may not."""
-        spec = c.checked
-        kinds = {spec.kind} | declared_kinds(spec) | {k for k, _ in c.fact_targets if k == Kind.PAY}
-        if self.test_send_allowlist is None or not kinds & _SEND_KINDS:
-            return None
-        recipients = list(spec.target.recipients) + ([spec.target.contact] if spec.target.contact else [])
-        unlisted = [r for r in recipients if r not in self.test_send_allowlist]
-        if recipients and not unlisted:
-            return None
-        place = (confirm.site_key(spec.target.site), confirm.account_key(spec.target.account))
-        if not recipients and spec.target.page and spec.target.site and Kind.PAY not in kinds and \
-                place in self._allowed_places():
-            return None
-        return "blocked by FERB test-mode send allowlist" + ("" if recipients else ": no checkable recipient"), unlisted
-
     def reopen_noes(self, tree_id: str, request_id: str, source_ref: str) -> list[str]:
         """Controller ruling (L11 round 4): the owner's own new chat message carried this task on (continue, retry or
         steer; the supervisor decides that from provenance). Each question's latest answer in the tree that is a No is
@@ -2026,16 +1993,6 @@ class Gateway:
                                     input={"request_id": request_id, "source_ref": source_ref, "reopened": ids})
             self.spans.finish(span, output={"reopened": len(ids)}, origin=origin.OWNER)
         return ids
-
-    def _allowed_places(self) -> set[tuple[str, str]]:
-        """The (site, account) pairs the test-mode allowlist names: "x.com @account", or a bare host ("x.com", no
-        "@"): a site with no account. Exact recipients are the other entries."""
-        places: set[tuple[str, str]] = set()
-        for entry in self.test_send_allowlist or ():
-            site, _, account = entry.strip().partition(" ")
-            if "." in site and "@" not in site:
-                places.add((confirm.site_key(site), confirm.account_key(account)))
-        return places
 
     @staticmethod
     def _squash(text: str, keep_spaces: bool = False) -> str:
@@ -2133,14 +2090,6 @@ class Gateway:
                                          "ferb_question": True} | ({"for_span": span.id} if span is not None else {}))
         self.publish("tool.called", {"tool": OWNER_ASK, "task_id": grant.task_id, "worker_id": grant.worker_id})
         self.hooks.started(grant, OWNER_ASK, {}, "owner_question", None)
-        if self.test_questions:                          # GATE-546: recorded with its card, answered from the table
-            yes = all(n.rule in TEST_YES_RULES for n in needs)
-            ids = [self.confirmations.record(root, n.rule, n.key, yes, q_span.id) for n in needs]   # this tree only
-            given = {"answer": YES if yes else NO, "confirmed" if yes else "refused": ids, "test_mode": True,
-                     "card": self._test_card(needs, typed, why),
-                     "needs": [{"rule": n.rule, "key": n.key, "values": n.values} for n in needs]}
-            self._finish_call(q_span, OWNER_ASK, given, False, output=given, origins=ask_origins(given))
-            return Answer(yes, ids, "" if yes else SAID_NO.format(line=text), "" if yes else OWNER_DECIDED_NEXT)
         if rec.task.request_id in self.state.approvals.unattended:
             declined = {"declined": True, "unattended": True}
             self._finish_call(q_span, OWNER_ASK, declined, False, output=declined, origins=ask_origins(declined))
@@ -2201,15 +2150,6 @@ class Gateway:
             given["skipped"] = True
         self._finish_call(q_span, OWNER_ASK, given, False, output=given, origins=ask_origins(given))
         return Answer(yes, ids, "" if yes else SAID_NO.format(line=text), "" if yes else OWNER_DECIDED_NEXT)
-
-    def _test_card(self, needs: list[confirm.Need], typed: str, why: str) -> dict[str, str]:
-        """The card the owner would have seen (GATE-513's parts), for a test run's record (GATE-546)."""
-        card = SimpleNamespace(summary="", detail="", exact="", labels=())
-        shown = quoted(self.redact({"t": typed})["t"]) if typed.strip() else ""
-        self._set_card(card, needs, shown, any(n.rule == confirm.TERMINAL_INPUT for n in needs))
-        reason = self.built(confirm.reason_line(quoted(self.value(why)) if why.strip() else ""))
-        return {"question": card.summary, "detail": card.detail, "exact": card.exact, "why": reason} | (
-            {"buttons": list(card.labels)} if card.labels else {})
 
     def _known_from(self, needs: list[confirm.Need], rec: Any, span_id: str) -> None:
         """SQ6, GATE-205: the destinations the owner's Yes approved stay known (approved) for good."""
@@ -2491,21 +2431,10 @@ class Gateway:
     # ---------- hidden input (ferb/daemon/hidden_input.py) ----------
 
     async def ask_secret(self, ctx: ToolContext, target: str, **kw: Any) -> str | None:
-        if self.test_questions:                 # GATE-546: a password, card or other secret is never given in a test
-            return self._test_declined(ctx, "secret", self.built(f"a secret for {self.value(target)}"))   # GATE-564
         return await self.hidden.secret(ctx, target, **kw)
 
     async def ask_login_code(self, ctx: ToolContext, origin: str) -> str | None:
-        if self.test_questions:                 # GATE-546: nor a login code
-            return self._test_declined(ctx, "login_code", self.built(f"a login code for {self.value(origin)}"))
         return await self.hidden.login_code(ctx, origin)
-
-    def _test_declined(self, ctx: ToolContext, kind: str, question: str) -> None:
-        """GATE-546: a hidden-input question in record mode is recorded and declined at once (the owner's No)."""
-        span = self.spans.start("tool.call", task_id=ctx.task_id, input={
-            "tool": OWNER_ASK, "args": {"question": question}, "ferb_question": True, "question_kind": kind})
-        self.spans.finish(span, output={"test_mode": True, "answer": "No"})
-        return None
 
     def initial_image_given(self, task_id: str) -> None:
         self.hooks.initial_image_given(task_id)
@@ -2571,14 +2500,6 @@ class Gateway:
             self._finish_call(span, OWNER_ASK, declined, False, output=declined, origins=ask_origins(declined))
             return {"declined": True, "reason": "the owner isn't here (a scheduled run): decide yourself or report "
                                                 "what's missing"}
-        if self.test_questions:                          # GATE-546: recorded; a retry is No, a task's is declined
-            if retry:
-                given: dict[str, Any] = {"answer": RETRY_NO, "retry_approved": False, "test_mode": True}
-                self._finish_call(span, OWNER_ASK, given, False, output=given, origins=ask_origins(given))
-                return given
-            declined = {"declined": True, "test_mode": True, "reason": TEST_TASK_ANSWER}
-            self._finish_call(span, OWNER_ASK, declined, False, output=declined, origins=ask_origins(declined))
-            return {"declined": True, "reason": TEST_TASK_ANSWER}
         if reused is None and await self.observer.correction_pending(grant):     # ORCH-538: the correction first
             first = {"declined": True, "state": "correction pending"}
             self._finish_call(span, OWNER_ASK, first, False, output=first, origins=ask_origins(first))
@@ -2780,16 +2701,6 @@ _ENDED = {"done": "was reported done", "failed": "failed"}
 def _shown_args(args: dict[str, Any]) -> dict[str, str]:
     """The arguments a step line shows, each clipped to 100 characters (already redacted)."""
     return {k: lines.clip(args[k], 100) for k in lines.ARG_KEYS if args.get(k) not in (None, "")}
-
-
-def allowlist_problem(entry: str) -> str | None:
-    """Why a test-mode allowlist entry can't be used (rule 22), else None: an entry is an exact recipient, or
-    "SITE @ACCOUNT" (or "SITE") for a post, where SITE is a host like x.com, never a URL."""
-    site = entry.strip().partition(" ")[0]
-    if "://" in entry or "/" in site:
-        return (f'"{entry}" is a URL: an allowlist entry is an exact recipient, or "SITE @ACCOUNT" for a post, where '
-                f'SITE is a host like x.com, not a URL')
-    return None
 
 
 def _target_dict(t: Any) -> dict[str, Any]:

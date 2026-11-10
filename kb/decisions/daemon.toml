@@ -837,4 +837,14 @@ status = "active"
 words = "remveo test mdoe completelty"
 words_source = "Owner 2026-11-10, asked whether Settings should show when test mode (the send allowlist for tests) is on"
 rule = "Nothing shows test mode in Settings; test mode itself is removed completely. Its removal is its own job (T-1080), not part of the Settings fix."
-untestable = "Not built yet: T-1080 removes it."
+supersedes = ["GATE-546", "GATE-549"]
+why = "For the day's live check the owner also said \"givem th eprompt - no test more\". Test mode stayed on for a day unnoticed and declined the owner's real password fill (2026-11-09); a test.mode call with no arguments turned it on. How it is removed: DMN-582."
+paths = ["ferb/config.py::TEST_MODE_DECIDED", "ferb/daemon/auth.py::METHODS", "ferb/daemon/gateway.py::Gateway.ask_confirmation"]
+
+[DMN-582]
+title = "How test mode is removed: every question reaches the owner; an older config's test mode is dropped"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For DMN-581. FERB has no test.mode RPC, no saved [test_mode] state, no test-mode send allowlist and no record mode (FERB's questions answered from a fixed table). Every question reaches the owner as in normal use; sends are guarded by the sink rule and the confirmations. A config that still holds test_mode.state, on or off, starts with test mode gone: the key is removed once and journaled (config.upgraded); an older caller of test.mode gets the unknown-method refusal. In a developer run the owner answers (RUN-442's no payment); the run tool is GATE-577."
+paths = ["ferb/config.py::TEST_MODE_DECIDED", "ferb/config.py::TEST_MODE_RETIRED", "ferb/daemon/gateway.py::Gateway._boundaries", "ferb/daemon/gateway.py::Gateway.ask_confirmation", "ferb/daemon/auth.py::METHODS"]

@@ -148,7 +148,7 @@ class Rpc:
             "automation.request": self._automation_request, "tools.list": self._tools_list,
             "tools.call": self._tools_call, "chat.approve": self._chat_approve, "chat.answer": self._chat_answer,
             "chat.correct": self._chat_correct,
-            "test.mode": self._test_mode, "identity.check": self._identity_check,
+            "identity.check": self._identity_check,
             "browsers.list": self._browsers_list, "browsers.pair": self._browsers_pair,
             "browsers.installed": self._browsers_installed, "browsers.unpair": self._browsers_unpair,
             "setup.browser_pair": self._setup_browser_pair, "browser.show_handoff": self._show_handoff,

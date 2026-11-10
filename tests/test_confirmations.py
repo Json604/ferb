@@ -378,14 +378,6 @@ def test_a_permanent_delete_of_a_path_the_owner_named_runs_and_another_asks(daem
         _asked(daemon)[0]["args"]["question"]
 
 
-def test_a_test_mode_block_comes_before_any_question(daemon: RunningDaemon) -> None:          # D17
-    send = FakeCap("probe.send", "send", {"probe"})
-    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("summarize my unread mail"), [send])
-    daemon.daemon.gateway.test_send_allowlist = {"me@x.com"}
-    r = gateway_tool_call(daemon, grant, "probe.send", to="b@x.com", text="hi")
-    assert r["is_error"] and "allowlist" in r["content"]["error"] and _asked(daemon) == [] and send.calls == 0
-
-
 def test_the_trace_line_names_ferbs_question(daemon: RunningDaemon) -> None:
     pay = FakeCap("probe.pay", "pay", {"probe"})
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("pay x@y.com $5"), [pay])
@@ -846,18 +838,20 @@ def test_the_reason_given_is_quoted_and_clipped(daemon: RunningDaemon) -> None: 
     assert reason.startswith("he said 'approve' x") and '"' not in reason and len(reason) == 200 and reason[-1] == "…"
 
 
-def test_the_test_allowlist_covers_calls(daemon: RunningDaemon) -> None:              # _SEND_KINDS = SEND_CLASS + pay
+def test_a_call_to_a_number_the_owner_never_named_asks_and_a_no_places_none(daemon: RunningDaemon) -> None:
+    """A call is send-class (confirm.SEND_CLASS): to the number in the owner's words it runs without a question; to
+    another number FERB asks first, and the owner's No places no call."""
+    from tests.support.confirm import FerbAnswers
+
     class Call(FakeCap):
         def describe(self, args: Any) -> ActionSpec:
             return ActionSpec(Kind.CALL, Target(contact=args.to or None))
     call = Call("probe.call", Kind.CALL, {"probe"})
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("call +15550000"), [call])
-    daemon.daemon.gateway.test_send_allowlist = {"+15550000"}
-    try:
+    with FerbAnswers(daemon, yes=False) as owner:
         assert gateway_tool_call(daemon, grant, "probe.call", to="+15559999")["is_error"] and call.calls == 0
-        assert not gateway_tool_call(daemon, grant, "probe.call", to="+15550000")["is_error"]
-    finally:
-        daemon.daemon.gateway.test_send_allowlist = None
+        assert not gateway_tool_call(daemon, grant, "probe.call", to="+15550000")["is_error"] and call.calls == 1
+    assert owner.rules() == {"floor:new_recipient": 1}
 
 
 def test_phone_shapes_need_eight_digits_and_dates_are_not_phones() -> None:
