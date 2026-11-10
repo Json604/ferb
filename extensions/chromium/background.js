@@ -1471,6 +1471,7 @@ async function claimPopup(token, tabId) {
     t.popupFor = { opener: relay.opener, frameId: relay.frameId, token };
     t.claiming = false;
     await send("event", { event: "popup", tab_id: tabId, opener_tab_id: relay.opener, url: maskUrl(relay.url) });
+    opener.openedTabs = (opener.openedTabs || 0) + 1;                // HAND-487: the opener's act sees it opened a tab
   } catch (e) { console.warn("FERB popup:", String(e.message || e)); }
   finally { t.claiming = false; }
 }
@@ -1510,6 +1511,7 @@ async function openedByInput(tabId, url) {
     t.popupFor = { opener, frameId: null, token: null };   // loaded by the browser already: nothing to tell the page
     t.claiming = false;
     await send("event", { event: "popup", tab_id: tabId, opener_tab_id: opener, url: maskUrl(url) });
+    const by = TABS.get(opener); if (by) by.openedTabs = (by.openedTabs || 0) + 1;   // HAND-487
   } catch (e) { console.warn("FERB new tab:", String(e.message || e)); }
   finally { t.claiming = false; }
 }
@@ -1671,6 +1673,57 @@ async function reachesAfresh(tabId, frameId, x, y, fx, fy) {
   await attachFresh(tabId);
   return reaches(tabId, frameId, x, y, fx, fy);
 }
+// HAND-487: what an act changed, looked at around it: before it, the tab's address and top document and, in the
+// target's frame, a watch on the element and its form or dialog (content.js watchNear); after it, every 100 ms for up to
+// OBSERVE_MS (OPENING_MS while a new tab is being claimed), until something changed: a new document, another address,
+// a dialog, a tab it opened, the element's own state (value, checked, expanded, selected, pressed, open, disabled; never
+// a value itself), the element leaving the page, changes in its form or dialog. `observed_change` true with one line
+// (`observed`) saying what; false: nothing changed within the time ("not confirmed", never "failed"); null: unknown.
+const OBSERVE_MS = 500, OPENING_MS = 1000;
+async function observeAct(a, run) {
+  const tabId = a.tab_id;
+  const look = async () => {
+    let url = null, top = null;
+    try { url = (await chrome.tabs.get(tabId)).url || null; } catch (_) { /* gone */ }
+    try { top = await inFrame(tabId, 0, () => window.__ferb.documentKey(), []); } catch (_) { /* between documents */ }
+    return {url, top: typeof top === "string" ? top : null};
+  };
+  const t0 = a.kind === "scroll" ? null : await look();
+  let watching = false;
+  if (t0) {
+    try { watching = (await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.watchNear(g, i), [a.snap, a.el])) === true; }
+    catch (_) { watching = false; }
+  }
+  const st = tabState(tabId), opened = st.openedTabs || 0, dialogs = st.dialogs.length;
+  const result = await run();
+  if (!t0 || !result || result.ok !== true) return result;
+  const started = Date.now();
+  for (;;) {
+    const now = await look(), said = [];
+    if (t0.top && now.top && now.top !== t0.top) said.push("the page loaded a new document");
+    else if (t0.url && now.url && now.url !== t0.url) said.push("the address changed");
+    if (st.pendingDialog || st.dialogs.length > dialogs) said.push("a dialog opened");
+    if ((st.openedTabs || 0) > opened) said.push("it opened a new tab");
+    let near = null;
+    if (watching && !(t0.top && now.top && now.top !== t0.top)) {
+      try { near = await inFrame(tabId, a.frame_id, () => window.__ferb.nearChange(), []); } catch (_) { near = null; }
+      if (near && typeof near === "object") {
+        if (near.gone) said.push("the element left the page");
+        if (Array.isArray(near.state) && near.state.length) said.push(`the element's ${near.state.join(", ")} changed`);
+        if (near.mutations > 0) said.push(`${near.mutations} change(s) in its ${near.scope || "surroundings"}`);
+      }
+    }
+    if (said.length) return {...result, observed_change: true, observed: said.join("; ")};
+    const claiming = [...TABS.values()].some(x => x.claiming);
+    if (Date.now() - started >= (claiming ? OPENING_MS : OBSERVE_MS)) {
+      const known = (t0.top && now.top) || (watching && near && typeof near === "object");
+      return {...result, observed_change: known ? false : null,
+              observed: known ? `nothing changed within ${OBSERVE_MS / 1000} s` : "unknown: the page couldn't be read after the act"};
+    }
+    await sleep(100);
+  }
+}
+
 const NOT_REACHED = { ok: false, reason: "pointer_did_not_reach_target", detail: "the pointer's move never reached " +
   "the element's frame, even after FERB attached to the tab again, so nothing was pressed; take a new snapshot and " +
   "try once more, or use page_mode=true for this element" };
@@ -2216,7 +2269,9 @@ const commands = {
   },
   pointer: exactPointer,
   async pointer_cancel({tab_id, command_id}) { return cancelPointer(tab_id, command_id); },
-  async act({ tab_id, frame_id, snap, el, kind, text, page_mode, expect_dialog, dialog_text, append, per_key }) {
+  // HAND-487: the act, with what changed around it (observeAct). actOnce is no op of its own (OPS lists none).
+  async act(args) { return observeAct(args, () => commands.actOnce(args)); },
+  async actOnce({ tab_id, frame_id, snap, el, kind, text, page_mode, expect_dialog, dialog_text, append, per_key }) {
     if (["type","select","press"].includes(kind) && typeof text !== "string")
       return {ok:false,reason:"explicit_input_required",detail:"No default key or replacement text is supplied"};
     const page = page_mode === true || kind === "select" || kind === "scroll";

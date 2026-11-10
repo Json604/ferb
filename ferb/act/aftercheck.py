@@ -25,8 +25,10 @@ def after_of(facts: dict[str, Any]) -> dict[str, Any]:
             return {"read": "none", "changed": None, "value": facts.get("value"), "note": note}
         return {"read": "value", "changed": bool(matched), "value": facts.get("value"), "note": note}
     if "observed_change" in facts:        # False is "not confirmed changed" (a signature diff can miss a change): unknown
-        return {"read": "ax", "changed": True if facts["observed_change"] else None, "value": facts.get("value"),
-                "note": note}
+        # HAND-487: a browser act's own look at the page around it says what changed (`observed`)
+        page = isinstance(facts.get("observed"), str)
+        return {"read": "page" if page else "ax", "changed": True if facts["observed_change"] else None,
+                "value": facts.get("value"), "note": str(facts["observed"]) if page and not note else note}
     if isinstance(facts.get("bytes_match"), bool):       # browser upload: the page's selected file compared by sha256
         return {"read": "value", "changed": facts["bytes_match"], "value": None, "note": note}
     return {"read": "none", "changed": None, "value": None, "note": note}

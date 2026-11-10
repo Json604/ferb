@@ -1096,3 +1096,14 @@ why = "Live: 18 of 85 screenshot clicks in the current build failed with \"never
 evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
 paths = ["extensions/chromium/background.js::reachesAfresh", "extensions/chromium/background.js::tabLoading", "extensions/chromium/pointer.js::reachPoint"]
 live = ["LIVE-890"]
+
+[HAND-487]
+title = "A browser act says what changed around it; nothing seen is \"not confirmed\", never \"failed\""
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.8. Around each act that went through, the extension looks every 100 ms for up to 0.5 s (1 s while a new tab is being claimed): a new document, another address, a dialog, a tab it opened, the element's own state (value, checked, expanded, selected, pressed, open, disabled; never a value), the element leaving the page, changes in its form or dialog. It returns observed_change and one line (`observed`); after_of reads it as `read: page`. Nothing seen is \"nothing changed within 0.5 s\" (changed null)."
+why = "Live: every act returned after {read: none, changed: null} and \"clicked (trusted)\" whether or not anything happened, so a silent no-op click cost the worker a snapshot each time."
+evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
+paths = ["extensions/chromium/background.js::observeAct", "extensions/chromium/content.js::watchNear", "ferb/act/aftercheck.py::after_of"]
+live = ["LIVE-890"]

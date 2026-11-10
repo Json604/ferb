@@ -812,6 +812,40 @@
     return { el };
   }
 
+  // HAND-487: a watch on an act's target, read again after it (background.js observeAct). Its state (the value too) is
+  // kept here and only compared: what leaves is which parts changed, never a value.
+  let nearWatch = null;
+  const NEAR_ATTRS = ["aria-expanded", "aria-checked", "aria-selected", "aria-pressed", "aria-disabled", "open", "disabled"];
+  const DIALOG_SCOPE = 'dialog,[role="dialog"],[role="alertdialog"]';
+  function nearState(el) {
+    const s = {value: ["INPUT", "SELECT", "TEXTAREA"].includes(el.tagName) ? String(el.value)
+                      : el.isContentEditable ? el.innerText : null, checked: el.checked === true};
+    for (const k of NEAR_ATTRS) s[k] = el.getAttribute(k);
+    return s;
+  }
+  function watchNear(gen, id) {
+    const { el, error } = element(gen, id);
+    if (error) return false;
+    if (nearWatch) nearWatch.observer.disconnect();
+    const scope = el.closest(`form,${DIALOG_SCOPE}`) || el.parentElement || el;
+    const w = { el, before: nearState(el), mutations: 0,
+                scope: scope.tagName === "FORM" ? "form" : scope.matches(DIALOG_SCOPE) ? "dialog" : "surroundings" };
+    w.observer = new MutationObserver((records) => {
+      w.mutations += records.filter((r) => r.type !== "attributes" || (r.attributeName !== ATTR && r.attributeName !== STAMP)).length;
+    });
+    w.observer.observe(scope, { subtree: true, childList: true, characterData: true, attributes: true });
+    setTimeout(() => w.observer.disconnect(), 5000);
+    nearWatch = w;
+    return true;
+  }
+  function nearChange() {
+    const w = nearWatch;
+    if (!w) return null;
+    const gone = !w.el.isConnected, now = gone ? null : nearState(w.el);
+    const state = now ? Object.keys(now).filter((k) => now[k] !== w.before[k]).map((k) => k.replace(/^aria-/, "")) : [];
+    return { gone, state, mutations: w.mutations, scope: w.scope };
+  }
+
   function setValue(el, value) {
     const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     Object.getOwnPropertyDescriptor(proto, "value").set.call(el, value);
@@ -1218,5 +1252,6 @@
     pointerArm: () => { pointerSeen = null; }, pointerSeen: () => pointerSeen || [],
     viewport: () => [innerWidth, innerHeight], act, fill, origin: () => location.origin, rect, focus, isActive,
     focusedSecret, takeSubmits, stamp, unstamp, scroller, scrolled, probeArm, probeSeen: () => probeSeen,
-    downloadPart, armDownloads, releaseDownload, dropDownload: (id) => { heldDownloads.delete(id); } };
+    downloadPart, armDownloads, releaseDownload, dropDownload: (id) => { heldDownloads.delete(id); },
+    watchNear, nearChange, documentKey: () => documentId };
 })();

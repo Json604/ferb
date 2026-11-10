@@ -262,3 +262,42 @@ def test_find_skips_a_frame_the_page_doesnt_draw() -> None:
       return await commands.find({tab_id: 1, text: "buy now"});
     })()''')
     assert out["count"] == 1 and out["hits"] == [{"frame_id": 0, "text": "Buy Now"}]
+
+
+# decision: HAND-487
+def test_an_act_says_what_changed_around_it_and_nothing_is_not_failure() -> None:
+    """Live: every act came back `after: {"read": "none", "changed": null}` and "clicked (trusted)" whether or not
+    anything happened."""
+    out = worker(r'''(async () => {
+      let doc = "d1", near = {gone: false, state: [], mutations: 0, scope: "form"}, url = "https://s.example/a";
+      inFrame = async (tab, frame, func) => {
+        const src = String(func);
+        if (src.includes("documentKey")) return doc;
+        if (src.includes("watchNear")) return true;
+        if (src.includes("nearChange")) return near;
+        throw new Error("unexpected " + src);
+      };
+      chrome.tabs.get = async () => ({id: 1, url});
+      let effect = () => {};
+      commands.actOnce = async () => { effect(); return {ok: true, detail: "clicked (trusted)"}; };
+      const act = () => commands.act({tab_id: 1, frame_id: 0, snap: 1, el: 3, kind: "click"});
+      const out = {};
+      effect = () => { doc = "d2"; url = "https://s.example/b"; }; out.nav = await act();
+      effect = () => { near = {...near, state: ["expanded"]}; }; out.menu = await act();
+      effect = () => { near = {gone: false, state: [], mutations: 0, scope: "form"}; }; out.none = await act();
+      commands.actOnce = async () => ({ok: false, detail: "target_disabled"}); out.refused = await act();
+      return out;
+    })()''')
+    assert out["nav"]["observed_change"] is True and "new document" in out["nav"]["observed"]
+    assert out["menu"]["observed_change"] is True and out["menu"]["observed"] == "the element's expanded changed"
+    assert out["none"]["observed_change"] is False and out["none"]["observed"] == "nothing changed within 0.5 s"
+    assert "observed_change" not in out["refused"]
+
+
+# decision: HAND-487
+def test_after_reads_the_pages_own_observation() -> None:
+    from ferb.act.aftercheck import after_of
+    seen = after_of({"ok": True, "observed_change": True, "observed": "the address changed"})
+    quiet = after_of({"ok": True, "observed_change": False, "observed": "nothing changed within 0.5 s"})
+    assert seen["read"] == "page" and seen["changed"] is True and seen["note"] == "the address changed"
+    assert quiet["changed"] is None and quiet["note"] == "nothing changed within 0.5 s"      # not confirmed, not failed
