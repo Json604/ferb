@@ -45,6 +45,8 @@ class SchedulePort:
     on_schedule_edit: Callable[[Any, str, str, set[str], set[str]], tuple[str, dict[str, Any] | None]]
     schedule_problems: Callable[[Any], list[str]]
     schedules_card: Callable[[], tuple[str, dict[str, Any]]]
+    # ORCH-592: the recorded origins of the schedules' last answers the planner's Layer 2 quotes
+    last_run_origins: Callable[[], set[str]]
 
 
 @dataclass(frozen=True)

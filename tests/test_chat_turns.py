@@ -308,7 +308,7 @@ def test_the_planner_context_is_ordered_most_stable_first(daemon: RunningDaemon)
     conversation come first; live facts (a reminder) come after the conversation, then the time, the task state and
     the questions, and the owner's new message last. No memory or activity is pushed (ORCH-515)."""
     sv = daemon.daemon.supervisor
-    sv.live_facts = lambda: "- Reminder r1: stretch — Sat 31 Oct 2026 17:00"
+    sv.live_facts = lambda **_: "- Reminder r1: stretch — Sat 31 Oct 2026 17:00"
     script = install(daemon, [sup("reply", "first"), sup("reply", "second")])
     chat(daemon, "an earlier message")
     chat(daemon, "the new message")

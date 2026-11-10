@@ -60,7 +60,7 @@ class TaskResults:
     def latest_of_schedule(self, schedule_id: str) -> Any:
         """The latest result of a root task a `schedule.run` of this schedule started, or None."""
         return self.db.conn.execute(
-            "SELECT r.at, r.status, r.answer FROM task_results r JOIN tasks t ON t.id = r.task_id "
+            "SELECT r.at, r.status, r.answer, r.task_id FROM task_results r JOIN tasks t ON t.id = r.task_id "
             "WHERE t.parent_id IS NULL AND t.request_id IN (SELECT json_extract(data_json, '$.request_id') FROM journal "
             "WHERE kind = 'schedule.run' AND json_extract(data_json, '$.schedule_id') = ?) ORDER BY r.at DESC LIMIT 1",
             (schedule_id,)).fetchone()

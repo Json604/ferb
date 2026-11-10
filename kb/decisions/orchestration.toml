@@ -1274,3 +1274,12 @@ status = "active"
 rule = "For ORCH-589. Refines ORCH-568 and ORCH-585. A failed one-ask task's answer (scheduled or chat) is code's sentence (\"I couldn't finish this task.\" and the reason, a code check's \"Not done: …\" included), then \"What the check confirmed:\", one line per outcome condition judged met (\"Didn't apply\" too): the condition and the checker's evidence, at most 300 characters each, then \"What I found:\" as before. A done claim a code check proved false stays out (ORCH-568). Chosen by the verdict's structure, never its words."
 why = "Owner 2026-11-10 on the visa run beeb93f5: the check confirmed \"No Slots Available\" at all five posts, but the failed reply showed only the booking condition's code sentence."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrator/supervisor.py::Supervisor._confirmed_lines"]
+
+[ORCH-592]
+title = "Each schedule's line in the planner's facts carries its last run"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For ORCH-589. Refines ORCH-554 and ORCH-577. On the planner's turn only (live_facts last_runs; a worker's instructions keep the plain list), each schedule's line ends with its last run from the records the app's list reads (task_results, schedules.failures): when, its status, failures in a row, and its answer's first line (at most 200 characters, quoted as model-written data), or \"none yet\". Layer 2's origins add those answers' recorded origins (SchedulePort.last_run_origins). The schedules card is unchanged."
+paths = ["ferb/daemon/areas/schedules.py::Schedules._schedule_facts", "ferb/daemon/areas/schedules.py::Schedules._schedule_last_runs", "ferb/daemon/areas/environment.py::Environment._live_facts", "ferb/orchestrator/supervisor.py::Supervisor._supervise"]
+live = ["LIVE-893"]

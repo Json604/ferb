@@ -1038,6 +1038,7 @@ class Supervisor(WorkerRuns):
         self.on_schedule_edit: Callable[..., tuple[str, dict[str, Any] | None]] = schedules.on_schedule_edit
         self.schedule_problems: Callable[[Any], list[str]] = schedules.schedule_problems
         self.schedules_card: Callable[[], tuple[str, dict[str, Any]]] = schedules.schedules_card
+        self.last_run_origins: Callable[[], set[str]] = schedules.last_run_origins
         self.on_reminder_cancel: Callable[[Any, str], str] = schedules.on_reminder_cancel
         self.schedule_live: Callable[[str], bool] = schedules.schedule_live
         self.typed_behind_memory: Callable[[str], list[str]] = memory.typed_behind_memory
@@ -3221,12 +3222,14 @@ class Supervisor(WorkerRuns):
                  {origins_.PRIVATE}), *conversation]
             situation: list[tuple[ContextBlock, set[str]]] = []
             # a preview's turn (the intro's demo) is told no schedule or reminder of the owner's, only what FERB can use
-            live_facts = self.live_facts(owner_state=False) if turn.preview else self.live_facts()
+            # ORCH-592: the planner's schedule lines end with each one's last run, its answer's origins with them
+            live_facts = self.live_facts(owner_state=False) if turn.preview else self.live_facts(last_runs=True)
             live = "\n".join(part for part in (str(env.get("live") or ""), live_facts) if part.strip())
             prep.steps.mark("live_facts")
             if live:
                 situation.append((ContextBlock('Layer 2 — right now (changes between turns):\n' + live,
-                                               "current device facts", protected=True), {origins_.PRIVATE}))
+                                               "current device facts", protected=True),
+                                  {origins_.PRIVATE} | (set() if turn.preview else self.last_run_origins())))
             # a preview's turn (the intro's demo) plans its one request: no running task, open question or earlier chat
             # of the owner's is in it (nor a notice: continuity.RESERVED_SESSIONS), so it can't answer or control any of
             # them

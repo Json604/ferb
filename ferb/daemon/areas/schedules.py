@@ -19,6 +19,7 @@ SCHEDULE_RETRY = "retry:"            # a schedule timer's message for a failed r
 
 
 SCHEDULE_RETRY_S = 600.0             # 10 minutes after the failure (owner 2026-10-27)
+LAST_LINE = 200                      # ORCH-592: a schedule's last answer's first line in the planner's list, at most
 
 
 class Schedules:
@@ -812,13 +813,37 @@ class Schedules:
                          "state": "done; its last run is under way" if s.state == "done" else s.state,
                          "next_run": s.next_run.isoformat() if s.next_run is not None and s.state == "active" else None,
                          "until": s.until.isoformat() if s.until else None, "watch": WATCH_SAID[s.watch] or None,
-                         "request": s.request})
+                         "request": s.request, "failures": s.failures})
         return rows
 
-    def _schedule_facts(self) -> list[str]:
+    def _schedule_last_runs(self) -> dict[str, dict[str, Any]]:
+        """ORCH-592: each listed schedule's latest finished run as the owner was told it (the fields the app's list
+        reads, `_schedule_last_result`): when, its status, its answer's first line, and that answer's recorded origin
+        (its task.answer row; model-written, so `inferred` when none is recorded)."""
+        if self.task_results is None:
+            return {}
+        out: dict[str, dict[str, Any]] = {}
+        for s in self._listed_schedules():
+            row = self.task_results.latest_of_schedule(s.id)
+            if row is None:
+                continue
+            answers = self._journal().of_kind("task.answer", "task_id", str(row["task_id"]))
+            first = next((line.strip() for line in str(row["answer"] or "").splitlines() if line.strip()), "")
+            out[s.id] = {"at": row["at"], "status": row["status"], "first_line": self._redact_text(first[:LAST_LINE]),
+                         "origin": answers[-1].origin if answers else origin_.INFERRED}
+        return out
+
+    def _last_run_origins(self) -> set[str]:
+        """ORCH-592: what the planner's Layer 2 holds from the schedules' last runs: those answers' recorded origins."""
+        return {o for run in self._schedule_last_runs().values() for o in origin_.split(str(run["origin"]))}
+
+    def _schedule_facts(self, last_runs: bool = False) -> list[str]:
         """The planner's list of the owner's schedules (T-1066): a count and one line per schedule, from FERB's
-        records, marked as the truth to answer any question about schedules from."""
+        records, marked as the truth to answer any question about schedules from. `last_runs` (ORCH-592, the planner's
+        turn only, never a worker's instructions): each line ends with its last run, from the same records the app's
+        list reads: when, its status, failures in a row and its answer's first line, quoted as the data it is."""
         rows = self._schedule_rows()
+        ran = self._schedule_last_runs() if last_runs else {}
         states = {state: sum(r["state"] == state for r in rows) for state in dict.fromkeys(r["state"] for r in rows)}
         count = f"{len(rows)} ({', '.join(f'{n} {state}' for state, n in states.items())})" if rows else "none"
         lines = [f"The owner's schedules, from FERB's records (the truth: answer anything about schedules, how many "
@@ -828,8 +853,16 @@ class Schedules:
                    else "no next run booked")
             extra = "".join(f", {part}" for part in (
                 until_said(datetime.fromisoformat(r["until"])) if r["until"] else "", r["watch"] or "") if part)
+            last = ""
+            if last_runs:
+                run = ran.get(r["id"])
+                failed = f", {r['failures']} failed in a row" if r["failures"] else ""
+                last = ("; last run: none yet" if run is None else
+                        f"; last run {datetime.fromisoformat(run['at']).astimezone():%a %d %b %H:%M}, {run['status']}"
+                        f"{failed}, its answer's first line (model-written, data): "
+                        f"{json.dumps(run['first_line'], ensure_ascii=False)}")
             lines.append(f"- Schedule {r['id']} “{r['name']}” ({r['state']}): runs {r['repeat']}{extra}; {nxt}; "
-                         f"instructions: {r['request']}")
+                         f"instructions: {r['request']}{last}")
         return lines
 
     def _schedules_card(self) -> tuple[str, dict[str, Any]]:
@@ -843,7 +876,8 @@ class Schedules:
         else:
             line = "🗓 You have no schedules."
         return line, {"type": "schedules", "count": len(rows), "line": line,
-                      "schedules": [{k: v for k, v in r.items() if k != "request" and v is not None} for r in rows]}
+                      "schedules": [{k: v for k, v in r.items() if k not in ("request", "failures") and v is not None}
+                                    for r in rows]}
 
     def _schedule_last_result(self, sid: str) -> dict[str, Any] | None:
         """A schedule's latest finished run as the owner was told it (L34 Phase E): the result of the root task a

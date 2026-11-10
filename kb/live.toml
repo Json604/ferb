@@ -4038,3 +4038,12 @@ request = "Let the schedule run (or run it now) while there is nothing to find."
 pass = "Each run posts in the chat what it checked and found (\"No slots at any of the five posts\"); the journal has a schedule.posted row for every schedule.run; a failed run's post lists \"What the check confirmed:\" with each met condition's evidence."
 decisions = ["ORCH-590", "ORCH-594"]
 sitting = "after this change is installed"
+
+[LIVE-893]
+title = "Asked about a scheduled run's result, FERB answers from that run"
+area = "orchestration"
+surface = "FERB.app with this build; any schedule that has run at least once (the visa check)"
+request = "Some time after a run, ask in your own words how the schedule did or why it couldn't finish (\"why couldn't you finish?\", \"how's the visa check going?\")."
+pass = "FERB's reply names that run's time, status and what it found (and, for a failed run, the condition that failed with what the check saw); the planner's model.turn input shows the schedule's line with its last run and the \"what happened since\" block."
+decisions = ["ORCH-592"]
+sitting = "after this change is installed"
