@@ -1,8 +1,8 @@
 """Owns "one payment, one question" (GATE-204, owner 2026-10-30) for payments in a task's browser tab: which
 Yes covers a payment-class call, from the facts code read on the page. Must not judge intent or read the worker's
 numbers: the amount and merchant are the page's (`ActionFacts.page_amount` / `page_merchant`, read by the extension),
-never what the worker declared; where the page shows none, the question says FERB couldn't read it, and shows the
-amount the worker declared marked as the AI's, which FERB couldn't confirm on the page (GATE-575; never keyed).
+never what the worker declared; where the page shows none, the question shows the amount the worker declared, plainly,
+and says when the page shows no such amount (GATE-578; never keyed).
 
 The Yes covers that payment in this task tree's tab and the tabs it opened (`ActionFacts.tab_chain`: card choice, the
 bank's page in a popup) until it completes or PAY_WINDOW_S passes; another tab chain or task asks again. Within it:
@@ -89,7 +89,7 @@ class PayFacts:
     merchant: str | None = None
     submits_card: bool = False
     submits: bool = False                 # it submits a form (a card form or not)
-    shown: tuple[str, ...] = ()           # GATE-576: every money amount the page shows, as written
+    shown: tuple[str, ...] = ()           # GATE-576/577: every money amount the page shows, as written
 
 
 @dataclass
@@ -196,20 +196,14 @@ def need(facts: PayFacts, values: dict[str, str], approved: Approval | None = No
     shown = {"amount": facts.amount or UNREAD, "merchant": facts.merchant or "",
              "site": values.get("site", ""), "account": values.get("account", ""), "recipients": "",
              "chain": facts.chain}
-    # GATE-575: with no amount code read, the AI's own stated amount (`declared`, from the worker's destination) is
-    # shown, marked as one FERB couldn't confirm on the page; it never keys the Yes and never replaces an amount read
+    # GATE-578 (owner, refining GATE-575/576): with no amount code read, the AI's own stated amount (`declared`, from the
+    # worker's destination) is the card's amount, said plainly; it never keys the Yes and never replaces an amount read.
+    # Code's check: it must be among the money amounts the page shows (compared as GATE-217 compares, never by the words
+    # beside it); when it isn't, `unseen` makes the card say so in one line
     if facts.amount is None and values.get("declared"):
         shown["declared"] = values["declared"]
-        # GATE-576: the page shows that exact amount (compared as GATE-217 compares, never by the words beside it): the
-        # card says it as the page shows it, and a larger amount the page also shows
-        seen = [a for a in facts.shown if _same(a, values["declared"], amount_key) is True]
-        if seen:
-            shown["page_shows"] = seen[0]
-            mine = amount_key(seen[0])
-            more = [a for a in facts.shown if (k := amount_key(a)) is not None and mine is not None and
-                    (k[0] == mine[0] or not k[0] or not mine[0]) and Decimal(k[1]) > Decimal(mine[1])]
-            if more:
-                shown["page_larger"] = max(more, key=lambda a: Decimal(amount_key(a)[1]))  # type: ignore[index]
+        if not any(_same(a, values["declared"], amount_key) is True for a in facts.shown):
+            shown["unseen"] = "1"
     if approved is not None:
         shown["approved"] = (approved.amount or UNREAD) + (f" to {approved.merchant}" if approved.merchant else "")
         shown["bank"] = facts.frame_host if facts.frame_host and facts.frame_host != approved.host else facts.host

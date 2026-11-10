@@ -79,11 +79,15 @@ class CallHooks:
         self.previews = TaskPreviews(self._frame_sanitized,
                                      lambda keys, holder: self.gw.locks.try_hold(keys, holder, during_reads=True),
                                      _screen_recording_allowed, note=self._note_preview)
+        # GATE-579: the payment questions' one-time pictures, for FERB.app only (memory only, by question id)
+        from ferb.daemon.pay_picture import PayPictures
+        self.pictures = PayPictures()
         self.looked: dict[tuple[str, str], set[str]] = {}   # (task, worker) -> apps whose window it has as evidence
         self._sampled: set[str] = set()                    # calls sampled before they ran (their span ids)
 
     def forget(self, task_ids: set[str]) -> None:
         self.previews.remove(task_ids)
+        self.pictures.forget(task_ids)
         for key in [k for k in self.looked if k[0] in task_ids]:
             del self.looked[key]
 

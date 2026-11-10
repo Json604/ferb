@@ -1038,22 +1038,22 @@ paths = ["scripts/question_run.py::send", "scripts/question_run.py::run", "scrip
 title = "With no amount read on the page, the payment card shows the AI's amount, marked unconfirmed"
 by = "owner"
 date = 2026-11-10
-status = "active"
+status = "superseded"
+superseded_by = "GATE-578"
 words = "ferb worked correctly ONLY THIGN I DONT LIEK IS HOW IT ASKS QUESTIOn, it correctly noted down below the amount then why didnt the first quedstion line say it???"
 words_source = "Owner 2026-11-10, relayed by the coordinator of the short-run fixes, about the Amazon cash-on-delivery order (task 64a149b8…, owner.ask 10:23:52)."
 rule = "Refines GATE-204 and GATE-216 for the payment card only. When code read no amount on the page and the AI declared one, the card's question and exact line show that amount, marked as the AI's that FERB couldn't confirm on the page (\"Pay ₹70? (FERB couldn't confirm the amount on the page)\"), and the question line says the same. An amount code read is shown alone, as before (a differing declared one changes nothing). The AI's amount never keys the Yes or decides whether to ask."
-paths = ["ferb/policy/payments.py::need", "ferb/policy/confirm.py::unconfirmed_amount", "ferb/policy/confirm.py::_card", "ferb/daemon/gateway.py::Gateway._payment"]
-live = ["LIVE-873"]
+paths = ["ferb/policy/payments.py::need", "ferb/policy/confirm.py::_card", "ferb/daemon/gateway.py::Gateway._payment"]
 
 [GATE-576]
 title = "The AI's payment amount is confirmed when the checkout page shows that exact amount"
 by = "agent"
 date = 2026-11-10
-status = "active"
+status = "superseded"
+superseded_by = "GATE-578"
 rule = "Refines GATE-575. With no amount code read, the AI's declared amount is compared, as GATE-217 compares (currency sign or code, grouping, decimals), with every money amount the page shows (ActionFacts.page_amounts: a currency beside a number in the latest snapshot's text and labels, never the words beside it). Present: the card says \"Pay <amount as the page shows it>?\" and its box notes it is the AI's amount and the page shows it, naming the largest larger amount the page also shows. Absent: GATE-575's words. Never keyed; a read amount wins."
 why = "Owner 2026-11-10 about GATE-575: \"then whats the fix for it??\". Amazon's checkout shows its total only as page text (\"Order Total: ₹70.00\" beside other amounts); picking the total by its words would be a keyword rule (rule 4), so code checks the AI's number against the page's amounts instead."
-paths = ["ferb/act/browser/ext_bridge.py::page_amounts", "ferb/core/types.py::ActionFacts", "ferb/policy/payments.py::need", "ferb/policy/confirm.py::unconfirmed_amount", "ferb/policy/confirm.py::_card"]
-live = ["LIVE-876"]
+paths = ["ferb/act/browser/ext_bridge.py::page_amounts", "ferb/core/types.py::ActionFacts", "ferb/policy/payments.py::need", "ferb/policy/confirm.py::_card"]
 
 [GATE-577]
 title = "The run tool only sends and records; a run's chats stay apart by their tag alone"
@@ -1064,3 +1064,25 @@ supersedes = ["GATE-551", "GATE-554", "GATE-574"]
 rule = "For DMN-581, GATE-550, GATE-552 and GATE-553. scripts/question_run.py switches nothing in FERB and answers none of its questions: sends are real and every question waits for the owner in FERB.app (a turn left waiting ends at --turn-limit). It still records turns, questions, timings, costs and CPU, puts the roles and models back on exit, declines FERB's clarifying question in chat (GATE-553) and starts a fresh chat after one left open (UNANSWERED). chat.send takes the test_run tag from any cli caller; it keeps runs apart as GATE-551 said and changes no question or send."
 why = "Test mode is removed (DMN-581): the tag was gated on it only so that a tagged chat was always a recorded run; without the recorder the tag still keeps runs apart (GATE-550) and changes nothing else."
 paths = ["scripts/question_run.py::send", "scripts/question_run.py::main", "scripts/question_run.py::_exit_on_signal", "scripts/question_run.py::UNANSWERED", "ferb/daemon/areas/chat.py::Chat._test_run_tag", "ferb/orchestrator/test_runs.py", "ferb/sense/trail.py::Trail.record", "ferb/memory/summary.py::_journal"]
+
+[GATE-578]
+title = "The payment card asks \"Pay <amount>?\" plainly and shows a one-time picture of the payment page"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "\"this sdoens tsomethow fell good. how is this trusting enogih for users when they are confused by all these wrdings, why cant this be simple adn resolved??? this smaller and larger code nforced hard rule can break i think, what if we send a one time screenhsot of the cehckout/paymetn page with this pay X money. and lets trust and show the AI amount BUT with coirrect code checks\"; then, on masking that picture: \"why??? its only one time, shown to me and never shown to ai. only  show error when it cnat be captured etcetc, not this unnecesarry check\""
+words_source = "Owner 2026-11-10, relayed by the coordinator, about GATE-575/576's card (\"Pay ₹70.00?\" with the AI's-amount brackets); the second quote answers a plan to mask the picture."
+rule = "Supersedes GATE-575 and GATE-576. The card's first line is \"Pay <amount>?\" (+\" to <merchant>\"): code's amount when it read one, else the AI's, with no note whose it is. Checks stay unworded unless they fail: the Yes keyed as GATE-204/216, never by the AI's number; with none read, the AI's amount must be among the page's money amounts (as GATE-217 compares), else one line \"FERB couldn't find <amount> on this page.\" It shows a one-time picture of the payment page, owner only, never to a model or a record; no masking (GATE-206 stays for model-seen shots); it says only when it wasn't captured."
+paths = ["ferb/policy/payments.py::need", "ferb/policy/confirm.py::ai_amount", "ferb/policy/confirm.py::unseen_line", "ferb/policy/confirm.py::_card", "ferb/daemon/pay_picture.py", "ferb/act/browser/ext_bridge.py::page_amounts"]
+supersedes = ["GATE-575", "GATE-576"]
+live = ["LIVE-877"]
+
+[GATE-579]
+title = "The payment picture: captured when FERB asks, held in memory by question id, taken once by FERB.app"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For GATE-578. Asking a payment (not when unattended or under the 30-minute window), the gateway captures the call's preview surface (preview_target: a task tab's record_frame, a Mac window's capture) under its resource locks within PICTURE_LIMIT_S (8 s), before the question is published; no text-recognition pass. The bytes live in CallHooks.pictures (memory only) by question id; questions.picture (APP_ONLY) hands them out once; they go on the answer, set-aside or close, at task end and with the daemon. The card carries picture or picture_problem."
+why = "The capture used still paints secret fields, giving none when the extension can't place them (said as not captured); an unmasked owner-only one is the browser's to add. A reload or newer snapshot makes the Yes's click stale (ext_bridge _resolve); an in-page change without a load isn't re-checked."
+paths = ["ferb/daemon/pay_picture.py", "ferb/daemon/gateway.py::Gateway._pay_picture", "ferb/daemon/gateway.py::Gateway.ask_confirmation", "ferb/daemon/call_hooks.py::CallHooks", "ferb/daemon/areas/rpc.py", "ferb/daemon/auth.py::APP_ONLY", "ferb/daemon/questions.py::card_parts"]
+live = ["LIVE-877"]

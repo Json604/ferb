@@ -1238,25 +1238,31 @@ def _terminal(v: dict[str, str]) -> str:
     return said + (", then press Return there" if v.get("enter") else "") + " (it runs as you, outside FERB's sandbox)"
 
 
-def unconfirmed_amount(v: dict[str, str]) -> str:
-    """GATE-575: when code read no amount on the page but the AI stated one, that amount marked as the AI's, which FERB
-    couldn't confirm on the page; "" otherwise (an amount code read always stands alone)."""
+def ai_amount(v: dict[str, str]) -> str:
+    """GATE-578: when code read no amount on the page, the amount the AI stated, plainly; "" otherwise (an amount code
+    read always stands alone)."""
     read = v.get("amount", "")
     if not v.get("declared") or (read and not read.startswith(UNREAD_AMOUNT)):
         return ""
-    if v.get("page_shows"):                          # GATE-576: the page shows that exact amount
-        also = f"; the page also shows {v['page_larger']}" if v.get("page_larger") else ""
-        return f"{v['page_shows']} (the AI's amount; the page shows this amount{also})"
-    return f"{v['declared']} (the AI's amount; FERB couldn't confirm it on the page)"
+    return v["declared"]
+
+
+def unseen_line(v: dict[str, str]) -> str:
+    """GATE-578: code's check of the AI's amount failed (the page shows no such money amount): the card's one line."""
+    amount = ai_amount(v)
+    return f"FERB couldn't find {amount} on this page." if amount and v.get("unseen") else ""
 
 
 def _pays(verb: str, v: dict[str, str]) -> str:
     """A payment as the owner reads it (GATE-204): the amount and merchant code read on the page (never the
-    worker's number; "an amount FERB couldn't read" when none, or GATE-575's AI's amount marked unconfirmed), where,
-    from which account; on a bank page that shows another payment than the one approved, both."""
+    worker's number; "an amount FERB couldn't read" when none, or GATE-578's AI's amount, plainly), where, from which
+    account; on a bank page that shows another payment than the one approved, both."""
     to = v.get("merchant") or v.get("recipients") or ""
-    text = (f"{verb} {unconfirmed_amount(v) or v.get('amount') or UNREAD_AMOUNT}" + (f" to {to}" if to else "")
+    stated = ai_amount(v)
+    text = (f"{verb} {stated or v.get('amount') or UNREAD_AMOUNT}" + (f" to {to}" if to else "")
             + (f" on {v['site']}" if v.get("site") else "") + (f" from {v['account']}" if v.get("account") else ""))
+    if unseen := unseen_line(v):
+        text += f" ({unseen[:-1]})"
     if v.get("approved"):
         bank = f" on {v['bank']}" if v.get("bank") else ""
         text += f" (the bank page{bank} shows this, but you approved {v['approved']})"
@@ -1660,16 +1666,14 @@ def _card(n: Need, alongside: frozenset[str]) -> Card | None:
         if v.get("approved"):
             detail = (f"This is different from what you approved ({v['approved']}): the bank page"
                       f"{' on ' + v['bank'] if v.get('bank') else ''} shows {amount}. " + detail)
-        stated = unconfirmed_amount(v)                # GATE-575: none read, the AI's stated amount, marked
+        stated = ai_amount(v)                         # GATE-578: none read, the AI's stated amount, plainly
         shown = stated or amount
         exact = " · ".join(p for p in (f"{shown} → {to}" if to else shown, v.get("site", ""),
                                        f"from {v['account']}" if v.get("account") else "") if p)
-        if stated and v.get("page_shows"):            # GATE-576: the AI's amount, and the page shows it
-            return Card(f"Pay {v['page_shows']}{' to ' + to if to else ''}?", detail, exact, f"Pay {v['page_shows']}",
-                        "Don't pay")
-        if stated:
-            return Card(f"Pay {v['declared']}{' to ' + to if to else ''}? (FERB couldn't confirm the amount on the "
-                        "page)", detail, exact, "Pay", "Don't pay")
+        if stated:                                    # code's check failed: one plain line under the question
+            unseen = unseen_line(v)
+            return Card(f"Pay {stated}{' to ' + to if to else ''}?", f"{unseen} {detail}" if unseen else detail,
+                        exact, "Pay" if unseen else f"Pay {stated}", "Don't pay")
         if not v.get("amount") or amount.startswith(UNREAD_AMOUNT):     # GATE-204: no amount read
             return Card(f"Pay{' ' + to if to else ''}? FERB couldn't read the amount", detail, exact, "Pay", "Don't pay")
         return Card(f"Pay {amount}{' to ' + to if to else ''}?", detail, exact, f"Pay {amount}", "Don't pay")

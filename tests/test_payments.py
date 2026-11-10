@@ -30,7 +30,7 @@ class _Tab(FakeCap):
         card: bool = False
         submit: bool = False                     # a form submit with no card fields (a one-click checkout)
         code: bool = False                       # the run asks for a login code here (a bank page's OTP)
-        shown: list[str] = []                    # every money amount the page shows (GATE-576)
+        shown: list[str] = []                    # every money amount the page shows (GATE-578)
 
     def __init__(self, d: RunningDaemon | None = None) -> None:
         super().__init__("probe.tab", Kind.CLICK, {"probe"})
@@ -187,61 +187,39 @@ def test_a_card_form_submitted_is_a_payment_without_any_declaration(daemon: Runn
     assert [a["args"]["confirm"][0]["rule"] for a in _asked(daemon)] == ["floor:pay", "floor:pay"]
 
 
-# decision: GATE-575, GATE-204
-def test_with_no_amount_read_the_card_shows_the_ais_amount_marked_unconfirmed(daemon: RunningDaemon) -> None:
-    """Owner 2026-11-10 (Amazon cash-on-delivery order): the card said only "FERB couldn't read the amount" although
-    the AI had stated ₹70. With no amount code read, the question and card show the AI's amount, marked as one FERB
-    couldn't confirm on the page; an amount code read stands alone, and the Yes is never keyed by the AI's number."""
+# decision: GATE-578, GATE-204
+def test_with_no_amount_read_the_card_asks_to_pay_the_ais_amount_plainly(daemon: RunningDaemon) -> None:
+    """Owner 2026-11-10 ("lets trust and show the AI amount BUT with coirrect code checks"): with no amount code read,
+    the card's first line is "Pay ₹70?" with no bracket about whose amount it is. Code's check: the AI's amount must be
+    among the page's money amounts (compared as GATE-217 compares); absent, one plain line says FERB couldn't find it.
+    An amount code read stands alone, and the AI's number never keys the Yes."""
+    checkout = ["₹63.00", "₹0.00", "₹7.00", "₹70.00", "₹19.00", "INR 1,240.50"]
     tab = _Tab()
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order the batteries on www.orderly.example"), [tab])
     owner = Answers(daemon, granted=True, choice=1)
     try:
-        assert not gateway_tool_call(daemon, grant, "probe.tab", submit=True, effect="pay",
-                                     destination={"amount": 70, "currency": "₹"})["is_error"]
-        assert not gateway_tool_call(daemon, grant, "probe.tab", tab="t2", submit=True, amount="₹65", effect="pay",
-                                     destination={"amount": 70, "currency": "₹"})["is_error"]
-    finally:
-        owner.stop()
-    unread, read = [a["args"] for a in _asked(daemon)]
-    assert "₹70" in unread["question"] and "couldn't confirm" in unread["question"]
-    assert "₹65" in read["question"] and "₹70" not in read["question"]
-    assert "70" not in unread["confirm"][0]["key"]                      # never keyed by the AI's number
-    need = payments.need(payments.PayFacts("t1", "www.orderly.example"),
-                         {"declared": "₹70", "site": "orderly.example"})
-    card = confirm.card([need])
-    assert "₹70" in card.question and "₹70" in card.exact and "couldn't confirm" in card.question
-
-
-# decision: GATE-576, GATE-575
-def test_the_ais_amount_is_confirmed_when_the_checkout_page_shows_it(daemon: RunningDaemon) -> None:
-    """Owner 2026-11-10 ("then whats the fix for it??"): Amazon's order total is page text only. A checkout page shows
-    several amounts; the AI's ₹70 among them, compared as GATE-217 compares, makes the card say "Pay ₹70.00?" with
-    the box noting the page shows it, and a larger amount on the page is named, never judged the total. Absent, the
-    card keeps "couldn't confirm". The Yes is still never keyed by the AI's number."""
-    checkout = ["₹63.00", "₹0.00", "₹7.00", "₹70.00", "₹19.00"]
-    tab = _Tab()
-    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order the batteries on www.orderly.example"), [tab])
-    owner = Answers(daemon, granted=True, choice=1)
-    try:
-        for chain, shown in (("t1", checkout), ("t2", [*checkout, "INR 1,240.50"]), ("t3", ["₹63.00", "₹7.00"])):
+        for chain, shown, amount in (("t1", checkout, None), ("t2", ["₹63.00", "₹7.00"], None), ("t3", [], "₹65")):
             assert not gateway_tool_call(daemon, grant, "probe.tab", tab=chain, submit=True, effect="pay",
-                                         shown=shown, destination={"amount": 70, "currency": "₹"})["is_error"]
+                                         shown=shown, amount=amount,
+                                         destination={"amount": 70, "currency": "₹"})["is_error"]
     finally:
         owner.stop()
-    seen, larger, absent = [a["args"] for a in _asked(daemon)]
-    assert "₹70.00" in seen["question"] and "the page shows this amount" in seen["question"]
-    assert "couldn't confirm" not in seen["question"] and "also shows" not in seen["question"]
-    assert "the page also shows INR 1,240.50" in larger["question"]
-    assert "couldn't confirm" in absent["question"]
-    assert all("70" not in a["confirm"][0]["key"] for a in (seen, larger, absent))
-    need = payments.need(payments.PayFacts("t1", "www.orderly.example", shown=tuple(checkout)),
-                         {"declared": "₹70", "site": "orderly.example"})
-    card = confirm.card([need])
-    assert card.question.startswith("Pay ₹70.00") and "couldn't confirm" not in card.question
-    assert "the page shows this amount" in card.exact
+    seen, absent, read = [a["args"] for a in _asked(daemon)]
+    for line in (seen["question"], absent["question"]):
+        assert "₹70" in line and "AI's" not in line and "confirm" not in line and "also shows" not in line
+    assert "couldn't find" not in seen["question"] and "FERB couldn't find ₹70 on this page" in absent["question"]
+    assert "₹65" in read["question"] and "₹70" not in read["question"]
+    assert all("70" not in a["confirm"][0]["key"] for a in (seen, absent))   # never keyed by the AI's number
+    cards = [confirm.card([payments.need(payments.PayFacts(chain, "www.orderly.example", shown=tuple(shown)),
+                                         {"declared": "₹70", "site": "orderly.example"})])
+             for chain, shown in (("t1", checkout), ("t2", ["₹63.00", "₹7.00"]))]
+    assert cards[0].question == cards[1].question == "Pay ₹70?"
+    assert "couldn't find" not in cards[0].detail and "AI" not in cards[0].detail + cards[0].exact
+    assert cards[1].detail.startswith("FERB couldn't find ₹70 on this page.")
+    assert cards[0].exact == cards[1].exact == "₹70 · orderly.example"
 
 
-# decision: GATE-576
+# decision: GATE-578
 def test_a_page_reports_every_money_amount_it_shows_as_written() -> None:
     from ferb.act.browser.ext_bridge import page_amounts
     text = "Items: ₹63.00\nDelivery: ₹0.00\nCash/Pay on Delivery fee ₹7.00\nOrder Total: ₹70.00\nQty 2 · 3 items"

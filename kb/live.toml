@@ -3932,15 +3932,6 @@ pass = "No blocked page opens in that profile. FERB says its extension was remov
 decisions = ["HAND-449"]
 sitting = "after this change is installed"
 
-[LIVE-873]
-title = "A payment whose amount FERB can't read on the page shows the AI's amount, marked unconfirmed"
-area = "gateway"
-surface = "FERB.app with this build; an Amazon.in cash-on-delivery checkout of a cheap item in your profile"
-request = "Ask FERB to order a cheap item with cash on delivery; say Don't pay at the question."
-pass = "The card's first line names the amount (\"Pay ₹… ? (FERB couldn't confirm the amount on the page)\") and its box shows the same amount marked as the AI's; nothing is ordered after Don't pay."
-decisions = ["GATE-575"]
-sitting = "after this change is installed"
-
 [LIVE-875]
 title = "A new request typed while FERB's question is open runs on its own; the question waits"
 area = "orchestration"
@@ -3950,13 +3941,13 @@ pass = "The unrelated request is answered on its own; its trace's task payload h
 decisions = ["ORCH-586"]
 sitting = "after this change is installed"
 
-[LIVE-876]
-title = "A checkout whose total is only page text: the payment card says the amount the page shows"
+[LIVE-877]
+title = "A cash-on-delivery checkout: the payment card says \"Pay ₹N?\" with the checkout page's picture"
 area = "gateway"
 surface = "FERB.app with this build; an Amazon.in cash-on-delivery checkout of a cheap item in your profile"
-request = "Ask FERB to order a cheap item with cash on delivery; say Don't pay at the question."
-pass = "The card's first line is \"Pay ₹<order total>?\" as the page shows it; the box says it is the AI's amount and the page shows it (and names any larger amount on the page). Nothing is ordered after Don't pay."
-decisions = ["GATE-576", "GATE-575"]
+request = "Ask FERB to order a cheap item with cash on delivery; stop at the question: say Don't pay."
+pass = "The card's first line is \"Pay ₹<order total>?\" and under it a picture of the checkout page (click enlarges it), nothing else: no note on whose amount it is. In the chat window the same card shows the same picture. Nothing is ordered after Don't pay."
+decisions = ["GATE-578", "GATE-579"]
 sitting = "after this change is installed"
 
 [LIVE-880]

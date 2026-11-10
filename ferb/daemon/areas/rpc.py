@@ -156,7 +156,8 @@ class Rpc:
             "ps.list": self._ps_list, "ps.kill": self._ps_kill, "conversations.list": self._conversations_list,
             "conversations.change": self._conversations_change, "notifications.categories": self._notifications_categories, "attention.ack": self._attention_ack,
             "reports.build": self._reports_build, "reports.send": self._reports_send, "tasks.list": self._tasks_list,
-            "tasks.preview": self._task_preview, "update.prepare": self._update_prepare,
+            "tasks.preview": self._task_preview, "questions.picture": self._question_picture,
+            "update.prepare": self._update_prepare,
             "reports.diagnostic": self._reports_diagnostic, "notices.list": self._notices_list,
             "settings.get": self._settings_get, "settings.set": self._settings_set,
             "runtimes.status": self._runtimes_status, "runtimes.use": self._runtimes_use,
@@ -228,6 +229,16 @@ class Rpc:
         if image is not None:
             answer["image"] = base64.b64encode(image).decode("ascii")
         return answer
+
+    async def _question_picture(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """`questions.picture {approval_id}` (FERB.app only, auth.APP_ONLY; GATE-579, APP-828): the payment question's
+        one-time picture of the payment page (base64 `image`), taken once: this answer removes it. `{}` when there is
+        none (taken, answered, its task ended, or the daemon restarted). Memory only; nothing is recorded."""
+        import base64
+        if self.gateway is None:
+            return {}
+        image = self.gateway.hooks.pictures.take(str(params.get("approval_id") or ""))
+        return {"image": base64.b64encode(image).decode("ascii")} if image else {}
 
     async def _trace(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         task_id = str(params.get("task_id") or "last")

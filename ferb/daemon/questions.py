@@ -58,6 +58,9 @@ class Approval:
     title: str = ""
     secret_labels: tuple[str, ...] = ()
     site: str = ""
+    # GATE-579, APP-828: a payment question's one-time picture of the payment page: "shown" while FERB holds one for
+    # FERB.app (`questions.picture`), else the line saying it couldn't be captured; "" for every other question
+    picture: str = ""
 
     def option_for(self, text: str) -> int | None:
         """The option (1-based) a typed answer picks: its exact words, or its button's words (GATE-566: "Send" picks
@@ -97,9 +100,11 @@ def header(ap: Approval) -> str:
 
 def card_parts(ap: Approval) -> dict[str, Any]:
     """GATE-513: the card's why line and exact part, when it has them; GATE-566: its header, its buttons' words, the
-    note under them and a hidden input's words (`approval.requested` and `chat.status`)."""
+    note under them and a hidden input's words (`approval.requested` and `chat.status`); GATE-579: whether a payment
+    question has its page's picture for FERB.app (`picture`), or the line saying it couldn't be captured."""
     title = header(ap)
-    return (({"detail": ap.detail} if ap.detail else {}) | ({"exact": ap.exact} if ap.exact else {})
+    shot = ({"picture": True} if ap.picture == "shown" else {"picture_problem": ap.picture} if ap.picture else {})
+    return (({"detail": ap.detail} if ap.detail else {}) | ({"exact": ap.exact} if ap.exact else {}) | shot
             | ({"title": title} if title else {})
             | ({"labels": list(ap.labels)} if any(ap.labels) else {}) | ({"note": ap.note} if ap.note else {})
             | (dict(zip(("field_label", "decline_label", "send_label"), ap.secret_labels)) if ap.secret_labels

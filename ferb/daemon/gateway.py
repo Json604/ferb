@@ -86,7 +86,7 @@ from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
 from ferb.sanitize.untrusted import earlier_questions, pasted_parts
 from ferb.store.spans import SpanStore, PayloadOutput, tree_where
-from ferb.daemon import refused_fills
+from ferb.daemon import pay_picture, refused_fills
 from ferb.daemon.refused_fills import RefusedFills
 from ferb.trace import lines
 
@@ -1541,7 +1541,7 @@ class Gateway:
         else:
             return needs                                  # no tab and no window to scope it: each run asks (SQ1)
         rest = [n for n in needs if n.rule != confirm.ALWAYS[Kind.PAY]]
-        # GATE-575: the AI's stated amount, shown (marked unconfirmed) only where code read none; never keyed
+        # GATE-578: the AI's stated amount, shown plainly only where code read none; never keyed
         stated = confirm.shown_amount(c.checked.target.amount, c.checked.target.currency)
         check = self.payments.check(c.root, c.pay, {**pays[0].values, **({"declared": stated} if stated else {})})
         if check.approval is not None:
@@ -1659,7 +1659,8 @@ class Gateway:
                         if not need.spent_on_ask:
                             out.spent.append(row["id"])
                 if out.refused is None and ask:
-                    answer = await self.ask_confirmation(c.grant, c.rec, ask, None, call, c.why, typed)
+                    answer = await self.ask_confirmation(c.grant, c.rec, ask, None, call, c.why, typed,
+                                                         picture=self._pay_picture(c, ask))
                     out.ids += answer.ids
                     if answer:
                         for need, cid in zip(ask, answer.ids):
@@ -1707,6 +1708,14 @@ class Gateway:
         if lifted:
             c.extra["lifted"] = sorted(f"{how}:{rule}" for rule, how in lifted)
         return lifted, escape, terminal
+
+    def _pay_picture(self, c: "Call", ask: list[confirm.Need]) -> Callable[[], Awaitable[bytes | None]] | None:
+        """GATE-579: a payment's question shows the owner a one-time picture of the page its control is on (the call's
+        preview surface), taken when FERB asks; None for any other question."""
+        if c.pay is None or not any(n.key == c.pay_key for n in ask):
+            return None
+        return lambda: pay_picture.capture(c.cap, c.args, c.grant.task_id, self.locks.hold, c.lock_keys,
+                                           "picture:" + c.root)
 
     def _granted_row(self, c: "Call", key: str) -> str | None:
         row = self.confirmations.find(c.root, key, self.spans.reopened_answers(c.root))
@@ -2072,7 +2081,8 @@ class Gateway:
         return self.spans.last_typed(grant.task_id, name, tab) if isinstance(tab, str) and tab else ""
 
     async def ask_confirmation(self, grant: RunGrant, rec: Any, needs: list[confirm.Need], span: Any, call: str,
-                               why: str, typed: str = "") -> Answer:
+                               why: str, typed: str = "",
+                               picture: Callable[[], Awaitable[bytes | None]] | None = None) -> Answer:
         """FERB's own question to the owner, in chat with Yes / No, never through the orchestrator (D33): an owner.ask
         span marked `ferb_question` whose args carry the needs it confirms (`confirm`), and, when given, the call
         span it is about (`for_span`). Yes or No is recorded per need for this task tree (a skipped question is a
@@ -2105,6 +2115,7 @@ class Gateway:
             given = {"answer": YES, "confirmed": ids, "allowed_until": self.allow_until.isoformat()}
             self._finish_call(q_span, OWNER_ASK, given, False, output=given, origins=ask_origins(given))
             return Answer(True, ids)
+        shot = await picture() if picture is not None else None     # GATE-579: the page, for the owner's eyes only
         ask = ActionRequest(capability=CONFIRM_ASK, kind="owner_question", identity=grant.identity, scopes=frozenset(),
                             task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
                             task_scopes=grant.scopes, content=text, effect="navigate")
@@ -2117,6 +2128,10 @@ class Gateway:
             if ap.labels and routine:                    # GATE-566, GATE-207: the 30-minute answer, and what it covers
                 ap.labels, ap.note = (*ap.labels, ALLOW_WINDOW_LABEL), ALLOW_WINDOW_NOTE
             ap.why = self.built(confirm.reason_line(quoted(self.value(why)) if why.strip() else ""))
+            if picture is not None:                      # GATE-579: held for FERB.app by this question's id
+                if shot:
+                    self.hooks.pictures.hold(ap.id, root, shot)
+                ap.picture = "shown" if shot else pay_picture.NOT_CAPTURED
             self.publish("approval.requested", {"approval_id": ap.id, "capability": CONFIRM_ASK,
                                                 "kind": "owner_question", "reason": text, "options": options,
                                                 "task_id": grant.task_id, "summary": ap.summary, "why": ap.why}
@@ -2130,6 +2145,7 @@ class Gateway:
             raise
         finally:
             self.observer.tool_call(grant, done=True)
+            self.hooks.pictures.drop(ap.id)              # GATE-579: answered, set aside or closed: the picture goes
         yes = state == "granted" and ap.choice in (YES, ALLOW_WINDOW)
         if state == "granted" and ap.choice == ALLOW_WINDOW and routine:   # the owner's window: from now, 30 min
             self.allow_until = self.clock.now() + timedelta(seconds=confirm.ALLOW_WINDOW_S)
