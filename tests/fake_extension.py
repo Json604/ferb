@@ -82,6 +82,13 @@ def page(url: str) -> dict[str, Any]:
     if u.path == "/upload":
         return {"title": "Upload", "text": "pick a file",
                 "elements": [{"role": "button", "label": "Choose file", "form": "other", "input_type": "file"}]}
+    if u.path == "/uploads":                              # HAND-501: a hidden multiple field in a frame, a drop zone
+        return {"title": "Uploads", "text": "attach files",
+                "elements": [{"role": "button", "label": "Attachments", "form": "other", "input_type": "file",
+                              "frame": 3, "in_view": False, "multiple": True},
+                             {"role": "button", "label": "Drop files here", "form": None},
+                             {"role": "button", "label": "One file", "form": "other", "input_type": "file"},
+                             {"role": "button", "label": "Ignores drops", "form": None, "ignores_drop": True}]}
     return {"title": "Page", "text": f"page {u.path}", "elements": [{"role": "link", "label": "Home",
                                                                     "href": f"{u.scheme}://{u.netloc}/"}]}
 
@@ -132,6 +139,10 @@ class FakeExtension:
         self.pending_dialogs: dict[int, list[dict[str, Any]]] = {}
         self.pings = 0
         self.uploads: list[dict[str, Any]] = []
+        self.file_access: bool | None = None              # 0.19.9 hello: None leaves it out (an older extension)
+        self.upload_parts: list[dict[str, Any]] = []      # each upload_part as sent, its data replaced by its length
+        self._upload_bytes: dict[str, list[bytearray]] = {}   # transfer -> each file's bytes so far (the frame's)
+        self.page_files: dict[tuple[int, int], list[dict[str, Any]]] = {}   # (tab, element) -> what the page holds
         self.screenshot_bytes = 10                        # size of the fake jpeg
         self.shot_jpeg: bytes | None = None               # a real picture to capture instead (HAND-497's masking test)
         self.scroll_pos: dict[tuple[int, str | None], int] = {}
@@ -229,7 +240,8 @@ class FakeExtension:
         self.send("hello", {"version": self.version, "protocol": self.protocol, "browser": self.browser,
                             "paired": bool(self.key), "owned": self.owned,
                             "seen": [{"id": k, "status": v} for k, v in self.seen.items()], "armed": sorted(self.armed),
-                            "nonce": self.nonce, "tabs": self.live_records()})
+                            "nonce": self.nonce, "tabs": self.live_records(),
+                            **({"file_access": self.file_access} if self.file_access is not None else {})})
 
     def live_records(self) -> list[dict[str, Any]]:
         """The records still valid (the tab open, still in its group), as the hello lists them."""
@@ -755,7 +767,50 @@ class FakeExtension:
     def op_upload(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         self._attach(a["tab_id"])
         self.uploads.append(a)
+        if "transfer" in a:                                     # 0.19.9: the bytes the daemon sent (content.js uploadSet)
+            return self._upload_set(a)
+        if self.file_access is False:                           # without file access the debugger's route isn't tried
+            return {"ok": False, "reason": "file_access_off", "transferred": False,
+                    "detail": "the browser lets FERB set a file on a field only with access to file URLs, which is off "
+                              "for FERB; nothing was uploaded"}
         return {"ok": True, "detail": f"{len(a['paths'])} file(s) attached"}
+
+    def op_upload_part(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        """One part, kept for the target frame in order (content.js uploadPart); a part out of order is refused."""
+        data = base64.b64decode(a["data"])
+        self.upload_parts.append({**{k: v for k, v in a.items() if k != "data"}, "size": len(data)})
+        files = self._upload_bytes.setdefault(a["transfer"], [])
+        if a["index"] == len(files) and a["offset"] == 0:
+            files.append(bytearray())
+        if a["index"] != len(files) - 1 or len(files[-1]) != a["offset"]:
+            raise RuntimeError("upload part refused in the page (part_out_of_order); nothing was set")
+        files[-1] += data
+        return {"received": len(files[-1])}
+
+    def _upload_set(self, a: dict[str, Any]) -> dict[str, Any]:
+        el = page(self.tabs[a["tab_id"]])["elements"][a["el"]]
+        got, meta = self._upload_bytes.pop(a["transfer"], []), a["files"]
+        if len(got) != len(meta) or any(len(b) != m["size"] for b, m in zip(got, meta)):
+            return {"ok": False, "reason": "upload_bytes_missing", "detail": "a file arrived incomplete; nothing was set",
+                    "transferred": False}
+        files = [{"name": m["name"], "size": len(b), "type": m["type"], "modified_ms": m["last_modified"],
+                  "sha256": hashlib.sha256(b).hexdigest()} for b, m in zip(got, meta)]
+        if el.get("input_type") == "file":
+            if len(files) > 1 and not el.get("multiple"):
+                return {"ok": False, "reason": "single_file_field", "transferred": False,
+                        "detail": "this file field takes one file; nothing was set"}
+            self.page_files[(a["tab_id"], a["el"])] = files
+            return {"ok": True, "route": "field", "files_set": len(files), "selected_files": files,
+                    "frame_id": a["frame_id"], "transferred": True,
+                    "observed_change": True, "observed": "the element's value changed"}
+        if el.get("ignores_drop"):
+            return {"ok": False, "route": "drop", "dragover_taken": False, "drop_taken": False,
+                    "reason": "drop_not_taken", "transferred": False,
+                    "detail": "no listener on the element took the drop (none cancelled it), so the page most likely "
+                              "ignored it; nothing is known to be uploaded"}
+        self.page_files[(a["tab_id"], a["el"])] = files
+        return {"ok": True, "route": "drop", "dragover_taken": True, "drop_taken": True, "selected_files": files,
+                "frame_id": a["frame_id"], "transferred": True}
 
     def op_screenshot(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         """Like the real extension (protocol 14, L13): the picture and the page's mask state before and after it."""

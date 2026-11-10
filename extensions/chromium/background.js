@@ -36,7 +36,7 @@ const PAIR_WAIT_MS = 300000;         // pairing.py TOKEN_TTL_S
 const downloads = new Map();         // transfer id -> a download held for the daemon (D35)
 let DOWNLOAD_IDLE_MS = 30000;        // a held download nobody takes goes back to the browser (FERB's profile: failed)
 let profileIdentity = "owner";       // from the daemon's welcome: in FERB's own profile every download is FERB's
-const TRANSPORT_OPS = new Set(["download_part"]);   // reads of held data: never in the 500-entry command journal
+const TRANSPORT_OPS = new Set(["download_part", "upload_part"]);   // upload_part (HAND-501): a part of held bytes   // reads of held data: never in the 500-entry command journal
 const armedTabs = () => [...TABS].filter(([, t]) => t.armed).map(([id]) => id);
 const VIEWPORT = { width: 1280, height: 900 };   // Emulation.setDeviceMetricsOverride for FERB's own tabs
 
@@ -404,7 +404,15 @@ async function announceHello() {
   await send("hello", { version: chrome.runtime.getManifest().version, protocol: FERB_PROTOCOL,
                         browser: navigator.brave ? "brave" : "chrome", paired: !!st.key,
                         owned: await ownedTabs(), seen: s.order.slice(-200).map((id) => ({ id, status: s.seen[id] })),
-                        armed: armedTabs(), nonce: link.nonce, tabs: await liveRecords() });
+                        armed: armedTabs(), nonce: link.nonce, tabs: await liveRecords(), file_access: await fileAccess() });
+}
+
+// Whether the owner allowed FERB access to file URLs (the switch on the browser's own extensions page; FERB never turns
+// it on). Only then does the browser let FERB's debugger set a file on a field (DOM.setFileInputFiles answers "Not
+// allowed" otherwise: Chromium's DOMHandler asks the extension's client MayReadLocalFiles, which is this switch). The
+// switch reloads the extension, so each hello says it afresh (0.19.9, HAND-500).
+async function fileAccess() {
+  try { return (await chrome.extension.isAllowedFileSchemeAccess()) === true; } catch (_) { return false; }
 }
 
 async function ensurePort() {
@@ -468,7 +476,8 @@ async function onDaemon(m) {
     link = { nonce: _hex(16), seq: 0 };
     await send("hello", { version: chrome.runtime.getManifest().version, protocol: FERB_PROTOCOL,
                           browser: navigator.brave ? "brave" : "chrome", paired: true, owned: [], seen: [],
-                          armed: armedTabs(), nonce: link.nonce, tabs: await liveRecords() });
+                          armed: armedTabs(), nonce: link.nonce, tabs: await liveRecords(),
+                          file_access: await fileAccess() });
     return;
   }
   if (m.type === "refused") {
@@ -658,7 +667,7 @@ const script = (injection) => chrome.scripting.executeScript({ ...injection, inj
 // It is the debugger's own call, answered while the page is frozen; the owner sees nothing (the group stays collapsed).
 // Sent when a tab is armed, before every command that reads or acts in it, and whenever Chrome reports one frozen.
 const WAKES = new Set(["snapshot", "find", "html", "owner_view", "wait", "screenshot", "record_frame", "point", "frame_origin", "pdf",
-  "act", "fill", "upload", "media", "scroll", "pointer"]);
+  "act", "fill", "upload", "upload_part", "media", "scroll", "pointer"]);
 async function wake(tabId) {
   const t = TABS.get(tabId);
   if (!t || !t.attached) return false;               // not FERB's debugger: nothing to send it through
@@ -2349,8 +2358,38 @@ const commands = {
     const submitted = submits ? await formSubmits(tab_id) : [];
     return {...result, ...(choosers.length ? {file_choosers: choosers} : {}), ...(submitted.length ? {submitted} : {})};
   },
+  // HAND-487: an upload, with what changed around it (observeAct), like an act.
+  async upload(args) { return observeAct(args, () => commands.uploadOnce(args)); },
+  // Two routes (0.19.9, HAND-500). `paths`: the browser sets FERB's copies of the files on the field through the
+  // debugger (DOM.setFileInputFiles), which it allows only with file access (fileAccess); without it nothing is tried:
+  // `file_access_off`, a known failure, and the daemon sends the bytes instead. `transfer`: the bytes the daemon sent
+  // (upload_part) are given to the element in its frame (content.js uploadSet): a file field's files, or a drop.
+  async uploadOnce({ tab_id, frame_id, snap, el, paths, transfer, files }) {
+    if (transfer !== undefined) {
+      if (typeof transfer !== "string" || !/^[0-9a-f]{32}$/.test(transfer) || !Array.isArray(files) || !files.length)
+        throw beforeInput(new Error("invalid upload transfer"));
+      const r = await inFrame(tab_id, frame_id, (g, i, t, f) => window.__ferb.uploadSet(g, i, t, f),
+                              [snap, el, transfer, files]);
+      if (r.detail === "stale") return r;
+      return {...r, frame_id, transferred: r.ok === true};
+    }
+    if (!(await fileAccess())) return {ok:false, reason:"file_access_off", frame_id, transferred:false,
+      detail:"the browser lets FERB set a file on a field only with access to file URLs, which is off for FERB; nothing was uploaded"};
+    return commands.uploadPaths({ tab_id, frame_id, snap, el, paths });
+  },
+  // HAND-501: one part of a file the daemon hands through the page, kept in the target frame's isolated world until
+  // `upload` with its transfer. Nothing reaches the page here, so a failure is a known one (READ_OPS).
+  async upload_part({ tab_id, frame_id, transfer, index, offset, data }) {
+    if (typeof transfer !== "string" || !/^[0-9a-f]{32}$/.test(transfer) || !Number.isSafeInteger(index) || index < 0 ||
+        !Number.isSafeInteger(offset) || offset < 0 || typeof data !== "string" || data.length > Math.ceil(UPLOAD_PART / 3) * 4)
+      throw new Error("invalid upload part");
+    const r = await inFrame(tab_id, frame_id, (t, i, o, d) => window.__ferb.uploadPart(t, i, o, d),
+                            [transfer, index, offset, data]);
+    if (!r || r.ok !== true) throw new Error(`upload part refused in the page (${(r && r.detail) || "no answer"}); nothing was set`);
+    return {received: r.received};
+  },
   // Resolve a random stamp in the explicitly selected frame; no picker or source substitution.
-  async upload({ tab_id, frame_id, snap, el, paths }) {
+  async uploadPaths({ tab_id, frame_id, snap, el, paths }) {
     const token = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, "0")).join("");
     const stamped = await inFrame(tab_id, frame_id, (g, i, t, a) => window.__ferb.stamp(g, i, t, a), [snap, el, token, STAMP_ATTR]);
     if (!stamped.ok) return {...stamped, reason:"upload_target_unavailable", frame_id, transferred:false};

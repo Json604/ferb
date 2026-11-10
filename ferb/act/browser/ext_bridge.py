@@ -14,9 +14,12 @@ of an ended task (`_TabDriver.readopt`); the owner closing or taking a FERB tab 
 (`browser.owner_stopped`, `browser.owner_took`); a read that fails is a known failure, never "outcome unknown"."""
 
 import asyncio
+import base64
 import dataclasses
+import hashlib
 import json
 import math
+import mimetypes
 import os
 import re
 import secrets
@@ -26,8 +29,9 @@ from stat import S_ISREG
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlsplit
 
-from ferb.act.browser.ext_protocol import (MIN_EXTENSION_VERSION, PROTOCOL_VERSION, READS, Event, Hello, Op, Result,
-                                           TabEvent, command, daemon_envelope, parse, version_ok)
+from ferb.act.browser.ext_protocol import (MIN_EXTENSION_VERSION, PROTOCOL_VERSION, READS, UPLOAD_BYTES_EXTENSION_VERSION,
+                                           UPLOAD_PART, Event, Hello, Op, Result, TabEvent, command, daemon_envelope,
+                                           parse, version_ok)
 from ferb.act.browser.downloads import Downloads, TaskTab
 from ferb.act.browser.uploads import StagingFailed, Uploads, source_path, tab_key
 from ferb.act.browser.pairing import Binding, Pairings
@@ -271,6 +275,7 @@ class Bridge:
     gen: int = 0
     conn: _Conn | None = None
     version: str = ""
+    file_access: bool | None = None                          # 0.19.9 (HAND-500): the hello's, None from an older one
     pending: dict[str, asyncio.Future[Result]] = field(default_factory=dict)
     lost: set[str] = field(default_factory=set)             # ledger ids in flight when a connection dropped
     tabs: dict[int, tuple[str, bool]] = field(default_factory=dict)   # chrome tab id -> (host, active)
@@ -373,11 +378,12 @@ class Bridge:
         self.hellos += 1
         if conn is self.conn:                            # a second hello on the same connection (e.g. right after
             conn.bridge, self.version = self, hello.version   # pairing): same generation, in-flight commands stay
+            self.file_access = hello.file_access
             self._reconcile(hello)
             return
         self.gen += 1
         conn.gen, conn.bridge = self.gen, self
-        old, self.conn, self.version = self.conn, conn, hello.version
+        old, self.conn, self.version, self.file_access = self.conn, conn, hello.version, hello.file_access
         self.detached.clear()
         if old is not None:
             self.drop(old)
@@ -1736,7 +1742,8 @@ class _TabDriver:
         if action.kind in WRITES:
             self._note_input(t)                         # HAND-447: the page may now hold unsaved input
         if action.kind == "upload":
-            return await self._upload(t, frame, snap, local, action.files, intent_id, action.files_closed)
+            return await self._upload(t, frame, snap, local, action.files, intent_id, action.files_closed,
+                                      file_input=info.input_type == "file")
         args: dict[str, Any] = {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap, "el": local,
                                 "kind": action.kind, "text": action.text,
                                 # real (debugger-dispatched) input is the default; page events on request
@@ -1863,13 +1870,42 @@ class _TabDriver:
         return f"the debugger left the tab mid-action ({reason}); outcome unknown"
 
     async def _upload(self, t: _Tab, frame: int, snap: int, local: int, files: tuple[str, ...],
-                      intent_id: str, closed: Callable[[Path, str], str | None] | None = None) -> ActionResult:
+                      intent_id: str, closed: Callable[[Path, str], str | None] | None = None, *,
+                      file_input: bool = True) -> ActionResult:
+        """HAND-500: the route. The browser sets files on a field through FERB's debugger only when the owner allowed
+        FERB access to file URLs (the hello's `file_access`; FERB never turns it on); otherwise, and for an element
+        that isn't a file field (a drop zone), an extension from UPLOAD_BYTES_EXTENSION_VERSION gets the file's bytes
+        through the page (_upload_bytes). An older extension keeps the debugger's route, refusal and all."""
         relative = [f for f in files if not os.path.isabs(os.path.expanduser(f))]
         if relative:                    # BrowserAct makes them the workspace's: a relative one here is never guessed
             raise Refused(f"upload paths must be absolute ({relative[0]}); nothing was given to the browser")
         paths = [source_path(f) for f in files]
         if not paths:
             raise Refused("upload needs at least one file path")
+        version = str(getattr(t.bridge, "version", "") or "")
+        if not version_ok(version, UPLOAD_BYTES_EXTENSION_VERSION):
+            try:
+                return await self._upload_paths(t, frame, snap, local, paths, intent_id, closed)
+            except DriverError as e:
+                if "refused to set the file" not in str(e):
+                    raise
+                raise DriverError(f"{e}. FERB's browser extension here is {version or 'an older one'}, which can only "
+                                  "ask the browser to set the file, and the browser refuses that without access to "
+                                  f"file URLs; extension {UPLOAD_BYTES_EXTENSION_VERSION} sends the file through the "
+                                  "page instead, and the browser updates it by itself from the Chrome Web Store",
+                                  facts={**e.facts, "reason": "upload_refused_by_browser"}) from None
+        if file_input and getattr(t.bridge, "file_access", None) is True:
+            r = await self._upload_paths(t, frame, snap, local, paths, intent_id, closed)
+            if r.facts.get("reason") == "file_access_off":       # the switch went off since the hello: nothing was
+                t.bridge.file_access = False                     # tried, and the next upload sends the bytes (the
+                r = ActionResult(False, f"{r.detail}; try the upload again: FERB now sends the file through the page",
+                                 r.facts)                         # act's id is spent, so it isn't sent again here)
+            return r
+        return await self._upload_bytes(t, frame, snap, local, paths, intent_id, closed)
+
+    async def _upload_paths(self, t: _Tab, frame: int, snap: int, local: int, paths: list[str], intent_id: str,
+                            closed: Callable[[Path, str], str | None] | None) -> ActionResult:
+        """The debugger's route: the browser reads FERB's own copy of each file (rule 17) and sets it on the field."""
         staging = None
         if self.uploads is not None:
             staging = (self.uploads, self.task_root(str(t.owner or "")), tab_key(t.bridge.name, t.chrome_id))
@@ -1885,12 +1921,20 @@ class _TabDriver:
             raise StaleRef("the file field is gone; take a new snapshot")
         facts = {k: value for k, value in v.items() if k not in {"ok", "detail"}}
         facts.update(source="local", files=identities, transferred=bool(v.get("ok")))
+        facts.setdefault("route", "debugger")
         if given is not paths:
             facts["staged_copies"] = given          # what the browser read: FERB's copies; the originals are unchanged
+        return self._receipt(v, facts, identities)
+
+    @staticmethod
+    def _receipt(v: dict[str, Any], facts: dict[str, Any], identities: list[dict[str, Any]]) -> ActionResult:
+        """What an upload's reply proves: the page's files compared with the ones read (`bytes_match`; None when the
+        page couldn't hash them), and whether a source changed meanwhile."""
         selected = v.get("selected_files")
-        facts["bytes_match"] = (len(selected) == len(identities) and all(
-            a.get("sha256") == b["sha256"] and a.get("size") == b["size"]
-            for a,b in zip(selected,identities))) if isinstance(selected,list) else None
+        facts["bytes_match"] = None if not isinstance(selected, list) or any(
+            not isinstance(a, dict) or not a.get("sha256") for a in selected) else (
+            len(selected) == len(identities) and all(a.get("sha256") == b["sha256"] and a.get("size") == b["size"]
+                                                    for a, b in zip(selected, identities)))
         changed = []
         for item in identities:
             try:
@@ -1907,15 +1951,76 @@ class _TabDriver:
             return ActionResult(False, "file input contains different bytes; inspect before any submission", facts)
         return ActionResult(bool(v.get("ok")), str(v.get("detail", "")), facts)
 
+    def _upload_limit(self) -> int:
+        """HAND-502: the most bytes one upload hands through the page. No upload limit is decided yet (an owner
+        decision, rule 18); the task's download budget (browser.download_task_max_gb) stands in."""
+        if self.downloads is not None:
+            return self.downloads.limits().task_bytes
+        from ferb.act.browser.downloads import DEFAULTS
+        return int(DEFAULTS["download_task_max_gb"]) * 1000 ** 3
+
+    async def _upload_bytes(self, t: _Tab, frame: int, snap: int, local: int, paths: list[str], intent_id: str,
+                            closed: Callable[[Path, str], str | None] | None) -> ActionResult:
+        """HAND-501: FERB reads each file through the handle the protection lists checked (_identify) and sends its
+        bytes in UPLOAD_PART parts to the target frame of this task's tab only (upload_part, a known failure on error:
+        nothing reaches the page); then `upload` with the transfer gives them to the element. The bytes go nowhere
+        else: no copy on disk, nothing logged or journaled. A file that changes while it is read sets nothing."""
+        identities, handles = await asyncio.to_thread(self._identify, paths, closed)
+        try:
+            total, limit = sum(int(i["size"]) for i in identities), self._upload_limit()
+            if total > limit:
+                raise Refused(f"the files come to {total} bytes, more than the {limit} bytes one upload may carry through "
+                              "the page (browser.download_task_max_gb, the per-task download budget, stands in until "
+                              "the owner sets an upload limit); nothing was given to the browser")
+            transfer, meta = secrets.token_hex(16), []
+            for index, (fd, item) in enumerate(zip(handles, identities)):
+                size, offset, digest = int(item["size"]), 0, hashlib.sha256()
+                while True:
+                    chunk = await asyncio.to_thread(os.pread, fd, min(UPLOAD_PART, size - offset), offset)
+                    digest.update(chunk)
+                    await t.bridge.call("upload_part", {"tab_id": t.chrome_id, "frame_id": frame, "transfer": transfer,
+                                                        "index": index, "offset": offset,
+                                                        "data": base64.b64encode(chunk).decode()}, timeout=30)
+                    offset += len(chunk)
+                    if offset >= size or not chunk:
+                        break
+                if offset != size or digest.hexdigest() != item["sha256"]:
+                    return ActionResult(False, "the file changed while FERB sent it to the page; nothing was set on "
+                                               "the page", {"source": "local", "files": identities, "route": "page",
+                                                            "reason": "source_changed_during_upload",
+                                                            "transferred": False})
+                name = os.path.basename(str(item["path"]))
+                meta.append({"name": name, "type": mimetypes.guess_type(name)[0] or "", "size": size,
+                             "last_modified": int(item["modified_ns"]) // 1_000_000})
+        finally:
+            for fd in handles:
+                os.close(fd)
+        try:
+            v = await t.bridge.call("upload", {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap, "el": local,
+                                               "transfer": transfer, "files": meta}, timeout=30, cid=intent_id or None)
+        except DriverError as e:
+            if str(e).startswith("detached:"):
+                raise OutcomeUnknown(self._detached_msg(str(e)[9:])) from None
+            raise
+        if v.get("detail") == "stale":
+            raise StaleRef("the element is gone; take a new snapshot")
+        facts = {k: value for k, value in v.items() if k not in {"ok", "detail"}}
+        facts.update(source="local", files=identities, transferred=bool(v.get("ok")))
+        route = facts.get("route")
+        detail = str(v.get("detail") or "")
+        if v.get("ok") and not detail:
+            detail = (f"set {facts.get('files_set', len(meta))} file(s) on the field through the page"
+                      if route == "field" else f"dropped {len(meta)} file(s) on the element and the page took the drop")
+            detail += "; whether the site accepted the upload is what the page shows next"
+        return self._receipt({**v, "detail": detail}, facts, identities)
+
     @staticmethod
-    def _sources(paths: list[str], staging: tuple[Uploads, str, str] | None,
-                 closed: Callable[[Path, str], str | None] | None = None) -> tuple[list[dict[str, Any]], list[str]]:
-        """Each file's identity, read through one handle that never follows a link at its last step, and the paths the
-        browser is given. Rule 17: with `staging` (uploads, task tree, tab), FERB's own copy made from that same handle,
-        so the browser reads the copy, never the original in a folder macOS protects (a permission dialog in front of
-        the owner), and the copy is checked against the identity just read. Rule 10: `closed` checks each handle as
-        macOS opened it (F_GETPATH) before a byte is read, so a folder swapped for a link after the gateway's check
-        can't hand over FERB's own files or a never-read store. Blocking: runs in a worker thread."""
+    def _identify(paths: list[str], closed: Callable[[Path, str], str | None] | None = None
+                  ) -> tuple[list[dict[str, Any]], list[int]]:
+        """Each file's identity, read through one handle that never follows a link at its last step, and those open
+        handles (the caller closes them). Rule 10: `closed` checks each handle as macOS opened it (F_GETPATH) before a
+        byte is read, so a folder swapped for a link after the gateway's check can't hand over FERB's own files or a
+        never-read store. Blocking: runs in a worker thread."""
         handles: list[int] = []
         try:
             identities: list[dict[str, Any]] = []
@@ -1949,6 +2054,21 @@ class _TabDriver:
                     raise Refused("upload source changed while reading identity; inspect the file again")
                 identities.append({"path": path, "size": before.st_size, "modified_ns": before.st_mtime_ns,
                                    "sha256": digest, "owner_uid": before.st_uid})
+            return identities, handles
+        except BaseException:
+            for fd in handles:
+                os.close(fd)
+            raise
+
+    @staticmethod
+    def _sources(paths: list[str], staging: tuple[Uploads, str, str] | None,
+                 closed: Callable[[Path, str], str | None] | None = None) -> tuple[list[dict[str, Any]], list[str]]:
+        """Each file's identity (_identify) and the paths the browser is given. Rule 17: with `staging` (uploads, task
+        tree, tab), FERB's own copy made from that same handle, so the browser reads the copy, never the original in a
+        folder macOS protects (a permission dialog in front of the owner), and the copy is checked against the
+        identity just read. Blocking: runs in a worker thread."""
+        identities, handles = _TabDriver._identify(paths, closed)
+        try:
             if staging is None:
                 return identities, paths
             uploads, tree, tab = staging

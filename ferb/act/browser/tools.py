@@ -837,13 +837,25 @@ class BrowserPoint(_Base):
                           read_sources=(("web", self.driver.tab_url(tab.tab_id) or ""),))
 
 
+# HAND-501: what an upload's result means. The files being on the field (or dropped) is a fact; the site taking them
+# is what the page shows next, and a site may ignore files a script set.
+UPLOAD_NEXT_OK = ("the files are on the field (or were dropped); take a new snapshot to see whether the site took them "
+                  "(a file name, a preview, an attachment, a next step). If the page shows nothing new, it may ignore "
+                  "files set by a script: try the site's other way in once (its other file field or drop zone, or its "
+                  "import or attach menu, which leads to a file field), then report what you saw")
+UPLOAD_NEXT_FAILED = ("the upload didn't go through as asked; detail says why and whether anything is on the field. "
+                      "A file field is in the snapshot with type 'file' (hidden ones too): upload onto it rather than "
+                      "onto its button, or onto the page's drop zone; take a new snapshot before choosing another way")
+
+
 class BrowserAct(_Base):
     verb = "act"
     generic_input = True                               # W2: its declared effect says what it does (rules.declare)
     blurb = ("Act on one element from the latest snapshot ({whose}): click, dblclick, rightclick, hover, type "
              "(replaces the field's text), select (an option's label or value), press (a key like Enter, Tab, "
              "Escape, Backspace, ArrowDown, or a shortcut like cmd+a, shift+Tab), scroll (up/down, within the "
-             "element's own scroll area), upload (files into a file field), drag (between two screenshot points). Input is real (as from a mouse and "
+             "element's own scroll area), upload (files: onto a file field, type 'file' in the snapshot, hidden ones too, or "
+             "dropped onto a drop zone that has none), drag (between two screenshot points). Input is real (as from a mouse and "
              "keyboard) by default; page_mode=true sends scripted events instead. An element that isn't in_view "
              "is scrolled into view first. Never type passwords or codes.")
     risk, reversible = RiskLevel.MEDIUM, False
@@ -960,7 +972,8 @@ class BrowserAct(_Base):
         # facts come back from the page (option candidates, scroll state, dialogs): label them with the tab's page
         # HAND-493: the hint follows what happened
         out = {"ok": r.ok, "detail": r.detail, **r.facts,
-               "next": ("`observed` says what changed; take a new snapshot to read the page now"
+               "next": (UPLOAD_NEXT_OK if r.ok else UPLOAD_NEXT_FAILED) if getattr(args, "action") == "upload" else
+                       ("`observed` says what changed; take a new snapshot to read the page now"
                         if r.ok and "observed" in r.facts else "take a new snapshot to see the result" if r.ok else
                         "it didn't go through (detail says why); act on what the detail names, or take a new snapshot "
                         "before choosing another way")}

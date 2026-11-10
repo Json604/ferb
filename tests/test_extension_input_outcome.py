@@ -161,6 +161,7 @@ def test_a_file_the_browser_refuses_to_set_is_a_known_failure_and_other_errors_s
     unknown", although no file was set."""
     out = run('''
       inFrame = async (tab, frame, func) => String(func).includes("stamp(") ? {ok: true} : true;
+      chrome.extension = {isAllowedFileSchemeAccess: async () => true};   // 0.19.9: the debugger's route needs it
       chrome.debugger.sendCommand = async (target, method) => {
         cmds.push([target.sessionId || null, method]);
         if (method === "DOM.performSearch") return {searchId: "q", resultCount: 1};

@@ -4110,3 +4110,12 @@ request = "Ask for two independent things in one message that both browse (e.g. 
 pass = "Each running row shows its own small live picture of the page its part is on, both moving (in turn, not frozen); a click shows that row's page larger; a row that is done or waiting shows none; the picture by \"1 active task\" still shows the part that acted last. Activity Monitor shows FERB's CPU about as with one picture."
 decisions = ["APP-888", "DMN-584"]
 sitting = "after this change is installed"
+
+[LIVE-901]
+title = "Files upload through the browser: Gmail attach, a CSV into a Google Sheet, a simple test page"
+area = "hands"
+surface = "FERB.app with this build and the FERB extension 0.19.9 from the store (file access as it is, off by default); FERB's Gmail; your own Google Sheet; a simple page with a file field"
+request = "Ask FERB to (1) email yourself a small file from your Desktop as an attachment, (2) import a CSV from your Desktop into a new Google Sheet, (3) upload a file on a simple page with a file field."
+pass = "Each upload's browser.act result says route field (or drop) with bytes_match true, and the page then shows the file (the attachment chip in Gmail, the imported rows in Sheets, the file name on the page); nothing says the browser refused; no shell workaround. If a site shows nothing after the file was set, the result's next step names the site's other way in and the worker reports what it saw."
+decisions = ["HAND-499", "HAND-500", "HAND-501"]
+sitting = "after this change is installed and 0.19.9 is published"

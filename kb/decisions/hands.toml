@@ -1227,3 +1227,47 @@ status = "active"
 rule = "Refines HAND-422 for uploads. When DOM.setFileInputFiles answers \"Not allowed\" (the browser refused the call itself), no file was set: the upload fails with nothing sent (outcome failed, not unknown) and says the browser refused to set the file. Any other error after the stamp stays unknown. Extension 0.19.8; the route that hands the bytes through the page isn't built (the owner decides later)."
 why = "Live: no upload ever succeeded in history; every one came back \"outcome unknown\", so FERB treated a refusal that set nothing as possibly done."
 paths = ["extensions/chromium/background.js::upload"]
+
+[HAND-499]
+title = "Uploads through the browser have to work: the extension gets fixed"
+by = "owner"
+date = 2026-11-11
+status = "active"
+words = "btw the google sheet task is stuck ig. maybe an ext fix needed?? / btw why did browser deny??? / also please fix this, if you want run real tests too before comitting to any fix"
+words_source = "Relayed by the coordinator, 2026-11-11 (task b1e8e376: a CSV import into a Google Sheet refused four times)."
+rule = "A file FERB uploads in a browser reaches the page instead of the browser refusing it: the extension is fixed so uploads work, and real lab tests may run before the fix is committed."
+why = "Live 2026-11-11 03:09-03:11 (task b1e8e37616524344b0c2a157e1a957af): four upload/import attempts on docs.google.com and drive.google.com ended with the browser's \"Not allowed\"; the worker typed an array formula instead, a 9-minute task. No upload ever succeeded in history."
+paths = ["ferb/act/browser/ext_bridge.py::_upload", "extensions/chromium/background.js::uploadOnce"]
+live = ["LIVE-901"]
+
+[HAND-500]
+title = "An upload's route: the browser sets the file only with file access, else FERB sends the bytes"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For HAND-499, extension 0.19.9 (protocol and minimum stay). The hello carries `file_access` (isAllowedFileSchemeAccess, the owner's \"Allow access to file URLs\"; FERB never turns it on). A file field with it: the debugger's route as before. Without it, or a non-field element: the bytes through the page (HAND-501); `upload` with paths then tries nothing (`file_access_off`, known). An older extension keeps the debugger's route, its refusal naming 0.19.9. The gateway's checks are the tool's, unchanged (protection lists, F_GETPATH re-check, P19)."
+why = "Verified: Chromium's DOMHandler::SetFileInputFiles answers \"Not allowed\" unless the debugger client MayReadLocalFiles, which for chrome.debugger is the extension's file access. Lab: switch on, the file set; off, the live error."
+evidence = "dom_handler.cc, render_frame_devtools_agent_host.cc, debugger_api.cc (Chromium main); lab run 2026-11-11 of tests/test_browser_upload_bytes_real.py. The owner's store copy having it off is inferred (its settings couldn't be read here)."
+rejected = ["Turning the switch on for the owner: their browser setting", "Retrying through the bytes in the same act: its P19 id is spent on the refused try"]
+paths = ["ferb/act/browser/ext_bridge.py::_upload", "ferb/act/browser/ext_protocol.py::UPLOAD_BYTES_EXTENSION_VERSION", "extensions/chromium/background.js::fileAccess", "extensions/chromium/background.js::uploadOnce"]
+live = ["LIVE-901"]
+
+[HAND-501]
+title = "Uploading through the page: parts to the task's frame, then a file field's files or a drop"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "The daemon reads each file through the checked handle and sends it in parts (`upload_part`, a read) to the target frame of the task's tab, kept there as Blobs in the isolated world. `upload` with the transfer builds Files: a file field (hidden, framed, shadowed; several only if `multiple`) gets them, then input and change (bubbling, composed); another element gets dragenter, dragover, drop. The reply gives route, files_set, bytes_match, drop_taken, observed_change; an untaken drop or partial bytes set nothing (known). No disk copy; no content logged."
+why = "Without file access the browser refuses every file FERB sets; a page's own script can set a field's files and fire its events, which upload widgets read."
+evidence = "Lab 2026-11-11: the page's listeners saw the files on a visible field, a hidden multiple field in an iframe and a drop zone. Google Sheets, Drive and Gmail with untrusted events: untested (LIVE-901)."
+paths = ["extensions/chromium/content.js::uploadPart", "extensions/chromium/content.js::uploadSet", "extensions/chromium/background.js::upload_part", "ferb/act/browser/ext_bridge.py::_upload_bytes", "ferb/act/browser/tools.py::UPLOAD_NEXT_OK"]
+live = ["LIVE-901"]
+
+[HAND-502]
+title = "Upload sizes: 256 KiB parts; the task's download budget stands in as the limit"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "A part is at most UPLOAD_PART = 256 KiB (about 350,000 base64 characters): one native message, under the daemon's 500,000-character command split and the host's 1 MB limit towards the extension. No upload size limit is decided (rule 18, T-1093); until then one upload's files may total the task's download budget (browser.download_task_max_gb), refused before a byte is sent."
+why = "The part size is transport framing; the size bound is the owner's, and the per-task byte budget is the nearest limit the owner already set."
+paths = ["ferb/act/browser/ext_protocol.py::UPLOAD_PART", "ferb/act/browser/ext_bridge.py::_upload_limit"]

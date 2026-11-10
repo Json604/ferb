@@ -9,7 +9,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 272 | 11 | 25 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 78 | 6 | 5 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 91 | 9 | 58 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 116 | 6 | 20 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 120 | 8 | 21 |
 | memory | Memory and memory import | `ferb/memory` | 58 | 3 | 0 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 119 | 6 | 23 |
 | perception | Perception | `ferb/sense` | 16 | 2 | 0 |
@@ -36,6 +36,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-1064 (app): While you're typing into a password field somewhere, should hovering over FERB open it without moving your typing into FERB (you'd click its box to type)?
 - T-1067 (prompts): Approve the review plan, then each proposed prompt wording and claim check.
 - T-1068 (tests): Approve the plan: which tasks, what quality measures, which surfaces.
+- T-1093 (hands): When FERB uploads files in your browser, should one upload have a size limit? Today it may be as large as a task's download budget (32 GB). A number like 2 GB, or no limit beyond that budget?
 
 ## Terms
 

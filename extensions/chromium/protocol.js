@@ -20,6 +20,10 @@
 // the worker's `leave_page` (leave or stay), `wait` until url looks at the address's origin and path, and a tab the
 // task's own input opened without an opener link is the task's (`popup`, confirmed by the browser's openerId). An
 // older FERB never sends `leave_page` and reads the new reply fields as before.
+// Extension 0.19.9 keeps protocol 21 and the minimum (HAND-501): the hello says whether the owner allowed FERB access to
+// file URLs (`file_access`), and an upload without it hands the file's bytes through the page (`upload_part`, then
+// `upload` with `transfer`), onto a file field or as a drop. An older FERB never sends either and reads `file_access`
+// as nothing.
 const FERB_PROTOCOL = 21;
 const FERB_HOST = "com.ferb.native_host";
 
@@ -27,7 +31,8 @@ const FERB_HOST = "com.ferb.native_host";
 // read) is a known failure, never "outcome unknown" (P19 is for consequential actions). `dialog` without a decision
 // only reads too (background.js `outcomeOf`). Mirrored by ext_protocol.READS.
 const READ_OPS = new Set(["list_tabs", "snapshot", "wait", "screenshot", "screenshot_part", "record_frame",
-  "frame_origin", "read_source", "window_secrets", "find", "result_part", "ping", "point", "pdf", "pdf_part", "html", "owner_view"]);
+  "frame_origin", "read_source", "window_secrets", "find", "result_part", "ping", "point", "pdf", "pdf_part", "html", "owner_view",
+  "upload_part"]);
 // Daemon messages that carry an HMAC (pairing key, this connection's hello nonce, a strictly increasing counter):
 // the extension acts on no other kind of daemon message (refused / pairing_required / paired change no page).
 const DAEMON_SIGNED = new Set(["welcome", "cmd"]);
@@ -60,6 +65,10 @@ const EDIT_COMMANDS = new Set(["selectAll", "copy", "cut", "paste", "undo", "red
 // parts), under the native host's 1 MiB message (Chrome takes up to 64 MiB from the extension to the host). Ruling (step
 // 12e): 72,000-byte parts, one round trip each, held a browser download to a few GB under the old 10-minute ceiling.
 const DOWNLOAD_PART = 512 * 1024;
+// Uploads without file access (0.19.9, HAND-501): the daemon sends each file in parts of at most UPLOAD_PART bytes
+// (base64, about 350,000 characters), so one part stays one native message, under the daemon's 500,000-character
+// line where it would split a command (ext_bridge.Bridge.call) and the host's 1 MB limit towards the extension.
+const UPLOAD_PART = 256 * 1024;
 const DOWNLOAD_PATTERNS = [{ urlPattern: "*", resourceType: "Document", requestStage: "Response" }];
 const _only = (p, keys) => Object.keys(p).length === keys.length && keys.every((k) => k in p);
 
@@ -361,7 +370,7 @@ const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait"
              "wake_close", "frame_origin", "fill", "read_source", "window_secrets", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
              "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media", "rest", "show_tab",
-             "adopt_tab", "mute_tab", "popup_refused", "pdf", "pdf_part", "html", "owner_view"];
+             "adopt_tab", "mute_tab", "popup_refused", "pdf", "pdf_part", "html", "owner_view", "upload_part"];
 
 // browser.wait until "url" (HAND-444): the value is looked for in the page's own address, its origin and path (decoded),
 // never in its query or fragment, so a search page whose query names a site (Gmail's #search/from%3Ajoinef.com) isn't
@@ -387,6 +396,6 @@ function entersText(spec) {
 }
 
 if (typeof module !== "undefined") module.exports = { FERB_PROTOCOL, FERB_HOST, cdpAllowed, cdpFilter, OPS, seal, unseal,
-                                                      FEED_URL, keyEvent, EDIT_COMMANDS, DOWNLOAD_PART, DOWNLOAD_PATTERNS,
+                                                      FEED_URL, keyEvent, EDIT_COMMANDS, DOWNLOAD_PART, DOWNLOAD_PATTERNS, UPLOAD_PART,
                                                       PAGE_HOOK, ferbPageHook, READ_OPS, DAEMON_SIGNED, daemonMacText,
                                                       FERB_TOKEN, BIND_ATTR, STAMP_ATTR, entersText, urlHas };

@@ -131,7 +131,15 @@ Extension 0.19.7 keeps protocol 21 and the minimum (HAND-442..445; an older exte
 - `wait` until url looks for the value in the address's origin and path (decoded), the whole address only when the
   value holds "?" or "#"; a met url wait returns the tab's `url`.
 - A new tab opened within 3 s of an input command in a task tab, whose browser-reported opener is that tab, is claimed
-  as its popup (`popup` event) though the page opened it with no opener link; `popup_ready` answers it at once."""
+  as its popup (`popup` event) though the page opened it with no opener link; `popup_ready` answers it at once.
+
+Extension 0.19.9 keeps protocol 21 and the minimum (HAND-500..502; an older extension keeps today's upload):
+- The hello says whether the owner allowed FERB access to file URLs (`file_access`). Without it the browser refuses
+  DOM.setFileInputFiles ("Not allowed"), so `upload` with `paths` answers `reason: "file_access_off"` and tries nothing.
+- `upload_part {tab_id, frame_id, transfer, index, offset, data}` carries one part (at most UPLOAD_PART bytes, base64)
+  of a file the daemon read into the target frame's isolated world; `upload {..., transfer, files: [{name, type,
+  last_modified, size}]}` then gives the files to the element: a file field's files (`route: "field"`, `files_set`) or a
+  drop (`route: "drop"`, `drop_taken`). An older FERB never sends either."""
 
 import base64
 import hashlib
@@ -151,11 +159,11 @@ Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait"
              "wake_close", "frame_origin", "fill", "read_source", "window_secrets", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
              "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media", "rest", "show_tab",
-             "adopt_tab", "mute_tab", "popup_refused", "pdf", "pdf_part"]
+             "adopt_tab", "mute_tab", "popup_refused", "pdf", "pdf_part", "upload_part"]
 # Commands that never change the page (protocol.js READ_OPS): one that fails or times out is a known failure.
 READS: frozenset[str] = frozenset({"list_tabs", "snapshot", "wait", "screenshot", "screenshot_part", "record_frame",
                                    "frame_origin", "read_source", "window_secrets", "find", "result_part", "ping",
-                                   "point", "pdf", "pdf_part", "html", "owner_view"})
+                                   "point", "pdf", "pdf_part", "html", "owner_view", "upload_part"})
 
 
 def version_tuple(v: str) -> tuple[int, ...]:
@@ -174,6 +182,10 @@ HTML_EXTENSION_VERSION = "0.19.8"
 # HAND-497, GATE-579: the extension's `owner_view` (the payment card's unmasked owner-only picture) needs this version;
 # an older one keeps the card's masked capture
 OWNER_VIEW_EXTENSION_VERSION = "0.19.8"
+# HAND-500: from this version an upload without file access hands the file's bytes through the page (upload_part); an
+# older extension gets today's debugger route only
+UPLOAD_BYTES_EXTENSION_VERSION = "0.19.9"
+UPLOAD_PART = 256 * 1024                       # raw bytes per upload_part (protocol.js UPLOAD_PART): one native message
 
 
 def version_ok(v: str, minimum: str = MIN_EXTENSION_VERSION) -> bool:
@@ -204,6 +216,7 @@ class Hello(BaseModel):
     armed: list[int] = []                      # tabs holding downloads for FERB (D35): the daemon disarms any it doesn't hold
     nonce: str = Field(default="", max_length=64)   # protocol 18: this connection's signing nonce (daemon_envelope)
     tabs: list[dict[str, Any]] = []            # protocol 18: the tabs FERB holds in this browser session (its records)
+    file_access: bool | None = None            # 0.19.9 (HAND-500): the owner allowed FERB access to file URLs
 
 
 class Result(BaseModel):

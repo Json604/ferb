@@ -1090,13 +1090,100 @@
   async function uploadFiles(gen, id) {
     const {el,error}=element(gen,id);
     if (error) throw Error(error);
+    return describeFiles(el.files || []);
+  }
+  // What a field (or a drop) now holds: name, size, type, time and the bytes' SHA-256 (null where this frame has no
+  // crypto.subtle), which the daemon compares with the file it read (`bytes_match`).
+  async function describeFiles(files) {
     const out=[];
-    for (const file of el.files || []) {
-      const digest=await crypto.subtle.digest("SHA-256",await file.arrayBuffer());
+    for (const file of files) {
+      const digest=crypto.subtle ? await crypto.subtle.digest("SHA-256",await file.arrayBuffer()) : null;
       out.push({name:file.name,size:file.size,type:file.type,modified_ms:file.lastModified,
-        sha256:Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("")});
+        sha256:digest ? Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("") : null});
     }
     return out;
+  }
+
+  // HAND-501: an upload without file access. The daemon sends each file's bytes in order (`upload_part`, background.js);
+  // they are kept here, in this frame's isolated world (the page can't reach them), as Blobs (the browser keeps their
+  // bytes, not this script's heap), one transfer at a time: a new one drops any other, and one left idle goes after
+  // UPLOAD_IDLE_MS. `uploadSet` then builds the files and gives them to the element.
+  const uploadTransfers = new Map();               // transfer id -> {files: [{parts: [Blob], received}], timer}
+  const UPLOAD_IDLE_MS = 60000;
+  function uploadPart(transfer, index, offset, data) {
+    if (typeof transfer !== "string" || !/^[0-9a-f]{32}$/.test(transfer) || !Number.isSafeInteger(index) ||
+        !Number.isSafeInteger(offset) || typeof data !== "string") return { ok: false, detail: "bad_part" };
+    let t = uploadTransfers.get(transfer);
+    if (!t) {
+      if (index !== 0 || offset !== 0) return { ok: false, detail: "transfer_missing" };
+      for (const other of uploadTransfers.values()) clearTimeout(other.timer);
+      uploadTransfers.clear();
+      t = { files: [], timer: null };
+      uploadTransfers.set(transfer, t);
+    }
+    clearTimeout(t.timer);
+    t.timer = setTimeout(() => uploadTransfers.delete(transfer), UPLOAD_IDLE_MS);
+    if (index === t.files.length && offset === 0) t.files.push({ parts: [], received: 0 });
+    const f = t.files[index];
+    if (!f || index !== t.files.length - 1 || f.received !== offset) {
+      uploadTransfers.delete(transfer); clearTimeout(t.timer);
+      return { ok: false, detail: "part_out_of_order" };
+    }
+    let bytes;
+    try { const bin = atob(data); bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); }
+    catch (_) { uploadTransfers.delete(transfer); clearTimeout(t.timer); return { ok: false, detail: "bad_part" }; }
+    if (bytes.length) f.parts.push(new Blob([bytes]));
+    f.received += bytes.length;
+    return { ok: true, received: f.received };
+  }
+  // The files of a transfer, on the element: a file field (`<input type=file>`, hidden ones too) gets them as its files,
+  // then `input` and `change` (bubbling, composed), as a person's choice in the picker does; anything else is a drop
+  // zone and gets dragenter, dragover and drop carrying them. Untrusted events: a page may ignore them, which the reply
+  // says as far as it can be seen (the field's files; whether the page took the drop). Nothing is set when the bytes
+  // don't add up.
+  async function uploadSet(gen, id, transfer, meta) {
+    const t = uploadTransfers.get(transfer);
+    uploadTransfers.delete(transfer);
+    if (t) clearTimeout(t.timer);
+    const { el, error } = element(gen, id);
+    if (error) return { ok: false, detail: error };
+    if (!t || !Array.isArray(meta) || t.files.length !== meta.length)
+      return { ok: false, reason: "upload_bytes_missing", detail: "the file's bytes didn't all reach the page; nothing was set" };
+    const made = [];
+    for (let i = 0; i < meta.length; i++) {
+      const m = meta[i] || {}, f = t.files[i];
+      if (f.received !== m.size) return { ok: false, reason: "upload_bytes_missing", detail: "a file arrived incomplete; nothing was set" };
+      made.push(new File(f.parts, String(m.name || "file"), { type: String(m.type || ""),
+                                                              lastModified: Number(m.last_modified) || Date.now() }));
+    }
+    const dt = new DataTransfer();
+    for (const file of made) dt.items.add(file);
+    if (el instanceof HTMLInputElement && el.type === "file") {
+      if (made.length > 1 && !el.multiple)
+        return { ok: false, reason: "single_file_field", detail: "this file field takes one file; nothing was set" };
+      if (el.disabled) return { ok: false, reason: "field_disabled", detail: "the file field is disabled; nothing was set" };
+      el.files = dt.files;
+      const set = el.files ? el.files.length : 0;    // read before the page's handlers run: many empty the field
+      if (set !== made.length) return { ok: false, reason: "files_not_set", route: "field", files_set: set,
+        detail: `the field took ${set} of ${made.length} file(s); no event was sent to the page` };
+      const selected = await describeFiles(el.files);
+      el.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+      const after = el.files ? el.files.length : 0;
+      return { ok: true, route: "field", files_set: set, selected_files: selected,
+               ...(after !== set ? { files_after_change: after, note: "the page's own change handler then emptied " +
+                 "the field, as sites do once they have taken the files" } : {}) };
+    }
+    const r = el.getBoundingClientRect();
+    const at = { bubbles: true, cancelable: true, composed: true, dataTransfer: dt,
+                 clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 };
+    el.dispatchEvent(new DragEvent("dragenter", at));
+    const over = !el.dispatchEvent(new DragEvent("dragover", at));      // false: a listener took it (preventDefault)
+    const taken = !el.dispatchEvent(new DragEvent("drop", at));
+    return { ok: taken, route: "drop", dragover_taken: over, drop_taken: taken,
+             ...(taken ? { selected_files: await describeFiles(made) }
+                       : { reason: "drop_not_taken", detail: "no listener on the element took the drop (none cancelled " +
+                           "it), so the page most likely ignored it; nothing is known to be uploaded" }) };
   }
   function stamp(gen, id, token, attr) {   // mark the element for a DOM.performSearch follow-up (uploads)
     const { el, error } = element(gen, id);
@@ -1374,7 +1461,7 @@
     return { ok, unknown: !ok, detail: ok ? "filled" : "field_state_changed_after_input" };
   }
 
-  window.__ferb = { snapshot, unbind, media, uploadFiles, adopt, adoptAll, point, frameRect, visualState, captureState, listenForFrames,
+  window.__ferb = { snapshot, unbind, media, uploadFiles, uploadPart, uploadSet, adopt, adoptAll, point, frameRect, visualState, captureState, listenForFrames,
     announceFrame,
     supportsSplitSecretFill: true,
     pointerArm: () => { pointerSeen = null; }, pointerSeen: () => pointerSeen || [],
