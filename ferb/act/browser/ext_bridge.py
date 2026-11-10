@@ -1863,7 +1863,7 @@ class _TabDriver:
         if offset == 0:
             value = await t.bridge.call("find", {"tab_id": t.chrome_id, "text": text}, timeout=30)
             hits = value.get("hits", [{"frame_id": 0, "text": x} for x in value.get("examples", [])])
-            current = t.snap_nav == t.bridge.navs.get(t.chrome_id, 0)     # ids from before a navigation are stale
+            current = t.snap_nav == getattr(t.bridge, "navs", {}).get(t.chrome_id, 0)   # ids before a navigation: stale
             found = self._element_hits(t, text) if current else []
             t.searches[text] = (json.dumps(found + hits, ensure_ascii=False), int(value.get("count", 0)),
                                 int(value.get("lines", 0)), len(found), current)
