@@ -219,21 +219,30 @@ def test_another_chats_running_task_can_be_stopped(daemon: RunningDaemon) -> Non
     assert '"chat": "another chat"' in context and context.count(tree) == 1    # task state, once
 
 
-# decision: ORCH-579
+# decision: ORCH-596
 def test_a_stop_asked_in_chat_is_told_once_by_its_reply(daemon: RunningDaemon) -> None:
     """Owner 2026-11-10 (the EF Bridge run): after "cancel the task", FERB said "Stopped, as you asked." twice, once
     as the stop message's reply and once as the stopped task's own end posted below it. The stop message's reply now
     carries the task's end as code recorded it, and that end names the message (`told_in`), so FERB.app files it on
-    the task's own turn instead of posting it again."""
+    the task's own turn instead of posting it again. 2026-11-09 23:55 ("cancel the task man. btw wha do you need hte
+    code for??"): the planner's answer to the rest of the message follows that end instead of being dropped, and the
+    next turn's history shows the stop once, the planner's words marked as its own."""
     script = install(daemon, [sup("task", "On it.", task("Fill in the application"))], {"worker": STALL})
     first = Stream(daemon, "fill in the application")
     tree = _running(daemon)
-    script.sup.append(_control(tree, "stop", "Stopped it."))
+    why = "I needed the code to sign in to the application portal."
+    script.sup.append(_control(tree, "stop", why))
     said = [e for e in chat(daemon, "cancel the task man. btw why do you need the code?") if e["type"] == "reply"]
     end = outcome(first.done())
     [asked] = [m for m in _journal(daemon, "chat.message") if m["text"].startswith("cancel the task")]
     assert end["status"] == "cancelled" and end["told_in"] == asked["request_id"]
-    assert [e["text"] for e in said] == [end["answer"]] and end["answer"].count("Stopped, as you asked.") == 1
+    assert [e["text"] for e in said] == [end["answer"] + "\n\n" + why]
+    assert said[0]["text"].count("Stopped, as you asked.") == 1
+    script.sup.append(sup("reply", "Sure."))
+    chat(daemon, "ok thanks")
+    history = _planner_calls(script)[-1].context.split("Layer 5 — owner's", 1)[0]
+    assert history.count("Stopped, as you asked.") == 1
+    assert f"FERB (reply, model-written, unchecked): {why}" in history
 
 
 # decision: ORCH-508

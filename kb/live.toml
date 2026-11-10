@@ -4056,3 +4056,12 @@ request = "While the card is open, ask in the chat what FERB needs it for (\"why
 pass = "FERB's reply names the card, what it asks and which task asked it, and says it is answered on the card; the planner's model.turn input shows the task's waiting_on_cards and the card in the open questions with chat_can_answer false; no code, secret or picture appears."
 decisions = ["ORCH-595"]
 sitting = "after this change is installed"
+
+[LIVE-895]
+title = "A stop and a question in one message: FERB stops the task and answers the question"
+area = "orchestration"
+surface = "FERB.app with this build; any task that runs for a while (one that waits on a card is best)"
+request = "While it runs, send one message that stops it and asks something about it (\"cancel the task. btw what did you need the code for?\")."
+pass = "One reply: \"Stopped, as you asked.\" with what it had found, then FERB's answer to your question; the stop isn't told twice, and your next message's model.turn input shows it once."
+decisions = ["ORCH-596"]
+sitting = "after this change is installed"

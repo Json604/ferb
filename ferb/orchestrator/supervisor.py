@@ -2533,13 +2533,14 @@ class Supervisor(WorkerRuns):
 
     async def _exit(self, turn: _Turn, out: SupervisorOutcome, kind: str, text: str, *, by: str = origins_.INFERRED,
                     side: bool = True, ready: bool = False, made: set[str] | None = None,
-                    named: frozenset[str] = frozenset(),
-                    extra: dict[str, Any] | None = None) -> AsyncIterator[dict[str, Any]]:
+                    named: frozenset[str] = frozenset(), extra: dict[str, Any] | None = None,
+                    told: tuple[str, str] | None = None) -> AsyncIterator[dict[str, Any]]:
         """The one end of a turn that answers in chat: the turn's side entries applied once (on every path a turn takes;
         live 2026-10-24, two steers' remember entries were dropped), the reply with code's lines about them (L11)
         recorded once with its origin, a question kept so the owner's next message continues it, and the chat let go
         (the next message is a turn of its own). `by`: who wrote `text` (the planner's words are marked as the task's
-        where one reads like FERB's own check, D33); `ready`: already in its final form (a steer's acknowledgement)."""
+        where one reads like FERB's own check, D33); `ready`: already in its final form (a steer's acknowledgement).
+        `told` (ORCH-596): (task id, its end) when the reply starts with a stopped task's end as code recorded it."""
         effects = await self._side_entries(turn, out, named) if side else _Side([], [], [])
         for event in effects.events:
             yield event
@@ -2555,7 +2556,7 @@ class Supervisor(WorkerRuns):
             extra = {**(extra or {}), "cards": [*(extra or {}).get("cards", []), *self._said_cards(effects.cards)]}
         written = made or ({origins_.FERB} if by == origins_.FERB and not effects.lines else
                            {origins_.INFERRED} | turn.turn_origins)
-        await self._record_reply(turn, kind, said, written, lines=code_lines)
+        await self._record_reply(turn, kind, said, written, lines=code_lines, told=told)
         if kind == "clarify":                          # the owner's answer will continue this request
             turn.session.pending, turn.session.asked, turn.session.payload = turn.typed, text, turn.payload
             self.continuity.save_pending(turn.session.id, turn.typed, text, turn.payload)
@@ -2564,14 +2565,18 @@ class Supervisor(WorkerRuns):
         turn.release()
         yield {"type": kind, "text": said, **(extra or {})}
 
-    async def _record_reply(self, turn: _Turn, kind: str, text: str, made: set[str], *, lines: str = "") -> None:
+    async def _record_reply(self, turn: _Turn, kind: str, text: str, made: set[str], *, lines: str = "",
+                            told: tuple[str, str] | None = None) -> None:
         """The one reply recorder: FERB's reply or question in the conversation record (the next turns' history),
         always with its origin (`made`: what wrote it; no list of the rows it was written from, step 12a); a question
         also records its kind (fix list: so "few questions" can be measured). `lines` (ORCH-566): code's own lines at
-        the end of `text`, kept apart too, so the history tells them from the planner's words."""
+        the end of `text`, kept apart too, so the history tells them from the planner's words. `told` (ORCH-596): the
+        stopped task and its end that `text` starts with, kept apart the same way."""
         data: dict[str, Any] = {"session_id": turn.session.id, "request_id": turn.request_id, "text": text}
         if lines and text.endswith(lines):
             data["lines"] = lines
+        if told is not None and text.startswith(told[1]):
+            data["told_task"], data["told_end"] = told
         if kind == "clarify":
             data["question_kind"] = "which" if made == {origins_.FERB, origins_.INFERRED} else "clarify"
         # GATE-519: the kinds of what wrote it and the owner's values its own text holds, never every label it saw;
@@ -2700,10 +2705,15 @@ class Supervisor(WorkerRuns):
                 if told is not None:
                     # ORCH-579: the stop is told once, here, under the owner's message: the task's own end as code
                     # recorded it ("Stopped, as you asked." and what it had found), its cards with it; FERB.app files
-                    # that end on the task's own turn (`told_in`) instead of posting it again
+                    # that end on the task's own turn (`told_in`) instead of posting it again. ORCH-596: the planner's
+                    # own answer to the rest of the message follows it, recorded as its own words (ORCH-566)
                     answer, cards, made = told
-                    async for event in self._exit(turn, out, "reply", answer, ready=True, made=made,
-                                                  extra={"cards": cards} if cards else None):
+                    rest = confirm.from_task_lines(self.gateway.redact(out.text)).strip() if out.text.strip() else ""
+                    text = answer + (f"\n\n{rest}" if rest and rest != answer.strip() else "")
+                    async for event in self._exit(turn, out, "reply", text, ready=True,
+                                                  made=made | ({origins_.INFERRED} | turn.turn_origins if rest else set()),
+                                                  extra={"cards": cards} if cards else None,
+                                                  told=(control.task_id, answer)):
                         yield event
                     return
                 text = (STOP_SETTLING if not settled else STOPPED if was_running else
@@ -3566,7 +3576,11 @@ class Supervisor(WorkerRuns):
         leave_out = {current} if isinstance(current, str) else set(current)
         task_ids = self.continuity.task_ids(conversation) if conversation is not None else None
         timeline: list[_Entry] = []
-        for entry in self.journal.entries_of(*CONVERSATION_KINDS, *SELF_POSTS):
+        rows = self.journal.entries_of(*CONVERSATION_KINDS, *SELF_POSTS)
+        # ORCH-596: the requests FERB replied to, so a stopped task's end told by its stop reply shows there only
+        replied = {str(e.data.get("request_id")) for e in rows if e.kind == "chat.reply"
+                   and e.data.get("request_id") not in leave_out}
+        for entry in rows:
             data = entry.data
             if data.get("request_id") in leave_out or data.get("read_with") in leave_out:
                 continue
@@ -3584,6 +3598,8 @@ class Supervisor(WorkerRuns):
             said = str(data.get("text", ""))
             held = origins_.split(entry.origin)
             if entry.kind == "task.answer":
+                if self._told_in_reply(data, replied):
+                    continue                       # ORCH-596: its end is the stop reply's first part, shown there once
                 # a model-written report that can quote what the task read: shown with its origin and as one quoted
                 # string, so its text can't start a line in this history's own format (review I4, MP2)
                 short = _short_report(said, bool(data.get("index")))
@@ -3596,7 +3612,17 @@ class Supervisor(WorkerRuns):
                 code = str(data.get("lines") or "")
                 prose = said[:-len(code)].rstrip() if code and said.endswith(code) else said
                 outside = any(origins_.is_external(o) for o in held)
-                if held == {origins_.FERB}:
+                end = str(data.get("told_end") or "")
+                if end and prose.startswith(end):
+                    # ORCH-596: a stop told in chat: the stopped task's end as code recorded it, then the planner's
+                    # own answer to the rest of the message (model-written, unchecked), then code's lines
+                    short, rest = _short_report(end), prose[len(end):].strip()
+                    who += (f" (task {data.get('told_task')} result, stopped, as code recorded it"
+                            f"{'; short form' if short != end else ''}; origin {origins_.shown(held)})")
+                    said = as_data(short) + (
+                        "\nFERB (reply, model-written, unchecked): " + (as_data(rest) if outside else rest)
+                        if rest else "") + (f"\nFERB (code record): {code}" if code else "")
+                elif held == {origins_.FERB}:
                     who += " (code record)"
                 else:
                     who += (" (reply, model-written, unchecked"
@@ -3627,6 +3653,15 @@ class Supervisor(WorkerRuns):
             ages[tag[1:-2]] = item.at
             shown.append(dataclasses.replace(item, text=f"{tag}{item.text}\n[Full source: {item.reference}]"))
         return shown, ages
+
+    def _told_in_reply(self, data: dict[str, Any], replied: set[str]) -> bool:
+        """ORCH-596: a stopped task's answer whose end a stop reply told (ORCH-579 `told_in`, on the answer's row; a row
+        from before it keeps it only in the task's outcome) and that reply is in the history."""
+        if data.get("status") not in ("cancelled", "failed"):
+            return False
+        told = data.get("told_in") or json.loads(self.tasks.column(str(data.get("task_id")), "outcome_json")
+                                                 or "{}").get("told_in")
+        return bool(told) and str(told) in replied
 
     def _task_made(self, tree_id: str) -> str:
         """A row the task's models wrote (its answer, a step's notes, a loop's round): model-written, with the kinds of
@@ -4381,6 +4416,7 @@ class Supervisor(WorkerRuns):
                                                     str(final["answer"]), self._tree_shown(tree_id),
                                                     origins_.split(made))}
                                 | ({"watch_met": final["watch_met"]} if "watch_met" in final else {})
+                                | ({"told_in": final["told_in"]} if final.get("told_in") else {})   # ORCH-596
                                 | ({"index": True} if "card" in final else {}),
                                 origin=made)
             self.spans.finish(root_span, output=final)

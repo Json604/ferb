@@ -1295,6 +1295,16 @@ rule = "For ORCH-589. Refines ORCH-539. Each running task in the planner's task 
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._task_state", "ferb/orchestrator/supervisor.py::Supervisor._card_row", "ferb/orchestrator/supervisor.py::Supervisor._questions_block", "ferb/orchestrator/worker.py::WorkerRuns.tool_progress"]
 live = ["LIVE-894"]
 
+[ORCH-596]
+title = "A stop asked in chat keeps the planner's answer to the rest of the message"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For ORCH-589. Refines ORCH-579 and ORCH-566. When a chat message's stop is told by its reply, the reply is the task's end as code recorded it, then the planner's own text for the rest of the message (left out when empty or the same). chat.reply keeps told_task and told_end; the planner's history shows that end as the task's result and the rest as \"FERB (reply, model-written, unchecked)\". The stopped task's own answer row (told_in, also read from an older task's outcome) isn't shown again when its stop reply is in the history."
+why = "2026-11-09 23:55 (\"cancel the task man. btw wha do you need hte code for??\"): the planner's explanation was replaced by \"Stopped, as you asked.\", and the history held that line twice ([c217]/[c218])."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._control", "ferb/orchestrator/supervisor.py::Supervisor._record_reply", "ferb/orchestrator/supervisor.py::Supervisor._timeline", "ferb/orchestrator/supervisor.py::Supervisor._told_in_reply"]
+live = ["LIVE-895"]
+
 [ORCH-591]
 title = "The planner is told what FERB did since the owner's previous message"
 by = "agent"
