@@ -11,7 +11,7 @@ from ferb.core.types import RuntimeEvent
 from ferb.orchestrator.attempts import CHECK_IN_AFTER
 from ferb.core.structured import check_final
 from ferb.orchestrator.schemas import CHECKER_SCHEMA, CheckerOutcome
-from ferb.orchestrator.supervisor import FOUND_UNCHECKED, RUNTIME_ASK
+from ferb.orchestrator.supervisor import RUNTIME_ASK, UNCONFIRMED_LINE
 from tests.conftest import (RunningDaemon, _context_of, answer_question, chat, done, install, outcome, report, sup,
                             task, cond, verdict)
 from tests.support.schedules import run
@@ -103,7 +103,7 @@ def test_a_removal_never_leaves_the_answer_empty_and_a_kept_contradiction_is_nev
     result = outcome(chat(daemon, "when is the meeting"))
     assert result["status"] == "done_unverified" and result["verified"] is False
     assert result["answer"].startswith("The meeting is on Friday at 3pm (I couldn't confirm this).")
-    assert "Couldn't confirm: every detail of this answer against what I saw." in result["answer"]
+    assert result["answer"].endswith(f"\n\n{UNCONFIRMED_LINE}")             # ORCH-606: the one fixed line
     assert "Thursday" not in result["answer"]
     assert [d.get("kept_contradicted") for d in _settled(daemon)] == [[said]]
 
@@ -302,8 +302,8 @@ def test_an_unverifiable_outcome_is_done_unconfirmed_with_the_answer_first(daemo
                                  how="Check your Gmail Sent folder")})
     result = outcome(chat(daemon, "send the invite to sam"))
     assert result["status"] == "done_unverified" and result["verified"] is False
-    assert result["answer"] == ("I sent the invite to Sam from your Gmail.\n\n"
-                                "Couldn't confirm: Sam received the invite.")      # ORCH-600: no checker text
+    assert result["answer"] == f"I sent the invite to Sam from your Gmail.\n\n{UNCONFIRMED_LINE}"   # ORCH-606
+    assert result["unconfirmed"] == "Sam received the invite"         # which one, for the record and the planner
     assert "Why work stopped" not in result["answer"] and "Send the invite to Sam" not in result["answer"]
 
 
@@ -312,7 +312,7 @@ SIGNED_OUT = "The session had expired and the saved password could not be filled
 FOUND = "The visa site's sign-in page loaded; no appointment was booked."
 
 
-# decision: ORCH-568, ORCH-585
+# decision: ORCH-568, ORCH-605
 def test_a_failure_the_worker_explained_is_told_once(daemon: RunningDaemon) -> None:
     """Owner 2026-11-09, the 7:10 visa run: "why is this giving two replies????". The worker's reason, its answer and
     the checker's reason all said the same failure. The owner reads it once: the worker's own reason (what stopped
@@ -326,9 +326,9 @@ def test_a_failure_the_worker_explained_is_told_once(daemon: RunningDaemon) -> N
                                  reason="The 7:10 AM check could not reach availability: the session had expired.")})
     result = outcome(chat(daemon, "check visa slots"))
     assert result["status"] == "failed"
-    assert result["answer"].split("\n\n")[:2] == [f"I couldn't finish this task. {SIGNED_OUT}",
-                                                   f"{FOUND_UNCHECKED} {FOUND}"]
-    assert result["answer"].count(SIGNED_OUT) == 1 and "could not reach availability" not in result["answer"]
+    # ORCH-605: one text only, the worker's answer since it wrote one
+    assert result["answer"].split("\n\n")[:2] == ["I couldn't finish this task.", FOUND]
+    assert SIGNED_OUT not in result["answer"] and "could not reach availability" not in result["answer"]
     assert "(not checked)" not in result["answer"]                    # ORCH-585: no bracket on the findings line
     assert "could not reach availability" in result["summary"]          # the checker's reason stays in the record
 
@@ -348,9 +348,9 @@ def test_a_failures_own_explanation_gets_the_same_findings_round(daemon: Running
         "worker.fix": _fix(fixed), "worker.recheck": json.dumps({"findings": []})})
     result = outcome(chat(daemon, "change my visa schedule"))
     assert result["status"] == "failed" and script.calls("worker") == ["worker", "worker.fix"]
-    # ORCH-600: the fixed answer holds the fixed reason, so it is said once
-    assert result["answer"].split("\n\n")[0] == f"I couldn't finish this task. {fixed}"
-    assert result["answer"].count("The edit didn't save.") == 1 and FOUND_UNCHECKED not in result["answer"]
+    # ORCH-605: one text only, the worker's fixed answer
+    assert result["answer"].split("\n\n")[:2] == ["I couldn't finish this task.", fixed]
+    assert result["answer"].count("The edit didn't save.") == 1
     assert claim not in result["answer"] and claim not in result["summary"]      # the reason's quote, removed by code
     assert "What FERB can use now" in _context_of(script, "worker.verify")
 

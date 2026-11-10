@@ -11,6 +11,7 @@ from ferb.act.fs.files import normalize_path
 from ferb.core import origin as origin_
 from ferb.core.errors import FerbError
 from ferb.daemon.server import Session
+from ferb.orchestrator.answer_marks import headline
 from ferb.orchestrator.schedules import WATCH_SAID, until_said
 from ferb.orchestrator.worker import reason
 
@@ -837,7 +838,7 @@ class Schedules:
             if row is None:
                 continue
             answers = self._journal().of_kind("task.answer", "task_id", str(row["task_id"]))
-            first = next((line.strip() for line in str(row["answer"] or "").splitlines() if line.strip()), "")
+            first = headline(str(row["answer"] or ""))         # ORCH-605: code's opener joins the worker's line
             out[s.id] = {"at": row["at"], "status": row["status"], "first_line": self._redact_text(first[:LAST_LINE]),
                          "origin": answers[-1].origin if answers else origin_.INFERRED}
         return out

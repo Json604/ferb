@@ -432,7 +432,7 @@ def test_a_plan_saved_before_parts_resumes_and_answers_from_its_last_steps(daemo
     daemon.run(setup(), timeout=20)
     final = next(d for t, d in published if t == "task.resumed_event" and d.get("type") == "outcome")
     assert final["status"] == "done_unverified" and "Did A." in final["answer"] and "Did B." in final["answer"]
-    assert "A and B are done" in final["note"]
+    assert "A and B are done" in final["unconfirmed"]                  # ORCH-606: the record, not the reply
     assert not script.calls("worker")
 
 

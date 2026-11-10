@@ -181,7 +181,7 @@ class Card:
 
 
 NOT_FINISHED = "not finished"                     # an index line's part that neither filled nor failed
-PARTLY_UNCONFIRMED = "not all of it confirmed"    # an index line's part whose row has a "Couldn't confirm" line
+PARTLY_UNCONFIRMED = "not all of it confirmed"    # an index line's part whose done row its check didn't verify
 RESULTS = "Results: "                             # an index line naming where the task's files are
 
 
@@ -198,7 +198,8 @@ def composed(card: Card, lines: list[str], artifacts: Sequence[str] = (), chars:
         if state == "asks" and isinstance(row.get("question"), dict):
             text = _first_line(row["question"].get("text"))
         said = text if text and (state in (*DONE, "failed", "asks")) else NOT_FINISHED
-        if row.get("note") and state in DONE:
+        # a done row its check didn't verify (ORCH-606: its fixed line is in its text; an older row's note)
+        if state == "done" and not row.get("direct") and (row.get("note") or not row.get("verified")):
             said += f" ({PARTLY_UNCONFIRMED})"
         out.append(f"{row['label']}: {said}")
     if artifacts:

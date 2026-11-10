@@ -27,7 +27,7 @@ def test_a_scheduled_runs_post_is_the_last_thing_the_planner_sees_before_the_own
     make_schedule(daemon, "Check visa slots", "Check visa slots every day", Targets(), now + timedelta(minutes=1))
     script = install(daemon, [sup("task", "Checking.", task("Check visa slots")),
                               sup("reply", "The visa site blocked every attempt.")],
-                     {"worker": json.dumps(report("not_done", reason=FAILED))})
+                     {"worker": json.dumps(report("not_done", "", reason=FAILED))})
     fire(daemon, 61)
     assert run(daemon, lambda: daemon.daemon.journal.of_kind("schedule.posted"))
     chat(daemon, "why couldn't you finish??", session="owner")

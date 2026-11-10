@@ -74,7 +74,9 @@ def test_a_shell_replace_that_hits_a_table_header_reaches_the_checker_and_a_cite
     script, _ = install(daemon, {"worker": worker, "worker.verify": checker})
     out = outcome(chat(daemon, "unzip the HCI assignment, fullname=Sam, studentid=2031xy04417"))
     assert not out["verified"] and out["status"] == "failed"
-    assert "Table 10's column header" in out["answer"]
+    # ORCH-600: the reply says the step wasn't done in code's words; the cited line is the check's record
+    assert out["answer"].startswith("I couldn't finish this task. Not done: ")
+    assert "Table 10's column header" in out["verification"][0]["evidence"]
     context = checks(script)[0]
     assert f'"{doc.resolve()}" (changed)' in context                     # paths JSON-quoted (rule 16, M4)
     assert "<untrusted-data" in context.split("Files this step's calls named", 1)[1][:700]   # MP2: shown as data
@@ -149,7 +151,8 @@ def test_a_check_that_never_looks_leaves_the_work_unconfirmed_without_a_worker_r
     assert out["status"] == "done_unverified" and not out["verified"]
     assert [k for _, k, _, _ in script.contexts].count("worker") == 1        # the worker ran once
     assert len(checks(script)) == 2                                          # refused once, then unknown
-    assert "Couldn't confirm:" in out["answer"] and "notes.txt" in out["answer"]
+    # ORCH-606: the reply's one fixed line; which file to open is in the record the planner reads
+    assert out["answer"].endswith("I couldn't confirm part of this.") and "notes.txt" in out["unconfirmed"]
 
 
 def test_a_listing_or_metadata_call_is_no_look(daemon: Any, tmp_path: Path) -> None:

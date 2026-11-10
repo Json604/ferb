@@ -9,6 +9,20 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 UNCONFIRMED_MARK = "(I couldn't confirm this)"            # the one inline marker FERB's code may add
+# ORCH-605: code's own opening sentence of an unfinished or stopped task's reply; the worker's text follows as its own
+# paragraph
+NOT_FINISHED = "I couldn't finish this task."
+STOPPED = "Stopped, as you asked."
+
+
+def headline(text: str) -> str:
+    """An answer's first non-empty line as a short form reads it (the planner's history, a schedule's last run, what
+    happened since): when that line is only code's own opener (NOT_FINISHED, STOPPED), the next non-empty line joins
+    it, so the short form says what happened. Structure only: code's own fixed sentences, never the model's words."""
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    if len(lines) > 1 and lines[0] in (NOT_FINISHED, STOPPED):
+        return f"{lines[0]} {lines[1]}"
+    return lines[0] if lines else ""
 
 
 @dataclass
@@ -143,3 +157,44 @@ def _settled(answer: str, findings: list[tuple[str, str]]) -> Settled:
                 done.marked.append(quote)
             done.answer = marked
     return done
+
+
+# ORCH-604: a closing markup tag a model left in a text field with no opening tag of its name before it in that field
+# (live 2026-11-10 18:12: a worker's reason ended "…appeared.</CLARIFICATION>"). Structure only: names are never
+# listed, code spans and fenced blocks are left alone, and a tag with attributes (FERB's own
+# `</untrusted-data id="…">`) is never this kind.
+_CODE = re.compile(r"```.*?(?:```|\Z)|`[^`\n]*`", re.S)
+_TAG = re.compile(r"<(/?)([A-Za-z][A-Za-z0-9_.:-]*)(\s[^<>]*)?\s*(/?)>")
+
+
+def without_stray_closing_tags(text: str) -> str:
+    """`text` with every closing tag `</name>` that no earlier opening `<name …>` in the same text (outside code)
+    pairs with removed, and the whitespace that ends the text after it; anything else unchanged."""
+    if "</" not in text:
+        return text
+    code = [m.span() for m in _CODE.finditer(text)]
+    opened: dict[str, int] = {}
+    cut: list[tuple[int, int]] = []
+    for m in _TAG.finditer(text):
+        if any(a <= m.start() < b for a, b in code) or m.group(4):
+            continue
+        name = m.group(2).lower()
+        if not m.group(1):
+            opened[name] = opened.get(name, 0) + 1
+        elif m.group(3):                                  # a closing tag with attributes: not a plain closing tag
+            continue
+        elif opened.get(name):
+            opened[name] -= 1
+        else:
+            cut.append(m.span())
+    if not cut:
+        return text
+    out, last = [], 0
+    for a, b in cut:
+        if text[a - 1:a] == " " and text[b:b + 1] == " ":    # one space stays where a tag sat between two words
+            b += 1
+        out.append(text[last:a])
+        last = b
+    out.append(text[last:])
+    kept = "".join(out)
+    return kept.rstrip() if text[cut[-1][1]:].strip() == "" else kept

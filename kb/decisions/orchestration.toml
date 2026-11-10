@@ -1206,12 +1206,13 @@ live = ["LIVE-871"]
 title = "A failed or stopped task's findings line has no \"(not checked)\" bracket"
 by = "owner"
 date = 2026-11-10
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-605"
 words = "ferb replied here correctly too. jsut remove the code enfored bracket line; \"(not checked)\""
 words_source = "Owner 2026-11-10, relayed by the coordinator of the short-run fixes, about a failed task's reply \"What I found (not checked): No order was placed.\""
 rule = "Supersedes ORCH-569's wording and refines ORCH-568 and ORCH-530 (both lines, by the one-path rule). A failed task's reply is still \"I couldn't finish this task.\" with the worker's reason, then, only when the worker found something, its findings as \"What I found:\" (FOUND_UNCHECKED); a stopped task's is still \"Stopped, as you asked.\" then \"What I'd found before stopping:\" (FOUND_BEFORE_STOP) with the latest report's answer. With nothing found there is no second part. Old replies keep their text. Every other \"Couldn't confirm\" marking (ORCH-309, ORCH-545, ORCH-547) stays."
 supersedes = ["ORCH-569"]
-paths = ["ferb/orchestrator/supervisor.py::FOUND_UNCHECKED", "ferb/orchestrator/supervisor.py::FOUND_BEFORE_STOP", "ferb/orchestrator/supervisor.py::Supervisor._final"]
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._final"]
 
 [ORCH-586]
 title = "A message sent while FERB's question is open joins its request only if the planner says so"
@@ -1390,7 +1391,51 @@ title = "A failed task's reason is chosen by where each text came from, and said
 by = "agent"
 date = 2026-11-11
 status = "active"
-rule = "For ORCH-600. One helper (_told_failure) for the reply and a part's \"Couldn't do:\" row: code's own stop line, or the outcome's summary with no report; else the worker's not-done reason; else the checker's own `fail` reason (written for the owner); else code's \"Not done: <condition>.\" with what was found false, or \"Couldn't confirm: <condition>.\" alone. Reason and \"What I found:\" are one text when one holds the other (_once). \"Couldn't confirm\" names the condition, with code's no-look how but never the checker's; \"what happened since\" keeps evidence and how for every run not done."
+rule = "For ORCH-600 and ORCH-605. _told_failure gives a lead and one worker text for the reply and a \"Couldn't do:\" row. Lead: code's own stop line (or the summary with no report), then the worker's answer if any; else for a worker's not-done report no lead and its answer, else its reason (a row's \"Couldn't do:\" takes the reason first); else the checker's own `fail` reason, else code's \"Not done: <condition>.\" with what code's own check found, or \"Couldn't confirm: <condition>.\". Short forms join code's opener to the next line (headline). \"What happened since\" keeps evidence, how for runs not done."
 why = "Task eea265b9 (2026-11-10 18:12): the reply said the worker's reason, the checker's watch evidence under \"What the check confirmed:\", then the worker's answer repeating the reason."
-paths = ["ferb/orchestrator/supervisor.py::Supervisor._told_failure", "ferb/orchestrator/supervisor.py::Supervisor._told_not_done", "ferb/orchestrator/supervisor.py::Supervisor._couldnt_do", "ferb/orchestrator/supervisor.py::_once", "ferb/orchestrator/supervisor.py::Supervisor._next", "ferb/orchestrator/supervisor.py::Supervisor._since_event", "ferb/orchestrator/supervisor.py::WATCH_TEXT"]
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._told_failure", "ferb/orchestrator/supervisor.py::Supervisor._told_not_done", "ferb/orchestrator/supervisor.py::Supervisor._couldnt_do", "ferb/orchestrator/answer_marks.py::headline", "ferb/orchestrator/supervisor.py::Supervisor._next", "ferb/orchestrator/supervisor.py::Supervisor._since_event", "ferb/orchestrator/supervisor.py::WATCH_TEXT"]
+live = ["LIVE-897"]
+
+[ORCH-604]
+title = "A closing tag a model left with no opening tag in the same field never reaches the owner"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "A worker report's answer, reason and question, and the checker's reason and question, lose every closing tag </name> that no earlier opening <name …> in the same field pairs with, outside code spans and fenced blocks, when the report is read (answer_marks.without_stray_closing_tags, on WorkerReport and CheckerOutcome), so nothing stores or shows it. A closing tag with attributes (FERB's own </untrusted-data id=…>) and paired tags stay. Structure only: no tag name is listed. The model's raw output stays in its span."
+why = "Task eea265b9 (2026-11-10 18:12): the Claude worker's reason ended \"appeared.</CLARIFICATION>\"; no FERB prompt or context held that tag."
+paths = ["ferb/orchestrator/answer_marks.py::without_stray_closing_tags", "ferb/orchestrator/schemas.py::WorkerReport", "ferb/orchestrator/schemas.py::CheckerOutcome"]
+live = ["LIVE-897"]
+
+[ORCH-605]
+title = "An unfinished task says it couldn't finish, then one text: the worker's answer, else its reason"
+by = "owner"
+date = 2026-11-11
+status = "active"
+words = "One text only (Recommended)"
+words_source = "Owner 2026-11-11 (relayed), choosing for an unfinished task's reply; the preview: \"I couldn't finish this task.\" then the 18:12 run's answer alone."
+rule = "Supersedes ORCH-585 and the layout of ORCH-568, ORCH-530 and ORCH-600. An unfinished task's reply is \"I couldn't finish this task.\" then one text as its own paragraph: the worker's answer if it wrote one, otherwise its reason; no \"What I found:\". When code's own sentence explains the failure (a stop line, \"Not done: …\" after a refuted claim) it comes first, on the first line; a false claim stays out (ORCH-568). A stopped task: \"Stopped, as you asked.\" then the worker's answer if any, with no heading."
+supersedes = ["ORCH-585"]
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrator/supervisor.py::Supervisor._told_failure"]
+live = ["LIVE-897"]
+
+[ORCH-606]
+title = "A done answer with something unconfirmed ends with one fixed line"
+by = "owner"
+date = 2026-11-11
+status = "active"
+words = "One fixed short line (Recommended)"
+words_source = "Owner 2026-11-11 (relayed), choosing for a done answer with an outcome left unconfirmed: always the same words, no condition text, list or how."
+rule = "Supersedes the \"Couldn't confirm: …\" line form of ORCH-309 and ORCH-600 for replies. A done answer with any outcome left unconfirmed (a task, a scheduled run, a part's row) is the worker's answer, then one line, always the same words (UNCONFIRMED_LINE, worded by ORCH-607). ORCH-547's inline \"(I couldn't confirm this)\" marks stay and the line is still added once. Which conditions and how to check them stay in the record (the outcome's `unconfirmed`, the step's note, the verification, the planner's \"what happened since\")."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrator/supervisor.py::Supervisor._post_part", "ferb/orchestrator/supervisor.py::UNCONFIRMED_LINE", "ferb/orchestrator/parts.py::composed"]
+live = ["LIVE-897"]
+
+[ORCH-607]
+title = "The unconfirmed line reads \"I couldn't confirm part of this.\", with nothing model-written in it"
+by = "owner"
+date = 2026-11-11
+status = "active"
+words = "ok then why not just stick to i couldnt some part in this or somethign??? just the line and no new reason"
+words_source = "Owner 2026-11-11 (relayed), after asking \"why not add jsut a little evidence unto teh what i coudlnt confirm???\" and hearing it would need a checker-written phrase."
+rule = "Refines ORCH-606. The line a done answer with something unconfirmed ends with is always \"I couldn't confirm part of this.\" (UNCONFIRMED_LINE): no named gap, no evidence, no new checker field; nothing in it is model-written. Asked what couldn't be confirmed, FERB answers from the record (ORCH-606)."
+paths = ["ferb/orchestrator/supervisor.py::UNCONFIRMED_LINE"]
 live = ["LIVE-897"]

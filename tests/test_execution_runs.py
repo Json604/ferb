@@ -152,24 +152,23 @@ def test_a_runtimes_memory_compression_is_a_span_under_its_call_and_shows_in_the
     assert "model.compacted" in "\n".join(render_trace(trace, full=True))
 
 
-# decision: ORCH-530, ORCH-585
+# decision: ORCH-530, ORCH-605
 def test_a_stopped_task_shows_only_a_reports_answer_as_found(daemon: RunningDaemon) -> None:
     """Task 8bf4e2e7 (2026-11-05): the stopped attempt's reason is "stopped by you", and the answer read
     "What I'd found before stopping (not checked): stopped by you". Only a report's answer is a finding."""
     from ferb.core.types import Identity, Task
     from ferb.orchestrator.schemas import TaskSpec
-    from ferb.orchestrator.supervisor import FOUND_BEFORE_STOP, STOPPED_BY_YOU, _Tree
+    from ferb.orchestrator.supervisor import STOPPED_BY_YOU, _Tree
     worker = Task("tree-st.worker", "tree-st", "Find the flight", "browser", Identity.OWNER, set(), "worker",
                   "req-st", [], None)
     tree = _Tree("tree-st", TaskSpec(goal="Find the flight", identity="owner"), worker)
     tree.stop = STOPPED_BY_YOU
     tree.reports = [{"status": "not_done", "answer": "", "reason": STOPPED_BY_YOU, "summary": "stopped by you"}]
     final = run(daemon, lambda: daemon.daemon.supervisor._final(tree))
-    assert final["answer"].startswith("Stopped, as you asked.") and FOUND_BEFORE_STOP not in final["answer"]
+    assert final["answer"] == "Stopped, as you asked."
     tree.reports.insert(0, {"status": "not_done", "answer": "The 9:40 flight is $212.", "reason": ""})
     final = run(daemon, lambda: daemon.daemon.supervisor._final(tree))
-    assert f"{FOUND_BEFORE_STOP} The 9:40 flight is $212." in final["answer"]
-    assert "(not checked)" not in final["answer"]                       # ORCH-585: no bracket
+    assert final["answer"] == "Stopped, as you asked.\n\nThe 9:40 flight is $212."     # ORCH-605: no heading
 
 
 # decision: ORCH-308
@@ -478,7 +477,7 @@ def test_a_report_only_check_in_an_older_build_saved_keeps_its_answer_after_the_
         answer = run(second, lambda: second.daemon.db.conn.execute(
             "SELECT answer FROM task_results WHERE task_id = ?", (tree,)).fetchone()[0])
         first_line, line = answer.split("\n\n")
-        assert first_line == found and line.startswith("Couldn't confirm:")
+        assert first_line == found and line == "I couldn't confirm part of this."         # ORCH-606
     finally:
         second.stop()
 

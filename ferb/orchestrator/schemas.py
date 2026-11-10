@@ -574,6 +574,15 @@ class WorkerReport(BaseModel):
     probe: Probe | None = None
     part_updates: list[dict[str, Any]] = []
 
+    @model_validator(mode="after")
+    def _no_stray_tags(self) -> "WorkerReport":
+        """ORCH-604: a closing tag the model left with no opening tag in the same field is removed from the texts
+        the owner may read, before anything stores or shows them."""
+        from ferb.orchestrator.answer_marks import without_stray_closing_tags as clean
+        self.answer, self.reason = clean(self.answer), clean(self.reason)
+        self.question = clean(self.question) if self.question else self.question
+        return self
+
 
 class QuestionOutcome(BaseModel):
     ask_owner: bool
@@ -620,6 +629,13 @@ class CheckerOutcome(BaseModel):
     question: str = ''
     reason: str = ''
     dropped_edits: list[str] = []
+
+    @model_validator(mode="after")
+    def _no_stray_tags(self) -> "CheckerOutcome":
+        """ORCH-604, as for a worker's report: its owner-facing texts (a fail reason, a question)."""
+        from ferb.orchestrator.answer_marks import without_stray_closing_tags as clean
+        self.reason, self.question = clean(self.reason), clean(self.question)
+        return self
 
     @model_validator(mode="before")
     @classmethod

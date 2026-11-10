@@ -26,7 +26,7 @@ def _visa_schedule(d: RunningDaemon, minutes: int = 1) -> object:
 def test_each_schedule_line_carries_its_last_run(daemon: RunningDaemon) -> None:
     _visa_schedule(daemon)
     install(daemon, [sup("task", "Checking.", task("Check visa slots"))],
-            {"worker": json.dumps(report("not_done", reason=BLOCKED))})
+            {"worker": json.dumps(report("not_done", "", reason=BLOCKED))})
     fire(daemon, 61)
     assert run(daemon, lambda: daemon.daemon.journal.of_kind("schedule.posted"))
     script = install(daemon, [sup("reply", "It failed once.")])
@@ -56,7 +56,7 @@ def test_the_planner_is_told_what_ferb_did_since_the_owners_last_message(daemon:
     turn.done()
     _visa_schedule(daemon)
     install(daemon, [sup("task", "Checking.", task("Check visa slots", conds=(cond("A slot is booked"),)))],
-            {"worker": json.dumps(report("not_done", reason=BLOCKED)),
+            {"worker": json.dumps(report("not_done", "", reason=BLOCKED)),
              "worker.verify": verdict(False, next="fail", evidence="No Slots Available at Chennai.")})
     fire(daemon, 61)
     assert run(daemon, lambda: daemon.daemon.journal.of_kind("schedule.posted"))

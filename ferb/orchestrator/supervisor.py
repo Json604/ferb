@@ -67,7 +67,7 @@ from ferb.orchestrator.names import shown_name
 from ferb.orchestrator.loops import (LOOP_ROUND, LoopRunner, LoopStore, look_only_round, loop_line,
                                      round_reason, short_label)
 from ferb.orchestrator.probes import MISSING, Probe, field_value, refusal, resolve_tool
-from ferb.orchestrator.answer_marks import only_quoted_changed, settle
+from ferb.orchestrator.answer_marks import NOT_FINISHED, STOPPED, headline, only_quoted_changed, settle
 from ferb.orchestrator.schemas import (ACTION_CHECKS, CHECKER_SCHEMA, FIX_SCHEMA, QUESTION_SCHEMA, RECHECK_SCHEMA, SUMMARY_SCHEMA,
                                        SUPERVISOR_SCHEMA, WORKER_SCHEMA, AnswerQuestion, Check, CheckerOutcome, Condition,
                                        Finding, FixOutcome, QuestionOutcome, RecheckOutcome, SummaryOutcome,
@@ -214,7 +214,6 @@ SILENT = ("I stopped because nothing came back from the AI service for {minutes:
           "try once more.")
 STOP_SETTLING = "I've asked it to stop; it's still finishing what it was doing, so I haven't started anything else."
 RETRY_SETTLING = "I've stopped the earlier attempt; I'll start again as soon as it has finished."
-STOPPED = "Stopped, as you asked."
 ALREADY_ENDED = "That attempt has already ended."
 ALREADY_FINISHED = "That task had already finished its work, so there was nothing to stop."
 UNKNOWN_TASK = "I couldn't find that task. Tell me which task to stop or retry."
@@ -637,9 +636,12 @@ def _short_report(text: str, index: bool = False) -> str:
     """A task's report as the planner's history shows it (ORCH-303): its first paragraph, clipped to
     REPORT_SHORT_CHARS; chat.history keeps the full text. A multi-part task's answer is already an index whose every
     line code clipped to REPORT_SHORT_CHARS (`index`, ORCH-534): shown whole, so the planner sees each part's outcome."""
-    first = text.strip().split("\n\n", 1)[0].strip()
+    paragraphs = [p.strip() for p in text.strip().split("\n\n") if p.strip()]
+    first = paragraphs[0] if paragraphs else ""
     if index:
         return first
+    if len(paragraphs) > 1 and first in (NOT_FINISHED, STOPPED):    # ORCH-605: code's opener alone says nothing
+        first = f"{first} {paragraphs[1]}"
     return shorten(first, REPORT_SHORT_CHARS, fold=False)     # ORCH-601: at a sentence or word, never mid-word
 
 
@@ -4905,8 +4907,10 @@ class Supervisor(WorkerRuns):
                 else:
                     text = str(output.get('answer') or output.get('summary') or '')
                     note, verified = str(output.get('note') or ''), bool(output.get('verified'))
-                card.settle(part, 'done', self._said(text), note=self._said(note), verified=verified,
-                            step_task=task_id)
+                # ORCH-606: a row left unconfirmed ends with the same fixed line as a one-ask answer; which
+                # conditions stays in the step's record (its output's note), never in the row
+                shown = text.strip() + (f"\n\n{UNCONFIRMED_LINE}" if note and not verified else "")
+                card.settle(part, 'done', self._said(shown), verified=verified, step_task=task_id)
             elif status in ('failed', 'blocked', 'needs_user'):
                 card.settle(part, 'failed', self._said(self._couldnt_do(member, output)), step_task=task_id)
         if status in DONE and member is not None:
@@ -4928,7 +4932,11 @@ class Supervisor(WorkerRuns):
         why = ''
         if member is not None and (member.stop_reason or member.reason):
             out = member.outcome or Outcome(member.worker.id, "failed", member.stop_reason, [], [])
-            why = self._told_failure(member, out, self._results(member)[1], member.stop_reason or member.reason)[0]
+            # the row's "Couldn't do:" is a why: code's or the checker's lead, else the worker's own reason, else
+            # its answer (ORCH-605's one text, read as the reason the label asks for)
+            lead, own = self._told_failure(member, out, self._results(member)[1],
+                                           member.stop_reason or member.reason)
+            why = lead or member.reason.strip() or own
         why = why or (f"I need your answer: {question}" if question else str(output.get('summary') or NOT_ACCEPTED))
         return f"{COULDNT_DO} {_sentence(why).strip()}"
 
@@ -6121,40 +6129,37 @@ class Supervisor(WorkerRuns):
         return f"{lead}: {said}. {found[:1].upper()}{found[1:]}"
 
     def _told_failure(self, src: _Tree, out: Outcome, outcomes: list[ConditionResult], why: str) -> tuple[str, str]:
-        """ORCH-600 (owner 2026-11-11: the reply of an ended task is FERB's own answer, told once, whole): why a failed
-        task or row failed and what its worker found, for the reply (`_final`) and a part's row (`_couldnt_do`) alike.
-        The failure is told once (ORCH-568, with PRM-344: a not-done answer holds only what was found or done, what
-        stopped it is its reason), chosen by where each text came from, never by what it says (rule 4):
-        - code's own stop line (attempts used up, an AI service down), or no report at all: `why`, then what the
-          worker found;
-        - a worker that reported not done: its own reason (after ORCH-562's findings round), then its answer as what
-          it found; when one holds the other, only that one (`_once`);
+        """ORCH-605 (owner 2026-11-11, "One text only"): a failed task's or row's account, for the reply (`_final`)
+        and a part's row (`_couldnt_do`) alike, as (code's lead sentence, the worker's one text). Chosen by where each
+        text came from, never by what it says (rule 4):
+        - code's own stop line (attempts used up, an AI service down), or no report at all: that line leads, then the
+          worker's answer if it wrote one;
+        - a worker that reported not done: no lead; its answer if it wrote one, otherwise its reason (after ORCH-562's
+          findings round), never both;
         - otherwise (a done claim the check didn't accept): the checker's own `fail` reason (the one field it writes
-          for the owner), else code's sentence per outcome condition not met with what code's own check found
-          (`_told_not_done`); never the done claim (ORCH-568), never an accepting check's reason or any condition's
-          evidence, which stay the summary, stop_reason and the trace."""
+          for the owner), else code's sentence per outcome condition not met (`_told_not_done`); never the done
+          claim (ORCH-568). An accepting check's reason and the evidence of what it confirmed or left unconfirmed
+          stay the summary, stop_reason and the trace (ORCH-600)."""
         not_done = not (src.reports and src.reports[-1].get("status") == "done")
         own = src.owner_answer.strip() if not_done else ""
         if src.stop_by_code or not src.reports:
-            told = why
-        elif not_done and src.reason.strip():
-            told = src.reason
-        else:
-            told = src.check_told or self._told_not_done(src, outcomes) or NOT_ACCEPTED
-        return _once(told, own)
+            return why.strip(), own
+        if not_done and (own or src.reason.strip()):
+            return "", own or src.reason.strip()
+        return (src.check_told or self._told_not_done(src, outcomes) or NOT_ACCEPTED).strip(), ""
 
     @classmethod
     def _told_not_done(cls, tree: _Tree, outcomes: list[ConditionResult]) -> str:
         """ORCH-600: a failed task's reason in the owner's reply when neither the worker, code's own stop line nor the
         checker's own fail reason gave one: each outcome condition not met, as `_found` says it (ORCH-583), with what
-        was found only for a condition found false (code's check, or the checker's contradiction: what is wrong in the
-        owner's things); one that couldn't be confirmed is named alone. By the verdict's structure, never its words."""
+        was found only when code's own check found it (path "code": FERB's sentence); the checker's evidence is audit
+        text and stays in the record (ORCH-600). By the verdict's structure, never its words."""
         told = []
         for r in outcomes:
             if r.met is not True:
                 said = cls._owner_text(tree, r).strip().rstrip(".")
                 lead = "Not done" if r.met is False else "Couldn't confirm"
-                found = r.evidence.strip() if r.met is False else ""
+                found = r.evidence.strip() if r.path == "code" else ""
                 told.append(f"{lead}: {said}." + (f" {found[:1].upper()}{found[1:]}" if found else ""))
         return " ".join(told)
 
@@ -6872,9 +6877,9 @@ class Supervisor(WorkerRuns):
         - `failed` when the work didn't finish, the check found an outcome false or chose to fail, or the task was
           interrupted; `needs_user` and `cancelled` (your stop) as before.
         The answer comes first (the worker's, with the checker's fixes; a one-ask plan's answer step's, ORCH-319),
-        then at most one short "Couldn't confirm: …" line; a failure says plainly what happened; then code's own lines
-        in a fixed order (`_code_lines`). A worker's success claim is never stated as fact unless a check confirmed
-        it or it stands marked unconfirmed. Several asks: the rows are the answer (`_final_card`)."""
+        then, when unconfirmed, the one fixed UNCONFIRMED_LINE (ORCH-606); a failure: `_told_failure`; then code's
+        own lines in a fixed order (`_code_lines`). A worker's success claim is never stated as fact unless a check
+        confirmed it or it stands marked unconfirmed. Several asks: the rows are the answer (`_final_card`)."""
         if tree.card is not None:
             return self._final_card(tree)
         src = tree.answering or tree             # whose checked answer is the task's
@@ -6884,21 +6889,24 @@ class Supervisor(WorkerRuns):
         verified = False
         status: str
         if tree.stop == STOPPED_BY_YOU:
-            status, summary, answer = self._stop_status(tree), STOPPED_BY_YOU, "Stopped, as you asked."
+            status, summary, answer = self._stop_status(tree), STOPPED_BY_YOU, STOPPED
             # what the worker had found, from its latest report's answer (owner live use 2026-10-15; ORCH-585: no
             # "(not checked)" bracket). Only an answer is a finding; a stopped attempt's reason is "stopped by you"
             # (ORCH-530).
             said = [str(r.get("answer") or "").strip() for r in reversed(src.reports)]
             found = next((text for text in said if text), "")
-            if found:
-                answer += f"\n\n{FOUND_BEFORE_STOP} {found}"
+            if found:                    # ORCH-605: the worker's answer as its own paragraph, no heading
+                answer += f"\n\n{found}"
         elif tree.stop:
             status, summary = self._stop_status(tree), tree.stop
             answer = f"I couldn't finish that: {tree.stop}"
         elif out.status == "done" and not any(r.met is False for r in outcomes):
             answer_text, note, verified = self._checked_answer(src, out)
             status = "done" if verified else "done_unverified"
-            summary = answer = answer_text + (f"\n\nCouldn't confirm: {note}." if note else "")
+            # ORCH-606 (owner 2026-11-11, "One fixed short line"): the same words whatever stayed unconfirmed; which
+            # conditions, and how to check them, stay in the record (`unconfirmed`, verification, the planner's since
+            # block)
+            summary = answer = answer_text + (f"\n\n{UNCONFIRMED_LINE}" if note else "")
         elif out.status == "needs_user":
             status = "needs_user"
             question = src.owner_question or tree.owner_question or out.summary
@@ -6908,10 +6916,8 @@ class Supervisor(WorkerRuns):
             why = src.stop_reason or src.reason or (out.summary if out.status != "done" else NOT_ACCEPTED)
             summary = f"{NOT_FINISHED} {_sentence(why)}".strip()     # the record's: the checker's reason stays here
             # ORCH-600 (owner 2026-11-11: the reply is FERB's own answer, told once, whole): `_told_failure`
-            told, own = self._told_failure(src, out, outcomes, why)
-            answer = f"{NOT_FINISHED} {_sentence(told)}".strip()
-            if own:
-                answer += f"\n\n{FOUND_UNCHECKED} {own}"
+            lead, own = self._told_failure(src, out, outcomes, why)
+            answer = f"{NOT_FINISHED} {_sentence(lead)}".strip() + (f"\n\n{own}" if own else "")
         # D33: the answer and summary carry model-written lines (reports, the checker's question and reason); one that
         # reads like FERB's own check is marked as the task's. Code's own lines here never start with "FERB".
         summary, answer = confirm.from_task_lines(summary), confirm.from_task_lines(answer)
@@ -6926,7 +6932,7 @@ class Supervisor(WorkerRuns):
                 "artifacts": sorted(out.artifacts),              # the last attempt's (never a retried one's)
                 "resources": tree.resources, "stop_reason": src.stop_reason or tree.stop_reason} | (
                 # the answer's parts as fields of their own (the app renders them without parsing the text)
-                {"note": confirm.from_task_lines(note)} if note else {}) | (
+                {"unconfirmed": confirm.from_task_lines(note)} if note else {}) | (
                 {"lines": lines} if lines else {}) | (
                 {"how": src.how} if status in ("done", "done_unverified") and src.how.strip() else {}) | (
                 {"runtime_switch": switch} if switch and status == "failed" else {}) | (
@@ -7036,7 +7042,6 @@ class _Changed:
     records: dict[str, str] = field(default_factory=dict)
     blocks: list[ContextBlock] = field(default_factory=list)
 
-FOUND_BEFORE_STOP = "What I'd found before stopping:"   # ORCH-585: no "(not checked)" bracket
 NEEDS_ANSWER = "I need your answer to finish this task."
 def _stopped_plan_summary(steps: list[Any], states: dict[str, dict[str, Any]]) -> str:
     """Why a plan stopped, in the owner's terms (live 2026-10-27: "The plan needs attention before I can finish." left a
@@ -7057,9 +7062,9 @@ def _stopped_plan_summary(steps: list[Any], states: dict[str, dict[str, Any]]) -
 OPEN_QUESTION = ("Layer 5 — FERB's question in this chat, still open (set answers_question true only if the owner's "
                  "new message below answers it; otherwise the question and its request wait): ")
 OPEN_REQUEST = "The owner's earlier request it asked about (their words, waiting for that answer):\n"
-NOT_FINISHED = "I couldn't finish this task."
 COULDNT_DO = "Couldn't do:"                      # a part that couldn't be done, in its own row (ORCH-319)
-FOUND_UNCHECKED = "What I found:"                 # ORCH-585 (owner): no "(not checked)" bracket
+# ORCH-606 (owner 2026-11-11): a done answer with an outcome left unconfirmed ends with this one line, always the same
+UNCONFIRMED_LINE = "I couldn't confirm part of this."
 # a watch's own condition, in the owner's terms (ORCH-600: a sentence's part, never a heading)
 WATCH_TEXT = "whether what this watch looks for has happened"
 NOTHING_TO_CHECK = "there was nothing to check it against"
@@ -7083,7 +7088,7 @@ SINCE_EVIDENCE_CHARS = 300
 
 def _since_line(text: str) -> str:
     """A text's first non-empty line, at most SINCE_LINE_CHARS (ORCH-591)."""
-    return shorten(next((line.strip() for line in text.splitlines() if line.strip()), ""), SINCE_LINE_CHARS)
+    return shorten(headline(text), SINCE_LINE_CHARS)
 
 
 # The checker's code facts about how the work was done (ORCH-309) and what the task holds (ORCH-333)
@@ -7104,19 +7109,6 @@ def _clipped(text: str) -> str:
     """The "Couldn't confirm" line's text: one line, whole (ORCH-600: nothing the owner reads is cut), without its own
     end period."""
     return " ".join(text.split()).rstrip(".")
-
-
-def _once(reason: str, found: str) -> tuple[str, str]:
-    """A failed task's reason and what it found, told once (ORCH-600): when they are the same text, or one holds the
-    other, after folding whitespace, only the one that holds both stays (as the reason). Structure only."""
-    a, b = " ".join(reason.split()), " ".join(found.split())
-    if not a or not b:
-        return reason, found
-    if b in a:
-        return reason, ""
-    if a in b:
-        return found, ""
-    return reason, found
 
 
 @dataclass
