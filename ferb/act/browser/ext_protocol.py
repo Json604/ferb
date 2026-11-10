@@ -171,6 +171,9 @@ def version_tuple(v: str) -> tuple[int, ...]:
 PDF_EXTENSION_VERSION = "0.19.3"
 # HAND-496: the extension's `html` (the page's real markup) needs this version, the same way; the minimum stays
 HTML_EXTENSION_VERSION = "0.19.8"
+# HAND-497, GATE-579: the extension's `owner_view` (the payment card's unmasked owner-only picture) needs this version;
+# an older one keeps the card's masked capture
+OWNER_VIEW_EXTENSION_VERSION = "0.19.8"
 
 
 def version_ok(v: str, minimum: str = MIN_EXTENSION_VERSION) -> bool:

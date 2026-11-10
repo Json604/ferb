@@ -228,11 +228,11 @@ def label_amount(label: str | None) -> str | None:
     return found.pop() if len(found) == 1 else None
 
 
-PAGE_AMOUNTS = 200              # GATE-576: at most this many distinct amounts kept from one snapshot
+PAGE_AMOUNTS = 200              # GATE-578: at most this many distinct amounts kept from one snapshot
 
 
 def page_amounts(texts: list[str]) -> tuple[str, ...]:
-    """GATE-576: every money amount the page shows (a currency sign or code beside a number), as written, in page
+    """GATE-578: every money amount the page shows (a currency sign or code beside a number), as written, in page
     order, each once. Only a shape: which one is the total is never decided from the words around it."""
     found: dict[str, None] = {}
     for text in texts:
@@ -1006,7 +1006,7 @@ class _Tab:
     held: bool = False              # it counts in its bridge's keepalive holds
     frame_urls: dict[int, str] = field(default_factory=dict)   # the latest snapshot's frames' URLs (masked)
     commerce: dict[str, Any] = field(default_factory=dict)     # the page's structured amount/merchant (protocol 18)
-    amounts: tuple[str, ...] = ()   # GATE-576: every money amount its latest snapshot shows (text and labels)
+    amounts: tuple[str, ...] = ()   # GATE-578: every money amount its latest snapshot shows (text and labels)
     muted: bool = False             # HAND-207: FERB muted it (the browser's tab mute); its task may unmute it
     typed_at: int | None = None     # HAND-447: the tab's load count when FERB last typed, filled or uploaded in it
     page: _Page | None = None       # where the latest snapshot saw the tab, for FERB's cursor (L33)
@@ -2173,6 +2173,12 @@ class _TabDriver:
             jpeg, t.masking = await self._unread(t, jpeg, v)
             return jpeg
         return painted(jpeg, v)
+
+    def owner_view_supported(self, tab: TabRef) -> bool:
+        """GATE-579: whether the extension connected for this tab has `owner_view` (OWNER_VIEW_EXTENSION_VERSION), read
+        as browser.html and the PDF tool read theirs; an older one keeps the payment card's masked capture."""
+        from ferb.act.browser.ext_protocol import OWNER_VIEW_EXTENSION_VERSION, version_ok
+        return version_ok(str(getattr(self._tab(tab).bridge, "version", "") or ""), OWNER_VIEW_EXTENSION_VERSION)
 
     async def owner_view(self, tab: TabRef) -> "OwnerOnlyImage":
         """HAND-497: one unmasked picture of the tab for the owner's own payment card and nothing else (the owner's

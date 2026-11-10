@@ -5,6 +5,7 @@ database, journal, trace or a file. A model-visible screenshot of the same page 
 import asyncio
 import base64
 import time
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -15,7 +16,7 @@ from ferb.core.errors import Withheld
 from ferb.daemon import pay_picture
 from ferb.daemon.questions import card_parts
 from tests.conftest import Answers, RunningDaemon, gateway_request, gateway_setup
-from tests.support.images import black, solid_jpeg
+from tests.support.images import black, solid_jpeg, white
 from tests.test_payments import _Tab
 
 PIXELS = b"\xff\xd8PAYMENT-PAGE-PIXELS-7731"
@@ -122,25 +123,61 @@ def test_a_page_that_couldnt_be_captured_says_so_and_never_blocks_the_question(d
     assert card_parts(asked)["picture_problem"] == pay_picture.NOT_CAPTURED and "picture" not in card_parts(asked)
 
 
-# decision: GATE-578, GATE-206
-def test_a_model_visible_screenshot_of_the_same_page_is_still_masked(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The owner's exception covers only the owner's picture: the worker's screenshot of the same checkout page is
-    painted over where its card field is, and the payment picture adds no text-recognition pass of its own."""
-    from tests.test_pixels_to_model import _same, _state, _tab_driver
-    page = solid_jpeg(200, 100)
-    card_field = _state((10, 10, 30, 10))                              # a card number box, in CSS px (2x capture)
-    d, ref, _ = _tab_driver({"data": base64.b64encode(page).decode(), "mask": _same(card_field)})
-    model_sees = asyncio.run(d.screenshot(ref))
-    assert black(pixel(model_sees, 40, 25))
+class _Browser:
+    """A task tab behind the real _TabDriver (a fake extension bridge): `version` is the connected extension's."""
 
+    def __init__(self, version: str, owner_view: dict[str, Any] | None = None) -> None:
+        from ferb.act.browser.ext_bridge import _Tab, _TabDriver
+        from ferb.core.types import TabRef
+        from tests.test_pixels_to_model import _same, _state
+        self.page = solid_jpeg(200, 100)                                # a 100 x 50 CSS px viewport, captured at 2x
+        masked = {"data": base64.b64encode(self.page).decode(), "mask": _same(_state((10, 10, 30, 10)))}  # card box
+        self.ops: list[str] = []
+        unmasked = owner_view if owner_view is not None else {"data": base64.b64encode(self.page).decode()}
+
+        async def call(op: str, args: dict[str, Any], **kw: Any) -> dict[str, Any]:
+            self.ops.append(op)
+            return unmasked if op == "owner_view" else masked
+        bridge = SimpleNamespace(gen=1, conn=object(), call=call, navs={}, version=version)
+        self.ref = TabRef("device", "chrome", "Default", 1, "t1")
+        self.driver = _TabDriver(None, lambda: [])                     # type: ignore[arg-type]
+        self.driver._tabs["t1"] = _Tab(self.ref, bridge, 19, "task", "https://shop.example/checkout",  # type: ignore[arg-type]
+                                       snap_gen=3)
+        driver = self.driver
+
+        def preview_target(args: Any, owner: str, observed: Any = None) -> PreviewTarget:
+            async def resolve() -> tuple[dict[str, Any], Any]:
+                return driver.recording_source(driver.owned_by("t1", owner), owner)
+            return PreviewTarget("tab:chrome/t1", "the browser", resolve)
+        self.cap = SimpleNamespace(driver=driver, preview_target=preview_target)
+
+    def picture(self) -> bytes | None:
+        from ferb.act.locks import ResourceLocks
+        return asyncio.run(pay_picture.capture(self.cap, SimpleNamespace(tab="t1"), "task", ResourceLocks().hold, [],
+                                               "picture:t"))
+
+
+# decision: GATE-578, GATE-579, GATE-206, HAND-497
+def test_the_owners_picture_is_unmasked_on_0_19_8_while_the_models_screenshot_stays_masked(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """The owner's exception covers only the owner's picture: on a checkout page with a card number box, the card's
+    picture comes through owner_view as the page is, with no text-recognition pass, while the worker's screenshot of
+    the same page is painted over where the box is."""
     def no_pass(*a: Any, **k: Any) -> Any:
         raise AssertionError("the owner's picture gets no text-recognition pass")
     monkeypatch.setattr("ferb.sanitize.images.ImageRedactor", no_pass)
-    locks = daemon_free_locks()
-    owner_sees = asyncio.run(pay_picture.capture(_PictureTab(page), _Tab.Input(), "task-1", locks, [], "picture:t"))
-    assert owner_sees == page
+    b = _Browser("0.19.8")
+    owner_sees = b.picture()
+    assert owner_sees == b.page and white(pixel(owner_sees, 40, 25)) and b.ops == ["owner_view"]
+    model_sees = asyncio.run(b.driver.screenshot(b.ref))
+    assert black(pixel(model_sees, 40, 25))
 
 
-def daemon_free_locks() -> Any:
-    from ferb.act.locks import ResourceLocks
-    return ResourceLocks().hold
+# decision: GATE-579, HAND-497
+def test_an_older_extension_keeps_the_masked_capture_and_an_uncapturable_page_has_none() -> None:
+    older = _Browser("0.19.7")
+    shot = older.picture()
+    assert shot is not None and black(pixel(shot, 40, 25)) and "owner_view" not in older.ops
+    assert "record_frame" in older.ops
+    gone = _Browser("0.19.8", owner_view={"unavailable": "the tab is closed"})   # CaptureUnavailable
+    assert gone.picture() is None and gone.ops == ["owner_view"]
