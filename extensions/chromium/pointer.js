@@ -61,24 +61,27 @@ async function resolveVisualPoint(tabId, snap, x, y) {
 
 // What differs between the point as reported to the worker and as resolved now ("" when it is the same target): the
 // frames it goes through, where it lands in its frame (a frame moved), the element under it (content.js keeps one id
-// per element for the snapshot's life), and that element's role, label, link and rect.
-function pointChange(was, now) {
+// per element for the snapshot's life), and that element's role, label, link and rect. After the pointer's own move
+// (`hovered`) a hover style may resize the element: the fresh hit test still has to find the same element under the
+// point, with the same role, label and link, but its rect isn't compared (HAND-480).
+function pointChange(was, now, hovered = false) {
   if (JSON.stringify(was.frames) !== JSON.stringify(now.frames))
     return `frames (${(was.frames || []).join(">")} then, ${now.frames.join(">")} now)`;
   const f = now.frame_id;
   if (Math.abs(was.frame_x - now.frame_x) > 0.5 || Math.abs(was.frame_y - now.frame_y) > 0.5) return `frame ${f} position`;
   const a = was.element, b = now.element;
   if (a.id !== b.id) return `frame ${f} element (another element is under the point now)`;
-  for (const k of ["role", "label", "href", "rect"])
+  for (const k of hovered ? ["role", "label", "href"] : ["role", "label", "href", "rect"])
     if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) return `frame ${f} element ${k}`;
   return "";
 }
 
-// Re-resolves the point now: the same element at the same place as when the worker was given it, every frame on its
-// path unchanged, and a target that takes the click (not secret, not disabled). Run before and right before the press.
-async function checkPoint(tabId, point, visual) {
+// Re-resolves the point now (every frame offset measured again, a fresh hit test): the same element at the same place
+// as when the worker was given it, every frame on its path unchanged, and a target that takes the click (not secret,
+// not disabled). Run before the gesture and, `hovered`, right before the press.
+async function checkPoint(tabId, point, visual, hovered = false) {
   const current = await resolveVisualPoint(tabId, visual.snap, point.x, point.y);
-  const part = pointChange(point, current);
+  const part = pointChange(point, current, hovered);
   if (part) throw new Error(`visual_target_changed: ${part}; take another screenshot`);
   // content.js describe() reports a disabled control as `disabled: true` (protocol 17 read a `state` list it never sent)
   if (current.element.secret || current.element.disabled === true) throw new Error("pointer_target_unavailable");
@@ -148,8 +151,10 @@ async function exactPointer({tab_id, point, end, kind}, commandId) {
         "target's frame, so nothing was pressed; take a fresh screenshot and point again"};
     }
     alive();
-    // Hover can expose a different control. Recheck the actual hit before pressing.
-    await checkPoint(tab_id, start, visual);
+    // Hover can expose a different control (a tooltip, a menu over the point). Recheck the actual hit before pressing;
+    // only moves were sent so far, so a refusal here is a known one.
+    try { await checkPoint(tab_id, start, visual, true); }
+    catch (e) { return {ok: false, detail: String(e.message || e)}; }
     if (kind !== "hover") {
       for (let n = 1; n <= (kind === "dblclick" ? 2 : 1); n++) {
         alive();

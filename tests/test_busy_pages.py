@@ -41,7 +41,11 @@ _PAGE = r'''
     if (src.includes("pointerSeen")) return lastMove;
     throw new Error("unexpected page script " + src);
   };
-  mouse = async (tab, type, x, y) => { events.push(type); if (type === "mouseMoved") lastMove = y >= 500 ? [x, y - 500] : [x, y]; };
+  let hover = () => {};                                  // what the pointer's own move does to the page
+  mouse = async (tab, type, x, y) => {
+    events.push(type);
+    if (type === "mouseMoved") { lastMove = y >= 500 ? [x, y - 500] : [x, y]; hover(); }
+  };
   attach = async (id) => tabState(id);
   arm = async () => {}; readyForCapture = async () => "";
   maskState = async () => ({top: "d", viewport: [0, 0, 1280, 800], items: []});
@@ -97,6 +101,23 @@ def test_a_point_is_refused_when_what_the_click_depends_on_changed_and_says_what
     assert t["rect"].startswith("visual_target_changed: frame 0 element rect"), t
     assert t["ad"] == "pressed"
     assert out["events"].count("mousePressed") == 2 and out["again"].startswith("visual_stale: no screenshot")
+
+
+# decision: HAND-480
+def test_the_pointers_own_hover_may_restyle_the_target_but_a_tooltip_over_the_point_refuses() -> None:
+    out = worker('(async () => {' + _PAGE + r'''
+      await shoot(); let p = await point(50, 30);
+      hover = () => { buy = {...buy, rect: [8, 8, 204, 44]}; };            // a hover style grows the button
+      const grown = await press(p, "c-grow");
+      buy = {...buy, rect: [10, 10, 200, 40]};
+      await shoot(); p = await point(50, 30);
+      hover = () => { buy = {id: 12, role: "tooltip", label: "Ships tomorrow", href: null, rect: [0, 0, 120, 60]}; };
+      const covered = await press(p, "c-tip");
+      return {grown: grown.ok, covered, presses: events.filter(e => e === "mousePressed").length};
+    })()''')
+    assert out["grown"] is True and out["presses"] == 1
+    assert out["covered"]["ok"] is False and out["covered"]["detail"].startswith(
+        "visual_target_changed: frame 0 element (another element"), out
 
 
 # decision: HAND-482
