@@ -173,6 +173,81 @@ def test_the_owners_picture_is_unmasked_on_0_19_8_while_the_models_screenshot_st
     assert black(pixel(model_sees, 40, 25))
 
 
+class _CheckoutTab(_Tab):
+    """browser.act on a checkout tab behind the real _TabDriver and a fake 0.19.8 extension (`owner_view` answers):
+    what the browser capability hands the gateway, with the page's amount read by code."""
+
+    def __init__(self, owner: str) -> None:
+        super().__init__()
+        from ferb.act.browser.ext_bridge import _Tab as BridgeTab, _TabDriver
+        from ferb.core.types import TabRef
+        self.page = solid_jpeg(200, 100)
+        self.ops: list[str] = []
+        page = base64.b64encode(self.page).decode()
+
+        async def call(op: str, args: dict[str, Any], **kw: Any) -> dict[str, Any]:
+            self.ops.append(op)
+            return {"data": page}
+        bridge = SimpleNamespace(gen=1, conn=object(), call=call, navs={}, version="0.19.8")
+        ref = TabRef("device", "chrome", "Profile 15", 1, "t18")
+        self.driver = _TabDriver(None, lambda: [])                     # type: ignore[arg-type]
+        self.driver._tabs["t18"] = BridgeTab(ref, bridge, 19, owner, "https://www.orderly.example/checkout",  # type: ignore[arg-type]
+                                              snap_gen=3)
+
+
+# decision: APP-887, GATE-579, GATE-578
+def test_a_payment_with_the_amount_code_read_reaches_ferb_app_with_its_picture(daemon: RunningDaemon) -> None:
+    """The live case of 2026-11-11 (ap-dcef18e50af4): a payment click in a task tab on a 0.19.8 extension, the page's
+    amount read by code. The question FERB.app gets says it has a picture, in the live event and in chat.status
+    alike, and FERB.app's call gets the page's bytes once (the app half is PaymentPictureTests)."""
+    from ferb.cli.client import Client
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order the batteries on www.orderly.example"), [])
+    tab = _CheckoutTab(grant.task_id)
+    daemon.daemon.registry.capabilities[tab.name] = tab
+    events: list[dict[str, Any]] = []
+    sub: list[Any] = []
+    daemon.call_soon(lambda: sub.append(daemon.daemon.bus.subscribe({"approval.requested"})))
+
+    async def first() -> None:
+        while not sub:
+            await asyncio.sleep(0.01)
+        async for ev in sub[0]:
+            events.append(ev.data)
+            return
+    args = {"tab": "t18", "submit": True, "effect": "pay", "amount": "INR 72.05", "shown": ["₹65.05", "₹72.05"]}
+    paid = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.call(grant, "probe.tab", args), daemon.loop)
+    daemon.run(first(), timeout=10)
+    ap = _pending(daemon)
+    assert events[0]["approval_id"] == ap.id and events[0].get("picture") is True, events[0]
+    assert "picture_problem" not in events[0] and tab.ops == ["owner_view"]
+    assert ap.summary.startswith("Pay INR 72.05")
+    daemon.daemon.server.is_app = lambda token: token is not None     # FERB.app's signature, stood in for
+    c = Client(daemon.sock)
+    try:
+        listed = next(a for a in c.call("chat.status", {"peek": True})["approvals"] if a["approval_id"] == ap.id)
+        assert listed.get("picture") is True and "picture_problem" not in listed
+        assert base64.b64decode(c.call("questions.picture", {"approval_id": ap.id})["image"]) == tab.page
+    finally:
+        c.close()
+    daemon.call_soon(daemon.daemon.state.approvals.resolve, ap.id, False, 2)
+    assert paid.result(10)["is_error"]
+
+
+# decision: APP-887, GATE-579
+def test_a_payment_asked_with_no_surface_to_capture_says_so_on_its_card(daemon: RunningDaemon) -> None:
+    """A payment FERB asks about with nothing it can capture (no tab, no window) carries the one line, never nothing."""
+    tab = _PictureTab(PIXELS)
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order the batteries on www.orderly.example"), [tab])
+    owner = Answers(daemon, granted=True, choice=2)
+    try:
+        args = {"tab": "", "submit": True, "effect": "pay", "shown": ["₹70.00"],
+                "destination": {"amount": 70, "currency": "₹"}}
+        daemon.run(daemon.daemon.gateway.call(grant, "probe.tab", args), timeout=15)
+    finally:
+        owner.stop()
+    assert card_parts(owner.asked[0]).get("picture_problem") == pay_picture.NOT_CAPTURED
+
+
 # decision: GATE-579, HAND-497
 def test_an_older_extension_keeps_the_masked_capture_and_an_uncapturable_page_has_none() -> None:
     older = _Browser("0.19.7")

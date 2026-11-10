@@ -3947,7 +3947,7 @@ area = "gateway"
 surface = "FERB.app with this build; an Amazon.in cash-on-delivery checkout of a cheap item in your profile"
 request = "Ask FERB to order a cheap item with cash on delivery; stop at the question: say Don't pay."
 pass = "The card's first line is \"Pay ₹<order total>?\" and under it a picture of the checkout page (click enlarges it), nothing else: no note on whose amount it is. In the chat window the same card shows the same picture. Nothing is ordered after Don't pay."
-decisions = ["GATE-578", "GATE-579", "APP-828"]
+decisions = ["GATE-578", "GATE-579", "APP-828", "APP-887"]
 sitting = "after this change is installed"
 
 [LIVE-880]

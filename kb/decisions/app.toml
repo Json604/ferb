@@ -3418,3 +3418,13 @@ rejected = ["Adding the emoji palette's process to a list: the next system pop-u
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController.windowsOver", "ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController.evaluate", "ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift::NotchOverlaySpace.residentNumbers"]
 live = ["LIVE-898"]
 untestable = "That the system's pop-ups draw in front on the owner's screen (their window layers are the system's) is the live check; the test stands in window rows and checks the window's level and space."
+
+[APP-887]
+title = "The payment card always asks for its picture, and says in one line when there is none to show"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "Fixes APP-828 for GATE-578. The card's picture view always draws something (a quiet placeholder until the picture comes), so it appears and fetches it once; the empty Group it was never appeared and never asked. A picture FERB.app couldn't get or read shows \"FERB couldn't show the payment page.\" in its place; the daemon's own line stays for a page it couldn't capture, and a payment asked with no surface to capture (no tab, no window) now carries that line too."
+why = "Owner 2026-11-11 (live, ap-2e7548606340 and ap-dcef18e50af4): \"i didnt see ht orprev amzn checkout page … it isnt showing\". The daemon captured the page (picture: true); the card showed neither the picture nor a line because its view never appeared."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PaymentPicture.swift", "ferb/daemon/gateway.py::Gateway.ask_confirmation"]
+live = ["LIVE-877"]

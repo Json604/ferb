@@ -2185,6 +2185,8 @@ class Gateway:
                 if shot:
                     self.hooks.pictures.hold(ap.id, root, shot)
                 ap.picture = "shown" if shot else pay_picture.NOT_CAPTURED
+            elif any(n.rule == confirm.ALWAYS[Kind.PAY] for n in needs):   # APP-887: no surface: said, never silent
+                ap.picture = pay_picture.NOT_CAPTURED
             self.publish("approval.requested", {"approval_id": ap.id, "capability": CONFIRM_ASK,
                                                 "kind": "owner_question", "reason": text, "options": options,
                                                 "task_id": grant.task_id, "summary": ap.summary, "why": ap.why}

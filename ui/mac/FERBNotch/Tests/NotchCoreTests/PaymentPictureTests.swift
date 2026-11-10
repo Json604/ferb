@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import XCTest
 @testable import FERBNotch
 @testable import NotchCore
@@ -38,6 +39,49 @@ final class PaymentPictureTests: XCTestCase {
         XCTAssertNotNil(pictures.images["ap-1"])
         pictures.keep([])                         // answered: its picture goes
         XCTAssertTrue(pictures.images.isEmpty)
+    }
+
+    /// Owner 2026-11-11 (live, payment card ap-dcef18e50af4): "i didnt see ht orprev amzn checkout page … it isnt
+    /// showing". The daemon said `picture: true`, but the card's picture view was an empty Group until the picture
+    /// came, and an empty Group never appears, so it never asked for it: no picture and no line. The card as the
+    /// notch's row and the chat window's transcript draw it, through the model the connection fills, asks once
+    /// between them and shows the picture; a picture that can't be fetched shows one line instead, never nothing.
+    // decision: APP-887, APP-828, GATE-579
+    func testTheCardAsDrawnAsksForThePictureAndShowsItOrSaysItCouldnt() throws {
+        let rpc = ScriptedRPC()
+        rpc.replies["questions.picture"] = ["image": Self.png()]
+        let model = NotchModel(rpc: rpc, preferences: scratchDefaults())
+        let payment: [String: Any] = ["approval_id": "ap-pay", "capability": "ferb.confirm", "kind": "owner_question",
+                                      "reason": "FERB: this pays INR 72.05 on amazon.in…", "summary": "Pay INR 72.05?",
+                                      "exact": "INR 72.05 · amazon.in", "options": ["Yes", "No"],
+                                      "labels": ["Pay INR 72.05", "Don't pay"], "picture": true,
+                                      "title": "Check before FERB goes on", "task_id": "task-1", "corrects": true]
+        model.receiveBusEvent(["topic": "approval.requested", "data": payment])
+        let approval = try XCTUnwrap(model.pendingApprovals.first)
+        XCTAssertTrue(approval.hasPicture)
+        // the notch card's row and the chat window's card (both are ApprovalView, inRow or not)
+        let row = NSHostingView(rootView: ApprovalView(model: model, approval: approval, inRow: true).frame(width: 360))
+        let window = NSHostingView(rootView: ApprovalView(model: model, approval: approval).frame(width: 390))
+        for host in [row, window] {
+            host.frame = CGRect(x: 0, y: 0, width: 390, height: 500)
+            host.layoutSubtreeIfNeeded()
+        }
+        let deadline = Date().addingTimeInterval(3)
+        while model.paymentPictures.images["ap-pay"] == nil, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertNotNil(model.paymentPictures.images["ap-pay"], "the card never asked for its picture")
+        XCTAssertEqual(rpc.calls.filter { $0.0 == "questions.picture" }.count, 1, "one fetch between the two cards")
+
+        // the picture taken already (or the call failed): the card says so in one line
+        let gone = ScriptedRPC()
+        gone.replies["questions.picture"] = [:]
+        let pictures = PaymentPictures(rpc: gone)
+        pictures.load(approval)
+        let until = Date().addingTimeInterval(3)
+        while pictures.missing["ap-pay"] == nil, Date() < until { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        XCTAssertEqual(pictures.missing["ap-pay"], PaymentPictures.notShown)
+        XCTAssertNil(pictures.images["ap-pay"])
     }
 
     private static func png() -> String {
