@@ -3904,3 +3904,12 @@ request = "Ask FERB to find a couple of good specialists of some kind near you w
 pass = "The trace's task has no site in targets or success conditions that you didn't name; no check rejects an attempt for using another site than one FERB chose."
 decisions = ["PRM-346"]
 sitting = "after this change is installed"
+
+[LIVE-870]
+title = "Picking a model on a connection not in use says it is saved for that connection"
+area = "app"
+surface = "FERB.app with this build, Settings → AI, signed in to two connections"
+request = "With FERB on one connection, pick a model on the other connection's card; then pick one on the connection in use."
+pass = "The first says the model is saved for that connection and used when it is in use; the tick stays where it was. The second says FERB uses the model now."
+decisions = ["APP-827"]
+sitting = "after this change is installed"

@@ -305,6 +305,20 @@ public struct AISnapshot: Equatable {
     public var unsavedKeys: [APIProvider] { APIProvider.allCases.filter { !signedIn($0.rawValue) } }
     public func signIn(_ name: String) -> SignInStatus? { runtimes.first { $0.name == name }?.signIn }
 
+    /// The line after a model was saved on a connection (APP-827), read after the save: "FERB uses it now" only when
+    /// that connection (or, for a role's own model, that role) runs there now; otherwise it is saved for that connection
+    /// and FERB uses it when that connection is in use.
+    public func modelSaved(_ runtime: String, _ chosen: String, role: String? = nil) -> String {
+        guard !chosen.isEmpty else { return "The \(role ?? "") role uses the connection's model." }
+        let name = Self.label(runtime)
+        if let role {
+            return roles[role] == runtime ? "FERB's \(role) uses \(chosen) now."
+                : "Saved \(chosen) for the \(role) on \(name). FERB uses it when the \(role) runs on \(name)."
+        }
+        return inUse(runtime) ? "FERB uses \(chosen) now."
+            : "Saved \(chosen) for \(name). FERB uses it when \(name) is in use."
+    }
+
     public static func label(_ runtime: String) -> String {
         ["codex": "ChatGPT (Codex)", "claude": "Claude", "anthropic": "your Anthropic API key",
          "openai": "your OpenAI API key", "google": "your Google API key"][runtime] ?? runtime

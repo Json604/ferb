@@ -392,8 +392,9 @@ final class SetupModel: ObservableObject {
         do {
             let reply = try await rpc.call("runtimes.model", params: params, wait: 90)
             await refreshAI()
-            if reply["ok"] as? Bool == true {
-                return chosen.isEmpty ? "The \(role ?? "") role uses the connection's model." : "FERB uses \(chosen) now."
+            if reply["ok"] as? Bool == true {       // APP-827: "now" only for a connection or role in use
+                return ai?.modelSaved(runtime, chosen, role: role)
+                    ?? (chosen.isEmpty ? "The \(role ?? "") role uses the connection's model." : "Saved \(chosen).")
             }
             return "\(chosen) didn't work, so FERB keeps the model it had: \(reply["detail"] as? String ?? "no answer")"
         } catch { return error.localizedDescription }

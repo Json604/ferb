@@ -3325,3 +3325,13 @@ status = "active"
 rule = "For GATE-566's app chrome. The card shows the daemon's `title` as its header, each option's `labels` word on its button (the answer is still the option's number), the `note` under the buttons, a hidden input's field, decline and send words, the tag \"asked by the AI\" and the why line as \"AI's reason:\" (\"AI's note:\" for a retry). Boxes read \"Or tell FERB what to do instead…\" and \"Or type your answer…\"; a text-only question's decline is \"Skip\"; the hidden-input footer is gone (each card's why line says the AI never sees it)."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ApprovalView.swift", "ui/mac/FERBNotch/Sources/NotchCore/DaemonApproval.swift::DaemonApproval.optionLabel"]
 live = ["LIVE-861"]
+
+[APP-827]
+title = "A model saved on a connection FERB doesn't use now says so, never \"FERB uses it now\""
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For RUN-431 and APP-655. After Settings → AI saves a model, the line says \"FERB uses <model> now.\" only when that connection is in use (a role's own model: only when that role runs there); otherwise \"Saved <model> for <connection>. FERB uses it when <connection> is in use.\" (for a role: when that role runs there). Read from runtimes.status after the save (AISnapshot.modelSaved)."
+why = "Live 2026-11-10: the Claude card said \"FERB uses claude-sonnet-5-5 now.\" while FERB still ran on ChatGPT, which read as if FERB had switched service."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift::AISnapshot.modelSaved", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::SetupModel.setModel"]
+live = ["LIVE-870"]

@@ -34,6 +34,21 @@ final class SetupModelsTests: XCTestCase {
         XCTAssertEqual(ai.apiKeyInUse, .anthropic)
     }
 
+    /// A model picked on a connection FERB doesn't use now is saved for it, never "FERB uses it now" (live 2026-11-10:
+    /// the Claude card said "FERB uses claude-sonnet-5-5 now." while FERB ran on ChatGPT).
+    // decision: APP-827
+    func testAModelSavedOnAConnectionNotInUseSaysItIsSavedForIt() throws {
+        let ai = try XCTUnwrap(AISnapshot(reply: [
+            "roles": ["orchestrator": "codex", "worker": "codex", "checker": "claude"],
+            "runtimes": [["name": "codex", "usable": true], ["name": "claude", "usable": true],
+                         ["name": "anthropic", "usable": true]]]))
+        XCTAssertEqual(ai.modelSaved("codex", "gpt-6.1-sol"), "FERB uses gpt-6.1-sol now.")
+        XCTAssertFalse(ai.modelSaved("anthropic", "claude-sonnet-5-5").contains("now"))
+        XCTAssertTrue(ai.modelSaved("anthropic", "claude-sonnet-5-5").contains("when"))
+        XCTAssertTrue(ai.modelSaved("claude", "claude-opus-5-5", role: "checker").contains("now"))
+        XCTAssertFalse(ai.modelSaved("claude", "claude-opus-5-5", role: "worker").contains("now"))
+    }
+
     // decision: RUN-429, APP-791, APP-793
     /// The model chooser's list: the model in use always shows (one the owner typed included), a role's own model only
     /// for the connection it was chosen on, and the provider's words when it gave no list.
