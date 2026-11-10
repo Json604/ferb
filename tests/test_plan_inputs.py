@@ -74,3 +74,26 @@ def test_an_input_in_no_step_or_in_two_is_told_back(daemon: RunningDaemon) -> No
     assert "assigned more than once" in said and str((workspace / "notes" / "a.txt").resolve()) in said
     assert "unassigned inputs" in said and str((workspace / "other.txt").resolve()) in said
     assert "absent from inventory" in said and "missing.txt" in said
+
+
+# decision: ORCH-581
+def test_only_text_counts_toward_a_workers_window(daemon: RunningDaemon) -> None:
+    """Live 2026-11-10 (Codex, shrink a video): a 35 MB video was counted as 35 million tokens to read, so it could
+    never be an input. A worker is handed paths, and only a text file can be read into its context as text: a file
+    over the worker's whole window runs when it isn't text and is told back when it is."""
+    workspace = daemon.daemon.home / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    window = 1_000_000                                  # the scripted runtime's context window
+    video = workspace / "demo.mov"
+    video.write_bytes(b"\x00\x00\x00\x18ftypqt  " + bytes(range(256)) * (window // 256 + 1))
+    words = workspace / "log.txt"
+    words.write_text("word " * (window // 5 + 1))
+    real = str(video.resolve())
+    shrink = _plan([Step(id="shrink", kind="do", goal="Shrink the video", inputs=[str(video)])], [str(video)])
+    install(daemon, [sup("task", "Shrinking.", shrink)], {"step.shrink": _notes(real)})
+    assert outcome(chat(daemon, "shrink this video"))["status"] == "done"
+    assert _repairs(daemon) == []
+    read = _plan([Step(id="read", kind="do", goal="Read the log", inputs=[str(words)])], [str(words)])
+    install(daemon, [sup("task", "Reading.", read), sup("reply", "That log is too long to read in one go.")], {})
+    chat(daemon, "read this log")
+    assert "tokens" in _repairs(daemon)[0]

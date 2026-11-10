@@ -1,6 +1,7 @@
 """D30/P15 plan vocabulary and mechanical feasibility checks; task choices belong to the planner."""
 
 import asyncio
+import codecs
 from pathlib import Path
 from datetime import datetime
 from collections import Counter, deque
@@ -127,9 +128,12 @@ class Plan(BaseModel):
 
 
 async def inventory(paths: list[str], denied: Callable[[Path], object] | None = None) -> list[dict[str, Any]]:
-    """Stat the declared source files, without reading content or following directory symlinks.
+    """Stat the declared source files, without following directory symlinks.
 
-    Bytes are a conservative token upper bound, useful without sending the input to a tokenizer/model.
+    A worker is handed its inputs as paths and reads them with its tools; only a text file can reach its context as
+    text (fs.read reads UTF-8 only). So a text file's bytes are a conservative token upper bound, useful without sending
+    the input to a tokenizer/model, and a file that isn't text counts none (ORCH-581): whether it is text is read from
+    its first TEXT_PROBE bytes only (no NUL, valid UTF-8), a structural fact, never its name.
     The caller applies the same file protections as fs.stat to the roots before invoking this helper; a file found
     under them that `denied` names, or that macOS won't let FERB look at, is left out (a protected entry under
     /private/var/folders once ended the owner's turn). The walk runs in a worker thread: a home-sized tree must not hold
@@ -156,8 +160,29 @@ def _inventory(paths: list[str], denied: Callable[[Path], object] | None) -> lis
                 size = file.stat().st_size
             except OSError:      # macOS won't let FERB look at it (EPERM/EACCES), or it went: left out, as protected
                 continue
-            found[path] = {'path': path, 'bytes': size, 'tokens_upper_bound': size}
+            text = _text(file)
+            found[path] = {'path': path, 'bytes': size, 'text': text, 'tokens_upper_bound': size if text else 0}
     return list(found.values())
+
+
+TEXT_PROBE = 8192           # bytes read from the start of an input to tell whether a worker could read it as text
+
+
+def _text(file: Path) -> bool:
+    """Whether a worker could read this file into its context as text: its first bytes hold no NUL and are UTF-8 (a
+    character cut at the probe's end still counts). A file FERB can't open counts as text, the conservative bound."""
+    try:
+        with open(file, 'rb') as stream:
+            head = stream.read(TEXT_PROBE)
+    except OSError:
+        return True
+    if b'\x00' in head:
+        return False
+    try:
+        codecs.getincrementaldecoder('utf-8')().decode(head, final=False)
+    except UnicodeDecodeError:
+        return False
+    return True
 
 
 def resolve_inputs(plan: Plan, facts: list[dict[str, Any]], normal: Callable[[str], str]) -> None:

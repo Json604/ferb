@@ -1158,3 +1158,13 @@ rule = "For ORCH-305. Before the plan's input checks, each do step's inputs are 
 why = "Live 2026-11-10 (Codex short run): ~/ferb-runs/.../statement.csv and the folder ~/ferb-runs/fixtures-extra/family were \"absent from inventory\" because the check compared them as text with the inventory's resolved paths; it cost a repair on every task with a file path and failed H3 and X19."
 paths = ["ferb/orchestrator/plans.py::resolve_inputs", "ferb/orchestrator/supervisor.py::Supervisor._problems"]
 live = ["LIVE-874"]
+
+[ORCH-581]
+title = "Only text a worker could read counts toward its window"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For ORCH-305's fit check. A worker is handed its inputs as paths and reads them with its tools; code never puts a file's content in its context, and fs.read returns UTF-8 text only. So the inventory counts a file's bytes as its token upper bound only when it is text: its first TEXT_PROBE (8,192) bytes hold no NUL and are UTF-8 (a structural fact, never its name or extension). Any other file (a video, a photo, a binary PDF) counts 0 and is marked text: false in the measured inventory. A file FERB can't open counts its bytes."
+why = "Live 2026-11-10 (Codex, X6 shrink a video): \"its inputs need up to 35120606 tokens; worker context has 230052\": a 35 MB video, which the worker would hand to a terminal command, could never be an input, nor a photo over ~230 KB."
+paths = ["ferb/orchestrator/plans.py::_inventory", "ferb/orchestrator/plans.py::_text"]
+live = ["LIVE-874"]

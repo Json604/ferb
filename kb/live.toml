@@ -3884,5 +3884,5 @@ area = "orchestration"
 surface = "FERB.app with this build, Codex as the AI; a disposable folder in your home with a small CSV and a large video"
 request = "Ask FERB, in one message, to total the CSV at ~/<folder>/<file>.csv and to make a smaller copy of the video in ~/<folder>."
 pass = "The trace shows no task.repair about inputs (\"absent from inventory\", \"unassigned inputs\" or \"tokens\"); both are done."
-decisions = ["ORCH-580"]
+decisions = ["ORCH-580", "ORCH-581"]
 sitting = "after this change is installed"
