@@ -196,6 +196,8 @@ SUMMARY_KIND = "chat.summary"      # FERB's running summary of the older convers
 # L3: what the owner's chat message can answer, by the question's id from the planner's context, and FERB's own words
 # when it can't be used as an answer. Plain words: never an id, a command or a method (I12).
 ROUTABLE_QUESTIONS = frozenset({"owner.ask", "plan.ask"}) | FERB_CHECKS
+# ORCH-595: the hidden inputs (a code, a secret, the Mac's password): a card names its kind, never a value
+SECRET_CARDS = frozenset({"owner_login_code", "owner_admin_password", "owner_secret"})
 ANSWERED = "Got your answer."
 # ORCH-529 (owner, 2026-11-04, replacing ORCH-318's shared 90 s): a turn restarts at most once, for a message sent
 # before its first reply. The turn has no overall time limit (ORCH-528): each of its planner calls, the restart's
@@ -1020,6 +1022,8 @@ class Supervisor(WorkerRuns):
         self._pauses: dict[str, _Wait] = {}       # tree id -> its pause (the owner's, a closed tab), until resumed
         self._waiting: dict[str, int] = {}        # tree id -> how many of its steps wait for the owner now
         self._questions: dict[str, str] = {}      # tree id -> the question its latest open wait asked
+        # ORCH-595: tree id -> its latest tool step as code wrote its live line (tool, where, when), while it runs
+        self._last_steps: dict[str, dict[str, str]] = {}
         self._stalled: set[str] = set()                                 # worker ids the watchdog cancelled
         self._retrying: dict[str, tuple[str, str]] = {}   # worker id -> (runtime, last retry) since its last progress
         self._connection: dict[str, ConnectionNotice] = {}   # worker id -> its run's connection lines (fix wave 7)
@@ -1931,6 +1935,9 @@ class Supervisor(WorkerRuns):
 
         def first_line(text: Any) -> str:
             return str(text or "").strip().split("\n", 1)[0][:300]
+        open_cards = self.state.approvals.pending()
+        for gone in [k for k in self._last_steps if k not in self._tree_of]:
+            self._last_steps.pop(gone, None)            # a tree that ended: its last step goes with it
         for key, tree in list(self._tree_of.items()):
             if key != tree.id:
                 continue
@@ -1953,6 +1960,11 @@ class Supervisor(WorkerRuns):
                                    "runtime": tree.runtime or tree.spec.worker_type or "default"}
             if paused and (question := self._questions.get(key) or getattr(self._pauses.get(key), 'question', '')):
                 row["question"] = first_line(question)
+            # ORCH-595: what it waits on (every open card of it, whoever asked) and its last tool step, from records
+            if cards := [self._card_row(ap) for ap in open_cards if self._question_root(ap) == key]:
+                row["waiting_on_cards"] = cards
+            if (step_at := self._last_steps.get(key)) is not None:
+                row["last_tool_step"] = step_at
             if last is not None:
                 row["last_report"] = first_line(last.get("summary"))
             if tree.spec.plan:              # this plan's steps (a replaced plan's kept results aren't steps: L11)
@@ -3431,20 +3443,45 @@ class Supervisor(WorkerRuns):
         tree = self._tree_of.get(root) if root else None
         return short_label(tree.spec.goal) if tree is not None else ''
 
+    def _question_root(self, ap: Any) -> str:
+        """The task tree an open question belongs to ('' for one outside any task)."""
+        return (self.tasks.tree_of(ap.task_id) or ap.task_id.split(".", 1)[0]) if ap.task_id else ""
+
+    def _card_row(self, ap: Any) -> dict[str, Any]:
+        """ORCH-595: an open card as the planner is shown it: what kind of card it is (by structure: a hidden input's
+        kind, else who asked), its first line, when it was asked (its question.asked row) and whether the chat can answer
+        it or only its card can. Never a hidden input's value or a payment's picture (both owner-only)."""
+        asked = self.journal.of_kind("question.asked", "approval_id", ap.id)
+        return {"card": ap.kind if ap.kind in SECRET_CARDS else ap.capability,
+                "asks": str(ap.summary or ap.reason or "").strip().split("\n", 1)[0][:300],
+                **({"asked_at": f"{asked[-1].at.astimezone():%a %d %b %H:%M}"} if asked else {}),
+                "answered_in": "chat or its card" if self._routable(ap) else "only its card (the chat can't answer it)"}
+
+    @staticmethod
+    def _routable(ap: Any) -> bool:
+        """Whether the owner's chat message can answer this question (`_answer` takes it, L3)."""
+        return bool(ap.kind == 'owner_question' and ap.capability in ROUTABLE_QUESTIONS)
+
     def _questions_block(self, session: ChatSession) -> tuple[ContextBlock, set[str]]:
-        """The open questions the owner's chat message can answer (the planner routes an answer by id, L3): only those
-        `_answer` takes (fix list: never one it can't, such as a one-tap runtime switch or a paused loop's, whose reply
-        is a correction of its task), with this chat's delegated conversations."""
+        """The open questions (cards): those the owner's chat message can answer, by id (the planner routes an answer,
+        L3: only those `_answer` takes; fix list: never one it can't, such as a one-tap runtime switch or a paused
+        loop's, whose reply is a correction of its task), then ORCH-595 every other open card, marked as answered only
+        on its card (no id: the chat can't answer it); with this chat's delegated conversations."""
+        pending = self.state.approvals.pending()
         questions = [{'approval_id': a.id, **({'task': task} if (task := self._question_task(a)) else {}),
-                      'question': a.reason, 'options': list(a.options), 'ferb_check': a.capability in FERB_CHECKS}
-                     for a in self.state.approvals.pending()
-                     if a.kind == 'owner_question' and a.capability in ROUTABLE_QUESTIONS]
+                      'question': a.reason, 'options': list(a.options), 'chat_can_answer': True,
+                      'ferb_check': a.capability in FERB_CHECKS}
+                     for a in pending if self._routable(a)]
+        cards = [{**({'task': task} if (task := self._question_task(a)) else {}),
+                  **{k: v for k, v in self._card_row(a).items() if k != 'answered_in'}, 'chat_can_answer': False}
+                 for a in pending if not self._routable(a)]
         mine = self.continuity.task_ids(session.id)
-        return (ContextBlock('Layer 6 — open questions the owner can answer in chat (data):\n' + wrap_untrusted(
-            json.dumps({'questions': questions,
+        return (ContextBlock('Layer 6 — open questions and cards (data; only those with chat_can_answer true can be '
+                             'answered by the owner\'s chat message, the others only on their card):\n' + wrap_untrusted(
+            json.dumps({'questions': questions + cards,
                         'delegated_conversations': [row for row in self.conversations.list()
                                                     if row['tree_id'] in mine]})), 'chat.status', protected=True),
-                {origins_.INFERRED})
+                {origins_.INFERRED})     # the asking tasks' origins ride on the task block, which lists each of them
 
     def _conversation_blocks(self, current: Any, conversation: str, *, since_last_notice: bool = False
                              ) -> tuple[list[tuple[ContextBlock, set[str]]], dict[str, datetime]]:

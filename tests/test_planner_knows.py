@@ -126,3 +126,51 @@ def test_the_owners_lookups_reach_the_scheduled_runs_and_ferbs_own_posts(daemon:
     install(daemon, [sup("task", "Looking.", task("Look at the visa run"))], {"worker": worker})
     chat(daemon, "look at the visa run's records", session="owner")
     assert found["worker"]["is_error"]                                  # type: ignore[index]
+
+
+def _tasks_block(context: str) -> dict[str, object]:
+    raw = context.split("Layer 6 — tasks:", 1)[1].split("<untrusted-data", 1)[1].split(">", 1)[1]
+    return json.loads(raw.split("</untrusted-data", 1)[0])             # type: ignore[no-any-return]
+
+
+# decision: ORCH-595
+def test_a_running_tasks_row_says_which_card_it_waits_on_and_its_last_step(daemon: RunningDaemon) -> None:
+    def asks(token: str) -> str:
+        tool(daemon.sock, token, "task.evidence")
+        return json.dumps(report("not_done", reason="Two times are free.", question="Which time: 8 or 9:30?"))
+    install(daemon, [sup("task", "Booking.", task("Book a table at Toit tonight"))],
+            {"worker": [asks, json.dumps(report("done", "Booked 8:00 pm."))]})
+    turn = Turn(daemon, "book a table at toit tonight")
+    _until(lambda: any(a.capability == "plan.ask" for a in run(daemon, daemon.daemon.state.approvals.pending)))
+    script = install(daemon, [sup("reply", "It waits on your pick of a time.")])
+    chat(daemon, "what is it waiting on?", session="s2")
+    [row] = _tasks_block(_planner(script))["running"]                  # type: ignore[call-overload]
+    [card] = row["waiting_on_cards"]
+    assert card["card"] == "plan.ask" and card["asks"] == "Which time: 8 or 9:30?" and card["asked_at"]
+    assert card["answered_in"] == "chat or its card" and row["last_tool_step"]["tool"] == "task.evidence"
+    [asked] = [a for a in run(daemon, daemon.daemon.state.approvals.pending) if a.capability == "plan.ask"]
+    run(daemon, lambda: daemon.daemon.state.approvals.resolve(asked.id, True, None, "8 pm"))
+    turn.done()
+
+
+# decision: ORCH-595
+def test_a_card_only_its_card_can_answer_is_listed_as_such(daemon: RunningDaemon) -> None:
+    """A runtime switch (one tap, never chat words) is shown as open, marked as answered only on its card."""
+    from ferb.core.types import RuntimeEvent
+    from ferb.orchestrator.supervisor import RUNTIME_ASK
+    daemon.daemon.supervisor.worker_types = lambda: ["default", "claude"]
+    limit = RuntimeEvent("error", {"message": "You've hit your usage limit.", "account": "usage_limit"})
+    install(daemon, [sup("task", "On it.", task("Tidy the desktop"))], {"worker": [limit, json.dumps(report())]})
+    turn = Turn(daemon, "tidy my desktop")
+    _until(lambda: any(a.capability == RUNTIME_ASK for a in run(daemon, daemon.daemon.state.approvals.pending)))
+    script = install(daemon, [sup("reply", "It needs your pick of an AI service.")])
+    chat(daemon, "why is it stuck?", session="s2")
+    context = _planner(script)
+    [row] = _tasks_block(context)["running"]                          # type: ignore[call-overload]
+    assert row["waiting_on_cards"][0]["card"] == RUNTIME_ASK
+    assert row["waiting_on_cards"][0]["answered_in"] == "only its card (the chat can't answer it)"
+    questions = context.split("Layer 6 — open questions and cards", 1)[1]
+    assert '"card": "runtime.switch"' in questions and '"chat_can_answer": false' in questions
+    from tests.conftest import answer_question
+    answer_question(daemon, RUNTIME_ASK, choice="Stop")
+    turn.done()

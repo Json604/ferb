@@ -1286,6 +1286,15 @@ paths = ["ferb/orchestrator/continuity.py::Continuity._where", "ferb/orchestrato
 supersedes = ["ORCH-517"]
 live = ["LIVE-893"]
 
+[ORCH-595]
+title = "A running task's row says which card it waits on and its last step; every open card is listed"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For ORCH-589. Refines ORCH-539. Each running task in the planner's task state lists every open card of its tree (waiting_on_cards: the card's kind by structure, a hidden input by its kind, never a value; its first line; when asked, from question.asked; whether chat or only its card answers it) and its last tool step (tool, code's live line, site or app, time). The open-questions block lists chat-answerable questions by id as before, then every other open card without an id, chat_can_answer false. Never a payment's picture."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._task_state", "ferb/orchestrator/supervisor.py::Supervisor._card_row", "ferb/orchestrator/supervisor.py::Supervisor._questions_block", "ferb/orchestrator/worker.py::WorkerRuns.tool_progress"]
+live = ["LIVE-894"]
+
 [ORCH-591]
 title = "The planner is told what FERB did since the owner's previous message"
 by = "agent"

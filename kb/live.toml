@@ -4047,3 +4047,12 @@ request = "Some time after a run, ask in your own words how the schedule did or 
 pass = "FERB's reply names that run's time, status and what it found (and, for a failed run, the condition that failed with what the check saw); the planner's model.turn input shows the schedule's line with its last run and the \"what happened since\" block."
 decisions = ["ORCH-592", "ORCH-591", "ORCH-593"]
 sitting = "after this change is installed"
+
+[LIVE-894]
+title = "Asked what a card is for while it's open, FERB answers about that card"
+area = "orchestration"
+surface = "FERB.app with this build; a task that stops on a card the chat can't answer (a login code, a secret, a payment, a runtime switch)"
+request = "While the card is open, ask in the chat what FERB needs it for (\"why do you need the code?\"), without answering the card."
+pass = "FERB's reply names the card, what it asks and which task asked it, and says it is answered on the card; the planner's model.turn input shows the task's waiting_on_cards and the card in the open questions with chat_can_answer false; no code, secret or picture appears."
+decisions = ["ORCH-595"]
+sitting = "after this change is installed"

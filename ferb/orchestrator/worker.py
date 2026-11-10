@@ -301,6 +301,7 @@ class WorkerRuns:
     _tools_offered: dict[str, bool]
     _worker_runs: dict[str, tuple[AgentRuntime, RunHandle]]
     _live: dict[str, asyncio.Queue[dict[str, Any]]]
+    _last_steps: dict[str, dict[str, str]]
 
     _system: Callable[[str], str]
     _with_newly_always_on: Callable[[list[ContextBlock]], list[ContextBlock]]
@@ -326,6 +327,10 @@ class WorkerRuns:
         except Exception as e:
             self.journal.append("progress.failed", {"task_id": grant.task_id, "tool": name, "error": type(e).__name__})
             return
+        # ORCH-595: the planner's task state names the tree's last tool step, as this line says it (code's words)
+        self._last_steps[tree.id] = self.gateway.redact({
+            "tool": name, "line": text, **({"site": site} if site else {}), **({"app": app} if app else {}),
+            "at": f"{self.clock.now().astimezone():%H:%M}"})
         # the step's own task id, so each of a card's parallel rows shows its own line (ORCH-531)
         live.put_nowait({"type": "progress", "task_id": tree.id, "step_task_id": tree.worker.id, "text": text,
                          "started_at": self.clock.now().isoformat()})
