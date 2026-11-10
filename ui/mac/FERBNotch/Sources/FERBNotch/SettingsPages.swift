@@ -348,18 +348,23 @@ struct AISettingsPage: View {
             WindowPage {
                 WindowSettingsSection { AIStepView(model: setup) }
                 WindowSettingsSection(title: "Check") {
-                    let current = setup.ai?.current ?? "codex"
-                    Button(store.checkingRuntimeName.map { "Checking \(AISnapshot.label($0))… (five small calls)" }
-                           ?? "Check connection") {
-                        Task { await store.checkRuntime(current) }
-                    }.disabled(store.checkingRuntime || output.running)
-                    // RUN-439: only this connection's own last result, never another's
-                    if let result = store.checkResults[current] {
-                        ForEach(result.lines) { line in
-                            Text(verbatim: line.text).font(.caption).foregroundStyle(line.ok ? .secondary : .primary)
-                                .textSelection(.enabled)
+                    // APP-882: each connection a role runs on now (several when the roles are mixed), never one
+                    // assumed; each with its own last result and when it was taken (RUN-439)
+                    let inUse = setup.ai?.runtimesInUse ?? []
+                    if inUse.isEmpty { Text("No role runs on a connection yet.").foregroundStyle(.secondary) }
+                    ForEach(inUse, id: \.self) { name in
+                        Button(store.checkingRuntimeName == name ? "Checking \(AISnapshot.label(name))… (five small calls)"
+                               : "Check \(AISnapshot.label(name))" + (inUse.count > 1 ? " (\(setup.ai?.rolesText(name) ?? ""))" : "")) {
+                            Task { await store.checkRuntime(name) }
+                        }.disabled(store.checkingRuntime || output.running)
+                        if let result = store.checkResults[name] {
+                            ForEach(result.lines) { line in
+                                Text(verbatim: line.text).font(.caption).foregroundStyle(line.ok ? .secondary : .primary)
+                                    .textSelection(.enabled)
+                            }
+                            Text(result.summary + " Checked at \(SetupDates.clock(result.at)).").font(.caption)
+                                .foregroundStyle(.secondary).textSelection(.enabled)
                         }
-                        Text(result.summary).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                     }
                     Button("Sign out of ChatGPT") {
                         output.run(["setup", "--codex-logout"], with: actions) { Task { await setup.refreshAI() } }
@@ -409,8 +414,10 @@ struct BrowsersSettingsPage: View {
                 }
                 WindowSettingsSection(title: "FERB's own account") { IdentityStepView(model: setup, showsHeader: false) }
             }
-            .task { await setup.refreshBrowsers(); await setup.refreshIdentity() }
-            .onDisappear { setup.stopWatchingForExtension() }
+            .task { await setup.refreshIdentity() }
+            // APP-883: each row's version, connection and problem are read again every few seconds while shown
+            .onAppear { setup.startPolling(.browsers, every: .seconds(3)) }
+            .onDisappear { setup.stopPolling(); setup.stopWatchingForExtension() }
         } else {
             WindowPage { WindowSettingsSection { OnlyInTheApp() } }
         }
@@ -426,8 +433,9 @@ struct NotificationsSettingsPage: View {
     var body: some View {
         WindowPage {
             WindowSettingsSection(title: "Notify me about") {
+                if !store.bannersKnown { UnknownLine() }
                 ForEach(BannerCategory.allCases, id: \.rawValue) { category in
-                    Toggle(category.title, isOn: store.banner(category))
+                    KnownToggle(title: category.title, isOn: store.banner(category), known: store.bannersKnown)
                 }
                 Button("Open macOS notification settings", action: openSettings)
             }
@@ -455,9 +463,11 @@ struct PrivacySettingsPage: View {
     var body: some View {
         WindowPage {
             WindowSettingsSection(title: "Recording") {
+                if !store.settingsKnown { UnknownLine() }
                 Toggle("Pause recording what happens on this Mac",
                        isOn: Binding(get: { store.recordingPaused }, set: { on in Task { await store.pauseRecording(on) } }))
-                Toggle("Record window titles", isOn: store.toggle("sense.window_titles"))
+                KnownToggle(title: "Record window titles", isOn: store.toggle("sense.window_titles"),
+                            known: store.settingsKnown && store.settings.has("sense.window_titles"))
                 LabeledContent("Recording now", value: store.watchers.isEmpty ? "nothing" : store.watchers.joined(separator: ", "))
             }
             WindowSettingsSection(title: "Apps FERB ignores") {
@@ -469,6 +479,7 @@ struct PrivacySettingsPage: View {
                                  store: store, draft: draft.sites)
             }
             WindowSettingsSection(title: "How long FERB keeps records") {
+                if !store.settingsKnown { UnknownLine() }
                 DaysField(title: "Activity trail", key: "sense.trail_retention_days", store: store)
                 DaysField(title: "Task traces", key: "retention.trace_days", store: store)
                 DaysField(title: "Jev decisions", key: "retention.decision_days", store: store)
@@ -777,5 +788,24 @@ struct CleanupSection: View {
                 Button("Try again") { cleanup.preview(with: actions) }
             }
         }
+    }
+}
+
+/// A setting FERB didn't give (its read failed): "Unknown" instead of a default that reads as the setting (APP-884).
+struct KnownToggle: View {
+    let title: String
+    let isOn: Binding<Bool>
+    let known: Bool
+
+    var body: some View {
+        if known { Toggle(title, isOn: isOn) }
+        else { LabeledContent(title, value: "Unknown") }
+    }
+}
+
+/// FERB didn't answer the page's read, so what it shows isn't FERB's settings (APP-884).
+struct UnknownLine: View {
+    var body: some View {
+        Text("FERB isn't answering, so these show as unknown until it is back.").font(.caption).foregroundStyle(.orange)
     }
 }

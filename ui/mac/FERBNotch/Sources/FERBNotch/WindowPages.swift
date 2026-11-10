@@ -80,6 +80,10 @@ struct SchedulesPage: View {
                 WindowCard { ReminderRowView(reminder: reminder, store: store) }
             }
         }
+        // APP-884: a timer set, cancelled or fired, or a run ended elsewhere shows here without reopening the page
+        .onReceive(NotificationCenter.default.publisher(for: .ferbSchedulesChanged)) { _ in
+            Task { await store.loadSchedules() }
+        }
     }
 }
 

@@ -62,6 +62,10 @@ final class FERBWindowStore: ObservableObject {
     @Published var savedSecrets: [SavedSecretRow] = []
     @Published var settings = SettingsSnapshot()
     @Published var banners: [String: Bool] = [:]
+    /// Whether the last read of the settings and of the banner switches answered: a page shows "Unknown" instead of a
+    /// default for one that didn't (APP-884).
+    @Published private(set) var settingsKnown = false
+    @Published private(set) var bannersKnown = false
     @Published var health: [HealthLine] = []
     @Published var stopped = false
     @Published var recordingPaused = false
@@ -287,7 +291,10 @@ final class FERBWindowStore: ObservableObject {
     // MARK: Settings (AI, Permissions and Browsers are plan C's SetupModel)
 
     func loadSettings() async {
-        if let reply = await ask("settings.get") { settings = SettingsSnapshot(reply) }
+        if let reply = await ask("settings.get") {
+            settings = SettingsSnapshot(reply)
+            settingsKnown = true
+        } else { settingsKnown = false }
         await loadBanners()
         if let reply = await ask("sense.status") {
             recordingPaused = reply["paused"] as? Bool ?? false
@@ -314,8 +321,9 @@ final class FERBWindowStore: ObservableObject {
 
     /// Plan D's banner switches (config `[banners]`, through `notifications.categories`).
     func loadBanners() async {
-        guard let reply = await ask("notifications.categories") else { return }
+        guard let reply = await ask("notifications.categories") else { bannersKnown = false; return }
         banners = reply["categories"] as? [String: Bool] ?? [:]
+        bannersKnown = true
     }
 
     func setBanner(_ category: BannerCategory, _ on: Bool) async {
@@ -335,11 +343,11 @@ final class FERBWindowStore: ObservableObject {
         defer { checkingRuntimeName = nil }
         // T-1069: the call shapes FERB really makes, one line each (a few cents at most)
         guard let reply = await ask("runtimes.check_calls", ["runtime": name], wait: Self.checkWait) else {
-            checkResults[name] = CheckResult(lines: [], summary: problem ?? "The check didn't finish.")
+            checkResults[name] = CheckResult(lines: [], summary: problem ?? "The check didn't finish.", at: Date())
             return
         }
         let report = ConnectionCheck(reply: reply)
-        checkResults[name] = CheckResult(lines: report.lines, summary: report.summary)
+        checkResults[name] = CheckResult(lines: report.lines, summary: report.summary, at: Date())
     }
 
     func pauseRecording(_ paused: Bool) async {
@@ -394,4 +402,6 @@ final class FERBWindowStore: ObservableObject {
 struct CheckResult: Equatable {
     let lines: [ConnectionCheck.Line]
     let summary: String
+    /// When the result was taken (APP-882: the page says so beside it).
+    var at = Date()
 }

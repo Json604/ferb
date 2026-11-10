@@ -23,7 +23,7 @@ final class SetupModelsTests: XCTestCase {
 
     /// The tick is on the service FERB uses (the daemon's roles), not on every one signed in (owner, 2026-11-04:
     /// ChatGPT was ticked while FERB ran on the Anthropic API key).
-    // decision: APP-655
+    // decision: APP-882
     func testTheServiceInUseIsTheOneTheRolesRunOn() throws {
         let ai = try XCTUnwrap(AISnapshot(reply: [
             "roles": ["orchestrator": "anthropic", "worker": "anthropic", "checker": "anthropic"],
@@ -32,21 +32,6 @@ final class SetupModelsTests: XCTestCase {
         XCTAssertFalse(ai.inUse("codex"))
         XCTAssertTrue(ai.inUse("anthropic"))
         XCTAssertEqual(ai.apiKeyInUse, .anthropic)
-    }
-
-    /// A model picked on a connection FERB doesn't use now is saved for it, never "FERB uses it now" (live 2026-11-10:
-    /// the Claude card said "FERB uses claude-sonnet-5-5 now." while FERB ran on ChatGPT).
-    // decision: APP-827
-    func testAModelSavedOnAConnectionNotInUseSaysItIsSavedForIt() throws {
-        let ai = try XCTUnwrap(AISnapshot(reply: [
-            "roles": ["orchestrator": "codex", "worker": "codex", "checker": "claude"],
-            "runtimes": [["name": "codex", "usable": true], ["name": "claude", "usable": true],
-                         ["name": "anthropic", "usable": true]]]))
-        XCTAssertEqual(ai.modelSaved("codex", "gpt-6.1-sol"), "FERB uses gpt-6.1-sol now.")
-        XCTAssertFalse(ai.modelSaved("anthropic", "claude-sonnet-5-5").contains("now"))
-        XCTAssertTrue(ai.modelSaved("anthropic", "claude-sonnet-5-5").contains("when"))
-        XCTAssertTrue(ai.modelSaved("claude", "claude-opus-5-5", role: "checker").contains("now"))
-        XCTAssertFalse(ai.modelSaved("claude", "claude-opus-5-5", role: "worker").contains("now"))
     }
 
     // decision: RUN-429, APP-791, APP-793
@@ -75,6 +60,91 @@ final class SetupModelsTests: XCTestCase {
         XCTAssertEqual(typed.options(for: "worker"), ["claude-x-9", "claude-opus-5-5"])
         XCTAssertEqual(typed.options(for: "planner"), ["claude-opus-5-5"])
         XCTAssertEqual(RoleCopy.label("orchestrator"), "Planner")
+    }
+
+    // decision: APP-882
+    /// Owner 2026-11-10: "settings correct data ... the green tick and other thigns not being shown or hidden". Each
+    /// card says which roles run on it; mixed roles list each connection once; a refusal stays with its time and step.
+    func testEachCardSaysWhichRolesRunOnItAndItsLastRefusal() throws {
+        let ai = try XCTUnwrap(AISnapshot(reply: [
+            "roles": ["orchestrator": "claude", "worker": "codex", "checker": "codex"],
+            "role_details": ["orchestrator": ["runtime": "claude", "model": "claude-opus-5-5", "effort": "medium"]],
+            "runtimes": [["name": "codex", "usable": true, "effort": "high"],
+                         ["name": "claude", "usable": true, "refused": ["account": "signed_out",
+                                                                         "at": "2026-11-10T14:02:03.123456+00:00",
+                                                                         "fix": "sign in to Claude again in Settings → AI"]]]]))
+        XCTAssertNil(ai.current)
+        XCTAssertEqual(ai.runtimesInUse, ["claude", "codex"])
+        XCTAssertEqual(ai.rolesText("codex"), "Worker · Checker")
+        XCTAssertEqual(ai.rolesText("claude"), "Planner")
+        XCTAssertEqual(ai.rolesText("anthropic"), "")
+        XCTAssertEqual(ai.roleDetails["orchestrator"], RoleAI(runtime: "claude", model: "claude-opus-5-5", effort: "medium"))
+        XCTAssertEqual(ai.row("codex")?.effort, "high")
+        XCTAssertTrue(ai.runs("claude", role: "orchestrator") && !ai.runs("claude", role: "worker"))
+        let refused = try XCTUnwrap(ai.row("claude")?.refused)
+        XCTAssertEqual(refused.text(timeZone: TimeZone(identifier: "UTC")!).hasPrefix("Last call refused: signed out at "), true)
+        XCTAssertTrue(refused.text().hasSuffix("Sign in to Claude again in Settings → AI."))
+        XCTAssertNil(ai.row("codex")?.refused)
+    }
+
+    // decision: APP-881, APP-885
+    /// "show the effort level along with model selection(along with text field if the effort level in our settigns
+    /// is not applicable to that)": each model's own levels, its default, a set level kept even when unlisted.
+    func testTheEffortPickerFollowsTheChosenModel() throws {
+        let list = try XCTUnwrap(ModelList(reply: [
+            "runtime": "codex", "model": "gpt-6.1-sol", "models": ["gpt-6.1-sol", "gpt-x"], "effort": "high",
+            "levels": ["gpt-6.1-sol": ["low", "medium", "high", "xhigh", "max"]],
+            "default_efforts": ["gpt-6.1-sol": "low"],
+            "roles": ["orchestrator": ["runtime": "codex", "model": "", "effort": "medium"]]]))
+        XCTAssertEqual(list.effort(for: nil), "high")
+        XCTAssertEqual(list.effort(for: "orchestrator"), "medium")
+        XCTAssertEqual(list.current(for: "orchestrator"), "")                  // an effort alone keeps the model
+        XCTAssertEqual(list.levels(for: ""), ["low", "medium", "high", "xhigh", "max"])
+        XCTAssertEqual(list.levels(for: "gpt-x"), [])                          // undocumented: Default and Other…
+        XCTAssertEqual(list.levels(for: "gpt-x", keeping: "turbo"), ["turbo"])
+        XCTAssertEqual(list.defaultLabel(for: "gpt-6.1-sol"), "Default (low)")
+        XCTAssertEqual(list.defaultLabel(for: "gpt-x"), "Default (the model's own)")
+    }
+
+    // decision: APP-882
+    /// "FERB uses … now" only for a connection (or role) that runs there; otherwise it says it's saved for later.
+    func testTheSavedLineSaysUsesNowOnlyWhereARoleRuns() {
+        XCTAssertEqual(ModelSaveLine.saved(model: "gpt-6.1-sol", effort: "high", connectionModel: "", runtime: "codex",
+                                           role: nil, running: true), "FERB uses gpt-6.1-sol at high effort now.")
+        XCTAssertEqual(ModelSaveLine.saved(model: "claude-sonnet-5-5", effort: "", connectionModel: "", runtime: "claude",
+                                           role: nil, running: false),
+                       "Saved for Claude; FERB uses it when a role runs on Claude.")
+        XCTAssertEqual(ModelSaveLine.saved(model: "", effort: "medium", connectionModel: "claude-opus-5-5",
+                                           runtime: "claude", role: "orchestrator", running: true),
+                       "The planner uses claude-opus-5-5 at medium effort now.")
+        // live 2026-11-10 (APP-827): the Claude card said "FERB uses claude-sonnet-5-5 now." while FERB ran on ChatGPT
+        let elsewhere = ModelSaveLine.saved(model: "claude-opus-5-5", effort: "", connectionModel: "", runtime: "claude",
+                                            role: "worker", running: false)
+        XCTAssertFalse(elsewhere.contains("now"))
+        XCTAssertEqual(elsewhere, "Saved for the worker on Claude; it's used when the worker runs on Claude.")
+    }
+
+    // decision: APP-883
+    func testABrowserRowSaysItsOwnStateVersionAndProblem() throws {
+        let snapshot = try XCTUnwrap(BrowserSnapshot(reply: ["browsers": [["browser": "chrome", "profiles": [
+            ["folder": "Default", "state": "paired", "connected": true, "version": "0.19.4"],
+            ["folder": "P1", "state": "paired", "connected": false, "problem": "it refused the connection"],
+            ["folder": "P2", "state": "on", "version": "0.1.0", "too_old": true],
+            ["folder": "P3", "state": "paired", "connected": false]]]]]))
+        let rows = snapshot.browsers[0].profiles
+        XCTAssertEqual(rows.map(\.stateText), ["Paired · connected", "Not connected: it refused the connection",
+                                               "Too old (version 0.1.0): update FERB's extension in this profile",
+                                               "Paired · not connected (open this profile)"])
+        XCTAssertEqual(rows.map(\.needsAttention), [false, true, true, false])
+        XCTAssertEqual(rows[0].version, "0.19.4")
+    }
+
+    // decision: APP-884
+    func testASettingFERBDidntGiveIsUnknownNotADefault() {
+        let snapshot = SettingsSnapshot(["values": ["sense.window_titles": false]])
+        XCTAssertTrue(snapshot.has("sense.window_titles"))
+        XCTAssertFalse(snapshot.has("retention.trace_days"))
+        XCTAssertEqual(PermissionCopy.status(.denied), "Off")
     }
 
     // decision: RUN-434

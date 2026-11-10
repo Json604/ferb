@@ -477,7 +477,13 @@ extension NotchModel {
            ["approval.requested", "approval.resolved", "task.created", "task.result", "task.steered"].contains(topic) {
             taskStateRevision += 1
         }
+        // APP-884: Schedules & Reminders re-read on the timer and task events the notch already gets
+        if let topic = event["topic"] as? String, ["timer.fired", "timer.changed", "task.result"].contains(topic) {
+            NotificationCenter.default.post(name: .ferbSchedulesChanged, object: nil)
+        }
         switch event["topic"] as? String {
+        case "runtimes.changed":                         // APP-882: Settings → AI follows a change made anywhere
+            NotificationCenter.default.post(name: .ferbRuntimesChanged, object: nil)
         case "timer.fired":
             timerFired(data["timer_id"] as? String)
             Task { await refreshRunningTimers() }
@@ -975,4 +981,11 @@ extension NotchModel {
         if case DaemonRPCError.unavailable = error { return true }
         return false
     }
+}
+
+extension Notification.Name {
+    /// The daemon's `runtimes.changed`: a role's connection, model or effort, or a runtime's refusal, changed (APP-882).
+    static let ferbRuntimesChanged = Notification.Name("FERBRuntimesChanged")
+    /// A timer or reminder changed or fired, or a task ended: Schedules & Reminders read again (APP-884).
+    static let ferbSchedulesChanged = Notification.Name("FERBSchedulesChanged")
 }

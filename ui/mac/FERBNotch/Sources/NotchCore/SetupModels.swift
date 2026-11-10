@@ -175,8 +175,15 @@ public struct BrowserProfileRow: Equatable, Identifiable {
     public let state: ProfileSetupState
     public let ferbIdentity: Bool
     public let connected: Bool
+    /// The installed extension's version, read afresh from the profile's files; "" when unknown (APP-883).
+    public let version: String
+    /// Below the version FERB needs: its pairing would be refused until it updates.
+    public let tooOld: Bool
+    /// Why a paired profile isn't connected, in the daemon's words (refused, or too old as last reported); "" none.
+    public let problem: String
+
     public init(browser: String, folder: String, name: String, email: String = "", state: ProfileSetupState,
-                ferbIdentity: Bool, connected: Bool) {
+                ferbIdentity: Bool, connected: Bool, version: String = "", tooOld: Bool = false, problem: String = "") {
         self.browser = browser
         self.folder = folder
         self.name = name
@@ -184,7 +191,22 @@ public struct BrowserProfileRow: Equatable, Identifiable {
         self.state = state
         self.ferbIdentity = ferbIdentity
         self.connected = connected
+        self.version = version
+        self.tooOld = tooOld
+        self.problem = problem
     }
+
+    /// The row's state as it stands now (APP-883): its problem first, then too old, then paired and whether its
+    /// browser is connected right now, else the setup state.
+    public var stateText: String {
+        if !problem.isEmpty { return "Not connected: " + problem }
+        if tooOld { return "Too old (version \(version)): update FERB's extension in this profile" }
+        if state == .paired { return connected ? "Paired · connected" : "Paired · not connected (open this profile)" }
+        return state.text
+    }
+
+    /// A row that needs the owner: a problem or an extension too old.
+    public var needsAttention: Bool { !problem.isEmpty || tooOld }
 }
 
 public struct BrowserRow: Equatable, Identifiable {
@@ -232,7 +254,8 @@ public struct BrowserSnapshot: Equatable {
                       let state = ProfileSetupState(rawValue: p["state"] as? String ?? "") else { return nil }
                 return BrowserProfileRow(browser: name, folder: folder, name: p["name"] as? String ?? folder,
                                          email: p["email"] as? String ?? "", state: state, ferbIdentity: p["ferb_identity"] as? Bool ?? false,
-                                         connected: p["connected"] as? Bool ?? false)
+                                         connected: p["connected"] as? Bool ?? false, version: p["version"] as? String ?? "",
+                                         tooOld: p["too_old"] as? Bool ?? false, problem: p["problem"] as? String ?? "")
             }
             return BrowserRow(browser: name, label: browser["label"] as? String ?? name,
                               requested: browser["requested"] as? Bool ?? false,
@@ -259,6 +282,47 @@ public struct SignInStatus: Equatable {
     public var waiting: Bool { state == "waiting" }
 }
 
+/// The last call a runtime refused for its account (APP-882): signed out or a usage limit, when, and the owner's step.
+/// It stays until a later call the runtime answers, whatever the sign-in's presence check says.
+public struct RuntimeRefusal: Equatable {
+    public let account: String
+    public let at: Date?
+    public let fix: String
+
+    public init?(_ value: Any?) {
+        guard let row = value as? [String: Any], let account = row["account"] as? String, !account.isEmpty else {
+            return nil
+        }
+        self.account = account
+        at = (row["at"] as? String).flatMap(SetupDates.parse)
+        fix = row["fix"] as? String ?? ""
+    }
+
+    /// "Last call refused: signed out at 14:02. Sign in to Claude again in Settings → AI."
+    public func text(timeZone: TimeZone = .current) -> String {
+        let what = account == "signed_out" ? "signed out" : account == "usage_limit" ? "usage limit reached" : account
+        let when = at.map { " at " + SetupDates.clock($0, timeZone: timeZone) } ?? ""
+        let step = fix.isEmpty ? "" : " " + fix.prefix(1).uppercased() + fix.dropFirst() + (fix.hasSuffix(".") ? "" : ".")
+        return "Last call refused: \(what)\(when).\(step)"
+    }
+}
+
+/// Times the AI page shows: the daemon's ISO times, and a clock time for a line.
+public enum SetupDates {
+    /// Python's isoformat (microseconds and an offset): the fraction is dropped, a line needs only the minute.
+    public static func parse(_ text: String) -> Date? {
+        ISO8601DateFormatter().date(from: text.replacingOccurrences(of: #"\.\d+"#, with: "", options: .regularExpression))
+    }
+
+    public static func clock(_ date: Date, timeZone: TimeZone = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = Calendar.current.isDateInToday(date) ? "HH:mm" : "d MMM, HH:mm"
+        return formatter.string(from: date)
+    }
+}
+
 public struct RuntimeRow: Equatable, Identifiable {
     public var id: String { name }
     public let name: String
@@ -267,12 +331,25 @@ public struct RuntimeRow: Equatable, Identifiable {
     public let model: String
     public let signedIn: Bool
     public let signIn: SignInStatus?
+    /// The connection's own effort level ("" for the model's default), APP-881.
+    public var effort: String = ""
+    public var refused: RuntimeRefusal? = nil
+}
+
+/// What one role runs on now (APP-882): its connection, model and effort ("" for the default).
+public struct RoleAI: Equatable {
+    public let runtime: String
+    public let model: String
+    public let effort: String
 }
 
 /// `runtimes.status`'s reply.
 public struct AISnapshot: Equatable {
     public let roles: [String: String]
     public let runtimes: [RuntimeRow]
+    /// role -> its connection, model and effort (an older daemon gives none)
+    public let roleDetails: [String: RoleAI]
+    public static let roleOrder = ["orchestrator", "worker", "checker"]
 
     public init?(reply: [String: Any]) {
         guard let roles = reply["roles"] as? [String: String], let rows = reply["runtimes"] as? [[String: Any]] else {
@@ -283,8 +360,15 @@ public struct AISnapshot: Equatable {
             guard let name = row["name"] as? String else { return nil }
             return RuntimeRow(name: name, usable: row["usable"] as? Bool ?? false, fix: row["fix"] as? String ?? "",
                               model: row["model"] as? String ?? "", signedIn: row["signed_in"] as? Bool ?? false,
-                              signIn: SignInStatus(row["sign_in"]))
+                              signIn: SignInStatus(row["sign_in"]), effort: row["effort"] as? String ?? "",
+                              refused: RuntimeRefusal(row["refused"]))
         }
+        var details: [String: RoleAI] = [:]
+        for (role, value) in reply["role_details"] as? [String: Any] ?? [:] {
+            guard let row = value as? [String: Any], let runtime = row["runtime"] as? String else { continue }
+            details[role] = RoleAI(runtime: runtime, model: row["model"] as? String ?? "", effort: row["effort"] as? String ?? "")
+        }
+        roleDetails = details
     }
 
     /// The runtime every role uses, when they agree.
@@ -293,9 +377,24 @@ public struct AISnapshot: Equatable {
         return used.count == 1 ? used.first : nil
     }
 
+    /// The connections the roles run on, each once, in the roles' order (planner, worker, checker).
+    public var runtimesInUse: [String] {
+        var seen: [String] = []
+        for role in Self.roleOrder { if let name = roles[role], !seen.contains(name) { seen.append(name) } }
+        return seen
+    }
+
+    /// The roles that run on a connection now, in order, in the owner's words: "Planner · Worker · Checker" (APP-882).
+    public func rolesText(_ name: String) -> String {
+        Self.roleOrder.filter { roles[$0] == name }.map(RoleCopy.label).joined(separator: " · ")
+    }
+
+    public func row(_ name: String) -> RuntimeRow? { runtimes.first { $0.name == name } }
     public func usable(_ name: String) -> Bool { runtimes.first { $0.name == name }?.usable ?? false }
     /// Whether FERB uses this runtime now: a role runs on it (the daemon's `roles`), whatever else is signed in (APP-655).
     public func inUse(_ name: String) -> Bool { roles.values.contains(name) }
+    /// Whether `role` (nil: any role) runs on `name` now.
+    public func runs(_ name: String, role: String?) -> Bool { role.map { roles[$0] == name } ?? inUse(name) }
     /// The API key FERB uses now, when a role runs on one.
     public var apiKeyInUse: APIProvider? { APIProvider.allCases.first { inUse($0.rawValue) } }
     public func signedIn(_ name: String) -> Bool { runtimes.first { $0.name == name }?.signedIn ?? false }
@@ -304,20 +403,6 @@ public struct AISnapshot: Equatable {
     /// The providers with no key saved: the paste box offers these.
     public var unsavedKeys: [APIProvider] { APIProvider.allCases.filter { !signedIn($0.rawValue) } }
     public func signIn(_ name: String) -> SignInStatus? { runtimes.first { $0.name == name }?.signIn }
-
-    /// The line after a model was saved on a connection (APP-827), read after the save: "FERB uses it now" only when
-    /// that connection (or, for a role's own model, that role) runs there now; otherwise it is saved for that connection
-    /// and FERB uses it when that connection is in use.
-    public func modelSaved(_ runtime: String, _ chosen: String, role: String? = nil) -> String {
-        guard !chosen.isEmpty else { return "The \(role ?? "") role uses the connection's model." }
-        let name = Self.label(runtime)
-        if let role {
-            return roles[role] == runtime ? "FERB's \(role) uses \(chosen) now."
-                : "Saved \(chosen) for the \(role) on \(name). FERB uses it when the \(role) runs on \(name)."
-        }
-        return inUse(runtime) ? "FERB uses \(chosen) now."
-            : "Saved \(chosen) for \(name). FERB uses it when \(name) is in use."
-    }
 
     public static func label(_ runtime: String) -> String {
         ["codex": "ChatGPT (Codex)", "claude": "Claude", "anthropic": "your Anthropic API key",
@@ -335,21 +420,49 @@ public struct ModelList: Equatable {
     public let problem: String?
     /// role -> model chosen for that role on this connection
     public let roles: [String: String]
+    /// The connection's own effort ("" for the model's default) and each role's own on it (APP-881).
+    public let effort: String
+    public let roleEfforts: [String: String]
+    /// model -> the effort levels its provider documents (none listed: only Default and a typed level)
+    public let levels: [String: [String]]
+    /// model -> its default level where documented
+    public let defaultEfforts: [String: String]
 
     public init?(reply: [String: Any]) {
         guard let runtime = reply["runtime"] as? String else { return nil }
         self.runtime = runtime
         current = reply["model"] as? String ?? ""
         problem = (reply["problem"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        effort = reply["effort"] as? String ?? ""
         var roles: [String: String] = [:]
+        var efforts: [String: String] = [:]
         for (role, value) in reply["roles"] as? [String: Any] ?? [:] {
-            if let row = value as? [String: Any], row["runtime"] as? String == runtime,
-               let model = row["model"] as? String, !model.isEmpty { roles[role] = model }
+            guard let row = value as? [String: Any], row["runtime"] as? String == runtime else { continue }
+            if let model = row["model"] as? String, !model.isEmpty { roles[role] = model }
+            if let level = row["effort"] as? String, !level.isEmpty { efforts[role] = level }
         }
         self.roles = roles
+        roleEfforts = efforts
+        levels = (reply["levels"] as? [String: [String]]) ?? [:]
+        defaultEfforts = (reply["default_efforts"] as? [String: String]) ?? [:]
         let listed = (reply["models"] as? [String] ?? []).filter { !$0.isEmpty }
         // the model in use always shows, even when the list doesn't have it (one the owner typed)
         models = current.isEmpty || listed.contains(current) ? listed : [current] + listed
+    }
+
+    /// The effort set for a role on this connection (nil: the connection's own); "" when none.
+    public func effort(for role: String?) -> String { role.map { roleEfforts[$0] ?? "" } ?? effort }
+
+    /// The levels the picker offers for `model` ("" : the connection's model); a level set but not listed shows too.
+    public func levels(for model: String, keeping set: String = "") -> [String] {
+        let listed = levels[model.isEmpty ? current : model] ?? []
+        return set.isEmpty || listed.contains(set) ? listed : listed + [set]
+    }
+
+    /// The picker's Default entry: "Default (medium)", or "Default (the model's own)" when not documented.
+    public func defaultLabel(for model: String) -> String {
+        let level = defaultEfforts[model.isEmpty ? current : model] ?? ""
+        return level.isEmpty ? "Default (the model's own)" : "Default (\(level))"
     }
 
     /// What the picker shows for a model: the list's own entry, else "Other…" (typed).
@@ -362,6 +475,23 @@ public struct ModelList: Equatable {
     public func options(for role: String?) -> [String] {
         let mine = current(for: role)
         return mine.isEmpty || models.contains(mine) ? models : [mine] + models
+    }
+}
+
+/// The line after a model or effort is saved (APP-882): "FERB uses …" only when a role runs on that connection (for a
+/// role's own: when that role does); otherwise it says it is saved for when one does.
+public enum ModelSaveLine {
+    public static func saved(model: String, effort: String, connectionModel: String, runtime: String, role: String?,
+                             running: Bool) -> String {
+        let name = AISnapshot.label(runtime)
+        let shown = model.isEmpty ? connectionModel : model
+        let what = shown + (effort.isEmpty ? "" : " at \(effort) effort")
+        guard let role else {
+            return running ? "FERB uses \(what) now." : "Saved for \(name); FERB uses it when a role runs on \(name)."
+        }
+        let who = RoleCopy.label(role).lowercased()
+        return running ? "The \(who) uses \(what) now."
+            : "Saved for the \(who) on \(name); it's used when the \(who) runs on \(name)."
     }
 }
 

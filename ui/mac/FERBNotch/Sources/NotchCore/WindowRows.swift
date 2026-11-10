@@ -229,6 +229,8 @@ public struct SettingsSnapshot: Equatable {
         values = (reply["values"] as? [String: Any] ?? [:]).compactMapValues(SettingValue.init)
     }
 
+    /// Whether FERB gave this setting (a page shows "Unknown" instead of a default for one it didn't, APP-884).
+    public func has(_ key: String) -> Bool { values[key] != nil }
     public func bool(_ key: String) -> Bool { if case .bool(let v)? = values[key] { return v }; return false }
     public func int(_ key: String) -> Int { if case .int(let v)? = values[key] { return v }; return 0 }
     public func strings(_ key: String) -> [String] { if case .strings(let v)? = values[key] { return v }; return [] }

@@ -56,67 +56,80 @@ struct AIStepView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             StepHeader(title: "A mind for your Mac.", lines: ["Connect the AI service you already use."])
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("ChatGPT").font(.system(size: 16, weight: .semibold))
-                        Text("Connect through your ChatGPT account").font(.system(size: 11)).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    if model.ai?.inUse("codex") == true { InUseTick() }
-                }
-                HStack {
-                    Button(model.signingIn ? "Waiting for your browser…" : "Sign in with ChatGPT") { model.signInWithChatGPT() }
-                        .disabled(model.signingIn)
-                    if model.signingIn { Button("Cancel") { model.cancelSignIn() } }
-                    if model.ai?.usable("codex") == true && model.ai?.inUse("codex") != true && !model.signingIn {
-                        Text("Signed in").foregroundStyle(.secondary)
-                        Button("Use ChatGPT") { Task { await model.useChatGPT() } }
-                    }
-                }
-                if model.ai?.signedIn("codex") == true { ModelRow(model: model, runtime: "codex") }
-            }
-            .padding(18).frame(maxWidth: .infinity, alignment: .leading)
-            .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 18))
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Claude").font(.system(size: 16, weight: .semibold))
-                    Spacer()
-                    if model.ai?.inUse("claude") == true { InUseTick() }
-                }
-                ClaudeSignInRow(model: model)
-                if model.ai?.signedIn("claude") == true { ModelRow(model: model, runtime: "claude") }
-            }
-            .padding(18).frame(maxWidth: .infinity, alignment: .leading)
-            .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 18))
-            // every API key the Keychain holds gets its own card, like ChatGPT's and Claude's (owner 2026-11-08: "when i
-            // chagen from anthropic or anu api key i cannot swithc bacj to it"): Use, Replace, Remove, its model
-            ForEach(model.ai?.savedKeys ?? []) { saved in APIKeyCard(model: model, provider: saved) }
-            if !(model.ai?.unsavedKeys ?? APIProvider.allCases).isEmpty {
-                DisclosureGroup {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Picker("Provider", selection: $provider) {
-                            ForEach(model.ai?.unsavedKeys ?? APIProvider.allCases) { Text($0.label).tag($0) }
-                        }
-                        HStack {
-                            SecureField("Paste your API key", text: $key).onSubmit(saveKey)
-                            Button("Save", action: saveKey).disabled(key.isEmpty)
-                        }
-                    }.padding(.top, 10)
-                } label: {
-                    Text("Other ways to connect: an API key")
-                }.font(.system(size: 12)).tint(.white.opacity(0.6))
-            }
-            if let line = model.aiMessage { Text(line).font(.callout) }
-            if let current = model.ai?.current { RoleModelsView(model: model, runtime: current).id(current) }
+            if model.daemonSilent { NotAnsweringLine() }
+            VStack(alignment: .leading, spacing: 22) { cards }
+                .opacity(model.daemonSilent ? 0.45 : 1)           // APP-884: what it shows may be out of date
         }
         .onChange(of: model.ai?.unsavedKeys) { _, unsaved in
             if let first = unsaved?.first, unsaved?.contains(provider) != true { provider = first }
         }
-        // A change made elsewhere (the notch's switch, the CLI) shows when the owner comes back to this window.
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await model.refreshAI() }
+        // APP-882: a change made anywhere (the chat's one-tap switch, a call a service refused, a developer tool)
+        // arrives as the daemon's runtimes.changed; coming back to the window reads again too
+        .onReceive(NotificationCenter.default.publisher(for: .ferbRuntimesChanged)) { _ in
+            Task { await model.refreshAI(changedElsewhere: true) }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await model.refreshAI(changedElsewhere: true) }
+        }
+    }
+
+    @ViewBuilder private var cards: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("ChatGPT").font(.system(size: 16, weight: .semibold))
+                    Text("Connect through your ChatGPT account").font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                RolesBadge(ai: model.ai, runtime: "codex")
+            }
+            RefusalLine(ai: model.ai, runtime: "codex")
+            HStack {
+                Button(model.signingIn ? "Waiting for your browser…" : "Sign in with ChatGPT") { model.signInWithChatGPT() }
+                    .disabled(model.signingIn)
+                if model.signingIn { Button("Cancel") { model.cancelSignIn() } }
+                if model.ai?.usable("codex") == true && model.ai?.inUse("codex") != true && !model.signingIn {
+                    Text("Signed in").foregroundStyle(.secondary)
+                    Button("Use ChatGPT") { Task { await model.useChatGPT() } }
+                }
+            }
+            if model.ai?.signedIn("codex") == true { ModelRow(model: model, runtime: "codex") }
+        }
+        .padding(18).frame(maxWidth: .infinity, alignment: .leading)
+        .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 18))
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Claude").font(.system(size: 16, weight: .semibold))
+                Spacer()
+                RolesBadge(ai: model.ai, runtime: "claude")
+            }
+            RefusalLine(ai: model.ai, runtime: "claude")
+            ClaudeSignInRow(model: model)
+            if model.ai?.signedIn("claude") == true { ModelRow(model: model, runtime: "claude") }
+        }
+        .padding(18).frame(maxWidth: .infinity, alignment: .leading)
+        .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 18))
+        // every API key the Keychain holds gets its own card, like ChatGPT's and Claude's (owner 2026-11-08: "when i
+        // chagen from anthropic or anu api key i cannot swithc bacj to it"): Use, Replace, Remove, its model
+        ForEach(model.ai?.savedKeys ?? []) { saved in APIKeyCard(model: model, provider: saved) }
+        if !(model.ai?.unsavedKeys ?? APIProvider.allCases).isEmpty {
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 10) {
+                    Picker("Provider", selection: $provider) {
+                        ForEach(model.ai?.unsavedKeys ?? APIProvider.allCases) { Text($0.label).tag($0) }
+                    }
+                    HStack {
+                        SecureField("Paste your API key", text: $key).onSubmit(saveKey)
+                        Button("Save", action: saveKey).disabled(key.isEmpty)
+                    }
+                }.padding(.top, 10)
+            } label: {
+                Text("Other ways to connect: an API key")
+            }.font(.system(size: 12)).tint(.white.opacity(0.6))
+        }
+        if let line = model.aiMessage { Text(line).font(.callout) }
+        // APP-882: shown whenever a role runs anywhere, mixed connections included; each role on its own connection
+        if let ai = model.ai, !ai.runtimesInUse.isEmpty { RoleModelsView(model: model, ai: ai) }
     }
 
     private func saveKey() {
@@ -145,8 +158,9 @@ struct APIKeyCard: View {
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
                 Spacer()
-                if inUse { InUseTick() }
+                RolesBadge(ai: model.ai, runtime: provider.rawValue)
             }
+            RefusalLine(ai: model.ai, runtime: provider.rawValue)
             HStack {
                 if !inUse { Button("Use \(provider.label)") { Task { await model.useAPIKey(provider) } } }
                 Button(replacing ? "Cancel" : "Replace key") { replacing.toggle(); key = "" }
@@ -174,8 +188,10 @@ struct APIKeyCard: View {
     }
 }
 
-/// A connection's model (RUN-429): the one in use, the connection's list (an API key's from its provider) and "Other…"
-/// to type any model id; FERB checks a model before it uses it and keeps the old one when it fails.
+/// A connection's model (RUN-429) and effort (APP-881): the one in use, the connection's list (an API key's from its
+/// provider) and "Other…" to type any model id; beside it the model's effort levels, "Default (<the model's default>)"
+/// and "Other…" to type a level. One Use saves both; FERB checks them before it uses them and keeps the old ones when
+/// they fail.
 struct ModelRow: View {
     @ObservedObject var model: SetupModel
     let runtime: String
@@ -185,16 +201,18 @@ struct ModelRow: View {
     @State private var list: ModelList?
     @State private var choice = ""
     @State private var typed = ""
+    @State private var effortChoice = ModelRow.byDefault
+    @State private var typedEffort = ""
     @State private var line: String?
     @State private var busy = false
     private static let other = "\u{0}other"
     private static let connection = "\u{0}connection"
+    private static let byDefault = "\u{0}default"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(role.map(RoleCopy.label) ?? "Model").font(.system(size: 12))
-                    .frame(width: role == nil ? nil : 80, alignment: .leading)
+                Text("Model").font(.system(size: 12)).frame(width: 52, alignment: .leading)
                 Picker("Model", selection: $choice) {
                     if role != nil { Text("The connection's model (\(list?.current ?? ""))").tag(Self.connection) }
                     ForEach(list?.options(for: role) ?? [], id: \.self) { Text($0).tag($0) }
@@ -203,11 +221,24 @@ struct ModelRow: View {
                 if choice == Self.other {
                     TextField("Model id, e.g. claude-opus-5-5", text: $typed).onSubmit(save)
                 }
-                Button(busy ? "Checking…" : "Use") { save() }
-                    .disabled(busy || (chosen.isEmpty && choice != Self.connection) || chosen == list?.current(for: role))
             }
-            if role == nil, let current = list?.current, !current.isEmpty {
-                Text("In use: \(current)").font(.system(size: 11)).foregroundStyle(.secondary)
+            HStack {
+                Text("Effort").font(.system(size: 12)).frame(width: 52, alignment: .leading)
+                Picker("Effort", selection: $effortChoice) {
+                    Text(list?.defaultLabel(for: levelsModel) ?? "Default").tag(Self.byDefault)
+                    ForEach(list?.levels(for: levelsModel, keeping: savedEffort) ?? [], id: \.self) { Text($0).tag($0) }
+                    Text("Other…").tag(Self.other)
+                }.labelsHidden()
+                if effortChoice == Self.other {
+                    TextField("Effort level, e.g. high", text: $typedEffort).onSubmit(save)
+                }
+                Button(busy ? "Checking…" : "Use") { save() }.disabled(busy || !changed || incomplete)
+            }
+            if role == nil, let list, !list.current.isEmpty {
+                // APP-882: "In use" only where a role runs on this connection
+                Text((model.ai?.inUse(runtime) == true ? "In use: " : "Model: ") + list.current
+                     + (list.effort.isEmpty ? "" : " · effort \(list.effort)"))
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
             }
             if role == nil, let problem = list?.problem {
                 Text("No model list from the provider (\(problem)). You can type a model id under Other….")
@@ -216,6 +247,21 @@ struct ModelRow: View {
             if let line { Text(line).font(.system(size: 11)).textSelection(.enabled) }
         }
         .task { await load() }
+        // a model or effort changed elsewhere: the pickers follow (a refusal or sign-in alone doesn't re-read the list)
+        .onChange(of: savedKey) { old, new in if old != new { Task { await load() } } }
+        .onChange(of: choice) { _, _ in
+            if ![Self.byDefault, Self.other].contains(effortChoice),
+               !(list?.levels(for: levelsModel, keeping: savedEffort).contains(effortChoice) ?? false) {
+                effortChoice = Self.byDefault
+            }
+        }
+    }
+
+    /// What the daemon says this row runs now (its model and effort), so a change made elsewhere reloads it.
+    private var savedKey: String {
+        if let role { let r = model.ai?.roleDetails[role]; return "\(r?.runtime ?? "")|\(r?.model ?? "")|\(r?.effort ?? "")" }
+        let row = model.ai?.row(runtime)
+        return "\(row?.model ?? "")|\(row?.effort ?? "")"
     }
 
     private var chosen: String {
@@ -226,36 +272,73 @@ struct ModelRow: View {
         }
     }
 
+    /// The model whose levels the effort picker lists: the one picked ("" : the connection's).
+    private var levelsModel: String { chosen }
+
+    private var savedEffort: String { list?.effort(for: role) ?? "" }
+
+    private var chosenEffort: String {
+        switch effortChoice {
+        case Self.byDefault: return ""
+        case Self.other: return typedEffort.trimmingCharacters(in: .whitespacesAndNewlines)
+        default: return effortChoice
+        }
+    }
+
+    private var incomplete: Bool {
+        (chosen.isEmpty && choice != Self.connection) || (effortChoice == Self.other && chosenEffort.isEmpty)
+    }
+
+    private var changed: Bool {
+        guard let list else { return false }
+        return chosen != list.current(for: role) || chosenEffort != list.effort(for: role)
+    }
+
     private func load() async {
         list = await model.models(runtime)
         guard let list else { return }
         let mine = list.current(for: role)
         choice = mine.isEmpty ? (role == nil ? Self.other : Self.connection) : mine
+        let effort = list.effort(for: role)
+        effortChoice = effort.isEmpty ? Self.byDefault : effort
     }
 
     private func save() {
         let picked = chosen
-        guard !picked.isEmpty || role != nil else { return }
+        guard (!picked.isEmpty || role != nil), !incomplete else { return }
         busy = true
         Task {
-            line = await model.setModel(runtime, picked, role: role)
+            line = await model.setModel(runtime, picked, effort: chosenEffort, role: role,
+                                        connectionModel: list?.current ?? "")
             await load()
             busy = false
         }
     }
 }
 
-/// Advanced (RUN-432, APP-793): a model for one role on the connection in use, picked as the connection's model is;
-/// the connection's model when none is chosen.
+/// Advanced (RUN-432, APP-793, APP-882): a model and effort for each role on the connection it runs on now, picked as
+/// the connection's are; the connection's when none is chosen. Shown whenever a role runs anywhere.
 struct RoleModelsView: View {
     @ObservedObject var model: SetupModel
-    let runtime: String
+    let ai: AISnapshot
 
     var body: some View {
-        DisclosureGroup("Advanced: a model for each role") {
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(["orchestrator", "worker", "checker"], id: \.self) { role in
-                    ModelRow(model: model, runtime: runtime, role: role)
+        DisclosureGroup("Advanced: a model and effort for each role") {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(AISnapshot.roleOrder, id: \.self) { role in
+                    if let runtime = ai.roles[role] {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(RoleCopy.label(role)) · on \(AISnapshot.label(runtime))").font(.system(size: 12, weight: .medium))
+                            if role == "orchestrator" {
+                                Text("Default: low effort, so replies come quickly.").font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                            } else if role == "checker" {
+                                Text("Default: high effort for a step that changed files, else the model's default.")
+                                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                            }
+                            ModelRow(model: model, runtime: runtime, role: role).id(role + "/" + runtime)
+                        }
+                    }
                 }
             }.padding(.top, 6)
         }
@@ -263,11 +346,41 @@ struct RoleModelsView: View {
     }
 }
 
-/// The service FERB uses now (the daemon's roles), never merely one that is signed in (APP-655).
-private struct InUseTick: View {
+/// The roles FERB runs on a connection now (the daemon's roles), never merely one that is signed in (APP-655, APP-882):
+/// a tick and "Planner · Worker · Checker".
+private struct RolesBadge: View {
+    let ai: AISnapshot?
+    let runtime: String
+
     var body: some View {
-        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-            .help("FERB uses this now").accessibilityLabel("In use")
+        if let ai, ai.inUse(runtime) {
+            HStack(spacing: 6) {
+                Text(ai.rolesText(runtime)).font(.system(size: 11)).foregroundStyle(.secondary)
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            }
+            .help("FERB uses this now for: " + ai.rolesText(runtime)).accessibilityLabel("In use: " + ai.rolesText(runtime))
+        }
+    }
+}
+
+/// The last call a connection refused for its account and the owner's step (APP-882), until a later call it answers.
+private struct RefusalLine: View {
+    let ai: AISnapshot?
+    let runtime: String
+
+    var body: some View {
+        if let refused = ai?.row(runtime)?.refused {
+            Label(refused.text(), systemImage: "exclamationmark.triangle.fill")
+                .font(.system(size: 11)).foregroundStyle(.orange).textSelection(.enabled)
+        }
+    }
+}
+
+/// FERB's background service didn't answer the page's last read (APP-884).
+struct NotAnsweringLine: View {
+    var body: some View {
+        Label(SetupModel.notAnswering, systemImage: "bolt.horizontal.circle")
+            .font(.callout).foregroundStyle(.orange)
     }
 }
 
@@ -288,11 +401,13 @@ struct PermissionsStepView: View {
                 Text("Notifications: click Allow on FERB's banner at the top right of your screen (under Options if "
                      + "it shows no Allow).").font(.caption).foregroundStyle(.secondary)
             }
+            if model.daemonSilent { NotAnsweringLine() }
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(model.setupRows) { row in PermissionRowView(row: row, model: model) }
                 }
             }
+            .opacity(model.daemonSilent ? 0.45 : 1)
             if model.offersRestart {
                 Button(model.restarting ? "Restarting FERB…" : "Switched it on? Restart FERB to check") {
                     Task { await model.restartService() }
@@ -315,11 +430,16 @@ struct PermissionRowView: View {
     @ObservedObject var model: SetupModel
     var body: some View {
         HStack(alignment: .top) {
-            Text(row.status == .granted ? "✓" : "○").frame(width: 16)
+            // APP-884: the status word, never a bare mark
+            Text(PermissionCopy.status(row.status)).font(.caption.weight(.medium))
+                .foregroundStyle(row.status == .granted ? Color.green : Color.secondary).frame(width: 84, alignment: .leading)
             VStack(alignment: .leading, spacing: 2) {
                 Text(PermissionCopy.label(row.id))
                 Text(row.blocked.isEmpty ? PermissionCopy.reason(row.id) : row.blocked)
                     .font(.caption).foregroundStyle(.secondary)
+                if row.restartNeeded && row.status != .granted {
+                    Text("On in macOS; FERB needs a restart to use it.").font(.caption).foregroundStyle(.orange)
+                }
             }
             Spacer()
             if row.status != .granted {
@@ -379,13 +499,21 @@ struct BrowsersStepView: View {
                                     ProfileNameText(name: profile.name + (profile.ferbIdentity ? " (FERB's own)" : ""),
                                                     email: profile.email)
                                     Spacer()
-                                    Text(profile.state.text).foregroundStyle(.secondary)
+                                    // APP-883: the row's own state, version and problem, read every few seconds
+                                    VStack(alignment: .trailing, spacing: 1) {
+                                        Text(profile.stateText)
+                                            .foregroundStyle(profile.needsAttention ? Color.orange : Color.secondary)
+                                            .multilineTextAlignment(.trailing).textSelection(.enabled)
+                                        if !profile.version.isEmpty {
+                                            Text("Extension \(profile.version)").font(.caption).foregroundStyle(.secondary)
+                                        }
+                                    }
                                     if profile.state.canAdd {
                                         Button("Add to \(browser.label)") { Task { await model.addExtension(profile) } }
                                     }
                                     if profile.state == .on && !profile.ferbIdentity {
                                         Button("Pair") { Task { await model.pairProfile(profile) } }
-                                            .disabled(model.pairing)
+                                            .disabled(model.pairing || profile.tooOld)
                                     }
                                 }
                             }

@@ -3911,7 +3911,7 @@ area = "app"
 surface = "FERB.app with this build, Settings → AI, signed in to two connections"
 request = "With FERB on one connection, pick a model on the other connection's card; then pick one on the connection in use."
 pass = "The first says the model is saved for that connection and used when it is in use; the tick stays where it was. The second says FERB uses the model now."
-decisions = ["APP-827"]
+decisions = ["APP-827", "APP-882"]
 sitting = "after this change is installed"
 
 [LIVE-871]
@@ -3957,4 +3957,40 @@ surface = "FERB.app with this build; an Amazon.in cash-on-delivery checkout of a
 request = "Ask FERB to order a cheap item with cash on delivery; say Don't pay at the question."
 pass = "The card's first line is \"Pay ₹<order total>?\" as the page shows it; the box says it is the AI's amount and the page shows it (and names any larger amount on the page). Nothing is ordered after Don't pay."
 decisions = ["GATE-576", "GATE-575"]
+sitting = "after this change is installed"
+
+[LIVE-880]
+title = "Settings → AI tells the truth: roles per card, changes elsewhere, a refusal, Check per connection"
+area = "app"
+surface = "FERB.app with this build, Settings → AI open"
+request = "With roles mixed (e.g. planner on Claude, worker and checker on ChatGPT), open Settings → AI. Then, in the notch, take a runtime offer's one-tap switch; sign FERB's Claude out outside the app and send a task on it; press each Check button."
+pass = "Each card with roles says which (\"Planner\", \"Worker · Checker\") with a tick; Advanced stays visible; the one-tap switch shows on the open page without reopening it; the refused call shows \"Last call refused: signed out at <time>\" with the step until a call answers; there is one Check per connection in use, each result with its time."
+decisions = ["APP-880", "APP-882", "DMN-580"]
+sitting = "after this change is installed"
+
+[LIVE-881]
+title = "Effort beside each model; the planner low on Claude Code; a setting reaches the request"
+area = "app"
+surface = "FERB.app with this build; Codex and Claude signed in"
+request = "Open Settings → AI. On ChatGPT pick a model and see its levels; pick high and Use. Under Advanced set the checker to low on its connection. Type a made-up level under Other… and Use. Then run a Claude chat turn and a file-changing task, and read their traces."
+pass = "Each model shows its own levels and \"Default (…)\"; a model with none shows Default and Other…; one Use saves both; the made-up level is refused with the provider's words and the old one stays; the Claude planner's request carries low effort; the checker runs at low, not high."
+decisions = ["APP-881", "APP-885", "RUN-460", "RUN-461", "RUN-462", "RUN-463"]
+sitting = "after this change is installed"
+
+[LIVE-882]
+title = "Settings → Browsers shows each profile's version, connection and problem as it changes"
+area = "app"
+surface = "FERB.app with this build, Settings → Browsers open; a paired Chrome profile"
+request = "With Settings → Browsers open, quit that Chrome, then open it again; then turn FERB's extension off in another profile and on again."
+pass = "Within a few seconds the row reads \"Paired · not connected\" after the quit and \"Paired · connected\" after reopening; the version shows under it; turning the extension off and on shows on the row; a page problem line goes away once it is fixed."
+decisions = ["APP-880", "APP-883", "DMN-580"]
+sitting = "after this change is installed"
+
+[LIVE-883]
+title = "Permissions in words, restart-needed rows, FERB not answering, unknown settings, schedules following"
+area = "app"
+surface = "FERB.app with this build"
+request = "Open Settings → Permissions, switch Screen Recording off and on in System Settings. Stop the background service (with the owner's OK) and look at AI, Permissions, Privacy and Notifications. With Schedules & Reminders open, ask FERB in the notch for a 2-minute timer and cancel it."
+pass = "Rows say On/Off; a switch turned on in macOS reads \"On in macOS; FERB needs a restart to use it\" with the restart button; with the service stopped the pages say FERB isn't answering, dim their rows, and Privacy/Notifications show Unknown; the timer appears and goes on the open page without reopening it."
+decisions = ["APP-880", "APP-884"]
 sitting = "after this change is installed"

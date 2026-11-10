@@ -15,6 +15,10 @@ final class SetupModel: ObservableObject {
     @Published private(set) var serviceNeedsApproval = false
     @Published private(set) var ai: AISnapshot?
     @Published private(set) var aiMessage: String?
+    /// The background service didn't answer the page's last read: the page says so and dims what it shows (APP-884).
+    @Published private(set) var daemonSilent = false
+    /// When this page last changed the AI itself: a change event right after it is its own, not one made elsewhere.
+    private var ownAIChange = Date.distantPast
     @Published private(set) var signingIn = false
     @Published private(set) var claudeSigningIn = false
     @Published private(set) var permissions: PermissionSnapshot?
@@ -198,7 +202,9 @@ final class SetupModel: ObservableObject {
 
     var allRows: [PermissionRow] { (permissions?.rows ?? []) + appRows }
 
-    var offersRestart: Bool { allRows.contains { askedRestart.contains($0.id) && $0.status != .granted } }
+    var offersRestart: Bool {
+        allRows.contains { ($0.restartNeeded || askedRestart.contains($0.id)) && $0.status != .granted }
+    }
 
     var showsFullDiskHint: Bool {
         askedRestart.contains("full_disk_access")
@@ -261,14 +267,17 @@ final class SetupModel: ObservableObject {
 
     // MARK: Polling
 
-    /// Re-reads `step`'s facts every 2 s while a Settings page shows them (Settings → Permissions passes .permissions).
-    func startPolling(_ step: SetupStep) {
+    /// Re-reads `step`'s facts every `every` while a Settings page shows them (Settings → Permissions every 2 s,
+    /// Browsers every 3 s, APP-883). While Permissions polls, every off row whose switch reaches FERB only after a
+    /// restart is also read by a fresh process, so a switch already on in macOS says so (APP-884).
+    func startPolling(_ step: SetupStep, every: Duration = .seconds(2)) {
         self.step = step
+        pagePollsPermissions = step == .permissions
         poll?.cancel()
         poll = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refreshCurrentStep()
-                do { try await Task.sleep(for: .seconds(2)) } catch { return }
+                do { try await Task.sleep(for: every) } catch { return }
             }
         }
     }
@@ -276,7 +285,11 @@ final class SetupModel: ObservableObject {
     func stopPolling() {
         poll?.cancel()
         poll = nil
+        pagePollsPermissions = false
     }
+
+    /// Settings → Permissions is shown and polling.
+    private var pagePollsPermissions = false
 
     func refreshCurrentStep() async {
         switch step {
@@ -293,12 +306,18 @@ final class SetupModel: ObservableObject {
 
     // MARK: Choose your AI
 
-    func refreshAI() async {
+    /// `changedElsewhere`: a change event or FERB coming back to the front; when it shows the AI changed, the page's
+    /// last line (about the old state) goes (APP-882).
+    func refreshAI(changedElsewhere: Bool = false) async {
         do {
-            ai = AISnapshot(reply: try await rpc.call("runtimes.status", params: [:]))
+            let fresh = AISnapshot(reply: try await rpc.call("runtimes.status", params: [:]))
+            if changedElsewhere, fresh != ai, ai != nil, Date().timeIntervalSince(ownAIChange) > 5 { aiMessage = nil }
+            ai = fresh
+            daemonSilent = false
             clearNotAnswering()
         } catch {
             message = Self.notAnswering
+            daemonSilent = true
             return
         }
         guard claudeSigningIn, let status = claudeSignIn, !status.waiting else { return }
@@ -384,19 +403,25 @@ final class SetupModel: ObservableObject {
         return ModelList(reply: reply)
     }
 
-    /// The owner's model for a connection, or for one role on it (`role`; "" clears the role's own). The daemon checks it
-    /// first and keeps the previous one when it fails; the line says which, in the provider's words.
-    func setModel(_ runtime: String, _ chosen: String, role: String? = nil) async -> String {
-        var params: [String: Any] = ["runtime": runtime, "model": chosen]
+    /// The owner's model and effort for a connection, or for one role on it (`role`; "" clears the role's own; effort ""
+    /// is the model's default), saved by one Use (APP-881). The daemon checks them first and keeps the previous ones
+    /// when they fail; the line says which, in the provider's words, and says "FERB uses …" only when a role runs on
+    /// that connection (APP-882).
+    func setModel(_ runtime: String, _ chosen: String, effort: String, role: String? = nil,
+                  connectionModel: String = "") async -> String {
+        var params: [String: Any] = ["runtime": runtime, "model": chosen, "effort": effort]
         if let role { params["role"] = role }
+        ownAIChange = Date()
         do {
             let reply = try await rpc.call("runtimes.model", params: params, wait: 90)
             await refreshAI()
-            if reply["ok"] as? Bool == true {       // APP-827: "now" only for a connection or role in use
-                return ai?.modelSaved(runtime, chosen, role: role)
-                    ?? (chosen.isEmpty ? "The \(role ?? "") role uses the connection's model." : "Saved \(chosen).")
+            if reply["ok"] as? Bool == true {
+                return ModelSaveLine.saved(model: chosen, effort: effort, connectionModel: connectionModel,
+                                           runtime: runtime, role: role, running: ai?.runs(runtime, role: role) == true)
             }
-            return "\(chosen) didn't work, so FERB keeps the model it had: \(reply["detail"] as? String ?? "no answer")"
+            let tried = [chosen, effort.isEmpty ? "" : "\(effort) effort"].filter { !$0.isEmpty }.joined(separator: " at ")
+            return "\(tried.isEmpty ? "That" : tried) didn't work, so FERB keeps what it had: "
+                + (reply["detail"] as? String ?? "no answer")
         } catch { return error.localizedDescription }
     }
 
@@ -404,6 +429,7 @@ final class SetupModel: ObservableObject {
     /// (APP-792, owner 2026-11-08) and the line says why.
     private func use(_ runtime: String, check: Bool) async {
         let name = AISnapshot.label(runtime)
+        ownAIChange = Date()
         do {
             if check {
                 aiMessage = "Checking that \(name) answers…"
@@ -435,12 +461,20 @@ final class SetupModel: ObservableObject {
     func refreshPermissions() async -> Bool {
         var answered = false
         do {
-            let params: [String: Any] = freshReads.isEmpty ? [:] : ["fresh": freshReads.sorted()]
+            var fresh = freshReads
+            if pagePollsPermissions {
+                fresh.formUnion((permissions?.rows ?? []).filter { $0.restartToCheck && $0.status != .granted }.map(\.id))
+            }
+            let params: [String: Any] = fresh.isEmpty ? [:] : ["fresh": fresh.sorted()]
             let reply = try await rpc.call("setup.permissions", params: params, wait: 10)
             if let snapshot = PermissionSnapshot(reply: reply) { permissions = snapshot }
             clearNotAnswering()
+            daemonSilent = false
             answered = true
-        } catch { message = Self.notAnswering }
+        } catch {
+            message = Self.notAnswering
+            daemonSilent = true
+        }
         let notifications = await app.notifications()
         let microphone = app.microphone()
         appRows = [
@@ -571,13 +605,24 @@ final class SetupModel: ObservableObject {
     // MARK: Browsers
 
     /// The daemon connects the browsers here once it has Full Disk Access (DMN-507); what kept it from that is shown.
+    /// The page-level problem line goes once the daemon no longer reports it (APP-883).
     func refreshBrowsers() async {
         do {
             browsers = BrowserSnapshot(reply: try await rpc.call("setup.browsers", params: [:]))
             clearNotAnswering()
-            if let problem = browsers?.problem, !problem.isEmpty { message = problem }
-        } catch { message = Self.notAnswering }
+            daemonSilent = false
+            let problem = browsers?.problem ?? ""
+            if !problem.isEmpty { message = problem }
+            else if let shown = shownBrowserProblem, message == shown { message = nil }
+            shownBrowserProblem = problem.isEmpty ? nil : problem
+        } catch {
+            message = Self.notAnswering
+            daemonSilent = true
+        }
     }
+
+    /// The browsers' problem the page last showed as its message.
+    private var shownBrowserProblem: String?
 
     /// Add to <browser> on one profile (HAND-413): FERB's Web Store page opens in that profile (the owner adds it;
     /// FERB never does), then `watchForExtension` waits for the extension to be there and on. False when the page

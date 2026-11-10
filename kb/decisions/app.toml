@@ -1678,7 +1678,8 @@ live = ["LIVE-710"]
 title = "Settings → AI ticks the service FERB uses, from the daemon's roles"
 by = "agent"
 date = 2026-11-04
-status = "active"
+status = "superseded"
+superseded_by = "APP-882"
 rule = "Settings → AI and the setup's AI step tick the service FERB's roles run on now (runtimes.status roles: ChatGPT, Claude, or the API key under Other ways to connect, which names it), never one that is merely signed in; a signed-in service not in use offers Use. The page re-reads after any change it makes and when FERB comes back to the front."
 why = "Owner, 2026-11-04: ChatGPT was ticked while FERB ran on the Anthropic API key (roles all anthropic); the tick read Codex's sign-in, not the roles."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift"]
@@ -3330,8 +3331,68 @@ live = ["LIVE-861"]
 title = "A model saved on a connection FERB doesn't use now says so, never \"FERB uses it now\""
 by = "agent"
 date = 2026-11-10
-status = "active"
+status = "superseded"
+superseded_by = "APP-882"
 rule = "For RUN-431 and APP-655. After Settings → AI saves a model, the line says \"FERB uses <model> now.\" only when that connection is in use (a role's own model: only when that role runs there); otherwise \"Saved <model> for <connection>. FERB uses it when <connection> is in use.\" (for a role: when that role runs there). Read from runtimes.status after the save (AISnapshot.modelSaved)."
 why = "Live 2026-11-10: the Claude card said \"FERB uses claude-sonnet-5-5 now.\" while FERB still ran on ChatGPT, which read as if FERB had switched service."
-paths = ["ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift::AISnapshot.modelSaved", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::SetupModel.setModel"]
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift::ModelSaveLine", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::SetupModel.setModel"]
 live = ["LIVE-870"]
+
+[APP-880]
+title = "Settings shows FERB's real state, kept current"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "also shodl be in teh fix is settings correct data. currenlty it isnt relaly good, as you saw on the green tick and other thigns not being shown or hidden in UI."
+words_source = "Owner 2026-11-10, after a read-only audit of what Settings shows and when it refreshes (the AI tick, sign-in, browsers, permissions)"
+rule = "Every Settings page shows what FERB's background service reports now: which connection each role uses, sign-in and refusals, each browser profile's state, each permission's state. A change made anywhere shows without reopening the page; a page FERB didn't answer says so instead of showing defaults or stale rows as current."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift"]
+live = ["LIVE-880", "LIVE-882", "LIVE-883"]
+
+[APP-881]
+title = "The effort level is chosen beside the model, with a typed level when the list doesn't fit"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "also show the effort level along with model selection(along with text field if the effort level in our settigns is not applicable to that)"
+words_source = "Owner 2026-11-10, in the same message as APP-880"
+rule = "Settings → AI shows an effort picker beside each model picker (each connection's and each role's under Advanced): the model's own levels, its default, and a text field for a level the list doesn't have."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift::ModelRow", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift::ModelList"]
+live = ["LIVE-881"]
+
+[APP-882]
+title = "Settings → AI: each card names the roles on it, follows changes made anywhere, keeps a refusal"
+by = "agent"
+date = 2026-11-10
+status = "active"
+supersedes = ["APP-655", "APP-827"]
+rule = "For APP-880. A card with roles on it shows a tick and \"Planner · Worker · Checker\" (those that run there). runtimes.changed re-reads the page; a change made elsewhere clears its old line. \"FERB uses X now\" only where a role runs; else \"Saved for …\". \"In use:\" only on a used card, else \"Model:\". The last refusal (signed out / usage limit, when, the step) shows until a call answers. Advanced shows whenever a role runs, each role on its own connection. Check: one button per connection in use, its result with the time."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift::AIStepView", "ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift::RoleModelsView", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift::AISnapshot", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift::ModelSaveLine", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift::AISettingsPage", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift"]
+live = ["LIVE-880"]
+
+[APP-883]
+title = "Settings → Browsers: each profile row's version, connection and problem, read every 3 s"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For APP-880. Each profile row says its state as it stands: \"Not connected: <why>\" for a paired profile FERB knows why (refused, too old as last reported), \"Too old (version X)\" from the profile's files (Pair is off then), \"Paired · connected\" or \"Paired · not connected\", else the setup state; the extension version under it. The page re-reads setup.browsers every 3 s while shown, and the page's problem line goes once the daemon no longer reports it."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift::BrowserProfileRow", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::SetupModel.refreshBrowsers", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift::BrowsersSettingsPage"]
+live = ["LIVE-882"]
+
+[APP-884]
+title = "Permissions shows each status in words; pages say when FERB isn't answering; schedules follow events"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For APP-880. A permission row shows its status word (On, Off, Not asked yet…), and \"On in macOS; FERB needs a restart to use it\" for any off row a fresh process reads on while the page polls (every off restart-to-check row is read fresh then; the restart button shows). AI, Permissions and Browsers say FERB isn't answering and dim their rows when a read fails. Privacy and Notifications show Unknown instead of defaults when their read failed. Schedules & Reminders re-read on timer.changed, timer.fired and task.result."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift::PermissionRowView", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::SetupModel.refreshPermissions", "ui/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift::KnownToggle", "ui/mac/FERBNotch/Sources/FERBNotch/WindowPages.swift::SchedulesPage", "ui/mac/FERBNotch/Sources/NotchCore/WindowRows.swift::SettingsSnapshot"]
+live = ["LIVE-883"]
+
+[APP-885]
+title = "The effort picker: Default (the model's), its levels, Other… with a text field; one Use saves both"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For APP-881. Beside the model picker: \"Default (<the model's default>)\" (\"the model's own\" when undocumented), the chosen model's levels from runtimes.models (a level set but unlisted stays shown) and \"Other…\" with a text field; a model with no listed levels offers Default and Other… only. The list follows the model picked. One Use sends model and effort to runtimes.model; a refused level keeps the old one and shows the provider's words. Advanced's role rows have the same picker and say each role's default."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift::ModelRow", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::SetupModel.setModel"]
+live = ["LIVE-881"]

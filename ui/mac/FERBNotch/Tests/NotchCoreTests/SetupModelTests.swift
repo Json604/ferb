@@ -469,4 +469,79 @@ final class SetupModelTests: XCTestCase {
         XCTAssertTrue(removed)
         XCTAssertEqual(rpc.params(of: "keys.delete").first?["provider"] as? String, "anthropic")
     }
+
+    private static func status(_ runtime: String) -> [String: Any] {
+        ["roles": ["orchestrator": runtime, "worker": runtime, "checker": runtime],
+         "runtimes": [["name": "codex", "usable": true, "signed_in": true, "model": "gpt-5.6-sol"],
+                      ["name": "claude", "usable": true, "signed_in": true, "model": "claude-opus-5-5"]]]
+    }
+
+    // decision: APP-881, APP-885, APP-882
+    /// One Use saves the model and its effort; "FERB uses … now" only for a connection a role runs on.
+    func testOneUseSavesModelAndEffortAndSaysUsesNowOnlyWhereARoleRuns() async {
+        let rig = SetupRig()
+        rig.rpc.replies["runtimes.status"] = Self.status("codex")
+        rig.rpc.replies["runtimes.model"] = ["ok": true, "model": "claude-sonnet-5-5", "effort": "high"]
+        let model = rig.model()
+        let line = await model.setModel("claude", "claude-sonnet-5-5", effort: "high")
+        let sent = rig.rpc.params(of: "runtimes.model").first
+        XCTAssertEqual(sent?["model"] as? String, "claude-sonnet-5-5")
+        XCTAssertEqual(sent?["effort"] as? String, "high")
+        XCTAssertEqual(line, "Saved for Claude; FERB uses it when a role runs on Claude.")
+        let used = await model.setModel("codex", "gpt-5.6-sol", effort: "")
+        XCTAssertEqual(used, "FERB uses gpt-5.6-sol now.")
+        rig.rpc.replies["runtimes.model"] = ["ok": false, "detail": "unsupported effort: turbo"]
+        let refused = await model.setModel("codex", "gpt-5.6-sol", effort: "turbo")
+        XCTAssertEqual(refused, "gpt-5.6-sol at turbo effort didn't work, so FERB keeps what it had: unsupported effort: turbo")
+    }
+
+    // decision: APP-882, APP-884
+    /// A change made elsewhere clears the page's old line; a daemon that stops answering is said and the page dims.
+    func testAChangeMadeElsewhereClearsTheOldLineAndSilenceIsSaid() async {
+        let rig = SetupRig()
+        rig.rpc.replies["runtimes.status"] = Self.status("codex")
+        rig.rpc.replies["runtimes.check"] = ["ok": false, "detail": "not logged in"]
+        let model = rig.model()
+        await model.refreshAI()
+        await model.useClaude()
+        XCTAssertNotNil(model.aiMessage)
+        await model.refreshAI(changedElsewhere: true)                    // nothing changed: the line stays
+        XCTAssertNotNil(model.aiMessage)
+        rig.rpc.replies["runtimes.status"] = Self.status("claude")
+        await model.refreshAI(changedElsewhere: true)
+        XCTAssertNotNil(model.aiMessage)                                  // within its own change's few seconds
+        rig.rpc.failures["runtimes.status"] = DaemonRPCError.unavailable
+        await model.refreshAI()
+        XCTAssertTrue(model.daemonSilent)
+        rig.rpc.failures["runtimes.status"] = nil
+        await model.refreshAI()
+        XCTAssertFalse(model.daemonSilent)
+    }
+
+    // decision: APP-883
+    func testTheBrowsersProblemLineGoesWhenTheProblemIsGone() async {
+        let rig = SetupRig()
+        rig.rpc.replies["setup.browsers"] = ["browsers": [[String: Any]](), "problem": "Chrome refused FERB's files."]
+        let model = rig.model()
+        await model.refreshBrowsers()
+        XCTAssertEqual(model.message, "Chrome refused FERB's files.")
+        rig.rpc.replies["setup.browsers"] = ["browsers": [[String: Any]]()]
+        await model.refreshBrowsers()
+        XCTAssertNil(model.message)
+    }
+
+    // decision: APP-884
+    /// While Settings → Permissions polls, every off row whose switch needs a restart is read by a fresh process too,
+    /// so "on in macOS but FERB needs a restart" shows without a grant's wait.
+    func testThePermissionsPageAsksAFreshReadForEveryOffRestartRow() async {
+        let rig = SetupRig()
+        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(screen: "denied", screenRestartNeeded: true)
+        let model = rig.model()
+        model.startPolling(.permissions, every: .milliseconds(5))
+        await eventually { rig.rpc.params(of: "setup.permissions").count >= 2 }
+        model.stopPolling()
+        let fresh = rig.rpc.params(of: "setup.permissions").last?["fresh"] as? [String]
+        XCTAssertEqual(fresh, ["full_disk_access", "screen_recording"])
+        XCTAssertTrue(model.offersRestart)                                // the restart that applies it is offered
+    }
 }
