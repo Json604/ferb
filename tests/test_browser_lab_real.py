@@ -186,7 +186,8 @@ def test_pointer_refuses_dom_changes_since_screenshot(lab: Any, site: str) -> No
             t = router._tabs[tab.tab_id]
             chrome.evaluate(chrome.sw, f"chrome.scripting.executeScript({{target:{{tabId:{t.chrome_id}}},func:()=>document.querySelector('canvas').style.left='80px'}})")
             result = await router.act(router.element_ref(tab, point.id), BrowserAction("click"), "")
-            assert not result.ok and "visual_stale" in result.detail
+            # HAND-480: the target itself moved, so the point no longer hits it as it was
+            assert not result.ok and "visual_target_changed: frame 0 element" in result.detail, result.detail
         finally:
             await router.close(tab)
     d.run(go(), timeout=90)
