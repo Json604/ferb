@@ -1,11 +1,14 @@
 """Past-bug guards from live 2026-11-10 (amazon.in product pages, task 64a149b8): FERB couldn't press Add to cart or
 Buy Now. A screenshot point failed 10 of 10 as "visual_stale" and screenshots as "page_changed_during_screenshot",
 because any DOM change anywhere counted (HAND-480, HAND-481); an element parked off the page's left edge was called
-covered (HAND-482). The extension's own code, run under node."""
+covered (HAND-482); the in-view buy box was cut from the snapshot preview for off-screen items (HAND-483). The
+extension's own code, run under node, and the daemon's preview."""
 
 import json
 import subprocess
 
+from ferb.act.browser.snapshot import for_model
+from ferb.core.types import PageElement, PageSnapshot, TabRef
 from tests.chromelab import EXT, _node, worker
 
 # A tab whose top frame (0) holds the buy button above y=500 and an ad's frame (7) below it. Every read of a frame's
@@ -125,3 +128,27 @@ console.log(JSON.stringify(out));
     assert "bottom" in out["below"]
     assert out["covered"]["occluded"] is True and "error" not in out["covered"]
     assert out["clear"]["occluded"] is False
+
+
+def _el(n: int, label: str, in_view: bool) -> PageElement:
+    return PageElement(id=f"s1e{n}", frame_id="0", role="link" if not in_view else "button", label=label, value=None,
+                       rect=(0, 0, 10, 10), visible=True, in_view=in_view, offscreen=None if in_view else "below")
+
+
+# decision: HAND-483
+def test_the_preview_keeps_what_is_on_screen_and_says_how_many_on_screen_were_left_out() -> None:
+    """Accessibility-matched elements come first, page-walk ones after: off-screen menu links filled the budget and the
+    buy box in view (later in the list) was cut."""
+    tab = TabRef("d", "chrome", "Default", 1, "t1")
+    menu = [_el(n, f"Department {n} " + "x" * 200, False) for n in range(1, 400)]
+    box = [_el(400, "Buy Now", True), _el(401, "Add to Cart", True)]
+    out = for_model(PageSnapshot(tab, 1, "https://shop.example/p", "P", menu + box))
+    labels = [e["label"] for e in out["elements"]]
+    assert "Buy Now" in labels and "Add to Cart" in labels and labels[-2:] == ["Buy Now", "Add to Cart"]
+    assert out["omitted_elements"] > 0 and "omitted_in_view_elements" not in out
+    crowded = for_model(PageSnapshot(tab, 1, "https://shop.example/p", "P",
+                                     [_el(n, "On screen " + "y" * 300, True) for n in range(1, 200)]))
+    assert crowded["omitted_in_view_elements"] == crowded["omitted_elements"] > 0
+    assert str(crowded["omitted_in_view_elements"]) in crowded["omitted_note"]
+    full = for_model(PageSnapshot(tab, 1, "https://shop.example/p", "P", menu + box), full=True)
+    assert len(full["elements"]) == 401                                        # the saved snapshot keeps everything

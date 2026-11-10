@@ -117,18 +117,24 @@ def for_model(snap: PageSnapshot, *, full: bool = False, probe: bool = False) ->
         if e.state:
             d["state"] = list(e.state)
         els.append(d)
-    omitted = 0
+    omitted = omitted_in_view = 0
     if not full:
+        # HAND-483: the budget goes to what is on screen first, then the rest in the list's order; the preview keeps
+        # the list's order. Live 2026-11-10: an Amazon buy box in view was cut for 321 off-screen items.
         import json
-        budget, shown = 24000, []
-        for item in els:
-            size = len(json.dumps(item, ensure_ascii=False))
-            if size <= budget:
-                shown.append(item)
-                budget -= size
-            else:
-                omitted += 1
-        els = shown
+        budget, keep = 24000, set()
+        for first in (True, False):
+            for i, item in enumerate(els):
+                if ("in_view" not in item) != first:
+                    continue
+                size = len(json.dumps(item, ensure_ascii=False))
+                if size <= budget:
+                    keep.add(i)
+                    budget -= size
+                else:
+                    omitted += 1
+                    omitted_in_view += first
+        els = [item for i, item in enumerate(els) if i in keep]
     text = snap.text if full else snap.text[:MAX_TEXT]
     out: dict[str, Any] = {"tab": snap.tab.tab_id, "url": snap.url, "title": snap.title}
     if snap.loading:                               # read at once, not after every frame loaded (HAND-434): a fact
@@ -151,6 +157,10 @@ def for_model(snap: PageSnapshot, *, full: bool = False, probe: bool = False) ->
     if snap.truncated or omitted or len(text) < len(snap.text):
         out["truncated"] = True
         out["omitted_elements"] = omitted
+        if omitted_in_view:
+            out["omitted_in_view_elements"] = omitted_in_view
+            out["omitted_note"] = (f"{omitted_in_view} of the left-out elements are on screen; browser.read pages "
+                                   "the full snapshot with every element")
         out["total_text_chars"] = len(snap.text)
         out["next"] = "browser.read / ferb_browser.read with this tab and offset=0 retrieves the full saved snapshot as paged JSON"
         if len(text) < len(snap.text):
