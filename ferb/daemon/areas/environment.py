@@ -104,13 +104,12 @@ class Environment:
 
     def _conversation_tasks(self, task_id: str) -> set[str]:
         """The tasks of the conversation a running task (or the planner's lookup turn) belongs to: what task.evidence's
-        task_id may read (ORCH-517). From the registered live record's tree and the stored chat, never from a name."""
+        task_id may read (ORCH-517); for the owner's planner turn, the owner's scheduled runs too (ORCH-593). From the
+        registered live record's tree and the stored chat, never from a name."""
         rec = self.tasks.get(task_id)
         if rec is None or self.supervisor is None:
             return set()
-        continuity = self.supervisor.continuity
-        conversation = continuity.conversation_of(rec.tree_id or task_id)
-        return continuity.task_ids(conversation) if conversation is not None else set()
+        return self.supervisor.continuity.readable_tasks(rec.tree_id or task_id)
 
     async def _loop_rest(self, task_id: str, resting: bool) -> None:
         """A loop's round starts or ends (L31): each browser driver gives the owner's held tab its file picker back

@@ -3510,9 +3510,10 @@ class Supervisor(WorkerRuns):
                 who = (f"FERB (posted by itself: part “{data.get('label', '')}” of task {data.get('task_id')}, "
                        f"{data.get('state')}{cut}; model-written; origin {origins_.shown(held)})")
             said = as_data(short)
+        # ORCH-593: the owner's planner reads each post whole by its entry id, and a run's records by its task id
         reference = (f"task.evidence task_id={data.get('task_id')}" if entry.kind == "chat.part" else
-                     "the post as shown here" if entry.kind == "timer.delivered" else
-                     f"FERB's own post (journal {entry.id}); the run's records are its schedule's")
+                     f"chat.history entry_id={entry.id}" if entry.kind == "timer.delivered" else
+                     f"chat.history entry_id={entry.id}; the run's records: task.evidence task_id={data.get('task_id')}")
         return _Entry(entry.at, f"({entry.at.astimezone():%a %d %b %H:%M}) {who}: " + said,
                       _entry_payload(entry.kind, data), reference, True, held,
                       ENTRY + entry.id, entry.kind, (), False, _stored_values(entry.kind, data))

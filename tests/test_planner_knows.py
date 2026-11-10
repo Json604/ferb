@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from ferb.policy.targets import Targets
 from ferb.cli.client import Client
-from tests.conftest import RunningDaemon, chat, cond, install, report, sup, task, verdict
+from tests.conftest import RunningDaemon, chat, cond, install, report, sup, task, tool, verdict
 from tests.support.schedules import fire, make_schedule, run
 from tests.test_answers_in_steps import Turn, _until
 
@@ -89,3 +89,40 @@ def test_a_secret_cards_answer_reaches_the_planner_only_as_given(daemon: Running
     chat(daemon, "what did you need the code for?")
     block = _planner(script).split("Layer 2 — what happened since", 1)[1]
     assert '"card": "secret", "question": "Enter the login code the portal sent", "answer": "given"' in block
+
+
+def _reply(text: str) -> str:
+    return json.dumps({"kind": "reply", "answer_question": None, "task": None, "control": None, "remember": [],
+                       "timers": [], "schedule": None, "schedule_changes": [], "reminder_cancels": [], "forget": [],
+                       "conversation_changes": [], "text": text})
+
+
+# decision: ORCH-593
+def test_the_owners_lookups_reach_the_scheduled_runs_and_ferbs_own_posts(daemon: RunningDaemon) -> None:
+    """The planner's chat.history lists the owner's scheduled runs and reads FERB's posted result by its entry id, and
+    task.evidence reads the run's records; a chat task's own worker still can't read them (ORCH-517's fence)."""
+    _visa_schedule(daemon)
+    install(daemon, [sup("task", "Checking.", task("Check visa slots"))], {"worker": json.dumps(report("done", NO_SLOTS))})
+    fire(daemon, 61)
+    [posted] = run(daemon, lambda: daemon.daemon.journal.of_kind("schedule.posted"))
+    ran = str(posted.data["task_id"])
+    found: dict[str, object] = {}
+
+    def look(token: str) -> str:
+        found["tasks"] = tool(daemon.sock, token, "chat.history", include_tasks=True)
+        found["post"] = tool(daemon.sock, token, "chat.history", entry_id=posted.id)
+        found["records"] = tool(daemon.sock, token, "task.evidence", task_id=ran)
+        return _reply("It found no slots.")
+    install(daemon, [look])
+    chat(daemon, "what did the visa check find?", session="owner")
+    listed = found["tasks"]["content"]["records"]                       # type: ignore[index]
+    assert any(r["kind"] == "task" and r["id"] == ran for r in listed)
+    assert not found["post"]["is_error"] and NO_SLOTS in json.dumps(found["post"]["content"])   # type: ignore[index]
+    assert not found["records"]["is_error"], found["records"]
+
+    def worker(token: str) -> str:
+        found["worker"] = tool(daemon.sock, token, "task.evidence", task_id=ran)
+        return json.dumps(report("done", "Read nothing."))
+    install(daemon, [sup("task", "Looking.", task("Look at the visa run"))], {"worker": worker})
+    chat(daemon, "look at the visa run's records", session="owner")
+    assert found["worker"]["is_error"]                                  # type: ignore[index]

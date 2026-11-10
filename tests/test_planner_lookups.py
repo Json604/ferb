@@ -53,7 +53,7 @@ def test_a_hi_turn_looks_nothing_up_and_is_pushed_no_memory_activity_or_ended_ta
     assert daemon.run(held()) == (0, None)
 
 
-# decision: ORCH-515, ORCH-516, ORCH-517
+# decision: ORCH-515, ORCH-516, ORCH-593
 def test_a_question_about_an_older_task_is_looked_up_and_answered_from_it(daemon: RunningDaemon) -> None:
     install(daemon, [sup("task", "Reading it.", task("Read the newest invoice", "owner"))],
             {"worker": done("The newest invoice is from Acme, total 412 EUR, due 30 Nov.")})

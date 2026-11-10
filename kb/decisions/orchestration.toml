@@ -550,7 +550,8 @@ paths = ["ferb/orchestrator/supervisor.py::PLANNER_TOOLS", "ferb/orchestrator/su
 title = "task.evidence reads an earlier task of the caller's conversation by task_id"
 by = "agent"
 date = 2026-11-03
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-593"
 rule = "task.evidence takes an optional task_id: a task of the caller's conversation (the conversation of the caller's registered record, never a name), read whole (its tree's tool calls, records and reports) with that task's own origins; any other id is refused. Without it the tool reads the caller's own task as before."
 why = "The planner reads an older task's records instead of having them pushed (ORCH-515); workers get the same one path."
 paths = ["ferb/orchestrator/evidence.py::TaskEvidence", "ferb/store/spans.py::SpanStore._evidence_where", "ferb/daemon/areas/environment.py::Environment._conversation_tasks"]
@@ -1274,6 +1275,16 @@ status = "active"
 rule = "For ORCH-589. Refines ORCH-568 and ORCH-585. A failed one-ask task's answer (scheduled or chat) is code's sentence (\"I couldn't finish this task.\" and the reason, a code check's \"Not done: …\" included), then \"What the check confirmed:\", one line per outcome condition judged met (\"Didn't apply\" too): the condition and the checker's evidence, at most 300 characters each, then \"What I found:\" as before. A done claim a code check proved false stays out (ORCH-568). Chosen by the verdict's structure, never its words."
 why = "Owner 2026-11-10 on the visa run beeb93f5: the check confirmed \"No Slots Available\" at all five posts, but the failed reply showed only the booking condition's code sentence."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrator/supervisor.py::Supervisor._confirmed_lines"]
+
+[ORCH-593]
+title = "The owner's planner looks up the owner's scheduled runs and FERB's own posts"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For ORCH-589. Supersedes ORCH-517. task.evidence task_id reads a task of the caller's conversation, whole, with its own origins; for the owner's planner turn in an owner chat (its lent lookup record, always the owner's) also any of the owner's scheduled runs (schedule: sessions). chat.history reads FERB's own posts in an owner chat (schedule.posted, timer.delivered, chat.part of its tasks) and, for that planner turn, the scheduled runs' replies and tasks too. Workers' and scheduled runs' own lookups are unchanged; any other id is refused."
+paths = ["ferb/orchestrator/continuity.py::Continuity._where", "ferb/orchestrator/continuity.py::Continuity.reaches_schedules", "ferb/orchestrator/continuity.py::Continuity.readable_tasks", "ferb/daemon/areas/environment.py::Environment._conversation_tasks", "ferb/orchestrator/evidence.py::TaskEvidence"]
+supersedes = ["ORCH-517"]
+live = ["LIVE-893"]
 
 [ORCH-591]
 title = "The planner is told what FERB did since the owner's previous message"

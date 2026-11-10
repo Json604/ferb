@@ -127,19 +127,48 @@ class Continuity:
         return {row[0] for row in self.db.conn.execute(
             "SELECT task_id FROM task_context WHERE conversation_id = ?", (conversation,))}
 
-    # The conversation kinds chat.history reads (supervisor.CONVERSATION_KINDS)
-    KINDS = ("chat.message", "chat.reply", "chat.clarify", "task.answer", "chat.notice")
+    def reaches_schedules(self, task_id: str) -> bool:
+        """ORCH-593: whether a lookup by this record also reads the owner's scheduled runs (their `schedule:` sessions):
+        only the owner's planner turn in one of the owner's chats (its lookup record is lent the chat, `lend`, and is
+        always the owner's, Supervisor._lookup_grant); a worker's or a scheduled run's own lookups read as before."""
+        conversation = self._lent.get(task_id)
+        return conversation is not None and not conversation.startswith(RESERVED_SESSIONS)
 
-    def _where(self, conversation: str) -> tuple[str, list[Any]]:
-        """SQL for the journal rows that belong to a conversation (`in_conversation`, plus its tasks' answers)."""
-        marks = ",".join("?" * len(self.KINDS))
-        notices = "" if conversation.startswith(RESERVED_SESSIONS) else \
-            " OR (kind = 'chat.notice' AND json_extract(data_json, '$.session_id') IS NULL)"
+    def readable_tasks(self, task_id: str) -> set[str]:
+        """The task ids a record's task.evidence task_id may read (ORCH-517, ORCH-593): its conversation's tasks, and the
+        owner's scheduled runs' for the owner's planner turn."""
+        conversation = self.conversation_of(task_id)
+        if conversation is None:
+            return set()
+        return self.task_ids(conversation) | (self._schedule_tasks() if self.reaches_schedules(task_id) else set())
+
+    # The conversation kinds chat.history reads (supervisor.CONVERSATION_KINDS), and what FERB posted in the owner's
+    # chat by itself (supervisor.SELF_POSTS, ORCH-588): a scheduled run's result and a reminder belong to every owner
+    # chat, a part posted as it landed to its task's chat
+    KINDS = ("chat.message", "chat.reply", "chat.clarify", "task.answer", "chat.notice")
+    SELF_POSTS = ("schedule.posted", "timer.delivered", "chat.part")
+
+    def _where(self, conversation: str, schedules: bool = False) -> tuple[str, list[Any]]:
+        """SQL for the journal rows that belong to a conversation (`in_conversation`, plus its tasks' answers and, for an
+        owner chat, FERB's own posts there, ORCH-593). `schedules`: the owner's planner turn also reads the owner's
+        scheduled runs, their planner replies and their tasks' answers (`reaches_schedules`)."""
+        owner_chat = not conversation.startswith(RESERVED_SESSIONS)
+        kinds = self.KINDS + (self.SELF_POSTS if owner_chat else ())
+        marks = ",".join("?" * len(kinds))
+        ran = " OR conversation_id LIKE 'schedule:%'" if schedules else ""
+        tasks = f"(SELECT task_id FROM task_context WHERE conversation_id = ?{ran})"
+        session = ("json_extract(data_json, '$.session_id') = ?" +
+                   (" OR json_extract(data_json, '$.session_id') LIKE 'schedule:%'" if schedules else ""))
+        posts = ("" if not owner_chat else
+                 " OR (kind = 'chat.notice' AND json_extract(data_json, '$.session_id') IS NULL)"
+                 " OR kind IN ('schedule.posted', 'timer.delivered')"
+                 f" OR (kind = 'chat.part' AND json_extract(data_json, '$.task_id') IN {tasks})")
+        args: list[Any] = [*kinds, conversation, *([conversation] if owner_chat else []), conversation, conversation]
+        own = "'task.answer', 'schedule.posted', 'timer.delivered', 'chat.part'"    # rows placed by the lines above
         return (f"kind IN ({marks}) AND ((kind = 'task.answer' AND json_extract(data_json, '$.task_id') IN "
-                f"(SELECT task_id FROM task_context WHERE conversation_id = ?)){notices} OR (kind != 'task.answer' "
-                f"AND json_extract(data_json, '$.session_id') IS NOT NULL AND json_extract(data_json, '$.session_id') = ?)"
-                f" OR (kind NOT IN ('task.answer', 'chat.notice') AND json_extract(data_json, '$.session_id') IS NULL "
-                f"AND ? = 'owner'))", [*self.KINDS, conversation, conversation, conversation])
+                f"{tasks}){posts} OR (kind NOT IN ({own}) AND json_extract(data_json, '$.session_id') IS NOT NULL "
+                f"AND ({session})) OR (kind NOT IN ({own}, 'chat.notice') "
+                f"AND json_extract(data_json, '$.session_id') IS NULL AND ? = 'owner'))", args)
 
     @staticmethod
     def _record(row: Any) -> dict[str, Any]:
@@ -155,7 +184,7 @@ class Continuity:
         conversation = self.conversation_of(task_id)
         if conversation is None:
             return [], 0
-        where, args = self._where(conversation)
+        where, args = self._where(conversation, self.reaches_schedules(task_id))
         if since:
             where, args = where + " AND at >= ?", args + [since]
         if until:
@@ -170,29 +199,42 @@ class Continuity:
         conversation = self.conversation_of(task_id)
         if conversation is None:
             return None
-        where, args = self._where(conversation)
-        row = self.db.conn.execute(f"SELECT * FROM journal WHERE id = ? AND {where}", [entry_id, *args]).fetchone()
+        where, args = self._where(conversation, self.reaches_schedules(task_id))
+        row =self.db.conn.execute(f"SELECT * FROM journal WHERE id = ? AND {where}", [entry_id, *args]).fetchone()
         return self._record(row) if row is not None else None
 
-    def belongs(self, conversation: str, kind: str, session: str, request: str, doc: str = "") -> bool:
+    def belongs(self, conversation: str, kind: str, session: str, request: str, doc: str = "",
+                schedules: bool = False) -> bool:
         """Whether an indexed conversation entry (its kind, chat and request or task id, its `journal:` doc) is in this
         conversation. A task's answer belongs by its task, as `_where` reads it (ORCH-584): the index keeps its request
-        id, so the task id is read from its journal row."""
+        id, so the task id is read from its journal row. `schedules` (ORCH-593): the owner's scheduled runs count too."""
         if kind == "task.answer":
             row = self.db.conn.execute("SELECT json_extract(data_json, '$.task_id') FROM journal WHERE id = ?",
                                        (doc.removeprefix("journal:"),)).fetchone() if doc else None
-            return bool({request, row[0] if row else None} & self.task_ids(conversation))
+            held = self.task_ids(conversation) | (self._schedule_tasks() if schedules else set())
+            return bool({request, row[0] if row else None} & held)
         if kind == "chat.notice" and not session:
             return not conversation.startswith(RESERVED_SESSIONS)
-        return session == conversation
+        return session == conversation or (schedules and session.startswith(SCHEDULE_SESSION))
+
+    def _schedule_tasks(self) -> set[str]:
+        return {row[0] for row in self.db.conn.execute(
+            "SELECT task_id FROM task_context WHERE conversation_id LIKE ?", (SCHEDULE_SESSION + "%",))}
 
     def tasks(self, task_id: str) -> list[dict[str, Any]]:
-        """The tasks of the registered task's conversation, as chat.history lists them."""
+        """The tasks of the registered task's conversation, as chat.history lists them; for the owner's planner turn,
+        the owner's scheduled runs too (ORCH-593), newest first after the chat's own."""
         conversation = self.conversation_of(task_id)
         if conversation is None:
             return []
+        rows = self.candidates(conversation)
+        if self.reaches_schedules(task_id):
+            rows += [dict(row) for row in self.db.conn.execute(
+                "SELECT c.task_id, c.prior_task, t.status, t.goal, t.updated_at, t.outcome_json FROM task_context c "
+                "JOIN tasks t ON t.id = c.task_id WHERE c.conversation_id LIKE ? ORDER BY t.rowid DESC",
+                (SCHEDULE_SESSION + "%",)).fetchall()]
         out = []
-        for row in self.candidates(conversation):
+        for row in rows:
             made = origin.join({origin.INFERRED} | origin.kinds(self.task_origins(row["task_id"])))   # MP2, GATE-519
             out.append({"id": row["task_id"], "kind": "task", "data": row, "origin": made})
         return out

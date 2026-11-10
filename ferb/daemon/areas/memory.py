@@ -376,10 +376,11 @@ class MemoryGlue:
         if conversation is None:
             return []
         vector, _ = await self._query_vector(query)
+        schedules = continuity.reaches_schedules(root_task)      # ORCH-593: the owner's planner reads their runs too
         hits = self._memory_search().chat(
             query, vector=vector, limit=limit, since=since, until=until,
             accept=lambda row: continuity.belongs(conversation, str(row["kind"]), str(row["session"]),
-                                                  str(row["request"]), str(row["doc"])))
+                                                  str(row["request"]), str(row["doc"]), schedules))
         return [hit.doc.removeprefix("journal:") for hit in hits]
 
     # ---------- the local embedding model (MEM-6) ----------
