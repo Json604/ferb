@@ -128,33 +128,35 @@ class Checks:
                 target = call.get("target") or {}
                 reached = [account_key(r) for r in [*(target.get("recipients") or []), target.get("contact")] if r]
                 if want in reached and (not k.site or site_key(k.site) == site_key(target.get("site"))):
-                    return result(True, f"a {call.get('tool')} call to {k.expected} ran without an error")
-            return result(False, f"no send to {k.expected} ran without an error in this task")
+                    return result(True, f"FERB sent it to {k.expected}")
+            on = f" on {k.site}" if k.site else ""
+            return result(False, f"FERB didn't send it; no send to {k.expected}{on} went through in this task")
         if k.kind == "paid":
             calls = [x for x in cards.paid(self.spans, task_id)
                      if not k.site or site_key(k.site) == site_key((x.get("target") or {}).get("site"))]
-            return result(bool(calls), f"{len(calls)} payment call(s) ran under the owner's Yes to a payment"
-                          if calls else "no payment ran under the owner's Yes to one in this task")
+            on = f" on {k.site}" if k.site else ""
+            return result(bool(calls), f"FERB paid{on} after your Yes" if calls
+                          else f"FERB didn't pay; no payment you said Yes to went through{on} in this task")
         if k.kind == "submitted":
             for call in cards.ran(self.spans, task_id, Kind.SUBMIT):
                 if site_key((call.get("target") or {}).get("site")) == site_key(k.site):
-                    return result(True, f"a form on {k.site} was submitted without an error")
-            return result(False, f"no form on {k.site} was submitted without an error in this task")
+                    return result(True, f"FERB submitted the form on {k.site}")
+            return result(False, f"FERB didn't submit it; no form on {k.site} went through in this task")
         try:
             want_path = str(resolve(k.path or "", ctx, must_exist=False))
         except PathRefused as e:
             return result(False, f"{k.path}: {e}")
         if k.kind == "downloaded":
             if any(_same(p, want_path) for p in cards.downloaded(self.spans, task_id)):
-                return result(True, f"{want_path} was downloaded by the task's browser tab")
+                return result(True, f"FERB downloaded {want_path}")
             if Path(want_path).exists():         # a download FERB has no record of (a command's): for the checker
-                return result(None, f"{want_path} exists, but no browser download of it is recorded in this task")
-            return result(False, f"{want_path} doesn't exist and no download of it is recorded in this task")
+                return result(None, f"{want_path} is there, but FERB has no record of downloading it in this task")
+            return result(False, f"FERB didn't download it; {want_path} isn't there and no download of it went "
+                          "through in this task")
         kind = Kind.TRASH if k.kind == "trashed" else Kind.DELETE_PERMANENT
         done = [x for x in cards.ran(self.spans, task_id, kind) if _same(cards.target_path(x), want_path)]
-        verb = "moved to the Trash" if k.kind == "trashed" else "deleted permanently"
-        return result(bool(done), f"{want_path} was {verb} by a call that ran without an error" if done
-                      else f"no call in this task {verb} {want_path} without an error")
+        did = (f"moved {want_path} to the Trash" if k.kind == "trashed" else f"deleted {want_path} permanently")
+        return result(bool(done), f"FERB {did}" if done else f"FERB didn't do it; nothing in this task {did}")
 
 
 def _same(a: str, b: str) -> bool:

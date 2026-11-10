@@ -18,7 +18,7 @@ def _cards(event: dict[str, Any], kind: str) -> list[dict[str, Any]]:
     return [c for c in event.get("cards") or [] if c["type"] == kind]
 
 
-# decision: ORCH-576
+# decision: ORCH-576, ORCH-583
 def test_a_send_the_records_dont_show_fails_however_the_checker_judged(daemon: RunningDaemon) -> None:
     """The worker says it sent; no send ran. The checker accepts; code's sent check is false, so the task fails."""
     spec = task("Email Alex the report", conds=(cond("Alex got the report", "sent", expected="alex@work.example"),))
@@ -28,7 +28,10 @@ def test_a_send_the_records_dont_show_fails_however_the_checker_judged(daemon: R
     final = outcome(chat(daemon, "email alex the report"))
     assert final["status"] == "failed"
     [result] = final["verification"]
-    assert result["met"] is False and result["path"] == "code" and "no send to alex@work.example" in result["evidence"]
+    assert result["met"] is False and result["path"] == "code" and "alex@work.example" in result["evidence"]
+    # ORCH-583: the reason reads as sentences, the condition apart from what code found (live 2026-11-10: "…server.: no
+    # send to … ran without an error in this task.")
+    assert ".:" not in final["answer"] and "alex@work.example" in final["answer"]
 
 
 # decision: ORCH-576

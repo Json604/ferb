@@ -5602,7 +5602,7 @@ class Supervisor(WorkerRuns):
             unknown = [r for r in outcome if r.met is not True]
             if refuted or (unknown and out.status != "done"):
                 why = checked.reason or ("" if refuted else tree.reason) or "; ".join(
-                    f"{self._owner_text(tree, r)}: {r.evidence}" for r in (refuted or unknown))
+                    self._found(tree, r) for r in (refuted or unknown))
                 return _Next("fail", reason=why)
             lines = [self._owner_text(tree, r) + (f" ({r.how.rstrip('.')})" if r.how else "") for r in unknown]
             tree.unconfirmed = "; ".join(line.strip().rstrip(".") for line in lines if line.strip())
@@ -5618,7 +5618,7 @@ class Supervisor(WorkerRuns):
                 return _Next("ask", question=question)
         # without the checker's reason: the worker's own reason for not finishing, else what the check found of the
         # outcome (never a done report's claim)
-        found = "; ".join(f"{self._owner_text(tree, r)}: {r.evidence}" for r in outcome if r.met is not True)
+        found = "; ".join(self._found(tree, r) for r in outcome if r.met is not True)
         # ORCH-562: a worker that didn't finish wrote its own account of why (its answer, its reason): the checker's
         # findings on those words get the same round as a done answer's (the checker's own reason stays its own)
         findings = [f for f in checked.findings if f.quote.strip()] if out.status != "done" else []
@@ -5793,6 +5793,15 @@ class Supervisor(WorkerRuns):
             return None
         self._set_status(vtask.id, "done", checked.model_dump())          # ORCH-548
         return [f for f in checked.findings if f.quote.strip()]
+
+    @classmethod
+    def _found(cls, tree: _Tree, result: ConditionResult) -> str:
+        """A condition the check didn't find met, as the owner reads it (ORCH-583): whether it is not done or couldn't be
+        confirmed, the condition in their terms as its own sentence, then what was found."""
+        said = cls._owner_text(tree, result).strip().rstrip('.')
+        found = result.evidence.strip()
+        lead = "Not done" if result.met is False else "Couldn't confirm"
+        return f"{lead}: {said}. {found[:1].upper()}{found[1:]}"
 
     @staticmethod
     def _owner_text(tree: _Tree, result: ConditionResult) -> str:

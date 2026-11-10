@@ -1178,3 +1178,12 @@ rule = "For ORCH-324 and ORCH-553. A planner answer of kind \"task\" with no tas
 why = "Live 2026-11-10: schedule requests on Codex and Claude Code first came back as kind task with task null and a filled schedules list, failed the answer form and cost a repair; Codex's repair did the same, so I1 and X3 were never set."
 paths = ["ferb/orchestrator/schemas.py::SupervisorOutcome._entries_only", "ferb/orchestrator/schemas.py::SIDE_ENTRIES"]
 live = ["LIVE-868"]
+
+[ORCH-583]
+title = "A failed check reads as plain sentences: not done or couldn't confirm, the condition, what was found"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For ORCH-576 and ORCH-568. A failed task's reason built from its conditions (no reason from the checker or worker) gives each unmet condition as \"Not done: <condition in the owner's terms>. <what was found>\" (\"Couldn't confirm:\" when it couldn't be seen), one shared helper (Supervisor._found). The literal checks (sent, paid, submitted, trashed, deleted, downloaded) say what FERB did or didn't do in the owner's terms: \"FERB didn't send it; no send to <recipient> went through in this task\", and the like for each kind."
+why = "Live 2026-11-10 (Codex G4): \"You see “hi from ferb” in #test on your FERB Discord server.: no send to hi from ferb in #test on the FERB Discord server ran without an error in this task.\""
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._found", "ferb/orchestrator/verify.py::Checks._action"]
