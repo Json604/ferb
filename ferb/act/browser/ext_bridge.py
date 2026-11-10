@@ -1871,6 +1871,12 @@ class _TabDriver:
             hits = value.get("hits", [{"frame_id": 0, "text": x} for x in value.get("examples", [])])
             current = t.snap_nav == getattr(t.bridge, "navs", {}).get(t.chrome_id, 0)   # ids before a navigation: stale
             found = self._element_hits(t, text) if current else []
+            if current:                                # a text line that is exactly a control's label: that control
+                labels: dict[str, str] = {}
+                for eid, (*_, e) in t.elements.items():
+                    labels.setdefault(" ".join(e.label.split()).casefold(), eid)
+                hits = [h | ({"element": labels[k]} if (k := " ".join(str(h.get("text", "")).split()).casefold())
+                             in labels else {}) for h in hits]
             t.searches[text] = (json.dumps(found + hits, ensure_ascii=False), int(value.get("count", 0)),
                                 int(value.get("lines", 0)), len(found), current)
         if text not in t.searches:
@@ -1882,22 +1888,28 @@ class _TabDriver:
                 "total_chars": len(payload),
                 "examples": [h["text"] for h in json.loads(payload) if "text" in h] if len(payload) <= max_chars else [],
                 "note": "Saved all-frame search inventory: the latest snapshot's matching elements first (act on them "
-                        "by `element`), then the page's text lines. offset=0 refreshes it; later pages keep the same "
-                        "evidence." + ("" if current or not t.elements else
-                                       " The page navigated since the last snapshot: take one for element ids.")}
+                        "by `element`), then the page's text lines (with `element` when a line is a control's whole "
+                        "label). A line with no element id isn't a control of the latest snapshot: if it is one, it "
+                        "appeared after that snapshot, so take a new one. Frames the page doesn't draw are skipped. "
+                        "offset=0 refreshes it; later pages keep the same evidence." +
+                        ("" if current or not t.elements else
+                         " The page navigated since the last snapshot: take one for element ids.")}
 
     @staticmethod
     def _element_hits(t: _Tab, text: str) -> list[dict[str, Any]]:
-        """The latest snapshot's elements whose label, value or role hold `text` (case-insensitive), in its order."""
+        """The latest snapshot's elements whose label, value, link or role hold `text` (case-insensitive), in its
+        order."""
         needle = text.casefold()
         out: list[dict[str, Any]] = []
         for eid, (_, _, _, e) in t.elements.items():
             value = None if e.secret else e.value
-            if not any(needle in s.casefold() for s in (e.label, value or "", e.role)):
+            if not any(needle in s.casefold() for s in (e.label, value or "", e.href or "", e.role)):
                 continue
             hit: dict[str, Any] = {"element": eid, "role": e.role, "label": e.label}
             if value:
                 hit["value"] = value
+            if e.href and needle in e.href.casefold():
+                hit["href"] = e.href
             if not e.in_view:
                 hit["in_view"] = False
                 if e.offscreen:

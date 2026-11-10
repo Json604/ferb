@@ -237,7 +237,28 @@ def test_find_returns_the_snapshots_matching_elements_by_id_before_the_page_text
     buttons = call(d, g, "browser.find", tab=tab, text="button")["content"]   # by role too
     assert [h["element"] for h in json.loads(buttons["text"]) if "element" in h] == [submit]
     link = next(e["id"] for e in snap["elements"] if e["label"] == "Next")
+    by_href = json.loads(call(d, g, "browser.find", tab=tab, text="example/next")["content"]["text"])
+    assert by_href[0]["element"] == link and by_href[0]["href"].endswith("/next")       # a link by its address
+    lines = json.loads(call(d, g, "browser.find", tab=tab, text="Submit")["content"]["text"])
+    assert lines[0]["element"] == submit and [h.get("element") for h in lines[1:]] == [submit]   # the line is its label
     assert not call(d, g, "browser.act", tab=tab, element=link, action="click")["is_error"]   # navigates
     time.sleep(0.2)
     stale = call(d, g, "browser.find", tab=tab, text="submit")["content"]
     assert stale["element_matches"] == 0 and "take one for element ids" in stale["note"]     # no ids from before
+
+
+# decision: HAND-484
+def test_find_skips_a_frame_the_page_doesnt_draw() -> None:
+    """Live: find returned a hidden ad frame's script source ("ReactDOM.hydrateRoot…"): an undrawn body's innerText is
+    its raw text."""
+    out = worker(r'''(async () => {
+      const frames = [{id: 0, w: 1280, rects: 1, text: "Buy Now\nAdd to Cart"},
+                      {id: 9, w: 0, rects: 0, text: "ReactDOM.hydrateRoot(Buy Now)"}];
+      chrome.scripting = {executeScript: async ({func, args}) => frames.map(f => {
+        globalThis.innerWidth = f.w; globalThis.innerHeight = f.w ? 800 : 0;
+        globalThis.document = {body: {innerText: f.text, getClientRects: () => new Array(f.rects)}};
+        return {frameId: f.id, result: func(...args)};
+      })};
+      return await commands.find({tab_id: 1, text: "buy now"});
+    })()''')
+    assert out["count"] == 1 and out["hits"] == [{"frame_id": 0, "text": "Buy Now"}]

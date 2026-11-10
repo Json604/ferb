@@ -2101,8 +2101,12 @@ const commands = {
   async find({tab_id, text}) {
     const results = await script({target:{tabId:tab_id,allFrames:true},
       func:q => {
+        // HAND-484: a frame the page doesn't draw (a hidden ad frame) is skipped: innerText of an undrawn body is its
+        // raw text, scripts' source included
+        if (!document.body || innerWidth <= 0 || innerHeight <= 0 || !document.body.getClientRects().length)
+          return {lines:0,hits:[],undrawn:true};
         const needle=(q || "").toLowerCase();
-        const lines=(document.body ? document.body.innerText : "").split(/\n+/).map(line=>line.trim()).filter(Boolean);
+        const lines=document.body.innerText.split(/\n+/).map(line=>line.trim()).filter(Boolean);
         return {lines:lines.length,hits:needle ? lines.filter(line=>line.toLowerCase().includes(needle)) : []};
       },args:[text]});
     const hits=results.flatMap(r=>(r.result?.hits || []).map(text=>({frame_id:r.frameId,text})));
