@@ -3922,3 +3922,12 @@ request = "Ask FERB for a short list (say three laptops under a price); when it 
 pass = "The sheet holds the list from the earlier answer and FERB gives the link; it never asks you to paste the list. The trace shows the worker's chat.history search returning the earlier task.answer."
 decisions = ["ORCH-584"]
 sitting = "after this change is installed"
+
+[LIVE-872]
+title = "A task that needs a profile whose FERB extension you removed says so and how to add it back"
+area = "hands"
+surface = "FERB.app with this build; a disposable Chrome profile where you removed FERB's extension yourself"
+request = "Ask FERB to do something in that profile (name it)."
+pass = "No blocked page opens in that profile. FERB says its extension was removed there, Chrome won't add it again by itself, and gives the Chrome Web Store link to add it; after you add it and say so, FERB pairs it."
+decisions = ["HAND-449"]
+sitting = "after this change is installed"

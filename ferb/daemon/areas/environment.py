@@ -40,13 +40,21 @@ class Environment:
             live += "\nNon-enforcing alignment advice for active tasks: " + json.dumps([e.data for e in alignment])
         if connections:
             live += '\nBrowser profile connections now: ' + json.dumps(connections)
+        if any(c['connection'] == 'removed' for c in connections):     # HAND-449: as Pair all says it
+            from ferb.act.browser.autoinstall import store_extension_id
+            from ferb.device.extensions import store_page
+            url = store_page(store_extension_id(self.config))
+            live += ('\nConnection "removed": the owner removed FERB\'s extension in that profile, so the browser '
+                     'won\'t add it again by itself; FERB can\'t pair or use that profile until the owner adds FERB '
+                     + (f'from its Chrome Web Store page there ({url})' if url else 'there again')
+                     + ', then FERB pairs it.')
         stable += '\nBrowser/profile inventory (facts, not a selected route): ' + json.dumps(profiles)
         # in the planner's fixed Layer 1 (never dropped for room, unlike today's activity): what worker_type may name
         stable += '\nWorker types: ' + json.dumps(self._worker_types())
         return {"stable": stable, "live": live}
 
     def _environment_files(self, paired: set[tuple[str, str]]) -> tuple[list[Any], list[tuple[str, str]], set[str], str,
-                                                                        dict[tuple[str, str], bool]]:
+                                                                        dict[tuple[str, str], str]]:
         """The environment's reads that touch no database, run in a thread: browser profiles (Local State), installed
         apps (the device profile), running apps, the macOS version, and whether FERB's extension is in each profile not
         yet paired (its Preferences files)."""
@@ -58,9 +66,21 @@ class Environment:
             running = {a.bundle_id for a in appsm.running()}
         except Exception:
             running = set()
+        from ferb.act.browser import autoinstall
+        from ferb.act.browser.profiles import data_dir
         ids = frozenset(accepted_extension_ids(self.config))   # the pinned unpacked id and the store id (L25)
-        extension = {(p.browser, p.folder): extension_state(p, ids, (self.browser_data_dirs or {}).get(p.browser))
-                     for p in found if (p.browser, p.folder) not in paired}
+        store = autoinstall.store_extension_id(self.config)
+        extension: dict[tuple[str, str], str] = {}
+        for p in found:
+            if (p.browser, p.folder) in paired:
+                continue
+            data = (self.browser_data_dirs or {}).get(p.browser)
+            state = extension_state(p, ids, data)
+            # HAND-449: a missing copy the owner removed (the browser won't add it again), from the same Preferences
+            if state == "missing" and autoinstall.owner_removed(p, data or data_dir(p.browser, self.browser_support),
+                                                                store):
+                state = "removed"
+            extension[(p.browser, p.folder)] = state
         return found, self._installed_apps(), running, platform.mac_ver()[0] or "unknown", extension
 
     def _task_root(self, task_id: str) -> str:

@@ -182,3 +182,29 @@ def test_a_pairing_ends_at_once_when_the_extension_is_refused_or_turned_off(
     second = daemon.run(d._pair_one(other, 60.0))
     assert second["paired"] is False and second["reason"] == "off"
     assert not d.pairings._tokens                         # neither page's key can pair later
+
+
+# decision: HAND-449
+def test_a_tasks_pairing_says_why_and_the_owners_step_and_opens_no_page_where_ferb_isnt_on(
+        daemon: RunningDaemon, tmp_path: Path) -> None:
+    """Owner 2026-11-10: after removing the auto-added extension, a task's pairing said it was blocked; Chrome won't add
+    a removed copy again. A task's pairing now gives Pair all's own reason and step (removed, waiting for a restart,
+    turned off) with no pairing page opened, and the planner's facts name a removed copy and what the owner does."""
+    support = tmp_path / "Support"
+    chrome = _browser(support, "Google/Chrome", {"Default": None, "Profile 1": OFF}, removed=("Default",),
+                      requested=True)
+    brave = _browser(support, "BraveSoftware/Brave-Browser", {"Default": None}, requested=True)
+    d = _status(daemon, support, {"chrome": chrome, "brave": brave})
+    opened: list[str] = []
+
+    async def page(browser: str, folder: str, token: str) -> None:
+        opened.append(f"{browser}/{folder}")
+    d._open_pairing = page                               # type: ignore[method-assign]
+    got = {f"{p.browser}/{p.folder}": daemon.run(d._pair_one(p, 60.0)) for p in d._profiles()}
+    assert opened == []
+    assert {k: r["reason"] for k, r in got.items()} == {"chrome/Default": "removed", "chrome/Profile 1": "off",
+                                                       "brave/Default": "requested"}
+    removed = got["chrome/Default"]
+    assert removed["needs_install"] and STORE_EXTENSION_ID in removed["why"] and not removed["paired"]
+    live = daemon.run(d._environment(""))["live"]
+    assert '"connection": "removed"' in live and STORE_EXTENSION_ID in live

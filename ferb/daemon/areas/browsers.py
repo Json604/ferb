@@ -137,8 +137,9 @@ class Browsers:
 
     def _profile_state(self, p: Any, extension: str | None = None) -> str:
         """connected / paired (FERB opens it) / installed (turned on, not paired) / off (installed, turned off: its
-        pages are blocked, so it can't pair until the owner turns it on) / missing. `extension`: the profile's
-        `extension_state`, when its files were already read (the environment reads them in a thread)."""
+        pages are blocked, so it can't pair until the owner turns it on) / missing, or removed when `extension` says so
+        (HAND-449: the owner removed FERB's store copy there). `extension`: the profile's `extension_state`, when its
+        files were already read (the environment reads them in a thread)."""
         from ferb.act.browser.profiles import extension_state
         b = self.pairings.for_profile(p.browser, p.folder) if self.pairings else None
         if b is not None:
@@ -147,7 +148,7 @@ class Browsers:
         if extension is None:
             data = (self.browser_data_dirs or {}).get(p.browser)
             extension = extension_state(p, frozenset(accepted_extension_ids(self.config)), data)
-        return {"on": "installed", "off": "off"}.get(extension, "missing")
+        return {"on": "installed", "off": "off", "removed": "removed"}.get(extension, "missing")
 
     def _other_app_data(self) -> bool:
         """DMN-507: whether FERB may read or write another app's data (browser folders and profiles) now: only once
@@ -362,6 +363,11 @@ class Browsers:
         current = self.pairings.for_profile(*prof)
         if current is not None and not params.get("confirm"):
             raise FerbError("FERB's identity profile is already paired; re-pairing needs your confirmation")
+        # HAND-449: no pairing page where FERB's copy is removed, missing, off or too old (Chrome blocks it there); the
+        # owner's step instead, as Pair all says it
+        found = next((p for p in await asyncio.to_thread(self._profiles) if (p.browser, p.folder) == prof), None)
+        if found is not None and (stands := await asyncio.to_thread(self._extension_stands, found)) is not None:
+            raise FerbError(f"FERB's own profile can't be paired yet: {stands[1]}")
         before = self.hub.bridges.get(prof) if self.hub else None
         hellos0 = before.hellos if before is not None else 0
         token = self.pairings.issue_token(prof[0], prof[1], Identity.FERB)
@@ -549,14 +555,19 @@ class Browsers:
         if (p.browser, p.folder) == self._identity_profile():
             return base | {"paired": False, "why": "FERB's own profile is paired as FERB"}
         state = self._profile_state(p)
-        if state == "missing":
-            return base | {"paired": False, "needs_install": True, "why": "FERB's extension isn't in that profile"}
-        if state == "off":                     # live 2026-10-27: a page sent to a turned-off copy is blocked by Chrome
-            return base | {"paired": False, "needs_enable": True,
-                           "why": "FERB's extension is in that profile but turned off: the owner turns it on there "
-                                  "(Chrome shows “Action Required”, or the switch on its extensions page), then pair"}
+        # HAND-449: a copy that isn't there (removed by the owner: the browser won't add it again; not added; a request
+        # waiting for the browser's restart), is off or too old gets Pair all's own reason and the owner's step
+        # (`not_paired_step`, one source for every route), and no pairing page: Chrome shows it as blocked there
+        flag = {"missing": {"needs_install": True}, "off": {"needs_enable": True}}.get(state, {})
         if (stands := await asyncio.to_thread(self._extension_stands, p)) is not None:
-            return base | {"paired": False, "reason": stands[0], "why": stands[1]}   # HAND-412: no page it can't answer
+            return base | flag | {"paired": False, "reason": stands[0], "why": stands[1]}
+        if state == "missing":                 # its files read differently a moment apart: still no page
+            return base | flag | {"paired": False, "why": "FERB's extension isn't in that profile"}
+        if state == "off":                     # live 2026-10-27: a page sent to a turned-off copy is blocked by Chrome
+            return base | flag | {"paired": False,
+                                  "why": "FERB's extension is in that profile but turned off: the owner turns it on "
+                                         "there (Chrome shows “Action Required”, or the switch on its extensions "
+                                         "page), then pair"}
         token = self.pairings.issue_token(p.browser, p.folder)
         try:
             wake = await self._open_pairing(p.browser, p.folder, token)
@@ -606,8 +617,10 @@ class Browsers:
 
     def _extension_stands(self, p: Any) -> tuple[str, str] | None:
         """HAND-412: why this profile's FERB copy can't answer a pairing page, from its files now (off, with
-        Chromium's reason; not there; installed version below the minimum), as Pair all's skip says it; None: on and
-        new enough as far as its files say. Blocking (file reads)."""
+        Chromium's reason; not there: removed by the owner, a request waiting for the browser's restart, or not added;
+        installed version below the minimum), as Pair all's skip says it (HAND-449: the same `not_paired_step`, with
+        the browser's install request read as `read_states` reads it); None: on and new enough as far as its files say.
+        Blocking (file reads)."""
         from ferb.act.browser import autoinstall
         from ferb.device.extensions import extension_path, not_paired_step, store_page
         data = (self.browser_data_dirs or {}).get(p.browser) \
@@ -615,7 +628,8 @@ class Browsers:
         store = autoinstall.store_extension_id(self.config)
         st = autoinstall.profile_status(p, autoinstall.accepted_extension_ids(self.config), data, None, store)
         label = browser_profiles.BROWSERS[p.browser].label if p.browser in browser_profiles.BROWSERS else p.browser
-        return not_paired_step(st, label, False, store_page(store), extension_path(self.home))
+        requested = autoinstall.valid_id(store) and (data / "External Extensions" / f"{store}.json").is_file()
+        return not_paired_step(st, label, requested, store_page(store), extension_path(self.home))
 
     async def _pair_for_task(self, browser: str, folder: str) -> dict[str, Any]:
         """A task's browser_pair, after the owner's Yes (the gateway asked): that exact profile."""

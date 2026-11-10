@@ -1009,3 +1009,14 @@ rule = "Task-end cleanup closes FERB's tabs without leave_page (code never picks
 why = "Before, the cleanup's close waited 10 s and then tried again, which could raise the page's dialog a second time."
 paths = ["ferb/act/browser/ext_bridge.py::release"]
 live = ["LIVE-866"]
+
+[HAND-449]
+title = "A task's pairing knows a removed extension: why, that the browser won't add it again, and the step"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "also when ive delted teh ext myself and ferb tries to pair it says hte ext is blocked. so ferb shousld also be aware of thsi, cause what ik ... si that if i delted an auto added choe mext then chrome dosnt allow it to be auto added, so ferb shoudl know that and say it to me"
+words_source = "Owner 2026-11-10, relayed by the coordinator of the short-run fixes."
+rule = "A task's pairing (browser_pair) and FERB's own profile's pairing give the same reason and owner step Pair all gives (not_paired_step: removed, requested, not_added, off, too_old): a copy the owner removed says the browser won't add it again by itself and to add FERB from its Chrome Web Store page in that browser (the link), then FERB pairs it. No pairing page opens for a profile whose copy is removed, missing, off or too old. The planner's live facts mark such a profile's connection \"removed\" with the same step."
+paths = ["ferb/daemon/areas/browsers.py::Browsers._pair_one", "ferb/daemon/areas/browsers.py::Browsers._extension_stands", "ferb/daemon/areas/browsers.py::Browsers._identity_pair", "ferb/daemon/areas/environment.py::Environment._environment", "ferb/act/browser/autoinstall.py::owner_removed"]
+live = ["LIVE-872"]

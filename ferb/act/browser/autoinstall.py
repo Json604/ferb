@@ -203,10 +203,15 @@ def _removed(sections: list[dict[str, Any]], store_id: str) -> bool:
     return False
 
 
+def owner_removed(p: profiles.BrowserProfile, data_dir: Path, store_id: str) -> bool:
+    """Whether the owner removed FERB's store copy in this profile (HAND-416), so the browser won't add it again."""
+    return bool(valid_id(store_id) and _removed(profiles.extension_prefs(data_dir / p.folder), store_id))
+
+
 def profile_status(p: profiles.BrowserProfile, ids: tuple[str, ...], data_dir: Path,
                    paired: set[tuple[str, str]] | None, store_id: str) -> ProfileStatus:
     found = profiles.extension_entry(p, ids, data_dir)
-    removed = valid_id(store_id) and _removed(profiles.extension_prefs(data_dir / p.folder), store_id)
+    removed = owner_removed(p, data_dir, store_id)
     return ProfileStatus(p.browser, p.folder, p.display_name, found[0] if found else "",
                          bool(found and profiles.extension_enabled(found[1])), removed,
                          None if paired is None else (p.browser, p.folder) in paired,
