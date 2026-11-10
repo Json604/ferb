@@ -1187,3 +1187,13 @@ status = "active"
 rule = "For ORCH-576 and ORCH-568. A failed task's reason built from its conditions (no reason from the checker or worker) gives each unmet condition as \"Not done: <condition in the owner's terms>. <what was found>\" (\"Couldn't confirm:\" when it couldn't be seen), one shared helper (Supervisor._found). The literal checks (sent, paid, submitted, trashed, deleted, downloaded) say what FERB did or didn't do in the owner's terms: \"FERB didn't send it; no send to <recipient> went through in this task\", and the like for each kind."
 why = "Live 2026-11-10 (Codex G4): \"You see “hi from ferb” in #test on your FERB Discord server.: no send to hi from ferb in #test on the FERB Discord server ran without an error in this task.\""
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._found", "ferb/orchestrator/verify.py::Checks._action"]
+
+[ORCH-584]
+title = "chat.history's search finds this chat's task answers"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For ORCH-515. A query to chat.history counts a task.answer entry as this conversation's when its task belongs to the conversation (task_context), read from the entry's journal row as Continuity._where reads it; the search index keeps the answer's request id, which was compared with task ids, so no task answer ever matched a query (all 150 on the owner's Mac, 2026-11-10). Another chat's answers still never show."
+why = "Live 2026-11-10 (Codex F1, \"put that in a google sheet\"): the worker's chat.history searches returned the owner's messages but never the earlier laptop answer, and it asked the owner to paste it."
+paths = ["ferb/orchestrator/continuity.py::Continuity.belongs", "ferb/daemon/areas/memory.py::MemoryGlue._chat_search"]
+live = ["LIVE-871"]

@@ -379,7 +379,7 @@ class MemoryGlue:
         hits = self._memory_search().chat(
             query, vector=vector, limit=limit, since=since, until=until,
             accept=lambda row: continuity.belongs(conversation, str(row["kind"]), str(row["session"]),
-                                                  str(row["request"])))
+                                                  str(row["request"]), str(row["doc"])))
         return [hit.doc.removeprefix("journal:") for hit in hits]
 
     # ---------- the local embedding model (MEM-6) ----------

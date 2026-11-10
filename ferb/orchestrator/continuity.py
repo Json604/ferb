@@ -174,10 +174,14 @@ class Continuity:
         row = self.db.conn.execute(f"SELECT * FROM journal WHERE id = ? AND {where}", [entry_id, *args]).fetchone()
         return self._record(row) if row is not None else None
 
-    def belongs(self, conversation: str, kind: str, session: str, request: str) -> bool:
-        """Whether an indexed conversation entry (its kind, chat and request or task id) is in this conversation."""
+    def belongs(self, conversation: str, kind: str, session: str, request: str, doc: str = "") -> bool:
+        """Whether an indexed conversation entry (its kind, chat and request or task id, its `journal:` doc) is in this
+        conversation. A task's answer belongs by its task, as `_where` reads it (ORCH-584): the index keeps its request
+        id, so the task id is read from its journal row."""
         if kind == "task.answer":
-            return request in self.task_ids(conversation)
+            row = self.db.conn.execute("SELECT json_extract(data_json, '$.task_id') FROM journal WHERE id = ?",
+                                       (doc.removeprefix("journal:"),)).fetchone() if doc else None
+            return bool({request, row[0] if row else None} & self.task_ids(conversation))
         if kind == "chat.notice" and not session:
             return not conversation.startswith(RESERVED_SESSIONS)
         return session == conversation

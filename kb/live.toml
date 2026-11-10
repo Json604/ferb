@@ -3913,3 +3913,12 @@ request = "With FERB on one connection, pick a model on the other connection's c
 pass = "The first says the model is saved for that connection and used when it is in use; the tick stays where it was. The second says FERB uses the model now."
 decisions = ["APP-827"]
 sitting = "after this change is installed"
+
+[LIVE-871]
+title = "A follow-up task gets the earlier answer it refers to"
+area = "orchestration"
+surface = "FERB.app with this build, Codex as the AI; a disposable Google Sheet in FERB's own account"
+request = "Ask FERB for a short list (say three laptops under a price); when it answers, say \"put that in a google sheet and give me the link\"."
+pass = "The sheet holds the list from the earlier answer and FERB gives the link; it never asks you to paste the list. The trace shows the worker's chat.history search returning the earlier task.answer."
+decisions = ["ORCH-584"]
+sitting = "after this change is installed"

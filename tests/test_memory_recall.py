@@ -98,6 +98,33 @@ def test_the_planner_is_pushed_no_old_exchanges_and_finds_them_with_chat_history
     assert not found[0]["is_error"] and "what sonatas suit a beginner" in shown and "r-other" not in shown
 
 
+# decision: ORCH-515, ORCH-584
+def test_a_follow_up_task_finds_the_earlier_tasks_answer_by_searching_the_chat(daemon: Any) -> None:
+    """Live 2026-11-10 (Codex, "put that in a google sheet"): the worker searched chat.history for the earlier
+    laptop list and got only the owner's messages, never the answer, and asked the owner to paste it. A task's answer
+    is indexed under its request id, which the conversation check compared with task ids. It is found now; another
+    chat's answer still isn't."""
+    for n, words in enumerate(("water the plants", "call the bank", "book a dentist visit", "pay the electricity bill",
+                               "find a pasta recipe", "check tomorrow's weather")):   # a chat with more in it
+        said(daemon, words, "s1", f"r-earlier-{n}", reply="Done.")
+    install(daemon, [sup("task", "Looking.", task("List three coding laptops"))],
+            {"worker": done("Top three coding laptops: Framework Thirteen, Zenbook Fourteen, ThinkPad Ultralight.")})
+    chat(daemon, "list three coding laptops")
+    install(daemon, [sup("task", "Looking.", task("List three coding laptops"))],
+            {"worker": done("Elsewhere laptops: Pavilion Gamma.")})
+    chat(daemon, "list three coding laptops", session="other")
+    found: list[Any] = []
+
+    def worker(token: str) -> str:
+        found.append(tool(daemon.sock, token, "chat.history", query="coding laptops")["content"])
+        return done("Put it in a sheet.")
+    install(daemon, [sup("task", "Making the sheet.", task("Put the laptop list in a sheet"))], {"worker": worker})
+    chat(daemon, "put that in a sheet")
+    records = found[0]["records"]
+    assert any(r["kind"] == "task.answer" and "Framework Thirteen" in r["preview"] for r in records)
+    assert not any("Pavilion Gamma" in r["preview"] for r in records)
+
+
 # decision: ORCH-515
 def test_chat_history_finds_by_meaning_and_date_and_pages_from_the_database(daemon: Any) -> None:
     d = daemon.daemon
