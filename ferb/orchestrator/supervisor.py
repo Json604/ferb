@@ -67,8 +67,8 @@ from ferb.orchestrator.names import shown_name
 from ferb.orchestrator.loops import (LOOP_ROUND, LoopRunner, LoopStore, look_only_round, loop_line,
                                      round_reason, short_label)
 from ferb.orchestrator.probes import MISSING, Probe, field_value, refusal, resolve_tool
-from ferb.orchestrator.answer_marks import (NOT_FINISHED, STOPPED, WHERE_STOOD, headline, only_quoted_changed,
-                                            settle, unmarked)
+from ferb.orchestrator.answer_marks import (DECLINED_LINE, NOT_FINISHED, STOPPED, WHERE_STOOD, headline,
+                                            only_quoted_changed, settle, unmarked)
 from ferb.orchestrator.schemas import (ACTION_CHECKS, CHECKER_SCHEMA, FIX_SCHEMA, QUESTION_SCHEMA, RECHECK_SCHEMA, SUMMARY_SCHEMA,
                                        SUPERVISOR_SCHEMA, WORKER_SCHEMA, AnswerQuestion, Check, CheckerOutcome, Condition,
                                        Finding, FixOutcome, QuestionOutcome, RecheckOutcome, SummaryOutcome,
@@ -76,7 +76,7 @@ from ferb.orchestrator.schemas import (ACTION_CHECKS, CHECKER_SCHEMA, FIX_SCHEMA
 from ferb.orchestrator import browsing
 from ferb.orchestrator.test_runs import TestRuns
 from ferb.orchestrator.tree import TaskRecord, TaskTree
-from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult, not_done_said
+from ferb.orchestrator.verify import DECLINED, UNCHECKED, Checks, ConditionResult, not_done_said
 from ferb.orchestrator.worker import (BUG, ConnectionNotice, ImageRefused, InvalidAnswer, Overflowed, ServiceDown,
                                       ServiceError, Stalled, WorkerRuns, account_problem, couldnt, model_limits, reason,
                                       reserve_tokens)
@@ -4977,9 +4977,13 @@ class Supervisor(WorkerRuns):
 
     def _finish_step(self, member: _Tree, out: Outcome) -> str:
         """A step's (or a conversation turn's) status from its attempt loop's outcome, written once: done but not
-        confirmed stays its own status (V4), never stored as done."""
+        confirmed stays its own status (V4), never stored as done. ORCH-613: a step the owner declined ended as they
+        decided: done (its row says what the worker said, as any finished row); a single task's own run, cancelled,
+        as the task ends (`_final`)."""
         status = ('done_unverified' if out.status == 'done' and (member.stands_unconfirmed or member.kept_contradicted)
                   else out.status)
+        if self._declined(member, out):
+            status = 'cancelled' if member.step_id == WORKER else 'done'
         self._set_status(member.worker.id, status, {'summary': out.summary})
         return status
 
@@ -5925,7 +5929,7 @@ class Supervisor(WorkerRuns):
             # ORCH-610: an accepting check fails the work only on code's proof; a condition the checker itself judged
             # not met, with nothing proved, leaves the answer standing unconfirmed
             refuted = [r for r in outcome if r.met is False and r.path == "code"]
-            unknown = [r for r in outcome if r.met is not True]
+            unknown = [r for r in outcome if r.met is not True and r.path != DECLINED]   # ORCH-613: settled by you
             if refuted or (unknown and out.status != "done"):
                 why = checked.reason or ("" if refuted else tree.reason) or "; ".join(
                     self._found(tree, r) for r in (refuted or unknown))
@@ -6866,10 +6870,14 @@ class Supervisor(WorkerRuns):
         nothing to check against), without its prefix; and whether every outcome condition was verified. Nothing
         else: the checker's evidence stays in the record (ORCH-540)."""
         results, outcomes, attempted, conditions = self._results(src)
-        verified = (out.status == "done" and attempted and not src.stands_unconfirmed and not src.kept_contradicted
-                    and bool(outcomes) and all(r.met is True for r in outcomes))
-        note = src.unconfirmed or ("" if verified else NOTHING_TO_CHECK if not conditions else
-                                   "; ".join(self._owner_text(src, r) for r in outcomes if r.met is not True))
+        # ORCH-613: what the owner declined is settled by them: neither unconfirmed nor against the answer's check
+        declined = self._declined(src, out)
+        verified = ((out.status == "done" or declined) and attempted and not src.stands_unconfirmed
+                    and not src.kept_contradicted and bool(outcomes)
+                    and all(r.met is True or r.path == DECLINED for r in outcomes))
+        note = "" if declined and verified else src.unconfirmed or (
+            "" if verified else NOTHING_TO_CHECK if not conditions else
+            "; ".join(self._owner_text(src, r) for r in outcomes if r.met is not True and r.path != DECLINED))
         # ORCH-608: a reply that ends with the one fixed line carries no inline marks (contradictions stay removed)
         answer = src.answer_unmarked if note and not verified and src.answer_unmarked else src.owner_answer
         return (answer or out.summary).strip(), _clipped(note) if note else "", verified
@@ -6880,7 +6888,7 @@ class Supervisor(WorkerRuns):
         - `done_unverified` when the work finished and stands unconfirmed: an outcome condition the check couldn't
           settle (nothing found false), a check that couldn't run, or nothing to check it against;
         - `failed` when the work didn't finish, the check found an outcome false or chose to fail, or the task was
-          interrupted; `needs_user` and `cancelled` (your stop) as before.
+          interrupted; `needs_user` and `cancelled` (your stop, or your No on the action's own card: `_declined`).
         The answer comes first (the worker's, with the checker's fixes; a one-ask plan's answer step's, ORCH-319),
         then, when unconfirmed, the one fixed UNCONFIRMED_LINE (ORCH-606); a failure: `_told_failure`; then code's
         own lines in a fixed order (`_code_lines`). A worker's success claim is never stated as fact unless a check
@@ -6905,6 +6913,12 @@ class Supervisor(WorkerRuns):
         elif tree.stop:
             status, summary = self._stop_status(tree), tree.stop
             answer = f"I couldn't finish that: {tree.stop}"
+        elif self._declined(src, out):
+            # ORCH-613 (owner 2026-11-11: "shuodl i t stll be afilure if i stopped it??"): the owner said no on the
+            # action's own card: their decision, as a stop is, never FERB failing. The worker's own words, no opener;
+            # with none, code's one line
+            status = "cancelled"
+            summary = answer = src.owner_answer.strip() or DECLINED_LINE
         elif out.status == "done" and not any(r.met is False and r.path == "code" for r in outcomes):
             answer_text, note, verified = self._checked_answer(src, out)
             status = "done" if verified else "done_unverified"
@@ -6943,6 +6957,19 @@ class Supervisor(WorkerRuns):
                 {"runtime_switch": switch} if switch and status == "failed" else {}) | (
                 {"watch_met": tree.watch_met} if tree.watch and tree.watch_met is not None else {}) | (
                 {"cards": cards} if cards else {}) | self._told_in(tree)
+
+    def _declined(self, src: _Tree, out: Outcome) -> bool:
+        """ORCH-613: whether the work ended without its action only because the owner declined that action on its own
+        card. By structure only (rule 4): an outcome condition's action check found the action not done and the latest
+        such call the owner was asked about is one they declined (their No, Don't pay or Skip, or their words in the
+        card's box: the gateway's `declined`, verify.DECLINED), and no other outcome condition was found not met. A
+        stop, code's own stop line or a question still open is never it; another condition found false (by code or
+        the check) keeps it a failure."""
+        if src.stop or src.stop_by_code or out.status in ("needs_user", "cancelled"):
+            return False
+        outcomes = self._results(src)[1]
+        return (any(r.path == DECLINED for r in outcomes)
+                and not any(r.met is False and r.path != DECLINED for r in outcomes))
 
     def _final_card(self, tree: _Tree) -> dict[str, Any]:
         """A multi-part task's end (ORCH-319): no model writes anything after the last part. Code adds the done count

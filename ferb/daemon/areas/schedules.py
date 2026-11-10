@@ -700,9 +700,11 @@ class Schedules:
         from ferb.orchestrator.schedules import FINISHED, watch_met
         sid = s.id
         # Only a verified run counts as success. A done-but-unverified run (V4) doesn't clear earlier failures, and
-        # isn't counted as one either: the next run's consecutive_failures stays a count of real failures.
+        # isn't counted as one either: the next run's consecutive_failures stays a count of real failures. Nor is a
+        # run the owner ended (their stop, or their No on its card, ORCH-613): their decision, not a failure.
         status = final.get("status")
-        self.schedules.ran(sid, True if status == "done" else None if status == "done_unverified" else False)
+        self.schedules.ran(sid, True if status == "done" else None if status in ("done_unverified", "cancelled")
+                           else False)
         if status == "failed" and not retry and s.watch == "none":   # a watch already checks again on its own cadence
             regular = self.schedules.get(sid)
             due = now + timedelta(seconds=SCHEDULE_RETRY_S)

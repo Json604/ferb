@@ -21,6 +21,10 @@ from ferb.store.spans import SpanStore
 
 
 UNCHECKED = "unchecked"            # no check gave a verdict: the work stopped first, or the checker itself failed (V5)
+# ORCH-613: an action check whose action didn't happen because the owner declined it on its own card (and nothing
+# later went ahead with it): not met, and the owner's decision, never FERB failing
+DECLINED = "owner"
+DECLINED_SAID = "You said no to it on its card, so FERB didn't do it"
 
 
 @dataclass
@@ -135,28 +139,46 @@ class Checks:
         assert self.spans is not None
         k = c.check
 
+        spans = self.spans
+
         def result(met: bool | None, evidence: str) -> ConditionResult:
             return ConditionResult(i, c.text, met, "code", evidence)
+
+        def not_met(evidence: str, kinds: tuple[str, ...], target: Callable[[dict[str, Any]], bool]) -> ConditionResult:
+            """Not met; the owner's decision when the latest such call they were asked about is one they declined."""
+            tried = [call for call in cards.tried(spans, task_id, *kinds) if target(call)]
+            if tried and tried[-1].get("declined"):
+                return ConditionResult(i, c.text, False, DECLINED, DECLINED_SAID)
+            return result(False, evidence)
+
+        def on_site(call: dict[str, Any]) -> bool:
+            return not k.site or site_key(k.site) == site_key((call.get("target") or {}).get("site"))
         if k.kind == "sent":
             want = account_key(k.expected)
-            for call in cards.ran(self.spans, task_id, *cards.SEND_KINDS):
+
+            def reaches(call: dict[str, Any]) -> bool:
                 target = call.get("target") or {}
                 reached = [account_key(r) for r in [*(target.get("recipients") or []), target.get("contact")] if r]
-                if want in reached and (not k.site or site_key(k.site) == site_key(target.get("site"))):
-                    return result(True, f"FERB sent it to {k.expected}")
+                return want in reached and on_site(call)
+            if any(reaches(call) for call in cards.ran(self.spans, task_id, *cards.SEND_KINDS)):
+                return result(True, f"FERB sent it to {k.expected}")
             on = f" on {k.site}" if k.site else ""
-            return result(False, f"FERB didn't send it; no send to {k.expected}{on} went through in this task")
+            return not_met(f"FERB didn't send it; no send to {k.expected}{on} went through in this task",
+                           cards.SEND_KINDS, reaches)
         if k.kind == "paid":
-            calls = [x for x in cards.paid(self.spans, task_id)
-                     if not k.site or site_key(k.site) == site_key((x.get("target") or {}).get("site"))]
+            calls = [x for x in cards.paid(self.spans, task_id) if on_site(x)]
             on = f" on {k.site}" if k.site else ""
-            return result(bool(calls), f"FERB paid{on} after your Yes" if calls
-                          else f"FERB didn't pay; no payment you said Yes to went through{on} in this task")
+            if calls:
+                return result(True, f"FERB paid{on} after your Yes")
+            return not_met(f"FERB didn't pay; no payment you said Yes to went through{on} in this task", (Kind.PAY,),
+                           on_site)
         if k.kind == "submitted":
-            for call in cards.ran(self.spans, task_id, Kind.SUBMIT):
-                if site_key((call.get("target") or {}).get("site")) == site_key(k.site):
-                    return result(True, f"FERB submitted the form on {k.site}")
-            return result(False, f"FERB didn't submit it; no form on {k.site} went through in this task")
+            def here(call: dict[str, Any]) -> bool:
+                return site_key((call.get("target") or {}).get("site")) == site_key(k.site)
+            if any(here(call) for call in cards.ran(self.spans, task_id, Kind.SUBMIT)):
+                return result(True, f"FERB submitted the form on {k.site}")
+            return not_met(f"FERB didn't submit it; no form on {k.site} went through in this task", (Kind.SUBMIT,),
+                           here)
         try:
             want_path = str(resolve(k.path or "", ctx, must_exist=False))
         except PathRefused as e:
@@ -171,7 +193,10 @@ class Checks:
         kind = Kind.TRASH if k.kind == "trashed" else Kind.DELETE_PERMANENT
         done = [x for x in cards.ran(self.spans, task_id, kind) if _same(cards.target_path(x), want_path)]
         did = (f"moved {want_path} to the Trash" if k.kind == "trashed" else f"deleted {want_path} permanently")
-        return result(bool(done), f"FERB {did}" if done else f"FERB didn't do it; nothing in this task {did}")
+        if done:
+            return result(True, f"FERB {did}")
+        return not_met(f"FERB didn't do it; nothing in this task {did}", (kind,),
+                       lambda call: _same(cards.target_path(call), want_path))
 
 
 def _same(a: str, b: str) -> bool:

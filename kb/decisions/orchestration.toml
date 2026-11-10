@@ -1491,3 +1491,17 @@ rule = "Confirms ORCH-610 and ORCH-611 as the owner's. Refines ORCH-309: under a
 why = "Read 2026-11-11 in Supervisor._next and _final (commit 6e82ce65): the change is the one filter r.path == \"code\" on an accepting verdict, and one lead string. A plan's later steps now run after a step the checker doubted but accepted; the checker can still choose retry or fail."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._next", "ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrator/answer_marks.py::WHERE_STOOD"]
 live = ["LIVE-897"]
+
+[ORCH-613]
+title = "The owner's No on an action's own card is their decision, not FERB failing"
+by = "owner"
+date = 2026-11-11
+status = "active"
+words = "also shuodl i t stll be afilure if i stopped it?? / btw htw failed thign didnt happen in this task when it is part fo thsi row when i declined. why?? btw i typed in thsi tasks and in prev i selected the no button / this time in teh amzn taks i types in the question answer text box. It still failed it."
+words_source = "Owner 2026-11-11, live on build 202611102111: 3e5c8c55 (Don't pay), c30ed21d step book_table (typed on the worker's question), 6812fdb5 (typed in the payment card's box)."
+rule = "Refines ORCH-605, ORCH-603, ORCH-576. When an action check's action didn't happen, the latest such call the owner was asked about was declined on its own card (No, Don't pay, Skip, or their words in its box) and no other outcome condition was found not met, the work ended as the owner decided: a task is cancelled (as their stop), a part's row fills like any finished row. The reply is the worker's own answer, no opener, no code line about the action; with none, \"Not done, as you asked.\" Never a schedule failure."
+why = "One No ended three ways (failed with an opener and Send to developer; a done row; failed with \"No payment went through\"). Structure only (rule 4): the gateway marks the refused call `declined` (an owner.ask answered No, or set aside by the owner's words); no words are read."
+rejected = ["Status done for a single task: the task row would say the order happened", "A new status: cancelled already means the owner ended it, and the app draws it without Failed or Send to developer"]
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._declined", "ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrator/supervisor.py::Supervisor._finish_step", "ferb/orchestrator/verify.py::Checks._action", "ferb/orchestrator/cards.py::tried", "ferb/daemon/gateway.py::Answer", "ferb/daemon/areas/schedules.py", "ferb/orchestrator/answer_marks.py::DECLINED_LINE"]
+live = ["LIVE-899"]
+untestable = "A worker's not-done whose blocker isn't the declined action, with every other condition met, reads as declined: code can't tell blockers apart without reading words."

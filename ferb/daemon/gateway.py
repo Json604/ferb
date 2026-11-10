@@ -216,6 +216,9 @@ class Answer:
     ids: list[str] = field(default_factory=list)      # the confirmation rows it recorded, one per need
     error: str = ""                                   # what the worker is told when it isn't Yes
     next: str = ""                                    # and what it should do then, when that is settled
+    # ORCH-613: the owner declined it: "no" (their No, Don't pay or Skip) or "words" (their own words on the card set it
+    # aside, L3); "" for every other reason it isn't Yes (unattended, unclear, a correction still on its way)
+    declined: str = ""
 
     def __bool__(self) -> bool:
         return self.granted
@@ -231,6 +234,7 @@ class Covered:
     refused: dict[str, Any] | None = None             # the reply when it must not run
     standing: list[str] = field(default_factory=list)  # the rules a standing permission covered (D30): its `standing`
     started: bool = False                             # the attempt started: claimed Yeses stay spent
+    declined: str = ""                                # ORCH-613: refused because the owner declined it (Answer)
 
 
 class Destination(BaseModel):
@@ -1007,6 +1011,8 @@ class Gateway:
             if covered.standing and covered.refused is None:   # D30: runs inside a standing permission, logged so
                 c.extra["standing"] = {"task": c.root, "rules": covered.standing}
             if covered.refused is not None:              # the owner said no, or wasn't there: nothing ran
+                if covered.declined:                     # ORCH-613: the owner's decision, by structure
+                    c.extra["declined"] = covered.declined
                 return self._refuse_call(c, reply, covered.refused)
             granted = await self._grants(c, covered)
             if isinstance(granted, dict):
@@ -1646,6 +1652,7 @@ class Gateway:
                         out.ids.append(row["id"])
                         out.refused = {"error": ALREADY_NO.format(line=self._ferb_line(needs, call, c.why, typed)),
                                        "next": OWNER_DECIDED_NEXT}
+                        out.declined = "no"
                         continue
                     if row is None and need.rule in STANDING_RULES and self.standing is not None and \
                             self.standing.covers(root, c.name, c.grant.identity.value, c.checked, need.reaches):
@@ -1687,6 +1694,7 @@ class Gateway:
                                 c.pay_cid = cid
                     else:
                         out.refused = {"error": answer.error} | ({"next": answer.next} if answer.next else {})
+                        out.declined = answer.declined
             except BaseException:                        # stopped while asking: nothing ran, nothing stays claimed
                 for cid in out.spent:
                     confirmations.release(cid)
@@ -2208,7 +2216,7 @@ class Gateway:
         if state == "superseded":                        # L3: a correction set it aside; not a No, nothing recorded
             set_aside = {"declined": True, "state": state}
             self._finish_call(q_span, OWNER_ASK, set_aside, False, output=set_aside, origins=ask_origins(set_aside))
-            return Answer(False, error=SUPERSEDED.format(line=text), next=SUPERSEDED_NEXT)
+            return Answer(False, error=SUPERSEDED.format(line=text), next=SUPERSEDED_NEXT, declined="words")
         if not yes and not ((state == "granted" and ap.choice == NO) or state == "denied"):
             unclear = {"declined": True, "state": state if state != "granted" else "neither Yes nor No"}
             self._finish_call(q_span, OWNER_ASK, unclear, False, output=unclear, origins=ask_origins(unclear))
@@ -2220,7 +2228,8 @@ class Gateway:
         if state == "denied":
             given["skipped"] = True
         self._finish_call(q_span, OWNER_ASK, given, False, output=given, origins=ask_origins(given))
-        return Answer(yes, ids, "" if yes else SAID_NO.format(line=text), "" if yes else OWNER_DECIDED_NEXT)
+        return Answer(yes, ids, "" if yes else SAID_NO.format(line=text), "" if yes else OWNER_DECIDED_NEXT,
+                      declined="" if yes else "no")
 
     def _known_from(self, needs: list[confirm.Need], rec: Any, span_id: str) -> None:
         """SQ6, GATE-205: the destinations the owner's Yes approved stay known (approved) for good."""

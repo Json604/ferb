@@ -159,6 +159,24 @@ def ran(spans: SpanStore, tree_id: str, *kinds: str) -> list[dict[str, Any]]:
     return [c for c in _calls(spans, tree_id) if _kinds(c) & set(kinds)]
 
 
+def tried(spans: SpanStore, tree_id: str, *kinds: str) -> list[dict[str, Any]]:
+    """ORCH-613: the tree's calls of any of these kinds that went ahead (ran, an error included) or that the owner
+    declined on their own card (the gateway's `declined` on the refused call: their No, Don't pay or Skip, or their
+    words in the card's box), in the order they were made. A call refused for any other reason (nobody there, a
+    boundary) is neither. The latest one says whether the owner's decision stands for that action."""
+    where, params = tree_where(tree_id)
+    rows = spans.db.conn.execute("SELECT input_json FROM spans WHERE kind = 'tool.call' AND ended_at IS NOT NULL "
+                                 f"AND {where} ORDER BY started_at, rowid", params).fetchall()
+    out = []
+    for row in rows:
+        data = json.loads(row["input_json"] or "{}")
+        if data.get("ferb_question") or (data.get("boundary_refused") and not data.get("declined")):
+            continue
+        if _kinds(data) & set(kinds):
+            out.append(data)
+    return out
+
+
 def paid(spans: SpanStore, tree_id: str) -> list[dict[str, Any]]:
     """The payment-class calls that ran under a granted Yes to a payment (as `payments` counts them)."""
     calls = ran(spans, tree_id, Kind.PAY)

@@ -14,6 +14,8 @@ UNCONFIRMED_MARK = "(I couldn't confirm this)"            # the one inline marke
 NOT_FINISHED = "I couldn't finish this task."
 STOPPED = "Stopped, as you asked."
 WHERE_STOOD = "This is where things stood:"      # ORCH-611: after STOPPED, before the worker's answer
+# ORCH-613: the whole reply of a task the owner declined on its own card when the worker wrote nothing to say so
+DECLINED_LINE = "Not done, as you asked."
 
 
 def headline(text: str) -> str:
