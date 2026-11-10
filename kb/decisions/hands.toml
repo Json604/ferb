@@ -1218,3 +1218,12 @@ rule = "For the owner's exception for the payment card (recorded by the card's b
 why = "The picture is shown once, to the owner only, never to a model: a mask there only hid what the owner was asked to pay for, and its look slowed the card."
 evidence = "Owner 2026-11-10 via the coordinator: \"why??? its only one time, shown to me and never shown to ai. only  show error when it cnat be captured etcetc, not this unnecesarry check\"; \"yeah add it.\""
 paths = ["extensions/chromium/background.js::owner_view", "ferb/act/browser/ext_bridge.py::owner_view", "ferb/act/browser/ext_bridge.py::OwnerOnlyImage"]
+
+[HAND-498]
+title = "A file the browser refuses to set on a field is a known failure"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Refines HAND-422 for uploads. When DOM.setFileInputFiles answers \"Not allowed\" (the browser refused the call itself), no file was set: the upload fails with nothing sent (outcome failed, not unknown) and says the browser refused to set the file. Any other error after the stamp stays unknown. Extension 0.19.8; the route that hands the bytes through the page isn't built (the owner decides later)."
+why = "Live: no upload ever succeeded in history; every one came back \"outcome unknown\", so FERB treated a refusal that set nothing as possibly done."
+paths = ["extensions/chromium/background.js::upload"]

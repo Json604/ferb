@@ -151,3 +151,28 @@ def test_a_new_document_in_a_driven_tab_runs_the_readiness_probe_again() -> None
     ''')
     assert out["before"] is True and out["after"] is False
     assert out["r"]["outcome"] == "done" and out["ready"] is True and out["attaches"] == 1   # same session, probed again
+
+
+# decision: HAND-498, HAND-422
+@pytest.mark.parametrize("answer,outcome", [("Not allowed", "failed"), ("Session with given id not found.", "unknown")])
+def test_a_file_the_browser_refuses_to_set_is_a_known_failure_and_other_errors_stay_unknown(answer: str,
+                                                                                            outcome: str) -> None:
+    """Live: no upload ever succeeded; DOM.setFileInputFiles answered "Not allowed" and the call came back "outcome
+    unknown", although no file was set."""
+    out = run('''
+      inFrame = async (tab, frame, func) => String(func).includes("stamp(") ? {ok: true} : true;
+      chrome.debugger.sendCommand = async (target, method) => {
+        cmds.push([target.sessionId || null, method]);
+        if (method === "DOM.performSearch") return {searchId: "q", resultCount: 1};
+        if (method === "DOM.getSearchResults") return {nodeIds: [7]};
+        if (method === "DOM.setFileInputFiles") throw new Error(ANSWER);
+        return {};
+      };
+      await onCommand({gen: 1, id: "u1", op: "upload",
+                       args: {tab_id: 8, frame_id: 0, snap: 1, el: 2, paths: ["/tmp/x/cv.pdf"]}});
+      const body = sent.find(b => b.id === "u1");
+      return {outcome: body.outcome, error: body.error};
+    '''.replace("ANSWER", repr(answer)))
+    assert out["outcome"] == outcome, out
+    if outcome == "failed":
+        assert "nothing was uploaded" in out["error"]

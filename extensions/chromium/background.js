@@ -2377,7 +2377,14 @@ const commands = {
       if (targets.length !== 1) return {ok:false, reason:targets.length ? "upload_target_ambiguous" : "upload_route_unavailable",
         detail:"the selected file input has no unique debugger binding", frame_id, transferred:false};
       const target = targets[0];
-      await cdp(tab_id, "DOM.setFileInputFiles", {nodeId:target.nodeId,files:paths}, target.sessionId);
+      try { await cdp(tab_id, "DOM.setFileInputFiles", {nodeId:target.nodeId,files:paths}, target.sessionId); }
+      catch (e) {
+        // HAND-498: the browser refused the call itself ("Not allowed"): no file was set, a known failure (HAND-422)
+        if (/not allowed/i.test(String(e && e.message || e)))
+          throw beforeInput(new Error(`the browser refused to set the file on the field (${String(e.message || e)}); ` +
+                                      "nothing was uploaded"));
+        throw e;
+      }
       const selected_files = await inFrame(tab_id, frame_id, (g,i) => window.__ferb.uploadFiles(g,i), [snap,el]);
       return {ok:true, detail:`${paths.length} file(s) set on the selected local upload input; inspect destination attachment`,
         frame_id, selected_files, transferred:true};
