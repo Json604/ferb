@@ -300,7 +300,9 @@ class BrowserFind(_Base):
     observation = True                                 # only reads: the final checker may use it (V3, W4)
     probe_safe = True  # reads state, moves nothing, returns at once: a loop's probe may use it (L31)
     blurb = ("Search the whole page in one of this task's tabs ({whose}) for some text — everything loaded so far, "
-             "including child frames. Results are paged with next_offset; fetch all pages when needed. "
+             "including child frames. The latest snapshot's elements whose label, value or role hold the text come "
+             "first with their `element` ids (search a button's words to get the button to act on), then the "
+             "page's text lines. Results are paged with next_offset; fetch all pages when needed. "
              "For comments or feeds, scroll to load more content first.")
 
     class Input(_Tab):

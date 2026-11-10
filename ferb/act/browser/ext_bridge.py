@@ -953,7 +953,7 @@ class _Tab:
     owner: str | None
     url: str
     snapshot_json: str = ""
-    searches: dict[str, tuple[str, int, int]] = field(default_factory=dict)
+    searches: dict[str, tuple[str, int, int, int, bool]] = field(default_factory=dict)   # find: payload, counts, current
     snap_gen: int = 0
     visual: tuple[str, int, int, float, int, int] | None = None
     points: dict[str, str] = field(default_factory=dict)
@@ -1856,21 +1856,50 @@ class _TabDriver:
                 os.close(fd)
 
     async def find(self, tab: TabRef, text: str, offset: int = 0, max_chars: int = 12000) -> dict[str, Any]:
-        """Search all accessible frames; page full hit text without selecting a candidate."""
+        """Search all accessible frames; page full hit text without selecting a candidate. HAND-484: the latest
+        snapshot's elements whose label, value (never a secret field's) or role hold the words come first, by id, so a
+        button's words give the button to act on; then the page's text lines."""
         t = self._tab(tab)
         if offset == 0:
             value = await t.bridge.call("find", {"tab_id": t.chrome_id, "text": text}, timeout=30)
             hits = value.get("hits", [{"frame_id": 0, "text": x} for x in value.get("examples", [])])
-            t.searches[text] = (json.dumps(hits, ensure_ascii=False), int(value.get("count", 0)),
-                                int(value.get("lines", 0)))
+            current = t.snap_nav == t.bridge.navs.get(t.chrome_id, 0)     # ids from before a navigation are stale
+            found = self._element_hits(t, text) if current else []
+            t.searches[text] = (json.dumps(found + hits, ensure_ascii=False), int(value.get("count", 0)),
+                                int(value.get("lines", 0)), len(found), current)
         if text not in t.searches:
             raise Refused("start this search at offset=0 before fetching its saved result pages")
-        payload, count, lines = t.searches[text]
+        payload, count, lines, elements, current = t.searches[text]
         end = min(offset + max_chars, len(payload))
-        return {"matches": count, "lines_on_page": lines,
+        return {"matches": count, "element_matches": elements, "lines_on_page": lines,
                 "text": payload[offset:end], "offset": offset, "next_offset": end if end < len(payload) else None,
-                "total_chars": len(payload), "examples": [h["text"] for h in json.loads(payload)] if len(payload) <= max_chars else [],
-                "note": "Saved all-frame search inventory. offset=0 refreshes it; later pages keep the same evidence."}
+                "total_chars": len(payload),
+                "examples": [h["text"] for h in json.loads(payload) if "text" in h] if len(payload) <= max_chars else [],
+                "note": "Saved all-frame search inventory: the latest snapshot's matching elements first (act on them "
+                        "by `element`), then the page's text lines. offset=0 refreshes it; later pages keep the same "
+                        "evidence." + ("" if current or not t.elements else
+                                       " The page navigated since the last snapshot: take one for element ids.")}
+
+    @staticmethod
+    def _element_hits(t: _Tab, text: str) -> list[dict[str, Any]]:
+        """The latest snapshot's elements whose label, value or role hold `text` (case-insensitive), in its order."""
+        needle = text.casefold()
+        out: list[dict[str, Any]] = []
+        for eid, (_, _, _, e) in t.elements.items():
+            value = None if e.secret else e.value
+            if not any(needle in s.casefold() for s in (e.label, value or "", e.role)):
+                continue
+            hit: dict[str, Any] = {"element": eid, "role": e.role, "label": e.label}
+            if value:
+                hit["value"] = value
+            if not e.in_view:
+                hit["in_view"] = False
+                if e.offscreen:
+                    hit["offscreen"] = e.offscreen
+            if e.state:
+                hit["state"] = list(e.state)
+            out.append(hit)
+        return out
 
     async def scroll(self, tab: TabRef, direction: str, container: str | None = None) -> dict[str, Any]:
         """Scroll the page, or one scroll container from the latest snapshot, about one screen (a real wheel event

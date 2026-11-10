@@ -159,8 +159,8 @@ def for_model(snap: PageSnapshot, *, full: bool = False, probe: bool = False) ->
         out["omitted_elements"] = omitted
         if omitted_in_view:
             out["omitted_in_view_elements"] = omitted_in_view
-            out["omitted_note"] = (f"{omitted_in_view} of the left-out elements are on screen; browser.read pages "
-                                   "the full snapshot with every element")
+            out["omitted_note"] = (f"{omitted_in_view} of the left-out elements are on screen; browser.find with "
+                                   "their words returns their ids, and browser.read pages the full snapshot")
         out["total_text_chars"] = len(snap.text)
         out["next"] = "browser.read / ferb_browser.read with this tab and offset=0 retrieves the full saved snapshot as paged JSON"
         if len(text) < len(snap.text):

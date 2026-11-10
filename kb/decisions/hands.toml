@@ -1064,3 +1064,14 @@ why = "Live 2026-11-10: Amazon's Buy Now and Add to cart were in the snapshot an
 evidence = "Owner 2026-11-10: \"but why ferb deosnt use acceiblity tree??? taht shoudl be main, why rely on screenshots only???\""
 paths = ["ferb/act/browser/snapshot.py::for_model"]
 live = ["LIVE-890"]
+
+[HAND-484]
+title = "browser.find also returns the latest snapshot's matching elements by id"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "browser.find matches the words (case-insensitive) in the latest snapshot's element labels, values (never a secret field's) and roles, and lists those elements first by `element` id with role, label and where they are, then the page's text lines as before, in the same paged result. After a navigation since that snapshot it lists no elements and says to take a snapshot. The extension's find is unchanged."
+why = "Live 2026-11-10: find searched only the page's text lines, so \"Buy Now\" could never give the button to press; the worker fell back to screenshots."
+evidence = "Owner 2026-11-10: \"but why ferb deosnt use acceiblity tree??? taht shoudl be main, why rely on screenshots only???\""
+paths = ["ferb/act/browser/ext_bridge.py::_element_hits", "ferb/act/browser/tools.py::BrowserFind"]
+live = ["LIVE-890"]

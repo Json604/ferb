@@ -1,14 +1,18 @@
 """Past-bug guards from live 2026-11-10 (amazon.in product pages, task 64a149b8): FERB couldn't press Add to cart or
 Buy Now. A screenshot point failed 10 of 10 as "visual_stale" and screenshots as "page_changed_during_screenshot",
 because any DOM change anywhere counted (HAND-480, HAND-481); an element parked off the page's left edge was called
-covered (HAND-482); the in-view buy box was cut from the snapshot preview for off-screen items (HAND-483). The
-extension's own code, run under node, and the daemon's preview."""
+covered (HAND-482); the in-view buy box was cut from the snapshot preview for off-screen items (HAND-483);
+browser.find could only return page text, never the button to press (HAND-484). The extension's own code, run under
+node; the daemon's preview, and find through the real daemon and gateway over the fake extension."""
 
 import json
 import subprocess
+import time
+from typing import Any
 
 from ferb.act.browser.snapshot import for_model
 from ferb.core.types import PageElement, PageSnapshot, TabRef
+from tests.browserkit import OWNER, bd, call, pair, task  # noqa: F401 (fixture)
 from tests.chromelab import EXT, _node, worker
 
 # A tab whose top frame (0) holds the buy button above y=500 and an ad's frame (7) below it. Every read of a frame's
@@ -152,3 +156,25 @@ def test_the_preview_keeps_what_is_on_screen_and_says_how_many_on_screen_were_le
     assert str(crowded["omitted_in_view_elements"]) in crowded["omitted_note"]
     full = for_model(PageSnapshot(tab, 1, "https://shop.example/p", "P", menu + box), full=True)
     assert len(full["elements"]) == 401                                        # the saved snapshot keeps everything
+
+
+# decision: HAND-484
+def test_find_returns_the_snapshots_matching_elements_by_id_before_the_page_text(bd: Any) -> None:  # noqa: F811
+    d, launched = bd
+    ext = pair(d, launched, "Work")
+    ext.wait_for(lambda: ext.gen is not None)
+    g = task(d, "f", OWNER, {"research"})
+    tab = call(d, g, "browser.open", url="https://shop.example/form")["content"]["tab"]
+    snap = call(d, g, "browser.snapshot", tab=tab)["content"]
+    submit = next(e["id"] for e in snap["elements"] if e["label"] == "Submit")
+    found = call(d, g, "browser.find", tab=tab, text="submit")["content"]
+    hits = json.loads(found["text"])
+    assert found["element_matches"] == 1 and hits[0] == {"element": submit, "role": "button", "label": "Submit"}
+    assert found["matches"] == 0 and found["examples"] == []          # "submit" isn't in the page's words (case)
+    buttons = call(d, g, "browser.find", tab=tab, text="button")["content"]   # by role too
+    assert [h["element"] for h in json.loads(buttons["text"]) if "element" in h] == [submit]
+    link = next(e["id"] for e in snap["elements"] if e["label"] == "Next")
+    assert not call(d, g, "browser.act", tab=tab, element=link, action="click")["is_error"]   # navigates
+    time.sleep(0.2)
+    stale = call(d, g, "browser.find", tab=tab, text="submit")["content"]
+    assert stale["element_matches"] == 0 and "take one for element ids" in stale["note"]     # no ids from before
