@@ -2442,7 +2442,7 @@ class _TabDriver:
         failure stands."""
         import Quartz
         failed: FerbError | None = None
-        before = self._tabs.get(tab.tab_id)
+        before = getattr(self, "_tabs", {}).get(tab.tab_id)       # a stand-in driver may keep no tabs
         earlier = (before.snap_gen, before.snap_nav, dict(before.elements)) if before is not None else None
         try:
             await self.snapshot(tab)
