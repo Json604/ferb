@@ -641,5 +641,5 @@ title = "Publish extension 0.19.8 to the Chrome Web Store"
 area = "hands"
 kind = "live"
 status = "open"
-why = "HAND-480..482 reach the owner's browsers only through the store; FERB works with older extensions meanwhile (HAND-485). Package: build/store/ferb-extension-0.19.8.zip; the listing needed no change (no new permission or DevTools command, HAND-404); 0.19.4's self-update (HAND-430) should install it."
+why = "HAND-480..496's extension parts reach the owner's browsers only through the store; FERB works with older ones meanwhile (HAND-485). Package: build/store/ferb-extension-0.19.8.zip; no listing change (no new permission or DevTools command, HAND-404); 0.19.4's self-update (HAND-430) should install it."
 decisions = ["HAND-485", "HAND-480", "HAND-404", "HAND-430"]
