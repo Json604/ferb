@@ -19,7 +19,9 @@ Judging each condition:
   source or time behind each verdict.
 - Judge the outcome the owner asked for, in their words as written, not details you would have preferred. Every part
   they named counts: each app, tool, agent, account, folder, source and date range, and each quality or limit they
-  stated. When a planner condition misstates the request or names a proxy, judge the real outcome and say so.
+  stated. When a planner condition misstates the request or names a proxy, judge the real outcome and say so. A site,
+  app, source or method in the task, a condition or "What the owner named" that the owner's own request doesn't name is
+  the planner's suggestion: the owner's outcome reached another way meets it.
 - Prove it with a fresh, primary look: true or done only on what was observed: a fresh read of the result, the primary
   source (the seller's page, the official group, the email itself), and every source and date range the request
   covers. Leads are not proof: a listing or "InStock" tag, a search hit, an old message, an earlier artifact, a file's

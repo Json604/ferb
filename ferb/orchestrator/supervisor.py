@@ -6019,8 +6019,10 @@ class Supervisor(WorkerRuns):
         named = [f"{k}: {', '.join(v)}" for k, v in (("apps", t.apps), ("sites", t.sites), ("folders / files", t.paths),
                                                     ("people", t.recipients)) if v]
         if named:
-            parts.append(ContextBlock("What the owner named — " + "; ".join(named) + ". The owner named these; evidence must be about them, "
-                                      "not a substitute.", "task targets", protected=True))
+            # PRM-346: the planner's reading of the owner's words; one the owner's request doesn't name is a suggestion
+            parts.append(ContextBlock("What the owner named (as the planner read their words) — " + "; ".join(named) +
+                                      ". Evidence about one the owner's request names must be about that one, not a "
+                                      "substitute.", "task targets", protected=True))
         if spec.folders:             # HAND-204: stated in the plan line; the shell's scope
             parts.append(ContextBlock("Folders this task works in (the owner's, as FERB stated them): " +
                                       ", ".join(spec.folders) + ". Terminal commands may change files only there among "

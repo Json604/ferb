@@ -496,3 +496,14 @@ rule = "supervisor.md's \"reply\" kind adds one line: \"A message that only sets
 why = "Live 2026-11-10: both runtimes answered schedule-only requests as kind task with no task; the kind list never said where such a turn goes."
 untestable = "Prompt text: TEST-500 keeps no wording tests; ORCH-582's test covers the answer the line steers away from."
 paths = ["ferb/orchestrator/prompts/supervisor.md"]
+
+[PRM-346]
+title = "A site, app, source or method the owner didn't name is a suggestion, never a condition or target"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "supervisor.md: targets never hold a site, app or source the owner didn't name; success conditions state only the outcome asked for, and a site, app, source or method the owner didn't name is at most a suggestion in the goal. verifier.md: one in the task, a condition or \"What the owner named\" that the owner's own request doesn't name is the planner's suggestion, and the outcome reached another way meets it. The targets block is labelled as the planner's reading of the owner's words (supervisor.py)."
+why = "Live 2026-11-10 (Codex X2): for a doctor search naming no site, the planner put two sites in targets; the targets block told the checker \"the owner named these\", and it rejected answers from another booking site four times."
+untestable = "Prompt text: TEST-500 keeps no wording tests; the live check judges it."
+paths = ["ferb/orchestrator/prompts/supervisor.md", "ferb/orchestrator/prompts/verifier.md", "ferb/orchestrator/supervisor.py::Supervisor._context"]
+live = ["LIVE-869"]

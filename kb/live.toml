@@ -3895,3 +3895,12 @@ request = "Ask FERB to check a product's price on Amazon every morning at 8 and 
 pass = "Both are scheduled with their scheduled lines; the trace shows no task.repair and one planner call per message."
 decisions = ["ORCH-582", "PRM-345"]
 sitting = "after this change is installed"
+
+[LIVE-869]
+title = "A search that names no site is judged on the result, not on a site FERB picked"
+area = "prompts"
+surface = "FERB.app with this build, Codex as the AI"
+request = "Ask FERB to find a couple of good specialists of some kind near you with slots next week, naming no site."
+pass = "The trace's task has no site in targets or success conditions that you didn't name; no check rejects an attempt for using another site than one FERB chose."
+decisions = ["PRM-346"]
+sitting = "after this change is installed"
