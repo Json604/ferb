@@ -1075,3 +1075,13 @@ why = "Live 2026-11-10: find searched only the page's text lines, so \"Buy Now\"
 evidence = "Owner 2026-11-10: \"but why ferb deosnt use acceiblity tree??? taht shoudl be main, why rely on screenshots only???\""
 paths = ["ferb/act/browser/ext_bridge.py::_element_hits", "ferb/act/browser/tools.py::BrowserFind"]
 live = ["LIVE-890"]
+
+[HAND-485]
+title = "Extension 0.19.8 keeps protocol 21 and the minimum 0.19.0"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "HAND-480..482 ship as extension 0.19.8. The daemon sees only an optional field (a point's `frames`) and screenshots that no longer fail on a changing page, so the protocol and the minimum stay: an older extension keeps working with today's checks, and an older FERB ignores `frames`. HAND-483 and HAND-484 are the daemon's own. The owner publishes 0.19.8 to the Chrome Web Store."
+why = "A protocol bump would stop every installed FERB until its browsers update (HAND-445)."
+paths = ["extensions/chromium/manifest.json"]
+live = ["LIVE-890"]

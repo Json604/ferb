@@ -7,9 +7,9 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
 | app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 268 | 11 | 23 |
-| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 76 | 5 | 5 |
+| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 76 | 6 | 5 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 90 | 9 | 58 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 102 | 4 | 19 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 103 | 6 | 19 |
 | memory | Memory and memory import | `ferb/memory` | 58 | 3 | 0 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 97 | 6 | 14 |
 | perception | Perception | `ferb/sense` | 16 | 2 | 0 |
