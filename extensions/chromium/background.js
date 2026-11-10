@@ -224,7 +224,11 @@ async function tabMoved(tabId, groupId) {
 }
 chrome.tabs.onUpdated.addListener((id, info) => {
   if (info && Number.isInteger(info.groupId)) tabMoved(id, info.groupId).catch((e) => console.warn("FERB group:", String(e)));
+  tabLoading(id, info);
 });
+// HAND-486: a new document in a tab FERB drives needs the readiness probe again before trusted input (the debugger
+// session stays; attachForInput runs the input setup and probe once more)
+function tabLoading(id, info) { if (info && info.status === "loading" && TABS.has(id)) TABS.get(id).ready = false; }
 
 async function keptTabs() {
   const { ferbKeptTabs } = await chrome.storage.local.get('ferbKeptTabs');
@@ -1639,8 +1643,37 @@ async function pressKey(tabId, spec) {
 async function topPoint(tabId, frameId, snap, el) {
   const r = await inFrame(tabId, frameId, (g, i) => window.__ferb.rect(g, i), [snap, el]);
   if (r.error) return { error: r.error };
-  return toTopPoint(tabId, frameId, r);
+  const fx = r.x, fy = r.y;                        // where it is in its own frame, for the landed check (HAND-486)
+  const p = await toTopPoint(tabId, frameId, r);
+  return p.error ? p : { ...p, fx, fy };
 }
+
+// HAND-486: a move to (x, y) must be seen by the target's own frame at (fx, fy) before anything is pressed there: in a
+// tab that navigated, presses were dropped until a move landed (live: 18 of 85 screenshot clicks). Moves only, never a
+// press. false: it never arrived in ~10 tries.
+async function reaches(tabId, frameId, x, y, fx, fy) {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await inFrame(tabId, frameId, () => { window.__ferb.pointerArm(); return true; }, []);
+    await mouse(tabId, "mouseMoved", x, y);
+    const seen = await inFrame(tabId, frameId, () => window.__ferb.pointerSeen(), []);
+    if (seen.length === 2 && Math.abs(seen[0] - fx) <= 1 && Math.abs(seen[1] - fy) <= 1) return true;
+    await sleep(25);
+  }
+  return false;
+}
+
+// HAND-486: reaches(), and when the move never arrives, once more after a fresh debugger session (as HAND-423 does for
+// a frame's failed setup); never while the tab holds a download for FERB, which letting go would hand to the browser.
+async function reachesAfresh(tabId, frameId, x, y, fx, fy) {
+  if (await reaches(tabId, frameId, x, y, fx, fy)) return true;
+  if ([...downloads.values()].some(tr => tr.tabId === tabId)) return false;
+  await letGoOfDebugger(tabId);
+  await attachFresh(tabId);
+  return reaches(tabId, frameId, x, y, fx, fy);
+}
+const NOT_REACHED = { ok: false, reason: "pointer_did_not_reach_target", detail: "the pointer's move never reached " +
+  "the element's frame, even after FERB attached to the tab again, so nothing was pressed; take a new snapshot and " +
+  "try once more, or use page_mode=true for this element" };
 
 async function toTopPoint(tabId, frameId, r) {
   if (frameId !== 0) {
@@ -1687,6 +1720,8 @@ async function trusted(tabId, a) {
     if (p.secret && (a.kind === "type" || (a.kind === "press" && entersText(a.text)))) return {ok: false, detail: "secret_field"};
     if (p.disabled) return {ok: false, detail: "target_disabled"};
     if (p.occluded) return { ok: false, detail: "target_occluded; take a fresh snapshot" };
+    const pointing = a.kind === "hover" || CLICKS[a.kind] || (a.kind === "type" && p.editable);
+    if (pointing && !(await reachesAfresh(tabId, a.frame_id, p.x, p.y, p.fx, p.fy))) return NOT_REACHED;
     if (a.kind === "hover") { await mouse(tabId, "mouseMoved", p.x, p.y); return { ok: true, detail: "hovered (trusted)" }; }
     if (CLICKS[a.kind]) {
       await pointerClick(tabId, p.x, p.y, CLICKS[a.kind]);

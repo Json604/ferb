@@ -22,6 +22,7 @@ SETUP = '''
         detach: async () => { detaches++; },
         sendCommand: async (target, method, params) => {
           cmds.push([target.sessionId || null, method, (params || {}).type]);
+          if (method === "Input.dispatchMouseEvent" && params.type === "mouseMoved") lastMove = [params.x, params.y];
           if (failing.has(target.sessionId) || (!target.sessionId && failing.has(method))) throw new Error(GONE);
           if (method === "Target.setAutoAttach" && !target.sessionId && stuck) {
             const sid = "S" + (++frames); failing.add(sid); frame(sid);
@@ -29,8 +30,11 @@ SETUP = '''
           return {};
         },
         onEvent: chrome.debugger.onEvent, onDetach: chrome.debugger.onDetach}, {get: (o, k) => o[k]});
+      let lastMove = null, deafUntil = 0;   // the page sees each trusted move once the session is past deafUntil (HAND-486)
       chrome.scripting = {executeScript: async ({func}) =>
-        [{frameId: 0, result: func && String(func).includes("rect(") ? {x: 50, y: 60} : true}]};
+        [{frameId: 0, result: func && String(func).includes("rect(") ? {x: 50, y: 60}
+                              : func && String(func).includes("pointerSeen()") ? (attaches > deafUntil ? lastMove || [] : [])
+                              : true}]};
       chrome.tabs.get = async id => ({id, windowId: 9, url: "https://s.example/"});
       let n = 0;
       const click = async () => {
@@ -116,3 +120,34 @@ def test_a_frame_that_went_leaves_no_error_behind(order: str) -> None:
       return {{...r, attaches}};
     ''')
     assert out["outcome"] == "done" and out["attaches"] == 1  # no re-attach needed: the frame took its error with it
+
+
+# decision: HAND-486
+def test_a_click_whose_move_doesnt_reach_the_page_attaches_again_once_and_never_presses_blind() -> None:
+    """Live: 18 of 85 screenshot clicks "never reached the target's frame", always in a tab that had navigated; a fresh
+    tab worked. A click checks its move landed before pressing; when it didn't, FERB attaches afresh once."""
+    out = run('''
+      await click();                                           // the tab's first session, the page hears it
+      deafUntil = attaches;                                    // then the page stops hearing this session's moves
+      const healed = await click();
+      deafUntil = 99;                                          // and now no session's moves arrive
+      const deaf = await click();
+      return {healed, deaf, attaches};
+    ''')
+    assert out["healed"]["outcome"] == "done" and out["healed"]["pressed"] == 1
+    assert out["deaf"]["outcome"] == "failed" and out["deaf"]["pressed"] == 0
+    assert out["attaches"] == 3                               # once for the healed click, once more for the deaf one
+
+
+# decision: HAND-486
+def test_a_new_document_in_a_driven_tab_runs_the_readiness_probe_again() -> None:
+    out = run('''
+      await click();
+      const before = tabState(8).ready;
+      tabLoading(8, {status: "loading"});
+      const after = tabState(8).ready;
+      const r = await click();
+      return {before, after, r, ready: tabState(8).ready, attaches};
+    ''')
+    assert out["before"] is True and out["after"] is False
+    assert out["r"]["outcome"] == "done" and out["ready"] is True and out["attaches"] == 1   # same session, probed again

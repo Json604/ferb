@@ -111,6 +111,21 @@ async function readyPoint(tabId, point, alive) {
   throw new Error("pointer_did_not_reach_target_frame");
 }
 
+// HAND-486: readyPoint, and when its move never reaches the target's frame (live: 18 of 85 screenshot clicks, always in
+// a tab that had navigated), once more after a fresh debugger session (every frame set up afresh, its readiness probe),
+// as HAND-423 does for a frame's failed setup; never while the tab holds a download for FERB, which letting go would
+// hand to the browser. false: it still didn't arrive (only moves were sent).
+async function reachPoint(tabId, point, alive) {
+  try { await readyPoint(tabId, point, alive); return true; }
+  catch (e) { if (String(e.message || e) !== "pointer_did_not_reach_target_frame") throw e; }
+  if ([...downloads.values()].some(tr => tr.tabId === tabId)) return false;
+  await letGoOfDebugger(tabId);
+  await attachFresh(tabId);
+  try { await readyPoint(tabId, point, alive); return true; }
+  catch (e) { if (String(e.message || e) !== "pointer_did_not_reach_target_frame") throw e; }
+  return false;
+}
+
 async function exactPointer({tab_id, point, end, kind}, commandId) {
   if (!["click", "dblclick", "rightclick", "hover", "drag"].includes(kind)) throw new Error("unsupported_pointer_action");
   let st;
@@ -144,11 +159,10 @@ async function exactPointer({tab_id, point, end, kind}, commandId) {
   };
   try {
     alive();
-    try { await readyPoint(tab_id, start, alive); }
-    catch (e) {                                 // only moves were sent, never a press: a known failure (live 2026-10-26)
-      if (String(e.message || e) !== "pointer_did_not_reach_target_frame") throw e;
+    if (!(await reachPoint(tab_id, start, alive))) {   // only moves were sent, never a press: a known failure
       return {ok: false, reason: "pointer_did_not_reach_target_frame", detail: "the pointer's move never reached the " +
-        "target's frame, so nothing was pressed; take a fresh screenshot and point again"};
+        "target's frame, even after FERB attached to the tab again, so nothing was pressed; click it from a " +
+        "snapshot instead (browser.act with its element id)"};
     }
     alive();
     // Hover can expose a different control (a tooltip, a menu over the point). Recheck the actual hit before pressing;

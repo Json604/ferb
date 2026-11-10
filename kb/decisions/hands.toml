@@ -1085,3 +1085,14 @@ rule = "HAND-480..482 ship as extension 0.19.8. The daemon sees only an optional
 why = "A protocol bump would stop every installed FERB until its browsers update (HAND-445)."
 paths = ["extensions/chromium/manifest.json"]
 live = ["LIVE-890"]
+
+[HAND-486]
+title = "A click presses only after its move reached the target's frame; a tab that navigated is probed again"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.8. A trusted click, hover or typing focus (browser.act) moves first and presses only once the target's own frame saw that move at the element's place, as screenshot points already did. When it never arrives, FERB lets the debugger go and attaches afresh once (not while the tab holds a download for FERB), then tries again; still not: nothing was pressed, a known failure that says so. A tab FERB drives that starts loading a new document runs the readiness probe again before its next input."
+why = "Live: 18 of 85 screenshot clicks in the current build failed with \"never reached the target's frame\", always in a tab that had navigated; a fresh tab worked. Readiness (t.ready) was set once per debugger session and never reset on navigation."
+evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
+paths = ["extensions/chromium/background.js::reachesAfresh", "extensions/chromium/background.js::tabLoading", "extensions/chromium/pointer.js::reachPoint"]
+live = ["LIVE-890"]
