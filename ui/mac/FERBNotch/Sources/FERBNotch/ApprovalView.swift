@@ -40,6 +40,9 @@ struct ApprovalView: View {
                 // thing approved in its own code box. A long question or exact part (a command, rule 6) stays fully
                 // shown in a capped-height block that scrolls, never behind a click.
                 ApprovalText(text: approval.visibleReason, size: 12.5, bold: true)
+                if approval.hasPicture || approval.pictureProblem != nil {   // GATE-579: the payment page, once
+                    PaymentPictureView(model: model, pictures: model.paymentPictures, approval: approval)
+                }
                 if let detail = approval.detail {
                     ApprovalText(text: detail, size: 11.5, secondary: true)
                 }

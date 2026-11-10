@@ -186,8 +186,14 @@ final class NotchModel: ObservableObject {
         menuBarState == .settingUp ? MenuBarState.settingUp.statusLine : connectionStatus
     }
     @Published var pendingApprovals: [DaemonApproval] = [] {
-        didSet { if pendingApprovals != oldValue { taskListCache.invalidate() } }
+        didSet {
+            guard pendingApprovals != oldValue else { return }
+            taskListCache.invalidate()
+            paymentPictures.keep(Set(pendingApprovals.map(\.id)))    // GATE-579: an answered question's picture goes
+        }
     }
+    /// GATE-579, APP-828: the payment questions' one-time pictures, in memory only.
+    let paymentPictures: PaymentPictures
     @Published var questionFocus: QuestionFocus?
     @Published var promptError: String?
     @Published var sendingAnswer = false
@@ -278,6 +284,7 @@ final class NotchModel: ObservableObject {
         self.microphone = microphone ?? Microphone()
         self.rpc = rpc
         self.clickThrough = ClickThroughReport(rpc: rpc)
+        self.paymentPictures = PaymentPictures(rpc: rpc)
         self.preferences = preferences
         feedback = SoundFeedback(defaults: preferences)
         preferredPanelWidth = max(360, CGFloat((preferences.object(forKey: "notch.panelWidth") as? NSNumber)?.doubleValue ?? 440))

@@ -3396,3 +3396,12 @@ status = "active"
 rule = "For APP-881. Beside the model picker: \"Default (<the model's default>)\" (\"the model's own\" when undocumented), the chosen model's levels from runtimes.models (a level set but unlisted stays shown) and \"Other…\" with a text field; a model with no listed levels offers Default and Other… only. The list follows the model picked. One Use sends model and effort to runtimes.model; a refused level keeps the old one and shows the provider's words. Advanced's role rows have the same picker and say each role's default."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift::ModelRow", "ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::SetupModel.setModel"]
 live = ["LIVE-881"]
+
+[APP-828]
+title = "The payment card shows the payment page's one-time picture under its first line"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For GATE-578 and GATE-579. A card with `picture` fetches it once by question id (questions.picture; PaymentPictures, shared by the notch and the chat window) and shows it under the first line, fitted to the card's width; a click enlarges it in a popover hidden from screen sharing; accessibility label \"The payment page\". Memory only while the question is open, never saved with the chat, so a restored chat shows the card without it. `picture_problem` shows its line in its place. Answering never waits for the picture."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PaymentPicture.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ApprovalView.swift", "ui/mac/FERBNotch/Sources/NotchCore/DaemonApproval.swift"]
+live = ["LIVE-877"]

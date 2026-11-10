@@ -164,6 +164,7 @@ final class PlaygroundWorkspace {
         case "seen.list": return ["days": 7, "total": 1, "captures": [["id": "sample-capture", "at": PlaygroundSamples.time(-900),
             "kind": "screen", "task_id": "sample-brief", "app": "Sample workspace", "title": "Afternoon brief", "tool": "Sample preview"]]]
         case "seen.image": return ["image": sampleImage]
+        case "questions.picture": return ["image": sampleImage]
         case "recovery.list": return ["days": 7, "total": recovered ? 0 : 1, "records": recovered ? [] : [["id": "sample-recovery",
             "kind": "copy", "original": artifact.path, "reason": "Sample edit", "at": PlaygroundSamples.time(-600), "saved_to": artifact.path]]]
         case "recovery.restore": recovered = true; return ["original": artifact.path, "restored_to": artifact.path, "in_place": true]

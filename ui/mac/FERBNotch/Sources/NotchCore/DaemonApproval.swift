@@ -57,6 +57,11 @@ public struct DaemonApproval: Identifiable, Equatable {
     /// A safety check that belongs to a task (a confirmation, a retry, a conversation's scope): besides its buttons, the
     /// owner's words for that task go as a correction through `chat.correct`, never as a Yes (GATE-510).
     public let corrects: Bool
+    /// GATE-579, APP-828: a payment question whose page FERB captured when it asked: the card fetches that one-time
+    /// picture by the question's id (`questions.picture`), kept in memory only while the question is open.
+    public let hasPicture: Bool
+    /// GATE-579: the line the card shows in the picture's place when the page couldn't be captured.
+    public let pictureProblem: String?
 
     /// The card's text box (APP-726): none, an answer (a secret, a question without choices, a task's question with
     /// choices, in a row too), or the owner's words for the task beside a safety check's buttons.
@@ -92,5 +97,7 @@ public struct DaemonApproval: Identifiable, Equatable {
         runtimeSwitch = RuntimeSwitch(value["runtime_switch"])
         optionsOnly = value["options_only"] as? Bool ?? false
         corrects = value["corrects"] as? Bool ?? false
+        hasPicture = value["picture"] as? Bool ?? false
+        pictureProblem = (value["picture_problem"] as? String).flatMap { $0.isEmpty ? nil : $0 }
     }
 }

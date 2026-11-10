@@ -375,6 +375,8 @@ extension AppWindowPresentation {
         // With their window
         .init(name: "The task activity window's popovers", mechanism: .withParent, file: "TaskActivityBubble.swift",
               code: ".popover("),
+        .init(name: "A payment question's picture, enlarged (notch and sticky window)", mechanism: .withParent,
+              file: "PaymentPicture.swift", code: ".popover("),
         .init(name: "Settings' confirmations (Uninstall, Delete secret)", mechanism: .withParent,
               file: "SettingsPages.swift", code: ".alert("),
         .init(name: "Memory's Forget confirmation", mechanism: .withParent, file: "WindowPages.swift", code: ".alert("),
