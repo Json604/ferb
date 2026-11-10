@@ -1162,3 +1162,14 @@ why = "Live: element ids went stale on every tabs.onUpdated \"complete\", which 
 evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
 paths = ["extensions/chromium/background.js::tabEvent", "ferb/act/browser/ext_protocol.py::TabEvent"]
 live = ["LIVE-890"]
+
+[HAND-493]
+title = "Browser hints follow what happened and name what to use instead"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "browser.act's `next` depends on the outcome: after an act that went through it points at `observed` and a new snapshot; after one that didn't, at the detail's reason. A screenshot point used for typing or with page_mode says what a point takes (click, dblclick, rightclick, hover, drag as real input) and to act on a snapshot element id otherwise. \"no tab tN open for this task\" lists the task's open tabs."
+why = "Live: \"take a new snapshot to see the result\" after refusals sent workers to look for results that never happened, and one 195-call loop guessed tab ids after \"no tab t7 open for this task\"."
+evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
+paths = ["ferb/act/browser/tools.py::BrowserAct", "ferb/act/browser/ext_bridge.py::owned_by", "ferb/act/browser/ext_bridge.py::_pointer"]
+live = ["LIVE-890"]

@@ -915,7 +915,12 @@ class BrowserAct(_Base):
                                                     files_closed=ctx.path_closed, terminal=ctx.terminal),
                                   ctx.intent_id or "")
         # facts come back from the page (option candidates, scroll state, dialogs): label them with the tab's page
-        out = {"ok": r.ok, "detail": r.detail, **r.facts, "next": "take a new snapshot to see the result"}
+        # HAND-493: the hint follows what happened
+        out = {"ok": r.ok, "detail": r.detail, **r.facts,
+               "next": ("`observed` says what changed; take a new snapshot to read the page now"
+                        if r.ok and "observed" in r.facts else "take a new snapshot to see the result" if r.ok else
+                        "it didn't go through (detail says why); act on what the detail names, or take a new snapshot "
+                        "before choosing another way")}
         news, more = await _news(self.driver, ref)
         # HAND-491: a tab this act opened (the extension waits for its claim while it looks, HAND-487) leads the result
         opened = [str(t["tab"]) for t in news.get("opened_tabs", []) if t.get("tab")]

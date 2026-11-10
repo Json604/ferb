@@ -1737,8 +1737,9 @@ class _TabDriver:
                 "role": info.role, "node": node}
 
     async def _pointer(self, t: _Tab, el: ElementRef, action: BrowserAction, intent_id: str) -> ActionResult:
-        if action.page_mode or action.kind not in POINTER_KINDS:
-            raise Refused("visual points support trusted pointer actions; take a semantic snapshot for typing")
+        if action.page_mode or action.kind not in POINTER_KINDS:     # HAND-493: what a point takes, and what instead
+            raise Refused("a screenshot point takes click, dblclick, rightclick, hover or drag, as real input: drop "
+                          "page_mode; to type, select or press a key, act on an element id from browser.snapshot")
         if not self._visual_fresh(t):
             raise StaleRef("the visual target is stale; take a fresh screenshot and resolve its points")
         start = t.points.get(el.element_id)
@@ -2435,7 +2436,10 @@ class _TabDriver:
         """`owner`'s tab; with `borrow`, a registered checker reaches its worker's tabs too (`inspection_parent`)."""
         t = self._tabs.get(tab_id)
         if t is None or not (self._accessible(t, owner) if borrow else t.owner == owner):
-            raise Refused(f"no tab {tab_id} open for this task")
+            open_ = [x.ref.tab_id for x in self._tabs.values() if not x.closed and (self._accessible(x, owner) if borrow
+                                                                                   else x.owner == owner)]
+            raise Refused(f"no tab {tab_id} open for this task; its open tabs: {', '.join(open_) or 'none'} "
+                          "(browser.tabs lists them)")   # HAND-493: never a guess at ids
         return t.ref
 
     def _accessible(self, tab: _Tab, task: str) -> bool:

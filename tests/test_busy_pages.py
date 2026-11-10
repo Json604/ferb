@@ -477,3 +477,19 @@ def test_the_extension_says_a_load_kept_the_snapshots_document() -> None:
       return sent.map(b => b.same_document === true);
     })()''')
     assert out == [True, False]
+
+
+# decision: HAND-493
+def test_a_wrong_tab_id_lists_the_tasks_open_tabs_and_a_refused_acts_hint_isnt_look_at_the_result(bd: Any) -> None:  # noqa: F811
+    """Live: a 195-call loop guessed tab ids after "no tab t7 open for this task"."""
+    d, launched = bd
+    ext = pair(d, launched, "Work")
+    ext.wait_for(lambda: ext.gen is not None)
+    g = task(d, "h", OWNER, {"research"})
+    tab = call(d, g, "browser.open", url="https://shop.example/product")["content"]["tab"]
+    wrong = call(d, g, "browser.snapshot", tab="t99")
+    assert wrong["is_error"] and f"its open tabs: {tab}" in wrong["content"]["error"]
+    els = call(d, g, "browser.snapshot", tab=tab)["content"]["elements"]
+    parked = next(e["id"] for e in els if e.get("offscreen") == "left")
+    refused = call(d, g, "browser.act", tab=tab, element=parked, action="click")["content"]
+    assert "didn't go through" in refused["next"]
