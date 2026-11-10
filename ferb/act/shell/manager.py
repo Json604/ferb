@@ -156,15 +156,11 @@ class ShellManager:
                 argv = await asyncio.to_thread(self.sandbox.argv, command, rule, folders)
             profile = self.sandbox.profile_path(argv)
         secret = escape.secret if escape is not None else None
-        if secret and self.redactor is not None:
-            self.redactor.retain_secret(secret)
         def finished() -> None:
             Sandbox.cleanup(profile)
             if pid in self._report_on_exit:          # outlived its task: its record is due now, then it goes
                 self._report_on_exit.discard(pid)
                 self._retire(pid)
-            if secret and self.redactor is not None:
-                self.redactor.release_secret(secret)
         p = PtyProc(argv, cwd, self._env(pid), self.log_dir / f"{pid}.log", self.redact_text, self.stream_factory,
                     on_exit=finished, admin_secret=secret if lift == ADMIN else None)
         entry = self.sandbox.protection.entry(lift) if self.sandbox is not None and lift else None

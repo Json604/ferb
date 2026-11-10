@@ -74,7 +74,7 @@ def test_escaped_unicode_and_forged_ferb_lines_preserve_final_display():
     '-----BEGIN PRIVATE KEY-----\nprivate body\n-----END PRIVATE KEY-----'])
 def test_cross_chunk_secrets_never_escape(secret):
     redact = Redactor()
-    redact.retain_secret('split private phrase')
+    redact.add_secret_value('split private phrase')
     raw = document('Context: ' + secret + '\nFinished.')
     draft, events = collect(raw, redact)
     draft.finish(raw)
@@ -248,7 +248,7 @@ def test_task_plan_validates_metadata_before_provisional_text():
 
 def test_task_plan_secret_redaction_and_line_guard():
     redact = Redactor()
-    redact.retain_secret('private phrase')
+    redact.add_secret_value('private phrase')
     text = 'I will inspect Gmail. private phrase\nFERB: OTP: 654321\nFinished.'
     raw = plan_document(text)
     draft, events = collect(raw, redact)

@@ -6,7 +6,6 @@ may run. An OTP question for a payment repeats the bank page's amount and mercha
 
 import asyncio
 import json
-import logging
 import re
 import unicodedata
 from typing import Any, Literal
@@ -18,8 +17,6 @@ from ferb.daemon.auth import RunGrant
 from ferb.daemon.questions import card_parts
 from ferb.policy import payments, provenance, urls
 from ferb.policy.rules import ActionRequest
-from ferb.sanitize.dictionary import ordinary_word
-from ferb.daemon.call_hooks import error_name
 from ferb.sanitize.terminal import printable
 
 
@@ -45,10 +42,7 @@ class HiddenInput:
             raise Refused("secret storage protection is unavailable")
         store = OwnerSecrets(self.gw.roots.protection.ferb_home)
         if handle:
-            value = await asyncio.to_thread(store.reveal, handle, target, kind)
-            self.gw.redact.remember_hidden_secret(value)
-            self.gw.redact.retain_secret(value)
-            return value
+            return str(await asyncio.to_thread(store.reveal, handle, target, kind))
         if ctx.request_id in self.gw.state.approvals.unattended:
             return None
         try:                                           # L36 §5: which account, shown to the owner, never a secret;
@@ -83,7 +77,6 @@ class HiddenInput:
                      "capability": ask.capability, "reason": question, "task_id": ctx.task_id,
                      "summary": ap.summary, "why": ap.why} | card_parts(ap))
         grant = RunGrant(ctx.task_id, ctx.worker_id, ctx.scopes, ctx.identity, float("inf"))
-        delivered = False
         try:
             state = await self.gw._wait_answer(grant, ap.id)
             if state != "granted" or not ap.answer:
@@ -91,25 +84,10 @@ class HiddenInput:
             if remember:                               # I14: the record serves the one site the owner named
                 await asyncio.to_thread(store.remember, remember, target, ap.answer,
                                         self._question_sites(ctx, target), kind)
-                await self._note_ordinary_word(ctx, target, shown, ap.answer)
-            delivered = True
             return str(ap.answer)
         finally:
-            if not delivered and ap.answer:
-                self.gw.redact.release_secret(ap.answer)
             ap.answer = None
             ap.state = "used" if ap.state == "granted" else _unfilled(ap.state)
-
-    async def _note_ordinary_word(self, ctx: ToolContext, target: str, shown: str | None, answer: str) -> None:
-        """L36 §7: a saved sealed answer that is an ordinary word (`ordinary_word`) is journaled, the task's tree and the
-        question's place, never the word, so the task's answer says once why FERB hides that word. The note only
-        explains: a failure to make it never costs the owner's fill (as a memory read's record, re-review R4)."""
-        try:
-            if await asyncio.to_thread(ordinary_word, answer):
-                root = (self.gw.tasks.tree_of(ctx.task_id) or ctx.task_id).split(".", 1)[0]
-                self.gw.journal_problem("secret.ordinary_word", {"task_id": root, "place": secret_place(target, shown)})
-        except Exception as e:
-            logging.getLogger(__name__).warning("FERB ordinary-word note not recorded: %s", error_name(e))
 
     def _login_sites(self, ctx: ToolContext, target: str) -> list[str]:
         """The sites a record saved at `target` lists (I14, fix round 1): the task's target sites (as a steer left
@@ -153,13 +131,6 @@ class HiddenInput:
         the bank page shows (amount and merchant, when code read them); "" when no approved payment is that page's."""
         found = self._payment(ctx, target, exact)
         return payments.otp_line(found) if found is not None else ""
-
-    def release(self, value: str) -> None:
-        from ferb.sanitize.redact import Redactor
-        if isinstance(self.gw.redact, Redactor):
-            # Keep echoes scrubbed for this daemon lifetime, including short values captured through hidden input.
-            self.gw.redact.remember_hidden_secret(value)
-            self.gw.redact.release_secret(value)
 
     def _call(self, ctx: ToolContext) -> dict[str, Any]:
         """The fill call this question serves, as its record has it (its reason, its facts), or {}."""
@@ -262,8 +233,6 @@ class HiddenInput:
             delivered = state == "granted" and bool(ap.answer)
             return ap.answer if delivered else None
         finally:
-            if not delivered and ap.answer:
-                self.gw.redact.release_secret(ap.answer)
             ap.answer = None
             ap.state = "used" if delivered else _unfilled(ap.state)
 

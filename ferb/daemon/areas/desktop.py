@@ -316,7 +316,6 @@ class Desktop:
             self.proxy.close()
             self.proxy = None
         self.mac.ask_secret = lambda ctx, target, **kw: self.gateway.ask_secret(ctx, target, **kw)
-        self.mac.release_secret = lambda value: self.gateway.release_secret(value)
         add_mac(self.registry, self.mac, self._device_profile, self.recordings, contained, self.protection)
         self.hearing.apps = self.mac.app                          # the Mac tools' exact app lookup (exclusions too)
         self.hearing.sweep()                                      # sound and answers a restart left behind (L26)

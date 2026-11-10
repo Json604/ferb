@@ -91,17 +91,16 @@ def luhn(prefix: str) -> str:
 
 
 @pytest.mark.parametrize('secret', ['sk-ant-api03-a1B2c3D4e5F6g7H8i9J0', 'ghp_A1b2C3d4E5f6G7h8I9j0K1l2', 'AKIAABCDEFGHIJKLMNOP',
-                                    JWT, '4111111111111111', 'Zq9-hunter-77', 'pa5'])
+                                    JWT, '4111111111111111', 'Zq9-hunter-77', 'a5a5'])
 def test_a_secret_placed_in_source_refs_is_still_redacted(stores, secret) -> None:
     db, r, spans, _ = stores
-    r.add_secret_value('Zq9-hunter-77')            # exact registered secret values (two sealed and short)
-    r.remember_hidden_secret('pa5')
-    r.remember_hidden_secret('a5a5')               # hex: it occurs inside a generated id body below
+    r.add_secret_value('Zq9-hunter-77')            # exact registered secret values (one short)
+    r.add_secret_value('a5a5')                     # hex: it occurs inside a generated id body below
     rng = random.Random(12)
     ids = [i for i in ('m-' + hashlib.sha256(rng.randbytes(32)).hexdigest() for _ in range(20000)) if card_shaped(i)]
     real = [ids[0], 'trail:' + 'ab12cd34' * 4, 'episode:' + 'f00d' * 8 + '.1', 'journal:' + 'a5' * 16]
     for ref in (secret, 'trail:' + secret):
-        span = spans.start('context.exposure', input={'source_refs': [*real, ref, 'journal:pa5pa5'],
+        span = spans.start('context.exposure', input={'source_refs': [*real, ref, 'journal:a5a5a5a5'],
                                                       'reference': 'Layer 4'})
         assert span.input['source_refs'][:4] == real            # FERB's own ids pass unchanged
         assert secret not in span.input['source_refs'][4]

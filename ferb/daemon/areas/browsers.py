@@ -295,11 +295,9 @@ class Browsers:
         self.router.ask_secret = lambda ctx, target, **kw: self.gateway.ask_secret(ctx, target, **kw)
         self.router.pair_profile = self._pair_for_task       # browser_pair, after the owner's Yes (2026-10-27)
         self.router.handoff = self._handoff                  # browser_handoff: a human check for the owner (2026-10-27)
-        self.router.release_secret = lambda value: self.gateway.release_secret(value)
-        self.router.add_secret_value = self._add_secret_value
         add_owner_browsers(self.registry, self.router, self.recordings)
         pairings = self.pairings
-        self.ferb_identity = FerbIdentity(self.hub, self._identity_profile, self.secrets, self._add_secret_value,
+        self.ferb_identity = FerbIdentity(self.hub, self._identity_profile, self.secrets,
                                           lambda: str(self.config.get("mailbox", "address", "") or ""),
                                           lambda install_id: pairings.key(install_id), self._profiles,
                                           self.wake, self.browser_launch)

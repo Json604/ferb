@@ -117,8 +117,14 @@ def test_stand_in_identity_origin_rules_and_sealing(stand_in: Any) -> None:
     kc = _keychain()
     store = KeychainSecretStore(lambda: specs, kc)
     fi.secrets, fi._store = store, store
-    scrubbed: list[str] = []
-    fi.add_secret_value = lambda v: (scrubbed.append(v), d._add_secret_value(v))  # type: ignore[assignment]
+    scrubbed: list[str] = []                       # every Keychain read of a value
+    reveal = store._reveal
+
+    async def counted(ref: Any) -> str:
+        value = await reveal(ref)
+        scrubbed.append(value)
+        return value
+    store._reveal = counted                        # type: ignore[method-assign]
     try:
         assert rd.run(_attach(d)), "the disposable identity profile did not attach"
         out = rd.run(_part1(d, site, specs, scrubbed), timeout=240)

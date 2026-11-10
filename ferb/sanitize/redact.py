@@ -15,8 +15,8 @@ from urllib.parse import urlsplit
 
 from ferb.sanitize.formats import (_H, PRIVATE_KEY_END, PRIVATE_KEY_START, SECRET_PATTERNS, first_format,  # noqa: F401
                                    format_hits, holds_value, payment_card, secret_param, urls)
-from ferb.sanitize.known import (REDACTED, Registry, SealedWord, escaped_forms, holds_sealed, id_bodies,  # noqa: F401
-                                 known_spans, sealed, sealed_spans, word_char)
+from ferb.sanitize.known import (REDACTED, Registry, escaped_forms, holds_sealed, id_bodies, known_spans,  # noqa: F401
+                                 sealed_spans, word_char)
 from ferb.sanitize.labels import (CARD_AUTOCOMPLETE, CODE_LINK, CODE_REACH, CODE_VALUE, CODE_WORD,  # noqa: F401
                                   FIELD_METADATA, INPUT_TYPES, INTERNAL_ID_KEYS, LINE_BREAK, OTP_LABEL,
                                   PASSWORD_AUTOCOMPLETE, code_alone, code_words, content_lines, hidden_answer,
@@ -25,12 +25,12 @@ from ferb.sanitize.labels import (CARD_AUTOCOMPLETE, CODE_LINK, CODE_REACH, CODE
 
 __all__ = ["CODE_LINK", "CODE_REACH", "CODE_VALUE", "CODE_WORD", "EXCLUDED", "INTERNAL_ID_KEYS", "NODE_TEXT",
            "OTP_LABEL", "PRIVATE_KEY_END", "PRIVATE_KEY_START", "REDACTED", "SAVED_SECRET", "SECRET_PATTERNS",
-           "RedactionStream", "Redacted", "Redactor", "SealedWord", "_H", "_code_alone", "code_words", "escaped_forms",
+           "RedactionStream", "Redacted", "Redactor", "_H", "_code_alone", "code_words", "escaped_forms",
            "first_format", "holds_sealed", "id_bodies", "label_class", "mask", "password_field", "payment_card",
-           "sealed", "sealed_spans", "secret_key", "secret_param", "secret_words", "word_char"]
+           "sealed_spans", "secret_key", "secret_param", "secret_words", "word_char"]
 
 EXCLUDED = "[excluded]"
-SAVED_SECRET = "saved secret"                  # `Redactor.kinds`' name for a known value: one of the owner's own
+SAVED_SECRET = "saved secret"                  # `Redactor.kinds`' name for a known value: a key saved in FERB
 # A part `Redactor.kinds` names as the whole it belongs to, when that whole is in the same text (structural: a card's
 # expiry and CVV are the card; a Twilio auth token comes with its account key). A card's part alone names no kind.
 _PART_OF = {"card expiry": "payment card", "CVV": "payment card", "Twilio auth token": "Twilio key"}
@@ -132,32 +132,22 @@ class Redactor:
         self._config += 1
 
     def add_secret_value(self, value: str) -> None:
-        """A value FERB handled (a fill it typed, a login code, a proxy token): hidden if a page or error echoes it."""
+        """One of FERB's own credentials (an API key, a proxy token, a sign-in code): hidden by its value wherever it
+        appears. Nothing else is known by value (owner, GATE-572)."""
         self.registry.add(value)
 
-    def remember_hidden_secret(self, value: str) -> None:
-        """A sealed secret (a hidden input, a stored one revealed for a fill, a preloaded Keychain value), whatever its
-        length. A typed answer to an ordinary question never comes here (L18)."""
-        self.registry.remember(value)
-
     def preload(self, values: Iterable[str]) -> int:
-        """The values read from FERB's Keychain handles and owner secrets at start; how many were added."""
+        """The API keys read at start (GATE-573); how many were added."""
         before = self.registry.lasting()
         for value in values:
-            self.registry.remember(value)
+            self.registry.add(value)
         return self.registry.lasting() - before
 
     def forget_secret_value(self, value: str) -> None:
         self.registry.forget(value)
 
-    def retain_secret(self, value: str) -> None:
-        self.registry.retain(value)
-
-    def release_secret(self, value: str) -> None:
-        self.registry.release(value)
-
     def secret_values(self) -> frozenset[str]:
-        """Every known value as kept (a `SealedWord` for an ordinary word), and its escaped forms."""
+        """Every known value and its escaped forms."""
         return self.registry.values()
 
     def excluded_host(self, host: str) -> bool:

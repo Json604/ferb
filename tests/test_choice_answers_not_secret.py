@@ -1,6 +1,6 @@
-"""L18: only values entered through the sealed secret input become hidden secrets (D28). An answer to a question with
-options never is, so a 2FA method picked as "1" can't turn every "1" in later traces, model context and answers into
-[redacted] (code-f5-f6 I2)."""
+"""L18: an answer to a question with options never becomes a hidden secret, so a 2FA method picked as "1" can't turn
+every "1" in later traces, model context and answers into [redacted] (code-f5-f6 I2). Since GATE-572 (owner,
+2026-11-10) no value the owner enters, through the hidden input or not, is hidden by its value in later text."""
 import pytest
 
 from ferb.core.types import Identity
@@ -41,21 +41,20 @@ def test_a_typed_answer_is_never_remembered_as_a_secret(daemon) -> None:
     assert daemon.daemon.redact.text(LATER) == LATER
 
 
-def test_values_entered_through_the_sealed_input_stay_redacted_in_later_text(daemon) -> None:
-    """(d) The sealed paths still hide what the owner entered: a login code and a short secret, before and after the
-    fill hands the secret back (gateway.release_secret), and a later choice answer leaves them hidden."""
+# decision: GATE-572
+def test_values_entered_through_the_hidden_input_are_not_hidden_by_value_in_later_text(daemon) -> None:
+    """(d) Owner 2026-11-10: a login code and a one-time secret typed into the hidden input reach their fill only, and
+    later text that happens to hold the same characters is left as it is; only FERB's own keys are known by value."""
     code = ask(daemon, 'Enter the login code for https://www.orderly.example (hidden; Enter cancels).', [],
                kind='owner_login_code')
     answer(daemon, code, '482913')
     secret = ask(daemon, 'Enter the secret for https://x.test (hidden; Enter cancels).', [], kind='owner_secret')
-    answer(daemon, secret, 'pa5')
+    answer(daemon, secret, 'booked')
+    assert (code.answer, secret.answer) == ('482913', 'booked')       # the fills get them as typed
     redact = daemon.daemon.redact
-    assert redact.text('the page shows 482913 and pa5') == f'the page shows {REDACTED} and {REDACTED}'
-    daemon.daemon.gateway.release_secret('pa5')          # the sealed fill is done: the value stays hidden
-    assert redact.text('error: pa5 rejected') == f'error: {REDACTED} rejected'
-
-    answer(daemon, ask(daemon, TWO_FA, ['SMS', 'Authenticator app']), '1')
-    assert redact.text('482913, pa5; ' + LATER) == f'{REDACTED}, {REDACTED}; {LATER}'
+    assert redact.text('I booked the flight') == 'I booked the flight'
+    assert redact.text('order 482913 shipped') == 'order 482913 shipped'
+    assert redact.secret_values() == frozenset()
 
 
 def test_a_typed_superscript_digit_is_no_option_number(daemon) -> None:

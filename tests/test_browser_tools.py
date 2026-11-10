@@ -34,8 +34,7 @@ def bd(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple
     async def find(ref: Any, reveal: bool) -> tuple[int, str]:
         return (0, PASSWORD if reveal else "") if ref == REF else (1, "")
     monkeypatch.setattr(store, "_find", find)
-    drv = FakeIdentityDriver(store, lambda _value: None)
-    drv.add_secret_value = daemon.daemon._add_secret_value                   # the daemon's redactor learns it
+    drv = FakeIdentityDriver(store)
     daemon.daemon.use_identity_browser(drv)
     yield daemon, drv
 

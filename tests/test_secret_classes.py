@@ -72,7 +72,7 @@ def test_ordinary_owner_answer_to_otp_question_is_scrubbed_before_resolution(dae
         ap = daemon.daemon.state.approvals.question(action, 'Please enter the OTP on the Orderly page.', ['Done', 'Cancel'])
         await daemon.daemon._chat_answer(None, {'approval_id': ap.id, 'text': '314159'})
         return ap.answer
-    assert daemon.run(answer()) == REDACTED      # hidden for this answer; only sealed input is remembered (L18)
+    assert daemon.run(answer()) == REDACTED      # hidden for this answer, never remembered (L18)
 
 
 def test_admin_answer_preserves_spaces_and_rejects_newline_privately(daemon) -> None:
@@ -89,4 +89,4 @@ def test_admin_answer_preserves_spaces_and_rejects_newline_privately(daemon) -> 
         await daemon.daemon._chat_answer(None, {'approval_id': ap.id, 'text': ' x '})
         return ap.answer, daemon.daemon.redact.text('input: x ')
     value, echo = daemon.run(answer())
-    assert value == ' x ' and echo == 'input:[redacted]'
+    assert value == ' x ' and echo == 'input: x '        # never known by value (owner, GATE-572)

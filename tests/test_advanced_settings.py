@@ -70,7 +70,7 @@ def test_the_diagnostic_file_has_its_sections_and_is_owner_only(daemon: RunningD
 
 def test_every_part_of_the_diagnostic_file_is_redacted(daemon: RunningDaemon) -> None:
     _fake_health(daemon, note=f"{SEALED} {API_KEY}")
-    _on_loop(daemon, lambda: daemon.daemon.redact.remember_hidden_secret(SEALED))     # type: ignore[attr-defined]
+    _on_loop(daemon, lambda: daemon.daemon.redact.add_secret_value(SEALED))     # type: ignore[attr-defined]
     _on_loop(daemon, lambda: daemon.daemon.db.conn.execute(                            # type: ignore[union-attr]
         "INSERT INTO journal (id, at, kind, data_json) VALUES (?, ?, ?, ?)",
         (uuid.uuid4().hex, daemon.daemon.clock.now().isoformat(), INTERNAL_ERROR,

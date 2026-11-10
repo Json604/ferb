@@ -2520,7 +2520,6 @@ class Router(_TabDriver):
         super().__init__(hub, profiles, wake, launch)
         self.resolver = resolver
         self.ask_code: Callable[[ToolContext, str], Awaitable[str | None]] | None = None
-        self.add_secret_value: Callable[[str], None] = lambda value: None
         self.secrets: Secrets = _NoSecrets()
 
     async def open_for(self, url: str, owner: str, profile: str | None = None, *,
@@ -2654,7 +2653,6 @@ class Router(_TabDriver):
             return ActionResult(False, "login code declined")
         try:
             self._resolve(el)                     # same generation, element and tab after waiting for the owner
-            self.add_secret_value(value)
             key = self.hub.pairings.key(t.bridge.binding.install_id)
             if key is None:
                 raise Refused("the browser is no longer paired")
@@ -2703,7 +2701,6 @@ class Router(_TabDriver):
         try:
             for ref in refs:
                 _no_secret_into_terminal(self._resolve(ref)[4])
-            self.add_secret_value(value)
             key = self.hub.pairings.key(t.bridge.binding.install_id)
             if key is None:
                 raise Refused("the browser is no longer paired")
@@ -2714,7 +2711,7 @@ class Router(_TabDriver):
                 **({"split_els": locals_} if locals_ is not None else {})}, timeout=15, cid=cid)
             return ActionResult(bool(result.get("ok")), str(result.get("detail", "")))
         finally:
-            self.release_secret(value)
+            del value
 
     async def fill_secret(self, el: ElementRef, ref: SecretRef, intent_id: str = "") -> ActionResult:
         raise Refused("FERB's secrets are never used in the owner's profiles")
@@ -2732,12 +2729,12 @@ class FerbIdentity(_TabDriver):
     identity = Identity.FERB
 
     def __init__(self, hub: Hub, profile: Callable[[], tuple[str, str] | None], secrets: KeychainSecretStore,
-                 add_secret_value: Callable[[str], None], mailbox_address: Callable[[], str],
+                 mailbox_address: Callable[[], str],
                  pairing_key: Callable[[str], bytes | None], profiles: Callable[[], list[BrowserProfile]],
                  wake: WakeServer | None = None, launch: Callable[[list[str]], None] | None = None,
                  feed_url: str = FEED_URL) -> None:
         super().__init__(hub, profiles, wake, launch)
-        self.profile, self.add_secret_value = profile, add_secret_value
+        self.profile = profile
         self.secrets: Secrets = secrets                       # names and specs only (tool descriptions, checks)
         self._store = secrets                                 # the Keychain: read only inside _sealed fills
         self.mailbox_address, self.pairing_key, self.feed_url = mailbox_address, pairing_key, feed_url
@@ -2770,7 +2767,6 @@ class FerbIdentity(_TabDriver):
         except SecretUnavailable as e:                         # HAND-410: why, when the helper said
             raise Refused(f"secret {ref.key} couldn't be read from the Keychain: {e.reason}" if e.reason
                           else f"secret {ref.key} isn't in the Keychain") from None
-        self.add_secret_value(value)                          # scrub it if a page or error ever echoes it back
         r = await self._sealed_fill(t, frame, snap, local, origin, value, intent_id)
         del value
         return ActionResult(r.ok, f"{r.detail} ({ref.key})")
@@ -2800,7 +2796,6 @@ class FerbIdentity(_TabDriver):
             found = mailbox.take(candidate)
         except ValueError as e:
             raise Refused(str(e)) from None
-        self.add_secret_value(found.code)
         r = await self._sealed_fill(t, frame, snap, local, origin, found.code, intent_id)
         if r.ok:
             self.used_otps.add(found.message_id)

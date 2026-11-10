@@ -172,7 +172,7 @@ def test_numbers_and_bytes_are_covered() -> None:
 
 def test_a_known_value_is_found_in_its_escaped_forms() -> None:
     r = Redactor()
-    r.remember_hidden_secret('p@ss "w0rd"&')
+    r.add_secret_value('p@ss "w0rd"&')
     for text in ('{"v": "p@ss \\"w0rd\\"&"}', "?q=p%40ss%20%22w0rd%22%26", "p@ss &quot;w0rd&quot;&amp;"):
         assert "w0rd" not in r.text(text), text
 
@@ -196,7 +196,6 @@ def test_redacting_twice_changes_nothing() -> None:
     rng = random.Random(6)
     corpus = _corpus()
     r = Redactor()
-    r.remember_hidden_secret("pizza")                       # a dictionary word
     r.add_secret_value("839201")
     r.add_secret_value("Zq9-hunter-77")
     bad = []
@@ -299,34 +298,33 @@ def test_excluded_hosts_and_apps_still_read_excluded() -> None:
 
 # ---------- the registry preloaded at start; the process exception hooks ----------
 
-# decision: GATE-213
-def test_preloaded_values_are_known_from_the_start() -> None:
+# decision: GATE-573
+def test_preloaded_keys_are_known_from_the_start() -> None:
     r = Redactor()
-    assert r.preload(["Fake-Keychain-Value-1", "pizza", "Fake-Keychain-Value-1"]) == 2
-    assert r.text("echo Fake-Keychain-Value-1") == "echo [redacted]" and r.hit("x Fake-Keychain-Value-1") is not None
+    key = "Fake-Provider-Key-0001"                          # no vendor format: found by its value alone
+    assert r.preload([key, key]) == 1
+    assert r.text(f"echo {key}x") == "echo [redacted]x" and r.hit(f"x {key}") is not None
 
 
-# decision: GATE-213
-def test_the_daemon_preloads_its_keychain_and_owner_values_through_the_stores(daemon, monkeypatch) -> None:
-    """Fake stores only: the daemon reads FERB's [secrets], the owner's saved secrets and the API keys through their
-    stores in a thread, registers the values and journals counts, never values."""
-    import ferb.identity.owner_secrets as owner_secrets
+# decision: GATE-572, GATE-573
+def test_the_daemon_preloads_only_the_api_keys_in_use(daemon, monkeypatch) -> None:
+    """Fake stores only: the daemon reads the API keys of the runtimes in use in a thread, registers them and journals
+    counts, never values. No saved secret is read: neither FERB's [secrets] nor the owner's (owner, 2026-11-10)."""
     import ferb.runtimes.keys as keys
     d = daemon.daemon
-    monkeypatch.setattr(d.secrets, "values", lambda: (["Fake-Config-Secret-1"], 1))
-    monkeypatch.setattr(owner_secrets.OwnerSecrets, "values", lambda self: (["Fake-Owner-Secret-2"], 0))
     asked: list[set[str]] = []
+    key = "sk-ant-api03-" + fake(30)
     monkeypatch.setattr(keys, "stored_api_keys", lambda providers, problem=None: asked.append(set(providers)) or
-                        ["sk-ant-api03-" + fake(30)])
+                        [key])
     daemon.run(d._preload_secrets())
-    for value in ("Fake-Config-Secret-1", "Fake-Owner-Secret-2"):
-        assert d.redact.text(f"saw {value}") == "saw [redacted]"
+    assert d.redact.text(f"saw {key}") == "saw [redacted]"
+    assert d.redact.secret_values() == frozenset({key})
     [entry] = daemon.run(_entries(d))
-    assert entry == {"values": 3, "unreadable": 1}
+    assert entry == {"values": 1, "unreadable": 0}
     assert asked == [{d._runtime_for(role) for role in ("orchestrator", "worker", "checker")}]   # only those used
 
 
-# decision: GATE-213
+# decision: GATE-573
 def test_api_keys_are_read_only_for_providers_the_runtime_table_uses(monkeypatch) -> None:
     import subprocess
     import ferb.runtimes.keys as keys

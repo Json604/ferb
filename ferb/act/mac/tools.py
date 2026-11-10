@@ -984,4 +984,4 @@ class MacSecret(_Base):
             return ToolResult({"ok": bool(accepted), "detail": "AX secret fill accepted" if accepted else "AX secret fill refused",
                                "handle": args.remember or args.secret}, is_error=not accepted)
         finally:
-            self.driver.release_secret(value)
+            del value

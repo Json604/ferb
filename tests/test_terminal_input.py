@@ -485,20 +485,20 @@ def test_the_question_writes_every_invisible_character_as_a_visible_escape() -> 
     assert all(c.isprintable() for v in need.values.values() for c in v)
 
 
-def test_text_holding_a_saved_secret_is_never_typed_into_a_terminal(daemon: RunningDaemon, monkeypatch: Any) -> None:
-    """Redaction would show it as [redacted] while the real secret is typed: FERB refuses before asking. A saved
-    secret goes in only through the sealed path (mac.secret, the owner's hidden input)."""
+def test_text_holding_a_known_secret_is_never_typed_into_a_terminal(daemon: RunningDaemon, monkeypatch: Any) -> None:
+    """Redaction would show it as [redacted] while the real secret is typed: FERB refuses before asking. A secret
+    goes in only through the sealed path (mac.secret, the owner's hidden input)."""
     grant, ax = _live(daemon, monkeypatch, focus="term108")
     daemon.daemon._add_secret_value("Hunter2-Sealed!")
     out = gateway_tool_call(daemon, grant, "mac.act", app="Code", element=_snap(daemon, grant)[TERMINAL_LABEL],
                             action="type", mechanism="pid", text="sudo -S <<< Hunter2-Sealed!")
-    assert out["is_error"] and "saved secret" in out["content"]["error"] and "mac.secret" in out["content"]["error"]
+    assert out["is_error"] and "holds a secret" in out["content"]["error"] and "mac.secret" in out["content"]["error"]
     assert _questions(daemon) == [] and ax.landed == []
 
 
 def test_a_command_that_only_reads_like_a_label_is_asked_not_refused(daemon: RunningDaemon,
                                                                      monkeypatch: Any) -> None:
-    """Step 6a: the refusal needs a specific hit (a saved secret or a credential format), never "redaction would
+    """Step 6a: the refusal needs a specific hit (a known key or a credential format), never "redaction would
     change it": `echo 'PIN 1234'` was refused before; now it is asked like any terminal input and typed on a Yes."""
     grant, ax = _live(daemon, monkeypatch, focus="term108")
     owner = Owner(daemon, [True])
@@ -513,14 +513,14 @@ def test_a_command_that_only_reads_like_a_label_is_asked_not_refused(daemon: Run
 
 def test_a_paste_whose_clipboard_holds_a_secret_is_refused_naming_the_field(daemon: RunningDaemon,
                                                                             monkeypatch: Any) -> None:
-    """Round 2, N1: a command holding a saved secret is refused, whatever field holds it; the error names the field,
+    """Round 2, N1: a command holding a known secret is refused, whatever field holds it; the error names the field,
     never the value, and nothing is asked or stored."""
     grant, ax = _live(daemon, monkeypatch, focus="term108")
     daemon.daemon._add_secret_value("Hunter2-Sealed!")
     driver = daemon.daemon.registry.capabilities["mac.act"].driver
     driver.board[0] = (11, "export TOKEN=Hunter2-Sealed!", False)
     out = gateway_tool_call(daemon, grant, "mac.act", app="Code", action="key", mechanism="pid", text="cmd+v")
-    assert out["is_error"] and "clipboard" in out["content"]["error"] and "saved secret" in out["content"]["error"]
+    assert out["is_error"] and "clipboard" in out["content"]["error"] and "holds a secret" in out["content"]["error"]
     assert "Hunter2" not in json.dumps(out) and _questions(daemon) == [] and ax.landed == []
 
 
@@ -641,7 +641,6 @@ def _secret_setup(daemon: RunningDaemon, monkeypatch: Any) -> tuple[Any, Termina
         asked.append(target)
         return "Hunter2-Typed!"
     driver.ask_secret = ask_secret                                                # type: ignore[attr-defined]
-    driver.release_secret = lambda value: None                                    # type: ignore[attr-defined]
     grant, _ = gateway_setup(daemon, {"mac:read", "mac:act"}, gateway_request("sudo in my terminal"),
                              [MacSnapshot(driver), MacSecret(driver)])
     return grant, ax, asked

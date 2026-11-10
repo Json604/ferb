@@ -161,8 +161,9 @@ SUPERSEDED_NEXT = ("Apply the owner's correction first. If this action is still 
 UNATTENDED = "{line} This needs you, and nobody is at chat (a scheduled run); not done."
 OWNER_DECIDED_NEXT = "The owner decided; don't do this another way. Report that it wasn't done."
 # D31, review round 1 finding 5: the question would show it redacted while the real value is typed
-TERMINAL_SECRET = ("{field} holds a saved secret, so FERB neither shows it in a question nor puts it into a terminal; "
-                   "a saved secret goes in only through mac.secret, the owner's hidden input (D31)")
+TERMINAL_SECRET = ("{field} holds a secret (one of FERB's keys or a credential's format), so FERB neither shows it in a "
+                   "question nor puts it into a terminal; a secret goes in only through mac.secret, the owner's hidden "
+                   "input (D31)")
 NEEDS_OWNER_NEXT = "This step needs the owner; don't do it another way. Report that it is waiting for the owner."
 REASON_CHARS = 200                        # the task's own words in FERB's question, clipped like a call excerpt
 # ORCH-321: the owner-secret fills (ferb/daemon/hidden_input.py), whose `secret` argument names a saved entry
@@ -1001,7 +1002,6 @@ class Gateway:
         if isinstance(needs, dict):
             return needs
         covered = await self._authorize(c, needs)
-        escape: EscapeGrant | None = None
         try:
             if c.consequential:
                 c.extra["confirmations"] = covered.ids
@@ -1018,8 +1018,6 @@ class Gateway:
                 self._terminal_arms[grant.task_id] = terminal.confirmation_id   # its one Return, next action only
             return result
         finally:
-            if escape is not None and escape.secret and isinstance(self.redact, Redactor):
-                self.redact.release_secret(escape.secret)
             if covered.spent and not covered.started:
                 for cid in covered.spent:               # refused, cancelled before it ran, or reported failed:
                     self.confirmations.release(cid)      # the Yes covers its retry again
@@ -1235,7 +1233,7 @@ class Gateway:
 
     async def _needs(self, c: "Call", reply: Callable[..., dict[str, Any]]) -> list[confirm.Need] | dict[str, Any]:
         """Every reason this call needs the owner, each a Need produced from facts; a reply when it can't run at all
-        (a folder delete FERB can't count, a saved secret bound for a terminal)."""
+        (a folder delete FERB can't count, a secret bound for a terminal)."""
         needs: list[confirm.Need] = []
         needs += self._lift_needs(c)                     # rule 10, GATE-203: protected folders
         url = await self._url_sink_need(c)               # S4: a browser address carrying the owner's data
@@ -1599,7 +1597,8 @@ class Gateway:
         Code's) asks the owner first, showing the exact input, every time, with no standing permission; a No types
         nothing. The capability says what would go in, from the driver's facts now (`terminal_input`). A Yes covers that
         one input (and the one Return after its text, as the task's very next acting call: `armed`) and is spent when
-        given. A saved secret is never shown in a question nor typed into a terminal (the refusal)."""
+        given. A secret (one of FERB's keys, a credential's format) is never shown in a question nor typed into a
+        terminal (the refusal)."""
         if not hasattr(c.cap, "terminal_input"):
             return None
         inp = await c.cap.terminal_input(c.args, c.grant.task_id)
@@ -2056,7 +2055,7 @@ class Gateway:
     def built(self, text: str, keep_spaces: bool = False) -> str:
         """A line FERB's code built from its fixed words and values each already redacted (`value`, GATE-564): one
         line, no terminal control characters, marked as redacted, so no later pass (the record, an event) scans
-        FERB's own words again: a saved secret that is an ordinary word never blanks or reveals itself in them."""
+        FERB's own words again: a known value never blanks or reveals itself in them."""
         return self._marked(self._squash(printable(text), keep_spaces))
 
     def _marked(self, text: str) -> str:
@@ -2310,7 +2309,7 @@ class Gateway:
         self.spans.finish(span, error=reason)
 
     def _secret_field(self, inp: TerminalInput) -> str | None:
-        """The first field of a terminal input that holds a specific secret (a saved secret's value or a credential's
+        """The first field of a terminal input that holds a specific secret (a known key's value or a credential's
         format: `Redactor.hit`), by its name for the owner, never its value; None when no field holds one (D31 round
         2, N1). Text that only reads like a label ("echo 'PIN 1234'") is no hit: it is typed after the owner's Yes,
         shown redacted in the question."""
@@ -2505,9 +2504,6 @@ class Gateway:
             "tool": OWNER_ASK, "args": {"question": question}, "ferb_question": True, "question_kind": kind})
         self.spans.finish(span, output={"test_mode": True, "answer": "No"})
         return None
-
-    def release_secret(self, value: str) -> None:
-        self.hidden.release(value)
 
     def initial_image_given(self, task_id: str) -> None:
         self.hooks.initial_image_given(task_id)

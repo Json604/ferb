@@ -39,22 +39,21 @@ def test_concurrent_prompts_keep_both_handle_bindings(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize('changed', [False, True])
-def test_native_hidden_fill_binds_node_and_releases_secret(changed):
+def test_native_hidden_fill_binds_node(changed):
     import asyncio
     from types import SimpleNamespace
     from ferb.act.mac.tools import MacSecret
     from ferb.core.errors import StaleRef
     node, other = SimpleNamespace(ref='field'), SimpleNamespace(ref='other')
     app = SimpleNamespace(bundle_id='com.apple.Notes', pid=11)
-    current, writes, released = [node], [], []
+    current, writes = [node], []
     async def ask(ctx, target, **options):
         assert target == 'app:com.apple.Notes'
         if changed:
             current[0] = other
         return 'hidden-canary'
     driver = SimpleNamespace(app=lambda _: app, node=lambda *args: current[0], ask_secret=ask,
-        ax=SimpleNamespace(set_value=lambda ref, value: writes.append((ref, value)) or True),
-        release_secret=released.append)
+        ax=SimpleNamespace(set_value=lambda ref, value: writes.append((ref, value)) or True))
     cap = MacSecret(driver)
     async def fill():
         return await cap._run(cap.Input(app='Notes', element='e1'), SimpleNamespace())
@@ -65,7 +64,6 @@ def test_native_hidden_fill_binds_node_and_releases_secret(changed):
     else:
         result = asyncio.run(fill())
         assert writes == [('field', 'hidden-canary')] and 'hidden-canary' not in str(result)
-    assert released == ['hidden-canary']
 
 
 # ---------- no secret bound to a whole browser (owner 2026-10-24: "at places only ive approved") ----------

@@ -63,6 +63,7 @@ def _all_hidden(text: str) -> bool:
 # A request that failed inside FERB (`_record_internal`): its message's first characters and its innermost frames are
 # kept, enough to find the line; a deep recursion's thousand frames are not
 INTERNAL_MESSAGE_CHARS, INTERNAL_FRAMES = 300, 20
+WITHHELD = "(withheld: it came while a hidden answer was handled)"
 
 
 # A problem that keeps happening (`_Repeats`): its first row at once, then one row per this many seconds with the count

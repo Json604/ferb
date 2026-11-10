@@ -269,16 +269,12 @@ class Chat:
                           text: str | None = None) -> dict[str, Any]:
         """The owner's answer to a question, typed (`ferb chat`) or spoken (push-to-talk)."""
         ap = self.state.approvals.get(approval_id)
-        retained = None
         hidden: list[str] = []
+        sealed = ap is not None and ap.kind in {"owner_admin_password", "owner_secret"} and text is not None and granted
         if text is not None and granted:
-            if ap is not None and ap.kind in {"owner_admin_password", "owner_secret"}:
+            if sealed:
                 if any(c in text for c in "\r\n\x00"):
                     raise FerbError("the hidden password must be one line")
-                if not isinstance(self.redact, Redactor):
-                    raise FerbError("hidden input redaction is unavailable")
-                self.redact.retain_secret(text)
-                retained = text
             else:
                 text = text.strip()
                 granted = bool(text)
@@ -288,30 +284,26 @@ class Chat:
                 if (ap is not None and (ap.capability in OPTION_ONLY or ap.options_only) and text
                         and ap.option_for(text) is None):
                     raise FerbError(f"Pick {choices(ap.options)}.")
-                # Only the sealed secret inputs (a secret, the admin password, a login code) make hidden secrets
-                # (L18, D28). A picked option is never one; other typed words to a question are hidden for this
-                # answer alone when the question asks for a one-time code or a sign-in password or PIN
-                # (`Redactor.answer`), and never remembered.
+                # A typed answer is never known by value (owner, GATE-572): a picked option is kept as is; other
+                # typed words to a question are hidden for this answer alone when the question asks for a one-time
+                # code or a sign-in password or PIN (`Redactor.answer`), and never remembered.
                 if (ap is not None and ap.kind == "owner_question" and isinstance(self.redact, Redactor)
                         and ap.option_for(text) is None):
                     # FERB's memory questions never ask for a secret: only secret classes are hidden (L36)
                     hidden = self._secret_kinds(text)       # as a chat message's: the kinds by name, never the value
                     text = (self.redact.text(text) if ap.capability in MEMORY_ASKS
                             else self.redact.answer(text, question=ap.reason))
-                if ap is not None and ap.kind == "owner_login_code" and text:
-                    self._add_secret_value(text)
         try:
             ap = self.state.approvals.resolve(approval_id, granted, choice, text)
             ap.hidden = tuple(hidden)                       # the worker gets FERB's note beside the answer (gateway)
             followed = self._question_answered(ap)          # a chat forget answered with the notch's buttons (I2)
             if followed and ap.capability == "memory.forget":
                 self._publish("memory.forgot", {"approval_id": ap.id, "text": followed})
-        except BaseException as e:
-            if retained is not None and isinstance(self.redact, Redactor):
-                if isinstance(e, Exception) and not isinstance(e, FerbError):
-                    # recorded while the hidden answer is still redacted by its value (rule 14, review Q-M3)
-                    self._record_internal("chat.answer", e)
-                self.redact.release_secret(retained)
+        except Exception as e:
+            if sealed and not isinstance(e, FerbError):
+                # a failure while a hidden answer is handled is journaled without its message: the answer isn't known
+                # by value (GATE-572), so the message could hold it (rule 14, review Q-M3)
+                self._record_internal("chat.answer", e, withheld=True)
             raise
         self._journal().append("approval.resolved", {"approval_id": ap.id, "state": ap.state,
                                                      "capability": ap.capability})

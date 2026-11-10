@@ -1,29 +1,16 @@
-"""D31 regressions: a single exact grant, separated read/write lifts and hidden secret lifetime."""
+"""D31 regressions: a single exact grant and separated read/write lifts."""
 from pathlib import Path
 
 from ferb.act.shell.sandbox import Sandbox
 from ferb.core.types import EscapeGrant
 from ferb.policy.escape import escape_key
 from ferb.policy.protection import Protection
-from ferb.sanitize.redact import Redactor
 
 
 def test_exact_escape_key_preserves_command_and_resolved_cwd(tmp_path: Path) -> None:
     assert escape_key("trustd", "echo a", str(tmp_path)) != escape_key("trustd", "echo b", str(tmp_path))
     assert escape_key("trustd", "echo a", str(tmp_path)) != escape_key("admin", "echo a", str(tmp_path))
     assert "secret" not in repr(EscapeGrant("admin", "c", "echo a", str(tmp_path), "secret"))
-
-
-def test_temporary_short_secrets_preserve_spaces_and_concurrent_leases() -> None:
-    r = Redactor()
-    r.retain_secret(" a ")
-    r.retain_secret(" a ")
-    r.release_secret(" a ")
-    stream = r.stream()
-    assert b" a " not in stream.feed(b"prefix a", final=False) + stream.feed(b" suffix", final=True)
-    assert r.text("prefix a suffix") == "prefix[redacted]suffix"
-    r.release_secret(" a ")
-    assert r.text(" a ") == " a "
 
 
 def test_path_lifts_do_not_lift_the_other_access_or_ferb_state(tmp_path: Path) -> None:

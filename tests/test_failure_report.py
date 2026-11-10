@@ -31,7 +31,7 @@ from ferb.daemon.reports import RELAY_URL
 from ferb.daemon.reports import (KEEP_DAYS, NOT_SET_UP, PROBLEMS_LAST, SECTIONS, relay_url,
                                   shorten, summarize)
 from ferb.daemon.server import INTERNAL_ERROR, SLOW_CALL
-from ferb.sanitize.redact import Redactor, SealedWord, escaped_forms, sealed_spans
+from ferb.sanitize.redact import Redactor, escaped_forms
 from tests.conftest import RunningDaemon, chat
 
 SEALED = "Kestrovan-Plume-4471"                       # a sealed value FERB learned after the record was written
@@ -148,8 +148,8 @@ def _failed_task(daemon: RunningDaemon, task_id: str = "t-fail", status: str = "
             "outcome_json, created_at, updated_at) VALUES (?, ?, NULL, ?, 'rename invoices', 'ferb', 'worker', '[]', "
             "?, ?, ?, ?)", (task_id, task_id, "r-" + task_id, status, json.dumps(outcome), start.isoformat(),
                             d.clock.now().isoformat()))
-        d.redact.remember_hidden_secret(SEALED)                   # type: ignore[attr-defined]
-        d.redact.remember_hidden_secret(QUOTED)                   # type: ignore[attr-defined]
+        d.redact.add_secret_value(SEALED)                   # type: ignore[attr-defined]
+        d.redact.add_secret_value(QUOTED)                   # type: ignore[attr-defined]
     _on_loop(daemon, seed)
 
 
@@ -245,19 +245,13 @@ def test_planted_sealed_values_in_any_escaped_form_and_an_api_key_never_reach_th
 
 
 def test_the_redactor_hides_a_sealed_values_escaped_forms_everywhere() -> None:
-    """Review 1, I1 part 2: every consumer of the redactor matches a sealed value's escaped forms; a dictionary word's
-    forms keep its whole-word rule (L36 §7)."""
+    """Review 1, I1 part 2: every consumer of the redactor matches a known value's escaped forms."""
     r = Redactor()
-    r.remember_hidden_secret(QUOTED)
+    r.add_secret_value(QUOTED)
     for form in _forms(QUOTED):
         assert form not in r.text(f"before {form} after"), form
         assert form not in json.dumps(r({"value": f"x {form} y"})), form
-    word = SealedWord("naïve")
-    forms = escaped_forms(word)
-    assert {str(f) for f in forms} == {"na\\u00efve", "na\\xefve", "na%C3%AFve"}           # JSON, repr, URL
-    assert all(isinstance(f, SealedWord) for f in forms)
-    ascii_form = next(f for f in forms if "u00ef" in f)
-    assert sealed_spans('"na\\u00efve"', ascii_form) and not sealed_spans("na\\u00efvety", ascii_form)
+    assert set(escaped_forms("naïve")) == {"na\\u00efve", "na\\xefve", "na%C3%AFve"}           # JSON, repr, URL
     assert escaped_forms("plain-value-1") == ()
 
 
@@ -313,7 +307,7 @@ def test_a_value_sealed_after_the_build_is_hidden_at_send_and_in_the_kept_file(d
     built = _build(daemon, "t-fail")
     late = "Quillon-Brask-8812"
     Path(built["path"]).write_text(Path(built["path"]).read_text() + f"\nlearned later: {late}\n")
-    _on_loop(daemon, lambda: daemon.daemon.redact.remember_hidden_secret(late))     # type: ignore[attr-defined]
+    _on_loop(daemon, lambda: daemon.daemon.redact.add_secret_value(late))     # type: ignore[attr-defined]
     assert _send(daemon, built["path"], title=built["subject"])["sent"] is True
     [(_, _, sent)] = relay.files()
     assert late not in sent and late not in Path(built["path"]).read_text()
@@ -330,7 +324,7 @@ def test_a_diagnostic_file_is_sent_the_same_way(daemon: RunningDaemon, relay: Re
         return {"paused": False}
     daemon.daemon._doctor_check = health                 # type: ignore[method-assign]
     daemon.daemon._sense_status = recording              # type: ignore[method-assign]
-    _on_loop(daemon, lambda: daemon.daemon.redact.remember_hidden_secret(SEALED))     # type: ignore[attr-defined]
+    _on_loop(daemon, lambda: daemon.daemon.redact.add_secret_value(SEALED))     # type: ignore[attr-defined]
     c = Client(daemon.sock, timeout=30)
     try:
         built = c.call("reports.diagnostic", {"app_version": "0.28.0", "send": True})

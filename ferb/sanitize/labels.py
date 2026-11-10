@@ -5,7 +5,7 @@ one-time code with its code word near. One label vocabulary (`label_class`) serv
 code or secret word near it stays visible. Must not judge intent: these are secret classes, never decisions.
 
 Owner-decided details kept: address and coupon codes are ordinary data ("PIN code 560001"); a code reaches its word
-across at most `CODE_REACH` words; a sealed dictionary word is matched as a whole word (known.py)."""
+across at most `CODE_REACH` words."""
 
 import bisect
 import functools

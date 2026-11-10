@@ -197,29 +197,20 @@ class Environment:
             add(value)
 
     def _keychain_values(self, problems: list[dict[str, Any]] | None = None) -> tuple[list[str], int]:
-        """The values of FERB's Keychain handles ([secrets], and the API keys of the providers this home's runtime
-        table uses) and of the owner's saved secrets, read through their stores (a worker thread: each read is a helper
-        or `security` call). A home that names none reads nothing."""
-        from ferb.identity.owner_secrets import OwnerSecrets
+        """The API keys of the providers this home's runtime table uses, read through the key store (a worker thread:
+        each read is a helper call). Saved secrets are never read here: their values aren't masked (GATE-572)."""
         from ferb.runtimes.catalog import ROLES
         from ferb.runtimes.keys import stored_api_keys
-        values, unreadable = self.secrets.values()
         try:
-            owner, missed = OwnerSecrets(self.home).values()
-            values, unreadable = values + owner, unreadable + missed
-        except Exception:                          # the handles file can't be read: those values come at first use
-            unreadable += 1
-        try:
-            values += stored_api_keys({self._runtime_for(role) for role in ROLES},
-                                      (lambda kind, data: problems.append(data)) if problems is not None else None)
+            return stored_api_keys({self._runtime_for(role) for role in ROLES},
+                                   (lambda kind, data: problems.append(data)) if problems is not None else None), 0
         except Exception:
-            unreadable += 1
-        return values, unreadable
+            return [], 1
 
     async def _preload_secrets(self) -> None:
-        """The known-value registry, preloaded at start (step 6a): FERB's Keychain handles and the owner's saved
-        secrets are known before this run first uses them, so a page, an error or a model's echo of one is hidden from
-        the start. Values stay in the daemon's memory; only counts are journaled."""
+        """The known-value registry, preloaded at start (step 6a): the API keys in use are known before this run first
+        uses them, so a page, an error or a model's echo of one is hidden from the start (GATE-573). Values stay in the
+        daemon's memory; only counts are journaled."""
         preload = getattr(self.redact, "preload", None)
         if preload is None:
             return

@@ -162,9 +162,10 @@ def _journaled(d: RunningDaemon, kind: str) -> list[dict[str, Any]]:
     return list(d.run(read()))
 
 
-def test_a_failure_while_answering_with_a_hidden_secret_journals_it_redacted(daemon: RunningDaemon) -> None:
-    """Review Q-M3 (rule 14): a hidden-secret answer is redacted by its exact value only while it is held; the
-    failure was recorded after it was released, so an error naming the value would be journaled verbatim."""
+# decision: GATE-573
+def test_a_failure_while_answering_with_a_hidden_secret_journals_it_without_its_message(daemon: RunningDaemon) -> None:
+    """Review Q-M3 (rule 14): an error naming a hidden answer must not be journaled verbatim. Since GATE-572 the answer
+    isn't known by value, so the failure is journaled with its type and frames and no message at all."""
     from tests.test_choice_answers_not_secret import ask
     secret = ask(daemon, "Enter the secret for https://x.test (hidden; Enter cancels).", [], kind="owner_secret")
 
@@ -180,4 +181,4 @@ def test_a_failure_while_answering_with_a_hidden_secret_journals_it_redacted(dae
     assert e.value.code == INTERNAL
     [row] = _journaled(daemon, INTERNAL_ERROR)
     assert (row["method"], row["error"]) == ("chat.answer", "RuntimeError")
-    assert "the vault refused" in row["message"] and "zq7wx" not in json.dumps(row)
+    assert "the vault refused" not in row["message"] and "zq7wx" not in json.dumps(row)

@@ -1819,7 +1819,7 @@ area = "gateway"
 surface = "A kartikey.xyz login, twice"
 request = "Log in to the same site twice."
 pass = "The question reads \"For <site> only: “<name>” · saved in your Mac's Keychain\"; the second login asks for nothing already saved."
-decisions = ["GATE-213"]
+decisions = ["GATE-572"]
 sitting = "scenario"
 waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
@@ -3767,7 +3767,7 @@ area = "gateway"
 surface = "FERB.app with this build, with a saved secret that is an ordinary word (a disposable test entry, for example the word \"anything\")"
 request = "Run a task that makes FERB ask a question whose wording holds that word (for example, typing an address found only on a web page into a form)."
 pass = "The question's own words are whole (no [redacted] in FERB's sentence); the secret still never shows where it is the value itself."
-decisions = ["GATE-564", "GATE-561"]
+decisions = ["GATE-572", "GATE-561"]
 sitting = "after this change is installed"
 
 [LIVE-853]
@@ -3867,4 +3867,13 @@ surface = "FERB.app with this build"
 request = "Ask FERB to open the CS50 SQL problem set 0 page on cs50.harvard.edu after it read the course's home page."
 pass = "No question about sending \"cs50\" to cs50.harvard.edu."
 decisions = ["GATE-570", "GATE-571"]
+sitting = "after this change is installed"
+
+[LIVE-867]
+title = "A saved answer's word shows in FERB's answers; secret fields and API keys stay hidden"
+area = "gateway"
+surface = "FERB.app with this build; a kartikey.xyz test form with a password field and a security question; a disposable saved answer that is an ordinary word (for example \"booked\")"
+request = "Have FERB fill the test form, saving the answer \"booked\" when asked. Then ask something whose answer uses that word (\"have I booked anything?\"), paste a fake-looking API key (sk-ant-api03-…) into chat, and open the trace."
+pass = "The answer shows the word, with no [redacted] in its place. The password field's value is in no snapshot, screenshot or trace (only its handle). The pasted key is hidden from the AI with the notice under the message."
+decisions = ["GATE-572", "GATE-573"]
 sitting = "after this change is installed"

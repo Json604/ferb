@@ -6449,13 +6449,6 @@ class Supervisor(WorkerRuns):
         records = [r for row in rows for r in (json.loads(row[0] or "{}") or {}).get("resources") or []]
         return list(dict.fromkeys(left_running(records)))
 
-    def _secret_lines(self, tree_id: str) -> list[str]:
-        """Code's line for each place where this task saved a sealed answer that is an ordinary word (L36 §7), once
-        each, from FERB's journal (`secret.ordinary_word`, which never holds the word)."""
-        places = dict.fromkeys(str(e.data.get("place", ""))
-                               for e in self.journal.of_kind("secret.ordinary_word", "task_id", tree_id))
-        return [ORDINARY_WORD_LINE.format(place=p) for p in places if p]
-
     def _results(self, src: _Tree) -> tuple[list[ConditionResult], list[ConditionResult], bool, list[Condition]]:
         """Each condition's result from the last check of `src` (unchecked when the check never ran), the outcome
         conditions among them, whether the last attempt went to the check, and the conditions."""
@@ -6611,13 +6604,12 @@ class Supervisor(WorkerRuns):
     def _code_lines(self, tree: _Tree, sites: list[str]) -> list[str]:
         """Code's own lines after the answer, in one fixed order (fix list): what code did with the turn's memory,
         reminders and schedules ("Remembered:", "🗓 Scheduled:", L11; a multi-part turn said them in its first reply),
-        the sites the task reached ("Sites contacted:", L2), a saved answer FERB hides as a word (L36 §7), each app FERB
-        opened and left running (L39), and what the task's clean-up couldn't release. A scheduled run that ran late
-        gets "(ran late)" last (the daemon adds it)."""
+        the sites the task reached ("Sites contacted:", L2), each app FERB opened and left running (L39), and what the
+        task's clean-up couldn't release. A scheduled run that ran late gets "(ran late)" last (the daemon adds it)."""
         lines = list(tree.side_lines)
         if sites:                        # a count; the sites themselves are link cards (D10, ORCH-534)
             lines.append(sites_line(sites))
-        lines += self._secret_lines(tree.id) + self._apps_left_running(tree.id)
+        lines += self._apps_left_running(tree.id)
         if tree.cleanup_errors:          # plain words for each leftover; the raw errors stay in the trace (HAND-419)
             lines += leftover_lines(tree.resources, tree.cleanup_errors)
         return lines
@@ -6663,9 +6655,6 @@ class _Changed:
     records: dict[str, str] = field(default_factory=dict)
     blocks: list[ContextBlock] = field(default_factory=list)
 
-# Said once per place at the end of a task's answer when the owner saved a sealed answer that is an ordinary word of the
-# system word list (L36 §7, plan ruling 21): why that word reads [redacted] wherever it appears.
-ORDINARY_WORD_LINE = "The answer you saved for {place} is an ordinary word, so FERB hides it wherever it appears."
 FOUND_BEFORE_STOP = "What I'd found before stopping (not checked):"
 NEEDS_ANSWER = "I need your answer to finish this task."
 def _stopped_plan_summary(steps: list[Any], states: dict[str, dict[str, Any]]) -> str:

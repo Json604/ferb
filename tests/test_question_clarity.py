@@ -228,7 +228,7 @@ def test_the_login_code_question_says_in_one_line_where_it_goes(daemon: Any, mon
         _cancel(daemon, ap, waiting)
 
 
-# decision: GATE-564
+# decision: GATE-572
 def test_a_host_whose_own_name_holds_a_code_label_keeps_its_name_and_its_port(daemon: Any) -> None:
     """Review M4 was a known limit: "otp" in the host labelled the port after it as a code once FERB's whole sentence
     was scanned. Since GATE-564 the origin is redacted by itself and FERB's own words are not scanned, so the place

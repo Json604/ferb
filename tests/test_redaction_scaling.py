@@ -186,17 +186,14 @@ def test_both_redactors_are_linear_on_pathological_lines(prefix, unit, suffix) -
     assert (grew := _superlinear(read, make, len(unit), READ_CHARS)) is None, f"stream read: {grew}"
 
 
-def test_sealed_values_are_linear_over_many_ids(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
-    """L36 §7, scan ruling m8: sealed values inside every one of many FERB ids and among many words (a long trace)
+def test_sealed_values_are_linear_over_many_ids() -> None:
+    """L36 §7, scan ruling m8: known values inside every one of many FERB ids and among many words (a long trace)
     cost time in proportion to the text. The ids are read once per call, not once per value, and each hit finds the id
-    around it by bisection, not by reading every id. "pizza" is an ordinary word here, matched case aside."""
-    words = tmp_path / "words"
-    words.write_text("pizza\n")
-    monkeypatch.setattr("ferb.sanitize.dictionary.SYSTEM_WORDS", words)
+    around it by bisection, not by reading every id."""
     redactor = Redactor()
-    for value in ("8e95", "pizza", "hunter2!"):
-        redactor.remember_hidden_secret(value)
-    unit = "m-" + "8e95" * 16 + " pizza PIZZA2 pizzazz hunter2!x "
+    for value in ("8e95", "Zq9-pizza", "hunter2!"):
+        redactor.add_secret_value(value)
+    unit = "m-" + "8e95" * 16 + " Zq9-pizza PIZZA2 pizzazz hunter2!x "
 
     def make(n: int) -> str:
         return unit * n

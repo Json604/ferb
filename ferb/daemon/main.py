@@ -55,7 +55,8 @@ from ferb.daemon.areas.runtimes import Runtimes, mcp_shim_command
 from ferb.daemon.areas.schedules import Schedules
 from ferb.daemon.areas.sensing import Sensing
 from ferb.daemon.areas.shared import (FRESH_S, INTERNAL_FRAMES, INTERNAL_MESSAGE_CHARS, MACOS_TICK_S, Redact,
-                                      UNHANDLED, _code_path, _Fresh, _no_notify, _raise_file_limit, _Repeats)
+                                      UNHANDLED, WITHHELD, _code_path, _Fresh, _no_notify, _raise_file_limit,
+                                      _Repeats)
 from ferb.daemon.areas.voice import VoiceGlue
 from ferb.daemon.auth import RunTokens
 from ferb.daemon.banners import Banner
@@ -125,7 +126,7 @@ class Daemon(Compose, Chat, ChatHistoryRpc, MemoryGlue, MemoryImportGlue, Schedu
         self._automation_checks: dict[str, Any] = {}
         self._redact_override = redact
         self.redact: Redact = redact or Redactor()
-        self.preload_secrets = preload_secrets      # the redactor learns FERB's Keychain values at start (step 6a)
+        self.preload_secrets = preload_secrets      # the redactor learns the API keys in use at start (GATE-573)
         from ferb.sense.daily import DailyActivity
         self.daily_activity = DailyActivity(self.home / 'activity' / 'today.jsonl', self.clock.now)
         self.bus = Bus(self.clock)
@@ -654,12 +655,13 @@ class Daemon(Compose, Chat, ChatHistoryRpc, MemoryGlue, MemoryImportGlue, Schedu
         f = getattr(self.redact, "text", None)
         return str(f(text)) if f else text
 
-    def _record_internal(self, method: str, error: BaseException) -> None:
+    def _record_internal(self, method: str, error: BaseException, withheld: bool = False) -> None:
         """A request that failed inside FERB (server.py's catch-all, whose reply names only the exception's type): its
         method, the exception's type, its message redacted (rule 14) and cut short, and where it was raised as
         file:line:function, innermost last, journaled for `ferb stats` (L36: a notch answer that failed left no
-        trace), once per window for the same method, type and innermost frame (`_Repeats`). An exception recorded
-        already (while a hidden answer was still redacted by its value: `_resolve_approval`) isn't recorded again."""
+        trace), once per window for the same method, type and innermost frame (`_Repeats`). `withheld`: the message is
+        left out (a failure while a hidden answer was handled: `_resolve_approval`); an exception recorded already
+        isn't recorded again."""
         import traceback
         if getattr(error, "_ferb_recorded", False):
             return
@@ -668,7 +670,8 @@ class Daemon(Compose, Chat, ChatHistoryRpc, MemoryGlue, MemoryImportGlue, Schedu
         frames = [f"{_code_path(f.filename)}:{f.lineno}:{f.name}" for f in traceback.extract_tb(error.__traceback__)]
         self._repeats.record(INTERNAL_ERROR, (INTERNAL_ERROR, method, type(error).__name__, *frames[-1:]),
                              {"method": method, "error": type(error).__name__,
-                              "message": self._redact_text(str(error))[:INTERNAL_MESSAGE_CHARS],
+                              "message": (WITHHELD if withheld
+                                          else self._redact_text(str(error))[:INTERNAL_MESSAGE_CHARS]),
                               "frames": frames[-INTERNAL_FRAMES:]})
 
     def _redact_id(self, text: str) -> str:

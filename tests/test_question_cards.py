@@ -173,7 +173,7 @@ def test_a_card_names_a_running_app_by_its_name_never_its_bundle_id(monkeypatch:
     assert confirm.app_label("docs.google.com") == "docs.google.com"               # a site stays as written
 
 
-# decision: GATE-564, GATE-561
+# decision: GATE-572, GATE-561
 def test_a_saved_ordinary_word_never_blanks_ferbs_own_words(daemon: RunningDaemon) -> None:
     """Past bug (an application task, 2026-11-09): a saved security answer that is an ordinary word ("anything" then,
     "plant" here) is hidden wherever it appears, and the whole card was scanned, so FERB's own sentence read "not in

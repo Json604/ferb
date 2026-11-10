@@ -12,7 +12,7 @@ import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Iterator
 from urllib.parse import urlsplit
 
 import pytest
@@ -106,7 +106,6 @@ class _Tab:
 @dataclass
 class FakeIdentityDriver:
     secrets: KeychainSecretStore
-    add_secret_value: Callable[[str], None]
     feed_xml: str = field(default_factory=lambda: feed([]))
     name: str = "ext:chrome"
     identity: Identity = Identity.FERB
@@ -228,7 +227,6 @@ class FakeIdentityDriver:
         if not origin_allowed(self._origin(t, e), self.secrets.spec(ref)):   # before the Keychain is read
             raise Refused(f"refused: this field's page ({self._origin(t, e)}) isn't allowed for {ref.key}")
         value = await self.secrets._reveal(ref)
-        self.add_secret_value(value)
         e.value = value
         return ActionResult(True, f"ok ({ref.key})")
 
@@ -250,7 +248,6 @@ class FakeIdentityDriver:
             found=self.mailbox.take(candidate)
         except ValueError as error:
             return ActionResult(False,str(error))
-        self.add_secret_value(found.code)
         e.value=found.code
         self.used_otps.add(found.message_id)
         return ActionResult(True,"ok (explicit candidate)")
@@ -269,8 +266,8 @@ class FakeIdentityDriver:
         return self._tabs[tab_id].els[index].value
 
 
-def fake_driver(keychain: Path, specs: dict[str, Any], scrubbed: list[str]) -> FakeIdentityDriver:
-    return FakeIdentityDriver(KeychainSecretStore(lambda: specs, keychain), scrubbed.append)
+def fake_driver(keychain: Path, specs: dict[str, Any]) -> FakeIdentityDriver:
+    return FakeIdentityDriver(KeychainSecretStore(lambda: specs, keychain))
 
 
 PROFILES = {"Default": ("Personal", "me@gmail.com"), "Profile 1": ("Work", "me@work.com"),

@@ -15,4 +15,4 @@ def secret_driver(bundle: str, name: str | None, asked: list[dict[str, Any]], we
     opens = lambda b: b.casefold() in handlers                                     # noqa: E731
     return SimpleNamespace(apps=SimpleNamespace(find=lambda _: app, opens_web_links=opens, known_opens_web_links=opens),
                            app=lambda _: app, node=lambda *args: node, ask_secret=ask,
-                           ax=SimpleNamespace(set_value=lambda ref, value: True), release_secret=lambda value: None)
+                           ax=SimpleNamespace(set_value=lambda ref, value: True))

@@ -49,8 +49,12 @@ def fd(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple
     d.config.set("mailbox", "address", "ferb@gmail.com")
     specs = {REF.key: SecretSpec(REF, [SITE], "test account")}
     store = KeychainSecretStore(lambda: specs)
+    revealed: list[str] = []                       # every Keychain read of a value
+
     async def find(ref, reveal):
         assert ref == REF
+        if reveal:
+            revealed.append(PASSWORD)
         return 0, PASSWORD if reveal else ''
     monkeypatch.setattr(store, '_find', find)
     def no_installed_helper(*args, **kwargs):
@@ -59,12 +63,10 @@ def fd(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple
     # Pairing re-registers the driver and rebinds seal_value from this adapter; inject at that exact boundary.
     monkeypatch.setattr('ferb.identity.helper.seal', lambda home, key, value, command, origin:
                         seal(key, value, command, origin))
-    scrubbed: list[str] = []
     fi = d.ferb_identity
     assert fi is not None
     fi.secrets, fi._store = store, store
-    fi.add_secret_value = lambda v: (scrubbed.append(v), d._add_secret_value(v))   # type: ignore[assignment]
-    yield daemon, launched, scrubbed
+    yield daemon, launched, revealed
 
 
 def pair_identity(d: RunningDaemon, launched: list[list[str]], confirm: bool = False,
@@ -162,7 +164,7 @@ def test_pairing_needs_exactly_ferbs_account_and_confirmation_to_repair(fd: Any)
 
 
 def test_sealed_sign_in_never_puts_the_password_on_the_wire(fd: Any) -> None:
-    d, launched, scrubbed = fd
+    d, launched, revealed = fd
     ext, _ = pair_identity(d, launched)
     g = task(d, "s", Identity.FERB, FERB_SCOPES, {"sign_in"})
     results = [call(d, g, "ferb_browser.open", url=f"{SITE}/login")]
@@ -173,20 +175,20 @@ def test_sealed_sign_in_never_puts_the_password_on_the_wire(fd: Any) -> None:
     assert not results[-1]["is_error"], results[-1]
     results.append(call(d, g, "ferb_browser.snapshot", tab=tab))
     assert el(results[-1]["content"], type="password", sensitive=True, filled=True)
-    assert PASSWORD in ext.values.values() and scrubbed == [PASSWORD]
+    assert PASSWORD in ext.values.values() and revealed == [PASSWORD]
     assert ext.fills and "ct" in ext.fills[-1]["sealed"]                       # it travelled sealed
     nowhere(d, PASSWORD, ext, results)
 
 
 def test_origin_is_checked_before_the_keychain_is_read(fd: Any) -> None:
-    d, launched, scrubbed = fd
+    d, launched, revealed = fd
     ext, _ = pair_identity(d, launched)
     g = task(d, "f", Identity.FERB, FERB_SCOPES, {"sign_in"})
     tab = call(d, g, "ferb_browser.open", url=f"{SITE}/framed")["content"]["tab"]
     snap = call(d, g, "ferb_browser.snapshot", tab=tab)["content"]
     r = call(d, g, "ferb_browser.fill_secret", tab=tab, element=el(snap, sensitive=True), secret=REF.key)
     assert r["is_error"] and "evil.example" in r["content"]["error"] and "isn't allowed" in r["content"]["error"]
-    assert scrubbed == [] and ext.fills == []                                  # no Keychain read, nothing sent
+    assert revealed == [] and ext.fills == []                                  # no Keychain read, nothing sent
 
 
 def test_a_sealed_value_cannot_be_replayed_under_another_command_or_origin(fd: Any) -> None:
@@ -204,7 +206,7 @@ def test_a_sealed_value_cannot_be_replayed_under_another_command_or_origin(fd: A
 
 
 def test_otp_feed_and_code_travel_sealed(fd: Any) -> None:
-    d, launched, scrubbed = fd
+    d, launched, _ = fd
     ext, _ = pair_identity(d, launched)
     now = datetime.now(timezone.utc)
     ext.feed_xml = feed([("noreply@login.example.com", "Your code", "Your sign-in code is 482913.", now)],
@@ -216,7 +218,7 @@ def test_otp_feed_and_code_travel_sealed(fd: Any) -> None:
     assert len(inventory["candidates"]) == 1
     r = call(d, g, "ferb_browser.fill_otp", tab=tab, element=el(snap, type="password"), secret=REF.key, candidate=inventory["candidates"][0]["candidate"])
     assert not r["is_error"], r
-    assert "482913" in ext.values.values() and "482913" in scrubbed
+    assert "482913" in ext.values.values()
     nowhere(d, "482913", ext, r)                                               # not even inside the feed
     assert "Your sign-in code" not in "".join(ext.wire)                         # email content sealed as well
 
