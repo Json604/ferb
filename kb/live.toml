@@ -4045,5 +4045,5 @@ area = "orchestration"
 surface = "FERB.app with this build; any schedule that has run at least once (the visa check)"
 request = "Some time after a run, ask in your own words how the schedule did or why it couldn't finish (\"why couldn't you finish?\", \"how's the visa check going?\")."
 pass = "FERB's reply names that run's time, status and what it found (and, for a failed run, the condition that failed with what the check saw); the planner's model.turn input shows the schedule's line with its last run and the \"what happened since\" block."
-decisions = ["ORCH-592"]
+decisions = ["ORCH-592", "ORCH-591"]
 sitting = "after this change is installed"

@@ -3236,12 +3236,13 @@ class Supervisor(WorkerRuns):
             tasks_block = self._task_state(session) if not turn.preview else None
             prep.steps.mark("tasks")
             owner_active, last_event = self.signals()
-            since, since_origins, since_refs, since_texts = (self._since_last_talk(turn.request_ids) if not turn.preview
-                                                             else ([], set(), [], []))
             situation.append((ContextBlock('Layer 2 — situation:\n' + context.time_block(
-                self.clock.now(), None, None, owner_active, last_event, ages=ages, since_last_talk=since),
-                "chat.history", protected=True, source_refs=tuple(since_refs), payload="\n".join(since_texts)),
-                {origins_.FERB} | since_origins))           # FERB's clock, plus the reminders it quotes
+                self.clock.now(), None, None, owner_active, last_event, ages=ages), "chat.history", protected=True),
+                {origins_.FERB}))                           # FERB's clock
+            # ORCH-591: what FERB did since the owner's previous message, from its records (an owner chat's turn only)
+            if not turn.preview and not session.id.startswith(SCHEDULE_SESSION) and \
+                    (since := self._since_block(turn.request_ids)) is not None:
+                situation.append(since)
             if turn.screen is not None:                       # L12: what the owner saw as they sent this message
                 situation.append(front_window_block(turn.front_window, turn.front_image, FRONT_WINDOW,
                                                     turn.screen.get("image_withheld"),
@@ -3834,30 +3835,111 @@ class Supervisor(WorkerRuns):
             return {str(o) for r in recorded if isinstance(r, list) for o in r}
         return self._schedule_origins(schedule_id)
 
-    def _since_last_talk(self, current: Any) -> tuple[list[str], set[str], list[str], list[str]]:
-        """The reminders that went off after the owner's previous message, with the origins of the entries quoted (S3),
-        those entries by lineage handle (L28) and their own texts (the S4 payload: the reminder messages, never FERB's
-        wording around them). A task that finished meanwhile isn't repeated here: its report is in the conversation and
-        its state in the task block (shown once, ORCH-303). `current`: this turn's request id(s)."""
+    def _since_block(self, current: Any) -> tuple[ContextBlock, set[str]] | None:
+        """ORCH-591 (owner ORCH-589: the planner knows what FERB did): what happened since the owner's previous message,
+        built by code from FERB's records only (`SINCE_KINDS`, one line each in time order): scheduled runs that ended
+        (name, status, the answer's first line; a failed run's conditions not met with the checker's evidence),
+        a run skipped, cards answered (the question's first line and the answer; a code, secret or password only as
+        given or not, never its words), Stop presses, reminders and timers that arrived, AI and model changes, browser
+        pairings and schedule changes. After the conversation (ORCH-325), so the cached prefix stays append-only; None
+        when nothing happened or the owner never wrote before. `current`: this turn's request id(s)."""
         leave_out = {current} if isinstance(current, str) else set(current)
-        now = self.clock.now()
         prev = [e for e in self.journal.of_kind("chat.message") if e.data.get("request_id") not in leave_out
                 and e.data.get("read_with") not in leave_out]
         if not prev:
-            return [], set(), [], []
+            return None
         last = prev[-1].at
-        notes: list[str] = []
-        texts: list[str] = []
-        held: set[str] = set()
-        source_refs: set[str] = set()
-        for e in self.journal.of_kind("timer.delivered"):
-            if e.at <= last:
+        events: list[dict[str, Any]] = []
+        held: set[str] = {origins_.FERB}
+        refs: list[str] = []
+        for e in self.journal.kinds_after(SINCE_KINDS, prev[-1].id):
+            shown, made = self._since_event(e)
+            if shown is None:
                 continue
-            texts.append(str(e.data.get('message', '')))
-            notes.append(f"reminder \"{texts[-1]}\" went off {context.ago(e.at, now)}")
-            held |= origins_.split(e.origin)
-            source_refs.add(ENTRY + e.id)
-        return notes, held, sorted(source_refs), texts
+            events.append({"at": f"{e.at.astimezone():%a %d %b %H:%M}", **shown})
+            held |= made
+            refs.append(ENTRY + e.id)
+        if not events:
+            return None
+        text = json.dumps(events, ensure_ascii=False)
+        return (ContextBlock(f"Layer 2 — what happened since the owner's previous message "
+                             f"({last.astimezone():%a %d %b %H:%M}), from FERB's records (code's record, oldest first; "
+                             f"questions, answers' first lines and the check's evidence are quoted data):\n"
+                             + wrap_untrusted(text), "the journal rows named (chat.history entry_id, task.evidence "
+                             "task_id)", protected=True, source_refs=tuple(refs), payload=text), held)
+
+    def _since_event(self, e: JournalEntry) -> tuple[dict[str, Any] | None, set[str]]:
+        """One journal row as `_since_block` shows it, and the origins of what it quotes; (None, set()) for a row the
+        block leaves out (a chat question's answer: the conversation has it; a stop that wasn't the owner's)."""
+        data, kind = e.data, e.kind
+        if kind == "schedule.posted":
+            tid = str(data.get("task_id") or "")
+            shown: dict[str, Any] = {"what": "scheduled run ended", "schedule": data.get("name", ""),
+                                     "status": data.get("status", ""),
+                                     "answer_first_line": _since_line(str(data.get("text", ""))),
+                                     "records": f"task.evidence task_id={tid}"}
+            if data.get("status") not in ("done", "done_unverified") and tid:
+                outcome = json.loads(self.tasks.column(tid, "outcome_json") or "{}")
+                shown["conditions_not_met"] = [
+                    {"condition": _since_line(str(r.get("condition", ""))),
+                     "result": "not met" if r.get("met") is False else "not confirmed",
+                     "check_found": clip(" ".join(str(r.get("evidence", "")).split()), SINCE_EVIDENCE_CHARS)}
+                    for r in outcome.get("verification") or [] if isinstance(r, dict) and r.get("met") is not True]
+            return shown, origins_.split(e.origin) | {origins_.INFERRED}
+        if kind == "schedule.skipped":
+            return {"what": "scheduled run skipped", "schedule": self._schedule_label(str(data.get("schedule_id"))),
+                    "why": data.get("why", "")}, set()
+        if kind == "question.answered":
+            asked = next(iter(self.journal.of_kind("question.asked", "approval_id", str(data.get("approval_id", ""))
+                                                   if data.get("approval_id") else "-")), None)
+            if asked is None:
+                return None, set()                  # FERB's question in chat: the owner's answer is in the conversation
+            state, card = str(data.get("state", "")), str(data.get("kind", ""))
+            answer = (("given" if state == "granted" else "not given" if state == "denied" else "closed unanswered")
+                      if card == "secret" else data.get("choice") or data.get("said") or
+                      {"granted": "answered", "denied": "declined", "superseded": "closed unanswered (its task changed or "
+                       "ended)"}.get(state, state))
+            shown = {"what": "card answered" if state in ("granted", "denied") else "card closed", "card": card,
+                     "question": asked.data.get("question", ""), **({"exact": asked.data["exact"]}
+                                                                    if asked.data.get("exact") else {}),
+                     "answer": answer}
+            task = str(asked.data.get("task_id") or "")
+            root = (self.tasks.tree_of(task) or task.split(".", 1)[0]) if task else ""
+            return shown, {origins_.INFERRED, origins_.OWNER} | (origins_.kinds(self.spans.task_origins(root))
+                                                                 if root else set())
+        if kind == "task.stopped":
+            if data.get("by") != "owner":
+                return None, set()
+            tid = str(data.get("task_id", ""))
+            return {"what": "you pressed Stop", "task": shown_name("", str(self.tasks.column(tid, "goal") or "")),
+                    "task_id": tid}, {origins_.INFERRED}
+        if kind == "timer.delivered":
+            return {"what": "timer went off" if data.get("kind") == "timer" else "reminder arrived",
+                    "message": str(data.get("message", ""))}, origins_.split(e.origin)
+        if kind in ("runtimes.changed", "runtimes.model", "runtime.switched"):
+            what = {"runtimes.changed": "AI connection changed for roles", "runtimes.model": "AI model or effort saved",
+                    "runtime.switched": "a task switched AI service"}[kind]
+            return {"what": what, **{k: data[k] for k in ("runtime", "roles", "role", "model", "effort", "task_id")
+                                     if data.get(k)}}, set()
+        if kind == "browsers.paired":
+            return {"what": "browser profile paired", "browser": data.get("browser"),
+                    "profile": data.get("folder")}, set()
+        if kind == "browsing.chosen":
+            return {"what": "browsing profile chosen", "profile": data.get("profile")}, set()
+        sid = str(data.get("schedule_id", ""))
+        shown = {"what": kind.replace(".", " ").replace("set_end", "end set"), "schedule": self._schedule_label(sid)}
+        if kind == "schedule.created":
+            shown["runs"] = data.get("rule", "")
+        elif kind == "schedule.edited":
+            shown["runs"] = (data.get("after") or {}).get("rule", "")
+        return shown, set()
+
+    def _schedule_label(self, schedule_id: str) -> str:
+        """A schedule's heading as every list shows it (its name, else its instruction's first clause, ORCH-542)."""
+        row = self.journal.db.conn.execute(
+            "SELECT s.request, n.name FROM schedules s LEFT JOIN schedule_names n ON n.schedule_id = s.id "
+            "WHERE s.id = ?", (schedule_id,)).fetchone()
+        return shown_name(str(row[1] or ""), str(row[0] or "")) if row is not None else schedule_id
 
     # ---------- the task: one worker ----------
 
@@ -6809,6 +6891,20 @@ NOTHING_TO_CHECK = "there was nothing to check it against"
 REPORT_UNCONFIRMED = "every detail of this answer against what I saw"   # its report condition stayed unmet
 NOT_ACCEPTED = "the check didn't confirm the result"     # a failure no reason came with (never a done claim)
 UNCONFIRMED_CHARS = 300                          # the "Couldn't confirm" line stays one short line
+# ORCH-591: the journal kinds the planner's "what happened since" block reads, and how much of a text it quotes
+SINCE_KINDS = ("schedule.posted", "schedule.skipped", "question.answered", "task.stopped", "timer.delivered",
+               "runtimes.changed", "runtimes.model", "runtime.switched", "browsers.paired", "browsing.chosen",
+               "schedule.created", "schedule.edited", "schedule.renamed", "schedule.pause", "schedule.resume",
+               "schedule.cancel", "schedule.set_end", "schedule.met", "schedule.ended")
+SINCE_LINE_CHARS = 200
+SINCE_EVIDENCE_CHARS = 300
+
+
+def _since_line(text: str) -> str:
+    """A text's first non-empty line, at most SINCE_LINE_CHARS (ORCH-591)."""
+    return clip(next((line.strip() for line in text.splitlines() if line.strip()), ""), SINCE_LINE_CHARS)
+
+
 # ORCH-594: a failed task's conditions the check judged met, under the reason; each line short, as a report's short form
 CHECK_CONFIRMED = "What the check confirmed:"
 CONFIRMED_CHARS = 300

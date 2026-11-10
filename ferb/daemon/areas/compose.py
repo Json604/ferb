@@ -32,6 +32,14 @@ def question_kind(capability: str, kind: str) -> str:
         capability, "memory" if capability in MEMORY_ASKS else capability)
 
 
+ASKED_CHARS = 200                     # DMN-583: a question's or a typed answer's first line, as the journal keeps it
+
+
+def _first_line(text: str | None) -> str:
+    """A text's first non-empty line, at most ASKED_CHARS (DMN-583)."""
+    return next((line.strip() for line in str(text or "").splitlines() if line.strip()), "")[:ASKED_CHARS]
+
+
 class Compose:
     """A mixin of the Daemon (ferb/daemon/main.py): its methods use the daemon's state."""
 
@@ -237,25 +245,33 @@ class Compose:
         """Every question FERB asks the owner, with its kind, and how it was answered (fix list: so "few questions" can
         be measured): `question.asked` and `question.answered` in the journal. The kind is structural (who asks and
         why: a task's question, FERB's confirmation, a check-in, a closed tab, a runtime switch, a secret...), never a
-        reading of its words. An answer records its state and the option chosen, never free-typed words."""
+        reading of its words. An answer records its state and the option chosen. DMN-583 (for ORCH-591, the planner's
+        record of what FERB did): the question's first line and its exact part's (redacted, as the journal stores
+        everything), and a typed answer's first line, except for a hidden input (a code, secret or password: never its
+        words) or an answer FERB hid a secret in. Never a payment's picture (GATE-579: owner-only)."""
+        from ferb.daemon.questions import SECRET_KINDS
         ap = self.state.approvals.get(str(data.get("approval_id", "")))
         if ap is None:
             return
         kind = str(data.get("question_kind") or "") or question_kind(ap.capability, ap.kind)
         if topic == "approval.requested":
             self._asked_kinds[ap.id] = kind
+            asked = _first_line(ap.summary or ap.reason)
             self._journal().append("question.asked", {"approval_id": ap.id, "kind": kind,
                                                       "capability": ap.capability,
                                                       "task_id": data.get("task_id") or ap.task_id or None,
-                                                      "request_id": ap.request_id})
+                                                      "request_id": ap.request_id}
+                                   | ({"question": asked} if asked else {})
+                                   | ({"exact": exact} if (exact := _first_line(ap.exact)) else {}))
             return
         if ap.state == "pending" or ap.id in self._answered_ids:
             return
         self._answered_ids.add(ap.id)
+        said = _first_line(ap.answer) if ap.kind not in SECRET_KINDS and not ap.hidden else ""
         self._journal().append("question.answered", {
             "approval_id": ap.id, "kind": self._asked_kinds.pop(ap.id, kind), "state": ap.state,
             "answer": "option" if ap.choice else "words" if ap.answer else "none",
-            **({"choice": ap.choice} if ap.choice else {})})
+            **({"choice": ap.choice} if ap.choice else {}), **({"said": said} if said and not ap.choice else {})})
 
     def _activity_device(self) -> Any:
         """This Mac's device id as today's activity rows record it (redacted, as the row's other values are)."""

@@ -848,3 +848,11 @@ date = 2026-11-10
 status = "active"
 rule = "For DMN-581. FERB has no test.mode RPC, no saved [test_mode] state, no test-mode send allowlist and no record mode (FERB's questions answered from a fixed table). Every question reaches the owner as in normal use; sends are guarded by the sink rule and the confirmations. A config that still holds test_mode.state, on or off, starts with test mode gone: the key is removed once and journaled (config.upgraded); an older caller of test.mode gets the unknown-method refusal. In a developer run the owner answers (RUN-442's no payment); the run tool is GATE-577."
 paths = ["ferb/config.py::TEST_MODE_DECIDED", "ferb/config.py::TEST_MODE_RETIRED", "ferb/daemon/gateway.py::Gateway._boundaries", "ferb/daemon/gateway.py::Gateway.ask_confirmation", "ferb/daemon/auth.py::METHODS"]
+
+[DMN-583]
+title = "A question's record keeps its first line and a typed answer's, never a secret's"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For ORCH-591. question.asked also stores the question's first line (its summary, else its text) and its exact part's, at most 200 characters each; question.answered stores a typed answer's first line (`said`, 200) unless the card is a hidden input (code, secret, password) or FERB hid a secret in the answer. The journal redacts both as it redacts everything. Never a payment's picture (GATE-579). Older rows without them read as before."
+paths = ["ferb/daemon/areas/compose.py::Compose._question_record"]

@@ -80,6 +80,13 @@ class Journal:
                                      kinds)
         return [_entry(r) for r in rows]
 
+    def kinds_after(self, kinds: tuple[str, ...], entry_id: str) -> list[JournalEntry]:
+        """These kinds' rows written after the row `entry_id` (by the journal's own order), oldest first."""
+        rows = self._db.conn.execute(
+            f"SELECT * FROM journal WHERE kind IN ({','.join('?' * len(kinds))}) AND seq > "
+            "(SELECT seq FROM journal WHERE id = ?) ORDER BY seq", (*kinds, entry_id))
+        return [_entry(r) for r in rows]
+
     def of_kind(self, kind: str, field: str = "", equals: str = "", missing: str | None = None) -> list[JournalEntry]:
         """One kind's rows, oldest first, read through the journal_kind index; with `field`, only rows whose data holds
         `equals` there (`missing`: what a row without that field counts as, e.g. "owner" for a pre-session chat)."""
