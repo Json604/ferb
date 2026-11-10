@@ -619,3 +619,27 @@ kind = "build"
 status = "open"
 why = "GATE-568: only signed-in pages count. Today every page read in the owner's profile is private (owner_account on snapshots). Cookies, the profile's account, the owner's contacts don't tell it; a signed-out refetch was removed (outbound request outside the proxy; Google results need JavaScript)."
 decisions = ["GATE-568", "GATE-506", "GATE-524"]
+
+[T-1080]
+title = "Remove test mode completely"
+area = "daemon"
+kind = "build"
+status = "open"
+why = "Owner 2026-11-10: \"remveo test mdoe completelty\" (DMN-581). Remove the test.mode RPC, its send allowlist, its journal state and every place that reads it, and update AGENTS.md rule 16 and the live-test harness that enable it, as one change."
+decisions = ["DMN-581"]
+
+[T-1090]
+title = "Find why about 11% of Amazon's accessibility entries stay unbound to a page element"
+area = "hands"
+kind = "bug"
+status = "open"
+why = "Live 2026-11-10 (amazon.in, task 64a149b8): about 11% of the accessibility entries got no DOM binding, so they are missing from the element list. Needs a live repro on an Amazon product page in a lab profile to see which nodes (closed shadow roots, re-rendered nodes, frames)."
+decisions = ["HAND-439", "HAND-483"]
+
+[T-1091]
+title = "Publish extension 0.19.8 to the Chrome Web Store"
+area = "hands"
+kind = "live"
+status = "open"
+why = "HAND-480..496's extension parts reach the owner's browsers only through the store; FERB works with older ones meanwhile (HAND-485). Package: build/store/ferb-extension-0.19.8.zip; no listing change (no new permission or DevTools command, HAND-404); 0.19.4's self-update (HAND-430) should install it."
+decisions = ["HAND-485", "HAND-480", "HAND-404", "HAND-430"]

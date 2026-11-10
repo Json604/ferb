@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from ferb.act.browser.tools import (BrowserPdf, BrowserRecord, BrowserKeepOpen, BrowserAct, BrowserScreenshot, BrowserPoint, BrowserLoginCode, BrowserClose, BrowserDownloads, BrowserFillOtp, BrowserFillSecret, BrowserMedia, BrowserNavigate,
-                                   BrowserFind, BrowserRead, BrowserDialog, BrowserHandoff, BrowserPair, BrowserProfiles, BrowserOpen, BrowserScroll, BrowserSnapshot, BrowserTabs, BrowserUseTab, BrowserWait,
+                                   BrowserFind, BrowserHtml, BrowserRead, BrowserDialog, BrowserHandoff, BrowserPair, BrowserProfiles, BrowserOpen, BrowserScroll, BrowserSnapshot, BrowserTabs, BrowserUseTab, BrowserWait,
                                    FERB_BROWSER, IdentityDriver,
                                    BrowserOtpCandidates, OWNER_BROWSER)
 from ferb.act.ask import OwnerAsk
@@ -61,6 +61,7 @@ def add_identity_browser(r: Registry, driver: IdentityDriver, recordings: Any = 
     r.add(BrowserNavigate(driver, f))
     r.add(BrowserSnapshot(driver, f))
     r.add(BrowserRead(driver, f))
+    r.add(BrowserHtml(driver, f))                      # HAND-496: the page's markup, read only (extension 0.19.8)
     r.add(BrowserDialog(driver, f))
     r.add(BrowserScreenshot(driver, f))
     r.add(BrowserPdf(driver, f))                       # T-1065: a page as a PDF (extension 0.19.3)
@@ -87,6 +88,7 @@ def add_owner_browsers(r: Registry, router: IdentityDriver, recordings: Any = No
     r.add(BrowserNavigate(router, f))
     r.add(BrowserSnapshot(router, f))
     r.add(BrowserRead(router, f))
+    r.add(BrowserHtml(router, f))                      # HAND-496: the page's markup, read only (extension 0.19.8)
     r.add(BrowserDialog(router, f))
     r.add(BrowserProfiles(router, f))
     r.add(BrowserPair(router, f))

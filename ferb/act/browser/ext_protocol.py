@@ -155,7 +155,7 @@ Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait"
 # Commands that never change the page (protocol.js READ_OPS): one that fails or times out is a known failure.
 READS: frozenset[str] = frozenset({"list_tabs", "snapshot", "wait", "screenshot", "screenshot_part", "record_frame",
                                    "frame_origin", "read_source", "window_secrets", "find", "result_part", "ping",
-                                   "point", "pdf", "pdf_part"})
+                                   "point", "pdf", "pdf_part", "html", "owner_view"})
 
 
 def version_tuple(v: str) -> tuple[int, ...]:
@@ -169,6 +169,8 @@ def version_tuple(v: str) -> tuple[int, ...]:
 # T-1065, HAND-428: the extension's `pdf` (HAND-427) needs this version; the connection minimum stays where it is, so a
 # profile Chrome hasn't updated yet keeps working for everything else and is told to update only for a PDF
 PDF_EXTENSION_VERSION = "0.19.3"
+# HAND-496: the extension's `html` (the page's real markup) needs this version, the same way; the minimum stays
+HTML_EXTENSION_VERSION = "0.19.8"
 
 
 def version_ok(v: str, minimum: str = MIN_EXTENSION_VERSION) -> bool:
@@ -225,6 +227,9 @@ class TabEvent(BaseModel):
     ferb: bool | None = None                   # sound: a tab FERB opened, or in FERB's own window
     changed: list[Literal["audible", "muted"]] = []
     muted_reason: str | None = None            # sound (protocol 21): mutedInfo.reason, who last changed the mute
+    # updated (extension 0.19.8, optional, HAND-492): the load kept the document the last snapshot read (a single-page
+    # app's route change), so that snapshot's element ids still name its elements
+    same_document: bool | None = None
 
 
 class Event(BaseModel):

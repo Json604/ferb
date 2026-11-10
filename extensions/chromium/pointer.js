@@ -1,16 +1,42 @@
 // Owns exact tab-local pointer gestures; must not choose a target, move the OS cursor or leave buttons down.
 const CANCELLED_POINTERS = new Set();
 
-async function visualStates(tabId) {
+// What a click at a screenshot point depends on in each frame it goes through (HAND-480): the same document, no newer
+// snapshot, the same viewport size, scroll and zoom. Not whether anything else on the page changed: busy pages (ads,
+// carousels) never sit still. The element under the point is checked on its own (checkPoint).
+const SURFACE = ["documentId", "generation", "viewport", "scroll", "scale"];
+const surfaceOf = state => Object.fromEntries(SURFACE.map(k => [k, state[k]]));
+
+// [frame, its surface, or null when that frame can't be read now] for the given frames (default: every snapshot frame)
+async function visualStates(tabId, frames) {
   const refs = tabState(tabId).frameRefs;
   if (!refs) throw new Error("take_a_snapshot_first");
-  return Promise.all([...refs.keys()].map(async frame => [frame,
-    await inFrame(tabId, frame, () => window.__ferb.visualState(), [])]));
+  return Promise.all((frames || [...refs.keys()]).map(async frame => {
+    try { return [frame, surfaceOf(await inFrame(tabId, frame, () => window.__ferb.visualState(), []))]; }
+    catch (_) { return [frame, null]; }
+  }));
 }
 
-async function checkVisual(tabId, visual = tabState(tabId).visual) {
-  if (!visual || Date.now() - visual.at > 30000 ||
-      JSON.stringify(await visualStates(tabId)) !== visual.states) throw new Error("visual_stale; take another screenshot");
+// The first part of a frame's surface that differs, in words ("" when none).
+function surfaceChange(before, now) {
+  if (!before) return "(it wasn't readable when the screenshot was taken)";
+  if (!now) return "(it can't be read now: gone or navigated)";
+  for (const k of SURFACE) if (JSON.stringify(before[k]) !== JSON.stringify(now[k]))
+    return k === "documentId" ? "document (it navigated or reloaded)" : k === "generation" ? "snapshot (a newer one was taken)" : k;
+  return "";
+}
+
+// The screenshot still holds for these frames: under 30 s old, none of them changed while it was taken, and each one's
+// surface now is the one it had then. Every refusal names the frame and the part that differed.
+async function checkVisual(tabId, visual, frames) {
+  if (!visual) throw new Error("visual_stale: no screenshot to point on; take another screenshot");
+  if (Date.now() - visual.at > 30000) throw new Error("visual_stale: the screenshot is over 30 s old; take another screenshot");
+  for (const f of frames) if (visual.unsteady[f])
+    throw new Error(`visual_stale: frame ${f} ${visual.unsteady[f]} changed while the screenshot was taken; take another screenshot`);
+  for (const [f, now] of await visualStates(tabId, frames)) {
+    const part = surfaceChange(visual.states[f], now);
+    if (part) throw new Error(`visual_stale: frame ${f} ${part}; take another screenshot`);
+  }
 }
 
 async function resolveVisualPoint(tabId, snap, x, y) {
@@ -21,7 +47,8 @@ async function resolveVisualPoint(tabId, snap, x, y) {
     visited.add(frame);
     const hit = await inFrame(tabId, frame, (g, a, b) => window.__ferb.point(g, a, b), [snap, px, py]);
     if (hit.error) throw new Error(hit.error);
-    if (hit.element) return {x, y, frame_id: frame, frame_x: px, frame_y: py, element: hit.element};
+    // `frames`: the frames the click goes through, top first (the ones checkVisual compares)
+    if (hit.element) return {x, y, frame_id: frame, frame_x: px, frame_y: py, element: hit.element, frames: [...visited]};
     const children = refs ? [...refs.values()].filter(f => f.parent_frame_id === frame && f.owner_binding === hit.frame) : [];
     if (children.length !== 1) throw new Error(children.length ? "ambiguous_frame_binding" : "frame_offset_unknown");
     const child=children[0];
@@ -32,22 +59,42 @@ async function resolveVisualPoint(tabId, snap, x, y) {
   throw new Error("frame_binding_cycle");
 }
 
-async function checkPoint(tabId, point, visual) {
+// What differs between the point as reported to the worker and as resolved now ("" when it is the same target): the
+// frames it goes through, where it lands in its frame (a frame moved), the element under it (content.js keeps one id
+// per element for the snapshot's life), and that element's role, label, link and rect. After the pointer's own move
+// (`hovered`) a hover style may resize the element: the fresh hit test still has to find the same element under the
+// point, with the same role, label and link, but its rect isn't compared (HAND-480).
+function pointChange(was, now, hovered = false) {
+  if (JSON.stringify(was.frames) !== JSON.stringify(now.frames))
+    return `frames (${(was.frames || []).join(">")} then, ${now.frames.join(">")} now)`;
+  const f = now.frame_id;
+  if (Math.abs(was.frame_x - now.frame_x) > 0.5 || Math.abs(was.frame_y - now.frame_y) > 0.5) return `frame ${f} position`;
+  const a = was.element, b = now.element;
+  if (a.id !== b.id) return `frame ${f} element (another element is under the point now)`;
+  for (const k of hovered ? ["role", "label", "href"] : ["role", "label", "href", "rect"])
+    if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) return `frame ${f} element ${k}`;
+  return "";
+}
+
+// Re-resolves the point now (every frame offset measured again, a fresh hit test): the same element at the same place
+// as when the worker was given it, every frame on its path unchanged, and a target that takes the click (not secret,
+// not disabled). Run before the gesture and, `hovered`, right before the press.
+async function checkPoint(tabId, point, visual, hovered = false) {
   const current = await resolveVisualPoint(tabId, visual.snap, point.x, point.y);
-  if (JSON.stringify(current) !== JSON.stringify(point)) throw new Error("visual_target_changed; take another screenshot");
+  const part = pointChange(point, current, hovered);
+  if (part) throw new Error(`visual_target_changed: ${part}; take another screenshot`);
   // content.js describe() reports a disabled control as `disabled: true` (protocol 17 read a `state` list it never sent)
   if (current.element.secret || current.element.disabled === true) throw new Error("pointer_target_unavailable");
+  await checkVisual(tabId, visual, current.frames);
   return current;
 }
 
-async function checkSurface(tabId, visual) {
+async function checkSurface(tabId, visual, frames) {
   // Drag changes content by design, but it must never continue into a new document or shifted viewport.
-  const withoutEpoch = states => states.map(([frame, state]) => {
-    const {epoch, ...surface} = state;
-    return [frame, surface];
-  });
-  if (JSON.stringify(withoutEpoch(await visualStates(tabId))) !== JSON.stringify(withoutEpoch(JSON.parse(visual.states))))
-    throw new Error("pointer_surface_changed");
+  for (const [f, now] of await visualStates(tabId, frames)) {
+    const part = surfaceChange(visual.states[f], now);
+    if (part) throw new Error(`pointer_surface_changed: frame ${f} ${part}`);
+  }
 }
 
 async function readyPoint(tabId, point, alive) {
@@ -64,6 +111,21 @@ async function readyPoint(tabId, point, alive) {
   throw new Error("pointer_did_not_reach_target_frame");
 }
 
+// HAND-486: readyPoint, and when its move never reaches the target's frame (live: 18 of 85 screenshot clicks, always in
+// a tab that had navigated), once more after a fresh debugger session (every frame set up afresh, its readiness probe),
+// as HAND-423 does for a frame's failed setup; never while the tab holds a download for FERB, which letting go would
+// hand to the browser. false: it still didn't arrive (only moves were sent).
+async function reachPoint(tabId, point, alive) {
+  try { await readyPoint(tabId, point, alive); return true; }
+  catch (e) { if (String(e.message || e) !== "pointer_did_not_reach_target_frame") throw e; }
+  if ([...downloads.values()].some(tr => tr.tabId === tabId)) return false;
+  await letGoOfDebugger(tabId);
+  await attachFresh(tabId);
+  try { await readyPoint(tabId, point, alive); return true; }
+  catch (e) { if (String(e.message || e) !== "pointer_did_not_reach_target_frame") throw e; }
+  return false;
+}
+
 async function exactPointer({tab_id, point, end, kind}, commandId) {
   if (!["click", "dblclick", "rightclick", "hover", "drag"].includes(kind)) throw new Error("unsupported_pointer_action");
   let st;
@@ -76,10 +138,10 @@ async function exactPointer({tab_id, point, end, kind}, commandId) {
   const visual = st.visual;
   let start, finish;
   try {
-    await checkVisual(tab_id, visual);
     if (st.gesture) throw new Error("pointer_busy");
-    start = visual.points.get(point); finish = kind === "drag" ? visual.points.get(end) : start;
-    if (!start || !finish) throw new Error("unknown_visual_point");
+    start = visual && visual.points.get(point); finish = kind === "drag" ? visual && visual.points.get(end) : start;
+    if (visual && (!start || !finish)) throw new Error("unknown_visual_point");
+    await checkVisual(tab_id, visual, start ? start.frames : [0]);
     if (kind === "drag" && start.frame_id !== finish.frame_id) throw new Error("drag_across_frames_unsupported");
     await checkPoint(tab_id, start, visual);
     if (finish !== start) await checkPoint(tab_id, finish, visual);
@@ -97,15 +159,16 @@ async function exactPointer({tab_id, point, end, kind}, commandId) {
   };
   try {
     alive();
-    try { await readyPoint(tab_id, start, alive); }
-    catch (e) {                                 // only moves were sent, never a press: a known failure (live 2026-10-26)
-      if (String(e.message || e) !== "pointer_did_not_reach_target_frame") throw e;
+    if (!(await reachPoint(tab_id, start, alive))) {   // only moves were sent, never a press: a known failure
       return {ok: false, reason: "pointer_did_not_reach_target_frame", detail: "the pointer's move never reached the " +
-        "target's frame, so nothing was pressed; take a fresh screenshot and point again"};
+        "target's frame, even after FERB attached to the tab again, so nothing was pressed; click it from a " +
+        "snapshot instead (browser.act with its element id)"};
     }
     alive();
-    // Hover can expose a different control. Recheck the actual hit before pressing.
-    await checkPoint(tab_id, start, visual);
+    // Hover can expose a different control (a tooltip, a menu over the point). Recheck the actual hit before pressing;
+    // only moves were sent so far, so a refusal here is a known one.
+    try { await checkPoint(tab_id, start, visual, true); }
+    catch (e) { return {ok: false, detail: String(e.message || e)}; }
     if (kind !== "hover") {
       for (let n = 1; n <= (kind === "dblclick" ? 2 : 1); n++) {
         alive();
@@ -114,7 +177,7 @@ async function exactPointer({tab_id, point, end, kind}, commandId) {
         if (kind === "drag") {
           for (let i = 1; i <= 20; i++) {
             alive();
-            if (i % 5 === 0) await checkSurface(tab_id, visual);
+            if (i % 5 === 0) await checkSurface(tab_id, visual, start.frames);
             x = start.x + (finish.x - start.x) * i / 20;
             y = start.y + (finish.y - start.y) * i / 20;
             await mouse(tab_id, "mouseMoved", x, y, {button, buttons: 1});

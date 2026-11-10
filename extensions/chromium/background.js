@@ -224,7 +224,11 @@ async function tabMoved(tabId, groupId) {
 }
 chrome.tabs.onUpdated.addListener((id, info) => {
   if (info && Number.isInteger(info.groupId)) tabMoved(id, info.groupId).catch((e) => console.warn("FERB group:", String(e)));
+  tabLoading(id, info);
 });
+// HAND-486: a new document in a tab FERB drives needs the readiness probe again before trusted input (the debugger
+// session stays; attachForInput runs the input setup and probe once more)
+function tabLoading(id, info) { if (info && info.status === "loading" && TABS.has(id)) TABS.get(id).ready = false; }
 
 async function keptTabs() {
   const { ferbKeptTabs } = await chrome.storage.local.get('ferbKeptTabs');
@@ -653,7 +657,7 @@ const script = (injection) => chrome.scripting.executeScript({ ...injection, inj
 // page from freezing and wakes one that froze (0 of 4 froze with it set at open; 4 of 4 frozen tabs woke for a read).
 // It is the debugger's own call, answered while the page is frozen; the owner sees nothing (the group stays collapsed).
 // Sent when a tab is armed, before every command that reads or acts in it, and whenever Chrome reports one frozen.
-const WAKES = new Set(["snapshot", "find", "wait", "screenshot", "record_frame", "point", "frame_origin", "pdf",
+const WAKES = new Set(["snapshot", "find", "html", "owner_view", "wait", "screenshot", "record_frame", "point", "frame_origin", "pdf",
   "act", "fill", "upload", "media", "scroll", "pointer"]);
 async function wake(tabId) {
   const t = TABS.get(tabId);
@@ -734,6 +738,8 @@ async function ownedTabs() {
 
 // Load a URL in a tab and wait for it: the old page is still "complete", so wait for the new load to start first.
 async function load(tabId, url) {
+  const st = TABS.get(tabId);
+  if (st) st.docStatus = new Map();                  // HAND-494: this load's document responses (onPaused)
   const started = new Promise((resolve) => {
     const on = (id, info) => { if (id === tabId && info.status === "loading") { chrome.tabs.onUpdated.removeListener(on); resolve(); } };
     chrome.tabs.onUpdated.addListener(on);
@@ -742,6 +748,18 @@ async function load(tabId, url) {
   await chrome.tabs.update(tabId, { url });
   await started;
   await waitComplete(tabId, 20000);
+}
+
+// HAND-494: the HTTP status of the document the tab's top frame got in the last load(), as the debugger's response
+// stage (Fetch, D35) saw it; null when it didn't (an unarmed tab, a cached or same-document load).
+async function pageStatus(tabId) {
+  const t = TABS.get(tabId);
+  if (!t || !t.docStatus || !t.docStatus.size) return null;
+  try {
+    const { frameTree } = await cdp(tabId, "Page.getFrameTree", {});
+    const s = t.docStatus.get(frameTree && frameTree.frame && frameTree.frame.id);
+    return Number.isInteger(s) ? s : null;
+  } catch (_) { return null; }
 }
 
 function waitComplete(tabId, ms) {
@@ -1270,6 +1288,9 @@ chrome.tabs.onRemoved.addListener(tabId => {
 
 async function onPaused(src, params) {
   const tabId = src.tabId, t = TABS.get(tabId), sid = src.sessionId;
+  // HAND-494: a document's status on the tab's own session (its frames in this process), kept for load()'s answer
+  if (t && t.docStatus && !sid && params.resourceType === "Document" && Number.isInteger(params.responseStatusCode)
+      && t.docStatus.size < 50) t.docStatus.set(params.frameId, params.responseStatusCode);
   let kind = null;
   try { kind = t && t.armed ? classify(params, t.redirects) : null; } catch (_) { kind = null; }
   if (t && (kind || (params.responseStatusCode >= 300 && params.responseStatusCode < 400 &&
@@ -1467,6 +1488,7 @@ async function claimPopup(token, tabId) {
     t.popupFor = { opener: relay.opener, frameId: relay.frameId, token };
     t.claiming = false;
     await send("event", { event: "popup", tab_id: tabId, opener_tab_id: relay.opener, url: maskUrl(relay.url) });
+    opener.openedTabs = (opener.openedTabs || 0) + 1;                // HAND-487: the opener's act sees it opened a tab
   } catch (e) { console.warn("FERB popup:", String(e.message || e)); }
   finally { t.claiming = false; }
 }
@@ -1506,6 +1528,7 @@ async function openedByInput(tabId, url) {
     t.popupFor = { opener, frameId: null, token: null };   // loaded by the browser already: nothing to tell the page
     t.claiming = false;
     await send("event", { event: "popup", tab_id: tabId, opener_tab_id: opener, url: maskUrl(url) });
+    const by = TABS.get(opener); if (by) by.openedTabs = (by.openedTabs || 0) + 1;   // HAND-487
   } catch (e) { console.warn("FERB new tab:", String(e.message || e)); }
   finally { t.claiming = false; }
 }
@@ -1639,8 +1662,88 @@ async function pressKey(tabId, spec) {
 async function topPoint(tabId, frameId, snap, el) {
   const r = await inFrame(tabId, frameId, (g, i) => window.__ferb.rect(g, i), [snap, el]);
   if (r.error) return { error: r.error };
-  return toTopPoint(tabId, frameId, r);
+  const fx = r.x, fy = r.y;                        // where it is in its own frame, for the landed check (HAND-486)
+  const p = await toTopPoint(tabId, frameId, r);
+  return p.error ? p : { ...p, fx, fy };
 }
+
+// HAND-486: a move to (x, y) must be seen by the target's own frame at (fx, fy) before anything is pressed there: in a
+// tab that navigated, presses were dropped until a move landed (live: 18 of 85 screenshot clicks). Moves only, never a
+// press. false: it never arrived in ~10 tries.
+async function reaches(tabId, frameId, x, y, fx, fy) {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await inFrame(tabId, frameId, () => { window.__ferb.pointerArm(); return true; }, []);
+    await mouse(tabId, "mouseMoved", x, y);
+    const seen = await inFrame(tabId, frameId, () => window.__ferb.pointerSeen(), []);
+    if (seen.length === 2 && Math.abs(seen[0] - fx) <= 1 && Math.abs(seen[1] - fy) <= 1) return true;
+    await sleep(25);
+  }
+  return false;
+}
+
+// HAND-486: reaches(), and when the move never arrives, once more after a fresh debugger session (as HAND-423 does for
+// a frame's failed setup); never while the tab holds a download for FERB, which letting go would hand to the browser.
+async function reachesAfresh(tabId, frameId, x, y, fx, fy) {
+  if (await reaches(tabId, frameId, x, y, fx, fy)) return true;
+  if ([...downloads.values()].some(tr => tr.tabId === tabId)) return false;
+  await letGoOfDebugger(tabId);
+  await attachFresh(tabId);
+  return reaches(tabId, frameId, x, y, fx, fy);
+}
+// HAND-487: what an act changed, looked at around it: before it, the tab's address and top document and, in the
+// target's frame, a watch on the element and its form or dialog (content.js watchNear); after it, every 100 ms for up to
+// OBSERVE_MS (OPENING_MS while a new tab is being claimed), until something changed: a new document, another address,
+// a dialog, a tab it opened, the element's own state (value, checked, expanded, selected, pressed, open, disabled; never
+// a value itself), the element leaving the page, changes in its form or dialog. `observed_change` true with one line
+// (`observed`) saying what; false: nothing changed within the time ("not confirmed", never "failed"); null: unknown.
+const OBSERVE_MS = 500, OPENING_MS = 1000;
+async function observeAct(a, run) {
+  const tabId = a.tab_id;
+  const look = async () => {
+    let url = null, top = null;
+    try { url = (await chrome.tabs.get(tabId)).url || null; } catch (_) { /* gone */ }
+    try { top = await inFrame(tabId, 0, () => window.__ferb.documentKey(), []); } catch (_) { /* between documents */ }
+    return {url, top: typeof top === "string" ? top : null};
+  };
+  const t0 = a.kind === "scroll" ? null : await look();
+  let watching = false;
+  if (t0) {
+    try { watching = (await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.watchNear(g, i), [a.snap, a.el])) === true; }
+    catch (_) { watching = false; }
+  }
+  const st = tabState(tabId), opened = st.openedTabs || 0, dialogs = st.dialogs.length;
+  const result = await run();
+  if (!t0 || !result || result.ok !== true) return result;
+  const started = Date.now();
+  for (;;) {
+    const now = await look(), said = [];
+    if (t0.top && now.top && now.top !== t0.top) said.push("the page loaded a new document");
+    else if (t0.url && now.url && now.url !== t0.url) said.push("the address changed");
+    if (st.pendingDialog || st.dialogs.length > dialogs) said.push("a dialog opened");
+    if ((st.openedTabs || 0) > opened) said.push("it opened a new tab");
+    let near = null;
+    if (watching && !(t0.top && now.top && now.top !== t0.top)) {
+      try { near = await inFrame(tabId, a.frame_id, () => window.__ferb.nearChange(), []); } catch (_) { near = null; }
+      if (near && typeof near === "object") {
+        if (near.gone) said.push("the element left the page");
+        if (Array.isArray(near.state) && near.state.length) said.push(`the element's ${near.state.join(", ")} changed`);
+        if (near.mutations > 0) said.push(`${near.mutations} change(s) in its ${near.scope || "surroundings"}`);
+      }
+    }
+    if (said.length) return {...result, observed_change: true, observed: said.join("; ")};
+    const claiming = [...TABS.values()].some(x => x.claiming);
+    if (Date.now() - started >= (claiming ? OPENING_MS : OBSERVE_MS)) {
+      const known = (t0.top && now.top) || (watching && near && typeof near === "object");
+      return {...result, observed_change: known ? false : null,
+              observed: known ? `nothing changed within ${OBSERVE_MS / 1000} s` : "unknown: the page couldn't be read after the act"};
+    }
+    await sleep(100);
+  }
+}
+
+const NOT_REACHED = { ok: false, reason: "pointer_did_not_reach_target", detail: "the pointer's move never reached " +
+  "the element's frame, even after FERB attached to the tab again, so nothing was pressed; take a new snapshot and " +
+  "try once more, or use page_mode=true for this element" };
 
 async function toTopPoint(tabId, frameId, r) {
   if (frameId !== 0) {
@@ -1686,7 +1789,10 @@ async function trusted(tabId, a) {
     // text in (entersText); Return, Tab and the like still go (kb area hands).
     if (p.secret && (a.kind === "type" || (a.kind === "press" && entersText(a.text)))) return {ok: false, detail: "secret_field"};
     if (p.disabled) return {ok: false, detail: "target_disabled"};
-    if (p.occluded) return { ok: false, detail: "target_occluded; take a fresh snapshot" };
+    if (p.occluded) return { ok: false, detail: `target_occluded${p.cover ? `: covered by ${p.cover}` : ""}; take a fresh snapshot`,
+                             ...(p.cover ? { covered_by: p.cover } : {}) };   // HAND-490: what covers it
+    const pointing = a.kind === "hover" || CLICKS[a.kind] || (a.kind === "type" && p.editable);
+    if (pointing && !(await reachesAfresh(tabId, a.frame_id, p.x, p.y, p.fx, p.fy))) return NOT_REACHED;
     if (a.kind === "hover") { await mouse(tabId, "mouseMoved", p.x, p.y); return { ok: true, detail: "hovered (trusted)" }; }
     if (CLICKS[a.kind]) {
       await pointerClick(tabId, p.x, p.y, CLICKS[a.kind]);
@@ -1925,9 +2031,9 @@ const commands = {
     try { groupId = await joinGroup(tab.id, windowId, g); }
     catch (e) { console.warn("FERB group:", String(e.message || e)); }   // ungrouped, still FERB's (closed with its task)
     if (url !== "about:blank") await load(tab.id, url);   // FERB's daemon opens blank and navigates once the tab is its
-    const t = await chrome.tabs.get(tab.id);
+    const t = await chrome.tabs.get(tab.id), status = url !== "about:blank" ? await pageStatus(tab.id) : null;
     return { tab_id: t.id, url: maskUrl(t.url || t.pendingUrl || ""), title: t.title || "", window_id: t.windowId,
-             group_id: groupId, muted: silent };
+             group_id: groupId, muted: silent, ...(status ? { http_status: status } : {}) };
   },
   // Protocol 19 (HAND-207): mute or unmute one tab FERB opened (its records hold it, never borrowed), through the
   // browser's own tab mute; the owner's tabs are never touched. Returns the tab's sound state afterwards.
@@ -1969,8 +2075,9 @@ const commands = {
                  detail: "the page asked before leaving (it may hold unsaved changes) and FERB stayed, as leave_page said" };
       }
     } finally { st.leaving = false; choice.done(); }
-    const t = await chrome.tabs.get(tab_id);
-    return { tab_id: t.id, url: maskUrl(t.url || t.pendingUrl || ""), title: t.title || "" };
+    const t = await chrome.tabs.get(tab_id), status = await pageStatus(tab_id);
+    return { tab_id: t.id, url: maskUrl(t.url || t.pendingUrl || ""), title: t.title || "",
+             ...(status ? { http_status: status } : {}) };
   },
   async close({ tab_id, leave_page }) {
     if ((await keptTabs()).includes(tab_id)) {
@@ -2098,11 +2205,32 @@ const commands = {
     if (r.error === "stale") throw Error("that media element is from an older snapshot; take a new snapshot");
     return r;
   },
+  // Extension 0.19.8 (HAND-496): the page's real markup, read only, through content.js `markup` in the element's frame,
+  // the named frame, or every frame (frames the page doesn't draw are skipped for a whole-page read). A frame element's
+  // binding becomes its frame id here. `nonce` is this call's, so nothing in the page can forge an element marker.
+  async html({ tab_id, frame_id = null, snap = null, el = null, selector = null, scripts = false }) {
+    const nonce = Array.from(crypto.getRandomValues(new Uint8Array(6)), b => b.toString(16).padStart(2, "0")).join("");
+    const frames = el !== null || frame_id !== null ? [frame_id ?? 0] : undefined;
+    await inject(tab_id, frames);
+    const results = await script({ target: frames ? { tabId: tab_id, frameIds: frames } : { tabId: tab_id, allFrames: true },
+      func: (g, i, s, sc, n, d) => window.__ferb.markup(g, i, s, sc, n, d),
+      args: [snap, el, selector, scripts === true, nonce, el === null && !selector] });
+    const owners = new Map([...(tabState(tab_id).frameRefs || new Map()).values()]
+      .filter(f => f.owner_binding).map(f => [f.owner_binding, f.frame_id]));
+    const frameMark = new RegExp(`ferb-frame-${nonce}="([0-9a-f]+)"`, "g");
+    return { nonce, frames: results.filter(r => r && r.result).map(r => ({ frame_id: r.frameId, ...r.result,
+      ...(typeof r.result.html === "string" ? { html: r.result.html.replace(frameMark,
+        (m, tok) => owners.has(tok) ? `ferb-frame="${owners.get(tok)}"` : "") } : {}) })) };
+  },
   async find({tab_id, text}) {
     const results = await script({target:{tabId:tab_id,allFrames:true},
       func:q => {
+        // HAND-484: a frame the page doesn't draw (a hidden ad frame) is skipped: innerText of an undrawn body is its
+        // raw text, scripts' source included
+        if (!document.body || innerWidth <= 0 || innerHeight <= 0 || !document.body.getClientRects().length)
+          return {lines:0,hits:[],undrawn:true};
         const needle=(q || "").toLowerCase();
-        const lines=(document.body ? document.body.innerText : "").split(/\n+/).map(line=>line.trim()).filter(Boolean);
+        const lines=document.body.innerText.split(/\n+/).map(line=>line.trim()).filter(Boolean);
         return {lines:lines.length,hits:needle ? lines.filter(line=>line.toLowerCase().includes(needle)) : []};
       },args:[text]});
     const hits=results.flatMap(r=>(r.result?.hits || []).map(text=>({frame_id:r.frameId,text})));
@@ -2152,6 +2280,8 @@ const commands = {
     }
     st.frames = composeFrames(frames);
     st.frameRefs = new Map(frames.map(f => [f.frame_id, f]));
+    try { st.snapDoc = await inFrame(tab_id, 0, () => window.__ferb.documentKey(), []); }   // HAND-492
+    catch (_) { st.snapDoc = null; }
     if (st.axErrors.length) top.truncated = true;
     if (st.axErrors.length) top.text = `[Accessibility view incomplete: ${st.axErrors.join("; ")}]\n${top.text}`;
     const dialogs = st.dialogs.splice(0);
@@ -2163,12 +2293,13 @@ const commands = {
   },
   async point({tab_id, snap, x, y, image_width, image_height}) {
     const visual = tabState(tab_id).visual;
-    await checkVisual(tab_id, visual);
+    await checkVisual(tab_id, visual, [0]);
     if (snap !== visual.snap || ![x,y,image_width,image_height].every(Number.isFinite) ||
         x < 0 || y < 0 || image_width <= 0 || image_height <= 0 || x >= image_width || y >= image_height)
       throw new Error("invalid_visual_point");
     const [width,height] = await inFrame(tab_id, 0, () => window.__ferb.viewport(), []);
     const point = await resolveVisualPoint(tab_id, snap, x * width / image_width, y * height / image_height);
+    await checkVisual(tab_id, visual, point.frames);   // every frame the point goes through still as in the picture
     const token = crypto.randomUUID();
     if (visual.points.size >= 32) throw new Error("too_many_visual_points; take another screenshot");
     visual.points.set(token, point);
@@ -2176,7 +2307,9 @@ const commands = {
   },
   pointer: exactPointer,
   async pointer_cancel({tab_id, command_id}) { return cancelPointer(tab_id, command_id); },
-  async act({ tab_id, frame_id, snap, el, kind, text, page_mode, expect_dialog, dialog_text, append, per_key }) {
+  // HAND-487: the act, with what changed around it (observeAct). actOnce is no op of its own (OPS lists none).
+  async act(args) { return observeAct(args, () => commands.actOnce(args)); },
+  async actOnce({ tab_id, frame_id, snap, el, kind, text, page_mode, expect_dialog, dialog_text, append, per_key }) {
     if (["type","select","press"].includes(kind) && typeof text !== "string")
       return {ok:false,reason:"explicit_input_required",detail:"No default key or replacement text is supplied"};
     const page = page_mode === true || kind === "select" || kind === "scroll";
@@ -2244,7 +2377,14 @@ const commands = {
       if (targets.length !== 1) return {ok:false, reason:targets.length ? "upload_target_ambiguous" : "upload_route_unavailable",
         detail:"the selected file input has no unique debugger binding", frame_id, transferred:false};
       const target = targets[0];
-      await cdp(tab_id, "DOM.setFileInputFiles", {nodeId:target.nodeId,files:paths}, target.sessionId);
+      try { await cdp(tab_id, "DOM.setFileInputFiles", {nodeId:target.nodeId,files:paths}, target.sessionId); }
+      catch (e) {
+        // HAND-498: the browser refused the call itself ("Not allowed"): no file was set, a known failure (HAND-422)
+        if (/not allowed/i.test(String(e && e.message || e)))
+          throw beforeInput(new Error(`the browser refused to set the file on the field (${String(e.message || e)}); ` +
+                                      "nothing was uploaded"));
+        throw e;
+      }
       const selected_files = await inFrame(tab_id, frame_id, (g,i) => window.__ferb.uploadFiles(g,i), [snap,el]);
       return {ok:true, detail:`${paths.length} file(s) set on the selected local upload input; inspect destination attachment`,
         frame_id, selected_files, transferred:true};
@@ -2296,20 +2436,37 @@ const commands = {
     st.shot = null; st.visual = null;
     const first = skip ? NOT_ANSWERING : await step(run, "look", () => maskState(tab_id, deadline, run));
     if (first.withheld && !first.unread) return {withheld: first.withheld};
-    const before = snap == null || first.withheld ? null : JSON.stringify(await visualStates(tab_id));
+    const before = snap == null || first.withheld ? null : await visualStates(tab_id);
     const { data } = await step(run, "capture", () => cdp(tab_id, "Page.captureScreenshot",
                                                           { format: format || "jpeg", quality: quality || 70 }));
     const last = first.withheld ? first : await step(run, "look", () => maskState(tab_id, deadline, run));
     if (last.withheld && !last.unread) return {withheld: last.withheld};
     const extra = {...await unreadCapture(tab_id, first, last), ...(inputNote ? {input_note: inputNote} : {}),
                    steps: { ...run.steps }};
+    // Points on the picture (HAND-480): each frame's surface (pointer.js SURFACE) before the capture, and the frames whose
+    // surface changed during it, which no point may go through. A busy page is still captured: the secret fields are
+    // painted from the two looks above (mask.page_masks), which this check never stood in for.
     if (before !== null && !extra.unread) {
-      if (before !== JSON.stringify(await visualStates(tab_id))) throw new Error("page_changed_during_screenshot");
-      st.visual = {at: Date.now(), snap, states: before, points: new Map()};
+      const after = new Map(await visualStates(tab_id)), unsteady = {};
+      for (const [f, was] of before) {
+        const part = was && after.get(f) ? surfaceChange(was, after.get(f)) : "can't be read";
+        if (part) unsteady[f] = part;
+      }
+      st.visual = {at: Date.now(), snap, states: Object.fromEntries(before), unsteady, points: new Map()};
     }
     if (data.length <= SHOT_PART) { st.shot = null; return { data, format: format || "jpeg", ...extra }; }
     st.shot = data;
     return { parts: Math.ceil(data.length / SHOT_PART), size: data.length, format: format || "jpeg", ...extra };
+  },
+  // Extension 0.19.8 (HAND-497): one picture of the tab for the owner's own payment card, nothing else: no look for
+  // secret fields, no mask state, no before/after check, so it is quick. It is never painted because no model, trace or
+  // store ever gets it (the daemon's owner_view hands it only to the card). A tab the debugger can't attach to says so
+  // plainly (`unavailable`), for the card's "couldn't capture the page".
+  async owner_view({ tab_id }) {
+    try { await arm(tab_id); }
+    catch (e) { return { unavailable: `the browser won't let FERB capture this page (${String(e && e.message || e)})` }; }
+    const { data } = await cdp(tab_id, "Page.captureScreenshot", { format: "jpeg", quality: 80 });
+    return { data };
   },
   // As a screenshot: `looks: false`, `steps` (0.19.6).
   async record_frame({tab_id, part, capture_id, looks, _timeout_ms, _run}) {
@@ -2451,8 +2608,20 @@ const commands = {
 async function tabEvent(event, tab) {
   const st = await install();
   if (!st.key) return;
+  // HAND-492: a load that kept the document the last snapshot read (a single-page app's route change) says so, so
+  // that snapshot's element ids keep working; any doubt (no snapshot, unreadable, a new content script) says nothing
+  let same = null;
+  const t = TABS.get(tab.id);
+  if (event === "updated" && t && t.snapDoc) {
+    try {
+      const [r] = await script({ target: { tabId: tab.id, frameIds: [0] },
+                                 func: () => (window.__ferb && window.__ferb.documentKey ? window.__ferb.documentKey() : null) });
+      same = !!(r && r.result) && r.result === t.snapDoc;
+    } catch (_) { same = null; }
+  }
   await send("tab_event", { event, tab_id: tab.id, url: tab.url ? maskUrl(tab.url) : null, title: tab.title || null,
-                            active: tab.active ?? null, incognito: tab.incognito ?? null });
+                            active: tab.active ?? null, incognito: tab.incognito ?? null,
+                            ...(same === true ? { same_document: true } : {}) });
 }
 chrome.tabs.onCreated.addListener((t) => tabEvent("created", t));
 chrome.tabs.onUpdated.addListener((id, info, t) => { if (info.status === "complete") { ensurePort(); tabEvent("updated", t); } });

@@ -90,6 +90,15 @@ async def _news(driver: Any, tab: TabRef, wait: float = 0.0) -> tuple[dict[str, 
     return news, _download_sources(found) + tuple(("web", str(t.get("url") or "")) for t in tabs)
 
 
+def _http(driver: Any, tab: TabRef) -> dict[str, Any]:
+    """HAND-494: the page's HTTP status as a fact (a 404 or 500 isn't left to be read from the page's words)."""
+    status = getattr(driver, "http_status", lambda ref: None)(tab)
+    if not isinstance(status, int):
+        return {}
+    return {"http_status": status} | ({"http_note": f"the server answered {status}, an HTTP error status"}
+                                       if status >= 400 else {})
+
+
 def _download_sources(found: list[dict[str, Any]]) -> tuple[tuple[str, str], ...]:
     """A downloaded file, its name and its source are outside content: external:download (MP2)."""
     return tuple(("download", str(f.get("path") or f.get("source_url") or "")) for f in found)
@@ -264,7 +273,7 @@ class BrowserOpen(_Base):
         foreground = bool(getattr(args, "allow_foreground")) and not ctx.observe_only
         tab = await self.driver.open_for(url, ctx.task_id, profile, window_id=getattr(args, "window_id"),
                                          allow_foreground=foreground)
-        out: dict[str, object] = {"tab": tab.tab_id, "url": self.driver.tab_url(tab.tab_id)}
+        out: dict[str, object] = {"tab": tab.tab_id, "url": self.driver.tab_url(tab.tab_id), **_http(self.driver, tab)}
         if self.family.identity is Identity.OWNER:
             out["profile"] = f"{tab.browser}/{tab.profile}"
         news, more = await _news(self.driver, tab, SETTLE_S)
@@ -300,7 +309,9 @@ class BrowserFind(_Base):
     observation = True                                 # only reads: the final checker may use it (V3, W4)
     probe_safe = True  # reads state, moves nothing, returns at once: a loop's probe may use it (L31)
     blurb = ("Search the whole page in one of this task's tabs ({whose}) for some text — everything loaded so far, "
-             "including child frames. Results are paged with next_offset; fetch all pages when needed. "
+             "including child frames. The latest snapshot's elements whose label, value or role hold the text come "
+             "first with their `element` ids (search a button's words to get the button to act on), then the "
+             "page's text lines. Results are paged with next_offset; fetch all pages when needed. "
              "For comments or feeds, scroll to load more content first.")
 
     class Input(_Tab):
@@ -334,6 +345,40 @@ class BrowserRead(_Base):
         ref = self.driver.owned_by(args.tab, ctx.task_id)
         return ToolResult(await self.driver.read(ref, args.offset, args.max_chars),  # type: ignore[attr-defined]
                           read_sources=(("web", self.driver.tab_url(ref.tab_id) or ""),))
+
+
+class BrowserHtml(_Base):
+    """HAND-496: the page's real markup, read only: the fallback when an element or attribute isn't in the snapshot."""
+    verb = "html"
+    observation = True                                 # only reads: the final checker may use it (V3, W4)
+    blurb = ("Fallback, read only: the real markup of a page in one of this task's tabs ({whose}): tags, attributes "
+             "and text, inside shadow roots (closed ones too) and every frame the page draws. The element snapshot "
+             "stays the main route; use this when an element or attribute you need isn't in it (a data- attribute, a "
+             "product id in a link, a hidden option). Give `element` (an id from the latest snapshot) or `selector` "
+             "(CSS) to read less than the whole page. Elements of the latest snapshot carry ferb-element=\"<id>\" to "
+             "act on with {p}_act. Password, code and card values are never shown; scripts' contents only with "
+             "include_scripts (inline ones), styles' never. Nothing on the page is run. Paged with next_offset.")
+
+    class Input(_Tab):
+        element: str | None = Field(None, description="an element id from the latest snapshot: its subtree only")
+        selector: str | None = Field(None, max_length=500, description="a CSS selector: every match, in every frame "
+                                                                       "and shadow root")
+        frame: int | None = Field(None, ge=0, description="one frame's id (ferb-frame in an earlier read)")
+        include_scripts: bool = Field(False, description="also the text of inline <script> elements")
+        offset: int = Field(default=0, ge=0)
+        max_chars: int = Field(default=12000, ge=1, le=100000)
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return ActionSpec(Kind.READ, Target(site=self._site(args)))
+
+    async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
+        ref = self.driver.owned_by(args.tab, ctx.task_id)
+        out = await self.driver.html(ref, args.element, args.selector, args.frame,  # type: ignore[attr-defined]
+                                     args.include_scripts, args.offset, args.max_chars)
+        sources = self._page(ref.tab_id)
+        if self.family.identity is Identity.OWNER:   # as a snapshot: the owner's signed-in pages are owner data
+            sources += (("owner_account", f"{_host(self.driver.tab_url(ref.tab_id) or '') or ''}|"),)
+        return ToolResult(out, read_sources=sources)
 
 
 class BrowserProfiles(_Base):
@@ -503,7 +548,7 @@ class BrowserNavigate(_Base):
         leave = getattr(args, "leave_page", None)
         _leave_unsaid(self.driver, ref, leave, "loads another page")
         await self.driver.navigate(ref, str(getattr(args, "url")), **({"leave_page": leave} if leave else {}))
-        out: dict[str, Any] = {"tab": ref.tab_id, "url": self.driver.tab_url(ref.tab_id)}
+        out: dict[str, Any] = {"tab": ref.tab_id, "url": self.driver.tab_url(ref.tab_id), **_http(self.driver, ref)}
         news, more = await _news(self.driver, ref, SETTLE_S)
         return ToolResult(out | news, read_sources=self._page(ref.tab_id) + more)
 
@@ -556,6 +601,7 @@ class BrowserScreenshot(_Base):
         note = getattr(self.driver, "masking", lambda ref: "")(tab)
         if note:                                     # a page the extension couldn't read (B6)
             out["masking"] = note
+        out |= getattr(self.driver, "ids_note", lambda ref: {})(tab)   # HAND-488: what became of earlier element ids
         ready = getattr(self.driver, "input_note", lambda ref: "")(tab)
         if ready:                                    # captured although input readiness failed (round 5)
             out["input"] = ready
@@ -912,9 +958,18 @@ class BrowserAct(_Base):
                                                     files_closed=ctx.path_closed, terminal=ctx.terminal),
                                   ctx.intent_id or "")
         # facts come back from the page (option candidates, scroll state, dialogs): label them with the tab's page
-        out = {"ok": r.ok, "detail": r.detail, **r.facts, "next": "take a new snapshot to see the result"}
+        # HAND-493: the hint follows what happened
+        out = {"ok": r.ok, "detail": r.detail, **r.facts,
+               "next": ("`observed` says what changed; take a new snapshot to read the page now"
+                        if r.ok and "observed" in r.facts else "take a new snapshot to see the result" if r.ok else
+                        "it didn't go through (detail says why); act on what the detail names, or take a new snapshot "
+                        "before choosing another way")}
         news, more = await _news(self.driver, ref)
-        return ToolResult(out | news, is_error=not r.ok, read_sources=self._page(ref.tab_id) + more, facts=r.observed)
+        # HAND-491: a tab this act opened (the extension waits for its claim while it looks, HAND-487) leads the result
+        opened = [str(t["tab"]) for t in news.get("opened_tabs", []) if t.get("tab")]
+        lead = {"opened": f"the {getattr(args, 'action')} opened {', '.join(opened)}"} if opened else {}
+        return ToolResult(lead | news | out, is_error=not r.ok, read_sources=self._page(ref.tab_id) + more,
+                          facts=r.observed)
 
 
 class BrowserLoginCode(_Base):

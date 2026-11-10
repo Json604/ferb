@@ -748,7 +748,7 @@ class Hub:
             else:
                 host = urlsplit(e.url).hostname or "" if e.url else br.tabs.get(e.tab_id, ("", False))[0]
                 br.tabs[e.tab_id] = (host, bool(e.active))
-                if e.event == "updated":
+                if e.event == "updated" and e.same_document is not True:   # HAND-492: a route change keeps ids
                     br.navs[e.tab_id] = br.navs.get(e.tab_id, 0) + 1
 
 
@@ -932,6 +932,32 @@ def _motion(raw: dict[str, Any]) -> tuple[str | None, bool]:
         bool(raw.get("scroll_box") or raw.get("container"))
 
 
+class CaptureUnavailable(DriverError):
+    """HAND-497: the tab couldn't be captured for the owner's card; its words are plain ("couldn't capture the page")."""
+
+
+class OwnerOnlyImage:
+    """HAND-497: an unmasked picture of a page for the owner's eyes only (the payment card), from
+    `_TabDriver.owner_view`. It never enters a tool result, a model's context, a trace, the journal or a store: it holds
+    its bytes behind `jpeg()`, shows only its size as text, and refuses JSON (no __dict__), pickling and copying into
+    anything that serializes."""
+    __slots__ = ("_jpeg",)
+
+    def __init__(self, jpeg: bytes) -> None:
+        self._jpeg = jpeg
+
+    def jpeg(self) -> bytes:
+        return self._jpeg
+
+    def __repr__(self) -> str:
+        return f"<owner-only page picture, {len(self._jpeg)} bytes>"
+
+    __str__ = __repr__
+
+    def __reduce__(self) -> Any:
+        raise TypeError("an owner-only page picture is never stored or copied")
+
+
 class _NoSecrets:
     """Owner profiles never get FERB's secrets."""
 
@@ -953,7 +979,7 @@ class _Tab:
     owner: str | None
     url: str
     snapshot_json: str = ""
-    searches: dict[str, tuple[str, int, int]] = field(default_factory=dict)
+    searches: dict[str, tuple[str, int, int, int, bool]] = field(default_factory=dict)   # find: payload, counts, current
     snap_gen: int = 0
     visual: tuple[str, int, int, float, int, int] | None = None
     points: dict[str, str] = field(default_factory=dict)
@@ -990,6 +1016,17 @@ class _Tab:
     armed: tuple[str, str] | None = None
     opener: str | None = None       # the task tab that opened this one (a link's new tab, an adopted popup)
     title: str = ""                 # the page title it last showed FERB (redacted): names it in a cleanup leftover
+    # HAND-488: earlier ids a screenshot's snapshot found the same node for (they keep working), and what it said
+    carried: set[str] = field(default_factory=set)
+    ids_note: dict[str, Any] = field(default_factory=dict)
+    http_status: int | None = None  # HAND-494: the last load's document status, as the extension's debugger saw it
+    markup: tuple[str, str, list[int]] = ("", "", [])   # HAND-496: the last html read (its key, its text, skipped frames)
+
+
+def _status(v: dict[str, Any]) -> int | None:
+    """HAND-494: a reply's `http_status` (extension 0.19.8), only as a plain HTTP status number."""
+    n = v.get("http_status")
+    return n if isinstance(n, int) and not isinstance(n, bool) and 100 <= n <= 599 else None
 
 
 def _read_clipboard() -> tuple[int, str | None, bool]:
@@ -1188,6 +1225,7 @@ class _TabDriver:
                     e.facts.update(tab=ref.tab_id, tab_left_open=f"the blank tab couldn't be closed: {cleanup}")
             raise
         t.url = str(loaded.get("url") or url)
+        t.http_status = _status(loaded)
         return ref
 
     def _group(self, owner: str) -> dict[str, Any]:
@@ -1465,6 +1503,12 @@ class _TabDriver:
         if v.get("navigated") is False:                  # e.g. download_capture_unavailable: the URL never loaded
             raise DriverError(str(v.get("detail") or "the tab didn't navigate"), facts=v)
         t.url = str(v.get("url") or url)
+        t.http_status = _status(v)
+
+    def http_status(self, tab: TabRef) -> int | None:
+        """HAND-494: the HTTP status of the page the tab's last open or navigate loaded, when the extension saw it."""
+        t = self._tabs.get(tab.tab_id)
+        return t.http_status if t is not None else None
 
     async def tabs(self) -> list[TabRef]:
         return [t.ref for t in self._tabs.values()]
@@ -1590,6 +1634,7 @@ class _TabDriver:
         t.visual = None
         t.points.clear()
         t.snap_gen, t.snap_nav, t.elements, t.url = gen, nav, elements, url
+        t.carried, t.ids_note = set(), {}
         t.title = self.redact_text(title) if title else t.title
         t.frame_urls = {int(f["frame_id"]): str(f.get("url") or "") for f in v["frames"]}
         t.commerce = next((dict(f["commerce"]) for f in v["frames"] if int(f["frame_id"]) == 0
@@ -1612,6 +1657,61 @@ class _TabDriver:
         end = min(offset + max_chars, len(t.snapshot_json))
         return {"tab": tab.tab_id, "snapshot": t.snap_gen, "text": t.snapshot_json[offset:end], "offset": offset,
                 "next_offset": end if end < len(t.snapshot_json) else None, "total_chars": len(t.snapshot_json)}
+
+    async def html(self, tab: TabRef, element: str | None = None, selector: str | None = None, frame: int | None = None,
+                   scripts: bool = False, offset: int = 0, max_chars: int = 12000) -> dict[str, Any]:
+        """HAND-496: the page's real markup (extension 0.19.8's `html`), read only, paged like `read`: the whole page
+        (every frame it draws), one element of the latest snapshot, or a CSS selector's matches. Each element of the latest
+        snapshot carries ferb-element="<its id>", a frame element ferb-frame="<frame id>"; the extension masks what the
+        snapshot masks (HAND-496's rules in content.js `markup`). offset 0 reads afresh; later pages keep that read."""
+        from ferb.act.browser.ext_protocol import HTML_EXTENSION_VERSION, version_ok
+        t = self._tab(tab)
+        key = json.dumps([element, selector, frame, scripts])
+        if offset == 0 or t.markup[0] != key:
+            running = str(getattr(t.bridge, "version", "") or "")
+            if not version_ok(running, HTML_EXTENSION_VERSION):
+                raise Refused(f"the FERB extension in this profile is {running or 'an older version'}; reading a page's "
+                              f"markup needs {HTML_EXTENSION_VERSION} or later. Use the snapshot, find and read meanwhile. "
+                              "Tell the owner: their browser updates the extension by itself, or they can update it on "
+                              "its extensions page")
+            args: dict[str, Any] = {"tab_id": t.chrome_id, "snap": t.snap_gen, "scripts": bool(scripts)}
+            if element:
+                fid, snap, local, _ = self._resolve(self.element_ref(tab, element))[1:]
+                args |= {"frame_id": fid, "snap": snap, "el": local}
+            elif frame is not None:
+                args["frame_id"] = int(frame)
+            if selector:
+                args["selector"] = selector
+            v = await t.bridge.call("html", args, timeout=30)
+            nonce = str(v.get("nonce") or "")
+            ids = {(f, local): eid for eid, (f, gen, local, _) in t.elements.items() if gen == t.snap_gen}
+            mark = re.compile(rf'ferb-el-{re.escape(nonce)}="(\d+)"') if nonce else None
+            parts, skipped, errors = [], [], []
+            for fr in v.get("frames") or []:
+                fid = int(fr.get("frame_id", 0))
+                if fr.get("undrawn"):
+                    skipped.append(fid)
+                    continue
+                if fr.get("error"):
+                    errors.append(f"frame {fid}: {fr['error']}")
+                    continue
+                text = str(fr.get("html") or "")
+                if mark is not None:
+                    text = mark.sub(lambda m, f=fid: (f'ferb-element="{ids[(f, int(m.group(1)))]}"'
+                                                      if (f, int(m.group(1))) in ids else ""), text)
+                parts.append(f"<!-- frame {fid}: {fr.get('url') or ''}"
+                             f"{' (cut at its size limit)' if fr.get('truncated') else ''} -->\n{text}")
+            if errors and not parts:
+                raise Refused("; ".join(errors)[:500])
+            t.markup = (key, "\n".join(parts), skipped)
+        _, text, skipped = t.markup
+        end = min(offset + max_chars, len(text))
+        return {"tab": tab.tab_id, "snapshot": t.snap_gen, "text": text[offset:end], "offset": offset,
+                "next_offset": end if end < len(text) else None, "total_chars": len(text),
+                **({"undrawn_frames_skipped": skipped} if skipped else {}),
+                "note": "the page's markup, read only. ferb-element=\"sNeM\" is that element's id in the latest snapshot "
+                        "(act on it with browser.act); ferb-frame is a frame's id. Values of password, code and card "
+                        "fields are never shown; scripts' and styles' contents are left out."}
 
     async def dialog(self, tab: TabRef, decision: str | None = None, text: str | None = None) -> dict[str, Any]:
         t = self._tab(tab)
@@ -1655,6 +1755,12 @@ class _TabDriver:
             raise
         if v.get("detail") == "stale":
             raise StaleRef(f"element {el.element_id} is gone; take a new snapshot")
+        if str(v.get("detail") or "").startswith("outside_page:"):   # HAND-482: a copy parked off the page
+            twin = next((eid for eid, (*_, e) in t.elements.items() if eid != el.element_id and e.in_view
+                         and e.role == info.role and e.label == info.label), None)
+            if twin:
+                v = {**v, "detail": f"{v['detail']}. The same {info.role} \"{info.label}\" is on screen as {twin}",
+                     "on_screen": twin}
         if into:                                       # one Return stays covered after approved text, nothing else
             g = action.terminal
             t.armed = ((el.element_id, g.confirmation_id) if g is not None and action.kind == "type" and g.input.enter
@@ -1727,8 +1833,9 @@ class _TabDriver:
                 "role": info.role, "node": node}
 
     async def _pointer(self, t: _Tab, el: ElementRef, action: BrowserAction, intent_id: str) -> ActionResult:
-        if action.page_mode or action.kind not in POINTER_KINDS:
-            raise Refused("visual points support trusted pointer actions; take a semantic snapshot for typing")
+        if action.page_mode or action.kind not in POINTER_KINDS:     # HAND-493: what a point takes, and what instead
+            raise Refused("a screenshot point takes click, dblclick, rightclick, hover or drag, as real input: drop "
+                          "page_mode; to type, select or press a key, act on an element id from browser.snapshot")
         if not self._visual_fresh(t):
             raise StaleRef("the visual target is stale; take a fresh screenshot and resolve its points")
         start = t.points.get(el.element_id)
@@ -1856,21 +1963,62 @@ class _TabDriver:
                 os.close(fd)
 
     async def find(self, tab: TabRef, text: str, offset: int = 0, max_chars: int = 12000) -> dict[str, Any]:
-        """Search all accessible frames; page full hit text without selecting a candidate."""
+        """Search all accessible frames; page full hit text without selecting a candidate. HAND-484: the latest
+        snapshot's elements whose label, value (never a secret field's) or role hold the words come first, by id, so a
+        button's words give the button to act on; then the page's text lines."""
         t = self._tab(tab)
         if offset == 0:
             value = await t.bridge.call("find", {"tab_id": t.chrome_id, "text": text}, timeout=30)
             hits = value.get("hits", [{"frame_id": 0, "text": x} for x in value.get("examples", [])])
-            t.searches[text] = (json.dumps(hits, ensure_ascii=False), int(value.get("count", 0)),
-                                int(value.get("lines", 0)))
+            current = t.snap_nav == getattr(t.bridge, "navs", {}).get(t.chrome_id, 0)   # ids before a navigation: stale
+            found = self._element_hits(t, text) if current else []
+            if current:                                # a text line that is exactly a control's label: that control
+                labels: dict[str, str] = {}
+                for eid, (*_, e) in t.elements.items():
+                    labels.setdefault(" ".join(e.label.split()).casefold(), eid)
+                hits = [h | ({"element": labels[k]} if (k := " ".join(str(h.get("text", "")).split()).casefold())
+                             in labels else {}) for h in hits]
+            t.searches[text] = (json.dumps(found + hits, ensure_ascii=False), int(value.get("count", 0)),
+                                int(value.get("lines", 0)), len(found), current)
         if text not in t.searches:
             raise Refused("start this search at offset=0 before fetching its saved result pages")
-        payload, count, lines = t.searches[text]
+        payload, count, lines, elements, current = t.searches[text]
         end = min(offset + max_chars, len(payload))
-        return {"matches": count, "lines_on_page": lines,
+        return {"matches": count, "element_matches": elements, "lines_on_page": lines,
                 "text": payload[offset:end], "offset": offset, "next_offset": end if end < len(payload) else None,
-                "total_chars": len(payload), "examples": [h["text"] for h in json.loads(payload)] if len(payload) <= max_chars else [],
-                "note": "Saved all-frame search inventory. offset=0 refreshes it; later pages keep the same evidence."}
+                "total_chars": len(payload),
+                "examples": [h["text"] for h in json.loads(payload) if "text" in h] if len(payload) <= max_chars else [],
+                "note": "Saved all-frame search inventory: the latest snapshot's matching elements first (act on them "
+                        "by `element`), then the page's text lines (with `element` when a line is a control's whole "
+                        "label). A line with no element id isn't a control of the latest snapshot: if it is one, it "
+                        "appeared after that snapshot, so take a new one. Frames the page doesn't draw are skipped. "
+                        "offset=0 refreshes it; later pages keep the same evidence." +
+                        ("" if current or not t.elements else
+                         " The page navigated since the last snapshot: take one for element ids.")}
+
+    @staticmethod
+    def _element_hits(t: _Tab, text: str) -> list[dict[str, Any]]:
+        """The latest snapshot's elements whose label, value, link or role hold `text` (case-insensitive), in its
+        order."""
+        needle = text.casefold()
+        out: list[dict[str, Any]] = []
+        for eid, (_, _, _, e) in t.elements.items():
+            value = None if e.secret else e.value
+            if not any(needle in s.casefold() for s in (e.label, value or "", e.href or "", e.role)):
+                continue
+            hit: dict[str, Any] = {"element": eid, "role": e.role, "label": e.label}
+            if value:
+                hit["value"] = value
+            if e.href and needle in e.href.casefold():
+                hit["href"] = e.href
+            if not e.in_view:
+                hit["in_view"] = False
+                if e.offscreen:
+                    hit["offscreen"] = e.offscreen
+            if e.state:
+                hit["state"] = list(e.state)
+            out.append(hit)
+        return out
 
     async def scroll(self, tab: TabRef, direction: str, container: str | None = None) -> dict[str, Any]:
         """Scroll the page, or one scroll container from the latest snapshot, about one screen (a real wheel event
@@ -2025,6 +2173,23 @@ class _TabDriver:
             jpeg, t.masking = await self._unread(t, jpeg, v)
             return jpeg
         return painted(jpeg, v)
+
+    async def owner_view(self, tab: TabRef) -> "OwnerOnlyImage":
+        """HAND-497: one unmasked picture of the tab for the owner's own payment card and nothing else (the owner's
+        exception: shown once, to them only, never to a model). Not a tool and called by no tool: only the payment
+        card's builder calls it. It returns an OwnerOnlyImage, which no JSON, pickle, string or tool result can carry,
+        and nothing here records it. CaptureUnavailable ("couldn't capture the page") when the tab can't be captured.
+        Every model-visible capture (screenshot above) keeps its masking exactly (GATE-206)."""
+        import base64
+        t = self._tab(tab)
+        try:
+            v = await t.bridge.call("owner_view", {"tab_id": t.chrome_id}, timeout=15)
+        except DriverError as e:
+            raise CaptureUnavailable(f"couldn't capture the page ({str(e)[:200]})") from None
+        if not isinstance(v.get("data"), str) or not v["data"]:
+            why = str(v.get("unavailable") or "")[:200]
+            raise CaptureUnavailable("couldn't capture the page" + (f" ({why})" if why else ""))
+        return OwnerOnlyImage(base64.b64decode(v["data"]))
 
     async def pdf(self, tab: TabRef, landscape: bool = False) -> bytes:
         """T-1065, HAND-427: the tab as Chrome prints it (extension 0.19.3's `pdf`), fetched in parts like a
@@ -2277,8 +2442,12 @@ class _TabDriver:
         failure stands."""
         import Quartz
         failed: FerbError | None = None
+        before = getattr(self, "_tabs", {}).get(tab.tab_id)       # a stand-in driver may keep no tabs
+        earlier = (before.snap_gen, before.snap_nav, dict(before.elements)) if before is not None else None
         try:
             await self.snapshot(tab)
+            if earlier is not None:
+                self._carry(self._tab(tab), *earlier)
         except FerbError as e:
             failed = e
         # secret fields painted from the extension's own rects, not this list (L13); after a read that timed out, no
@@ -2299,6 +2468,55 @@ class _TabDriver:
             t.visual, t.unread_shot = (shot, t.snap_gen, t.snap_nav, asyncio.get_running_loop().time(), width,
                                        height), None
         return shot, jpeg, width, height
+
+    IN_VIEW_LIST_CHARS = 8000       # HAND-488: the in-view elements a screenshot lists when earlier ids went, at most
+
+    @staticmethod
+    def _carry(t: _Tab, gen: int, nav: int, old: dict[str, tuple[int, int, int, PageElement]]) -> None:
+        """HAND-488: after a screenshot's own snapshot, each id of the snapshot before it whose node the new one found
+        again (same frame and the debugger's node id, else the same DOM path, role and label), on the same page,
+        keeps working for that node; the rest went. `ids_note` says which, with the new snapshot's in-view elements when
+        any earlier id went."""
+        if gen == t.snap_gen or not old:
+            return
+        def key(frame: int, e: PageElement) -> tuple[Any, ...]:
+            return (frame, "b", e.backend_node) if e.backend_node is not None else (frame, "p", e.path, e.role, e.label)
+        new = {key(f, e): eid for eid, (f, _, _, e) in t.elements.items()}
+        gone, found = 0, set()
+        if nav == t.snap_nav:
+            for eid, (f, _, _, e) in old.items():
+                now = new.get(key(f, e)) if (e.backend_node is not None or e.path) else None
+                if now is None or eid in t.elements:
+                    gone += eid not in t.elements
+                    continue
+                t.elements[eid] = t.elements[now]
+                t.carried.add(eid)
+                found.add(now)
+        else:
+            gone = len(old)
+        if not gone:
+            t.ids_note = {"ids": f"the last snapshot's element ids still work (snapshot s{t.snap_gen} found the same "
+                                  "elements)"}
+            return
+        shown, used, more = [], 0, 0
+        for eid, (*_, e) in t.elements.items():
+            if eid in t.carried or eid in found or not e.in_view:   # an element an earlier id still names: known
+                continue
+            item = {"id": eid, "role": e.role, "label": e.label[:80]}
+            size = len(json.dumps(item, ensure_ascii=False))
+            if used + size > _TabDriver.IN_VIEW_LIST_CHARS:
+                more += 1
+                continue
+            shown.append(item)
+            used += size
+        t.ids_note = {"ids": f"element ids are now from snapshot s{t.snap_gen}: {len(t.carried)} earlier ids still work "
+                             f"for the same elements, {gone} went (the page changed)",
+                      "in_view_elements": shown, **({"more_in_view": more} if more else {})}
+
+    def ids_note(self, tab: TabRef) -> dict[str, Any]:
+        """HAND-488: what the last screenshot's snapshot did to the earlier element ids ({} when there were none)."""
+        t = self._tabs.get(tab.tab_id)
+        return dict(t.ids_note) if t is not None else {}
 
     async def point(self, tab: TabRef, shot: str, x: float, y: float) -> PageElement:
         t = self._tab(tab)
@@ -2331,7 +2549,10 @@ class _TabDriver:
         """`owner`'s tab; with `borrow`, a registered checker reaches its worker's tabs too (`inspection_parent`)."""
         t = self._tabs.get(tab_id)
         if t is None or not (self._accessible(t, owner) if borrow else t.owner == owner):
-            raise Refused(f"no tab {tab_id} open for this task")
+            open_ = [x.ref.tab_id for x in self._tabs.values() if not x.closed and (self._accessible(x, owner) if borrow
+                                                                                   else x.owner == owner)]
+            raise Refused(f"no tab {tab_id} open for this task; its open tabs: {', '.join(open_) or 'none'} "
+                          "(browser.tabs lists them)")   # HAND-493: never a guess at ids
         return t.ref
 
     def _accessible(self, tab: _Tab, task: str) -> bool:
@@ -2433,7 +2654,7 @@ class _TabDriver:
     def _resolve(self, el: ElementRef) -> tuple[_Tab, int, int, int, PageElement]:
         t = self._tab(el.tab)
         hit = t.elements.get(el.element_id)
-        if hit is None or el.snapshot_gen != t.snap_gen:
+        if hit is None or (el.snapshot_gen != t.snap_gen and el.element_id not in t.carried):   # HAND-488
             raise StaleRef(f"element {el.element_id} is from an older snapshot; take a new one")
         if t.bridge.navs.get(t.chrome_id, 0) != t.snap_nav:
             raise StaleRef("the page changed since the snapshot; take a new one")

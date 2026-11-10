@@ -1020,3 +1020,210 @@ words_source = "Owner 2026-11-10, relayed by the coordinator of the short-run fi
 rule = "A task's pairing (browser_pair) and FERB's own profile's pairing give the same reason and owner step Pair all gives (not_paired_step: removed, requested, not_added, off, too_old): a copy the owner removed says the browser won't add it again by itself and to add FERB from its Chrome Web Store page in that browser (the link), then FERB pairs it. No pairing page opens for a profile whose copy is removed, missing, off or too old. The planner's live facts mark such a profile's connection \"removed\" with the same step."
 paths = ["ferb/daemon/areas/browsers.py::Browsers._pair_one", "ferb/daemon/areas/browsers.py::Browsers._extension_stands", "ferb/daemon/areas/browsers.py::Browsers._identity_pair", "ferb/daemon/areas/environment.py::Environment._environment", "ferb/act/browser/autoinstall.py::owner_removed"]
 live = ["LIVE-872"]
+
+[HAND-480]
+title = "A screenshot point is checked on what its click depends on, not on any change in the page"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.8. A screenshot point and its press compare, for each frame the point goes through, only that frame's document, snapshot, viewport, scroll and zoom; no count of DOM changes. When the point is resolved, before the gesture and right before the press, it is hit-tested again: the same frames and place, the same element with the same role, label, link and rect (after the pointer's own hover, not the rect). Secret and disabled targets are refused; a screenshot holds 30 s and one gesture. A refusal names the frame and the part."
+why = "Live 2026-11-10 (amazon.in, task 64a149b8): browser.point failed 10 of 10 as visual_stale. An epoch bumped by any DOM change or scroll was in every frame's state, and ads and carousels never sit still."
+evidence = "Owner 2026-11-10: \"also if hte fixes you'd proposed in code are good hten make them\"; about this failure: \"but why ferb deosnt use acceiblity tree??? taht shoudl be main, why rely on screenshots only???\""
+rejected = ["Keeping the epoch and retrying: a busy page never sits still", "Dropping the re-resolution: a click could land on a carousel's next slide or an overlay that appeared"]
+paths = ["extensions/chromium/pointer.js::checkVisual", "extensions/chromium/pointer.js::pointChange", "extensions/chromium/pointer.js::checkPoint", "extensions/chromium/content.js::visualState"]
+live = ["LIVE-890"]
+
+[HAND-481]
+title = "A screenshot of a busy page is taken; a frame that changed during it takes no point"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.8. A screenshot no longer fails with page_changed_during_screenshot: it records each frame's surface (HAND-480) before the capture and the frames whose surface changed during it, and a point through one of those is refused naming it. Secret-field masking is unchanged and exact: it comes from the two mask looks around the capture (mask.page_masks), which this check never stood in for."
+why = "Live 2026-11-10: the same task's screenshot failed 3 times as page_changed_during_screenshot, so the worker couldn't even look at the page."
+evidence = "Owner 2026-11-10: \"but why ferb deosnt use acceiblity tree??? taht shoudl be main, why rely on screenshots only???\""
+paths = ["extensions/chromium/background.js::surfaceChange", "extensions/chromium/pointer.js::surfaceChange"]
+live = ["LIVE-890"]
+
+[HAND-482]
+title = "An element still off the page after scrolling says so, not that it is covered"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.8. Before a trusted act, when the element's centre is still outside its frame's viewport after scrolling it into view, the act fails with nothing sent: `outside_page`, the element is outside the page even after scrolling, naming the side (top, bottom, left, right); when the latest snapshot has an element in view with the same role and label, the refusal names its id (`on_screen`). target_occluded stays for an element in view that something else covers."
+why = "Live 2026-11-10: Amazon's hidden keyboard-shortcut entry \"Add to cart, shift, option, K\" sits off the left edge; hitTest clamped its centre onto whatever was at the edge and called it covered, so the worker retried in page mode."
+paths = ["extensions/chromium/content.js::rect"]
+live = ["LIVE-890"]
+
+[HAND-483]
+title = "The snapshot preview keeps what is on screen first"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "The preview's 24,000-character element budget goes first to an open dialog's elements and the submit buttons of forms with a field on screen, then to elements on screen (in view, or covered there), then the rest, each in the list's order, which the preview keeps. It says how many on-screen elements were left out, and indexes what was left out: counts by role and the labels of its buttons and links (up to 3,000 characters). The saved full snapshot and browser.read are unchanged."
+why = "Live 2026-11-10: Amazon's Buy Now and Add to cart were in the snapshot and in view but past the budget: accessibility-matched elements came first, page-walk ones after, and 321 elements including the buy box were cut."
+evidence = "Owner 2026-11-10: \"but why ferb deosnt use acceiblity tree??? taht shoudl be main, why rely on screenshots only???\""
+paths = ["ferb/act/browser/snapshot.py::for_model"]
+live = ["LIVE-890"]
+
+[HAND-484]
+title = "browser.find also returns the latest snapshot's matching elements by id"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "browser.find matches the words (case-insensitive) in the latest snapshot's element labels, values (never a secret field's), links and roles, and lists those elements first by `element` id with role, label and whether they are in view, then the page's text lines, a line that is a control's whole label with its id; it says a line with no id appeared after the snapshot if it is a control. After a navigation it lists no elements. Extension 0.19.8: frames the page doesn't draw are skipped."
+why = "Live 2026-11-10: find searched only the page's text lines, so \"Buy Now\" could never give the button to press; the worker fell back to screenshots."
+evidence = "Owner 2026-11-10: \"but why ferb deosnt use acceiblity tree??? taht shoudl be main, why rely on screenshots only???\""
+paths = ["ferb/act/browser/ext_bridge.py::_element_hits", "ferb/act/browser/tools.py::BrowserFind"]
+live = ["LIVE-890"]
+
+[HAND-485]
+title = "Extension 0.19.8 keeps protocol 21 and the minimum 0.19.0"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "HAND-480..497's extension parts ship as 0.19.8 with optional reply fields only (a point's frames, observed_change, same_document, http_status) and two new read-only ops: `html`, which browser.html asks for only from 0.19.8 (as PDFs did, HAND-428), and `owner_view` (HAND-497), whose failure on an older one is \"couldn't capture the page\". Protocol 21 and the minimum 0.19.0 stay. The owner publishes 0.19.8 to the Chrome Web Store."
+why = "A protocol bump would stop every installed FERB until its browsers update (HAND-445)."
+paths = ["extensions/chromium/manifest.json"]
+live = ["LIVE-890"]
+
+[HAND-486]
+title = "A click presses only after its move reached the target's frame; a tab that navigated is probed again"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.8. A trusted click, hover or typing focus (browser.act) moves first and presses only once the target's own frame saw that move at the element's place, as screenshot points already did. When it never arrives, FERB lets the debugger go and attaches afresh once (not while the tab holds a download for FERB), then tries again; still not: nothing was pressed, a known failure that says so. A tab FERB drives that starts loading a new document runs the readiness probe again before its next input."
+why = "Live: 18 of 85 screenshot clicks in the current build failed with \"never reached the target's frame\", always in a tab that had navigated; a fresh tab worked. Readiness (t.ready) was set once per debugger session and never reset on navigation."
+evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
+paths = ["extensions/chromium/background.js::reachesAfresh", "extensions/chromium/background.js::tabLoading", "extensions/chromium/pointer.js::reachPoint"]
+live = ["LIVE-890"]
+
+[HAND-487]
+title = "A browser act says what changed around it; nothing seen is \"not confirmed\", never \"failed\""
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.8. Around each act that went through, the extension looks every 100 ms for up to 0.5 s (1 s while a new tab is being claimed): a new document, another address, a dialog, a tab it opened, the element's own state (value, checked, expanded, selected, pressed, open, disabled; never a value), the element leaving the page, changes in its form or dialog. It returns observed_change and one line (`observed`); after_of reads it as `read: page`. Nothing seen is \"nothing changed within 0.5 s\" (changed null)."
+why = "Live: every act returned after {read: none, changed: null} and \"clicked (trusted)\" whether or not anything happened, so a silent no-op click cost the worker a snapshot each time."
+evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
+paths = ["extensions/chromium/background.js::observeAct", "extensions/chromium/content.js::watchNear", "ferb/act/aftercheck.py::after_of"]
+live = ["LIVE-890"]
+
+[HAND-488]
+title = "A screenshot keeps the earlier element ids of the elements its snapshot found again"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "browser.screenshot's own snapshot renumbers the page; each id of the snapshot before it keeps working for the same node when the page didn't navigate (same frame and the debugger's node id, else the same DOM path, role and label). The result says so; when earlier ids went, it says ids are now from snapshot sN, how many still work and went, and lists the new snapshot's other in-view elements (id, role, label; up to 8,000 characters)."
+why = "Live: 29 of 32 \"element ... is from an older snapshot\" errors followed a screenshot or point, whose snapshot had bumped the generation."
+evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
+paths = ["ferb/act/browser/ext_bridge.py::_carry", "ferb/act/browser/ext_bridge.py::visual_snapshot", "ferb/act/browser/tools.py::BrowserScreenshot"]
+live = ["LIVE-890"]
+
+[HAND-489]
+title = "A plain element the page draws with a pointer cursor is listed as one clickable control"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.8. Besides elements with a native tag, a known role or a tabindex, the snapshot lists the outermost element of each cluster whose computed cursor is pointer (its parent's isn't), with text, an aria-label or an image's alt, and not inside a real control: role `clickable`, labelled by its text. A screenshot point inside one resolves to it. A structural fact of the page's own style, not a reading of intent."
+why = "Live: date tabs and slot buttons (practo, healthplix) were plain divs with click handlers; 75 of 127 resolved screenshot points were role \"generic\", and the snapshot had no element for them."
+evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
+paths = ["extensions/chromium/content.js::pointerCluster", "extensions/chromium/content.js::collect"]
+live = ["LIVE-890"]
+
+[HAND-490]
+title = "A covered check tries more than the centre, a label reaches its control, a refusal names the cover"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.8. A hit reaches an element when it is the element, inside it, or inside one of its labels. The check tries the centre, then a 3x3 grid inside the box, and a trusted act clicks the first point that reaches it. When none does, target_occluded names what is drawn on the centre (role, label, and whether it is a fixed or sticky bar). A checkbox or radio the page hides behind a visible label is listed through that label (the box's role, type and checked state); acts reach the label."
+why = "Live: controls under sticky headers and custom checkboxes (a hidden input with a styled label) were refused as covered or missing; the hit test looked at the centre point only and the snapshot dropped invisible inputs."
+evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
+paths = ["extensions/chromium/content.js::hitPoint", "extensions/chromium/content.js::coverOf", "extensions/chromium/content.js::standIn", "extensions/chromium/content.js::listed"]
+live = ["LIVE-890"]
+
+[HAND-491]
+title = "A tab a click opened is reported in that click's own result"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "While an act's change is looked for (HAND-487) the extension waits up to 1 s for a new tab it is claiming (HAND-443), so the popup event reaches the daemon before the act's reply. browser.act's result then leads with `opened` (\"the click opened tN\") and `opened_tabs`, before ok and detail."
+why = "Live: a tab opened by a click showed up only in a later call's opened_tabs, after the worker had already looked for the result in the original tab."
+evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
+paths = ["ferb/act/browser/tools.py::BrowserAct", "extensions/chromium/background.js::observeAct"]
+live = ["LIVE-890"]
+
+[HAND-492]
+title = "A single-page app's route change keeps the snapshot's element ids"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.8 records the top document's own key (content.js documentKey) at each snapshot. A tab's `updated` event carries the optional same_document true when that document is still the one in the tab (a single-page app's route change); the daemon then doesn't count it as a load, so the snapshot's ids keep working (an element the app removed is still refused as gone). Any doubt sends nothing and counts a load, as before; an older extension never sends it."
+why = "Live: element ids went stale on every tabs.onUpdated \"complete\", which single-page apps fire on route changes without a new document."
+evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
+paths = ["extensions/chromium/background.js::tabEvent", "ferb/act/browser/ext_protocol.py::TabEvent"]
+live = ["LIVE-890"]
+
+[HAND-493]
+title = "Browser hints follow what happened and name what to use instead"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "browser.act's `next` depends on the outcome: after an act that went through it points at `observed` and a new snapshot; after one that didn't, at the detail's reason. A screenshot point used for typing or with page_mode says what a point takes (click, dblclick, rightclick, hover, drag as real input) and to act on a snapshot element id otherwise. \"no tab tN open for this task\" lists the task's open tabs."
+why = "Live: \"take a new snapshot to see the result\" after refusals sent workers to look for results that never happened, and one 195-call loop guessed tab ids after \"no tab t7 open for this task\"."
+evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
+paths = ["ferb/act/browser/tools.py::BrowserAct", "ferb/act/browser/ext_bridge.py::owned_by", "ferb/act/browser/ext_bridge.py::_pointer"]
+live = ["LIVE-890"]
+
+[HAND-494]
+title = "browser.open and browser.navigate say the page's HTTP status"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.8 keeps the status of each document response its debugger already pauses at the response stage (D35, the tab's own session), per frame, for the current load, and open and navigate return the top frame's as `http_status`. The tools pass it on; 400 and above add a plain note that the server answered an HTTP error status. A load the extension didn't see (no debugger, cached, same document) says nothing."
+why = "Live: workers inferred a 404 or an error page from the page's words, or didn't notice it at all."
+evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
+paths = ["extensions/chromium/background.js::pageStatus", "extensions/chromium/background.js::onPaused", "ferb/act/browser/tools.py::_http", "ferb/act/browser/ext_bridge.py::_status"]
+live = ["LIVE-890"]
+
+[HAND-495]
+title = "FERB can read a page's raw markup as a fallback, anywhere on the page"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "btw does ferb has the ability to read raw dom as a fallback??? cause that might help right?? also does ferb ext has eveyrt tool that cna read any element?? all shadow elelntsn, int eh dom or anywhere??? like it shoudl b e able to read naythignit wants ont eh apge, not restrctied throuhg our tools"
+words_source = "Relayed by the coordinator, 2026-11-10."
+rule = "Besides the element snapshot, FERB can read any part of a page's real markup (DOM), shadow roots and frames included, so what it can read on a page isn't limited to what the snapshot lists."
+why = "Live 2026-11-10: workers ran curl and grep in the shell for a product id an attribute held, and couldn't see elements the snapshot left out."
+paths = ["ferb/act/browser/tools.py::BrowserHtml"]
+live = ["LIVE-891"]
+
+[HAND-496]
+title = "browser.html: the page's markup, read only, with the snapshot's masking"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For HAND-495, extension 0.19.8. browser.html returns the markup of the whole page (every frame it draws), one snapshot element or a CSS selector's matches, closed shadow roots included, paged like browser.read; snapshot elements carry ferb-element ids. Never: a secret field's value (as the snapshot), a typed value, styles' or (unasked) scripts' contents. Nothing on the page is run; no tool runs model-written page script."
+why = "A script tool could click, submit or pay around the gateway's questions (coordinator's ruling); reading markup needs none of that. Hidden inputs keep their values for the gateway's redaction table, like every tool result."
+evidence = "Owner 2026-11-10 via the coordinator: HAND-495's words."
+rejected = ["An arbitrary-JavaScript tool: it could act around every confirmation", "outerHTML: it can't reach closed shadow roots or mask secret fields"]
+paths = ["extensions/chromium/content.js::markup", "extensions/chromium/background.js::html", "ferb/act/browser/ext_bridge.py::html", "ferb/act/browser/tools.py::BrowserHtml"]
+live = ["LIVE-891"]
+
+[HAND-497]
+title = "The payment card's owner-only page picture is captured unmasked, through no tool"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For the owner's exception for the payment card (recorded by the card's builder). Extension 0.19.8's `owner_view` captures the tab with no secret-field look, no mask and no before/after check. Only _TabDriver.owner_view sends it; no tool or store calls it. It returns an OwnerOnlyImage, which JSON, pickle and text can't carry; an uncapturable tab is CaptureUnavailable (\"couldn't capture the page\"). Every model-visible capture keeps GATE-206's masking."
+why = "The picture is shown once, to the owner only, never to a model: a mask there only hid what the owner was asked to pay for, and its look slowed the card."
+evidence = "Owner 2026-11-10 via the coordinator: \"why??? its only one time, shown to me and never shown to ai. only  show error when it cnat be captured etcetc, not this unnecesarry check\"; \"yeah add it.\""
+paths = ["extensions/chromium/background.js::owner_view", "ferb/act/browser/ext_bridge.py::owner_view", "ferb/act/browser/ext_bridge.py::OwnerOnlyImage"]
+
+[HAND-498]
+title = "A file the browser refuses to set on a field is a known failure"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Refines HAND-422 for uploads. When DOM.setFileInputFiles answers \"Not allowed\" (the browser refused the call itself), no file was set: the upload fails with nothing sent (outcome failed, not unknown) and says the browser refused to set the file. Any other error after the stamp stays unknown. Extension 0.19.8; the route that hands the bytes through the page isn't built (the owner decides later)."
+why = "Live: no upload ever succeeded in history; every one came back \"outcome unknown\", so FERB treated a refusal that set nothing as possibly done."
+paths = ["extensions/chromium/background.js::upload"]

@@ -35,20 +35,15 @@
     return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
   };
   const documentId = randomId();
-  let visualEpoch = 0;
   let pointerSeen = null;
   addEventListener("mousemove", e => {
     if (e.isTrusted) pointerSeen = [e.clientX, e.clientY];
   }, true);
-  const visualChanged = () => { visualEpoch++; };
-  new MutationObserver(records => {
-    if (records.some(r => r.type !== "attributes" || (r.attributeName !== ATTR && r.attributeName !== STAMP))) visualChanged();
-  }).observe(document, {subtree: true, childList: true, characterData: true, attributes: true});
-  addEventListener("scroll", visualChanged, true);
-  addEventListener("resize", visualChanged);
+  // What a screenshot point depends on in this frame (HAND-480): no count of every DOM change (a busy page never sat
+  // still for it); the element under the point is resolved again before the press (pointer.js checkPoint).
   function visualState() {
-    return {documentId, generation: snapGen, epoch: visualEpoch, viewport: [innerWidth, innerHeight],
-            scroll: [scrollX, scrollY], scale: devicePixelRatio};
+    return {documentId, generation: snapGen, viewport: [innerWidth, innerHeight], scroll: [scrollX, scrollY],
+            scale: devicePixelRatio};
   }
   function bind(el) {
     const token = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, "0")).join("");
@@ -68,14 +63,30 @@
     }
     return true;
   }
+  // HAND-490: a checkbox or radio the page hides (zero size, visually hidden) behind a visible <label> of it: the label
+  // stands for it (a click on a label clicks its control). null for anything else.
+  function standIn(el) {
+    if (el.tagName !== "INPUT" || !["checkbox", "radio"].includes(el.type) || !el.labels || visible(el)) return null;
+    return Array.from(el.labels).find(visible) || null;
+  }
+  // The element as the snapshot lists it, and what an act on it reaches: itself, or a hidden checkbox's label, described
+  // as the box (its role, type and checked state).
+  function listed(el, id) {
+    const lab = standIn(el);
+    if (!lab) return { target: el, e: describe(el, id) };
+    return { target: lab, e: { ...describe(lab, id), role: implicitRole(el), input_type: el.type,
+                               value: el.checked ? "checked" : "" } };
+  }
+  function adoptOne(el, token) {
+    if (!el || !(visible(el) || standIn(el))) return null;
+    const id = els.size, { target, e } = listed(el, id);
+    els.set(id, new WeakRef(target)); bindings.set(token, new WeakRef(el));
+    return {...e, binding: token};
+  }
   function adopt(gen, token, attr) {
     if (gen !== snapGen) return null;
     if (attr) ATTR = attr;
-    const el = findBound(document, token);
-    if (!el || !visible(el)) return null;
-    const id = els.size;
-    els.set(id, new WeakRef(el)); bindings.set(token, new WeakRef(el));
-    return {...describe(el, id), binding: token};
+    return adoptOne(findBound(document, token), token);
   }
   // Extension 0.19.6: many adoptions in one script, in the given order (each id as one adopt after another gives it):
   // the stamped elements are found in one pass (light DOM and every shadow root, closed ones too), not one per token.
@@ -92,13 +103,7 @@
       for (const host of root.querySelectorAll("*")) { const sr = shadowOf(host); if (sr) gather(sr); }
     };
     gather(document);
-    return tokens.map((token) => {
-      const el = stamped.get(token);
-      if (!el || !visible(el)) return null;
-      const id = els.size;
-      els.set(id, new WeakRef(el)); bindings.set(token, new WeakRef(el));
-      return {...describe(el, id), binding: token};
-    });
+    return tokens.map((token) => adoptOne(stamped.get(token), token));
   }
   function findBound(root, token) {                 // the element CDP stamped, inside closed shadow roots too
     if (!ATTR) return null;
@@ -124,6 +129,7 @@
     if (["IFRAME", "FRAME"].includes(el.tagName)) return {frame: tokenOf(el)};
     const control = el.closest(SEL);
     if (control && admits(control)) el = control;
+    else for (let a = el; a; a = parentOf(a)) if (clickables.has(a)) { el = a; break; }   // HAND-489
     for (const [id, ref] of els) if (ref.deref() === el) return {element: describe(el, id)};
     const id = els.size;
     els.set(id, new WeakRef(el));
@@ -320,10 +326,25 @@
     return ti !== null && Number(ti) >= 0;
   }
 
+  // HAND-489: a control the page made of a plain element (a date tab, a slot button: a div with a click handler) has
+  // no role; the outermost element of each cluster the page draws with a pointer cursor counts as one, role
+  // `clickable`, labelled by its text (a structural fact of its style). Never one inside a real control.
+  const clickables = new WeakSet();
+  const INTERACTIVE = 'a[href],button,input,select,textarea,summary,label,[role="button"],[role="link"],[role="tab"],' +
+    '[role="menuitem"],[role="option"],[role="checkbox"],[role="radio"],[role="switch"]';
+  const cursorOf = (el) => { try { return getComputedStyle(el).cursor; } catch (_) { return ""; } };
+  function pointerCluster(el) {
+    if (el.tagName === "BODY" || el.tagName === "HTML" || SKIP_TEXT.has(el.tagName) || cursorOf(el) !== "pointer") return false;
+    const p = parentOf(el);
+    if (p && cursorOf(p) === "pointer") return false;            // inside a larger pointer cluster: that one counts
+    if (el.closest(INTERACTIVE)) return false;
+    return !!((el.textContent || "").trim() || el.getAttribute("aria-label") || el.querySelector("img[alt]"));
+  }
   // Every candidate in document order, descending into shadow roots (closed ones too) right after their host.
   function collect(root, out) {
     for (const el of root.querySelectorAll("*")) {
       if (el.matches(SEL) && admits(el)) out.push(el);
+      else if (pointerCluster(el)) { clickables.add(el); out.push(el); }
       const sr = shadowOf(el);
       if (sr) collect(sr, out);
     }
@@ -422,18 +443,46 @@
     return !(r.overflowX === "visible" && r.overflowY === "visible") && overflows(b);
   }
 
-  function hitTest(el, r) {
-    const cx = Math.min(Math.max(r.x + r.width / 2, 0), innerWidth - 1);
-    const cy = Math.min(Math.max(r.y + r.height / 2, 0), innerHeight - 1);
+  // HAND-490: a hit reaches the element when it is the element, inside it, or inside a <label> of it (clicking a label
+  // clicks its control).
+  const reaches = (el, hit) => {
+    if (!hit) return false;
+    if (hit === el || el.contains(hit)) return true;
+    const lab = hit.closest ? hit.closest("label") : null;
+    return !!lab && (lab.control === el || (el.labels ? Array.from(el.labels).includes(lab) : false));
+  };
+  // The first point inside the element's box (clamped to the viewport) whose hit reaches it: the centre, then a 3x3
+  // grid at 20/50/80%. {x, y}, or {cover}: what is drawn on the centre when none reaches it (null: nothing is).
+  function hitPoint(el, r) {
     const root = el.getRootNode();
-    const hit = (root instanceof ShadowRoot ? root : document).elementFromPoint(cx, cy);
-    if (!hit) return true;                                        // nothing painted there: treat as covered
-    return !(hit === el || el.contains(hit));
+    const at = (x, y) => (root instanceof ShadowRoot ? root : document).elementFromPoint(x, y);
+    const clamp = (x, y) => [Math.min(Math.max(x, 0), innerWidth - 1), Math.min(Math.max(y, 0), innerHeight - 1)];
+    const [cx, cy] = clamp(r.x + r.width / 2, r.y + r.height / 2);
+    const centre = at(cx, cy);
+    if (reaches(el, centre)) return { x: cx, y: cy };
+    for (const fy of [0.2, 0.5, 0.8]) for (const fx of [0.2, 0.5, 0.8]) {
+      const [x, y] = clamp(r.x + r.width * fx, r.y + r.height * fy);
+      if (reaches(el, at(x, y))) return { x, y };
+    }
+    return { cover: centre || null };
+  }
+  function hitTest(el, r) { return !("x" in hitPoint(el, r)); }   // nothing painted there counts as covered
+  // What covers an element, in words for the worker: its role and label, and whether it is a fixed or sticky bar.
+  function coverOf(c) {
+    if (!c) return "nothing the page draws";
+    let bar = false;
+    for (let a = c; a && a.nodeType === 1; a = a.parentElement) {
+      const p = getComputedStyle(a).position;
+      if (p === "fixed" || p === "sticky") { bar = true; break; }
+    }
+    const lab = label(c).slice(0, 60);
+    return `${c.getAttribute("role") || implicitRole(c)}${lab ? ` "${lab}"` : ""}${bar ? " (a fixed or sticky bar)" : ""}`;
   }
 
   function describe(el, id) {
     const r = el.getBoundingClientRect(), secret = isSecret(el);
-    const role = el.getAttribute("role") || implicitRole(el);
+    const own = el.getAttribute("role") || implicitRole(el);
+    const role = own === "generic" && clickables.has(el) ? "clickable" : own;   // HAND-489
     let value = null;
     if (el.tagName === "SELECT") value = secret ? (el.value ? "filled" : "") : Array.from(el.selectedOptions).map(o=>o.text).join("\n");
     else if (el.tagName === "INPUT" && (el.type === "checkbox" || el.type === "radio")) value = el.checked ? "checked" : "";
@@ -461,6 +510,8 @@
     if (!meets) e.offscreen = r.bottom <= 0 ? "above" : r.top >= innerHeight ? "below" : r.right <= 0 ? "left" : "right";
     if (occluded) e.occluded = true;
     if (container) e.container = container;
+    // HAND-483: inside an open dialog (the preview keeps it first); a structural fact of the markup
+    if (el.closest && el.closest('dialog[open],[role="dialog"],[role="alertdialog"],[aria-modal="true"]')) e.dialog = true;
     if (terminalOf(el)) e.terminal = true;
     const kind = fieldKind(el);
     if (kind) e.field_kind = kind;
@@ -643,9 +694,9 @@
     els = new Map(); containers = new Map(); scrollerCache.clear(); pinCache.clear(); boxCache.clear(); frameCache.clear();
     const found = [];
     collect(document, found);
-    const shown = found.filter(el => visible(el) || (el.tagName === "INPUT" && el.type === "file"));
+    const shown = found.filter(el => visible(el) || (el.tagName === "INPUT" && el.type === "file") || standIn(el));
     const out = shown.map((el,id) => {
-      const e=describe(el,id);e.binding=bind(el);els.set(id,new WeakRef(el));return e;
+      const {target, e} = listed(el, id); e.binding = bind(el); els.set(id, new WeakRef(target)); return e;
     });
     const usedContainers = new Set(out.map((e) => e.container).filter(Boolean));
     const scrollers = [];
@@ -815,6 +866,113 @@
     return { el };
   }
 
+  // HAND-487: a watch on an act's target, read again after it (background.js observeAct). Its state (the value too) is
+  // kept here and only compared: what leaves is which parts changed, never a value.
+  let nearWatch = null;
+  const NEAR_ATTRS = ["aria-expanded", "aria-checked", "aria-selected", "aria-pressed", "aria-disabled", "open", "disabled"];
+  const DIALOG_SCOPE = 'dialog,[role="dialog"],[role="alertdialog"]';
+  function nearState(el) {
+    const s = {value: ["INPUT", "SELECT", "TEXTAREA"].includes(el.tagName) ? String(el.value)
+                      : el.isContentEditable ? el.innerText : null, checked: el.checked === true};
+    for (const k of NEAR_ATTRS) s[k] = el.getAttribute(k);
+    return s;
+  }
+  function watchNear(gen, id) {
+    const { el, error } = element(gen, id);
+    if (error) return false;
+    if (nearWatch) nearWatch.observer.disconnect();
+    const scope = el.closest(`form,${DIALOG_SCOPE}`) || el.parentElement || el;
+    const w = { el, before: nearState(el), mutations: 0,
+                scope: scope.tagName === "FORM" ? "form" : scope.matches(DIALOG_SCOPE) ? "dialog" : "surroundings" };
+    w.observer = new MutationObserver((records) => {
+      w.mutations += records.filter((r) => r.type !== "attributes" || (r.attributeName !== ATTR && r.attributeName !== STAMP)).length;
+    });
+    w.observer.observe(scope, { subtree: true, childList: true, characterData: true, attributes: true });
+    setTimeout(() => w.observer.disconnect(), 5000);
+    nearWatch = w;
+    return true;
+  }
+  function nearChange() {
+    const w = nearWatch;
+    if (!w) return null;
+    const gone = !w.el.isConnected, now = gone ? null : nearState(w.el);
+    const state = now ? Object.keys(now).filter((k) => now[k] !== w.before[k]).map((k) => k.replace(/^aria-/, "")) : [];
+    return { gone, state, mutations: w.mutations, scope: w.scope };
+  }
+
+  // HAND-496: this frame's real markup for browser.html, read only: the document, one element of the latest snapshot
+  // (`id`) or every match of a CSS selector (light DOM and every shadow root, closed ones too). Tags, attributes and
+  // text as the page has them; shadow roots as <#shadow-root>; comments left out; scripts' and styles' contents left
+  // out (inline scripts only when `scripts`); an <svg>'s inside left out. What the snapshot never gives stays out
+  // here too: a secret field's value attribute (password, login code, card: isSecret), and every editable field's after a
+  // split sealed fill (maskedEditable) is "[masked]", a secret <textarea>'s or masked editable's text is left out, and
+  // every URL attribute goes through mask.js (maskUrl). Never a live typed value (properties aren't read). An element of
+  // the latest snapshot carries `ferb-el-<nonce>="<its id here>"`, a frame element `ferb-frame-<nonce>="<binding>"`,
+  // which the extension and the daemon turn into ids; the per-call nonce keeps the page from forging either.
+  const URL_ATTRS = new Set(["href", "src", "action", "formaction", "poster", "cite", "data", "background", "ping"]);
+  const SKIP_CONTENT = new Set(["STYLE", "NOSCRIPT", "TEMPLATE"]);
+  const MARKUP_MAX = 8000000;                     // characters per frame, at most (HAND-496)
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  function markup(gen, id, selector, scripts, nonce, drawnOnly) {
+    if (drawnOnly && (!document.body || innerWidth <= 0 || innerHeight <= 0 || !document.body.getClientRects().length))
+      return { undrawn: true, url: maskUrl(location.href) };
+    let roots;
+    if (id !== null && id !== undefined) {
+      const { el, error } = element(gen, id);
+      if (error) return { error };
+      roots = [el];
+    } else if (selector) {
+      roots = [];
+      try {
+        const deep = (root) => {
+          roots.push(...root.querySelectorAll(selector));
+          for (const host of root.querySelectorAll("*")) { const sr = shadowOf(host); if (sr) deep(sr); }
+        };
+        deep(document);
+      } catch (e) { return { error: `selector: ${String(e.message || e).slice(0, 200)}` }; }
+    } else roots = [document.documentElement];
+    const ids = new Map();
+    if (gen === snapGen) for (const [lid, ref] of els) { const e = ref.deref(); if (e) ids.set(e, lid); }
+    const out = [];
+    let size = 0, cut = false;
+    const put = (s) => { if (size + s.length > MARKUP_MAX) { cut = true; return; } out.push(s); size += s.length; };
+    const walk = (node, depth) => {
+      if (cut) return;
+      if (node.nodeType === 3) {
+        const p = node.parentElement;
+        if (p && (SKIP_CONTENT.has(p.tagName) || maskedEditable(p) || (p.tagName === "TEXTAREA" && isSecret(p)) ||
+                  (p.tagName === "SCRIPT" && !(scripts && !p.hasAttribute("src"))))) return;
+        const t = node.data.replace(/\s+/g, " ");
+        if (t.trim()) put(esc(t));
+        return;
+      }
+      if (node.nodeType === 11) { for (const c of node.childNodes) walk(c, depth + 1); return; }
+      if (node.nodeType !== 1) return;
+      const el = node, tag = el.tagName.toLowerCase();
+      let a = "";
+      for (const at of el.attributes) {
+        const n = at.name;
+        if (n === ATTR || n === STAMP) continue;
+        let v = at.value;
+        if (n === "value" && ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) && (isSecret(el) || maskedEditable(el)))
+          v = v ? "[masked]" : "";
+        else if (URL_ATTRS.has(n)) v = maskUrl(v);
+        // the page's own "ferb-…" attributes are renamed, so FERB's markers (ferb-element, ferb-frame) are only FERB's
+        a += ` ${n.startsWith("ferb-") ? `page-${n}` : n}="${esc(v).replace(/"/g, "&quot;")}"`;
+      }
+      if (ids.has(el)) a += ` ferb-el-${nonce}="${ids.get(el)}"`;
+      if (FRAME_TAGS.has(el.tagName)) { const tok = tokenOf(el); if (tok) a += ` ferb-frame-${nonce}="${tok}"`; }
+      put(`<${tag}${a}>`);
+      const sr = shadowOf(el);
+      if (sr) { put("<#shadow-root>"); for (const c of sr.childNodes) walk(c, depth + 1); put("</#shadow-root>"); }
+      // an <svg>'s drawing, and a secret <select>'s options (a card expiry's default choice), are left out
+      if (tag !== "svg" && !(el.tagName === "SELECT" && isSecret(el))) for (const c of el.childNodes) walk(c, depth + 1);
+      put(`</${tag}>`);
+    };
+    for (const r of roots) { walk(r, 0); put("\n"); }
+    return { url: maskUrl(location.href), html: out.join(""), matches: roots.length, ...(cut ? { truncated: true } : {}) };
+  }
+
   function setValue(el, value) {
     const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     Object.getOwnPropertyDescriptor(proto, "value").set.call(el, value);
@@ -893,8 +1051,15 @@
     el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
     const r = el.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) return { error: "not_visible" };
-    const occluded = hitTest(el, r);
-    return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height, occluded, secret: isSecret(el),
+    // HAND-482: a centre still outside this frame's viewport after scrolling is a fact of its own (a control parked off
+    // the page, e.g. a hidden keyboard-shortcut entry), never "covered": hitTest would clamp it onto whatever is there.
+    const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+    const side = cy < 0 ? "top" : cy >= innerHeight ? "bottom" : cx < 0 ? "left" : cx >= innerWidth ? "right" : null;
+    if (side) return { error: `outside_page: the element is outside the page even after scrolling, off its ${side} ` +
+                              "edge, so it can't be clicked where it is; nothing was sent. Use a control the page shows" };
+    const hit = hitPoint(el, r), occluded = !("x" in hit);       // HAND-490: the first point that reaches it
+    return { x: occluded ? cx : hit.x, y: occluded ? cy : hit.y, w: r.width, h: r.height, occluded,
+             ...(occluded ? { cover: coverOf(hit.cover) } : {}), secret: isSecret(el),
              disabled: !!el.disabled || el.getAttribute("aria-disabled") === "true",
              editable: el.isContentEditable || el.tagName === "TEXTAREA"
                || (el.tagName === "INPUT" && !["button", "submit", "reset", "checkbox", "radio", "file", "image"].includes(el.type)),
@@ -1215,5 +1380,6 @@
     pointerArm: () => { pointerSeen = null; }, pointerSeen: () => pointerSeen || [],
     viewport: () => [innerWidth, innerHeight], act, fill, origin: () => location.origin, rect, focus, isActive,
     focusedSecret, takeSubmits, stamp, unstamp, scroller, scrolled, probeArm, probeSeen: () => probeSeen,
-    downloadPart, armDownloads, releaseDownload, dropDownload: (id) => { heldDownloads.delete(id); } };
+    downloadPart, armDownloads, releaseDownload, dropDownload: (id) => { heldDownloads.delete(id); },
+    watchNear, nearChange, documentKey: () => documentId, markup };
 })();

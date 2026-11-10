@@ -53,6 +53,13 @@ def page(url: str) -> dict[str, Any]:
                              {"role": "textbox", "label": "To", "form": "other"}]}
     if u.hostname == "www.youtube.com":
         return {"title": "YouTube", "text": "video", "elements": [{"role": "button", "label": "Subscribe", "form": None}]}
+    if u.path == "/product":                              # HAND-482: a screen-reader copy parked off the page's left
+        return {"title": "Product", "text": "a product",
+                "elements": [{"role": "button", "label": "Add to cart", "in_view": False, "offscreen": "left",
+                              "act_reply": {"ok": False, "detail": "outside_page: the element is outside the page even "
+                                                                   "after scrolling, off its left edge"}},
+                             {"role": "button", "label": "Add to cart"},
+                             {"role": "button", "label": "Seller details", "opens": f"{u.scheme}://{u.netloc}/seller"}]}
     if u.path == "/form":
         return {"title": "Form", "text": "a form",
                 "elements": [{"role": "textbox", "label": "Name", "form": "other"},
@@ -126,6 +133,7 @@ class FakeExtension:
         self.pings = 0
         self.uploads: list[dict[str, Any]] = []
         self.screenshot_bytes = 10                        # size of the fake jpeg
+        self.shot_jpeg: bytes | None = None               # a real picture to capture instead (HAND-497's masking test)
         self.scroll_pos: dict[tuple[int, str | None], int] = {}
         self.opens = 0
         # downloads (D35): the extension holds a captured download until the daemon pulls it with download_part
@@ -458,7 +466,8 @@ class FakeExtension:
             return {"tab_id": a["tab_id"], "url": old, "title": page(old)["title"]}
         self.tabs[a["tab_id"]] = a["url"]
         self.tab_event("updated", a["tab_id"], a["url"])
-        return {"tab_id": a["tab_id"], "url": a["url"], "title": page(a["url"])["title"]}
+        status = {"/missing": 404}.get(urlsplit(a["url"]).path, 200)   # the document's status (HAND-494)
+        return {"tab_id": a["tab_id"], "url": a["url"], "title": page(a["url"])["title"], "http_status": status}
 
     def start_download(self, tab_id: int, name: str, data: bytes, source_url: str, size: int | None | str = "len",
                        mime: str = "application/octet-stream", source: str = "attachment") -> str:
@@ -680,6 +689,8 @@ class FakeExtension:
     def op_act(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         self.acts.append(a)
         el = page(self.tabs[a["tab_id"]])["elements"][a["el"]]
+        if el.get("act_reply"):                                  # what the page's own code answers for this element
+            return dict(el["act_reply"])
         trusted = not a.get("page_mode") and a["kind"] not in ("select", "scroll")
         refused = self.debugger_refused.get(a["tab_id"])
         why = f"the browser refused FERB's debugger for this tab ({refused})"
@@ -708,6 +719,8 @@ class FakeExtension:
             self.send("event", {"event": "dialog", "tab_id": a["tab_id"], **d})
         if a["kind"] == "click" and el.get("href"):
             self.op_navigate({"tab_id": a["tab_id"], "url": el["href"]}, cid)
+        if a["kind"] == "click" and el.get("opens"):           # the page opens a new tab; claimed before the reply
+            self.popup(a["tab_id"], el["opens"])
         out = {"ok": True, "detail": a["kind"] + (" (trusted)" if trusted else " (page events)")}
         if el.get("submitted") and a["kind"] in ("click", "dblclick", "press"):   # the page's own submit event
             out["submitted"] = el["submitted"]
@@ -747,7 +760,7 @@ class FakeExtension:
     def op_screenshot(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         """Like the real extension (protocol 14, L13): the picture and the page's mask state before and after it."""
         self._attach(a["tab_id"])
-        data = base64.b64encode(os.urandom(self.screenshot_bytes)).decode()
+        data = base64.b64encode(self.shot_jpeg or os.urandom(self.screenshot_bytes)).decode()
         state = {"top": "doc", "viewport": [0, 0, 1280, 900], "items": [
             {"key": f"field|doc|{i}", "rect": [0, 0, 10, 10], "paint": True}
             for i, e in enumerate(page(self.tabs[a["tab_id"]])["elements"]) if e.get("secret")]}
@@ -761,6 +774,13 @@ class FakeExtension:
         i = a["part"]
         return {"data": self._shot[i * SHOT_PART:(i + 1) * SHOT_PART]}
 
+    def op_owner_view(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        """HAND-497: the picture alone, no mask state; a tab the debugger can't attach to says so."""
+        if a["tab_id"] in self.debugger_refused:
+            return {"unavailable": f"the browser won't let FERB capture this page ({self.debugger_refused[a['tab_id']]})"}
+        self._attach(a["tab_id"])
+        return {"data": base64.b64encode(self.shot_jpeg or os.urandom(self.screenshot_bytes)).decode()}
+
     def op_find(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         tab = a["tab_id"]
         if tab not in self.tabs:
@@ -769,6 +789,17 @@ class FakeExtension:
         words = self.page_text.get(tab, " ".join([p["title"], p.get("text", "")] + [e["label"] for e in p["elements"]]))
         n = words.count(a["text"])
         return {"count": n, "hits": [{"frame_id": 0, "text": a["text"]}] * n, "lines": 1}
+
+    def op_html(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        """HAND-496: the page's markup as content.js `markup` writes it: each element of the latest snapshot with its
+        marker (this call's nonce), and a hidden ad frame skipped for a whole-page read."""
+        p, nonce = page(self.tabs[a["tab_id"]]), "a1b2c3d4e5f6"
+        body = "".join(f'<button aria-label="{e["label"]}" ferb-el-{nonce}="{i}">{e["label"]}</button>'
+                       for i, e in enumerate(p["elements"]) if a.get("el") in (None, i))
+        frames = [{"frame_id": 0, "url": self.tabs[a["tab_id"]], "html": f"<body>{body}</body>", "matches": 1}]
+        if a.get("el") is None and not a.get("selector"):
+            frames.append({"frame_id": 4, "undrawn": True, "url": "https://ads.example/"})
+        return {"nonce": nonce, "frames": frames}
 
     def op_show_tab(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         """Extension 0.15.13: the owner clicked FERB's human-check notification."""
