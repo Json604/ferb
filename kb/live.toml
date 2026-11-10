@@ -4083,3 +4083,12 @@ request = "Let the schedule run (or run it now) when the site shows a block, a p
 pass = "The blocked run's post is the worker's own words (what it saw and that nothing was booked), then at most the one line \"I couldn't confirm part of this.\"; no \"What the check confirmed:\", no \"Couldn't confirm: <condition>\", no checker sentence about \"the answer\", no stray tag, nothing ending mid-word in \"…\"; done-unconfirmed, not failed, unless the worker reported not done (then \"I couldn't finish this task.\" and one text). Asked what it couldn't confirm, FERB names it."
 decisions = ["ORCH-600", "ORCH-602", "ORCH-603", "ORCH-604", "ORCH-605", "ORCH-606", "ORCH-607", "ORCH-608", "ORCH-609", "ORCH-610", "ORCH-611", "PRM-349"]
 sitting = "after this change is installed"
+
+[LIVE-898]
+title = "System pop-ups over the chat window show in front of it"
+area = "app"
+surface = "FERB.app with the chat in the window (Settings: Where FERB opens: Window), its message field focused"
+request = "In the window's message field: press Control-Command-Space (emoji picker) and pick an emoji; press and hold a letter (e.g. e) for the accent menu and pick one; right-click the field; start macOS Dictation (press the Dictation key or Fn twice) and say a few words; select a word and press Control-Command-D (Look Up); hover the close button until its tooltip shows. Then open another app's menu over the window."
+pass = "Each pop-up (emoji picker, accent menu, context menu, Dictation's microphone, Look Up, the tooltip, the other app's menu) shows in front of the chat window and works; what was picked lands in the field; after each closes the window is back where it was, in front of other apps' windows, and stays put on a Space switch."
+decisions = ["APP-886", "APP-817", "APP-761"]
+sitting = "after this change is installed"

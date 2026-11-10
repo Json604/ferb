@@ -87,8 +87,9 @@ final class ChatWindowControls: ObservableObject {
 /// Where it lives (owner, 2026-11-06, APP-760): in FERB's fixed overlay space, like the notch, so a Space switch
 /// (Control-arrow, a swipe, Mission Control, a full-screen Space) never moves it. It steps back into the ordinary window
 /// stack, one layer back like the notch's yield, while something must show above it: FERB's own file picker, Settings,
-/// alerts or Quick Look (APP-749), what FERB just opened in another app, another process's menu, popover or floating
-/// window over it, and a file drag (APP-742's hold-out). It comes back when none of those holds. It always floats over
+/// alerts or Quick Look (APP-749), what FERB just opened in another app, anything drawn above ordinary windows over it
+/// (a menu, popover, panel or pop-up of any process, the system's text input and FERB's own included), and a file
+/// drag (APP-742's hold-out). It comes back when none of those holds. It always floats over
 /// other apps' windows (owner, 2026-11-06, APP-772: no Keep on top setting). Without the overlay space (SkyLight
 /// unavailable) it is an ordinary all-Spaces floating panel.
 @MainActor
@@ -118,13 +119,12 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
     /// FERB handed the owner something in another app (`HandOff`): the window stays down until the owner comes back
     /// to it (it becomes key) or FERB shows it again.
     private var handedOff = false
-    /// Another process's menu, popover or floating window (one the owner hasn't shown the window above) is over it.
+    /// Something drawn above ordinary windows lies over it (one the owner hasn't shown the window above): `windowsOver`.
     private(set) var overlaysOver = false
-    /// FERB's own menus open now (the profile menu, the menu bar icon's, a picker's, a context menu): the overlay space
-    /// draws above every menu, so the window steps back while one shows (owner 2026-11-09: "ferb's own profile small
-    /// window and menuy bar iwndo appears behind hte ferb chat window, rest all come forward").
+    /// FERB's own menus tracking now (this process's NSMenu begin/end tracking): the same rule as `windowsOver`, told at
+    /// once, since a menu shows before the next look at the window list would find it (APP-817).
     private var ownMenus = Set<ObjectIdentifier>()
-    /// Other processes' windows the owner chose to show the window above (over it when they opened it or clicked into
+    /// Windows the owner chose to show the window above (over it when they opened it or clicked into
     /// it), until they leave the screen; the notch's rule (NotchYieldController.overriddenOverlays).
     private var overridden = Set<UInt32>()
     private var overrideAtNextCheck = false
@@ -132,7 +132,6 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
     private(set) var steppedBack = false
     private var observers: [NSObjectProtocol] = []
     private var watch: Task<Void, Never>?
-    private var systemInput: [Int32: Bool] = [:]
 
     /// FERB's fixed overlay space (the notch's); nil or detached: the AppKit fallback.
     var space: NotchOverlaySpace? {
@@ -146,8 +145,8 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
         guard !spaces.isEmpty, let active = WindowServerSpaces.activeSpace() else { return false }
         return !spaces.contains(active)
     }
-    var ownPIDs: Set<Int32> = [getpid()]
-    var bundleID: (Int32) -> String? = { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier }
+    /// FERB's windows drawn in the fixed overlay space with the window (the notch and its parts): never over it.
+    var residentWindows: () -> Set<UInt32> = { [] }
     var isWindowManager: (Int32) -> Bool = {
         NSRunningApplication(processIdentifier: $0)?.bundleIdentifier == "com.apple.WindowManager"
     }
@@ -310,8 +309,8 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// One look at the windows around the sticky window: another process's menu, popover or floating window over it
-    /// (not one the owner chose to show it above; never during Mission Control or for system text input).
+    /// One look at the windows around the sticky window: anything drawn above ordinary windows over it (not one the owner
+    /// chose to show it above; never during Mission Control). See `windowsOver`.
     func evaluate() {
         guard isShown, fixed, let screen = panel.screen ?? NSScreen.main else { return }
         let height = NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
@@ -325,9 +324,10 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
             isWindowManager($0)
         }
         let frame = serverFrame
-        let over = missionControl ? [] : NotchOverlap.foreignOverlays(in: rows, ferbFrames: [frame], ownPIDs: ownPIDs,
-                                                                      menuBar: menuBar, display: display)
-            .filter { !isSystemInput($0.ownerPID) && !onAnotherSpace($0.windowID) }
+        let own = Set([UInt32(truncatingIfNeeded: panel.windowNumber)]).union(space?.residentNumbers ?? [])
+            .union(residentWindows())
+        let over = missionControl ? [] : Self.windowsOver(frame, in: rows, own: own, menuBar: menuBar, display: display)
+            .filter { !onAnotherSpace($0.windowID) }
         let ids = Set(over.map(\.windowID))
         overridden.formIntersection(rows.map(\.windowID))
         if overrideAtNextCheck { overridden.formUnion(ids) }
@@ -341,11 +341,18 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
         if changed { applyPlace() }
     }
 
-    private func isSystemInput(_ pid: Int32) -> Bool {
-        if let known = systemInput[pid] { return known }
-        let input = bundleID(pid).map(NotchOverlap.isSystemInput(bundleID:)) ?? false
-        systemInput[pid] = input
-        return input
+    /// What must show above the window (owner 2026-11-11: "why dosnt ferb let this emopji thingy forward ... is the
+    /// current fix hardocded fix??? FIX THIS"): every window drawn above the normal level that overlaps it, whichever
+    /// process draws it — another app's menu or popover, the system's text input (the emoji and symbols palette, the
+    /// accent pop-up, input-method candidates, the input-source indicator, Dictation), Look Up, sharing and colour
+    /// panels, and FERB's own menus, pop-ups and tooltips. Not counted: the window itself and FERB's windows drawn in
+    /// the fixed space with it (`own`), and always-on chrome (`NotchOverlap.foreignOverlays`: the menu bar's band, the
+    /// Dock, near-invisible or whole-display windows). Structure only (layer, bounds, alpha), never a title or a list
+    /// of apps. Another app's ordinary window (layer 0) never counts: the window floats over those (APP-772).
+    static func windowsOver(_ frame: CGRect, in rows: [ScreenWindow], own: Set<UInt32>, menuBar: CGRect,
+                            display: CGRect) -> [ScreenWindow] {
+        NotchOverlap.foreignOverlays(in: rows.filter { !own.contains($0.windowID) }, ferbFrames: [frame], ownPIDs: [],
+                                     menuBar: menuBar, display: display)
     }
 
     /// Whether another of FERB's own windows the owner works in is over the window: a titled one (Settings and the
@@ -419,7 +426,7 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
 
     var reasons: String {
         [underPicker ? "picker" : nil, underOwnWindow ? "FERB window" : nil, handedOff ? "hand-off" : nil,
-         overlaysOver ? "menu or popover" : nil, ownMenus.isEmpty ? nil : "FERB menu"].compactMap { $0 }.joined(separator: ", ")
+         overlaysOver ? "window over it" : nil, ownMenus.isEmpty ? nil : "FERB menu"].compactMap { $0 }.joined(separator: ", ")
     }
 
     static let log = Logger(subsystem: "com.ferb.FERB", category: "spaces")

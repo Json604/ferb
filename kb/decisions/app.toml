@@ -3405,3 +3405,16 @@ status = "active"
 rule = "For GATE-578 and GATE-579. A card with `picture` fetches it once by question id (questions.picture; PaymentPictures, shared by the notch and the chat window) and shows it under the first line, fitted to the card's width; a click enlarges it in a popover hidden from screen sharing; accessibility label \"The payment page\". Memory only while the question is open, never saved with the chat, so a restored chat shows the card without it. `picture_problem` shows its line in its place. Answering never waits for the picture."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PaymentPicture.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ApprovalView.swift", "ui/mac/FERBNotch/Sources/NotchCore/DaemonApproval.swift"]
 live = ["LIVE-877"]
+
+[APP-886]
+title = "Anything drawn above ordinary windows over the sticky window shows in front, whoever draws it"
+by = "owner"
+date = 2026-11-11
+status = "active"
+words = "why dosnt ferb let this emopji thingy forward. it does let my one menu and other things forward. is the current fix hardocded fix??? FIX THIS"
+rule = "Refines APP-761 and APP-817. The sticky window steps back (normal level, in front of ordinary windows) while any window above the normal level overlaps it, whichever process draws it: other apps' menus and popovers, system text input (emoji palette, accent pop-up, candidates, input-source indicator, Dictation), Look Up, share and colour panels, FERB's own menus, pop-ups and tooltips. Not counted: itself, FERB's windows in the fixed space, always-on chrome, windows the owner showed it above (APP-761), ordinary windows (APP-772). Layer, bounds and alpha only; no list of apps or titles."
+why = "The watch skipped system text-input processes (a rule copied from the notch, APP-559) and this process's windows, so the emoji palette, opened from the window's own message field, drew behind it; FERB's menus were patched in one by one (APP-817)."
+rejected = ["Adding the emoji palette's process to a list: the next system pop-up would be behind again", "A window level below pop-up menus instead of the overlay space: the window would slide on every Space switch (APP-760)"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController.windowsOver", "ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController.evaluate", "ui/mac/FERBNotch/Sources/FERBNotch/NotchOverlaySpace.swift::NotchOverlaySpace.residentNumbers"]
+live = ["LIVE-898"]
+untestable = "That the system's pop-ups draw in front on the owner's screen (their window layers are the system's) is the live check; the test stands in window rows and checks the window's level and space."

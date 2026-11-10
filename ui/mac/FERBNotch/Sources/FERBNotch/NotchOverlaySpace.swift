@@ -209,6 +209,15 @@ final class NotchOverlaySpace {
     /// in the space until `stepForward`.
     private(set) var away: [NSWindow] = []
 
+    /// The window-server numbers of FERB's windows drawn in the space now (the notch, its light, handle and edge row, the
+    /// previews and activity card): ours, less those stepped back or held out for a drag. Empty without the space.
+    var residentNumbers: Set<UInt32> {
+        guard space != 0 else { return [] }
+        return Set(windows.filter { window in
+            !away.contains(where: { $0 === window }) && !heldOut.contains(where: { $0 === window })
+        }.map { UInt32(truncatingIfNeeded: $0.windowNumber) })
+    }
+
     /// A window that lives in the space (the sticky window, APP-760) steps back into the ordinary window stack, as the
     /// panel does when FERB yields (`leave`), and stays out until `stepForward`. A window not yet ours is adopted first.
     /// Leaving while ordered out puts a window on no Space when it next shows (macOS 27.2, as for a drag): a hidden

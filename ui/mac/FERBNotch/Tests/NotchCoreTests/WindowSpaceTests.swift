@@ -186,6 +186,38 @@ final class WindowSpaceTests: XCTestCase {
         assertFixed(h, "closed again")
     }
 
+    /// Owner 2026-11-11: "why dosnt ferb let this emopji thingy forward ... is the current fix hardocded fix??? FIX
+    /// THIS". One rule for whatever is drawn above ordinary windows over the window, whichever process draws it: the
+    /// system's emoji palette (a text-input process, once never counted), an accent pop-up, FERB's own pop-up or tooltip
+    /// (this process, once never counted) step it back; FERB's windows drawn in the fixed space with it never do, nor an
+    /// ordinary window; it comes back when they leave.
+    // decision: APP-886, APP-760
+    func testAnythingDrawnAboveWindowsOverItShowsAboveWhateverProcessDrawsIt() throws {
+        let h = try harness()
+        h.window.residentWindows = { [8800] }
+        h.window.evaluate()                                  // the look after opening finds nothing over it
+        let inside = frame(h).insetBy(dx: 60, dy: 60)
+        let overs = [ScreenWindow(windowID: 8801, ownerPID: 4343, layer: 3, bounds: inside, alpha: 1),           // emoji palette
+                     ScreenWindow(windowID: 8802, ownerPID: 4344, layer: NotchOverlap.popUpMenuLayer,
+                                  bounds: inside.insetBy(dx: 20, dy: 20), alpha: 1),                          // accent pop-up
+                     ScreenWindow(windowID: 8803, ownerPID: getpid(), layer: NotchOverlap.popUpMenuLayer + 1,
+                                  bounds: inside.insetBy(dx: 40, dy: 40), alpha: 1)]                          // FERB's pop-up
+        for over in overs {
+            rows = [over]
+            h.window.evaluate()
+            assertSteppedBack(h, "window \(over.windowID) over it")
+            rows = []
+            h.window.evaluate()
+            assertFixed(h, "window \(over.windowID) gone")
+        }
+        rows = [ScreenWindow(windowID: 8800, ownerPID: getpid(), layer: 26, bounds: frame(h), alpha: 1),        // FERB's notch
+                ScreenWindow(windowID: UInt32(h.window.panel.windowNumber), ownerPID: getpid(), layer: 3,
+                             bounds: frame(h), alpha: 1),                                                    // itself
+                ScreenWindow(windowID: 8804, ownerPID: 4345, layer: 0, bounds: inside, alpha: 1)]            // an editor
+        h.window.evaluate()
+        assertFixed(h, "only FERB's fixed windows, itself and an ordinary window")
+    }
+
     /// The window always floats (APP-772, owner 2026-11-06: "c, remove it"): an app the owner brings forward, its
     /// window lying over the sticky window, never steps it back; it stays fixed in the space, in front.
     // decision: APP-772, APP-760
