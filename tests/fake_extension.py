@@ -53,6 +53,12 @@ def page(url: str) -> dict[str, Any]:
                              {"role": "textbox", "label": "To", "form": "other"}]}
     if u.hostname == "www.youtube.com":
         return {"title": "YouTube", "text": "video", "elements": [{"role": "button", "label": "Subscribe", "form": None}]}
+    if u.path == "/product":                              # HAND-482: a screen-reader copy parked off the page's left
+        return {"title": "Product", "text": "a product",
+                "elements": [{"role": "button", "label": "Add to cart", "in_view": False, "offscreen": "left",
+                              "act_reply": {"ok": False, "detail": "outside_page: the element is outside the page even "
+                                                                   "after scrolling, off its left edge"}},
+                             {"role": "button", "label": "Add to cart"}]}
     if u.path == "/form":
         return {"title": "Form", "text": "a form",
                 "elements": [{"role": "textbox", "label": "Name", "form": "other"},
@@ -680,6 +686,8 @@ class FakeExtension:
     def op_act(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         self.acts.append(a)
         el = page(self.tabs[a["tab_id"]])["elements"][a["el"]]
+        if el.get("act_reply"):                                  # what the page's own code answers for this element
+            return dict(el["act_reply"])
         trusted = not a.get("page_mode") and a["kind"] not in ("select", "scroll")
         refused = self.debugger_refused.get(a["tab_id"])
         why = f"the browser refused FERB's debugger for this tab ({refused})"

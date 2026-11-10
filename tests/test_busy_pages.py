@@ -155,6 +155,21 @@ console.log(JSON.stringify(out));
     assert out["clear"]["occluded"] is False
 
 
+# decision: HAND-482
+def test_an_off_page_copy_names_the_same_control_on_screen(bd: Any) -> None:  # noqa: F811
+    """Amazon parks a screen-reader copy of "Add to cart" off the page; the refusal names the one on screen."""
+    d, launched = bd
+    ext = pair(d, launched, "Work")
+    ext.wait_for(lambda: ext.gen is not None)
+    g = task(d, "o", OWNER, {"research"})
+    tab = call(d, g, "browser.open", url="https://shop.example/product")["content"]["tab"]
+    els = call(d, g, "browser.snapshot", tab=tab)["content"]["elements"]
+    parked = next(e["id"] for e in els if e.get("offscreen") == "left")
+    shown = next(e["id"] for e in els if e["label"] == "Add to cart" and "in_view" not in e)
+    r = call(d, g, "browser.act", tab=tab, element=parked, action="click")
+    assert r["is_error"] and r["content"]["on_screen"] == shown and shown in r["content"]["detail"], r
+
+
 def _el(n: int, label: str, in_view: bool) -> PageElement:
     return PageElement(id=f"s1e{n}", frame_id="0", role="link" if not in_view else "button", label=label, value=None,
                        rect=(0, 0, 10, 10), visible=True, in_view=in_view, offscreen=None if in_view else "below")
