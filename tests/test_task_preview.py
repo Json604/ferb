@@ -181,6 +181,37 @@ def test_parallel_steps_each_keep_their_surface_and_the_answer_names_the_step() 
     asyncio.run(check())
 
 
+# decision: DMN-584, APP-888
+def test_parallel_rows_take_the_tasks_one_capture_in_turn() -> None:
+    """Owner 2026-11-11: each running row of a two-part card has its own preview. The task keeps one capture at a
+    time, so two rows never double the capture load; a row turned away while the other's capture ran goes next, so the
+    row that asks again at once can't starve it; a row that stopped asking holds nobody up."""
+    async def check() -> None:
+        previews, _ = _previews()
+        gate = asyncio.Event()
+
+        async def a() -> bytes:
+            await gate.wait()
+            return b"tab-a"
+
+        async def b() -> bytes:
+            return b"tab-b"
+        previews.declare("t", "t.step.book", _target("tab:browser/1", a))
+        previews.declare("t", "t.step.compare", _target("tab:browser/2", b))
+        first = asyncio.create_task(previews.frame("t", "t.step.book"))
+        await asyncio.sleep(0.01)
+        turned = await previews.frame("t", "t.step.compare")              # A is capturing: B is turned away
+        assert turned["busy"] is True and turned["step"] == "compare"
+        gate.set()
+        assert (await first)["image"] == b"tab-a"
+        again = await previews.frame("t", "t.step.book")                  # A asks again at once: B's turn first
+        assert again["busy"] is True and again.get("fresh") is not True
+        assert (await previews.frame("t", "t.step.compare"))["image"] == b"tab-b"
+        assert (await previews.frame("t", "t.step.book"))["fresh"] is True
+        assert previews.counts.frames == 3                               # one capture per frame shown, never two
+    asyncio.run(asyncio.wait_for(check(), 5))
+
+
 # decision: DMN-404, DMN-405
 def test_a_withheld_frame_and_the_masking_note_are_said() -> None:
     async def check() -> None:

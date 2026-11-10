@@ -109,7 +109,7 @@ struct TurnCardView: View {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 if index > 0 { Rectangle().fill(.white.opacity(0.07)).frame(height: 1) }
                 CardRowView(row: row, display: displays[index], questions: questions[row.part] ?? [], turnID: turn.id,
-                            model: model)
+                            model: model, watch: running && !turn.preview ? RowPreview.watch(row, displays[index]) : nil)
                     .transcriptAnchor(TranscriptTarget.row(turn: turn.id, part: row.part))
             }
             if card.finished {
@@ -189,6 +189,8 @@ struct CardRowView: View {
     let questions: [DaemonApproval]
     let turnID: UUID
     @ObservedObject var model: NotchModel
+    /// APP-888: the step task id whose live preview this row shows while its step works; nil: none.
+    var watch: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -196,6 +198,9 @@ struct CardRowView: View {
                 Text(row.label).font(.system(size: 11, weight: .semibold)).foregroundStyle(Palette.secondary)
                 if display.kind == .updated { UpdatedTag() }
                 Spacer(minLength: 0)
+                if let watch {
+                    RowPreview(model: model, preview: model.preview(task: row.taskID, worker: watch), label: row.label)
+                }
             }
             content.padding(.top, 2)
         }
@@ -368,6 +373,45 @@ struct RuntimeSwitchRow: View {
                         .buttonStyle(FerbButtonStyle())
                 }
             }
+        }
+    }
+}
+
+
+/// APP-888 (owner 2026-11-11: "shoud we add one to each in their rows as they start streaming???"): a running row of a
+/// multi-part card shows its own step's live preview (`tasks.preview` with the row's step task id, DMN-404), the same
+/// round picture as the active-task line's, smaller; a click shows it larger in a popover hidden from screen sharing
+/// (APP-406). Live only while the chat shows and isn't stepped aside (APP-407). The active-task line's picture stays:
+/// it shows the step that acted last (the daemon's default).
+struct RowPreview: View {
+    @ObservedObject var model: NotchModel
+    let preview: TaskPreview
+    let label: String
+    @State private var enlarged = false
+
+    /// The step task id a row watches: one whose step is working now (starting, running, retrying, checking).
+    static func watch(_ row: CardRow, _ display: RowDisplay) -> String? {
+        guard let step = row.stepTaskID, !step.isEmpty, !row.direct, !row.isSettled,
+              [.starting, .running, .retrying, .checking, .working].contains(display.kind) else { return nil }
+        return step
+    }
+
+    var body: some View {
+        Button { enlarged = true } label: {
+            TaskVideoView(preview: preview, compact: true, active: model.expanded && !model.isYielded)
+                .frame(width: 22, height: 22)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(Palette.amber.opacity(0.65), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .help("Watch " + label)
+        .accessibilityLabel("Live preview of " + label)
+        .popover(isPresented: $enlarged, arrowEdge: .bottom) {
+            TaskVideoView(preview: preview)
+                .frame(width: 300, height: 170)
+                .clipShape(RoundedRectangle(cornerRadius: 9))
+                .padding(8)
+                .background(TaskPreviewWindow(model: model, hidesFromCapture: true))
         }
     }
 }

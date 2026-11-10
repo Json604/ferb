@@ -3428,3 +3428,14 @@ rule = "Fixes APP-828 for GATE-578. The card's picture view always draws somethi
 why = "Owner 2026-11-11 (live, ap-2e7548606340 and ap-dcef18e50af4): \"i didnt see ht orprev amzn checkout page … it isnt showing\". The daemon captured the page (picture: true); the card showed neither the picture nor a line because its view never appeared."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/PaymentPicture.swift", "ferb/daemon/gateway.py::Gateway.ask_confirmation"]
 live = ["LIVE-877"]
+
+[APP-888]
+title = "Each running row of a multi-part card shows its own step's live preview"
+by = "owner"
+date = 2026-11-11
+status = "active"
+words = "when there are two separete tasks ina single req, they get a single previw box only, shoud we add one to each in their rows as they start streaming??? cause mamy steps can be aprallel too. see if mechanism for this exists and its just a UI fix"
+rule = "Refines APP-403. A row of a multi-part card whose step is working (starting, running, retrying, checking) shows a small round live preview of that step (tasks.preview with its step task id, DMN-404) beside its label; a click shows it larger in a popover hidden from screen sharing (APP-406). Live only while the chat shows and isn't stepped aside (APP-407). The active-task line keeps its one picture: the step that acted last (the daemon's default)."
+why = "The daemon already kept a surface per step (DMN-404) and FERB.app's TaskPreview already took a step; only the rows didn't ask. Parallel rows share the task's one capture in turn (DMN-584), so two rows never double the capture work."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::RowPreview", "ui/mac/FERBNotch/Sources/FERBNotch/TaskPreview.swift::TaskPreview"]
+live = ["LIVE-900"]

@@ -856,3 +856,13 @@ date = 2026-11-10
 status = "active"
 rule = "For ORCH-591. question.asked also stores the question's first line (its summary, else its text) and its exact part's, at most 200 characters each; question.answered stores a typed answer's first line (`said`, 200) unless the card is a hidden input (code, secret, password) or FERB hid a secret in the answer. The journal redacts both as it redacts everything. Never a payment's picture (GATE-579). Older rows without them read as before."
 paths = ["ferb/daemon/areas/compose.py::Compose._question_record"]
+
+[DMN-584]
+title = "Parallel steps' previews take the task's one capture in turn"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For APP-888, refining DMN-403. A task still captures one surface at a time. A request for another step's surface while a capture runs answers busy at once with its last frame and is remembered; when the capture ends, that surface goes next (a request for any other surface answers busy until it comes, at most TURN_S, 1 s, after it was turned away; the app asks again 200 ms after a busy answer). Requests for the surface being captured share it. No frame-rate cap (APP-405)."
+why = "Two rows polling at once: the row whose frame just came asks again at once and would keep winning; in turn, each step's preview moves and the capture work stays that of one surface at a time."
+paths = ["ferb/daemon/task_preview.py::TaskPreviews"]
+live = ["LIVE-900"]

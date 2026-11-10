@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import FERBNotch
 @testable import NotchCore
@@ -315,5 +316,39 @@ final class LongTaskCardTests: XCTestCase {
 
     private func turn(_ id: UUID, _ model: NotchModel) -> ConversationTurn {
         model.conversation.turns.first { $0.id == id }!
+    }
+
+    /// Owner 2026-11-11: "when there are two separete tasks ina single req, they get a single previw box only, shoud we
+    /// add one to each in their rows as they start streaming???". Each working row watches its own step (its step task
+    /// id); a waiting, settled or answered-at-once row has none; the row's picture asks the daemon for that step only.
+    // decision: APP-888, DMN-404
+    func testEachWorkingRowWatchesItsOwnStep() throws {
+        let book = row("book"), compare = row("compare"), rows = [book, compare]
+        func shown(_ r: CardRow, _ status: String) -> String? {
+            RowPreview.watch(r, RowDisplay.make(row: r, steps: [r.step!: step(status)], rows: rows, live: true))
+        }
+        XCTAssertEqual(shown(book, "running"), "T.step.book")
+        XCTAssertEqual(shown(compare, "retrying"), "T.step.compare")
+        XCTAssertNil(shown(book, "waiting"))
+        XCTAssertNil(shown(row("done", state: "done"), "running"))
+        XCTAssertNil(RowPreview.watch(CardRow(["part": "d", "state": "done", "direct": true], taskID: "T")!,
+                                      RowDisplay(kind: .running)))
+
+        let rpc = ScriptedRPC()
+        rpc.replies["tasks.preview"] = ["state": "working", "line": "Working in the browser", "worker": "T.step.compare"]
+        let model = NotchModel(rpc: rpc, preferences: scratchDefaults())
+        model.expand()
+        let host = NSHostingView(rootView: RowPreview(model: model, preview: model.preview(task: "T", worker: "T.step.compare"),
+                                                      label: "Compare"))
+        host.frame = CGRect(x: 0, y: 0, width: 40, height: 40)
+        host.layoutSubtreeIfNeeded()
+        let deadline = Date().addingTimeInterval(3)
+        while !rpc.calls.contains(where: { $0.0 == "tasks.preview" }), Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        let asked = try XCTUnwrap(rpc.calls.first { $0.0 == "tasks.preview" })
+        XCTAssertEqual(asked.1["task_id"] as? String, "T")
+        XCTAssertEqual(asked.1["worker"] as? String, "T.step.compare")
+        model.preview(task: "T", worker: "T.step.compare").stop()
     }
 }

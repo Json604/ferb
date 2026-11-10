@@ -42,6 +42,9 @@ SLOW = {"kind": "slow", "text": "The capture took too long"}
 LOCKED = {"kind": "screen_locked", "text": "The screen is locked or asleep, so macOS lets nobody capture windows"}
 KINDS = ("tab", "window")
 OUTCOMES = ("frames", "busy", "slow", "failed", "gone", "withheld", "locked", "no_picture")
+# DMN-584: a step's surface turned away while another step's capture ran is captured next, if its request comes back
+# within this long (the app asks again 200 ms after a busy answer): parallel rows take the task's one capture in turn
+TURN_S = 1.0
 NOTE_EVERY_S = 600.0           # a journaled preview problem: the first at once, then one row per window with a count
 
 
@@ -109,6 +112,7 @@ class TaskPreviews:
         self.status: Status = lambda root, worker: None
         self._roots: dict[str, dict[str, _Worker]] = {}     # root task -> step task id -> its preview, latest last
         self._jobs: dict[str, _Job] = {}
+        self._turned: dict[str, tuple[_Surface, float]] = {}   # root -> the surface turned away last, and when (DMN-584)
         self.counts = Counts()
         self._note = note
         self._noted: dict[str, tuple[float, int]] = {}      # journaled problems: key -> (next row due, count since)
@@ -142,6 +146,7 @@ class TaskPreviews:
         """A task ended (or was cancelled): its surfaces, frames and captures go."""
         for root in [r for r in self._roots if any(r == t or r.startswith(t + ".") for t in roots)]:
             del self._roots[root]
+            self._turned.pop(root, None)
             job = self._jobs.pop(root, None)
             if job is not None:
                 job.task.cancel()
@@ -187,9 +192,16 @@ class TaskPreviews:
         if job is not None and job.task.done():
             del self._jobs[root]
             job = None
-        if job is None:
+        turned = self._turned.get(root)
+        if turned is not None and time.monotonic() - turned[1] > TURN_S:
+            del self._turned[root]                    # its row stopped asking: nobody is waiting for a turn
+            turned = None
+        if job is None and (turned is None or turned[0] is surface):   # DMN-584: one turned away goes first
+            self._turned.pop(root, None)
             job = self._jobs[root] = _Job(surface, asyncio.get_running_loop().create_task(self._capture(root, surface)))
-        elif job.surface is not surface:              # one capture at a time per task: another step's is running
+        if job is None or job.surface is not surface:   # one capture at a time per task: another step's is running
+            if job is not None and turned is None:
+                self._turned[root] = (surface, time.monotonic())
             self.counts.busy += 1
             self.counts.add(f"{surface.kind}_busy")
             return self._answer(key, w, "working", line, busy=True)

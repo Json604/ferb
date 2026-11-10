@@ -4101,3 +4101,12 @@ request = "Ask FERB to order a cheap item with cash on delivery; at the payment 
 pass = "Each ends without Failed and without Send to developer: the single task shows Cancelled under the worker's own sentence (no \"I couldn't finish this task.\", no \"No payment went through\"); the booking's row fills with the worker's words and counts in \"2 of 2 done\". Nothing is ordered or booked."
 decisions = ["ORCH-613"]
 sitting = "after this change is installed"
+
+[LIVE-900]
+title = "Two parallel parts each show their own live preview in their row"
+area = "app"
+surface = "FERB.app with this build, the chat in the notch and then in the window"
+request = "Ask for two independent things in one message that both browse (e.g. book a table at a restaurant and compare three laptops). Watch the card while both rows run; click each row's small picture."
+pass = "Each running row shows its own small live picture of the page its part is on, both moving (in turn, not frozen); a click shows that row's page larger; a row that is done or waiting shows none; the picture by \"1 active task\" still shows the part that acted last. Activity Monitor shows FERB's CPU about as with one picture."
+decisions = ["APP-888", "DMN-584"]
+sitting = "after this change is installed"
