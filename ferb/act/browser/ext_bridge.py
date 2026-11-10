@@ -748,7 +748,7 @@ class Hub:
             else:
                 host = urlsplit(e.url).hostname or "" if e.url else br.tabs.get(e.tab_id, ("", False))[0]
                 br.tabs[e.tab_id] = (host, bool(e.active))
-                if e.event == "updated":
+                if e.event == "updated" and e.same_document is not True:   # HAND-492: a route change keeps ids
                     br.navs[e.tab_id] = br.navs.get(e.tab_id, 0) + 1
 
 

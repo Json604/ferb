@@ -440,3 +440,40 @@ console.log(JSON.stringify({target: r.target === lab, e: r.e, own: s.target === 
     assert out["target"] is True and out["own"] is True and out["none"] is None
     assert out["e"] == {"id": 4, "role": "checkbox", "label": "Morning (9-12)", "value": "checked", "rect": [0, 0, 1, 1],
                         "input_type": "checkbox"}
+
+
+# decision: HAND-492
+def test_a_single_page_apps_route_change_keeps_the_snapshots_ids_and_a_new_document_doesnt(bd: Any) -> None:  # noqa: F811
+    d, launched = bd
+    ext = pair(d, launched, "Work")
+    ext.wait_for(lambda: ext.gen is not None)
+    g = task(d, "spa", OWNER, {"research"})
+    tab = call(d, g, "browser.open", url="https://shop.example/form")["content"]["tab"]
+    chrome_id = max(t for t, u in ext.tabs.items() if u == "https://shop.example/form")
+    els = call(d, g, "browser.snapshot", tab=tab)["content"]["elements"]
+    name = next(e["id"] for e in els if e["label"] == "Name")
+    ext.send("tab_event", {"event": "updated", "tab_id": chrome_id, "url": "https://shop.example/form#step2",
+                           "same_document": True})
+    time.sleep(0.2)
+    kept = call(d, g, "browser.act", tab=tab, element=name, action="click")
+    ext.tab_event("updated", chrome_id, "https://shop.example/form")       # a new document (no same_document)
+    time.sleep(0.2)
+    gone = call(d, g, "browser.act", tab=tab, element=name, action="click")
+    assert not kept["is_error"], kept
+    assert gone["is_error"] and "changed since the snapshot" in gone["content"]["error"]
+
+
+# decision: HAND-492
+def test_the_extension_says_a_load_kept_the_snapshots_document() -> None:
+    out = worker(r'''(async () => {
+      const sent = []; send = async (type, body) => { sent.push(body); };
+      await chrome.storage.local.set({ferb: {key: "k"}});
+      let key = "doc-1";
+      chrome.scripting = {executeScript: async () => [{frameId: 0, result: key}]};
+      tabState(5).snapDoc = "doc-1";
+      await tabEvent("updated", {id: 5, url: "https://s.example/#b"});
+      key = "doc-2";
+      await tabEvent("updated", {id: 5, url: "https://s.example/c"});
+      return sent.map(b => b.same_document === true);
+    })()''')
+    assert out == [True, False]

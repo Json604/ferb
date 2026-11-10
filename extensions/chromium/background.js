@@ -2245,6 +2245,8 @@ const commands = {
     }
     st.frames = composeFrames(frames);
     st.frameRefs = new Map(frames.map(f => [f.frame_id, f]));
+    try { st.snapDoc = await inFrame(tab_id, 0, () => window.__ferb.documentKey(), []); }   // HAND-492
+    catch (_) { st.snapDoc = null; }
     if (st.axErrors.length) top.truncated = true;
     if (st.axErrors.length) top.text = `[Accessibility view incomplete: ${st.axErrors.join("; ")}]\n${top.text}`;
     const dialogs = st.dialogs.splice(0);
@@ -2554,8 +2556,20 @@ const commands = {
 async function tabEvent(event, tab) {
   const st = await install();
   if (!st.key) return;
+  // HAND-492: a load that kept the document the last snapshot read (a single-page app's route change) says so, so
+  // that snapshot's element ids keep working; any doubt (no snapshot, unreadable, a new content script) says nothing
+  let same = null;
+  const t = TABS.get(tab.id);
+  if (event === "updated" && t && t.snapDoc) {
+    try {
+      const [r] = await script({ target: { tabId: tab.id, frameIds: [0] },
+                                 func: () => (window.__ferb && window.__ferb.documentKey ? window.__ferb.documentKey() : null) });
+      same = !!(r && r.result) && r.result === t.snapDoc;
+    } catch (_) { same = null; }
+  }
   await send("tab_event", { event, tab_id: tab.id, url: tab.url ? maskUrl(tab.url) : null, title: tab.title || null,
-                            active: tab.active ?? null, incognito: tab.incognito ?? null });
+                            active: tab.active ?? null, incognito: tab.incognito ?? null,
+                            ...(same === true ? { same_document: true } : {}) });
 }
 chrome.tabs.onCreated.addListener((t) => tabEvent("created", t));
 chrome.tabs.onUpdated.addListener((id, info, t) => { if (info.status === "complete") { ensurePort(); tabEvent("updated", t); } });

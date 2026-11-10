@@ -1151,3 +1151,14 @@ why = "Live: a tab opened by a click showed up only in a later call's opened_tab
 evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
 paths = ["ferb/act/browser/tools.py::BrowserAct", "extensions/chromium/background.js::observeAct"]
 live = ["LIVE-890"]
+
+[HAND-492]
+title = "A single-page app's route change keeps the snapshot's element ids"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.8 records the top document's own key (content.js documentKey) at each snapshot. A tab's `updated` event carries the optional same_document true when that document is still the one in the tab (a single-page app's route change); the daemon then doesn't count it as a load, so the snapshot's ids keep working (an element the app removed is still refused as gone). Any doubt sends nothing and counts a load, as before; an older extension never sends it."
+why = "Live: element ids went stale on every tabs.onUpdated \"complete\", which single-page apps fire on route changes without a new document."
+evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
+paths = ["extensions/chromium/background.js::tabEvent", "ferb/act/browser/ext_protocol.py::TabEvent"]
+live = ["LIVE-890"]

@@ -4001,5 +4001,5 @@ area = "hands"
 surface = "FERB.app with this build and the FERB extension 0.19.8, a Chrome profile FERB drives; an amazon.in product page, with nothing bought (stop before payment)"
 request = "Ask FERB to open an amazon.in product page and add the item to the cart (then remove it), and on another product page press Buy Now and stop at the address or payment step."
 pass = "FERB presses Add to cart and Buy Now through the extension without asking for the screen, in the background; no visual_stale or page_changed_during_screenshot in the trace, no target_occluded for a hidden shortcut entry; nothing is bought."
-decisions = ["HAND-480", "HAND-481", "HAND-482", "HAND-483", "HAND-484", "HAND-485", "HAND-486", "HAND-487", "HAND-488", "HAND-489", "HAND-490", "HAND-491"]
+decisions = ["HAND-480", "HAND-481", "HAND-482", "HAND-483", "HAND-484", "HAND-485", "HAND-486", "HAND-487", "HAND-488", "HAND-489", "HAND-490", "HAND-491", "HAND-492"]
 sitting = "after this change is installed and 0.19.8 is published"

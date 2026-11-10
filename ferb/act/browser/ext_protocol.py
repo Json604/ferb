@@ -225,6 +225,9 @@ class TabEvent(BaseModel):
     ferb: bool | None = None                   # sound: a tab FERB opened, or in FERB's own window
     changed: list[Literal["audible", "muted"]] = []
     muted_reason: str | None = None            # sound (protocol 21): mutedInfo.reason, who last changed the mute
+    # updated (extension 0.19.8, optional, HAND-492): the load kept the document the last snapshot read (a single-page
+    # app's route change), so that snapshot's element ids still name its elements
+    same_document: bool | None = None
 
 
 class Event(BaseModel):
