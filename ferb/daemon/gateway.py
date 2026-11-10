@@ -1542,7 +1542,7 @@ class Gateway:
             kinds = set(f.field_kinds)
             c.pay = payments.PayFacts(f.tab_chain, host_of(f.page_url), (f.frame_host or "").lower() or None,
                                       f.page_amount, f.page_merchant, bool(f.submits_form and kinds & CARD_KINDS),
-                                      submits=bool(f.submits_form))
+                                      submits=bool(f.submits_form), shown=tuple(f.page_amounts))
             if (entry := self._card_entry(c.root, f.tab_chain)) is not None:
                 c.extra["card_entry"] = entry            # ORCH-321: the payment card names the saved card
         elif c.name.startswith("mac.") and c.spec.target.site and \

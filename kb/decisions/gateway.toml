@@ -1039,3 +1039,13 @@ words_source = "Owner 2026-11-10, relayed by the coordinator of the short-run fi
 rule = "Refines GATE-204 and GATE-216 for the payment card only. When code read no amount on the page and the AI declared one, the card's question and exact line show that amount, marked as the AI's that FERB couldn't confirm on the page (\"Pay ₹70? (FERB couldn't confirm the amount on the page)\"), and the question line says the same. An amount code read is shown alone, as before (a differing declared one changes nothing). The AI's amount never keys the Yes or decides whether to ask."
 paths = ["ferb/policy/payments.py::need", "ferb/policy/confirm.py::unconfirmed_amount", "ferb/policy/confirm.py::_card", "ferb/daemon/gateway.py::Gateway._payment"]
 live = ["LIVE-873"]
+
+[GATE-576]
+title = "The AI's payment amount is confirmed when the checkout page shows that exact amount"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Refines GATE-575. With no amount code read, the AI's declared amount is compared, as GATE-217 compares (currency sign or code, grouping, decimals), with every money amount the page shows (ActionFacts.page_amounts: a currency beside a number in the latest snapshot's text and labels, never the words beside it). Present: the card says \"Pay <amount as the page shows it>?\" and its box notes it is the AI's amount and the page shows it, naming the largest larger amount the page also shows. Absent: GATE-575's words. Never keyed; a read amount wins."
+why = "Owner 2026-11-10 about GATE-575: \"then whats the fix for it??\". Amazon's checkout shows its total only as page text (\"Order Total: ₹70.00\" beside other amounts); picking the total by its words would be a keyword rule (rule 4), so code checks the AI's number against the page's amounts instead."
+paths = ["ferb/act/browser/ext_bridge.py::page_amounts", "ferb/core/types.py::ActionFacts", "ferb/policy/payments.py::need", "ferb/policy/confirm.py::unconfirmed_amount", "ferb/policy/confirm.py::_card"]
+live = ["LIVE-876"]

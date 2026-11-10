@@ -89,6 +89,7 @@ class PayFacts:
     merchant: str | None = None
     submits_card: bool = False
     submits: bool = False                 # it submits a form (a card form or not)
+    shown: tuple[str, ...] = ()           # GATE-576: every money amount the page shows, as written
 
 
 @dataclass
@@ -199,6 +200,16 @@ def need(facts: PayFacts, values: dict[str, str], approved: Approval | None = No
     # shown, marked as one FERB couldn't confirm on the page; it never keys the Yes and never replaces an amount read
     if facts.amount is None and values.get("declared"):
         shown["declared"] = values["declared"]
+        # GATE-576: the page shows that exact amount (compared as GATE-217 compares, never by the words beside it): the
+        # card says it as the page shows it, and a larger amount the page also shows
+        seen = [a for a in facts.shown if _same(a, values["declared"], amount_key) is True]
+        if seen:
+            shown["page_shows"] = seen[0]
+            mine = amount_key(seen[0])
+            more = [a for a in facts.shown if (k := amount_key(a)) is not None and mine is not None and
+                    (k[0] == mine[0] or not k[0] or not mine[0]) and Decimal(k[1]) > Decimal(mine[1])]
+            if more:
+                shown["page_larger"] = max(more, key=lambda a: Decimal(amount_key(a)[1]))  # type: ignore[index]
     if approved is not None:
         shown["approved"] = (approved.amount or UNREAD) + (f" to {approved.merchant}" if approved.merchant else "")
         shown["bank"] = facts.frame_host if facts.frame_host and facts.frame_host != approved.host else facts.host

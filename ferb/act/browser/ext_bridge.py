@@ -227,6 +227,21 @@ def label_amount(label: str | None) -> str | None:
     found = {m.group(0).strip() for m in _AMOUNT.finditer(str(label or "")[:300])}
     return found.pop() if len(found) == 1 else None
 
+
+PAGE_AMOUNTS = 200              # GATE-576: at most this many distinct amounts kept from one snapshot
+
+
+def page_amounts(texts: list[str]) -> tuple[str, ...]:
+    """GATE-576: every money amount the page shows (a currency sign or code beside a number), as written, in page
+    order, each once. Only a shape: which one is the total is never decided from the words around it."""
+    found: dict[str, None] = {}
+    for text in texts:
+        for m in _AMOUNT.finditer(str(text or "")):
+            found.setdefault(" ".join(m.group(0).split()), None)
+            if len(found) >= PAGE_AMOUNTS:
+                return tuple(found)
+    return tuple(found)
+
 def _browser_pid(writer: Any) -> int | None:
     """The browser process behind a native-host connection: the native host's parent (the browser starts it, and
     FERB's launcher execs Python in place). Kernel facts (LOCAL_PEERPID, libproc), never a name or window lookup."""
@@ -965,6 +980,7 @@ class _Tab:
     held: bool = False              # it counts in its bridge's keepalive holds
     frame_urls: dict[int, str] = field(default_factory=dict)   # the latest snapshot's frames' URLs (masked)
     commerce: dict[str, Any] = field(default_factory=dict)     # the page's structured amount/merchant (protocol 18)
+    amounts: tuple[str, ...] = ()   # GATE-576: every money amount its latest snapshot shows (text and labels)
     muted: bool = False             # HAND-207: FERB muted it (the browser's tab mute); its task may unmute it
     typed_at: int | None = None     # HAND-447: the tab's load count when FERB last typed, filled or uploaded in it
     page: _Page | None = None       # where the latest snapshot saw the tab, for FERB's cursor (L33)
@@ -1578,6 +1594,7 @@ class _TabDriver:
         t.frame_urls = {int(f["frame_id"]): str(f.get("url") or "") for f in v["frames"]}
         t.commerce = next((dict(f["commerce"]) for f in v["frames"] if int(f["frame_id"]) == 0
                            and isinstance(f.get("commerce"), dict)), {})
+        t.amounts = page_amounts([text, *(e.label or "" for *_, e in elements.values())])
         t.containers, t.media, t.media_ids = containers, media_refs, media_ids
         t.page, t.motion, t.moved = _Page.of(v.get("window"), top), motion, False
         result = PageSnapshot(tab, gen, url, title, [e for *_, e in elements.values()], text, truncated, dialogs,
@@ -1683,6 +1700,7 @@ class _TabDriver:
                            page_amount=amount or (commerce.get("amount") if isinstance(commerce.get("amount"), str)
                                                   else None),
                            page_merchant=commerce.get("merchant") if isinstance(commerce.get("merchant"), str) else None,
+                           page_amounts=getattr(t, "amounts", ()),
                            secure_field=info.secret or None, terminal_target=info.terminal or None,
                            target_role=info.role or None, page_url=t.url or None,
                            frame_host=here if here and here != page else None, tab_chain=self.tab_chain(tab_id))

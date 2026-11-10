@@ -1242,9 +1242,12 @@ def unconfirmed_amount(v: dict[str, str]) -> str:
     """GATE-575: when code read no amount on the page but the AI stated one, that amount marked as the AI's, which FERB
     couldn't confirm on the page; "" otherwise (an amount code read always stands alone)."""
     read = v.get("amount", "")
-    if v.get("declared") and (not read or read.startswith(UNREAD_AMOUNT)):
-        return f"{v['declared']} (the AI's amount; FERB couldn't confirm it on the page)"
-    return ""
+    if not v.get("declared") or (read and not read.startswith(UNREAD_AMOUNT)):
+        return ""
+    if v.get("page_shows"):                          # GATE-576: the page shows that exact amount
+        also = f"; the page also shows {v['page_larger']}" if v.get("page_larger") else ""
+        return f"{v['page_shows']} (the AI's amount; the page shows this amount{also})"
+    return f"{v['declared']} (the AI's amount; FERB couldn't confirm it on the page)"
 
 
 def _pays(verb: str, v: dict[str, str]) -> str:
@@ -1661,6 +1664,9 @@ def _card(n: Need, alongside: frozenset[str]) -> Card | None:
         shown = stated or amount
         exact = " · ".join(p for p in (f"{shown} → {to}" if to else shown, v.get("site", ""),
                                        f"from {v['account']}" if v.get("account") else "") if p)
+        if stated and v.get("page_shows"):            # GATE-576: the AI's amount, and the page shows it
+            return Card(f"Pay {v['page_shows']}{' to ' + to if to else ''}?", detail, exact, f"Pay {v['page_shows']}",
+                        "Don't pay")
         if stated:
             return Card(f"Pay {v['declared']}{' to ' + to if to else ''}? (FERB couldn't confirm the amount on the "
                         "page)", detail, exact, "Pay", "Don't pay")

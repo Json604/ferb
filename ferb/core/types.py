@@ -153,6 +153,9 @@ class ActionFacts:
     field_kinds: tuple[FieldKind, ...] = ()  # the kinds of the fields the input fills, or the submitted form holds
     page_amount: str | None = None           # an amount read from the page or app by code, as shown (with currency)
     page_merchant: str | None = None         # who that amount is paid to, as the page shows it
+    # every money amount the page shows (a currency sign or code beside a number, as written; GATE-576): only compared
+    # with an amount the worker declared, never read for which one is the total
+    page_amounts: tuple[str, ...] = ()
     received_by: ReceivedBy | None = None    # the app / window / element that received the input
     secure_field: bool | None = None         # the element receiving input is a secure (password-class) field
     terminal_target: bool | None = None      # the input reaches a terminal (ferb/policy/terminal.py's facts)

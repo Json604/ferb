@@ -3949,3 +3949,12 @@ request = "Ask FERB to order something it must ask a question about (say cables 
 pass = "The unrelated request is answered on its own; its trace's task payload holds none of the first request's words. The first question stays open; your later answer continues the order (journal: question.kept, then question.answered with `by`)."
 decisions = ["ORCH-586"]
 sitting = "after this change is installed"
+
+[LIVE-876]
+title = "A checkout whose total is only page text: the payment card says the amount the page shows"
+area = "gateway"
+surface = "FERB.app with this build; an Amazon.in cash-on-delivery checkout of a cheap item in your profile"
+request = "Ask FERB to order a cheap item with cash on delivery; say Don't pay at the question."
+pass = "The card's first line is \"Pay ₹<order total>?\" as the page shows it; the box says it is the AI's amount and the page shows it (and names any larger amount on the page). Nothing is ordered after Don't pay."
+decisions = ["GATE-576", "GATE-575"]
+sitting = "after this change is installed"

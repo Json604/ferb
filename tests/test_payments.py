@@ -30,6 +30,7 @@ class _Tab(FakeCap):
         card: bool = False
         submit: bool = False                     # a form submit with no card fields (a one-click checkout)
         code: bool = False                       # the run asks for a login code here (a bank page's OTP)
+        shown: list[str] = []                    # every money amount the page shows (GATE-576)
 
     def __init__(self, d: RunningDaemon | None = None) -> None:
         super().__init__("probe.tab", Kind.CLICK, {"probe"})
@@ -42,7 +43,8 @@ class _Tab(FakeCap):
                           facts=ActionFacts(page_url=f"https://{args.host}/checkout", page_amount=args.amount,
                                             page_merchant=args.merchant, frame_host=args.frame, tab_chain=args.tab,
                                             submits_form=True if args.card or args.submit else None,
-                                            field_kinds=("card_number", "card_csc") if args.card else ()))
+                                            field_kinds=("card_number", "card_csc") if args.card else (),
+                                            page_amounts=tuple(args.shown)))
 
     async def run(self, args: Any, ctx: Any) -> ToolResult:
         self.ran.append(args.host)
@@ -208,6 +210,43 @@ def test_with_no_amount_read_the_card_shows_the_ais_amount_marked_unconfirmed(da
                          {"declared": "₹70", "site": "orderly.example"})
     card = confirm.card([need])
     assert "₹70" in card.question and "₹70" in card.exact and "couldn't confirm" in card.question
+
+
+# decision: GATE-576, GATE-575
+def test_the_ais_amount_is_confirmed_when_the_checkout_page_shows_it(daemon: RunningDaemon) -> None:
+    """Owner 2026-11-10 ("then whats the fix for it??"): Amazon's order total is page text only. A checkout page shows
+    several amounts; the AI's ₹70 among them, compared as GATE-217 compares, makes the card say "Pay ₹70.00?" with
+    the box noting the page shows it, and a larger amount on the page is named, never judged the total. Absent, the
+    card keeps "couldn't confirm". The Yes is still never keyed by the AI's number."""
+    checkout = ["₹63.00", "₹0.00", "₹7.00", "₹70.00", "₹19.00"]
+    tab = _Tab()
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order the batteries on www.orderly.example"), [tab])
+    owner = Answers(daemon, granted=True, choice=1)
+    try:
+        for chain, shown in (("t1", checkout), ("t2", [*checkout, "INR 1,240.50"]), ("t3", ["₹63.00", "₹7.00"])):
+            assert not gateway_tool_call(daemon, grant, "probe.tab", tab=chain, submit=True, effect="pay",
+                                         shown=shown, destination={"amount": 70, "currency": "₹"})["is_error"]
+    finally:
+        owner.stop()
+    seen, larger, absent = [a["args"] for a in _asked(daemon)]
+    assert "₹70.00" in seen["question"] and "the page shows this amount" in seen["question"]
+    assert "couldn't confirm" not in seen["question"] and "also shows" not in seen["question"]
+    assert "the page also shows INR 1,240.50" in larger["question"]
+    assert "couldn't confirm" in absent["question"]
+    assert all("70" not in a["confirm"][0]["key"] for a in (seen, larger, absent))
+    need = payments.need(payments.PayFacts("t1", "www.orderly.example", shown=tuple(checkout)),
+                         {"declared": "₹70", "site": "orderly.example"})
+    card = confirm.card([need])
+    assert card.question.startswith("Pay ₹70.00") and "couldn't confirm" not in card.question
+    assert "the page shows this amount" in card.exact
+
+
+# decision: GATE-576
+def test_a_page_reports_every_money_amount_it_shows_as_written() -> None:
+    from ferb.act.browser.ext_bridge import page_amounts
+    text = "Items: ₹63.00\nDelivery: ₹0.00\nCash/Pay on Delivery fee ₹7.00\nOrder Total: ₹70.00\nQty 2 · 3 items"
+    assert page_amounts([text, "Fastest Tomorrow 8 am - 12 pm ₹19.00 Rush Delivery", "Order Total: ₹70.00"]) == (
+        "₹63.00", "₹0.00", "₹7.00", "₹70.00", "₹19.00")                  # numbers with no currency aren't amounts
 
 
 # ---------- the rule on its own ----------
