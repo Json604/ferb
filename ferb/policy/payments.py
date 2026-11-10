@@ -14,6 +14,10 @@ bank's page in a popup) until it completes or PAY_WINDOW_S passes; another tab c
   bank page and came back to the checkout's host, once a card form was submitted and another card form is submitted
   there, or once a paying form submit with no card form ran (a one-click checkout: the Yes covers exactly that submit;
   a bank verification page it opens is still covered).
+GATE-580: on the checkout's own page, where code read no amount, a covered press is compared just before it goes with
+the page as asked about, read fresh (`Pressed`, `pressed_change`): the AI's amount the card showed must still be among
+the page's amounts if it was then, and the control asked about must still be on that page; a change sets the approval
+aside and asks again, once per distinct change.
 A Mac app's payment is scoped the same way to its app window (bundle and window id) for PAY_WINDOW_S (coordinator
 ruling, step 6b).
 An approval lives in memory: after a restart FERB asks again (the safe side). A payment with neither a tab nor an app
@@ -24,6 +28,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Callable
+from urllib.parse import urlsplit, urlunsplit
 
 from ferb.policy import confirm
 
@@ -90,6 +95,32 @@ class PayFacts:
     submits_card: bool = False
     submits: bool = False                 # it submits a form (a card form or not)
     shown: tuple[str, ...] = ()           # GATE-576/577: every money amount the page shows, as written
+    declared: str | None = None           # GATE-580: the AI's stated amount (shown on the card when none was read)
+    page: str | None = None               # GATE-580: the page's address without its fragment (page_key)
+    control: str | None = None            # GATE-580: the pressed control's own label
+
+
+@dataclass(frozen=True)
+class Pressed:
+    """GATE-580: the page as it is just before a covered press, read fresh (not the snapshot's): its address and the
+    money amounts on its lines that hold the approved amount's last digits. None in a field: it couldn't be read."""
+    url: str | None
+    amounts: tuple[str, ...] | None
+
+
+def page_key(url: str | None) -> str | None:
+    """A page's address without its fragment (the same page, whatever part of it is scrolled to)."""
+    if not url:
+        return None
+    return urlunsplit(urlsplit(url)._replace(fragment=""))
+
+
+def digits_of(amount: str | None) -> str:
+    """GATE-580: the last (up to three) digits of an amount's whole part: text no grouping separator splits, however
+    the page groups the number (1,240 / 1,24,000 / 70.00), so a page search for it finds every way it is written."""
+    key = amount_key(amount)
+    whole = key[1].split(".")[0] if key is not None else ""
+    return whole[-3:]
 
 
 @dataclass
@@ -107,6 +138,12 @@ class Approval:
     cards: int = 0                        # card forms submitted under this Yes
     paid_one_click: bool = False          # a paying submit with no card form ran (one-click checkout)
     done: bool = False
+    # GATE-580: the page at ask time, for the press-time re-check: the AI's amount the card showed (none read), whether
+    # the page showed it then, the page's address without its fragment and the asked control's label
+    declared: str | None = None
+    seen: bool = False
+    page: str | None = None
+    control: str | None = None
 
 
 @dataclass(frozen=True)
@@ -120,6 +157,7 @@ class Check:
 class Payments:
     now: Callable[[], datetime]
     _by: dict[tuple[str, str], Approval] = field(default_factory=dict)
+    _changes: dict[tuple[str, str], set[tuple[object, ...]]] = field(default_factory=dict)   # GATE-580
 
     def _active(self, tree: str, chain: str) -> Approval | None:
         a = self._by.get((tree, chain))
@@ -148,9 +186,28 @@ class Payments:
         return Check(approval=a)
 
     def approve(self, tree: str, facts: PayFacts, cid: str) -> Approval:
-        a = Approval(cid, facts.chain, facts.host, facts.amount, facts.merchant, self.now())
+        declared = facts.declared if facts.amount is None else None
+        a = Approval(cid, facts.chain, facts.host, facts.amount, facts.merchant, self.now(), declared=declared,
+                     seen=bool(declared) and any(_same(s, declared, amount_key) is True for s in facts.shown),
+                     page=facts.page, control=facts.control)
         self._by[(tree, facts.chain)] = a
         return a
+
+    def active(self, tree: str, chain: str) -> Approval | None:
+        return self._active(tree, chain)
+
+    def set_aside(self, tree: str, chain: str) -> None:
+        """GATE-580: the page changed after the owner's Yes: that Yes no longer covers the chain (not a No)."""
+        self._by.pop((tree, chain), None)
+
+    def first_change(self, tree: str, chain: str, state: tuple[object, ...]) -> bool:
+        """GATE-580: whether this observed change of the page is new for the chain (the owner is asked once per
+        distinct change; a page that flips back and forth is then left to the worker)."""
+        seen = self._changes.setdefault((tree, chain), set())
+        if state in seen:
+            return False
+        seen.add(state)
+        return True
 
     def observe(self, tree: str, chain: str | None, host: str | None, amount: str | None,
                 merchant: str | None) -> None:
@@ -188,6 +245,33 @@ class Payments:
     def forget(self, trees: set[str]) -> None:
         for k in [k for k in self._by if k[0] in trees]:
             del self._by[k]
+        for k in [k for k in self._changes if k[0] in trees]:
+            del self._changes[k]
+
+
+def rechecks(a: Approval, facts: PayFacts) -> bool:
+    """GATE-580: whether a press this approval covers is compared with the page at press time: on the checkout's own
+    page (not a bank page or another host's frame), for a payment whose amount code didn't read."""
+    return a.amount is None and facts.host == a.host and not facts.frame_host
+
+
+def pressed_change(a: Approval, facts: PayFacts, now: Pressed | None, asked_here: bool) -> str | None:
+    """GATE-580: why a press the approval covers must not go now, comparing the page at press time (`now`, read fresh)
+    with the page at ask time; None when nothing the owner saw changed. Only on the checkout's own page (a bank page or
+    a payment gateway's frame keeps GATE-204/216's rules), only where code read no amount (one it read keeps
+    `Payments.check`'s rule), and only with a fresh read (`now`; a Mac app has none).
+    - "page": the control asked about (this call, or a later press of the control with the same label) is on another
+      page than the one asked about (address without its fragment);
+    - "amount": the AI's amount the card showed was on the page then and isn't now (or the page couldn't be read)."""
+    if now is None or not rechecks(a, facts):
+        return None
+    same_control = asked_here or (bool(a.control) and facts.control == a.control)
+    if same_control and a.page and page_key(now.url) != a.page:
+        return "page"
+    if a.declared and a.seen and (now.amounts is None or
+                                  not any(_same(s, a.declared, amount_key) is True for s in now.amounts)):
+        return "amount"
+    return None
 
 
 def need(facts: PayFacts, values: dict[str, str], approved: Approval | None = None) -> confirm.Need:

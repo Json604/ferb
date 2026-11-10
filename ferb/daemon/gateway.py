@@ -86,7 +86,7 @@ from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
 from ferb.sanitize.untrusted import earlier_questions, pasted_parts
 from ferb.store.spans import SpanStore, PayloadOutput, tree_where
-from ferb.daemon import pay_picture, refused_fills
+from ferb.daemon import pay_picture, pay_press, refused_fills
 from ferb.daemon.refused_fills import RefusedFills
 from ferb.trace import lines
 
@@ -154,6 +154,13 @@ SUPERSEDED_NEXT = ("Apply the owner's correction first. If this action is still 
                    "it again; FERB asks again.")
 UNATTENDED = "{line} This needs you, and nobody is at chat (a scheduled run); not done."
 OWNER_DECIDED_NEXT = "The owner decided; don't do this another way. Report that it wasn't done."
+# GATE-580: a covered payment press whose page changed again in a way the owner was already asked about
+PAY_CHANGES = {"page": "the payment control is on another page than the one the owner approved",
+               "amount": "{amount}, the amount on the owner's question, isn't on the page any more"}
+PAY_CHANGED_AGAIN = ("nothing was pressed: the page changed after the owner's Yes ({what}), and the owner was already "
+                     "asked about this change")
+PAY_CHANGED_NEXT = ("Read the page again. Once it is steady, press the payment control again; FERB asks the owner if the "
+                    "page differs from what they approved. Report it if the page keeps changing.")
 # D31, review round 1 finding 5: the question would show it redacted while the real value is typed
 TERMINAL_SECRET = ("{field} holds a secret (one of FERB's keys or a credential's format), so FERB neither shows it in a "
                    "question nor puts it into a terminal; a secret goes in only through mac.secret, the owner's hidden "
@@ -553,6 +560,7 @@ class Call:
     pay: payments.PayFacts | None = None                            # a payment in a task's tab (GATE-204)
     pay_cid: str | None = None                                      # the Yes that covers it
     pay_key: str | None = None
+    pay_values: dict[str, str] = field(default_factory=dict)        # its question's other facts (GATE-580's re-ask)
 
     @property
     def root(self) -> str:
@@ -992,6 +1000,7 @@ class Gateway:
         if isinstance(needs, dict):
             return needs
         covered = await self._authorize(c, needs)
+        covered = await self._pay_pressed(c, needs, covered)   # GATE-580: the page as it is now, before the press
         try:
             if c.consequential:
                 c.extra["confirmations"] = covered.ids
@@ -1541,9 +1550,13 @@ class Gateway:
         else:
             return needs                                  # no tab and no window to scope it: each run asks (SQ1)
         rest = [n for n in needs if n.rule != confirm.ALWAYS[Kind.PAY]]
-        # GATE-578: the AI's stated amount, shown plainly only where code read none; never keyed
+        # GATE-578: the AI's stated amount, shown plainly only where code read none; never keyed. GATE-580: the page
+        # as asked about (its address without the fragment, the control's label), for the press-time re-check
         stated = confirm.shown_amount(c.checked.target.amount, c.checked.target.currency)
-        check = self.payments.check(c.root, c.pay, {**pays[0].values, **({"declared": stated} if stated else {})})
+        c.pay = dataclasses.replace(c.pay, declared=stated or None, page=payments.page_key(f.page_url if f else None),
+                                    control=(f.control_label or "").strip() or None if f else None)
+        c.pay_values = {**pays[0].values, **({"declared": stated} if stated else {})}
+        check = self.payments.check(c.root, c.pay, c.pay_values)
         if check.approval is not None:
             c.pay_cid = check.approval.cid
             c.extra["payment"] = {"covered_by": check.approval.cid, "scope": c.pay.chain}
@@ -1716,6 +1729,46 @@ class Gateway:
             return None
         return lambda: pay_picture.capture(c.cap, c.args, c.grant.task_id, self.locks.hold, c.lock_keys,
                                            "picture:" + c.root)
+
+    async def _pay_pressed(self, c: "Call", needs: list[confirm.Need], covered: Covered) -> Covered:
+        """GATE-580: a press a payment approval covers is compared, just before it goes, with the page the owner was
+        asked about, read fresh (`pay_press.read`; `payments.pressed_change` says what changed). Changed: the press
+        isn't sent, the approval is set aside (not a No) and the owner is asked again at once with the page as it is
+        now and a new picture. The same change seen again in the chain isn't asked again: the worker is told, and
+        nothing is pressed."""
+        if covered.refused is not None or c.pay is None or c.pay_cid is None:
+            return covered
+        a = self.payments.active(c.root, c.pay.chain)
+        if a is None or a.cid != c.pay_cid or not payments.rechecks(a, c.pay):
+            return covered
+        here = c.pay_key is not None and covered.rows.get(c.pay_key) == c.pay_cid   # this call asked for it
+        try:
+            now = await pay_press.read(c.cap, c.args, c.grant.task_id, a.declared, self.locks.hold, c.lock_keys,
+                                       "press:" + c.root)
+            change = payments.pressed_change(a, c.pay, now, here)
+            if change is None or now is None:
+                return covered
+            c.extra["payment_changed"] = {"what": change, "approved": a.cid}
+            what = PAY_CHANGES[change].format(amount=a.declared or "")
+            if not self.payments.first_change(c.root, c.pay.chain, (change, now.url, tuple(sorted(now.amounts or ())))):
+                covered.refused = {"error": PAY_CHANGED_AGAIN.format(what=what), "next": PAY_CHANGED_NEXT}
+                return covered
+            self.payments.set_aside(c.root, c.pay.chain)
+            c.pay = dataclasses.replace(c.pay, shown=now.amounts or ())     # the question's facts: the page now
+            check = self.payments.check(c.root, c.pay, c.pay_values)
+            assert check.need is not None
+            c.pay_cid, c.pay_key = None, check.need.key
+            again = await self._authorize(c, [check.need])
+        except BaseException:
+            for cid in covered.spent:                    # nothing ran: the Yeses this call claimed cover a retry
+                self.confirmations.release(cid)
+            covered.spent = []
+            raise
+        covered.ids += again.ids
+        covered.rows.update(again.rows)
+        covered.spent += again.spent
+        covered.refused = again.refused
+        return covered
 
     def _granted_row(self, c: "Call", key: str) -> str | None:
         row = self.confirmations.find(c.root, key, self.spans.reopened_answers(c.root))

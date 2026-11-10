@@ -1086,3 +1086,13 @@ rule = "For GATE-578. Asking a payment (not when unattended or under the 30-minu
 why = "The capture used still paints secret fields, giving none when the extension can't place them (said as not captured); an unmasked owner-only one is the browser's to add. A reload or newer snapshot makes the Yes's click stale (ext_bridge _resolve); an in-page change without a load isn't re-checked."
 paths = ["ferb/daemon/pay_picture.py", "ferb/daemon/gateway.py::Gateway._pay_picture", "ferb/daemon/gateway.py::Gateway.ask_confirmation", "ferb/daemon/call_hooks.py::CallHooks", "ferb/daemon/areas/rpc.py", "ferb/daemon/auth.py::APP_ONLY", "ferb/daemon/questions.py::card_parts"]
 live = ["LIVE-877"]
+
+[GATE-580]
+title = "A covered payment press is checked against the page the owner was asked about, read fresh"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Refines GATE-579. On the checkout's own page, with no amount read, a press an approval covers is first compared with the page at ask time, read fresh (the tab's address, and its text lines holding the amount's last digits). Not sent, the approval set aside (not a No) and asked again with the page now and a new picture, when: the AI's amount was on the page then and isn't now; or the control asked about is on another page (address without fragment). Approved though not found: only the control. Each distinct change asks once; a repeat goes to the worker. A read amount keeps GATE-217."
+why = "Owner 2026-11-10, reading GATE-579's note that an in-page change without a load wasn't re-checked: \"why nto recheck??\". Snapshot facts are as old as the snapshot, and a new snapshot would make the element's id stale, so the read uses the driver's tab list and page search."
+paths = ["ferb/policy/payments.py::pressed_change", "ferb/policy/payments.py::rechecks", "ferb/policy/payments.py::Payments.first_change", "ferb/daemon/pay_press.py", "ferb/daemon/gateway.py::Gateway._pay_pressed"]
+live = ["LIVE-878"]
