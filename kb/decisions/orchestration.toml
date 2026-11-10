@@ -1305,6 +1305,16 @@ why = "2026-11-09 23:55 (\"cancel the task man. btw wha do you need hte code for
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._control", "ferb/orchestrator/supervisor.py::Supervisor._record_reply", "ferb/orchestrator/supervisor.py::Supervisor._timeline", "ferb/orchestrator/supervisor.py::Supervisor._told_in_reply"]
 live = ["LIVE-895"]
 
+[ORCH-597]
+title = "A scheduled run is given the owner's own messages beside the planner's instructions"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For ORCH-589. Refines ORCH-313 and ORCH-512. A scheduled run's planner (Layer 5) and its worker and checker (the request block) label the schedule's text as its instructions, written by FERB's planner, never as the owner's request, and get beside it the owner's own chat messages behind it: those of the requests on its schedule.created and schedule.edited rows (and messages read with them), read from the journal, so every existing schedule has them; nothing new is stored. The schedule facts say rule is when it runs. Recorded scopes are unchanged."
+why = "The visa schedule's instructions still said \"every 6 hours from 6:00 AM\" after a timing-only edit to six fixed times; the run's worker read them as the owner's words."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._schedule_messages", "ferb/orchestrator/supervisor.py::Supervisor._context", "ferb/orchestrator/supervisor.py::Supervisor.run_scheduled", "ferb/orchestrator/supervisor.py::SCHEDULED_REQUEST"]
+live = ["LIVE-892"]
+
 [ORCH-591]
 title = "The planner is told what FERB did since the owner's previous message"
 by = "agent"

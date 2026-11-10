@@ -174,3 +174,23 @@ def test_a_card_only_its_card_can_answer_is_listed_as_such(daemon: RunningDaemon
     from tests.conftest import answer_question
     answer_question(daemon, RUNTIME_ASK, choice="Stop")
     turn.done()
+
+
+# decision: ORCH-597
+def test_a_scheduled_run_is_given_the_owners_own_messages_beside_the_planners_instructions(
+        daemon: RunningDaemon) -> None:
+    from ferb.orchestrator.supervisor import SCHEDULE_MESSAGES
+    from tests.support.schedules import schedule_reply
+    words = "every day check the visa site and if a slot is free book it, chennai first"
+    install(daemon, [schedule_reply(daemon, "Check the visa site daily; book the earliest slot, Chennai first", words,
+                                    daemon.daemon.clock.now() + timedelta(minutes=1), repeat="daily", paths=())])
+    chat(daemon, words, session="owner")
+    script = install(daemon, [sup("task", "Checking.", task("Check visa slots"))],
+                     {"worker": json.dumps(report("done", NO_SLOTS))})
+    fire(daemon, 61)
+    planner = _planner(script)
+    assert "Layer 5 — This scheduled run's instructions (FERB's planner wrote them" in planner
+    assert "Layer 5 — owner's complete new message" not in planner and words in planner
+    worker = next(c for _, k, c, _ in script.contexts if k == "worker")
+    assert "This scheduled run's instructions" in worker and "Owner's complete original request" not in worker
+    assert SCHEDULE_MESSAGES in worker and words in worker.split(SCHEDULE_MESSAGES, 1)[1]

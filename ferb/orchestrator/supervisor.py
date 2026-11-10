@@ -1480,7 +1480,9 @@ class Supervisor(WorkerRuns):
                         "previous_run": ran_before and {**ran_before, "answer": str(previous["entry"].data.get(
                             "text", "")), "answer_origin": previous["entry"].origin}}
         session = ChatSession(SCHEDULE_SESSION + sched.id)
-        turn = _Turn(request_id, session, words=sched.request, payload=sched.request + note,
+        said = self._schedule_messages(sched.id)          # ORCH-597: the owner's own words behind the schedule
+        turn = _Turn(request_id, session, words=sched.request,
+                     payload=sched.request + ("\n\n" + SCHEDULE_MESSAGES + said if said else "") + note,
                      message_origin=self._schedule_origins(sched.id),
                      request_origins=self._schedule_sink_origins(sched.id),     # S4 (L4)
                      schedule_previous=previous)
@@ -3299,7 +3301,9 @@ class Supervisor(WorkerRuns):
             several = len(turn.entries) > 1
             state.append((ContextBlock(("Layer 5 — owner's new messages, sent one after another before FERB replied "
                                         "(read them together; the last one is the most recent):\n" if several else
-                                        "Layer 5 — owner's complete new message:\n") + turn.payload,
+                                        # ORCH-597: a scheduled run's instructions are FERB's planner's, not the owner's
+                                        "Layer 5 — " + SCHEDULED_REQUEST if session.id.startswith(SCHEDULE_SESSION)
+                                        else "Layer 5 — owner's complete new message:\n") + turn.payload,
                                        REQUEST_REFERENCE, protected=True,
                                        source_refs=tuple("journal:" + e.id for e in turn.entries)),
                           turn.message_origin or {origins_.external("unlabeled")}))
@@ -4006,6 +4010,17 @@ class Supervisor(WorkerRuns):
         elif kind == "schedule.edited":
             shown["runs"] = (data.get("after") or {}).get("rule", "")
         return shown, set()
+
+    def _schedule_messages(self, schedule_id: str) -> str:
+        """ORCH-597: the owner's own chat messages that made or changed a schedule, oldest first, each with its time:
+        those of the requests its schedule.created and schedule.edited rows name (and messages read with them), as
+        recorded (redacted). "" for a schedule made outside chat or whose messages aren't recorded."""
+        requests = [str(e.data.get("request_id")) for kind in ("schedule.created", "schedule.edited")
+                    for e in self.journal.of_kind(kind, "schedule_id", schedule_id) if e.data.get("request_id")]
+        found = {e.id: e for rid in dict.fromkeys(requests) for field in ("request_id", "read_with")
+                 for e in self.journal.of_kind("chat.message", field, rid)}
+        return "\n".join(f"({e.at.astimezone():%a %d %b %H:%M}) {e.data.get('text', '')}"
+                         for e in sorted(found.values(), key=lambda e: e.at))
 
     def _schedule_label(self, schedule_id: str) -> str:
         """A schedule's heading as every list shows it (its name, else its instruction's first clause, ORCH-542)."""
@@ -6248,8 +6263,16 @@ class Supervisor(WorkerRuns):
         if tree.step_context:             # a step gets its own step and handed evidence; its activity is pullable
             activity = ('', origins_.FERB)
         memory = await self._worker_memory(tree, request) if learned else []
-        parts = [ContextBlock("Owner's complete original request (pasted sources remain marked as data):\n" +
-                              (request.payload or words), "task.evidence kind=task", protected=True, cache=True),
+        scheduled = self._tree_of.get(tree.id)
+        sid = scheduled.schedule_id if scheduled is not None else None
+        # ORCH-597: a scheduled run's request is its schedule's instructions, which FERB's planner wrote; the owner's
+        # own messages that made or changed the schedule follow as theirs
+        said = self._schedule_messages(sid) if sid else ""
+        parts = [ContextBlock((SCHEDULED_REQUEST if sid else "Owner's complete original request (pasted sources remain "
+                               "marked as data):\n") + (request.payload or words), "task.evidence kind=task",
+                              protected=True, cache=True),
+                 *([ContextBlock(SCHEDULE_MESSAGES + said, "chat.history (the owner's messages)", protected=True,
+                                 cache=True)] if said else []),
                  ContextBlock((f"Parent task goal: {tree.parent_goal}\n" if tree.parent_goal else "") +
                               f"Task: {spec.goal}\nWorker type: {spec.worker_type}", "task specification",
                               protected=True, cache=True),
@@ -6403,7 +6426,9 @@ class Supervisor(WorkerRuns):
                                if isinstance(previous, dict) else None}
         made = {origins_.FERB, origins_.INFERRED} | (origins_.split(str(previous.get("answer_origin") or ""))
                                                      if isinstance(previous, dict) else set())
-        block = self._source_block(tree, "Schedule facts (data; chat.history lists every earlier run)",
+        # ORCH-597: `rule` is when it runs (FERB's saved timing), whatever timing words its instructions hold
+        block = self._source_block(tree, "Schedule facts (data; rule is when this schedule runs, from FERB's saved "
+                                         "timing; chat.history lists every earlier run)",
                                    wrap_untrusted(json.dumps(shown, ensure_ascii=False)), origins_.join(made))
         return dataclasses.replace(block, protected=True)
 
@@ -6965,6 +6990,13 @@ NOTHING_TO_CHECK = "there was nothing to check it against"
 REPORT_UNCONFIRMED = "every detail of this answer against what I saw"   # its report condition stayed unmet
 NOT_ACCEPTED = "the check didn't confirm the result"     # a failure no reason came with (never a done claim)
 UNCONFIRMED_CHARS = 300                          # the "Couldn't confirm" line stays one short line
+# ORCH-597: a scheduled run's request is its schedule's instructions, written by FERB's planner, never the owner's words;
+# the owner's own messages behind the schedule are given beside them
+SCHEDULED_REQUEST = ("This scheduled run's instructions (FERB's planner wrote them from the owner's messages when the "
+                     "schedule was made or changed; when it runs is the schedule facts' rule; pasted sources remain "
+                     "marked as data):\n")
+SCHEDULE_MESSAGES = ("The owner's own messages that made or changed this schedule, oldest first (their words, as they "
+                     "typed them; the instructions were written from them):\n")
 # ORCH-591: the journal kinds the planner's "what happened since" block reads, and how much of a text it quotes
 SINCE_KINDS = ("schedule.posted", "schedule.skipped", "question.answered", "task.stopped", "timer.delivered",
                "runtimes.changed", "runtimes.model", "runtime.switched", "browsers.paired", "browsing.chosen",
