@@ -11,7 +11,7 @@ import time
 from typing import Any
 
 from ferb.act.browser.snapshot import for_model
-from ferb.core.types import PageElement, PageSnapshot, TabRef
+from ferb.core.types import FormSubmit, PageElement, PageSnapshot, TabRef
 from tests.browserkit import OWNER, bd, call, pair, task  # noqa: F401 (fixture)
 from tests.chromelab import EXT, _node, worker
 
@@ -192,6 +192,33 @@ def test_the_preview_keeps_what_is_on_screen_and_says_how_many_on_screen_were_le
     assert str(crowded["omitted_in_view_elements"]) in crowded["omitted_note"]
     full = for_model(PageSnapshot(tab, 1, "https://shop.example/p", "P", menu + box), full=True)
     assert len(full["elements"]) == 401                                        # the saved snapshot keeps everything
+    index = out["omitted_index"]
+    assert index["by_role"] == {"link": out["omitted_elements"]} and index["buttons_and_links"][0].startswith("Department")
+
+
+# decision: HAND-483
+def test_the_preview_keeps_a_dialog_a_covered_control_and_an_on_screen_forms_submit_first() -> None:
+    """A control under a sticky bar is `in_view: false` but on screen; a dialog's elements and the submit button of a
+    form whose field is on screen come before everything else, wherever they sit in the list."""
+    tab = TabRef("d", "chrome", "Default", 1, "t1")
+    filler = [_el(n, "On screen " + "y" * 300, True) for n in range(1, 200)]
+    form = "html:1>body:1>form:2"
+    field = PageElement(id="s1e500", frame_id="0", role="textbox", label="Pincode", value=None, rect=(0, 0, 9, 9),
+                        visible=True, path=form + ">input:1")
+    submit = PageElement(id="s1e501", frame_id="0", role="button", label="Check", value=None, rect=(0, 0, 9, 9),
+                         visible=True, in_view=False, offscreen="below", path=form + ">button:1",
+                         submit=FormSubmit(True, False, "shop.example", "GET"))
+    covered = PageElement(id="s1e502", frame_id="0", role="button", label="Buy Now", value=None, rect=(0, 0, 9, 9),
+                          visible=True, in_view=False, occluded=True)
+    close = PageElement(id="s1e503", frame_id="0", role="button", label="Close", value=None, rect=(0, 0, 9, 9),
+                        visible=True, in_view=False, offscreen="below", in_dialog=True)
+    out = for_model(PageSnapshot(tab, 1, "https://shop.example/p", "P", filler + [field, submit, covered, close]))
+    kept = {e["id"] for e in out["elements"]}
+    assert {"s1e501", "s1e503"} <= kept and out["omitted_in_view_elements"] > 0
+    assert [e for e in out["elements"] if e["id"] == "s1e503"][0]["dialog"] is True
+    crowded = for_model(PageSnapshot(tab, 1, "https://shop.example/p", "P",
+                                     [covered] + [_el(n, "Off " + "z" * 300, False) for n in range(1, 200)]))
+    assert crowded["elements"][0]["id"] == "s1e502"                             # covered, still on screen: kept
 
 
 # decision: HAND-484

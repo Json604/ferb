@@ -463,6 +463,7 @@ class PageElement:
     submit: FormSubmit | None = None         # what a click on it, or Enter in it, would submit
     path: str = ""                           # its DOM path (P19 identity when the debugger gave no node id)
     backend_node: int | None = None          # the debugger's node id while the node lives (P19 identity)
+    in_dialog: bool = False                  # inside an open dialog (<dialog open>, role dialog/alertdialog, aria-modal)
 
 
 @dataclass(frozen=True)

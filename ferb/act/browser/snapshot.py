@@ -83,7 +83,56 @@ def element(eid: str, frame_id: str, raw: dict[str, Any]) -> PageElement:
                        terminal=raw.get("terminal") is True, field_kind=kind, submit=_submit(raw.get("submit")),
                        path=raw["path"][:2000] if isinstance(raw.get("path"), str) else "",
                        backend_node=raw["backend_node"] if isinstance(raw.get("backend_node"), int)
-                       and not isinstance(raw.get("backend_node"), bool) else None)
+                       and not isinstance(raw.get("backend_node"), bool) else None,
+                       in_dialog=raw.get("dialog") is True)
+
+
+FIELD_ROLES = frozenset({"textbox", "searchbox", "combobox", "checkbox", "radio", "spinbutton", "slider", "switch",
+                         "listbox"})
+
+
+def _form_of(path: str) -> str | None:
+    """The form an element is in, by its DOM path up to the nearest <form> (content.js domPath); None outside one."""
+    parts = path.split(">") if path else []
+    for i in range(len(parts) - 1, -1, -1):
+        if parts[i].startswith("form:"):
+            return ">".join(parts[:i + 1])
+    return None
+
+
+def _ranks(elements: list[PageElement]) -> list[int]:
+    """HAND-483: what the preview keeps first. 0: inside an open dialog, or the submit button of a form with a field on
+    screen; 1: on screen (in view, or covered there); 2: the rest."""
+    def shown(e: PageElement) -> bool:
+        return e.in_view or (e.occluded and not e.offscreen)
+    forms = {f for e in elements if shown(e) and e.role in FIELD_ROLES and (f := _form_of(e.path))}
+    return [0 if e.in_dialog or (e.submit is not None and e.submit.on_click and _form_of(e.path) in forms)
+            else 1 if shown(e) else 2 for e in elements]
+
+
+OMITTED_LABELS_CHARS = 3000   # the omitted buttons' and links' labels listed in a preview's index, at most
+
+
+def _omitted_index(elements: list[PageElement]) -> dict[str, Any]:
+    """A compact index of what the preview left out: how many of each role, and the labels of its buttons and links
+    (each once, up to OMITTED_LABELS_CHARS in all; how many more, if any)."""
+    by_role: dict[str, int] = {}
+    labels: list[str] = []
+    used, more = 0, 0
+    for e in elements:
+        by_role[e.role] = by_role.get(e.role, 0) + 1
+        if e.role in ("button", "link") and e.label and e.label[:80] not in labels:
+            if used + len(e.label[:80]) <= OMITTED_LABELS_CHARS:
+                labels.append(e.label[:80])
+                used += len(e.label[:80])
+            else:
+                more += 1
+    out: dict[str, Any] = {"by_role": dict(sorted(by_role.items(), key=lambda kv: -kv[1]))}
+    if labels:
+        out["buttons_and_links"] = labels
+    if more:
+        out["more_labels"] = more
+    return out
 
 
 def for_model(snap: PageSnapshot, *, full: bool = False, probe: bool = False) -> dict[str, Any]:
@@ -116,16 +165,21 @@ def for_model(snap: PageSnapshot, *, full: bool = False, probe: bool = False) ->
             d["container"] = e.container
         if e.state:
             d["state"] = list(e.state)
+        if e.in_dialog:
+            d["dialog"] = True
         els.append(d)
     omitted = omitted_in_view = 0
+    index: dict[str, Any] = {}
     if not full:
-        # HAND-483: the budget goes to what is on screen first, then the rest in the list's order; the preview keeps
-        # the list's order. Live 2026-11-10: an Amazon buy box in view was cut for 321 off-screen items.
+        # HAND-483: the budget goes first to an open dialog's elements and the submit buttons of forms with a field on
+        # screen, then to what is on screen, then the rest, each in the list's order; the preview keeps the list's
+        # order. Live 2026-11-10: an Amazon buy box in view was cut for 321 off-screen items.
         import json
-        budget, keep = 24000, set()
-        for first in (True, False):
+        ranks = _ranks(snap.elements)
+        budget, keep, left = 24000, set(), []
+        for rank in (0, 1, 2):
             for i, item in enumerate(els):
-                if ("in_view" not in item) != first:
+                if ranks[i] != rank:
                     continue
                 size = len(json.dumps(item, ensure_ascii=False))
                 if size <= budget:
@@ -133,8 +187,11 @@ def for_model(snap: PageSnapshot, *, full: bool = False, probe: bool = False) ->
                     budget -= size
                 else:
                     omitted += 1
-                    omitted_in_view += first
+                    omitted_in_view += rank < 2
+                    left.append(i)
         els = [item for i, item in enumerate(els) if i in keep]
+        if left:
+            index = _omitted_index([snap.elements[i] for i in sorted(left)])
     text = snap.text if full else snap.text[:MAX_TEXT]
     out: dict[str, Any] = {"tab": snap.tab.tab_id, "url": snap.url, "title": snap.title}
     if snap.loading:                               # read at once, not after every frame loaded (HAND-434): a fact
@@ -157,6 +214,8 @@ def for_model(snap: PageSnapshot, *, full: bool = False, probe: bool = False) ->
     if snap.truncated or omitted or len(text) < len(snap.text):
         out["truncated"] = True
         out["omitted_elements"] = omitted
+        if index:
+            out["omitted_index"] = index
         if omitted_in_view:
             out["omitted_in_view_elements"] = omitted_in_view
             out["omitted_note"] = (f"{omitted_in_view} of the left-out elements are on screen; browser.find with "

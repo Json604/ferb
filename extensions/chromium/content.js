@@ -456,6 +456,8 @@
     if (!meets) e.offscreen = r.bottom <= 0 ? "above" : r.top >= innerHeight ? "below" : r.right <= 0 ? "left" : "right";
     if (occluded) e.occluded = true;
     if (container) e.container = container;
+    // HAND-483: inside an open dialog (the preview keeps it first); a structural fact of the markup
+    if (el.closest && el.closest('dialog[open],[role="dialog"],[role="alertdialog"],[aria-modal="true"]')) e.dialog = true;
     if (terminalOf(el)) e.terminal = true;
     const kind = fieldKind(el);
     if (kind) e.field_kind = kind;
