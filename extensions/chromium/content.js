@@ -888,6 +888,12 @@
     el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
     const r = el.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) return { error: "not_visible" };
+    // HAND-482: a centre still outside this frame's viewport after scrolling is a fact of its own (a control parked off
+    // the page, e.g. a hidden keyboard-shortcut entry), never "covered": hitTest would clamp it onto whatever is there.
+    const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+    const side = cy < 0 ? "top" : cy >= innerHeight ? "bottom" : cx < 0 ? "left" : cx >= innerWidth ? "right" : null;
+    if (side) return { error: `outside_page: the element is outside the page even after scrolling, off its ${side} ` +
+                              "edge, so it can't be clicked where it is; nothing was sent. Use a control the page shows" };
     const occluded = hitTest(el, r);
     return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height, occluded, secret: isSecret(el),
              disabled: !!el.disabled || el.getAttribute("aria-disabled") === "true",

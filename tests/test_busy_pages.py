@@ -1,8 +1,12 @@
 """Past-bug guards from live 2026-11-10 (amazon.in product pages, task 64a149b8): FERB couldn't press Add to cart or
 Buy Now. A screenshot point failed 10 of 10 as "visual_stale" and screenshots as "page_changed_during_screenshot",
-because any DOM change anywhere counted (HAND-480). The extension's own code, run under node."""
+because any DOM change anywhere counted (HAND-480, HAND-481); an element parked off the page's left edge was called
+covered (HAND-482). The extension's own code, run under node."""
 
-from tests.chromelab import worker
+import json
+import subprocess
+
+from tests.chromelab import EXT, _node, worker
 
 # A tab whose top frame (0) holds the buy button above y=500 and an ad's frame (7) below it. Every read of a frame's
 # visual state gives a new `epoch`, as an older content.js would on a page that never sits still. `during` runs while
@@ -86,3 +90,38 @@ def test_a_point_is_refused_when_what_the_click_depends_on_changed_and_says_what
     assert t["rect"].startswith("visual_target_changed: frame 0 element rect"), t
     assert t["ad"] == "pressed"
     assert out["events"].count("mousePressed") == 2 and out["again"].startswith("visual_stale: no screenshot")
+
+
+# decision: HAND-482
+def test_an_element_still_off_the_page_after_scrolling_is_said_so_and_a_covered_one_stays_covered() -> None:
+    src = (EXT / "content.js").read_text()
+    fns = []
+    for name in ("hitTest", "rect"):
+        start = src.index(f"  function {name}(")
+        fns.append(src[start:src.index("\n  }\n", start) + 4])
+    script = r'''
+class ShadowRoot {}
+const innerWidth = 1280, innerHeight = 800;
+let cover = null;
+const document = {elementFromPoint: () => cover};
+const isSecret = () => false;
+const box = (x, y, w, h) => ({x, y, width: w, height: h, left: x, top: y, right: x + w, bottom: y + h});
+const el = (r) => ({tagName: "A", getRootNode: () => document, scrollIntoView() {}, getBoundingClientRect: () => r,
+                    getAttribute: () => null, contains: (o) => false, isContentEditable: false});
+let target = null;
+const element = () => ({el: target});
+''' + "\n".join(fns) + r'''
+const out = {};
+target = el(box(-10000, 300, 120, 30)); cover = {}; out.left = rect(1, 0).error;
+target = el(box(400, 900, 120, 30)); out.below = rect(1, 0).error;
+target = el(box(400, 300, 120, 30)); cover = {}; out.covered = rect(1, 0);
+cover = target; out.clear = rect(1, 0);
+console.log(JSON.stringify(out));
+'''
+    ran = subprocess.run([_node(), "-e", script], capture_output=True, text=True, timeout=20)
+    out = json.loads(ran.stdout or "null")
+    assert out, ran.stderr
+    assert out["left"].startswith("outside_page:") and "even after scrolling" in out["left"] and "left" in out["left"]
+    assert "bottom" in out["below"]
+    assert out["covered"]["occluded"] is True and "error" not in out["covered"]
+    assert out["clear"]["occluded"] is False
