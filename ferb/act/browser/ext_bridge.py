@@ -932,6 +932,32 @@ def _motion(raw: dict[str, Any]) -> tuple[str | None, bool]:
         bool(raw.get("scroll_box") or raw.get("container"))
 
 
+class CaptureUnavailable(DriverError):
+    """HAND-497: the tab couldn't be captured for the owner's card; its words are plain ("couldn't capture the page")."""
+
+
+class OwnerOnlyImage:
+    """HAND-497: an unmasked picture of a page for the owner's eyes only (the payment card), from
+    `_TabDriver.owner_view`. It never enters a tool result, a model's context, a trace, the journal or a store: it holds
+    its bytes behind `jpeg()`, shows only its size as text, and refuses JSON (no __dict__), pickling and copying into
+    anything that serializes."""
+    __slots__ = ("_jpeg",)
+
+    def __init__(self, jpeg: bytes) -> None:
+        self._jpeg = jpeg
+
+    def jpeg(self) -> bytes:
+        return self._jpeg
+
+    def __repr__(self) -> str:
+        return f"<owner-only page picture, {len(self._jpeg)} bytes>"
+
+    __str__ = __repr__
+
+    def __reduce__(self) -> Any:
+        raise TypeError("an owner-only page picture is never stored or copied")
+
+
 class _NoSecrets:
     """Owner profiles never get FERB's secrets."""
 
@@ -2147,6 +2173,23 @@ class _TabDriver:
             jpeg, t.masking = await self._unread(t, jpeg, v)
             return jpeg
         return painted(jpeg, v)
+
+    async def owner_view(self, tab: TabRef) -> "OwnerOnlyImage":
+        """HAND-497: one unmasked picture of the tab for the owner's own payment card and nothing else (the owner's
+        exception: shown once, to them only, never to a model). Not a tool and called by no tool: only the payment
+        card's builder calls it. It returns an OwnerOnlyImage, which no JSON, pickle, string or tool result can carry,
+        and nothing here records it. CaptureUnavailable ("couldn't capture the page") when the tab can't be captured.
+        Every model-visible capture (screenshot above) keeps its masking exactly (GATE-206)."""
+        import base64
+        t = self._tab(tab)
+        try:
+            v = await t.bridge.call("owner_view", {"tab_id": t.chrome_id}, timeout=15)
+        except DriverError as e:
+            raise CaptureUnavailable(f"couldn't capture the page ({str(e)[:200]})") from None
+        if not isinstance(v.get("data"), str) or not v["data"]:
+            why = str(v.get("unavailable") or "")[:200]
+            raise CaptureUnavailable("couldn't capture the page" + (f" ({why})" if why else ""))
+        return OwnerOnlyImage(base64.b64decode(v["data"]))
 
     async def pdf(self, tab: TabRef, landscape: bool = False) -> bytes:
         """T-1065, HAND-427: the tab as Chrome prints it (extension 0.19.3's `pdf`), fetched in parts like a

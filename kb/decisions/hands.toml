@@ -1208,3 +1208,13 @@ evidence = "Owner 2026-11-10 via the coordinator: HAND-495's words."
 rejected = ["An arbitrary-JavaScript tool: it could act around every confirmation", "outerHTML: it can't reach closed shadow roots or mask secret fields"]
 paths = ["extensions/chromium/content.js::markup", "extensions/chromium/background.js::html", "ferb/act/browser/ext_bridge.py::html", "ferb/act/browser/tools.py::BrowserHtml"]
 live = ["LIVE-891"]
+
+[HAND-497]
+title = "The payment card's owner-only page picture is captured unmasked, through no tool"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For the owner's exception for the payment card (recorded by the card's builder). Extension 0.19.8's `owner_view` captures the tab with no secret-field look, no mask and no before/after check. Only _TabDriver.owner_view sends it; no tool or store calls it. It returns an OwnerOnlyImage, which JSON, pickle and text can't carry; an uncapturable tab is CaptureUnavailable (\"couldn't capture the page\"). Every model-visible capture keeps GATE-206's masking."
+why = "The picture is shown once, to the owner only, never to a model: a mask there only hid what the owner was asked to pay for, and its look slowed the card."
+evidence = "Owner 2026-11-10 via the coordinator: \"why??? its only one time, shown to me and never shown to ai. only  show error when it cnat be captured etcetc, not this unnecesarry check\"; \"yeah add it.\""
+paths = ["extensions/chromium/background.js::owner_view", "ferb/act/browser/ext_bridge.py::owner_view", "ferb/act/browser/ext_bridge.py::OwnerOnlyImage"]

@@ -657,7 +657,7 @@ const script = (injection) => chrome.scripting.executeScript({ ...injection, inj
 // page from freezing and wakes one that froze (0 of 4 froze with it set at open; 4 of 4 frozen tabs woke for a read).
 // It is the debugger's own call, answered while the page is frozen; the owner sees nothing (the group stays collapsed).
 // Sent when a tab is armed, before every command that reads or acts in it, and whenever Chrome reports one frozen.
-const WAKES = new Set(["snapshot", "find", "html", "wait", "screenshot", "record_frame", "point", "frame_origin", "pdf",
+const WAKES = new Set(["snapshot", "find", "html", "owner_view", "wait", "screenshot", "record_frame", "point", "frame_origin", "pdf",
   "act", "fill", "upload", "media", "scroll", "pointer"]);
 async function wake(tabId) {
   const t = TABS.get(tabId);
@@ -2450,6 +2450,16 @@ const commands = {
     if (data.length <= SHOT_PART) { st.shot = null; return { data, format: format || "jpeg", ...extra }; }
     st.shot = data;
     return { parts: Math.ceil(data.length / SHOT_PART), size: data.length, format: format || "jpeg", ...extra };
+  },
+  // Extension 0.19.8 (HAND-497): one picture of the tab for the owner's own payment card, nothing else: no look for
+  // secret fields, no mask state, no before/after check, so it is quick. It is never painted because no model, trace or
+  // store ever gets it (the daemon's owner_view hands it only to the card). A tab the debugger can't attach to says so
+  // plainly (`unavailable`), for the card's "couldn't capture the page".
+  async owner_view({ tab_id }) {
+    try { await arm(tab_id); }
+    catch (e) { return { unavailable: `the browser won't let FERB capture this page (${String(e && e.message || e)})` }; }
+    const { data } = await cdp(tab_id, "Page.captureScreenshot", { format: "jpeg", quality: 80 });
+    return { data };
   },
   // As a screenshot: `looks: false`, `steps` (0.19.6).
   async record_frame({tab_id, part, capture_id, looks, _timeout_ms, _run}) {

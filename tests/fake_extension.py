@@ -133,6 +133,7 @@ class FakeExtension:
         self.pings = 0
         self.uploads: list[dict[str, Any]] = []
         self.screenshot_bytes = 10                        # size of the fake jpeg
+        self.shot_jpeg: bytes | None = None               # a real picture to capture instead (HAND-497's masking test)
         self.scroll_pos: dict[tuple[int, str | None], int] = {}
         self.opens = 0
         # downloads (D35): the extension holds a captured download until the daemon pulls it with download_part
@@ -759,7 +760,7 @@ class FakeExtension:
     def op_screenshot(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         """Like the real extension (protocol 14, L13): the picture and the page's mask state before and after it."""
         self._attach(a["tab_id"])
-        data = base64.b64encode(os.urandom(self.screenshot_bytes)).decode()
+        data = base64.b64encode(self.shot_jpeg or os.urandom(self.screenshot_bytes)).decode()
         state = {"top": "doc", "viewport": [0, 0, 1280, 900], "items": [
             {"key": f"field|doc|{i}", "rect": [0, 0, 10, 10], "paint": True}
             for i, e in enumerate(page(self.tabs[a["tab_id"]])["elements"]) if e.get("secret")]}
@@ -772,6 +773,13 @@ class FakeExtension:
     def op_screenshot_part(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         i = a["part"]
         return {"data": self._shot[i * SHOT_PART:(i + 1) * SHOT_PART]}
+
+    def op_owner_view(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        """HAND-497: the picture alone, no mask state; a tab the debugger can't attach to says so."""
+        if a["tab_id"] in self.debugger_refused:
+            return {"unavailable": f"the browser won't let FERB capture this page ({self.debugger_refused[a['tab_id']]})"}
+        self._attach(a["tab_id"])
+        return {"data": base64.b64encode(self.shot_jpeg or os.urandom(self.screenshot_bytes)).decode()}
 
     def op_find(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         tab = a["tab_id"]
