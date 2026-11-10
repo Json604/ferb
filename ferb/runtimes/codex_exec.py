@@ -101,8 +101,10 @@ BASE_TOOLS = frozenset({"list_mcp_resources", "list_mcp_resource_templates", "re
 # RUN-426: Codex's own lookups that only list what the connected tool servers offer as resources. FERB's bridge (the
 # only server: apps and plugins are off) offers tools and no resources, so a call lists nothing; it passes the item gate
 # instead of stopping the run (live 2026-11-07: a final check stopped on codex.list_mcp_resources). Reading a resource
-# (read_mcp_resource) and every other tool still stop it.
+# (read_mcp_resource) and every other tool still stop it. RUN-451: the item names server "codex" for a listing of every
+# server, or the server the model asked to list ("ferb", live 2026-11-10); both list FERB's nothing.
 RESOURCE_LISTS = frozenset({"list_mcp_resources", "list_mcp_resource_templates"})
+RESOURCE_LIST_SERVERS = frozenset({"codex", "ferb"})
 
 
 def codex_home(ferb_home: Path) -> Path | None:

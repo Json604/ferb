@@ -527,3 +527,12 @@ why = "RUN-422 recorded \"the turn's request went out at 0.12 s while that looku
 evidence = "FERB's database, read-only, 106 planner turns 11-04..11-09. Codex 0.166.0 against a stand-in that answers routing: routing held 1 s, the request left 1291 ms after turn/start without account/read, 494 ms with it first. Inferred: the earlier stand-in's routing never ran (no account id)."
 paths = ["ferb/runtimes/codex_stream.py::start"]
 live = ["LIVE-834"]
+
+[RUN-451]
+title = "Codex listing FERB's own server's resources passes the item gate too"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Refines RUN-426. A Codex mcpToolCall item whose tool is list_mcp_resources or list_mcp_resource_templates passes the item gate when its server is `codex` (a listing of every server) or `ferb` (the model asked for FERB's server by name): FERB's bridge offers no resources, so either lists nothing. read_mcp_resource on any server and every other tool not FERB's still stop the run (RUN-405)."
+why = "Live 2026-11-10 (Codex short run): two attempts were thrown away on ferb.list_mcp_resources (journal runtime.failed 03:23:40, 03:39:16), about 10 s each. Claude Code is never offered resource tools (tools=[], FERB's server declares none): nothing to change there."
+paths = ["ferb/runtimes/codex_stream.py::events", "ferb/runtimes/codex_exec.py::RESOURCE_LIST_SERVERS"]

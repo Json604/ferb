@@ -135,11 +135,13 @@ async def test_the_item_gate_records_the_kind_tool_and_server(tmp_path, monkeypa
                             "item": {"kind": "mcpToolCall", "tool": "rm_all", "server": "other"}}
 
 
-# decision: RUN-426
+# decision: RUN-426, RUN-451
 @pytest.mark.anyio
-async def test_codexs_own_resource_listing_passes_and_every_other_outside_tool_still_stops_the_run(tmp_path,
-                                                                                                  monkeypatch) -> None:
-    """Live 2026-11-07: a final check stopped on codex.list_mcp_resources, a lookup FERB's bridge answers with nothing."""
+@pytest.mark.parametrize("server", ["codex", "ferb"])
+async def test_codexs_own_resource_listing_passes_and_every_other_outside_tool_still_stops_the_run(
+        tmp_path, monkeypatch, server) -> None:
+    """Live 2026-11-07: a final check stopped on codex.list_mcp_resources, a lookup FERB's bridge answers with nothing.
+    Live 2026-11-10: the same listing asked of FERB's server by name (ferb.list_mcp_resources) threw attempts away."""
     import ferb.runtimes.codex_stream as stream
     codex_home(tmp_path)
     proc = Process(tools=[{"type": "function", "name": "mcp__ferb.mac_read"}])
@@ -148,11 +150,11 @@ async def test_codexs_own_resource_listing_passes_and_every_other_outside_tool_s
                          output_schema={"type": "object"}, model="test-model")
     run = await stream.start(rt, TASK, ModelRequest("sys", ("ctx",)), "tok")
     for tool in ("list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"):
-        proc.notify("item/started", {"item": {"id": tool, "type": "mcpToolCall", "server": "codex", "tool": tool}})
+        proc.notify("item/started", {"item": {"id": tool, "type": "mcpToolCall", "server": server, "tool": tool}})
     got = [ev async for ev in stream.events(rt, run)]
     assert got[-1].kind == "violation"                         # the read, not the two listings, stopped it
-    assert got[-1].data == {"unexpected_tools": ["codex.read_mcp_resource"],
-                            "item": {"kind": "mcpToolCall", "tool": "read_mcp_resource", "server": "codex"}}
+    assert got[-1].data == {"unexpected_tools": [f"{server}.read_mcp_resource"],
+                            "item": {"kind": "mcpToolCall", "tool": "read_mcp_resource", "server": server}}
 
 
 class RequestingProcess(Process):
