@@ -1229,3 +1229,13 @@ rule = "Refines ORCH-576. The checker's result per condition carries a plain boo
 why = "Owner 2026-11-10 on the scheduled visa check (task beeb93f5, 12:00-12:04): \"whasts wrong here now??  and whjy didn tu give hte reasno??? iut used to befiore. also why did it not answer kym question correctly??\". No post had slots; the submitted check failed the run and hid the answer."
 paths = ["ferb/orchestrator/schemas.py::CheckerResult", "ferb/orchestrator/supervisor.py::Supervisor.verify", "ferb/orchestrator/supervisor.py::Supervisor._verifier", "ferb/orchestrator/prompts/verifier.md"]
 live = ["LIVE-884"]
+
+[ORCH-588]
+title = "The planner's conversation holds what FERB posted in the chat by itself, as the owner saw it"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Refines ORCH-303 and ORCH-515, read minimally: the conversation the owner sees is the one the planner sees. In time order with the owner's messages and FERB's replies: a scheduled run's result FERB posted (journaled schedule.posted, with its task answer's origin and stored values), a reminder or timer arriving (timer.delivered) and a part of this chat's task posted as it landed (chat.part, its first line, as the index shows it). Each is marked as FERB's own post and what it was (ORCH-566); model-written text in its short form as data (ORCH-326)."
+why = "Owner 2026-11-10 12:04 (\"whasts wrong here now?? ... also why did it not answer kym question correctly??\"): asked \"why couldn tyou finisnuh??\" under the failed scheduled visa post; the planner never saw that post and answered about the 10:25 Amazon order."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._self_post", "ferb/orchestrator/supervisor.py::Supervisor._timeline", "ferb/orchestrator/supervisor.py::SELF_POSTS", "ferb/daemon/areas/schedules.py::Schedules._posted"]
+live = ["LIVE-885"]

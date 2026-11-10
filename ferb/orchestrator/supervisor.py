@@ -41,7 +41,7 @@ from ferb.memory.items import CAPTURE_TOLD, capture, owner_span_at, query_terms,
 from ferb.memory.journal import Journal, JournalEntry
 from ferb.memory.lineage import ENTRY, REQUEST_REFERENCE, TASK
 from ferb.orchestrator.context_layers import target_words
-from ferb.orchestrator.continuity import SCHEDULE_SESSION, Continuity, in_conversation
+from ferb.orchestrator.continuity import RESERVED_SESSIONS, SCHEDULE_SESSION, Continuity, in_conversation
 from ferb.orchestrator.reply_stream import ReplyDraft
 from ferb.orchestrator.steering import (CONVERSATION_ASK, FERB_CHECKS, JUST_ENDED, Steering,
                                        apply as apply_steering, choices, grant_stated, not_covered, not_typed)
@@ -189,6 +189,9 @@ SUMMARY_TOKENS = 2_000              # FERB's running summary is kept within this
 SUMMARY_DAYS = 14
 REPORT_SHORT_CHARS = 300            # a task's report in the planner's history: its first paragraph, clipped here
 CONVERSATION_KINDS = ("chat.message", "chat.reply", "chat.clarify", "task.answer", "chat.notice")   # notices: L10
+# ORCH-588: what FERB posts in the owner's chat by itself, shown in the planner's conversation as the owner saw it: a
+# scheduled run's posted result, a reminder or timer arriving, a part of this chat's task posted as it landed
+SELF_POSTS = ("schedule.posted", "timer.delivered", "chat.part")
 SUMMARY_KIND = "chat.summary"      # FERB's running summary of the older conversation (L28)
 # L3: what the owner's chat message can answer, by the question's id from the planner's context, and FERB's own words
 # when it can't be used as an answer. Plain words: never an id, a command or a method (I12).
@@ -731,6 +734,8 @@ def _entry_payload(kind: str, data: dict[str, Any]) -> str:
     if kind == "chat.notice":
         from ferb.orchestrator.attention import notice_payload
         return notice_payload(data)
+    if kind == "timer.delivered":                     # ORCH-588: a reminder's words as it arrived
+        return str(data.get("message", ""))
     return str(data.get("text", ""))
 
 
@@ -3477,6 +3482,38 @@ class Supervisor(WorkerRuns):
         # within the planner's limits already (ORCH-307, step 9b): ranked, never protected
         return [(block, made) for block, made in ranked_memory_blocks(found)]
 
+    def _self_post(self, entry: JournalEntry, conversation: str | None, task_ids: set[str] | None) -> "_Entry | None":
+        """ORCH-588: something FERB posted in the owner's chat by itself, as a history entry: a scheduled run's posted
+        result and a reminder's or timer's arrival belong to every owner chat (as a notice does, never to FERB's own
+        planner sessions); a part posted as it landed belongs to its task's chat. Each says what it was and who wrote
+        it (ORCH-566); a model-written result shows in its short form, quoted as data (ORCH-303, MP2)."""
+        data, held = entry.data, origins_.split(entry.origin)
+        if conversation is not None and (conversation.startswith(RESERVED_SESSIONS) if entry.kind != "chat.part"
+                                         else task_ids is None or data.get("task_id") not in task_ids):
+            return None
+        text = str(data.get("text", ""))
+        if entry.kind == "timer.delivered":
+            what = "timer went off" if data.get("kind") == "timer" else "reminder arrived"
+            who, said = f"FERB (code record: {what}; its words were written when it was set)", \
+                str(data.get("message", ""))
+        else:
+            # a part as the task's index shows it (ORCH-535: its row's first line), a scheduled result as a report
+            short = _short_report(text.strip().split("\n", 1)[0] if entry.kind == "chat.part" else text)
+            cut = "; short form" if short != text else ""
+            if entry.kind == "schedule.posted":
+                who = (f"FERB (posted by itself: scheduled run “{data.get('name', '')}” result, {data.get('status')}"
+                       f"{cut}; model-written with code's lines; origin {origins_.shown(held)})")
+            else:
+                who = (f"FERB (posted by itself: part “{data.get('label', '')}” of task {data.get('task_id')}, "
+                       f"{data.get('state')}{cut}; model-written; origin {origins_.shown(held)})")
+            said = as_data(short)
+        reference = (f"task.evidence task_id={data.get('task_id')}" if entry.kind == "chat.part" else
+                     "the post as shown here" if entry.kind == "timer.delivered" else
+                     f"FERB's own post (journal {entry.id}); the run's records are its schedule's")
+        return _Entry(entry.at, f"({entry.at.astimezone():%a %d %b %H:%M}) {who}: " + said,
+                      _entry_payload(entry.kind, data), reference, True, held,
+                      ENTRY + entry.id, entry.kind, (), False, _stored_values(entry.kind, data))
+
     def _timeline(self, current: Any, conversation: str | None,
                   summary: Any = None) -> tuple[list["_Entry"], dict[str, datetime]]:
         """The conversation's entries after the running summary, oldest first, each complete: its display line (tag,
@@ -3488,9 +3525,13 @@ class Supervisor(WorkerRuns):
         leave_out = {current} if isinstance(current, str) else set(current)
         task_ids = self.continuity.task_ids(conversation) if conversation is not None else None
         timeline: list[_Entry] = []
-        for entry in self.journal.entries_of(*CONVERSATION_KINDS):
+        for entry in self.journal.entries_of(*CONVERSATION_KINDS, *SELF_POSTS):
             data = entry.data
             if data.get("request_id") in leave_out or data.get("read_with") in leave_out:
+                continue
+            if entry.kind in SELF_POSTS:
+                if (made := self._self_post(entry, conversation, task_ids)) is not None:
+                    timeline.append(made)
                 continue
             if conversation is not None:
                 if entry.kind == "task.answer":

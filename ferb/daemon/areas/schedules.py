@@ -736,6 +736,19 @@ class Schedules:
         cards = [self._run_card(sid, due)] + [c for c in final.get("cards") or [] if isinstance(c, dict)]
         await self._task_result(result | {"answer": answer, "cards": cards}, shown=quiet, alert=alert,
                                 publish=not quiet)
+        if not quiet:                    # ORCH-588: what the owner's chat shows, so the planner's history shows it too
+            self._posted(sid, s.label, final, answer)
+
+    def _posted(self, sid: str, name: str, final: dict[str, Any], answer: str) -> None:
+        """ORCH-588: a scheduled run's result FERB posted in the owner's chat, journaled as posted (schedule.posted)
+        with its task answer's origin and stored owner values (GATE-519), so the planner's conversation holds it."""
+        task_id = str(final.get("task_id") or "")
+        rows = self._journal().of_kind("task.answer", "task_id", task_id) if task_id else []
+        made, stored = (rows[-1].origin, rows[-1].data.get("provenance")) if rows else ("inferred", None)
+        self._journal().append("schedule.posted", {"schedule_id": sid, "task_id": task_id, "name": name,
+                                                   "status": str(final.get("status") or ""),
+                                                   "text": self._redact_text(answer)}
+                               | ({"provenance": stored} if isinstance(stored, dict) else {}), origin=made)
 
     def _run_card(self, sid: str, due: datetime) -> dict[str, Any]:
         """A scheduled run's reminder card (step 8e), from the schedule's row as it stands after the run: its recorded

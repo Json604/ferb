@@ -4003,3 +4003,12 @@ request = "Let the schedule run (or run it now) while no slot is free."
 pass = "The run ends done with what it saw (no slots at each place it checked); the trace's condition for booking reads \"Didn't apply\"; nothing was submitted."
 decisions = ["ORCH-587"]
 sitting = "after this change is installed"
+
+[LIVE-885]
+title = "Asking about what FERB just posted by itself gets an answer about that post"
+area = "orchestration"
+surface = "FERB.app with this build; a schedule that posts a result (or a reminder that arrives) in the chat"
+request = "When the scheduled result or reminder appears in the chat, ask about it in your own words (\"why couldn't you finish?\", \"what was that about?\")."
+pass = "FERB's reply is about that post; the planner's model.turn input shows the post as the last entry before your message, marked \"posted by itself\" (or \"reminder arrived\")."
+decisions = ["ORCH-588"]
+sitting = "after this change is installed"
