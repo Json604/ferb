@@ -119,6 +119,7 @@
     if (["IFRAME", "FRAME"].includes(el.tagName)) return {frame: tokenOf(el)};
     const control = el.closest(SEL);
     if (control && admits(control)) el = control;
+    else for (let a = el; a; a = parentOf(a)) if (clickables.has(a)) { el = a; break; }   // HAND-489
     for (const [id, ref] of els) if (ref.deref() === el) return {element: describe(el, id)};
     const id = els.size;
     els.set(id, new WeakRef(el));
@@ -315,10 +316,25 @@
     return ti !== null && Number(ti) >= 0;
   }
 
+  // HAND-489: a control the page made of a plain element (a date tab, a slot button: a div with a click handler) has
+  // no role; the outermost element of each cluster the page draws with a pointer cursor counts as one, role
+  // `clickable`, labelled by its text (a structural fact of its style). Never one inside a real control.
+  const clickables = new WeakSet();
+  const INTERACTIVE = 'a[href],button,input,select,textarea,summary,label,[role="button"],[role="link"],[role="tab"],' +
+    '[role="menuitem"],[role="option"],[role="checkbox"],[role="radio"],[role="switch"]';
+  const cursorOf = (el) => { try { return getComputedStyle(el).cursor; } catch (_) { return ""; } };
+  function pointerCluster(el) {
+    if (el.tagName === "BODY" || el.tagName === "HTML" || SKIP_TEXT.has(el.tagName) || cursorOf(el) !== "pointer") return false;
+    const p = parentOf(el);
+    if (p && cursorOf(p) === "pointer") return false;            // inside a larger pointer cluster: that one counts
+    if (el.closest(INTERACTIVE)) return false;
+    return !!((el.textContent || "").trim() || el.getAttribute("aria-label") || el.querySelector("img[alt]"));
+  }
   // Every candidate in document order, descending into shadow roots (closed ones too) right after their host.
   function collect(root, out) {
     for (const el of root.querySelectorAll("*")) {
       if (el.matches(SEL) && admits(el)) out.push(el);
+      else if (pointerCluster(el)) { clickables.add(el); out.push(el); }
       const sr = shadowOf(el);
       if (sr) collect(sr, out);
     }
@@ -428,7 +444,8 @@
 
   function describe(el, id) {
     const r = el.getBoundingClientRect(), secret = isSecret(el);
-    const role = el.getAttribute("role") || implicitRole(el);
+    const own = el.getAttribute("role") || implicitRole(el);
+    const role = own === "generic" && clickables.has(el) ? "clickable" : own;   // HAND-489
     let value = null;
     if (el.tagName === "SELECT") value = secret ? (el.value ? "filled" : "") : Array.from(el.selectedOptions).map(o=>o.text).join("\n");
     else if (el.tagName === "INPUT" && (el.type === "checkbox" || el.type === "radio")) value = el.checked ? "checked" : "";

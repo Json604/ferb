@@ -332,3 +332,29 @@ def test_a_screenshot_keeps_the_earlier_ids_of_elements_it_found_again() -> None
     navigated = SimpleNamespace(snap_gen=2, snap_nav=4, carried=set(), ids_note={}, elements=dict(same.elements))
     _TabDriver._carry(navigated, 1, 3, old)                                  # type: ignore[arg-type]
     assert not navigated.carried and "2 went" in navigated.ids_note["ids"]
+
+
+# decision: HAND-489
+def test_a_plain_element_the_page_draws_with_a_pointer_cursor_is_one_clickable() -> None:
+    """Live: date tabs and slot buttons were plain divs; 75 of 127 resolved screenshot points were role "generic"."""
+    src = (EXT / "content.js").read_text()
+    block = src[src.index("  const clickables = new WeakSet();"):src.index("  // Every candidate in document order")]
+    script = r'''
+const SKIP_TEXT = new Set(["SCRIPT", "STYLE"]);
+const node = (tag, cursor, parent, text = "", extra = {}) => ({tagName: tag, cursor, parent, textContent: text,
+  getAttribute: () => null, querySelector: () => null,
+  closest(sel) { for (let n = this; n; n = n.parent) if (n.control) return n; return null; }, ...extra});
+const getComputedStyle = (el) => ({cursor: el.cursor});
+const parentOf = (el) => el.parent || null;
+''' + block + r'''
+const body = node("BODY", "auto", null);
+const slot = node("DIV", "pointer", body, "10:30 AM");                 // the slot button: outermost pointer element
+const inner = node("SPAN", "pointer", slot, "10:30");                  // inherits the cursor: part of the slot
+const plain = node("DIV", "auto", body, "Some text");
+const link = node("A", "pointer", body, "Home", {control: true});
+const inLink = node("DIV", "pointer", node("SPAN", "auto", link), "x");   // inside a real control
+const empty = node("DIV", "pointer", body, "   ");
+console.log(JSON.stringify([slot, inner, plain, inLink, empty].map(pointerCluster)));
+'''
+    ran = subprocess.run([_node(), "-e", script], capture_output=True, text=True, timeout=20)
+    assert json.loads(ran.stdout or "null") == [True, False, False, False, False], ran.stderr

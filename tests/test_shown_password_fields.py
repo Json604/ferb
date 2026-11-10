@@ -169,6 +169,7 @@ const sealedFields = new WeakSet(), visible = () => true, maskedEditable = () =>
 const implicitRole = () => 'textbox', hitTest = () => false, scrollerOf = () => null, round = n => n;
 const pinnedOf = () => null, boxedBy = () => false, drawnParent = () => null;   // L33's scroll facts: none here
 const formKind = () => null, maskUrl = u => u, innerWidth = 1000, innerHeight = 1000, containers = new Map();
+const clickables = new WeakSet();                          // HAND-489: none of these inputs is a pointer cluster
 const input = (attrs, labelText = '') => Object.assign(new HTMLInputElement(), {tagName: 'INPUT', type: 'text', name: '', id: '',
   autocomplete: '', value: '', maxLength: -1, inputMode: '', pattern: '', disabled: false, readOnly: false,
   parentElement: null, labelText, getAttribute: () => null, isConnected: true,

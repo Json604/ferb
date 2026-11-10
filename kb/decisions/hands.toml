@@ -1118,3 +1118,14 @@ why = "Live: 29 of 32 \"element ... is from an older snapshot\" errors followed 
 evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
 paths = ["ferb/act/browser/ext_bridge.py::_carry", "ferb/act/browser/ext_bridge.py::visual_snapshot", "ferb/act/browser/tools.py::BrowserScreenshot"]
 live = ["LIVE-890"]
+
+[HAND-489]
+title = "A plain element the page draws with a pointer cursor is listed as one clickable control"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.8. Besides elements with a native tag, a known role or a tabindex, the snapshot lists the outermost element of each cluster whose computed cursor is pointer (its parent's isn't), with text, an aria-label or an image's alt, and not inside a real control: role `clickable`, labelled by its text. A screenshot point inside one resolves to it. A structural fact of the page's own style, not a reading of intent."
+why = "Live: date tabs and slot buttons (practo, healthplix) were plain divs with click handlers; 75 of 127 resolved screenshot points were role \"generic\", and the snapshot had no element for them."
+evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
+paths = ["extensions/chromium/content.js::pointerCluster", "extensions/chromium/content.js::collect"]
+live = ["LIVE-890"]
