@@ -123,8 +123,8 @@ def test_the_pointers_own_hover_may_restyle_the_target_but_a_tooltip_over_the_po
 # decision: HAND-482
 def test_an_element_still_off_the_page_after_scrolling_is_said_so_and_a_covered_one_stays_covered() -> None:
     src = (EXT / "content.js").read_text()
-    fns = []
-    for name in ("hitTest", "rect"):
+    fns = [src[src.index("  const reaches = (el, hit) => {"):src.index("  // The first point inside the element's box")]]
+    for name in ("hitPoint", "hitTest", "coverOf", "rect"):
         start = src.index(f"  function {name}(")
         fns.append(src[start:src.index("\n  }\n", start) + 4])
     script = r'''
@@ -132,7 +132,8 @@ class ShadowRoot {}
 const innerWidth = 1280, innerHeight = 800;
 let cover = null;
 const document = {elementFromPoint: () => cover};
-const isSecret = () => false;
+const isSecret = () => false, label = () => "", implicitRole = () => "generic";
+const getComputedStyle = () => ({position: "static"});
 const box = (x, y, w, h) => ({x, y, width: w, height: h, left: x, top: y, right: x + w, bottom: y + h});
 const el = (r) => ({tagName: "A", getRootNode: () => document, scrollIntoView() {}, getBoundingClientRect: () => r,
                     getAttribute: () => null, contains: (o) => false, isContentEditable: false});
@@ -140,9 +141,10 @@ let target = null;
 const element = () => ({el: target});
 ''' + "\n".join(fns) + r'''
 const out = {};
-target = el(box(-10000, 300, 120, 30)); cover = {}; out.left = rect(1, 0).error;
+const shade = {nodeType: 1, parentElement: null, getAttribute: () => null, closest: () => null};
+target = el(box(-10000, 300, 120, 30)); cover = shade; out.left = rect(1, 0).error;
 target = el(box(400, 900, 120, 30)); out.below = rect(1, 0).error;
-target = el(box(400, 300, 120, 30)); cover = {}; out.covered = rect(1, 0);
+target = el(box(400, 300, 120, 30)); cover = shade; out.covered = rect(1, 0);
 cover = target; out.clear = rect(1, 0);
 console.log(JSON.stringify(out));
 '''
@@ -358,3 +360,69 @@ console.log(JSON.stringify([slot, inner, plain, inLink, empty].map(pointerCluste
 '''
     ran = subprocess.run([_node(), "-e", script], capture_output=True, text=True, timeout=20)
     assert json.loads(ran.stdout or "null") == [True, False, False, False, False], ran.stderr
+
+
+def _fns(*names: str) -> str:
+    """content.js's own functions by name (`  function NAME(` up to its closing brace)."""
+    src = (EXT / "content.js").read_text()
+    out = []
+    for name in names:
+        start = src.index(f"  function {name}(")
+        out.append(src[start:src.index("\n  }\n", start) + 4])
+    return "\n".join(out)
+
+
+# decision: HAND-490
+def test_a_label_reaches_its_control_a_free_corner_is_clicked_and_a_cover_is_named() -> None:
+    src = (EXT / "content.js").read_text()
+    reaches = src[src.index("  const reaches = (el, hit) => {"):src.index("  // The first point inside the element's box")]
+    script = r'''
+class ShadowRoot {}
+const innerWidth = 1000, innerHeight = 800;
+let drawn = () => null;                                   // what elementFromPoint finds at (x, y)
+const document = {elementFromPoint: (x, y) => drawn(x, y)};
+const getComputedStyle = (el) => ({position: el.position || "static"});
+const label = (el) => el.text || "", implicitRole = (el) => el.role || "generic";
+const box = (x, y, w, h) => ({x, y, width: w, height: h});
+const node = (extra) => ({nodeType: 1, parentElement: null, getRootNode: () => document, contains: () => false,
+                          closest: () => null, getAttribute: (k) => (k === "role" ? extra.role || null : null), ...extra});
+''' + reaches + _fns("hitPoint", "hitTest", "coverOf") + r'''
+const out = {};
+const box1 = node({});
+const lab = node({}); lab.control = box1;
+const inLabel = node({closest: (s) => (s === "label" ? lab : null)});
+drawn = () => inLabel; out.label = hitPoint(box1, box(100, 100, 20, 20));             // the label covers its box
+const btn = node({});
+const bar = node({role: "banner", text: "Deliver to Bengaluru", position: "fixed"});
+drawn = (x, y) => (y < 110 ? bar : btn); out.corner = hitPoint(btn, box(100, 100, 100, 40));   // top half under a bar
+drawn = () => bar; const hidden = hitPoint(btn, box(100, 100, 100, 40));
+out.cover = coverOf(hidden.cover); out.covered = hitTest(btn, box(100, 100, 100, 40));
+console.log(JSON.stringify(out));
+'''
+    ran = subprocess.run([_node(), "-e", script], capture_output=True, text=True, timeout=20)
+    out = json.loads(ran.stdout or "null")
+    assert out, ran.stderr
+    assert out["label"] == {"x": 110, "y": 110}
+    assert out["corner"]["y"] >= 110 and out["covered"] is True
+    assert out["cover"] == 'banner "Deliver to Bengaluru" (a fixed or sticky bar)'
+
+
+# decision: HAND-490
+def test_a_hidden_checkbox_is_listed_through_its_visible_label() -> None:
+    script = r'''
+const visible = (el) => !!el.shown;
+const implicitRole = (el) => el.type;
+const describe = (el, id) => ({id, role: "generic", label: el.text, value: null, rect: [0, 0, 1, 1]});
+''' + _fns("standIn", "listed") + r'''
+const lab = {tagName: "LABEL", shown: true, text: "Morning (9-12)"};
+const box = {tagName: "INPUT", type: "checkbox", shown: false, checked: true, labels: [lab]};
+const shownBox = {tagName: "INPUT", type: "checkbox", shown: true, checked: false, labels: [lab]};
+const r = listed(box, 4), s = listed(shownBox, 5);
+console.log(JSON.stringify({target: r.target === lab, e: r.e, own: s.target === shownBox, none: standIn(lab)}));
+'''
+    ran = subprocess.run([_node(), "-e", script], capture_output=True, text=True, timeout=20)
+    out = json.loads(ran.stdout or "null")
+    assert out, ran.stderr
+    assert out["target"] is True and out["own"] is True and out["none"] is None
+    assert out["e"] == {"id": 4, "role": "checkbox", "label": "Morning (9-12)", "value": "checked", "rect": [0, 0, 1, 1],
+                        "input_type": "checkbox"}

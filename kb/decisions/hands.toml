@@ -1129,3 +1129,14 @@ why = "Live: date tabs and slot buttons (practo, healthplix) were plain divs wit
 evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
 paths = ["extensions/chromium/content.js::pointerCluster", "extensions/chromium/content.js::collect"]
 live = ["LIVE-890"]
+
+[HAND-490]
+title = "A covered check tries more than the centre, a label reaches its control, a refusal names the cover"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.8. A hit reaches an element when it is the element, inside it, or inside one of its labels. The check tries the centre, then a 3x3 grid inside the box, and a trusted act clicks the first point that reaches it. When none does, target_occluded names what is drawn on the centre (role, label, and whether it is a fixed or sticky bar). A checkbox or radio the page hides behind a visible label is listed through that label (the box's role, type and checked state); acts reach the label."
+why = "Live: controls under sticky headers and custom checkboxes (a hidden input with a styled label) were refused as covered or missing; the hit test looked at the centre point only and the snapshot dropped invisible inputs."
+evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
+paths = ["extensions/chromium/content.js::hitPoint", "extensions/chromium/content.js::coverOf", "extensions/chromium/content.js::standIn", "extensions/chromium/content.js::listed"]
+live = ["LIVE-890"]

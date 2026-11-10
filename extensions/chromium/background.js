@@ -1772,7 +1772,8 @@ async function trusted(tabId, a) {
     // text in (entersText); Return, Tab and the like still go (kb area hands).
     if (p.secret && (a.kind === "type" || (a.kind === "press" && entersText(a.text)))) return {ok: false, detail: "secret_field"};
     if (p.disabled) return {ok: false, detail: "target_disabled"};
-    if (p.occluded) return { ok: false, detail: "target_occluded; take a fresh snapshot" };
+    if (p.occluded) return { ok: false, detail: `target_occluded${p.cover ? `: covered by ${p.cover}` : ""}; take a fresh snapshot`,
+                             ...(p.cover ? { covered_by: p.cover } : {}) };   // HAND-490: what covers it
     const pointing = a.kind === "hover" || CLICKS[a.kind] || (a.kind === "type" && p.editable);
     if (pointing && !(await reachesAfresh(tabId, a.frame_id, p.x, p.y, p.fx, p.fy))) return NOT_REACHED;
     if (a.kind === "hover") { await mouse(tabId, "mouseMoved", p.x, p.y); return { ok: true, detail: "hovered (trusted)" }; }

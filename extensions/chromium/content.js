@@ -63,14 +63,30 @@
     }
     return true;
   }
+  // HAND-490: a checkbox or radio the page hides (zero size, visually hidden) behind a visible <label> of it: the label
+  // stands for it (a click on a label clicks its control). null for anything else.
+  function standIn(el) {
+    if (el.tagName !== "INPUT" || !["checkbox", "radio"].includes(el.type) || !el.labels || visible(el)) return null;
+    return Array.from(el.labels).find(visible) || null;
+  }
+  // The element as the snapshot lists it, and what an act on it reaches: itself, or a hidden checkbox's label, described
+  // as the box (its role, type and checked state).
+  function listed(el, id) {
+    const lab = standIn(el);
+    if (!lab) return { target: el, e: describe(el, id) };
+    return { target: lab, e: { ...describe(lab, id), role: implicitRole(el), input_type: el.type,
+                               value: el.checked ? "checked" : "" } };
+  }
+  function adoptOne(el, token) {
+    if (!el || !(visible(el) || standIn(el))) return null;
+    const id = els.size, { target, e } = listed(el, id);
+    els.set(id, new WeakRef(target)); bindings.set(token, new WeakRef(el));
+    return {...e, binding: token};
+  }
   function adopt(gen, token, attr) {
     if (gen !== snapGen) return null;
     if (attr) ATTR = attr;
-    const el = findBound(document, token);
-    if (!el || !visible(el)) return null;
-    const id = els.size;
-    els.set(id, new WeakRef(el)); bindings.set(token, new WeakRef(el));
-    return {...describe(el, id), binding: token};
+    return adoptOne(findBound(document, token), token);
   }
   // Extension 0.19.6: many adoptions in one script, in the given order (each id as one adopt after another gives it):
   // the stamped elements are found in one pass (light DOM and every shadow root, closed ones too), not one per token.
@@ -87,13 +103,7 @@
       for (const host of root.querySelectorAll("*")) { const sr = shadowOf(host); if (sr) gather(sr); }
     };
     gather(document);
-    return tokens.map((token) => {
-      const el = stamped.get(token);
-      if (!el || !visible(el)) return null;
-      const id = els.size;
-      els.set(id, new WeakRef(el)); bindings.set(token, new WeakRef(el));
-      return {...describe(el, id), binding: token};
-    });
+    return tokens.map((token) => adoptOne(stamped.get(token), token));
   }
   function findBound(root, token) {                 // the element CDP stamped, inside closed shadow roots too
     if (!ATTR) return null;
@@ -433,13 +443,40 @@
     return !(r.overflowX === "visible" && r.overflowY === "visible") && overflows(b);
   }
 
-  function hitTest(el, r) {
-    const cx = Math.min(Math.max(r.x + r.width / 2, 0), innerWidth - 1);
-    const cy = Math.min(Math.max(r.y + r.height / 2, 0), innerHeight - 1);
+  // HAND-490: a hit reaches the element when it is the element, inside it, or inside a <label> of it (clicking a label
+  // clicks its control).
+  const reaches = (el, hit) => {
+    if (!hit) return false;
+    if (hit === el || el.contains(hit)) return true;
+    const lab = hit.closest ? hit.closest("label") : null;
+    return !!lab && (lab.control === el || (el.labels ? Array.from(el.labels).includes(lab) : false));
+  };
+  // The first point inside the element's box (clamped to the viewport) whose hit reaches it: the centre, then a 3x3
+  // grid at 20/50/80%. {x, y}, or {cover}: what is drawn on the centre when none reaches it (null: nothing is).
+  function hitPoint(el, r) {
     const root = el.getRootNode();
-    const hit = (root instanceof ShadowRoot ? root : document).elementFromPoint(cx, cy);
-    if (!hit) return true;                                        // nothing painted there: treat as covered
-    return !(hit === el || el.contains(hit));
+    const at = (x, y) => (root instanceof ShadowRoot ? root : document).elementFromPoint(x, y);
+    const clamp = (x, y) => [Math.min(Math.max(x, 0), innerWidth - 1), Math.min(Math.max(y, 0), innerHeight - 1)];
+    const [cx, cy] = clamp(r.x + r.width / 2, r.y + r.height / 2);
+    const centre = at(cx, cy);
+    if (reaches(el, centre)) return { x: cx, y: cy };
+    for (const fy of [0.2, 0.5, 0.8]) for (const fx of [0.2, 0.5, 0.8]) {
+      const [x, y] = clamp(r.x + r.width * fx, r.y + r.height * fy);
+      if (reaches(el, at(x, y))) return { x, y };
+    }
+    return { cover: centre || null };
+  }
+  function hitTest(el, r) { return !("x" in hitPoint(el, r)); }   // nothing painted there counts as covered
+  // What covers an element, in words for the worker: its role and label, and whether it is a fixed or sticky bar.
+  function coverOf(c) {
+    if (!c) return "nothing the page draws";
+    let bar = false;
+    for (let a = c; a && a.nodeType === 1; a = a.parentElement) {
+      const p = getComputedStyle(a).position;
+      if (p === "fixed" || p === "sticky") { bar = true; break; }
+    }
+    const lab = label(c).slice(0, 60);
+    return `${c.getAttribute("role") || implicitRole(c)}${lab ? ` "${lab}"` : ""}${bar ? " (a fixed or sticky bar)" : ""}`;
   }
 
   function describe(el, id) {
@@ -657,9 +694,9 @@
     els = new Map(); containers = new Map(); scrollerCache.clear(); pinCache.clear(); boxCache.clear(); frameCache.clear();
     const found = [];
     collect(document, found);
-    const shown = found.filter(el => visible(el) || (el.tagName === "INPUT" && el.type === "file"));
+    const shown = found.filter(el => visible(el) || (el.tagName === "INPUT" && el.type === "file") || standIn(el));
     const out = shown.map((el,id) => {
-      const e=describe(el,id);e.binding=bind(el);els.set(id,new WeakRef(el));return e;
+      const {target, e} = listed(el, id); e.binding = bind(el); els.set(id, new WeakRef(target)); return e;
     });
     const usedContainers = new Set(out.map((e) => e.container).filter(Boolean));
     const scrollers = [];
@@ -947,8 +984,9 @@
     const side = cy < 0 ? "top" : cy >= innerHeight ? "bottom" : cx < 0 ? "left" : cx >= innerWidth ? "right" : null;
     if (side) return { error: `outside_page: the element is outside the page even after scrolling, off its ${side} ` +
                               "edge, so it can't be clicked where it is; nothing was sent. Use a control the page shows" };
-    const occluded = hitTest(el, r);
-    return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height, occluded, secret: isSecret(el),
+    const hit = hitPoint(el, r), occluded = !("x" in hit);       // HAND-490: the first point that reaches it
+    return { x: occluded ? cx : hit.x, y: occluded ? cy : hit.y, w: r.width, h: r.height, occluded,
+             ...(occluded ? { cover: coverOf(hit.cover) } : {}), secret: isSecret(el),
              disabled: !!el.disabled || el.getAttribute("aria-disabled") === "true",
              editable: el.isContentEditable || el.tagName === "TEXTAREA"
                || (el.tagName === "INPUT" && !["button", "submit", "reset", "checkbox", "radio", "file", "image"].includes(el.type)),
