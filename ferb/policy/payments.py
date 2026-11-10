@@ -1,7 +1,8 @@
 """Owns "one payment, one question" (GATE-204, owner 2026-10-30) for payments in a task's browser tab: which
 Yes covers a payment-class call, from the facts code read on the page. Must not judge intent or read the worker's
 numbers: the amount and merchant are the page's (`ActionFacts.page_amount` / `page_merchant`, read by the extension),
-never what the worker declared; where the page shows none, the question says FERB couldn't read it.
+never what the worker declared; where the page shows none, the question says FERB couldn't read it, and shows the
+amount the worker declared marked as the AI's, which FERB couldn't confirm on the page (GATE-575; never keyed).
 
 The Yes covers that payment in this task tree's tab and the tabs it opened (`ActionFacts.tab_chain`: card choice, the
 bank's page in a popup) until it completes or PAY_WINDOW_S passes; another tab chain or task asks again. Within it:
@@ -194,6 +195,10 @@ def need(facts: PayFacts, values: dict[str, str], approved: Approval | None = No
     shown = {"amount": facts.amount or UNREAD, "merchant": facts.merchant or "",
              "site": values.get("site", ""), "account": values.get("account", ""), "recipients": "",
              "chain": facts.chain}
+    # GATE-575: with no amount code read, the AI's own stated amount (`declared`, from the worker's destination) is
+    # shown, marked as one FERB couldn't confirm on the page; it never keys the Yes and never replaces an amount read
+    if facts.amount is None and values.get("declared"):
+        shown["declared"] = values["declared"]
     if approved is not None:
         shown["approved"] = (approved.amount or UNREAD) + (f" to {approved.merchant}" if approved.merchant else "")
         shown["bank"] = facts.frame_host if facts.frame_host and facts.frame_host != approved.host else facts.host

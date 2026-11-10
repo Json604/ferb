@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from ferb.core.types import ActionFacts, ActionSpec, Target, ToolResult
-from ferb.policy import payments
+from ferb.policy import confirm, payments
 from ferb.policy.rules import Kind
 from tests.conftest import Answers, FakeCap, RunningDaemon, gateway_request, gateway_setup, gateway_tool_call
 
@@ -183,6 +183,31 @@ def test_a_card_form_submitted_is_a_payment_without_any_declaration(daemon: Runn
         owner.stop()
     assert r["is_error"] and r2["is_error"] and tab.ran == []
     assert [a["args"]["confirm"][0]["rule"] for a in _asked(daemon)] == ["floor:pay", "floor:pay"]
+
+
+# decision: GATE-575, GATE-204
+def test_with_no_amount_read_the_card_shows_the_ais_amount_marked_unconfirmed(daemon: RunningDaemon) -> None:
+    """Owner 2026-11-10 (Amazon cash-on-delivery order): the card said only "FERB couldn't read the amount" although
+    the AI had stated ₹70. With no amount code read, the question and card show the AI's amount, marked as one FERB
+    couldn't confirm on the page; an amount code read stands alone, and the Yes is never keyed by the AI's number."""
+    tab = _Tab()
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order the batteries on www.orderly.example"), [tab])
+    owner = Answers(daemon, granted=True, choice=1)
+    try:
+        assert not gateway_tool_call(daemon, grant, "probe.tab", submit=True, effect="pay",
+                                     destination={"amount": 70, "currency": "₹"})["is_error"]
+        assert not gateway_tool_call(daemon, grant, "probe.tab", tab="t2", submit=True, amount="₹65", effect="pay",
+                                     destination={"amount": 70, "currency": "₹"})["is_error"]
+    finally:
+        owner.stop()
+    unread, read = [a["args"] for a in _asked(daemon)]
+    assert "₹70" in unread["question"] and "couldn't confirm" in unread["question"]
+    assert "₹65" in read["question"] and "₹70" not in read["question"]
+    assert "70" not in unread["confirm"][0]["key"]                      # never keyed by the AI's number
+    need = payments.need(payments.PayFacts("t1", "www.orderly.example"),
+                         {"declared": "₹70", "site": "orderly.example"})
+    card = confirm.card([need])
+    assert "₹70" in card.question and "₹70" in card.exact and "couldn't confirm" in card.question
 
 
 # ---------- the rule on its own ----------

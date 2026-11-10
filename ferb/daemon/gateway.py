@@ -1554,7 +1554,9 @@ class Gateway:
         else:
             return needs                                  # no tab and no window to scope it: each run asks (SQ1)
         rest = [n for n in needs if n.rule != confirm.ALWAYS[Kind.PAY]]
-        check = self.payments.check(c.root, c.pay, pays[0].values)
+        # GATE-575: the AI's stated amount, shown (marked unconfirmed) only where code read none; never keyed
+        stated = confirm.shown_amount(c.checked.target.amount, c.checked.target.currency)
+        check = self.payments.check(c.root, c.pay, {**pays[0].values, **({"declared": stated} if stated else {})})
         if check.approval is not None:
             c.pay_cid = check.approval.cid
             c.extra["payment"] = {"covered_by": check.approval.cid, "scope": c.pay.chain}

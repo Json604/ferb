@@ -3931,3 +3931,12 @@ request = "Ask FERB to do something in that profile (name it)."
 pass = "No blocked page opens in that profile. FERB says its extension was removed there, Chrome won't add it again by itself, and gives the Chrome Web Store link to add it; after you add it and say so, FERB pairs it."
 decisions = ["HAND-449"]
 sitting = "after this change is installed"
+
+[LIVE-873]
+title = "A payment whose amount FERB can't read on the page shows the AI's amount, marked unconfirmed"
+area = "gateway"
+surface = "FERB.app with this build; an Amazon.in cash-on-delivery checkout of a cheap item in your profile"
+request = "Ask FERB to order a cheap item with cash on delivery; say Don't pay at the question."
+pass = "The card's first line names the amount (\"Pay ₹… ? (FERB couldn't confirm the amount on the page)\") and its box shows the same amount marked as the AI's; nothing is ordered after Don't pay."
+decisions = ["GATE-575"]
+sitting = "after this change is installed"
