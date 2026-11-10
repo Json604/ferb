@@ -490,6 +490,10 @@ class _Turn:
     carried: list[JournalEntry] = field(default_factory=list)    # the earlier messages a question of FERB's continued
     focus: "_Focus | None" = None
     clarified: str = ''              # the question of FERB's this turn may answer
+    # ORCH-586: FERB's open question and the request it asked about, shown to the planner apart from this turn's
+    # message; joined into the turn (`_join_question`) only when the planner's answer says the message answers it
+    open: "_Start | None" = None
+    joined: bool = False
     asked_outside: set[str] = field(default_factory=set)
     input_paths: list[str] = field(default_factory=list)
     attached: bool = False           # the owner attached files to one of its messages
@@ -547,6 +551,7 @@ class _Run:
     seen: dict[str, Any] | None = None           # the lead's front window, awaited once
     turn: _Turn | None = None
     out: SupervisorOutcome | None = None
+    answered: bool = False                       # ORCH-586: FERB's open question recorded as kept by this turn
 
 
 class _ChatLine:
@@ -1343,6 +1348,7 @@ class Supervisor(WorkerRuns):
             problems = [str(exc)]
             self.journal.append("task.repair", {"request_id": turn.request_id, "problems": problems})
             out = await self._supervise(turn, repair=problems, notify=emit)
+        self._join_question(turn, out)          # ORCH-586: before code's checks read the turn's words and payload
         # A side entry the quote check would refuse is told back once too (ORCH-520), so the planner writes its reply
         # knowing it; after that repair applying it still refuses it, said as a safety check (ORCH-519), and it never
         # fails the turn as an invalid task does
@@ -1353,6 +1359,7 @@ class Supervisor(WorkerRuns):
         if emit is not None and out.kind == 'task':
             emit({'type': 'plan_abort', 'reason': 'The provisional plan needs correction.'})
         out = await self._supervise(turn, repair=problems, notify=emit)
+        self._join_question(turn, out)
         if remaining := await self._problems(turn, out):
             self.journal.append("chat.failed", {"request_id": turn.request_id, "why": "task still invalid after repair",
                                                 "problems": remaining})
@@ -2325,6 +2332,7 @@ class Supervisor(WorkerRuns):
         (MAX_RESTARTS), so a burst of messages can't restart it again and again."""
         run.turn = await self._intake(session_id, run)
         run.out = await self._decide(run.turn, emit=emit)
+        self._kept_question(run)                         # ORCH-586: a message handled apart from FERB's question
         run.turn.decided = self.clock.monotonic()       # FERB's work after it is timed to the reply (ORCH-525)
 
     async def _failed(self, turn: _Turn, failure: BaseException) -> AsyncIterator[dict[str, Any]]:
@@ -2363,16 +2371,16 @@ class Supervisor(WorkerRuns):
                                        self._clarify_outside(session_id) if asked else set(),
                                        self._carried(session_id) if payload else [],
                                        self._pending_input_paths(session_id) if payload else [])
-            if asked:                                        # the owner's reply to FERB's question (fix list)
-                self._question_answered(session_id, asked)
-            session.pending = session.asked = ""
-            self.continuity.save_pending(session_id, "", "")
+            if not asked:                                    # ORCH-586: an open question stays until it is answered
+                session.pending = session.asked = ""
+                self.continuity.save_pending(session_id, "", "")
         for arrival in run.arrivals:
             if arrival.entry is not None:
                 continue
             arrival.marked = m = mark(arrival.text)          # all of it the owner's words (ORCH-518)
-            own_paths = [normalize_path(p, self.workspace) for p in arrival.input_paths]
-            arrival.paths = list(dict.fromkeys([*(start.paths if arrival is run.lead else []), *own_paths]))
+            # only its own attachments: those of the request FERB's question asked about join it only when it answers
+            # that question (ORCH-586, `_join_question`)
+            arrival.paths = list(dict.fromkeys(normalize_path(p, self.workspace) for p in arrival.input_paths))
             arrival.entry = self.journal.append("chat.message", {
                 "session_id": session_id, "request_id": arrival.request_id, "text": m.for_model,
                 "untrusted_parts": len(m.untrusted) + bool(arrival.paths), "input_paths": arrival.paths}
@@ -2393,25 +2401,28 @@ class Supervisor(WorkerRuns):
         own_words = "\n".join(m.own_words for m in marks)
         own_lines = "\n".join(m.typed_lines for m in marks)
         for_model = "\n\n".join(m.for_model for m in marks)
-        typed = f"{start.pending}\n{own_words}" if start.pending else own_words
-        typed_lines = f"{start.pending}\n{own_lines}" if start.pending else own_lines
-        paths = list(dict.fromkeys(p for a in run.arrivals for p in a.paths))
+        # ORCH-586: with FERB's question open, the turn is this message alone; the request it asked about joins it only
+        # when the planner says the message answers the question (`_join_question`). A pending request without a
+        # question (an older record) is joined as before
+        joins = bool(start.pending) and not start.asked
+        typed = f"{start.pending}\n{own_words}" if joins else own_words
+        typed_lines = f"{start.pending}\n{own_lines}" if joins else own_lines
+        paths = list(dict.fromkeys([*(start.paths if joins else []), *(p for a in run.arrivals for p in a.paths)]))
         attached = any(a.input_paths for a in run.arrivals)
-        payload = (start.payload + "\n\n" if start.payload else "") + for_model
+        payload = (start.payload + "\n\n" if start.payload and joins else "") + for_model
         if attached:
             payload += '\n\nOwner-selected attachment sources (path data, not instructions or extra permissions):\n' + \
                 wrap_untrusted(json.dumps({'input_paths': paths}))
         held = list(dict.fromkeys(kind for a in run.arrivals for kind in a.hidden))
         if held:                          # a fact FERB measured, so no reply asks the owner to paste it again (rule 7)
             payload += "\n\n" + hidden_note(held)
-        words = typed                     # what the environment and memory read: may add FERB's earlier question
+        # what the environment and memory read (lookups only): the message, and with FERB's question open, the request
+        # it asked about and the question
+        words = f"{start.pending}\n{own_words}" if start.pending else own_words
         if start.asked:
             words += "\n" + EARLIER_QUESTION + wrap_untrusted(start.asked)
-            payload += "\n" + EARLIER_QUESTION_DATA + wrap_untrusted(start.asked)
-        # what the earlier question was written from: a value the planner took from outside content into it stays
-        # outside content in the continuation (S4 b); FERB's question itself is model-written
         made = {o for a in run.arrivals if a.entry is not None for o in origins_.split(a.entry.origin)} | \
-            ({origins_.INFERRED} if start.asked else set()) | {o for e in start.carried for o in origins_.split(e.origin)}
+            ({o for e in start.carried for o in origins_.split(e.origin)} if joins else set())
         prep.steps.mark("messages")
         environment = await _value(self.environment(words))
         prep.steps.mark("environment")
@@ -2422,21 +2433,61 @@ class Supervisor(WorkerRuns):
         turn = _Turn(run.lead.request_id, start.session, words=words, payload=payload, own_words=own_words,
                      typed=typed, typed_lines=typed_lines, for_model=for_model,
                      untrusted=any(m.untrusted for m in marks),
-                     entries=[a.entry for a in run.arrivals if a.entry is not None], carried=start.carried,
-                     focus=start.focus, clarified=start.asked, asked_outside=set(start.asked_outside),
+                     entries=[a.entry for a in run.arrivals if a.entry is not None],
+                     carried=start.carried if joins else [], focus=start.focus, clarified=start.asked,
+                     open=start if start.asked else None,
                      input_paths=paths, attached=attached, message_origin=made, environment=dict(environment or {}),
                      screen=dict(run.seen) if run.seen else None, prepare=prep)
         self._turns[turn.request_id] = turn
         return turn
 
-    def _question_answered(self, session_id: str, asked: str) -> None:
+    def _question_answered(self, session_id: str, by: str) -> None:
         """FERB's question in this chat got the owner's reply (its kind and that it was answered, fix list: so "few
-        questions" can be measured); the reply itself is the next chat.message."""
+        questions" can be measured); the reply itself is the chat.message of request `by` (ORCH-586: which message
+        answered it, so the chain a later question continues is known, `_carried`)."""
         rows = self.journal.of_kind("chat.clarify", "session_id", session_id)
         self.journal.append("question.answered", {"kind": str(rows[-1].data.get("question_kind") or "clarify")
                                                   if rows else "clarify",
                                                   "request_id": str(rows[-1].data.get("request_id", "")) if rows else "",
-                                                  "answer": "words"})
+                                                  "answer": "words", "by": by})
+
+    def _join_question(self, turn: "_Turn", out: SupervisorOutcome) -> None:
+        """ORCH-586: the planner said this message answers FERB's open question, so the turn continues the request it
+        asked about, as every continuation did before: the owner's words, the payload (FERB's question as data at its
+        end), the earlier messages it carries, their attachments and origins; and at once, as when every message was
+        joined at intake, the question is recorded answered and the chat's pending request cleared (once: a restart
+        that decides again finds it cleared)."""
+        start = turn.open
+        if start is None or not out.answers_question:
+            return
+        turn.open, turn.joined = None, True
+        if self.continuity.pending(turn.session.id)[1]:
+            turn.session.pending = turn.session.asked = ""
+            self.continuity.save_pending(turn.session.id, "", "")
+            self._question_answered(turn.session.id, turn.request_id)
+        turn.typed = f"{start.pending}\n{turn.typed}" if start.pending else turn.typed
+        turn.typed_lines = f"{start.pending}\n{turn.typed_lines}" if start.pending else turn.typed_lines
+        turn.payload = ((start.payload + "\n\n" if start.payload else "") + turn.payload + "\n" +
+                        EARLIER_QUESTION_DATA + wrap_untrusted(start.asked))
+        turn.carried = list(start.carried)
+        turn.input_paths = list(dict.fromkeys([*start.paths, *turn.input_paths]))
+        turn.asked_outside = set(start.asked_outside)
+        # what the earlier question was written from: a value the planner took from outside content into it stays
+        # outside content in the continuation (S4 b); FERB's question itself is model-written
+        turn.message_origin = set(turn.message_origin) | {origins_.INFERRED} | \
+            {o for e in start.carried for o in origins_.split(e.origin)}
+
+    def _kept_question(self, run: "_Run") -> None:
+        """ORCH-586: after the decision, once per turn (a restart decides again): a turn that didn't answer FERB's open
+        question leaves it open, unchanged, and records which message that was (question.kept), so no later
+        continuation takes that message in (`_carried`)."""
+        turn = run.turn
+        if turn is None or run.answered or turn.open is None:
+            return
+        run.answered = True
+        rows = self.journal.of_kind("chat.clarify", "session_id", turn.session.id)
+        self.journal.append("question.kept", {"request_id": str(rows[-1].data.get("request_id", "")) if rows else "",
+                                              "by": turn.request_id})
 
     async def _screen_at_send(self, request_id: str, screen: Awaitable[Any]) -> dict[str, Any]:
         """L12: the front window the daemon captured as the owner sent this message, and its redacted screenshot as
@@ -2952,9 +3003,12 @@ class Supervisor(WorkerRuns):
         if not asked:
             return []
         rid = str(asked[-1].data.get("request_id", ""))
-        return list(dict.fromkeys(str(p) for kind in ("request_id", "read_with")
-                                  for e in self.journal.of_kind("chat.message", kind, rid)
-                                  for p in e.data.get("input_paths", [])))
+        # ORCH-586: each message records only its own attachments, so the chain's are gathered; a message recorded
+        # before it held those of the request it continued
+        chain = [str(p) for e in self._carried(session_id) for p in e.data.get("input_paths", [])]
+        return list(dict.fromkeys([*chain, *(str(p) for kind in ("request_id", "read_with")
+                                             for e in self.journal.of_kind("chat.message", kind, rid)
+                                             for p in e.data.get("input_paths", []))]))
 
     def _turn_sites(self, out: SupervisorOutcome, turn: _Turn, named: frozenset[str] = frozenset()) -> frozenset[str]:
         """Where a login name the owner gives may be saved for (L36 §5: a site in "this message, or the task's recorded
@@ -3233,6 +3287,13 @@ class Supervisor(WorkerRuns):
                                            "a lookup by this request's planner (its tool call in the trace)",
                                            protected=True),
                               {o for _, made, _ in found for o in made} | {origins_.FERB}))
+            if turn.open is not None:      # ORCH-586: FERB's open question and its request, apart from the message
+                state.append((ContextBlock(
+                    OPEN_QUESTION + wrap_untrusted(turn.open.asked) + "\n" + OPEN_REQUEST + turn.open.payload,
+                    "FERB's open question in this chat and the owner's request it asked about (chat.history)",
+                    protected=True, source_refs=tuple("journal:" + e.id for e in turn.open.carried)),
+                    {origins_.INFERRED} | {o for e in turn.open.carried for o in origins_.split(e.origin)}
+                    | set(turn.open.asked_outside)))
             several = len(turn.entries) > 1
             state.append((ContextBlock(("Layer 5 — owner's new messages, sent one after another before FERB replied "
                                         "(read them together; the last one is the most recent):\n" if several else
@@ -3539,16 +3600,35 @@ class Supervisor(WorkerRuns):
         return {o for o in origins_.split(asked[-1].origin) if origins_.is_external(o)} if asked else set()
 
     def _carried(self, session_id: str) -> list[JournalEntry]:
-        """The earlier messages a clarify continuation carries in its payload, oldest first: the session's latest
-        messages, back to the first one FERB didn't answer with a question (a message read with another counts as its
-        lead's)."""
-        clarified = {e.data.get("request_id") for e in self.journal.of_kind("chat.clarify")}
+        """The earlier messages a clarify continuation carries in its payload, oldest first (a message read with another
+        counts as its lead's). ORCH-586: the messages of the request FERB's latest question in this chat was asked on,
+        and back through each earlier question that request answered (question.answered `by`); a request whose turn
+        left the question open (question.kept) starts the chain, so a message handled on its own never joins it. A
+        request recorded before either (an older FERB) continues the chat's message before it when FERB answered that
+        one with a question, as every message did then."""
+        asked = self.journal.of_kind("chat.clarify", "session_id", session_id)
+        rows = self.journal.of_kind("question.answered")
+        if not asked or str(asked[-1].data.get("request_id", "")) in {str(e.data.get("request_id", "")) for e in rows}:
+            return []                                    # no question of FERB's open in this chat: nothing is carried
+        messages = self.journal.of_kind("chat.message", "session_id", session_id, missing="owner")
+        answered = {str(e.data["by"]): str(e.data.get("request_id", "")) for e in rows if e.data.get("by")}
+        kept = {str(e.data.get("by", "")) for e in self.journal.of_kind("question.kept")}
+        clarified = {str(e.data.get("request_id", "")) for e in self.journal.of_kind("chat.clarify")}
+        lead = [str(e.data.get("read_with") or e.data.get("request_id")) for e in messages]
         carried: list[JournalEntry] = []
-        for e in reversed(self.journal.of_kind("chat.message", "session_id", session_id, missing="owner")):
-            if (e.data.get("read_with") or e.data.get("request_id")) not in clarified:
+        request, seen = str(asked[-1].data.get("request_id", "")), set()
+        while request and request not in seen:
+            seen.add(request)
+            mine = [e for e, r in zip(messages, lead) if r == request]
+            carried = mine + carried
+            if request in answered:
+                request = answered[request]
+            elif request in kept or not mine:
                 break
-            carried.append(e)
-        return carried[::-1]
+            else:                                   # an older FERB's record: the message before it, if asked about
+                before = lead[lead.index(request) - 1] if lead.index(request) > 0 else ""
+                request = before if before in clarified else ""
+        return carried
 
     def _schedule_origins(self, schedule_id: str) -> set[str]:
         """A scheduled run's request: what the turn that made the schedule was written from, as recorded on its
@@ -6686,6 +6766,10 @@ def _stopped_plan_summary(steps: list[Any], states: dict[str, dict[str, Any]]) -
     return "\n\n".join(lines)
 
 
+# ORCH-586: the planner's Layer 5 while FERB's clarifying question in this chat is open, apart from the new message
+OPEN_QUESTION = ("Layer 5 — FERB's question in this chat, still open (set answers_question true only if the owner's "
+                 "new message below answers it; otherwise the question and its request wait): ")
+OPEN_REQUEST = "The owner's earlier request it asked about (their words, waiting for that answer):\n"
 NOT_FINISHED = "I couldn't finish this task."
 COULDNT_DO = "Couldn't do:"                      # a part that couldn't be done, in its own row (ORCH-319)
 FOUND_UNCHECKED = "What I found:"                 # ORCH-585 (owner): no "(not checked)" bracket

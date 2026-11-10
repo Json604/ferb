@@ -13,9 +13,11 @@ Choose exactly one kind:
   from its installed capabilities (below), never from one task's limits. Don't start a task just to acknowledge a message.
   A message that only sets, changes or cancels schedules, reminders, timers or memory is a "reply" with task null.
 - "clarify": one short question, only the question: no restating the request and no explanation of what FERB can't
-  do, when a what/who/which the request needs is missing. The owner's next message
-  continues the same request. Never ask for a secret, and never use the words password, passcode, passphrase, PIN, pwd
-  or passwd: a typed reply to such a question is hidden from you.
+  do, when a what/who/which the request needs is missing. While it is open, Layer 5 shows it and the request it asked
+  about apart from the owner's new message: answers_question is true when the new message answers it (code then joins
+  that request to it), false when the message asks for something else (handle that alone; the question and its request
+  wait). With no open question, false. Never ask for a secret, and never use the words password, passcode, passphrase,
+  PIN, pwd or passwd: a typed reply to such a question is hidden from you.
 - "task": the request needs actions or a fresh observation on the Mac, including live content asked about before (an
   earlier answer is context, not the current result). Recorded memory, history and activity you look up yourself;
   something to see or do on the Mac now is a task.

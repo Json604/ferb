@@ -107,9 +107,10 @@ class ReplyDraft:
                 return False
             self.channel = 'plan'
             return True
+        # ORCH-586: answers_question only says which request the message continues; it carries no action
         return (metadata.get('kind') in ('reply', 'clarify')
                 and all(value is None or value == [] or value is False   # an unset flag (show_schedules)
-                        for key, value in metadata.items() if key != 'kind'))
+                        for key, value in metadata.items() if key not in ('kind', 'answers_question')))
 
     def feed(self, fragment: str) -> None:
         if self.closed:

@@ -3940,3 +3940,12 @@ request = "Ask FERB to order a cheap item with cash on delivery; say Don't pay a
 pass = "The card's first line names the amount (\"Pay ₹… ? (FERB couldn't confirm the amount on the page)\") and its box shows the same amount marked as the AI's; nothing is ordered after Don't pay."
 decisions = ["GATE-575"]
 sitting = "after this change is installed"
+
+[LIVE-875]
+title = "A new request typed while FERB's question is open runs on its own; the question waits"
+area = "orchestration"
+surface = "FERB.app with this build, Codex as the AI; one chat"
+request = "Ask FERB to order something it must ask a question about (say cables of an unstated length on Amazon). Without answering, ask it something unrelated (the weather in a city). Then answer the first question."
+pass = "The unrelated request is answered on its own; its trace's task payload holds none of the first request's words. The first question stays open; your later answer continues the order (journal: question.kept, then question.answered with `by`)."
+decisions = ["ORCH-586"]
+sitting = "after this change is installed"

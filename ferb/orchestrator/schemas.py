@@ -176,6 +176,9 @@ SCHEDULE_CHANGE_SCHEMA = _obj({"id": {"type": "string"},
 REMINDER_CHANGE_SCHEMA = _obj({"id": {"type": "string"}, "quote": {"type": "string"}})
 SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "kind": {"type": "string", "enum": ["reply", "clarify", "task"]},
+    # ORCH-586: whether the new message answers FERB's open question in this chat (Layer 5 shows it apart); only then
+    # does code join the request it asked about to the message. false with no open question
+    "answers_question": {"type": "boolean"},
     "answer_question": {"anyOf": [{"type": "null"}, _obj({"approval_id": {"type": "string"},
                          "answer": {"type": "string"}})]},
     "task": {"anyOf": [{"type": "null"}, TASK_SCHEMA]},
@@ -421,6 +424,9 @@ class SupervisorOutcome(BaseModel):
     control: TaskControl | None = None
     kind: Literal["reply", "clarify", "task"]
     text: str
+    # ORCH-586: the new message answers FERB's open question in this chat, so code joins the request it asked about.
+    # An answer written before the field (STORE-403) reads as before it: joined
+    answers_question: bool = True
     answer_question: AnswerQuestion | None = None
     task: TaskSpec | None = None
     remember: list[Remember] = []

@@ -1209,3 +1209,13 @@ words_source = "Owner 2026-11-10, relayed by the coordinator of the short-run fi
 rule = "Supersedes ORCH-569's wording and refines ORCH-568 and ORCH-530 (both lines, by the one-path rule). A failed task's reply is still \"I couldn't finish this task.\" with the worker's reason, then, only when the worker found something, its findings as \"What I found:\" (FOUND_UNCHECKED); a stopped task's is still \"Stopped, as you asked.\" then \"What I'd found before stopping:\" (FOUND_BEFORE_STOP) with the latest report's answer. With nothing found there is no second part. Old replies keep their text. Every other \"Couldn't confirm\" marking (ORCH-309, ORCH-545, ORCH-547) stays."
 supersedes = ["ORCH-569"]
 paths = ["ferb/orchestrator/supervisor.py::FOUND_UNCHECKED", "ferb/orchestrator/supervisor.py::FOUND_BEFORE_STOP", "ferb/orchestrator/supervisor.py::Supervisor._final"]
+
+[ORCH-586]
+title = "A message sent while FERB's question is open joins its request only if the planner says so"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For ORCH-301 and ORCH-507. While FERB's clarifying question in a chat is open, the planner gets it and the request it asked about as their own Layer 5 block, apart from the new message, and its answer's plain boolean answers_question says whether the message answers it. Only then does code join that request to the turn (the owner's words for quotes, the task payload, attachments, origins, the pending state) and journal question.answered (with `by`). Otherwise the message is handled alone and the question stays open, unchanged (question.kept). An answer without the field reads as joined."
+why = "Live 2026-11-10 (Codex, 03:17-03:18): code joined every message after a question into one \"complete new message\", so the Goa hotel and Toit table requests were read as answers to the Amazon question and never ran; a new task would also have carried the old request's words as the owner's."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._take_in", "ferb/orchestrator/supervisor.py::Supervisor._join_question", "ferb/orchestrator/supervisor.py::Supervisor._kept_question", "ferb/orchestrator/supervisor.py::Supervisor._carried", "ferb/orchestrator/schemas.py::SupervisorOutcome", "ferb/orchestrator/prompts/supervisor.md", "ferb/orchestrator/reply_stream.py::ReplyDraft._eligible"]
+live = ["LIVE-875"]
