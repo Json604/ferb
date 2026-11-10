@@ -1391,7 +1391,7 @@ title = "A failed task's reason is chosen by where each text came from, and said
 by = "agent"
 date = 2026-11-11
 status = "active"
-rule = "For ORCH-600 and ORCH-605. _told_failure gives a lead and one worker text for the reply and a \"Couldn't do:\" row. Lead: code's own stop line (or the summary with no report), then the worker's answer if any; else for a worker's not-done report no lead and its answer, else its reason (a row's \"Couldn't do:\" takes the reason first); else the checker's own `fail` reason, else code's \"Not done: <condition>.\" with what code's own check found, or \"Couldn't confirm: <condition>.\". Short forms join code's opener to the next line (headline). \"What happened since\" keeps evidence, how for runs not done."
+rule = "For ORCH-600 and ORCH-605. _told_failure gives a lead and one worker text for the reply and a \"Couldn't do:\" row. Lead: code's own stop line (or the summary with no report), then the worker's answer if any; else for a worker's not-done report no lead and its answer, else its reason (a row's \"Couldn't do:\" takes the reason first); else code's finding (ORCH-609), else the checker's own `fail` reason, else nothing after the opener. Short forms join code's opener to the next line (headline). \"What happened since\" keeps evidence, how for runs not done."
 why = "Task eea265b9 (2026-11-10 18:12): the reply said the worker's reason, the checker's watch evidence under \"What the check confirmed:\", then the worker's answer repeating the reason."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._told_failure", "ferb/orchestrator/supervisor.py::Supervisor._told_not_done", "ferb/orchestrator/supervisor.py::Supervisor._couldnt_do", "ferb/orchestrator/answer_marks.py::headline", "ferb/orchestrator/supervisor.py::Supervisor._next", "ferb/orchestrator/supervisor.py::Supervisor._since_event", "ferb/orchestrator/supervisor.py::WATCH_TEXT"]
 live = ["LIVE-897"]
@@ -1438,4 +1438,44 @@ words = "ok then why not just stick to i couldnt some part in this or somethign?
 words_source = "Owner 2026-11-11 (relayed), after asking \"why not add jsut a little evidence unto teh what i coudlnt confirm???\" and hearing it would need a checker-written phrase."
 rule = "Refines ORCH-606. The line a done answer with something unconfirmed ends with is always \"I couldn't confirm part of this.\" (UNCONFIRMED_LINE): no named gap, no evidence, no new checker field; nothing in it is model-written. Asked what couldn't be confirmed, FERB answers from the record (ORCH-606)."
 paths = ["ferb/orchestrator/supervisor.py::UNCONFIRMED_LINE"]
+live = ["LIVE-897"]
+
+[ORCH-608]
+title = "A reply that ends with the unconfirmed line carries no inline marks"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For ORCH-606/607; refines ORCH-547. When a done answer ends with \"I couldn't confirm part of this.\", the fix round's fallback adds no inline \"(I couldn't confirm this)\" marks: an unsupported sentence stands as written, a contradicted one is still removed (answer_marks.unmarked, kept as _Tree.answer_unmarked). When removing would leave nothing said, ORCH-547's marks stay. A verified answer (no line) keeps ORCH-547's marks as before."
+why = "Coordinator 2026-11-11 reading the rebuilt visa reply: two inline marks and the line said the same thing three times; the owner asked for just the line."
+paths = ["ferb/orchestrator/answer_marks.py::unmarked", "ferb/orchestrator/supervisor.py::Supervisor._checked_answer", "ferb/orchestrator/supervisor.py::Supervisor._settle_findings"]
+live = ["LIVE-897"]
+
+[ORCH-609]
+title = "A claim code proved false is told as code's finding, never the goal's text"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For ORCH-600 and ORCH-605; refines ORCH-583's reply wording. A done claim a literal check proved false is told \"I couldn't finish this task.\" then, on that line, one short sentence per kind from the recorded target only (verify.not_done_said): \"Nothing was sent to <recipient>.\", \"No payment went through on <site>.\", \"No form on <site> was submitted.\", \"<name> wasn't moved to the Trash.\" / \"wasn't deleted.\" / \"wasn't downloaded.\" The condition's text and code's evidence stay in the record and the planner's block."
+why = "Visa run c0804387 (2026-11-10 07:30): the reply quoted the whole booking condition and \"FERB didn't submit it; …\" in the third person."
+paths = ["ferb/orchestrator/verify.py::not_done_said", "ferb/orchestrator/supervisor.py::Supervisor._told_not_done"]
+live = ["LIVE-897"]
+
+[ORCH-610]
+title = "Only code's proof, the checker's own fail or the worker's not-done makes a done claim a failure"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For ORCH-600 and ORCH-606; narrows ORCH-309's \"the check found an outcome false\" for an accepting check. A condition the checker judged not met (path verifier) with no code proof, under next accept or accept_unconfirmed, leaves the work done_unverified: the worker's answer and \"I couldn't confirm part of this.\". The task fails only on a literal check's proof (ORCH-609), the checker's own fail (its reason after the opener; the done claim stays out, ORCH-568), or the worker's not-done report (ORCH-605)."
+why = "Task 2357c470 (2026-11-08): the checker said met false and accept_unconfirmed; the run failed and hid a mostly right answer behind the checker's sentence."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._next", "ferb/orchestrator/supervisor.py::Supervisor._final"]
+live = ["LIVE-897"]
+
+[ORCH-611]
+title = "A stopped task's answer comes after \"This is where things stood:\""
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For ORCH-605 and ORCH-579. A stopped task whose worker wrote an answer reads \"Stopped, as you asked. This is where things stood:\" then that answer as its own paragraph, so a finished-sounding answer never reads as done and checked; with none, just \"Stopped, as you asked.\". The chat stop's reply (ORCH-579) is the same recorded text; short forms join the lead to the answer's first line (headline)."
+why = "Stopped task 0b94de9e (2026-11-08): with no lead, \"Your one-page deadlocks cheat sheet is saved…\" under \"Stopped, as you asked.\" read as finished."
+paths = ["ferb/orchestrator/answer_marks.py::WHERE_STOOD", "ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrator/answer_marks.py::headline"]
 live = ["LIVE-897"]

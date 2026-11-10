@@ -67,7 +67,8 @@ from ferb.orchestrator.names import shown_name
 from ferb.orchestrator.loops import (LOOP_ROUND, LoopRunner, LoopStore, look_only_round, loop_line,
                                      round_reason, short_label)
 from ferb.orchestrator.probes import MISSING, Probe, field_value, refusal, resolve_tool
-from ferb.orchestrator.answer_marks import NOT_FINISHED, STOPPED, headline, only_quoted_changed, settle
+from ferb.orchestrator.answer_marks import (NOT_FINISHED, STOPPED, WHERE_STOOD, headline, only_quoted_changed,
+                                            settle, unmarked)
 from ferb.orchestrator.schemas import (ACTION_CHECKS, CHECKER_SCHEMA, FIX_SCHEMA, QUESTION_SCHEMA, RECHECK_SCHEMA, SUMMARY_SCHEMA,
                                        SUPERVISOR_SCHEMA, WORKER_SCHEMA, AnswerQuestion, Check, CheckerOutcome, Condition,
                                        Finding, FixOutcome, QuestionOutcome, RecheckOutcome, SummaryOutcome,
@@ -75,7 +76,7 @@ from ferb.orchestrator.schemas import (ACTION_CHECKS, CHECKER_SCHEMA, FIX_SCHEMA
 from ferb.orchestrator import browsing
 from ferb.orchestrator.test_runs import TestRuns
 from ferb.orchestrator.tree import TaskRecord, TaskTree
-from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
+from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult, not_done_said
 from ferb.orchestrator.worker import (BUG, ConnectionNotice, ImageRefused, InvalidAnswer, Overflowed, ServiceDown,
                                       ServiceError, Stalled, WorkerRuns, account_problem, couldnt, model_limits, reason,
                                       reserve_tokens)
@@ -640,7 +641,7 @@ def _short_report(text: str, index: bool = False) -> str:
     first = paragraphs[0] if paragraphs else ""
     if index:
         return first
-    if len(paragraphs) > 1 and first in (NOT_FINISHED, STOPPED):    # ORCH-605: code's opener alone says nothing
+    if len(paragraphs) > 1 and first in (NOT_FINISHED, STOPPED, f"{STOPPED} {WHERE_STOOD}"):   # ORCH-605, ORCH-611
         first = f"{first} {paragraphs[1]}"
     return shorten(first, REPORT_SHORT_CHARS, fold=False)     # ORCH-601: at a sentence or word, never mid-word
 
@@ -794,6 +795,7 @@ class _Tree:
     # profile they picked (`_browse_as`)
     as_owner: bool = False
     answer_settled: bool = False         # this attempt's answer already had its one fix round (ORCH-545)
+    answer_unmarked: str = ''            # ORCH-608: the settled answer without code's inline marks, '' when none
     watch: bool = False                  # a watch's run: its check judges watch_met; its start isn't published
     loop_action: str | None = None       # a loop round's worker: continue / finished / blocked (L31)
     probe: Any = None                    # and the probe it chose for between rounds (probes.Probe | None)
@@ -5800,6 +5802,7 @@ class Supervisor(WorkerRuns):
         tree.resources, tree.cleanup_errors, tree.verification = [], [], []
         tree.check_problem = tree.unconfirmed = tree.unchecked = ''
         tree.owner_answer = tree.reason = tree.how = tree.worker_question = tree.owner_question = ''
+        tree.answer_unmarked = ''
         tree.input_notes, tree.conversation_proposals, tree.part_updates = [], [], []
         tree.conversation_action = tree.loop_action = None
         tree.watch_met = tree.probe = None
@@ -5919,7 +5922,9 @@ class Supervisor(WorkerRuns):
         if action == "retry" and verified:
             action = "accept"            # ORCH-309: every outcome verified, so only the answer can be wrong: no redo
         if action in ("accept", "accept_unconfirmed"):
-            refuted = [r for r in outcome if r.met is False]
+            # ORCH-610: an accepting check fails the work only on code's proof; a condition the checker itself judged
+            # not met, with nothing proved, leaves the answer standing unconfirmed
+            refuted = [r for r in outcome if r.met is False and r.path == "code"]
             unknown = [r for r in outcome if r.met is not True]
             if refuted or (unknown and out.status != "done"):
                 why = checked.reason or ("" if refuted else tree.reason) or "; ".join(
@@ -5979,9 +5984,11 @@ class Supervisor(WorkerRuns):
         elif revised is not None and remaining and all(f.quote in revised for f in remaining):
             done = settle(revised, [(f.quote, f.kind) for f in remaining])
             tree.owner_answer, how = done.answer, "marked"
+            tree.answer_unmarked = unmarked(revised, [(f.quote, f.kind) for f in remaining])
         else:
             done = settle(original, [(f.quote, f.kind) for f in findings])
             tree.owner_answer, how = done.answer, "marked"
+            tree.answer_unmarked = unmarked(original, [(f.quote, f.kind) for f in findings])
         self.journal.append("task.answer_settled", {"task_id": task.id, "how": how, "removed": done.removed,
                                                     "marked": done.marked, "missing": done.missing}
                             | ({"kept_contradicted": done.kept_contradicted} if done.kept_contradicted else {}))
@@ -6037,6 +6044,7 @@ class Supervisor(WorkerRuns):
         findings = [Finding.model_validate(f) for f in saved.get('findings') or [] if isinstance(f, dict)]
         done = settle(str(saved.get('answer') or ''), [(f.quote, f.kind) for f in findings])
         tree.owner_answer, tree.answer_settled = done.answer, True
+        tree.answer_unmarked = unmarked(str(saved.get('answer') or ''), [(f.quote, f.kind) for f in findings])
         self.journal.append("task.answer_settled", {"task_id": task.id, "how": "marked", "restart": True,
                                                     "removed": done.removed, "marked": done.marked,
                                                     "missing": done.missing}
@@ -6136,9 +6144,9 @@ class Supervisor(WorkerRuns):
           worker's answer if it wrote one;
         - a worker that reported not done: no lead; its answer if it wrote one, otherwise its reason (after ORCH-562's
           findings round), never both;
-        - otherwise (a done claim the check didn't accept): the checker's own `fail` reason (the one field it writes
-          for the owner), else code's sentence per outcome condition not met (`_told_not_done`); never the done
-          claim (ORCH-568). An accepting check's reason and the evidence of what it confirmed or left unconfirmed
+        - otherwise (a done claim code proved false, or the checker's own fail): code's finding (`_told_not_done`,
+          ORCH-609), else the checker's own `fail` reason (the one field it writes for the owner), else nothing after
+          the opener; never the done claim (ORCH-568). An accepting check's reason and the evidence of what it confirmed or left unconfirmed
           stay the summary, stop_reason and the trace (ORCH-600)."""
         not_done = not (src.reports and src.reports[-1].get("status") == "done")
         own = src.owner_answer.strip() if not_done else ""
@@ -6146,22 +6154,17 @@ class Supervisor(WorkerRuns):
             return why.strip(), own
         if not_done and (own or src.reason.strip()):
             return "", own or src.reason.strip()
-        return (src.check_told or self._told_not_done(src, outcomes) or NOT_ACCEPTED).strip(), ""
+        return (self._told_not_done(src, outcomes) or src.check_told).strip(), ""
 
     @classmethod
     def _told_not_done(cls, tree: _Tree, outcomes: list[ConditionResult]) -> str:
-        """ORCH-600: a failed task's reason in the owner's reply when neither the worker, code's own stop line nor the
-        checker's own fail reason gave one: each outcome condition not met, as `_found` says it (ORCH-583), with what
-        was found only when code's own check found it (path "code": FERB's sentence); the checker's evidence is audit
-        text and stays in the record (ORCH-600). By the verdict's structure, never its words."""
-        told = []
-        for r in outcomes:
-            if r.met is not True:
-                said = cls._owner_text(tree, r).strip().rstrip(".")
-                lead = "Not done" if r.met is False else "Couldn't confirm"
-                found = r.evidence.strip() if r.path == "code" else ""
-                told.append(f"{lead}: {said}." + (f" {found[:1].upper()}{found[1:]}" if found else ""))
-        return " ".join(told)
+        """ORCH-609: what code's own check proved false, as FERB says it (`verify.not_done_said`: "No form on
+        usvisascheduling.com was submitted."), one sentence per condition a literal check found false; never the
+        condition's text, which stays in the record and the planner's block. "" when code proved nothing false."""
+        conditions = tree.spec.success_conditions
+        told = [not_done_said(conditions[r.index]) for r in outcomes
+                if r.met is False and r.path == "code" and r.index < len(conditions)]
+        return " ".join(dict.fromkeys(t for t in told if t))
 
     @staticmethod
     def _owner_text(tree: _Tree, result: ConditionResult) -> str:
@@ -6867,7 +6870,9 @@ class Supervisor(WorkerRuns):
                     and bool(outcomes) and all(r.met is True for r in outcomes))
         note = src.unconfirmed or ("" if verified else NOTHING_TO_CHECK if not conditions else
                                    "; ".join(self._owner_text(src, r) for r in outcomes if r.met is not True))
-        return (src.owner_answer or out.summary).strip(), _clipped(note) if note else "", verified
+        # ORCH-608: a reply that ends with the one fixed line carries no inline marks (contradictions stay removed)
+        answer = src.answer_unmarked if note and not verified and src.answer_unmarked else src.owner_answer
+        return (answer or out.summary).strip(), _clipped(note) if note else "", verified
 
     def _final(self, tree: _Tree) -> dict[str, Any]:
         """The task's status and the owner's answer (ORCH-309: "done" is about the outcome asked for):
@@ -6895,12 +6900,12 @@ class Supervisor(WorkerRuns):
             # (ORCH-530).
             said = [str(r.get("answer") or "").strip() for r in reversed(src.reports)]
             found = next((text for text in said if text), "")
-            if found:                    # ORCH-605: the worker's answer as its own paragraph, no heading
-                answer += f"\n\n{found}"
+            if found:                    # ORCH-611: a lead, so its answer never reads as finished and checked
+                answer += f" {WHERE_STOOD}\n\n{found}"
         elif tree.stop:
             status, summary = self._stop_status(tree), tree.stop
             answer = f"I couldn't finish that: {tree.stop}"
-        elif out.status == "done" and not any(r.met is False for r in outcomes):
+        elif out.status == "done" and not any(r.met is False and r.path == "code" for r in outcomes):
             answer_text, note, verified = self._checked_answer(src, out)
             status = "done" if verified else "done_unverified"
             # ORCH-606 (owner 2026-11-11, "One fixed short line"): the same words whatever stayed unconfirmed; which

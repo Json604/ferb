@@ -13,6 +13,7 @@ UNCONFIRMED_MARK = "(I couldn't confirm this)"            # the one inline marke
 # paragraph
 NOT_FINISHED = "I couldn't finish this task."
 STOPPED = "Stopped, as you asked."
+WHERE_STOOD = "This is where things stood:"      # ORCH-611: after STOPPED, before the worker's answer
 
 
 def headline(text: str) -> str:
@@ -20,7 +21,7 @@ def headline(text: str) -> str:
     happened since): when that line is only code's own opener (NOT_FINISHED, STOPPED), the next non-empty line joins
     it, so the short form says what happened. Structure only: code's own fixed sentences, never the model's words."""
     lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
-    if len(lines) > 1 and lines[0] in (NOT_FINISHED, STOPPED):
+    if len(lines) > 1 and lines[0] in (NOT_FINISHED, STOPPED, f"{STOPPED} {WHERE_STOOD}"):
         return f"{lines[0]} {lines[1]}"
     return lines[0] if lines else ""
 
@@ -93,6 +94,15 @@ def settle(answer: str, findings: Iterable[tuple[str, str]]) -> Settled:
         done = _settled(answer, [(quote, "unsupported") for quote, _ in findings])
         done.kept_contradicted = [q for q, kind in findings if kind == "contradicted" and q in done.marked]
     return done
+
+
+def unmarked(answer: str, findings: Iterable[tuple[str, str]]) -> str:
+    """ORCH-608: the answer as `settle` leaves it but without its inline marks, for a reply that ends with the one
+    fixed line instead (ORCH-606): each contradicted sentence removed, every other sentence as written; "" when the
+    removal would leave nothing said (ORCH-547 then keeps its marks: a contradicted sentence never stands unmarked)."""
+    contradicted = [(quote, kind) for quote, kind in findings if kind == "contradicted"]
+    done = _settled(answer, contradicted)
+    return done.answer if has_text(done.answer) else ""
 
 
 def has_text(text: str) -> bool:

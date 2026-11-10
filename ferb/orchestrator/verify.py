@@ -38,6 +38,21 @@ class ConditionResult:
         return {**d, "how": self.how} if self.how else d
 
 
+def not_done_said(c: Condition) -> str:
+    """ORCH-609: what a literal action check found false, as FERB tells the owner: one short sentence per kind, built
+    from the condition's recorded target only (never its goal text): "No form on <site> was submitted." and the like.
+    "" for a kind that isn't an action check."""
+    k = c.check
+    on = f" on {k.site}" if k.site else ""
+    name = Path(k.path).name if k.path else "the file"
+    return {"sent": f"Nothing was sent to {k.expected}{on}." if k.expected else f"Nothing was sent{on}.",
+            "paid": f"No payment went through{on}.",
+            "submitted": f"No form{on} was submitted.",
+            "trashed": f"{name} wasn't moved to the Trash.",
+            "deleted": f"{name} wasn't deleted.",
+            "downloaded": f"{name} wasn't downloaded."}.get(k.kind, "")
+
+
 class Checks:
     """The deterministic checks. `urls_of` reports every current URL from the task's browser tabs."""
 

@@ -49,11 +49,10 @@ def test_a_conditional_outcome_that_arose_is_met_only_by_a_recorded_submit(daemo
             {"worker": done(BOOKED), "worker.verify": _checked(True)})
     final = outcome(chat(daemon, "check visa slots and book the earliest if any", session="s2"))
     assert final["status"] == "failed" and final["verification"][1]["path"] == "code"
-    assert final["answer"].startswith("I couldn't finish this task. Not done: ")
-    assert "usvisascheduling.com" in final["answer"]
+    assert final["answer"].split("\n\n")[0] == "I couldn't finish this task. No form on usvisascheduling.com was submitted."     # ORCH-609
 
 
-# decision: ORCH-600, ORCH-603, ORCH-605, ORCH-568
+# decision: ORCH-600, ORCH-603, ORCH-605, ORCH-609, ORCH-568
 def test_a_refuted_claim_fails_in_codes_words_without_the_checkers(daemon: RunningDaemon) -> None:
     """Owner 2026-11-11 ("why it seems not like a ferb response but some error its justification"): a run whose claimed
     booking a code check proved false keeps that claim out (ORCH-568) and says why in code's sentence: no checker's
@@ -63,7 +62,7 @@ def test_a_refuted_claim_fails_in_codes_words_without_the_checkers(daemon: Runni
             {"worker": done(BOOKED), "worker.verify": _checked(True)})
     final = outcome(chat(daemon, "check visa slots and book the earliest if any"))
     assert final["status"] == "failed" and BOOKED not in final["answer"]
-    assert final["answer"].startswith("I couldn't finish this task. Not done: ")
+    assert final["answer"].split("\n\n")[0] == "I couldn't finish this task. No form on usvisascheduling.com was submitted."   # code's finding, no goal text
     assert "All five posts were read." not in final["answer"] and "check confirmed" not in final["answer"]
     blocked = json.dumps({"status": "not_done", "reason": "The site signed me out at Kolkata.", "question": None,
                           "answer": "Chennai and Hyderabad had no slots. The site signed me out at Kolkata.",
@@ -135,3 +134,26 @@ def test_a_closing_tag_the_model_left_alone_never_reaches_the_owner(daemon: Runn
     from ferb.orchestrator.answer_marks import without_stray_closing_tags as clean
     kept = 'Run `</div>` in <b>bold</b>, and <untrusted-data id="ab">x</untrusted-data id="ab">.'
     assert clean(kept) == kept and clean("a </x> b") == "a b"
+
+
+# decision: ORCH-610, ORCH-608, ORCH-606
+def test_a_claim_only_the_checker_doubted_stands_unconfirmed_with_just_the_line(daemon: RunningDaemon) -> None:
+    """Task 2357c470 (2026-11-08): the checker judged the outcome not met with no code proof and chose
+    accept_unconfirmed; the run failed and hid the answer. Now it stands done-unconfirmed with the worker's answer and
+    the one line; a sentence the checker found unsupported, left by a fix turn that failed, carries no inline mark
+    since the line ends the reply (a contradicted one is still removed)."""
+    said = "Unsubscribed you from ChatGPT, Slack and Cloudways. Cloudways was never opened. Mailsuite failed."
+    install(daemon, [sup("task", "On it.", task("Unsubscribe me", conds=(cond("Three senders unsubscribed"),)))], {
+        "worker": done(said), "worker.fix": "not a report",
+        "worker.verify": json.dumps({"results": [{"index": 0, "met": False, "evidence": "Calls 28, 31.", "how": None}],
+                                     "next": "accept_unconfirmed", "missing": "", "instructions": "",
+                                     "worker_type": None, "question": "", "reason": "Confirmation pages unseen.",
+                                     "findings": [{"quote": "Cloudways was never opened.", "kind": "unsupported",
+                                                   "evidence": "One was read."},
+                                                  {"quote": "Mailsuite failed.", "kind": "contradicted",
+                                                   "evidence": "Cancelled."}]})})
+    final = outcome(chat(daemon, "unsubscribe me"))
+    assert final["status"] == "done_unverified"
+    assert final["answer"].split("\n\nSites contacted")[0] == (
+        "Unsubscribed you from ChatGPT, Slack and Cloudways. Cloudways was never opened.\n\n"
+        "I couldn't confirm part of this.")

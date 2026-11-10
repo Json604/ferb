@@ -75,7 +75,7 @@ def test_a_shell_replace_that_hits_a_table_header_reaches_the_checker_and_a_cite
     out = outcome(chat(daemon, "unzip the HCI assignment, fullname=Sam, studentid=2031xy04417"))
     assert not out["verified"] and out["status"] == "failed"
     # ORCH-600: the reply says the step wasn't done in code's words; the cited line is the check's record
-    assert out["answer"].startswith("I couldn't finish this task. Not done: ")
+    assert out["answer"].startswith("I couldn't finish this task.")     # the checker's fail gave no reason
     assert "Table 10's column header" in out["verification"][0]["evidence"]
     context = checks(script)[0]
     assert f'"{doc.resolve()}" (changed)' in context                     # paths JSON-quoted (rule 16, M4)
