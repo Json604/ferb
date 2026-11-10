@@ -486,3 +486,13 @@ words_source = "Owner 2026-11-09, answering the claims build report's three agen
 rule = "worker.md's report field answer gains: \"When not done: only what you found or did before stopping; what stopped you goes in reason.\" ORCH-568 shows the reason once and the findings under it."
 untestable = "Prompt text: TEST-500 keeps no wording tests; ORCH-568's test covers the failed answer built from the two fields."
 paths = ["ferb/orchestrator/prompts/worker.md"]
+
+[PRM-345]
+title = "supervisor.md: a turn that only sets or changes schedules, reminders, timers or memory is a reply"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "supervisor.md's \"reply\" kind adds one line: \"A message that only sets, changes or cancels schedules, reminders, timers or memory is a \\\"reply\\\" with task null.\" ORCH-582 reads the other answer (kind task, no task) the same way in code."
+why = "Live 2026-11-10: both runtimes answered schedule-only requests as kind task with no task; the kind list never said where such a turn goes."
+untestable = "Prompt text: TEST-500 keeps no wording tests; ORCH-582's test covers the answer the line steers away from."
+paths = ["ferb/orchestrator/prompts/supervisor.md"]

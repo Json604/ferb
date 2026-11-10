@@ -411,6 +411,12 @@ class TaskControl(BaseModel):
     supersedes: list[str]
 
 
+# The planner's entries that act without a task (ORCH-324's side entries, an answer to an open question, the schedules
+# list shown)
+SIDE_ENTRIES = ("answer_question", "remember", "forget", "timers", "schedules", "schedule_changes", "show_schedules",
+                "reminder_cancels", "conversation_changes")
+
+
 class SupervisorOutcome(BaseModel):
     control: TaskControl | None = None
     kind: Literal["reply", "clarify", "task"]
@@ -442,6 +448,17 @@ class SupervisorOutcome(BaseModel):
             data = {k: v for k, v in data.items() if k not in ("show", "about_tasks")}
             if "show_schedules" not in data:
                 data["show_schedules"] = isinstance(shown, list) and "schedules" in shown
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def _entries_only(cls, data: Any) -> Any:
+        """ORCH-582: kind "task" with no task and no control whose side entries hold something (a schedule, a reminder,
+        a memory entry, a change or cancel of one, an answer to a question) is that turn as a reply: those entries do
+        it, and there is no task to start. A structural fact (which fields are filled), never what the words say."""
+        if isinstance(data, dict) and data.get("kind") == "task" and data.get("task") is None and \
+                data.get("control") is None and any(data.get(key) for key in (*SIDE_ENTRIES, "schedule")):
+            return {**data, "kind": "reply"}
         return data
 
     @model_validator(mode="after")

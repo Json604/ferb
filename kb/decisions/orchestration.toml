@@ -1168,3 +1168,13 @@ rule = "For ORCH-305's fit check. A worker is handed its inputs as paths and rea
 why = "Live 2026-11-10 (Codex, X6 shrink a video): \"its inputs need up to 35120606 tokens; worker context has 230052\": a 35 MB video, which the worker would hand to a terminal command, could never be an input, nor a photo over ~230 KB."
 paths = ["ferb/orchestrator/plans.py::_inventory", "ferb/orchestrator/plans.py::_text"]
 live = ["LIVE-874"]
+
+[ORCH-582]
+title = "A turn that only sets or changes schedules, reminders or memory is a reply, even if marked task"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For ORCH-324 and ORCH-553. A planner answer of kind \"task\" with no task and no control whose side entries hold something (schedules, schedule_changes, timers, reminder_cancels, remember, forget, conversation_changes, answer_question, show_schedules) is read as kind \"reply\" before validation: the entries do the turn and there is no task to start. Which fields are filled decides (a structural fact), never the words. kind \"task\" with no task and nothing else still goes back for repair."
+why = "Live 2026-11-10: schedule requests on Codex and Claude Code first came back as kind task with task null and a filled schedules list, failed the answer form and cost a repair; Codex's repair did the same, so I1 and X3 were never set."
+paths = ["ferb/orchestrator/schemas.py::SupervisorOutcome._entries_only", "ferb/orchestrator/schemas.py::SIDE_ENTRIES"]
+live = ["LIVE-868"]

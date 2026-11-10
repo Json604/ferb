@@ -62,6 +62,21 @@ def test_a_schedule_needs_the_owners_words_and_a_future_first_run(daemon: Runnin
     assert len(run(daemon, daemon.daemon.schedules.all)) == 2
 
 
+# decision: ORCH-582
+def test_a_schedule_answered_as_a_task_without_one_is_set_first_time(daemon: RunningDaemon) -> None:
+    """Live 2026-11-10 (Codex and Claude Code): a schedule-only request came back as kind "task" with no task, failed
+    the answer form ("A new task needs nonempty success_conditions") and cost a repair; Codex's repair failed too. With
+    no task and no control, the entries are the turn: one planner call, the schedule set, no repair."""
+    now = daemon.daemon.clock.now()
+    answer = json.loads(schedule_reply(daemon, "check the price", "every morning at 8 check the price",
+                                       now + timedelta(hours=10), "daily", paths=()))
+    script = install(daemon, [json.dumps(answer | {"kind": "task"})])
+    said = [e["text"] for e in chat(daemon, "every morning at 8 check the price") if e["type"] == "timer"]
+    assert said and said[0].startswith("🗓 Scheduled: ")
+    assert script.calls("planner") == ["supervisor"] and len(run(daemon, daemon.daemon.schedules.all)) == 1
+    assert run(daemon, lambda: daemon.daemon.journal.of_kind("task.repair")) == []
+
+
 # decision: ORCH-512
 def test_remembered_address_does_not_rewrite_schedule_recipient(daemon: RunningDaemon) -> None:
     now = daemon.daemon.clock.now()

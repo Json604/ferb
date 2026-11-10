@@ -3886,3 +3886,12 @@ request = "Ask FERB, in one message, to total the CSV at ~/<folder>/<file>.csv a
 pass = "The trace shows no task.repair about inputs (\"absent from inventory\", \"unassigned inputs\" or \"tokens\"); both are done."
 decisions = ["ORCH-580", "ORCH-581"]
 sitting = "after this change is installed"
+
+[LIVE-868]
+title = "A schedule or reminder request is set on the first try with Codex"
+area = "orchestration"
+surface = "FERB.app with this build, Codex as the AI"
+request = "Ask FERB to check a product's price on Amazon every morning at 8 and ping you if it drops below a figure; then ask it to remind you of something every Sunday at 9 am. Cancel both after."
+pass = "Both are scheduled with their scheduled lines; the trace shows no task.repair and one planner call per message."
+decisions = ["ORCH-582", "PRM-345"]
+sitting = "after this change is installed"
