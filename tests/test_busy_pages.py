@@ -301,3 +301,34 @@ def test_after_reads_the_pages_own_observation() -> None:
     quiet = after_of({"ok": True, "observed_change": False, "observed": "nothing changed within 0.5 s"})
     assert seen["read"] == "page" and seen["changed"] is True and seen["note"] == "the address changed"
     assert quiet["changed"] is None and quiet["note"] == "nothing changed within 0.5 s"      # not confirmed, not failed
+
+
+def _bnode(eid: str, node: int, label: str, in_view: bool = True) -> PageElement:
+    return PageElement(id=eid, frame_id="0", role="button", label=label, value=None, rect=(0, 0, 9, 9), visible=True,
+                       in_view=in_view, backend_node=node)
+
+
+# decision: HAND-488
+def test_a_screenshot_keeps_the_earlier_ids_of_elements_it_found_again() -> None:
+    """Live: 29 of 32 "from an older snapshot" errors followed a screenshot, whose own snapshot renumbered the page."""
+    from types import SimpleNamespace
+
+    from ferb.act.browser.ext_bridge import _TabDriver
+    old = {"s1e1": (0, 1, 0, _bnode("s1e1", 41, "Buy Now")), "s1e2": (0, 1, 1, _bnode("s1e2", 42, "Add to Cart"))}
+    same = SimpleNamespace(snap_gen=2, snap_nav=3, carried=set(), ids_note={},
+                           elements={"s2e1": (0, 2, 0, _bnode("s2e1", 41, "Buy Now")),
+                                     "s2e2": (0, 2, 1, _bnode("s2e2", 42, "Add to Cart"))})
+    _TabDriver._carry(same, 1, 3, old)                                       # type: ignore[arg-type]
+    assert same.carried == {"s1e1", "s1e2"} and same.elements["s1e1"] == same.elements["s2e1"]
+    assert "still work" in same.ids_note["ids"]
+    changed = SimpleNamespace(snap_gen=2, snap_nav=3, carried=set(), ids_note={},
+                              elements={"s2e1": (0, 2, 0, _bnode("s2e1", 41, "Buy Now")),
+                                        "s2e2": (0, 2, 1, _bnode("s2e2", 77, "Sign in")),
+                                        "s2e3": (0, 2, 2, _bnode("s2e3", 78, "Footer", in_view=False))})
+    _TabDriver._carry(changed, 1, 3, old)                                    # type: ignore[arg-type]
+    assert changed.carried == {"s1e1"} and "s1e2" not in changed.elements
+    assert "now from snapshot s2" in changed.ids_note["ids"] and "1 went" in changed.ids_note["ids"]
+    assert changed.ids_note["in_view_elements"] == [{"id": "s2e2", "role": "button", "label": "Sign in"}]
+    navigated = SimpleNamespace(snap_gen=2, snap_nav=4, carried=set(), ids_note={}, elements=dict(same.elements))
+    _TabDriver._carry(navigated, 1, 3, old)                                  # type: ignore[arg-type]
+    assert not navigated.carried and "2 went" in navigated.ids_note["ids"]

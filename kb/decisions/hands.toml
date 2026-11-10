@@ -1107,3 +1107,14 @@ why = "Live: every act returned after {read: none, changed: null} and \"clicked 
 evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
 paths = ["extensions/chromium/background.js::observeAct", "extensions/chromium/content.js::watchNear", "ferb/act/aftercheck.py::after_of"]
 live = ["LIVE-890"]
+
+[HAND-488]
+title = "A screenshot keeps the earlier element ids of the elements its snapshot found again"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "browser.screenshot's own snapshot renumbers the page; each id of the snapshot before it keeps working for the same node when the page didn't navigate (same frame and the debugger's node id, else the same DOM path, role and label). The result says so; when earlier ids went, it says ids are now from snapshot sN, how many still work and went, and lists the new snapshot's other in-view elements (id, role, label; up to 8,000 characters)."
+why = "Live: 29 of 32 \"element ... is from an older snapshot\" errors followed a screenshot or point, whose snapshot had bumped the generation."
+evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
+paths = ["ferb/act/browser/ext_bridge.py::_carry", "ferb/act/browser/ext_bridge.py::visual_snapshot", "ferb/act/browser/tools.py::BrowserScreenshot"]
+live = ["LIVE-890"]

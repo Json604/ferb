@@ -990,6 +990,9 @@ class _Tab:
     armed: tuple[str, str] | None = None
     opener: str | None = None       # the task tab that opened this one (a link's new tab, an adopted popup)
     title: str = ""                 # the page title it last showed FERB (redacted): names it in a cleanup leftover
+    # HAND-488: earlier ids a screenshot's snapshot found the same node for (they keep working), and what it said
+    carried: set[str] = field(default_factory=set)
+    ids_note: dict[str, Any] = field(default_factory=dict)
 
 
 def _read_clipboard() -> tuple[int, str | None, bool]:
@@ -1590,6 +1593,7 @@ class _TabDriver:
         t.visual = None
         t.points.clear()
         t.snap_gen, t.snap_nav, t.elements, t.url = gen, nav, elements, url
+        t.carried, t.ids_note = set(), {}
         t.title = self.redact_text(title) if title else t.title
         t.frame_urls = {int(f["frame_id"]): str(f.get("url") or "") for f in v["frames"]}
         t.commerce = next((dict(f["commerce"]) for f in v["frames"] if int(f["frame_id"]) == 0
@@ -2324,8 +2328,12 @@ class _TabDriver:
         failure stands."""
         import Quartz
         failed: FerbError | None = None
+        before = self._tabs.get(tab.tab_id)
+        earlier = (before.snap_gen, before.snap_nav, dict(before.elements)) if before is not None else None
         try:
             await self.snapshot(tab)
+            if earlier is not None:
+                self._carry(self._tab(tab), *earlier)
         except FerbError as e:
             failed = e
         # secret fields painted from the extension's own rects, not this list (L13); after a read that timed out, no
@@ -2346,6 +2354,55 @@ class _TabDriver:
             t.visual, t.unread_shot = (shot, t.snap_gen, t.snap_nav, asyncio.get_running_loop().time(), width,
                                        height), None
         return shot, jpeg, width, height
+
+    IN_VIEW_LIST_CHARS = 8000       # HAND-488: the in-view elements a screenshot lists when earlier ids went, at most
+
+    @staticmethod
+    def _carry(t: _Tab, gen: int, nav: int, old: dict[str, tuple[int, int, int, PageElement]]) -> None:
+        """HAND-488: after a screenshot's own snapshot, each id of the snapshot before it whose node the new one found
+        again (same frame and the debugger's node id, else the same DOM path, role and label), on the same page,
+        keeps working for that node; the rest went. `ids_note` says which, with the new snapshot's in-view elements when
+        any earlier id went."""
+        if gen == t.snap_gen or not old:
+            return
+        def key(frame: int, e: PageElement) -> tuple[Any, ...]:
+            return (frame, "b", e.backend_node) if e.backend_node is not None else (frame, "p", e.path, e.role, e.label)
+        new = {key(f, e): eid for eid, (f, _, _, e) in t.elements.items()}
+        gone, found = 0, set()
+        if nav == t.snap_nav:
+            for eid, (f, _, _, e) in old.items():
+                now = new.get(key(f, e)) if (e.backend_node is not None or e.path) else None
+                if now is None or eid in t.elements:
+                    gone += eid not in t.elements
+                    continue
+                t.elements[eid] = t.elements[now]
+                t.carried.add(eid)
+                found.add(now)
+        else:
+            gone = len(old)
+        if not gone:
+            t.ids_note = {"ids": f"the last snapshot's element ids still work (snapshot s{t.snap_gen} found the same "
+                                  "elements)"}
+            return
+        shown, used, more = [], 0, 0
+        for eid, (*_, e) in t.elements.items():
+            if eid in t.carried or eid in found or not e.in_view:   # an element an earlier id still names: known
+                continue
+            item = {"id": eid, "role": e.role, "label": e.label[:80]}
+            size = len(json.dumps(item, ensure_ascii=False))
+            if used + size > _TabDriver.IN_VIEW_LIST_CHARS:
+                more += 1
+                continue
+            shown.append(item)
+            used += size
+        t.ids_note = {"ids": f"element ids are now from snapshot s{t.snap_gen}: {len(t.carried)} earlier ids still work "
+                             f"for the same elements, {gone} went (the page changed)",
+                      "in_view_elements": shown, **({"more_in_view": more} if more else {})}
+
+    def ids_note(self, tab: TabRef) -> dict[str, Any]:
+        """HAND-488: what the last screenshot's snapshot did to the earlier element ids ({} when there were none)."""
+        t = self._tabs.get(tab.tab_id)
+        return dict(t.ids_note) if t is not None else {}
 
     async def point(self, tab: TabRef, shot: str, x: float, y: float) -> PageElement:
         t = self._tab(tab)
@@ -2480,7 +2537,7 @@ class _TabDriver:
     def _resolve(self, el: ElementRef) -> tuple[_Tab, int, int, int, PageElement]:
         t = self._tab(el.tab)
         hit = t.elements.get(el.element_id)
-        if hit is None or el.snapshot_gen != t.snap_gen:
+        if hit is None or (el.snapshot_gen != t.snap_gen and el.element_id not in t.carried):   # HAND-488
             raise StaleRef(f"element {el.element_id} is from an older snapshot; take a new one")
         if t.bridge.navs.get(t.chrome_id, 0) != t.snap_nav:
             raise StaleRef("the page changed since the snapshot; take a new one")
