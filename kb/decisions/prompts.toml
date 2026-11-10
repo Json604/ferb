@@ -509,11 +509,11 @@ paths = ["ferb/orchestrator/prompts/supervisor.md", "ferb/orchestrator/prompts/v
 live = ["LIVE-869"]
 
 [PRM-347]
-title = "roles/scheduled.md: every run's answer is posted"
+title = "Prompts for ORCH-589: every scheduled run posts; look up earlier work first on every runtime"
 by = "agent"
 date = 2026-11-10
 status = "active"
-rule = "For ORCH-590. roles/scheduled.md no longer explains nothing_to_tell (the field is gone): its first line says every run's answer is posted to the owner, one that found nothing included, so the answer says plainly what the run checked and found. Its schedule-facts line is unchanged."
-untestable = "Prompt text: TEST-500 keeps no wording tests; LIVE-892 judges it."
-paths = ["ferb/orchestrator/prompts/roles/scheduled.md"]
-live = ["LIVE-892"]
+rule = "roles/scheduled.md drops nothing_to_tell (ORCH-590): every run's answer is posted, so it says what the run checked and found. supervisor.md, for every runtime (PRM-336, PRM-342): before answering about earlier work (an earlier answer, what a task or scheduled run found or did, why it stopped) or FERB's state, answer from FERB's records in context or look them up first; if a lookup can't reach it, say so. Its context paragraph names the new records (ORCH-591..595). PLANNER_ANSWER is unchanged; nothing is added for API runtimes."
+untestable = "Prompt text: TEST-500 keeps no wording tests; LIVE-892, LIVE-893 and LIVE-894 judge it."
+paths = ["ferb/orchestrator/prompts/roles/scheduled.md", "ferb/orchestrator/prompts/supervisor.md"]
+live = ["LIVE-892", "LIVE-893", "LIVE-894"]
