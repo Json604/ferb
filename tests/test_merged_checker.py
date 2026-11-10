@@ -291,7 +291,7 @@ def test_an_older_checker_reply_reads_as_findings_and_never_marks_a_rewrite() ->
                     CHECKER_SCHEMA)
 
 
-# decision: ORCH-309
+# decision: ORCH-309, ORCH-600
 def test_an_unverifiable_outcome_is_done_unconfirmed_with_the_answer_first(daemon: RunningDaemon) -> None:
     """Task 810e9973: the answer was buried under "Why work stopped". Now the answer comes first, then one line."""
     spec = task("Send the invite to Sam", conds=(cond("Sam received the invite"),))
@@ -303,7 +303,7 @@ def test_an_unverifiable_outcome_is_done_unconfirmed_with_the_answer_first(daemo
     result = outcome(chat(daemon, "send the invite to sam"))
     assert result["status"] == "done_unverified" and result["verified"] is False
     assert result["answer"] == ("I sent the invite to Sam from your Gmail.\n\n"
-                                "Couldn't confirm: Sam received the invite (Check your Gmail Sent folder).")
+                                "Couldn't confirm: Sam received the invite.")      # ORCH-600: no checker text
     assert "Why work stopped" not in result["answer"] and "Send the invite to Sam" not in result["answer"]
 
 
@@ -333,7 +333,7 @@ def test_a_failure_the_worker_explained_is_told_once(daemon: RunningDaemon) -> N
     assert "could not reach availability" in result["summary"]          # the checker's reason stays in the record
 
 
-# decision: ORCH-562
+# decision: ORCH-562, ORCH-603
 def test_a_failures_own_explanation_gets_the_same_findings_round(daemon: RunningDaemon) -> None:
     """Task 7b86c4ad (claims audit A1): a failure said "FERB cannot operate its own app", a capability claim drawn from
     one task's limits that nothing checked. Now the checker's findings on a not-done report's words get the worker's
@@ -348,8 +348,9 @@ def test_a_failures_own_explanation_gets_the_same_findings_round(daemon: Running
         "worker.fix": _fix(fixed), "worker.recheck": json.dumps({"findings": []})})
     result = outcome(chat(daemon, "change my visa schedule"))
     assert result["status"] == "failed" and script.calls("worker") == ["worker", "worker.fix"]
-    assert result["answer"].split("\n\n")[:2] == ["I couldn't finish this task. The edit didn't save.",
-                                                   f"{FOUND_UNCHECKED} {fixed}"]
+    # ORCH-600: the fixed answer holds the fixed reason, so it is said once
+    assert result["answer"].split("\n\n")[0] == f"I couldn't finish this task. {fixed}"
+    assert result["answer"].count("The edit didn't save.") == 1 and FOUND_UNCHECKED not in result["answer"]
     assert claim not in result["answer"] and claim not in result["summary"]      # the reason's quote, removed by code
     assert "What FERB can use now" in _context_of(script, "worker.verify")
 

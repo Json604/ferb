@@ -1271,10 +1271,11 @@ live = ["LIVE-892"]
 title = "A failed task still says what its check confirmed"
 by = "agent"
 date = 2026-11-10
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-600"
 rule = "For ORCH-589. Refines ORCH-568 and ORCH-585. A failed one-ask task's answer (scheduled or chat) is code's sentence (\"I couldn't finish this task.\" and the reason, a code check's \"Not done: …\" included), then \"What the check confirmed:\", one line per outcome condition judged met (\"Didn't apply\" too): the condition and the checker's evidence, at most 300 characters each, then \"What I found:\" as before. A done claim a code check proved false stays out (ORCH-568). Chosen by the verdict's structure, never its words."
 why = "Owner 2026-11-10 on the visa run beeb93f5: the check confirmed \"No Slots Available\" at all five posts, but the failed reply showed only the booking condition's code sentence."
-paths = ["ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrator/supervisor.py::Supervisor._confirmed_lines"]
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._final"]
 
 [ORCH-593]
 title = "The owner's planner looks up the owner's scheduled runs and FERB's own posts"
@@ -1353,3 +1354,43 @@ status = "active"
 rule = "For ORCH-589. Refines ORCH-554 and ORCH-577. On the planner's turn only (live_facts last_runs; a worker's instructions keep the plain list), each schedule's line ends with its last run from the records the app's list reads (task_results, schedules.failures): when, its status, failures in a row, and its answer's first line (at most 200 characters, quoted as model-written data), or \"none yet\". Layer 2's origins add those answers' recorded origins (SchedulePort.last_run_origins). The schedules card is unchanged."
 paths = ["ferb/daemon/areas/schedules.py::Schedules._schedule_facts", "ferb/daemon/areas/schedules.py::Schedules._schedule_last_runs", "ferb/daemon/areas/environment.py::Environment._live_facts", "ferb/orchestrator/supervisor.py::Supervisor._supervise"]
 live = ["LIVE-893"]
+
+[ORCH-600]
+title = "The reply of an ended task is FERB's own answer, said once and whole"
+by = "owner"
+date = 2026-11-11
+status = "active"
+words = "it states ocrrectly its failure but why is the reply cut off?? also why it seems not like a ferb response but some error its justificationad and then its seconds justification. what did you tdo extra to fix the previous issues???"
+words_source = "Owner 2026-11-11 (relayed) on the visa run 2bb55837: \"I couldn't finish\" with the checker's reason, then \"What the check confirmed:\" with checker evidence cut mid-word."
+rule = "Supersedes ORCH-594 (ORCH-589 item 4's reply part); refines ORCH-568, ORCH-585 and ORCH-587. An ended task's reply (chat or scheduled) is FERB speaking: the worker's own answer and code's lines; the check's evidence for what it confirmed or left unconfirmed, an accepting check's reason and its how are never in it. Unconfirmed: the answer, then one \"Couldn't confirm: <condition>\", done_unverified, never failed. Not done: the reason, then what was found, once; a claim found false: \"Not done: <condition>.\" and what is wrong. Nothing is cut mid-sentence; no internal label is a heading."
+supersedes = ["ORCH-594"]
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrator/supervisor.py::Supervisor._told_failure"]
+live = ["LIVE-897"]
+
+[ORCH-601]
+title = "Nothing the owner reads is cut mid-word; short forms end at a sentence or a word"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For ORCH-600; refines ORCH-326's clipping. Reply text is whole: the \"Couldn't confirm\" line (UNCONFIRMED_CHARS gone) and a stopped plan's step reasons. Lines short by design (a report's short form for the planner, the \"what happened since\" block, a multi-part index line, a status or waiting line, a quoted step goal, an exception's words) use lines.shorten: cut at the last sentence end keeping half, else the last word, then \"…\"; only a word longer than the limit is cut inside. Limits unchanged."
+paths = ["ferb/trace/lines.py::shorten", "ferb/orchestrator/supervisor.py::_short_report", "ferb/orchestrator/supervisor.py::_clipped", "ferb/orchestrator/supervisor.py::_since_line", "ferb/orchestrator/parts.py::_clip", "ferb/orchestrator/worker.py::_words"]
+
+[ORCH-602]
+title = "A literal check refutes only a condition the checker judged, never one it left unconfirmed"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For ORCH-600; refines ORCH-576 and ORCH-587. A literal action check found false (sent, paid, submitted, trashed, deleted, downloaded) turns a condition false only when the checker itself judged it met or not met (before code's no-look rule: _Tree.checker_judged), or when no check gave a verdict at all (ORCH-576 as before). A condition the checker left unconfirmed stays unconfirmed, so an accept_unconfirmed ends done_unverified with code's \"Couldn't confirm\" line."
+why = "Task 2bb55837 (2026-11-11 00:03): the checker had the booking condition met null, applies true, next accept_unconfirmed; the submitted check made it false and _next turned the accept into a fail carrying the accept's reason."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor.verify", "ferb/orchestrator/supervisor.py::Supervisor._verifier"]
+live = ["LIVE-897"]
+
+[ORCH-603]
+title = "A failed task's reason is chosen by where each text came from, and said once"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For ORCH-600. One helper (_told_failure) for the reply and a part's \"Couldn't do:\" row: code's own stop line, or the outcome's summary with no report; else the worker's not-done reason; else the checker's own `fail` reason (written for the owner); else code's \"Not done: <condition>.\" with what was found false, or \"Couldn't confirm: <condition>.\" alone. Reason and \"What I found:\" are one text when one holds the other (_once). \"Couldn't confirm\" names the condition, with code's no-look how but never the checker's; \"what happened since\" keeps evidence and how for every run not done."
+why = "Task eea265b9 (2026-11-10 18:12): the reply said the worker's reason, the checker's watch evidence under \"What the check confirmed:\", then the worker's answer repeating the reason."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._told_failure", "ferb/orchestrator/supervisor.py::Supervisor._told_not_done", "ferb/orchestrator/supervisor.py::Supervisor._couldnt_do", "ferb/orchestrator/supervisor.py::_once", "ferb/orchestrator/supervisor.py::Supervisor._next", "ferb/orchestrator/supervisor.py::Supervisor._since_event", "ferb/orchestrator/supervisor.py::WATCH_TEXT"]
+live = ["LIVE-897"]

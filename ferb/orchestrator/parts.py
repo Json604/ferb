@@ -14,6 +14,7 @@ from typing import Any
 
 from ferb.memory.journal import Journal
 from ferb.orchestrator.plans import Part
+from ferb.trace.lines import shorten
 
 KIND = "chat.part"
 DONE = ("done", "updated")           # counted as done ("N of M done")
@@ -211,7 +212,8 @@ def _first_line(text: Any) -> str:
 
 
 def _clip(line: str, chars: int) -> str:
-    return line if len(line) <= chars else line[:chars - 1].rstrip() + "…"
+    """An index line at most `chars`, cut at a sentence or word, never mid-word (ORCH-601)."""
+    return line if len(line) <= chars else shorten(line, chars, fold=False)
 
 
 def done_line(done: int, total: int) -> str:

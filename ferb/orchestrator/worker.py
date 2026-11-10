@@ -28,6 +28,7 @@ from ferb.core.types import ModelImage, ModelLimits, ModelRequest, Outcome, RunH
 from ferb.orchestrator.tree import TaskRecord
 from ferb.orchestrator.steering import deliver as deliver_steering
 from ferb.orchestrator import progress
+from ferb.trace.lines import shorten
 from ferb.runtimes.answer_rules import WRONG_CALLS_CAP, AnswerMissing, EmptyAnswer, ToolLoop
 from ferb.runtimes.catalog import SignedOut
 
@@ -183,7 +184,7 @@ def _words(text: str, redact: Callable[[str], str]) -> str:
     """An exception's words for the owner's line: redacted first (a secret cut in half no longer matches), on one line,
     and at most REASON_CHARS characters."""
     text = " ".join(str(redact(text)).split())
-    return text if len(text) <= REASON_CHARS else text[:REASON_CHARS - 1].rstrip() + "…"
+    return text if len(text) <= REASON_CHARS else shorten(text, REASON_CHARS)     # never mid-word (ORCH-601)
 
 
 def _ended(text: str) -> str:

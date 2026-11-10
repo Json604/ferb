@@ -32,7 +32,7 @@ from ferb.core.interfaces import AgentRuntime, Clock, IdSource
 from ferb.core.context import Assembly, ContextBlock, count_tokens, overhead_chars, overhead_tokens
 from ferb.core.prompts import load_prompt
 from ferb.core.timing import Steps
-from ferb.trace.lines import clip
+from ferb.trace.lines import shorten
 from ferb.core.types import Identity, ModelImage, Outcome, RunHandle, Span, Task, ToolContext
 from ferb.daemon.auth import RunGrant, RunTokens
 from ferb.daemon.gateway import DESTINATION_HELP, EFFECT_HELP, FsRoots, Gateway, Observer, observes
@@ -640,7 +640,7 @@ def _short_report(text: str, index: bool = False) -> str:
     first = text.strip().split("\n\n", 1)[0].strip()
     if index:
         return first
-    return first if len(first) <= REPORT_SHORT_CHARS else first[:REPORT_SHORT_CHARS - 1].rstrip() + "…"
+    return shorten(first, REPORT_SHORT_CHARS, fold=False)     # ORCH-601: at a sentence or word, never mid-word
 
 
 def _within_tokens(text: str, limit: int) -> str:
@@ -768,6 +768,9 @@ class _Tree:
     stop_told_in: str = ""               # ORCH-579: the request whose reply tells the owner's stop of this task
     stands_unconfirmed: bool = False     # the last attempt's done report stands, though no check confirmed it (V4)
     kept_contradicted: bool = False      # the fix round's fallback marked a contradicted sentence it couldn't remove
+    check_told: str = ""                 # ORCH-600: the checker's own fail reason, the only checker text a reply may say
+    checker_judged: set[int] = field(default_factory=set)   # ORCH-600: conditions the last check's checker itself
+    #                                      judged met or not met (before code's no-look rule made a pass unconfirmed)
     check_problem: str = ""              # why the current attempt's check couldn't run, in the owner's words
     owner_answer: str = ''               # the worker's answer to the owner, with the checker's exact fixes applied
     reason: str = ''                     # the worker's reason for not finishing (not_done)
@@ -3971,14 +3974,16 @@ class Supervisor(WorkerRuns):
                                      "status": data.get("status", ""),
                                      "answer_first_line": _since_line(str(data.get("text", ""))),
                                      "records": f"task.evidence task_id={tid}"}
-            if data.get("status") not in ("done", "done_unverified") and tid:
+            if data.get("status") != "done" and tid:     # ORCH-600: an unconfirmed run's too
                 outcome = json.loads(self.tasks.column(tid, "outcome_json") or "{}")
                 # each condition the check judged, the unmet ones first: what failed, and what the run still found
                 judged = [r for r in outcome.get("verification") or [] if isinstance(r, dict)]
                 shown["conditions"] = [
                     {"condition": _since_line(str(r.get("condition", ""))),
                      "result": "met" if r.get("met") is True else "not met" if r.get("met") is False else "not confirmed",
-                     "check_found": clip(" ".join(str(r.get("evidence", "")).split()), SINCE_EVIDENCE_CHARS)}
+                     "check_found": shorten(r.get("evidence", ""), SINCE_EVIDENCE_CHARS)} | (
+                        # ORCH-600: how the owner could check it themselves, for when they ask (no longer in the reply)
+                        {"owner_can_check": shorten(r["how"], SINCE_EVIDENCE_CHARS)} if r.get("how") else {})
                     for r in sorted(judged, key=lambda r: r.get("met") is True)]
             return shown, origins_.split(e.origin) | {origins_.INFERRED}
         if kind == "schedule.skipped":
@@ -4396,7 +4401,7 @@ class Supervisor(WorkerRuns):
                 return
             text = progress.WORKING
         else:
-            reason = clip(" ".join(printable(why).split()), WAIT_REASON_CHARS)
+            reason = shorten(printable(why), WAIT_REASON_CHARS)
             self._sleeping[root] = self.gateway.redact({"until": f"{until.astimezone():%H:%M}",
                                                         "until_at": until.isoformat(), "reason": reason})
             text = sleeping_line(self._sleeping[root])
@@ -4413,7 +4418,7 @@ class Supervisor(WorkerRuns):
             return ("done", "Done")
         asked = next((ap for ap in self.state.approvals.pending() if ap.request_id == tree.worker.request_id), None)
         if asked is not None:
-            return ("asking", "Asking you: " + clip(" ".join(str(asked.summary or asked.reason).split()), 160))
+            return ("asking", "Asking you: " + shorten(asked.summary or asked.reason, 160))
         if self.task_paused(root):
             return ("paused", "Paused")
         if (asleep := self._sleeping.get(root)) is not None:          # ORCH-598: a worker's time.sleep_until
@@ -4427,8 +4432,8 @@ class Supervisor(WorkerRuns):
         for key, state in states.items():
             step = steps.get(key)
             if step is not None and step.kind == 'wait' and state['status'] == 'waiting':
-                return ("waiting", "Waiting for " + clip(" ".join((step.goal or step.until or step.event or
-                                                                   "the time it waits for").split()), 160))
+                return ("waiting", "Waiting for " + shorten(" ".join((step.goal or step.until or step.event or
+                                                                      "the time it waits for").split()), 160))
             if step is not None and step.loops and f'{root}.loop.{key}' in self._resting:
                 return ("waiting", "Waiting for the next check of " + short_label(step.goal))
         if worker and self.tasks.column(worker, 'status') not in ('running', None):
@@ -4916,13 +4921,15 @@ class Supervisor(WorkerRuns):
         the task's (D33)."""
         return confirm.from_task_lines(self.gateway.redact(text.strip())) if text.strip() else ''
 
-    @staticmethod
-    def _couldnt_do(member: _Tree | None, output: dict[str, Any]) -> str:
-        """A failed row's line: "Couldn't do:" and why, in the owner's terms (the checker's reason, the worker's, or
-        the question nobody could answer)."""
+    def _couldnt_do(self, member: _Tree | None, output: dict[str, Any]) -> str:
+        """A failed row's line: "Couldn't do:" and why, in the owner's terms: told as a failed task's reply tells it
+        (`_told_failure`, ORCH-600), else the question nobody could answer or the step's summary."""
         question = str(output.get('question') or '')
-        why = ((member.stop_reason or member.reason) if member is not None else '') or (
-            f"I need your answer: {question}" if question else str(output.get('summary') or NOT_ACCEPTED))
+        why = ''
+        if member is not None and (member.stop_reason or member.reason):
+            out = member.outcome or Outcome(member.worker.id, "failed", member.stop_reason, [], [])
+            why = self._told_failure(member, out, self._results(member)[1], member.stop_reason or member.reason)[0]
+        why = why or (f"I need your answer: {question}" if question else str(output.get('summary') or NOT_ACCEPTED))
         return f"{COULDNT_DO} {_sentence(why).strip()}"
 
     def _close_rows(self, tree: _Tree, states: dict[str, dict[str, Any]], result: dict[str, Any]) -> None:
@@ -4955,7 +4962,7 @@ class Supervisor(WorkerRuns):
         why = next((str(states[d]['output'].get('summary') or '') for d in ended
                     if states.get(d, {}).get('output', {}).get('summary')), '')
         goal = " ".join(steps[ended[0]].goal.split()) if ended and ended[0] in steps else ''
-        return {'summary': (f"a step it needed (\u201c{clip(goal, 120)}\u201d) didn't finish"
+        return {'summary': (f"a step it needed (\u201c{shorten(goal, 120)}\u201d) didn't finish"
                             + (f": {why}" if why else "")) if goal else "the plan stopped before it ran"}
 
     def _finish_step(self, member: _Tree, out: Outcome) -> str:
@@ -5701,6 +5708,7 @@ class Supervisor(WorkerRuns):
                 return tree.outcome
             if choice.action == "fail":
                 tree.stop_reason, tree.stop_by_code = choice.reason or tree.reason or NOT_ACCEPTED, False
+                tree.check_told = choice.told
                 return Outcome(task.id, "failed", tree.stop_reason, out.artifacts, [])
             if choice.action == "ask":
                 tree.owner_question = choice.question
@@ -5909,8 +5917,12 @@ class Supervisor(WorkerRuns):
                 why = checked.reason or ("" if refuted else tree.reason) or "; ".join(
                     self._found(tree, r) for r in (refuted or unknown))
                 return _Next("fail", reason=why)
-            lines = [self._owner_text(tree, r) + (f" ({r.how.rstrip('.')})" if r.how else "") for r in unknown]
-            tree.unconfirmed = "; ".join(line.strip().rstrip(".") for line in lines if line.strip())
+            # ORCH-603: the condition in the owner's terms; the checker's evidence and `how` stay in the record. Only
+            # code's own how (a pass refused for no look at changed files, `NO_LOOK_HOW`: the checker had judged it)
+            # follows in brackets
+            lines = [self._owner_text(tree, r).strip().rstrip(".") +
+                     (f" ({r.how.rstrip('.')})" if r.how and r.index in tree.checker_judged else "") for r in unknown]
+            tree.unconfirmed = "; ".join(line for line in lines if line)
             findings = [f for f in checked.findings if f.quote.strip()] if out.status == "done" else []
             return _Next("accept_unconfirmed" if unknown else "accept", findings=findings)
         if action == "retry":
@@ -5927,7 +5939,8 @@ class Supervisor(WorkerRuns):
         # ORCH-562: a worker that didn't finish wrote its own account of why (its answer, its reason): the checker's
         # findings on those words get the same round as a done answer's (the checker's own reason stays its own)
         findings = [f for f in checked.findings if f.quote.strip()] if out.status != "done" else []
-        return _Next("fail", reason=checked.reason.strip() or tree.reason or found or NOT_ACCEPTED, findings=findings)
+        return _Next("fail", reason=checked.reason.strip() or tree.reason or found or NOT_ACCEPTED, findings=findings,
+                     told=checked.reason.strip() if action == "fail" else "")
 
     async def _settle_findings(self, tree: _Tree, task: Task, findings: list[Finding], span: str) -> None:
         """ORCH-545 (owner, 2026-11-06): the checker quoted sentences of a done answer that the evidence contradicts or
@@ -6107,17 +6120,43 @@ class Supervisor(WorkerRuns):
         lead = "Not done" if result.met is False else "Couldn't confirm"
         return f"{lead}: {said}. {found[:1].upper()}{found[1:]}"
 
+    def _told_failure(self, src: _Tree, out: Outcome, outcomes: list[ConditionResult], why: str) -> tuple[str, str]:
+        """ORCH-600 (owner 2026-11-11: the reply of an ended task is FERB's own answer, told once, whole): why a failed
+        task or row failed and what its worker found, for the reply (`_final`) and a part's row (`_couldnt_do`) alike.
+        The failure is told once (ORCH-568, with PRM-344: a not-done answer holds only what was found or done, what
+        stopped it is its reason), chosen by where each text came from, never by what it says (rule 4):
+        - code's own stop line (attempts used up, an AI service down), or no report at all: `why`, then what the
+          worker found;
+        - a worker that reported not done: its own reason (after ORCH-562's findings round), then its answer as what
+          it found; when one holds the other, only that one (`_once`);
+        - otherwise (a done claim the check didn't accept): the checker's own `fail` reason (the one field it writes
+          for the owner), else code's sentence per outcome condition not met with what code's own check found
+          (`_told_not_done`); never the done claim (ORCH-568), never an accepting check's reason or any condition's
+          evidence, which stay the summary, stop_reason and the trace."""
+        not_done = not (src.reports and src.reports[-1].get("status") == "done")
+        own = src.owner_answer.strip() if not_done else ""
+        if src.stop_by_code or not src.reports:
+            told = why
+        elif not_done and src.reason.strip():
+            told = src.reason
+        else:
+            told = src.check_told or self._told_not_done(src, outcomes) or NOT_ACCEPTED
+        return _once(told, own)
+
     @classmethod
-    def _confirmed_lines(cls, tree: _Tree, outcomes: list[ConditionResult]) -> list[str]:
-        """ORCH-594: a failed task's conditions the check judged met, each as the owner reads it with the checker's
-        evidence for it (a "Didn't apply" one with its own), one short line each: what the run found stays told when
-        the task as a whole failed. By the verdict's structure (met true), never by what the evidence says."""
-        lines = []
+    def _told_not_done(cls, tree: _Tree, outcomes: list[ConditionResult]) -> str:
+        """ORCH-600: a failed task's reason in the owner's reply when neither the worker, code's own stop line nor the
+        checker's own fail reason gave one: each outcome condition not met, as `_found` says it (ORCH-583), with what
+        was found only for a condition found false (code's check, or the checker's contradiction: what is wrong in the
+        owner's things); one that couldn't be confirmed is named alone. By the verdict's structure, never its words."""
+        told = []
         for r in outcomes:
-            if r.met is True and r.evidence.strip():
+            if r.met is not True:
                 said = cls._owner_text(tree, r).strip().rstrip(".")
-                lines.append("- " + clip(" ".join(f"{said}: {r.evidence}".split()), CONFIRMED_CHARS))
-        return lines
+                lead = "Not done" if r.met is False else "Couldn't confirm"
+                found = r.evidence.strip() if r.met is False else ""
+                told.append(f"{lead}: {said}." + (f" {found[:1].upper()}{found[1:]}" if found else ""))
+        return " ".join(told)
 
     @staticmethod
     def _owner_text(tree: _Tree, result: ConditionResult) -> str:
@@ -6520,6 +6559,7 @@ class Supervisor(WorkerRuns):
         ctx = ToolContext(task.id, "verifier", task.request_id, task.identity, frozenset(task.scopes),
                           self.device_id, None, self.roots.workspace, self.roots.owner_roots, self.roots.untrusted_roots)
         observations = []
+        tree.checker_judged = set()
         judged = list(enumerate(checked_conditions(tree.spec, tree.watch, tree.watch_met)))
         for i, condition in judged:
             if self.checks is not None and self.checks.code_checkable(condition, task.id):
@@ -6529,10 +6569,15 @@ class Supervisor(WorkerRuns):
         results, verdict = await self._verifier(tree, task, judged, span, observations)
         # ORCH-576: an action check code found false (no such call ran without an error in the task's records) is
         # false whatever the checker said: the work can't be accepted on words the records don't bear. ORCH-587: only
-        # for a condition the checker found applying; one whose own "if" didn't occur asked for no action
+        # for a condition the checker found applying; one whose own "if" didn't occur asked for no action. ORCH-600: it
+        # catches a claim the checker judged (met or not met); a condition the checker left unconfirmed stays
+        # unconfirmed (ORCH-309's accept_unconfirmed then ends the task done-unconfirmed, never failed). A check that
+        # gave no verdict at all leaves code's fact standing, as ORCH-576 had it.
         idle = {r.index for r in verdict.results if not r.applies} if verdict is not None else set()
+        unconfirmed = {r.index for r in results if r.met is None and r.index not in tree.checker_judged} \
+            if verdict is not None else set()
         refuted = {r.index: r for r in observations if r.met is False and r.index not in idle and
-                   judged_kind(judged, r.index) in ACTION_CHECKS}
+                   r.index not in unconfirmed and judged_kind(judged, r.index) in ACTION_CHECKS}
         return [refuted.get(r.index, r) for r in results], verdict
 
     def _carry(self, tree: _Tree, results: list[ConditionResult]) -> list[ConditionResult]:
@@ -6619,6 +6664,7 @@ class Supervisor(WorkerRuns):
         if isinstance(checked, list):
             return checked, None
         verdict = checked
+        tree.checker_judged = {r.index for r in verdict.results if r.met is not None}
         if changed.records and any(r.met is True for r in verdict.results) and \
                 (unread := self._unread(vtask.id, cursor, changed.records)):
             # A pass needs a look (L39): refused, run once more with the reason; a second refusal is unclear
@@ -6631,6 +6677,7 @@ class Supervisor(WorkerRuns):
             if isinstance(checked, list):
                 return checked, None
             verdict = checked
+            tree.checker_judged = {r.index for r in verdict.results if r.met is not None}
             if any(r.met is True for r in verdict.results) and \
                     (unread := self._unread(vtask.id, cursor, changed.records)):
                 again = self.spans.start("verify.refused", task_id=vtask.id, parent_id=span, input={"unread": unread})
@@ -6859,24 +6906,11 @@ class Supervisor(WorkerRuns):
         else:
             status = "failed"
             why = src.stop_reason or src.reason or (out.summary if out.status != "done" else NOT_ACCEPTED)
-            summary = answer = f"{NOT_FINISHED} {_sentence(why)}".strip()
-            # The failure is told once (owner 2026-11-09, the 7:10 visa run: "why is this giving two replies????";
-            # ORCH-568, with PRM-344: a not-done answer holds only what was found or done, what stopped it is its
-            # reason). A worker that reported not done is the account: its own reason (after ORCH-562's findings round)
-            # says what stopped it, in place of the checker's, which stays the summary; its answer follows as what was
-            # found, unchecked. After code's own stop line (attempts used up, an AI service down) only the answer
-            # follows. Never a done claim the check didn't confirm. By where each text came from, never by what it
-            # says (rule 4).
-            not_done = not (src.reports and src.reports[-1].get("status") == "done")
-            own = src.owner_answer.strip() if not_done else ""
-            if not_done and src.reports and src.reason.strip() and not src.stop_by_code:
-                why = src.reason
-                answer = f"{NOT_FINISHED} {_sentence(why)}".strip()
-            # ORCH-594 (owner 2026-11-10: never hide what a run found): what the check confirmed, each condition it
-            # judged met with its evidence (the checker's record, never the worker's claim), after the reason
-            if confirmed := self._confirmed_lines(src, outcomes):
-                answer += f"\n\n{CHECK_CONFIRMED}\n" + "\n".join(confirmed)
-            if own and own != why.strip():
+            summary = f"{NOT_FINISHED} {_sentence(why)}".strip()     # the record's: the checker's reason stays here
+            # ORCH-600 (owner 2026-11-11: the reply is FERB's own answer, told once, whole): `_told_failure`
+            told, own = self._told_failure(src, out, outcomes, why)
+            answer = f"{NOT_FINISHED} {_sentence(told)}".strip()
+            if own:
                 answer += f"\n\n{FOUND_UNCHECKED} {own}"
         # D33: the answer and summary carry model-written lines (reports, the checker's question and reason); one that
         # reads like FERB's own check is marked as the task's. Code's own lines here never start with "FERB".
@@ -7009,10 +7043,10 @@ def _stopped_plan_summary(steps: list[Any], states: dict[str, dict[str, Any]]) -
     friend asking "whats the attention needed for the plan?"): the step that stopped by its goal, with its own report,
     then what the steps before it did. Clipped; the full reports stay in the trace."""
     def said(step: Any) -> str:
-        return clip(" ".join(str(states.get(step.id, {}).get("output", {}).get("summary") or "").split()), 400)
+        return " ".join(str(states.get(step.id, {}).get("output", {}).get("summary") or "").split())   # whole
     stopped = [s for s in steps if states.get(s.id, {}).get("status") not in ("done", "pending", "running")]
     done = [s for s in steps if states.get(s.id, {}).get("status") == "done" and said(s)]
-    lines = [f"I stopped at \u201c{clip(' '.join(s.goal.split()), 160)}\u201d: {said(s) or 'it did not finish.'}"
+    lines = [f"I stopped at \u201c{shorten(s.goal, 160)}\u201d: {said(s) or 'it did not finish.'}"
              for s in stopped] or ["The plan stopped before its last step."]
     if done:
         lines.append("Done before that:\n" + "\n".join(f"- {said(s)}" for s in done))
@@ -7026,11 +7060,11 @@ OPEN_REQUEST = "The owner's earlier request it asked about (their words, waiting
 NOT_FINISHED = "I couldn't finish this task."
 COULDNT_DO = "Couldn't do:"                      # a part that couldn't be done, in its own row (ORCH-319)
 FOUND_UNCHECKED = "What I found:"                 # ORCH-585 (owner): no "(not checked)" bracket
-WATCH_TEXT = "whether it has happened"          # a watch's own condition, in the owner's terms
+# a watch's own condition, in the owner's terms (ORCH-600: a sentence's part, never a heading)
+WATCH_TEXT = "whether what this watch looks for has happened"
 NOTHING_TO_CHECK = "there was nothing to check it against"
 REPORT_UNCONFIRMED = "every detail of this answer against what I saw"   # its report condition stayed unmet
 NOT_ACCEPTED = "the check didn't confirm the result"     # a failure no reason came with (never a done claim)
-UNCONFIRMED_CHARS = 300                          # the "Couldn't confirm" line stays one short line
 # ORCH-597: a scheduled run's request is its schedule's instructions, written by FERB's planner, never the owner's words;
 # the owner's own messages behind the schedule are given beside them
 SCHEDULED_REQUEST = ("This scheduled run's instructions (FERB's planner wrote them from the owner's messages when the "
@@ -7049,12 +7083,9 @@ SINCE_EVIDENCE_CHARS = 300
 
 def _since_line(text: str) -> str:
     """A text's first non-empty line, at most SINCE_LINE_CHARS (ORCH-591)."""
-    return clip(next((line.strip() for line in text.splitlines() if line.strip()), ""), SINCE_LINE_CHARS)
+    return shorten(next((line.strip() for line in text.splitlines() if line.strip()), ""), SINCE_LINE_CHARS)
 
 
-# ORCH-594: a failed task's conditions the check judged met, under the reason; each line short, as a report's short form
-CHECK_CONFIRMED = "What the check confirmed:"
-CONFIRMED_CHARS = 300
 # The checker's code facts about how the work was done (ORCH-309) and what the task holds (ORCH-333)
 HOW_FACTS = ("FERB's code facts about how this work was done, measured by FERB's code from its own records (never the "
              "worker's words): judge background use, disturbance of the owner's screen, and the profile or account "
@@ -7070,8 +7101,22 @@ def _sentence(text: str) -> str:
 
 
 def _clipped(text: str) -> str:
-    """The "Couldn't confirm" line's text: one line, at most UNCONFIRMED_CHARS, without its own end period."""
-    return clip(" ".join(text.split()), UNCONFIRMED_CHARS).rstrip(".")
+    """The "Couldn't confirm" line's text: one line, whole (ORCH-600: nothing the owner reads is cut), without its own
+    end period."""
+    return " ".join(text.split()).rstrip(".")
+
+
+def _once(reason: str, found: str) -> tuple[str, str]:
+    """A failed task's reason and what it found, told once (ORCH-600): when they are the same text, or one holds the
+    other, after folding whitespace, only the one that holds both stays (as the reason). Structure only."""
+    a, b = " ".join(reason.split()), " ".join(found.split())
+    if not a or not b:
+        return reason, found
+    if b in a:
+        return reason, ""
+    if a in b:
+        return found, ""
+    return reason, found
 
 
 @dataclass
@@ -7084,6 +7129,7 @@ class _Next:
     question: str = ""
     reason: str = ""
     findings: list[Finding] = field(default_factory=list)   # accept: sentences of the answer the worker fixes once
+    told: str = ""         # ORCH-600: the checker's own fail reason (its `fail` choice, written for the owner)
 
 
 class _RuntimeDown(Exception):

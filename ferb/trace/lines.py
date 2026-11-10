@@ -1,6 +1,7 @@
 """Owns the one-line summary of a tool result and the step line format (P26). Must not judge or invent: every word
 comes from the call's own arguments and result. The same step line feeds `ferb logs` live and `ferb trace --steps`."""
 
+import re
 from datetime import datetime
 from typing import Any, Callable
 
@@ -11,6 +12,22 @@ MAX = 160
 def clip(text: Any, n: int) -> str:
     s = " ".join(str(text).split())
     return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def shorten(text: Any, n: int, fold: bool = True) -> str:
+    """A short form that never cuts a word (ORCH-601): whitespace folded (unless `fold` is False: the text's own line
+    breaks kept); longer than `n`, it ends at the last sentence end that keeps at least half of it, else at the last
+    word that fits, then "…". Only a single word longer than `n` is cut inside. For a line kept short (the planner's
+    short forms, a live status line); text the owner reads as FERB's answer is never shortened."""
+    s = " ".join(str(text).split()) if fold else str(text)
+    if len(s) <= n:
+        return s
+    head = s[:n - 1]
+    ends = [m.start() for m in re.finditer(r"[.!?]\s", head)]
+    if ends and ends[-1] + 1 >= n // 2:
+        return head[:ends[-1] + 1] + " …"
+    spaces = [m.start() for m in re.finditer(r"\s", head)]
+    return (head[:spaces[-1]].rstrip(" ,;:(—-\n\t") if spaces and spaces[-1] > 0 else head) + "…"
 
 
 def plural(n: int, one: str, many: str) -> str:
