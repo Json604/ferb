@@ -522,3 +522,83 @@ def test_the_extension_keeps_the_top_documents_status_of_a_load() -> None:
       return await pageStatus(4);
     })()''')
     assert out == 404
+
+
+_MARKUP_PAGE = r'''
+class ShadowRoot {}
+const ATTR = "data-bind", STAMP = "data-stamp", FRAME_TAGS = new Set(["IFRAME"]);
+let snapGen = 3, sealedSplitDocument = false, innerWidth = 1280, innerHeight = 800;
+const maskUrl = (u) => u.replace(/token=[^&]*/, "token=");
+const text = (data, parent) => ({nodeType: 3, data, parentElement: parent});
+function el(tag, attrs = {}, kids = [], extra = {}) {
+  const e = {nodeType: 1, tagName: tag.toUpperCase(), attributes: Object.entries(attrs).map(([name, value]) => ({name, value})),
+             childNodes: [], hasAttribute: (k) => k in attrs, getAttribute: (k) => attrs[k] ?? null, ...extra};
+  e.childNodes = kids.map((k) => (typeof k === "string" ? text(k, e) : k));
+  return e;
+}
+const secretOnes = new Set();
+const isSecret = (e) => secretOnes.has(e), maskedEditable = () => false;
+const closedShadow = new Map(), tokens = new Map();
+const shadowOf = (e) => closedShadow.get(e) || null, tokenOf = (e) => tokens.get(e) || null;
+const pass = el("input", {type: "password", name: "pw", value: "Hunter2!x"});
+const card = el("input", {autocomplete: "cc-number", value: "4111111111111111"});
+const note = el("textarea", {name: "otp"}, ["493817"]);
+const expiry = el("select", {autocomplete: "cc-exp-month"}, [el("option", {value: "07", selected: ""}, ["07"])]);
+[pass, card, note, expiry].forEach((x) => secretOnes.add(x));
+const asin = el("a", {href: "https://shop.example/dp/B0ASIN123?token=SECRET", "data-asin": "B0ASIN123", "ferb-element": "s1e1"}, ["Buy"]);
+const host = el("div", {id: "widget"});
+closedShadow.set(host, {nodeType: 11, childNodes: [el("button", {"aria-label": "Add to Cart"}, ["Add to Cart"])]});
+const frame = el("iframe", {src: "https://pay.example/frame?token=ABC"});
+tokens.set(frame, "beef");
+const doc = el("html", {}, [el("head", {}, [el("style", {}, ["body{color:red}"])]),
+  el("body", {}, [asin, host, pass, card, note, expiry, frame, el("script", {}, ["window.secret = 1"]),
+                  el("input", {type: "hidden", name: "csrf", value: "ab12"})])]);
+const document = {documentElement: doc, body: {getClientRects: () => [1]}}, location = {href: "https://shop.example/p"};
+const els = new Map([[5, {deref: () => asin}]]);
+const element = (gen, id) => (id === 5 ? {el: asin} : {error: "stale"});
+'''
+
+
+# decision: HAND-496
+def test_the_markup_read_masks_secret_values_and_reaches_closed_shadow_roots_and_frames() -> None:
+    src = (EXT / "content.js").read_text()
+    block = src[src.index("  const URL_ATTRS = new Set("):src.index("  function setValue(el, value) {")]
+    script = _MARKUP_PAGE + block + r'''
+console.log(JSON.stringify({page: markup(3, null, null, false, "n0nce", true),
+                            scripts: markup(3, null, null, true, "n0nce", true).html,
+                            one: markup(3, 5, null, false, "n0nce", false)}));
+'''
+    ran = subprocess.run([_node(), "-e", script], capture_output=True, text=True, timeout=20)
+    out = json.loads(ran.stdout or "null")
+    assert out, ran.stderr
+    html = out["page"]["html"]
+    for secret in ("Hunter2!x", "4111111111111111", "493817", 'value="07"', "SECRET", "ABC", "color:red", "window.secret"):
+        assert secret not in html, secret
+    assert 'name="pw" value="[masked]"' in html and 'value="ab12"' in html            # a hidden input: the gateway's table
+    assert 'data-asin="B0ASIN123"' in html and "dp/B0ASIN123?token=" in html
+    assert '<#shadow-root><button aria-label="Add to Cart">Add to Cart</button></#shadow-root>' in html
+    assert 'ferb-frame-n0nce="beef"' in html and 'ferb-el-n0nce="5"' in html
+    assert 'page-ferb-element="s1e1"' in html and ' ferb-element=' not in html          # the page can't forge an id
+    assert "window.secret = 1" in out["scripts"]
+    assert out["one"]["html"].startswith("<a ") and "<body" not in out["one"]["html"]
+
+
+# decision: HAND-495, HAND-496
+def test_browser_html_pages_the_markup_with_element_ids_and_skips_undrawn_frames(bd: Any) -> None:  # noqa: F811
+    d, launched = bd
+    ext = pair(d, launched, "Work")
+    ext.wait_for(lambda: ext.gen is not None)
+    g = task(d, "m", OWNER, {"research"})
+    tab = call(d, g, "browser.open", url="https://shop.example/product")["content"]["tab"]
+    els = call(d, g, "browser.snapshot", tab=tab)["content"]["elements"]
+    seller = next(e["id"] for e in els if e["label"] == "Seller details")
+    page = call(d, g, "browser.html", tab=tab)
+    assert not page["is_error"], page
+    out = page["content"]
+    assert f'ferb-element="{seller}"' in out["text"] and "ferb-el-" not in out["text"]
+    assert out["undrawn_frames_skipped"] == [4] and out["next_offset"] is None
+    one = call(d, g, "browser.html", tab=tab, element=seller)["content"]
+    assert one["text"].count("<button") == 1 and "Seller details" in one["text"]
+    first = call(d, g, "browser.html", tab=tab, max_chars=40)["content"]
+    rest = call(d, g, "browser.html", tab=tab, offset=first["next_offset"], max_chars=100000)["content"]
+    assert first["text"] + rest["text"] == out["text"]

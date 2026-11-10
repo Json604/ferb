@@ -24,6 +24,7 @@ TOOLS: dict[str, tuple[str, str]] = {
     "browser.open": ("opening {}", "opening a page"), "browser.navigate": ("opening {}", "opening a page"),
     "browser.read": ("reading {}", "reading a page"), "browser.snapshot": ("reading {}", "reading a page"),
     "browser.find": ("reading {}", "reading a page"), "browser.scroll": ("reading {}", "reading a page"),
+    "browser.html": ("reading {}", "reading a page"),
     "browser.screenshot": ("looking at {}", "looking at a page"),
     "browser.wait": ("waiting for {}", "waiting for a page"),
     "mac.snapshot": ("looking at {}", "looking at an app"), "mac.screenshot": ("looking at {}", "looking at an app"),

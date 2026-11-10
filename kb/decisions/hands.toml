@@ -1184,3 +1184,27 @@ why = "Live: workers inferred a 404 or an error page from the page's words, or d
 evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
 paths = ["extensions/chromium/background.js::pageStatus", "extensions/chromium/background.js::onPaused", "ferb/act/browser/tools.py::_http", "ferb/act/browser/ext_bridge.py::_status"]
 live = ["LIVE-890"]
+
+[HAND-495]
+title = "FERB can read a page's raw markup as a fallback, anywhere on the page"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "btw does ferb has the ability to read raw dom as a fallback??? cause that might help right?? also does ferb ext has eveyrt tool that cna read any element?? all shadow elelntsn, int eh dom or anywhere??? like it shoudl b e able to read naythignit wants ont eh apge, not restrctied throuhg our tools"
+words_source = "Relayed by the coordinator, 2026-11-10."
+rule = "Besides the element snapshot, FERB can read any part of a page's real markup (DOM), shadow roots and frames included, so what it can read on a page isn't limited to what the snapshot lists."
+why = "Live 2026-11-10: workers ran curl and grep in the shell for a product id an attribute held, and couldn't see elements the snapshot left out."
+paths = ["ferb/act/browser/tools.py::BrowserHtml"]
+live = ["LIVE-891"]
+
+[HAND-496]
+title = "browser.html: the page's markup, read only, with the snapshot's masking"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For HAND-495, extension 0.19.8. browser.html returns the markup of the whole page (every frame it draws), one snapshot element or a CSS selector's matches, closed shadow roots included, paged like browser.read; snapshot elements carry ferb-element ids. Never: a secret field's value (as the snapshot), a typed value, styles' or (unasked) scripts' contents. Nothing on the page is run; no tool runs model-written page script."
+why = "A script tool could click, submit or pay around the gateway's questions (coordinator's ruling); reading markup needs none of that. Hidden inputs keep their values for the gateway's redaction table, like every tool result."
+evidence = "Owner 2026-11-10 via the coordinator: HAND-495's words."
+rejected = ["An arbitrary-JavaScript tool: it could act around every confirmation", "outerHTML: it can't reach closed shadow roots or mask secret fields"]
+paths = ["extensions/chromium/content.js::markup", "extensions/chromium/background.js::html", "ferb/act/browser/ext_bridge.py::html", "ferb/act/browser/tools.py::BrowserHtml"]
+live = ["LIVE-891"]

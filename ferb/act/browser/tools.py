@@ -347,6 +347,40 @@ class BrowserRead(_Base):
                           read_sources=(("web", self.driver.tab_url(ref.tab_id) or ""),))
 
 
+class BrowserHtml(_Base):
+    """HAND-496: the page's real markup, read only: the fallback when an element or attribute isn't in the snapshot."""
+    verb = "html"
+    observation = True                                 # only reads: the final checker may use it (V3, W4)
+    blurb = ("Fallback, read only: the real markup of a page in one of this task's tabs ({whose}): tags, attributes "
+             "and text, inside shadow roots (closed ones too) and every frame the page draws. The element snapshot "
+             "stays the main route; use this when an element or attribute you need isn't in it (a data- attribute, a "
+             "product id in a link, a hidden option). Give `element` (an id from the latest snapshot) or `selector` "
+             "(CSS) to read less than the whole page. Elements of the latest snapshot carry ferb-element=\"<id>\" to "
+             "act on with {p}_act. Password, code and card values are never shown; scripts' contents only with "
+             "include_scripts (inline ones), styles' never. Nothing on the page is run. Paged with next_offset.")
+
+    class Input(_Tab):
+        element: str | None = Field(None, description="an element id from the latest snapshot: its subtree only")
+        selector: str | None = Field(None, max_length=500, description="a CSS selector: every match, in every frame "
+                                                                       "and shadow root")
+        frame: int | None = Field(None, ge=0, description="one frame's id (ferb-frame in an earlier read)")
+        include_scripts: bool = Field(False, description="also the text of inline <script> elements")
+        offset: int = Field(default=0, ge=0)
+        max_chars: int = Field(default=12000, ge=1, le=100000)
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return ActionSpec(Kind.READ, Target(site=self._site(args)))
+
+    async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
+        ref = self.driver.owned_by(args.tab, ctx.task_id)
+        out = await self.driver.html(ref, args.element, args.selector, args.frame,  # type: ignore[attr-defined]
+                                     args.include_scripts, args.offset, args.max_chars)
+        sources = self._page(ref.tab_id)
+        if self.family.identity is Identity.OWNER:   # as a snapshot: the owner's signed-in pages are owner data
+            sources += (("owner_account", f"{_host(self.driver.tab_url(ref.tab_id) or '') or ''}|"),)
+        return ToolResult(out, read_sources=sources)
+
+
 class BrowserProfiles(_Base):
     verb = "profiles"
     observation = True                                 # only reads: the final checker may use it (V3, W4)

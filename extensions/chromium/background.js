@@ -657,7 +657,7 @@ const script = (injection) => chrome.scripting.executeScript({ ...injection, inj
 // page from freezing and wakes one that froze (0 of 4 froze with it set at open; 4 of 4 frozen tabs woke for a read).
 // It is the debugger's own call, answered while the page is frozen; the owner sees nothing (the group stays collapsed).
 // Sent when a tab is armed, before every command that reads or acts in it, and whenever Chrome reports one frozen.
-const WAKES = new Set(["snapshot", "find", "wait", "screenshot", "record_frame", "point", "frame_origin", "pdf",
+const WAKES = new Set(["snapshot", "find", "html", "wait", "screenshot", "record_frame", "point", "frame_origin", "pdf",
   "act", "fill", "upload", "media", "scroll", "pointer"]);
 async function wake(tabId) {
   const t = TABS.get(tabId);
@@ -2204,6 +2204,23 @@ const commands = {
     const r = await inFrame(tab_id, frame_id, (g, i, a, t) => window.__ferb.media(g, i, a, t), [snap, index, action, to]);
     if (r.error === "stale") throw Error("that media element is from an older snapshot; take a new snapshot");
     return r;
+  },
+  // Extension 0.19.8 (HAND-496): the page's real markup, read only, through content.js `markup` in the element's frame,
+  // the named frame, or every frame (frames the page doesn't draw are skipped for a whole-page read). A frame element's
+  // binding becomes its frame id here. `nonce` is this call's, so nothing in the page can forge an element marker.
+  async html({ tab_id, frame_id = null, snap = null, el = null, selector = null, scripts = false }) {
+    const nonce = Array.from(crypto.getRandomValues(new Uint8Array(6)), b => b.toString(16).padStart(2, "0")).join("");
+    const frames = el !== null || frame_id !== null ? [frame_id ?? 0] : undefined;
+    await inject(tab_id, frames);
+    const results = await script({ target: frames ? { tabId: tab_id, frameIds: frames } : { tabId: tab_id, allFrames: true },
+      func: (g, i, s, sc, n, d) => window.__ferb.markup(g, i, s, sc, n, d),
+      args: [snap, el, selector, scripts === true, nonce, el === null && !selector] });
+    const owners = new Map([...(tabState(tab_id).frameRefs || new Map()).values()]
+      .filter(f => f.owner_binding).map(f => [f.owner_binding, f.frame_id]));
+    const frameMark = new RegExp(`ferb-frame-${nonce}="([0-9a-f]+)"`, "g");
+    return { nonce, frames: results.filter(r => r && r.result).map(r => ({ frame_id: r.frameId, ...r.result,
+      ...(typeof r.result.html === "string" ? { html: r.result.html.replace(frameMark,
+        (m, tok) => owners.has(tok) ? `ferb-frame="${owners.get(tok)}"` : "") } : {}) })) };
   },
   async find({tab_id, text}) {
     const results = await script({target:{tabId:tab_id,allFrames:true},

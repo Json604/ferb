@@ -994,6 +994,7 @@ class _Tab:
     carried: set[str] = field(default_factory=set)
     ids_note: dict[str, Any] = field(default_factory=dict)
     http_status: int | None = None  # HAND-494: the last load's document status, as the extension's debugger saw it
+    markup: tuple[str, str, list[int]] = ("", "", [])   # HAND-496: the last html read (its key, its text, skipped frames)
 
 
 def _status(v: dict[str, Any]) -> int | None:
@@ -1630,6 +1631,61 @@ class _TabDriver:
         end = min(offset + max_chars, len(t.snapshot_json))
         return {"tab": tab.tab_id, "snapshot": t.snap_gen, "text": t.snapshot_json[offset:end], "offset": offset,
                 "next_offset": end if end < len(t.snapshot_json) else None, "total_chars": len(t.snapshot_json)}
+
+    async def html(self, tab: TabRef, element: str | None = None, selector: str | None = None, frame: int | None = None,
+                   scripts: bool = False, offset: int = 0, max_chars: int = 12000) -> dict[str, Any]:
+        """HAND-496: the page's real markup (extension 0.19.8's `html`), read only, paged like `read`: the whole page
+        (every frame it draws), one element of the latest snapshot, or a CSS selector's matches. Each element of the latest
+        snapshot carries ferb-element="<its id>", a frame element ferb-frame="<frame id>"; the extension masks what the
+        snapshot masks (HAND-496's rules in content.js `markup`). offset 0 reads afresh; later pages keep that read."""
+        from ferb.act.browser.ext_protocol import HTML_EXTENSION_VERSION, version_ok
+        t = self._tab(tab)
+        key = json.dumps([element, selector, frame, scripts])
+        if offset == 0 or t.markup[0] != key:
+            running = str(getattr(t.bridge, "version", "") or "")
+            if not version_ok(running, HTML_EXTENSION_VERSION):
+                raise Refused(f"the FERB extension in this profile is {running or 'an older version'}; reading a page's "
+                              f"markup needs {HTML_EXTENSION_VERSION} or later. Use the snapshot, find and read meanwhile. "
+                              "Tell the owner: their browser updates the extension by itself, or they can update it on "
+                              "its extensions page")
+            args: dict[str, Any] = {"tab_id": t.chrome_id, "snap": t.snap_gen, "scripts": bool(scripts)}
+            if element:
+                fid, snap, local, _ = self._resolve(self.element_ref(tab, element))[1:]
+                args |= {"frame_id": fid, "snap": snap, "el": local}
+            elif frame is not None:
+                args["frame_id"] = int(frame)
+            if selector:
+                args["selector"] = selector
+            v = await t.bridge.call("html", args, timeout=30)
+            nonce = str(v.get("nonce") or "")
+            ids = {(f, local): eid for eid, (f, gen, local, _) in t.elements.items() if gen == t.snap_gen}
+            mark = re.compile(rf'ferb-el-{re.escape(nonce)}="(\d+)"') if nonce else None
+            parts, skipped, errors = [], [], []
+            for fr in v.get("frames") or []:
+                fid = int(fr.get("frame_id", 0))
+                if fr.get("undrawn"):
+                    skipped.append(fid)
+                    continue
+                if fr.get("error"):
+                    errors.append(f"frame {fid}: {fr['error']}")
+                    continue
+                text = str(fr.get("html") or "")
+                if mark is not None:
+                    text = mark.sub(lambda m, f=fid: (f'ferb-element="{ids[(f, int(m.group(1)))]}"'
+                                                      if (f, int(m.group(1))) in ids else ""), text)
+                parts.append(f"<!-- frame {fid}: {fr.get('url') or ''}"
+                             f"{' (cut at its size limit)' if fr.get('truncated') else ''} -->\n{text}")
+            if errors and not parts:
+                raise Refused("; ".join(errors)[:500])
+            t.markup = (key, "\n".join(parts), skipped)
+        _, text, skipped = t.markup
+        end = min(offset + max_chars, len(text))
+        return {"tab": tab.tab_id, "snapshot": t.snap_gen, "text": text[offset:end], "offset": offset,
+                "next_offset": end if end < len(text) else None, "total_chars": len(text),
+                **({"undrawn_frames_skipped": skipped} if skipped else {}),
+                "note": "the page's markup, read only. ferb-element=\"sNeM\" is that element's id in the latest snapshot "
+                        "(act on it with browser.act); ferb-frame is a frame's id. Values of password, code and card "
+                        "fields are never shown; scripts' and styles' contents are left out."}
 
     async def dialog(self, tab: TabRef, decision: str | None = None, text: str | None = None) -> dict[str, Any]:
         t = self._tab(tab)

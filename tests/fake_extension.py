@@ -782,6 +782,17 @@ class FakeExtension:
         n = words.count(a["text"])
         return {"count": n, "hits": [{"frame_id": 0, "text": a["text"]}] * n, "lines": 1}
 
+    def op_html(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        """HAND-496: the page's markup as content.js `markup` writes it: each element of the latest snapshot with its
+        marker (this call's nonce), and a hidden ad frame skipped for a whole-page read."""
+        p, nonce = page(self.tabs[a["tab_id"]]), "a1b2c3d4e5f6"
+        body = "".join(f'<button aria-label="{e["label"]}" ferb-el-{nonce}="{i}">{e["label"]}</button>'
+                       for i, e in enumerate(p["elements"]) if a.get("el") in (None, i))
+        frames = [{"frame_id": 0, "url": self.tabs[a["tab_id"]], "html": f"<body>{body}</body>", "matches": 1}]
+        if a.get("el") is None and not a.get("selector"):
+            frames.append({"frame_id": 4, "undrawn": True, "url": "https://ads.example/"})
+        return {"nonce": nonce, "frames": frames}
+
     def op_show_tab(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         """Extension 0.15.13: the owner clicked FERB's human-check notification."""
         self.shown.append(a["tab_id"])

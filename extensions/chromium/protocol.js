@@ -27,7 +27,7 @@ const FERB_HOST = "com.ferb.native_host";
 // read) is a known failure, never "outcome unknown" (P19 is for consequential actions). `dialog` without a decision
 // only reads too (background.js `outcomeOf`). Mirrored by ext_protocol.READS.
 const READ_OPS = new Set(["list_tabs", "snapshot", "wait", "screenshot", "screenshot_part", "record_frame",
-  "frame_origin", "read_source", "window_secrets", "find", "result_part", "ping", "point", "pdf", "pdf_part"]);
+  "frame_origin", "read_source", "window_secrets", "find", "result_part", "ping", "point", "pdf", "pdf_part", "html"]);
 // Daemon messages that carry an HMAC (pairing key, this connection's hello nonce, a strictly increasing counter):
 // the extension acts on no other kind of daemon message (refused / pairing_required / paired change no page).
 const DAEMON_SIGNED = new Set(["welcome", "cmd"]);
@@ -361,7 +361,7 @@ const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait"
              "wake_close", "frame_origin", "fill", "read_source", "window_secrets", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
              "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media", "rest", "show_tab",
-             "adopt_tab", "mute_tab", "popup_refused", "pdf", "pdf_part"];
+             "adopt_tab", "mute_tab", "popup_refused", "pdf", "pdf_part", "html"];
 
 // browser.wait until "url" (HAND-444): the value is looked for in the page's own address, its origin and path (decoded),
 // never in its query or fragment, so a search page whose query names a site (Gmail's #search/from%3Ajoinef.com) isn't

@@ -25,9 +25,9 @@ OBSERVATION = {
     "actions.search", "chat.history", "memory.read", "task.evidence", "trail.days", "trail.query", "secrets.list",
     "fs.list", "fs.read", "fs.disk_usage", "recording.inspect", "shell.list", "shell.read", "shell.rules", "shell.wait",
     "mac.apps", "mac.screenshot", "mac.snapshot",
-    "browser.downloads", "browser.find", "browser.point", "browser.profiles", "browser.read", "browser.screenshot",
+    "browser.downloads", "browser.find", "browser.html", "browser.point", "browser.profiles", "browser.read", "browser.screenshot",
     "browser.scroll", "browser.snapshot", "browser.tabs", "browser.wait",
-    "ferb_browser.downloads", "ferb_browser.find", "ferb_browser.navigate", "ferb_browser.open", "ferb_browser.point",
+    "ferb_browser.downloads", "ferb_browser.find", "ferb_browser.html", "ferb_browser.navigate", "ferb_browser.open", "ferb_browser.point",
     "ferb_browser.read", "ferb_browser.screenshot", "ferb_browser.scroll", "ferb_browser.snapshot", "ferb_browser.wait",
 }
 

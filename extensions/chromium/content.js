@@ -900,6 +900,79 @@
     return { gone, state, mutations: w.mutations, scope: w.scope };
   }
 
+  // HAND-496: this frame's real markup for browser.html, read only: the document, one element of the latest snapshot
+  // (`id`) or every match of a CSS selector (light DOM and every shadow root, closed ones too). Tags, attributes and
+  // text as the page has them; shadow roots as <#shadow-root>; comments left out; scripts' and styles' contents left
+  // out (inline scripts only when `scripts`); an <svg>'s inside left out. What the snapshot never gives stays out
+  // here too: a secret field's value attribute (password, login code, card: isSecret), and every editable field's after a
+  // split sealed fill (maskedEditable) is "[masked]", a secret <textarea>'s or masked editable's text is left out, and
+  // every URL attribute goes through mask.js (maskUrl). Never a live typed value (properties aren't read). An element of
+  // the latest snapshot carries `ferb-el-<nonce>="<its id here>"`, a frame element `ferb-frame-<nonce>="<binding>"`,
+  // which the extension and the daemon turn into ids; the per-call nonce keeps the page from forging either.
+  const URL_ATTRS = new Set(["href", "src", "action", "formaction", "poster", "cite", "data", "background", "ping"]);
+  const SKIP_CONTENT = new Set(["STYLE", "NOSCRIPT", "TEMPLATE"]);
+  const MARKUP_MAX = 8000000;                     // characters per frame, at most (HAND-496)
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  function markup(gen, id, selector, scripts, nonce, drawnOnly) {
+    if (drawnOnly && (!document.body || innerWidth <= 0 || innerHeight <= 0 || !document.body.getClientRects().length))
+      return { undrawn: true, url: maskUrl(location.href) };
+    let roots;
+    if (id !== null && id !== undefined) {
+      const { el, error } = element(gen, id);
+      if (error) return { error };
+      roots = [el];
+    } else if (selector) {
+      roots = [];
+      try {
+        const deep = (root) => {
+          roots.push(...root.querySelectorAll(selector));
+          for (const host of root.querySelectorAll("*")) { const sr = shadowOf(host); if (sr) deep(sr); }
+        };
+        deep(document);
+      } catch (e) { return { error: `selector: ${String(e.message || e).slice(0, 200)}` }; }
+    } else roots = [document.documentElement];
+    const ids = new Map();
+    if (gen === snapGen) for (const [lid, ref] of els) { const e = ref.deref(); if (e) ids.set(e, lid); }
+    const out = [];
+    let size = 0, cut = false;
+    const put = (s) => { if (size + s.length > MARKUP_MAX) { cut = true; return; } out.push(s); size += s.length; };
+    const walk = (node, depth) => {
+      if (cut) return;
+      if (node.nodeType === 3) {
+        const p = node.parentElement;
+        if (p && (SKIP_CONTENT.has(p.tagName) || maskedEditable(p) || (p.tagName === "TEXTAREA" && isSecret(p)) ||
+                  (p.tagName === "SCRIPT" && !(scripts && !p.hasAttribute("src"))))) return;
+        const t = node.data.replace(/\s+/g, " ");
+        if (t.trim()) put(esc(t));
+        return;
+      }
+      if (node.nodeType === 11) { for (const c of node.childNodes) walk(c, depth + 1); return; }
+      if (node.nodeType !== 1) return;
+      const el = node, tag = el.tagName.toLowerCase();
+      let a = "";
+      for (const at of el.attributes) {
+        const n = at.name;
+        if (n === ATTR || n === STAMP) continue;
+        let v = at.value;
+        if (n === "value" && ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) && (isSecret(el) || maskedEditable(el)))
+          v = v ? "[masked]" : "";
+        else if (URL_ATTRS.has(n)) v = maskUrl(v);
+        // the page's own "ferb-…" attributes are renamed, so FERB's markers (ferb-element, ferb-frame) are only FERB's
+        a += ` ${n.startsWith("ferb-") ? `page-${n}` : n}="${esc(v).replace(/"/g, "&quot;")}"`;
+      }
+      if (ids.has(el)) a += ` ferb-el-${nonce}="${ids.get(el)}"`;
+      if (FRAME_TAGS.has(el.tagName)) { const tok = tokenOf(el); if (tok) a += ` ferb-frame-${nonce}="${tok}"`; }
+      put(`<${tag}${a}>`);
+      const sr = shadowOf(el);
+      if (sr) { put("<#shadow-root>"); for (const c of sr.childNodes) walk(c, depth + 1); put("</#shadow-root>"); }
+      // an <svg>'s drawing, and a secret <select>'s options (a card expiry's default choice), are left out
+      if (tag !== "svg" && !(el.tagName === "SELECT" && isSecret(el))) for (const c of el.childNodes) walk(c, depth + 1);
+      put(`</${tag}>`);
+    };
+    for (const r of roots) { walk(r, 0); put("\n"); }
+    return { url: maskUrl(location.href), html: out.join(""), matches: roots.length, ...(cut ? { truncated: true } : {}) };
+  }
+
   function setValue(el, value) {
     const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     Object.getOwnPropertyDescriptor(proto, "value").set.call(el, value);
@@ -1308,5 +1381,5 @@
     viewport: () => [innerWidth, innerHeight], act, fill, origin: () => location.origin, rect, focus, isActive,
     focusedSecret, takeSubmits, stamp, unstamp, scroller, scrolled, probeArm, probeSeen: () => probeSeen,
     downloadPart, armDownloads, releaseDownload, dropDownload: (id) => { heldDownloads.delete(id); },
-    watchNear, nearChange, documentKey: () => documentId };
+    watchNear, nearChange, documentKey: () => documentId, markup };
 })();
