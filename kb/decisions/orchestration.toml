@@ -1479,3 +1479,15 @@ rule = "For ORCH-605 and ORCH-579. A stopped task whose worker wrote an answer r
 why = "Stopped task 0b94de9e (2026-11-08): with no lead, \"Your one-page deadlocks cheat sheet is saved…\" under \"Stopped, as you asked.\" read as finished."
 paths = ["ferb/orchestrator/answer_marks.py::WHERE_STOOD", "ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrator/answer_marks.py::headline"]
 live = ["LIVE-897"]
+
+[ORCH-612]
+title = "A doubted outcome stands unconfirmed and a stopped answer has its lead: confirmed by the owner"
+by = "owner"
+date = 2026-11-11
+status = "active"
+words = "do you think they are good fixes, by seeign overall code touchign this and do they affect anythgin critical?? IF NOT, tehn do them"
+words_source = "Owner 2026-11-11, asked for their word on ORCH-610 (a doubted goal no longer fails the task) and ORCH-611 (the stopped lead-in); the coordinator read the code and found nothing critical affected."
+rule = "Confirms ORCH-610 and ORCH-611 as the owner's. Refines ORCH-309: under an accepting check, only code's proof makes an outcome false and the task failed; a condition the checker alone judged not met leaves the answer done-unconfirmed with ORCH-607's line. Refines ORCH-605: a stopped task with an answer reads \"Stopped, as you asked. This is where things stood:\" then the answer. Payments, sends and deletes are unchanged: the gateway's questions and ORCH-576's literal checks still decide them."
+why = "Read 2026-11-11 in Supervisor._next and _final (commit 6e82ce65): the change is the one filter r.path == \"code\" on an accepting verdict, and one lead string. A plan's later steps now run after a step the checker doubted but accepted; the checker can still choose retry or fail."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._next", "ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrator/answer_marks.py::WHERE_STOOD"]
+live = ["LIVE-897"]
