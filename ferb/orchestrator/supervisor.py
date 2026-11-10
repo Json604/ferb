@@ -973,7 +973,7 @@ class Supervisor(WorkerRuns):
         # What the Mac, FERB's tools and the owner's activity look like now (EnvironmentPort)
         self.relevant_context: Callable[[str], Any] = environment.relevant_context   # text, or (text, origin, ...)
         self.worker_types: Callable[[], list[str]] = environment.worker_types
-        self.runtime_signed_out: Callable[[str], None] = environment.runtime_signed_out
+        self.runtime_account: Callable[[str, str], None] = environment.runtime_account
         self.sessions: dict[str, ChatSession] = {}
         self.continuity = Continuity(journal.db, gateway.redact, spans.task_origins)
         self.plans = PlanStore(journal.db, gateway.redact)

@@ -109,8 +109,10 @@ def browser_rows(states: list[Any], store_id: str, extension_dir: Path, ferb_ide
                  connected: set[tuple[str, str]], unsupported: list[dict[str, str]] | None = None) -> dict[str, Any]:
     """`setup.browsers`'s reply: per browser whether FERB asked it to install the extension and whether Load unpacked is
     the way there (as `autoinstall.describe` says it), and per profile its state; `unsupported`: each installed
-    Chromium-family browser FERB doesn't know, with its plain line (HAND-415)."""
+    Chromium-family browser FERB doesn't know, with its plain line (HAND-415). APP-883: each profile's installed
+    extension version (from its files, read afresh) and whether it is below MIN_EXTENSION_VERSION (`too_old`)."""
     from ferb.act.browser import autoinstall, profiles
+    from ferb.act.browser.ext_protocol import version_ok
     valid = autoinstall.valid_id(store_id)
     return {"store_url": store_page(store_id) or None, "extension_dir": str(extension_dir),
             "unsupported": [{"app": u["app"], "bundle_id": u["bundle_id"],
@@ -123,5 +125,8 @@ def browser_rows(states: list[Any], store_id: str, extension_dir: Path, ferb_ide
                           "profiles": [{"folder": p.folder, "name": p.name, "email": p.email,
                                         "state": profile_state(p),
                                         "ferb_identity": (p.browser, p.folder) == ferb_identity,
-                                        "connected": (p.browser, p.folder) in connected} for p in s.profiles]}
+                                        "connected": (p.browser, p.folder) in connected,
+                                        "version": p.version,
+                                        "too_old": bool(p.version) and not version_ok(p.version)}
+                                       for p in s.profiles]}
                          for s in states]}

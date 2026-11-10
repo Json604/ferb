@@ -54,7 +54,8 @@ def cache_thread_id(role: str, model: str, scope: str = "") -> str:
     return str(uuid.uuid5(CACHE_NAMESPACE, f"{scope}:{role}:{model}"))
 
 
-def write_template(codex_home: Path, workdir: Path, thread_id: str, model: str, system: str) -> Path:
+def write_template(codex_home: Path, workdir: Path, thread_id: str, model: str, system: str,
+                   effort: str = 'low') -> Path:
     """The thread a cached turn resumes, as a rollout file in the run's own CODEX_HOME (owner-only, removed with the run):
     Codex's canonical rollout name, and two lines, the fields a real skills-off thread's rollout has that Codex 0.157.1
     needs to read them (measured on its requests, 2026-10-25; 0.166.0 resumes it the same way, its request checked
@@ -72,7 +73,7 @@ def write_template(codex_home: Path, workdir: Path, thread_id: str, model: str, 
         'base_instructions': {'text': system, 'provenance': {'type': 'custom'}}}}
     context = {'timestamp': TEMPLATE_DATE, 'ordinal': 1, 'type': 'turn_context', 'payload': {
         'turn_id': 'auto-compact-0', 'cwd': str(workdir), 'approval_policy': 'never',
-        'sandbox_policy': {'type': 'read-only'}, 'model': model, 'multi_agent_version': 'disabled', 'effort': 'low',
+        'sandbox_policy': {'type': 'read-only'}, 'model': model, 'multi_agent_version': 'disabled', 'effort': effort,
         'summary': 'none'}}
     _private_write(path, ''.join(json.dumps(line) + '\n' for line in (meta, context)).encode())
     return path
@@ -284,13 +285,13 @@ def _toml(value: Any) -> str:
 
 
 def _command(runtime: CodexRuntime, catalog: Path | None, token_file: Path | None = None) -> list[str]:
-    from ferb.runtimes.codex_exec import DISABLED, NO_AUTO_COMPACT, SKILLS_OFF, SUPERVISOR_SETTINGS
+    from ferb.runtimes.codex_exec import DISABLED, NO_AUTO_COMPACT, SKILLS_OFF
     cmd = [str(runtime.binary), 'app-server', '--stdio', '--strict-config']
     for feature in DISABLED:
         cmd += ['--disable', feature]
     cmd += SKILLS_OFF
     if runtime.mode == "supervisor":
-        cmd += SUPERVISOR_SETTINGS + NO_AUTO_COMPACT
+        cmd += runtime.supervisor_settings() + NO_AUTO_COMPACT
     if runtime.mode == "worker" or token_file is not None:   # RUN-415: FERB's tools come with a run token
         cmd += runtime._mcp_settings(token_file)
     for key, value in {f'model_providers.{PROVIDER_ID}': provider_entry(), 'model_provider': PROVIDER_ID,
@@ -448,8 +449,7 @@ def _turn_params(runtime: CodexRuntime, request: ModelRequest, thread_id: str, d
     text = '\n\n'.join(request.parts[request.cacheable:]) if developer else request.context
     return {'threadId': thread_id, 'input': [{'type': 'text', 'text': text},
                                              *({'type': 'image', 'url': image.data_url()} for image in request.images)],
-            **({'effort': 'low'} if runtime.mode == 'supervisor' else
-               {'effort': runtime.effort} if getattr(runtime, 'effort', None) else {}),
+            **({'effort': runtime.sent_effort} if runtime.sent_effort else {}),
             'outputSchema': runtime.output_schema, 'environments': []}
 
 
@@ -463,7 +463,8 @@ async def _resume_cached(runtime: CodexRuntime, run: RunHandle, request: ModelRe
     assert runtime.cache_role is not None
     thread_id = cache_thread_id(runtime.cache_role, runtime.model, runtime.cache_scope)
     try:
-        path = write_template(codex_home, workdir, thread_id, runtime.model, request.system)
+        path = write_template(codex_home, workdir, thread_id, runtime.model, request.system,
+                              runtime.sent_effort or 'low')
     except OSError as exc:
         why = f'the planner template could not be written ({type(exc).__name__})'
     else:

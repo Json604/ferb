@@ -54,13 +54,15 @@ class Runtimes:
                                    effort=effort)
 
     def _build_runtime(self, name: str, role: str, *, mode: str, tool_names: list[str], schema: dict[str, Any],
-                       effort: str | None = None, model: str = "") -> Any:
-        """One runtime for a role (D32), through its factory in the runtime table. `effort`: the reasoning effort a
-        worker-mode run asks for (L39: "high" for the checker of a step that changed files), each adapter's own
-        setting; None keeps the runtime's default. The call's time limit: none for the planner's chat turn (ORCH-528)
-        or a worker, CALL_LIMIT_S for another non-worker call (catalog.call_limit)."""
+                       effort: str | None = None, model: str = "", fixed_effort: str = "") -> Any:
+        """One runtime for a role (D32), through its factory in the runtime table. `effort`: the reasoning effort the
+        caller asks for (L39: "high" for the checker of a step that changed files); what the call sends is
+        catalog.run_effort's (the owner's setting for the role or connection always wins; the planner and other
+        one-turn calls low by default). `fixed_effort`: exactly this effort (a check of an effort before it is saved).
+        The call's time limit: none for the planner's chat turn (ORCH-528) or a worker, CALL_LIMIT_S for another
+        non-worker call (catalog.call_limit)."""
         from ferb.orchestrator.schemas import SUPERVISOR_SCHEMA
-        from ferb.runtimes.catalog import CATALOG, Build, call_limit, role_model
+        from ferb.runtimes.catalog import CATALOG, Build, call_limit, role_model, run_effort
         entry = CATALOG.get(name)
         if entry is None:
             if role.startswith("worker:"):          # the planner's choice of worker type, not the owner's config
@@ -68,8 +70,9 @@ class Runtimes:
                                 f"{', '.join(self._worker_types())}")
             raise FerbError(f"unknown runtime {name!r} in config.toml [runtimes]; runtimes: {', '.join(CATALOG)}")
         planner = role == "orchestrator" and mode == "supervisor" and schema is SUPERVISOR_SCHEMA
+        sent = fixed_effort or run_effort(self.config, name, role, mode, planner, effort)
         return entry.build(Build(self.home, role, mode, tool_names, schema,  # type: ignore[arg-type, attr-defined]
-                                 model or role_model(self.config, name, role), self._runtime_deps(), effort, planner,
+                                 model or role_model(self.config, name, role), self._runtime_deps(), sent, planner,
                                  call_limit(mode, planner)))
 
     def _runtime_deps(self) -> Any:
@@ -150,22 +153,69 @@ class Runtimes:
             self._available_cache[name] = hit
         return hit[1]
 
-    def _runtime_signed_out(self, name: str) -> None:
-        """A call `name` ran said its sign-in failed (ORCH-315's account fact): it counts as unavailable until the next
-        sign-in, runtime change, status read or start reads it again (RUN-424)."""
+    def _runtime_account(self, name: str, account: str) -> None:
+        """The account fact a call `name` ran reported (ORCH-315): "signed_out" counts it as unavailable until the next
+        sign-in, runtime change, status read or start reads it again (RUN-424); "signed_out" or "usage_limit" is kept as
+        its last refusal, which Settings → AI shows until a later call it answers ("") clears it (APP-882)."""
         from ferb.runtimes.catalog import model_for
-        self._available_cache[name] = (model_for(self.config, name), False)
-        self._journal().append("runtime.signed_out", {"runtime": name})
+        if account == "signed_out":
+            self._available_cache[name] = (model_for(self.config, name), False)
+        refusals = self._refusals()
+        if account:
+            refusals[name] = {"account": account, "at": self.clock.now().isoformat()}
+            self._journal().append("runtime." + account, {"runtime": name})
+        elif name in refusals:
+            del refusals[name]
+            self._journal().append("runtime.answered", {"runtime": name})
+        else:
+            return
+        self._runtimes_changed(name, "refused" if account else "answered")
+
+    # the journal kinds that hold a runtime's last refusal, and the one that ends it (APP-882)
+    REFUSAL_KINDS = ("runtime.signed_out", "runtime.usage_limit", "runtime.answered")
+
+    def _refusals(self) -> dict[str, dict[str, str]]:
+        """Each runtime's last refusal still standing ({account, at}), read once from the journal (so it survives a
+        restart), then kept in memory."""
+        if self._refusal_facts is not None:
+            return self._refusal_facts
+        from ferb.runtimes.catalog import CATALOG
+        held: dict[str, dict[str, str]] = {}
+        journal = self._journal()
+        for name in CATALOG:
+            kind = journal.latest_kind(self.REFUSAL_KINDS, "runtime", name)
+            if kind in ("runtime.signed_out", "runtime.usage_limit"):
+                rows = journal.of_kind(kind, "runtime", name)
+                held[name] = {"account": kind.partition(".")[2], "at": rows[-1].at.isoformat() if rows else ""}
+        self._refusal_facts = held
+        return held
+
+    def _runtimes_changed(self, runtime: str, why: str) -> None:
+        """FERB.app's Settings → AI follows a change made anywhere (its own buttons, the chat's one-tap switch, a call
+        a runtime refused or answered after a refusal): `runtimes.changed` on the event stream (APP-882, DMN-580)."""
+        self._publish("runtimes.changed", {"runtime": runtime, "why": why})
 
     async def _runtimes_status(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """L34 C: Choose your AI's live status (and Settings → AI): each runtime's availability, each role's runtime.
-        Read afresh, so it also refreshes the daemon's last known availability (RUN-424)."""
+        Read afresh, so it also refreshes the daemon's last known availability (RUN-424). APP-882, DMN-580: each
+        runtime's last refusal (`refused`: signed out or a usage limit, when, the owner's step), which the presence
+        check never erases, its configured effort, and each role's runtime, model and effort (`role_details`)."""
         from ferb.cli import runtimes as runtimes_cli
+        from ferb.runtimes.catalog import ROLES, configured_effort, role_effort, role_model, sign_in_fix
         out = await asyncio.to_thread(runtimes_cli.status, self.home)
+        refusals = self._refusals()
         for row in out["runtimes"]:
-            self._available_cache[row["name"]] = (row["model"], bool(row["usable"]))
-            if row["name"] == "claude":
+            name = row["name"]
+            self._available_cache[name] = (row["model"], bool(row["usable"]))
+            if name == "claude":
                 row["sign_in"] = self.claude_sign_in.status()      # L34 C: a sign-in under way, or how it ended
+            row["effort"] = configured_effort(self.config, name)
+            if (refused := refusals.get(name)) is not None:
+                row["refused"] = {**refused, "fix": sign_in_fix(name) if refused["account"] == "signed_out" else
+                                  "it can be used again when the plan's limit resets, or use another connection"}
+        out["role_details"] = {role: {"runtime": (name := self._runtime_for(role)),
+                                      "model": role_model(self.config, name, role),
+                                      "effort": role_effort(self.config, name, role)} for role in ROLES}
         return out
 
     async def _runtimes_sign_in(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
@@ -186,6 +236,7 @@ class Runtimes:
         """FERB's own Claude sign-in ended: journaled, never with the credential or the code."""
         self._available_cache.pop("claude", None)
         self._journal().append("runtimes.sign_in_finished", {"runtime": "claude", "signed_in": ok})
+        self._runtimes_changed("claude", "signed_in" if ok else "sign_in_failed")
 
     async def _runtimes_use(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """L34 C: the owner's choice of AI service for the roles named (all three by default), and optionally its
@@ -207,6 +258,7 @@ class Runtimes:
         self._available_cache.pop(runtime, None)
         self._journal().append("runtimes.changed", {"runtime": runtime, "roles": chosen,
                                                     **({"model": model} if model else {})})
+        self._runtimes_changed(runtime, "roles")
         usable, fix = await asyncio.to_thread(CATALOG[runtime].available, self.home)
         return {"roles": assigned, "usable": usable, "fix": fix}
 
@@ -230,6 +282,7 @@ class Runtimes:
                 raise FerbError(str(e)) from None
             self._available_cache.pop(runtime, None)
             self._journal().append("runtimes.changed", {"runtime": runtime, "roles": [offer["role"]]})
+            self._runtimes_changed(runtime, "roles")
         answered = self.supervisor.answer_runtime_switch(task_id, runtime)
         return {"task_id": task_id, "runtime": runtime, "scope": scope, "role": answered["role"]}
 
@@ -237,15 +290,16 @@ class Runtimes:
         """One tiny typed call through a runtime: proves the key, model and network work (costs a fraction of a cent)."""
         return await self._check_runtime(str(params.get("runtime")), str(params.get("model") or ""))
 
-    async def _check_runtime(self, name: str, model: str = "") -> dict[str, Any]:
+    async def _check_runtime(self, name: str, model: str = "", effort: str = "") -> dict[str, Any]:
         """`runtimes.check`'s call, with `model` instead of the runtime's own when given (RUN-429: a model is checked
-        before it is saved)."""
+        before it is saved), and made at exactly `effort` when given (RUN-463: an effort is checked the same way)."""
         from ferb.core.types import ModelRequest, Task
         self._available_cache.pop(name, None)
         schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"],
                   "additionalProperties": False}
         try:
-            rt = self._build_runtime(name, "orchestrator", mode="supervisor", tool_names=[], schema=schema, model=model)
+            rt = self._build_runtime(name, "orchestrator", mode="supervisor", tool_names=[], schema=schema, model=model,
+                                     fixed_effort=effort)
             from ferb.orchestrator.worker import model_limits
             model_limits(rt)                # a model without documented limits fails here, before any call (L28)
             device = str(self.config.get("device", "id", "unknown-device"))
@@ -263,6 +317,8 @@ class Runtimes:
                         answer = None
                     if not isinstance(answer, dict):
                         return {"ok": False, "detail": 'the answer was not {"ok": ...}'}
+                    if answer.get("ok") is True:
+                        self._runtime_account(name, "")      # it answered: an earlier refusal no longer stands
                     return {"ok": answer.get("ok") is True, "detail": "answered"}
                 if ev.kind in ("error", "violation"):
                     detail = self._redact_text(str(ev.data))
@@ -274,37 +330,46 @@ class Runtimes:
         """RUN-429 (owner 2026-11-08): the models a connection can use, for Settings → AI's picker: an API key's live
         list from its provider (read with the stored key), Codex's and Claude's from what their pinned runtime knows;
         the model it runs now and each role's own model. A list the provider didn't give says why (`problem`); the
-        owner can still type any model id."""
+        owner can still type any model id. RUN-464, DMN-580 (owner 2026-11-10): each model's effort levels
+        (`levels`, the provider's documented ones; none listed: Default and a typed level), its default level where
+        documented (`default_efforts`), and the connection's own effort (`effort`, "" for the default); `roles` rows
+        carry a role's `effort` too."""
         from ferb.runtimes import models as models_
-        from ferb.runtimes.catalog import CATALOG, ROLES, model_for
+        from ferb.runtimes.catalog import CATALOG, ROLES, configured_effort, model_for
         name = str(params.get("runtime", ""))
         entry = CATALOG.get(name)
         if entry is None:
             raise FerbError(f"unknown AI service {name!r}")
         out: dict[str, Any] = {"runtime": name, "model": model_for(self.config, name), "models": [],
                                "source": "provider" if entry.sign_in == "key" else "known",
+                               "effort": configured_effort(self.config, name),
                                "roles": {role: self.config.get("role_models", role) for role in ROLES
                                          if isinstance(self.config.get("role_models", role), dict)}}
         if entry.sign_in != "key":
             out["models"] = await asyncio.to_thread(models_.known_models, name, self.home)
-            return out
-        key = await self._api_key(name)
-        if not key:
+        elif not (key := await self._api_key(name)):
             out["problem"] = f"no {name} API key is saved"
-            return out
-        try:
-            out["models"] = await models_.provider_models(name, key)
-        except models_.ListFailed as e:
-            out["problem"] = self._redact_text(str(e))
+        else:
+            try:
+                out["models"] = await models_.provider_models(name, key)
+            except models_.ListFailed as e:
+                out["problem"] = self._redact_text(str(e))
+        roles = (str(r.get("model") or "") for r in out["roles"].values())
+        shown = sorted({*out["models"], out["model"], *roles} - {""})
+        out["levels"], out["default_efforts"] = await asyncio.to_thread(models_.effort_levels, name, self.home, shown)
         return out
 
     async def _runtimes_model(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """RUN-429: the owner's model for a connection (`runtime`, `model`), or for one role on it (`role`; an empty
         model clears the role's own). Checked before it is saved: in the provider's own list for this key, else (no
         list, or a sign-in) one tiny call. A model that fails isn't saved: the previous one keeps running and the
-        provider's words come back. Saved to config.toml's [models] / [role_models] through this owner RPC only."""
+        provider's words come back. Saved to config.toml's [models] / [role_models] through this owner RPC only.
+        RUN-463, DMN-580 (owner 2026-11-10): `effort` with it ("" clears it; absent keeps it), saved to [efforts]
+        <runtime> or the role's row: shape-checked (catalog.effort_problem), then a new level is checked with one tiny
+        call made at that level, the model's check folded into the same call; a refused one keeps the old setting
+        (RUN-429)."""
         from ferb.runtimes import models as models_
-        from ferb.runtimes.catalog import CATALOG, ROLES
+        from ferb.runtimes.catalog import CATALOG, ROLES, configured_effort, effort_problem, model_for
         name, model = str(params.get("runtime", "")), " ".join(str(params.get("model") or "").split())
         role = params.get("role")
         entry = CATALOG.get(name)
@@ -312,14 +377,18 @@ class Runtimes:
             raise FerbError(f"unknown AI service {name!r}")
         if role is not None and role not in ROLES:
             raise FerbError(f"role must be one of {', '.join(ROLES)}")
-        if role is not None and not model:
-            await asyncio.to_thread(self.config.remove, "role_models", str(role))
-            self._journal().append("runtimes.model", {"runtime": name, "role": role, "model": None})
-            return {"ok": True, "model": "", "detail": "uses the connection's model"}
-        if not model:
+        if role is None and not model:
             raise FerbError("model must be a model id")
-        checked = ""
-        if entry.sign_in == "key":
+        given = "effort" in params
+        effort = str(params.get("effort") or "").strip()
+        if effort and (problem := effort_problem(name, effort)):
+            raise FerbError(problem)
+        row = self.config.get("role_models", str(role)) if role is not None else None
+        row = row if isinstance(row, dict) and row.get("runtime") == name else {}
+        before = str(row.get("effort") or "") if role is not None else configured_effort(self.config, name)
+        effort = effort if given else before
+        checked, call = "", False
+        if model and entry.sign_in == "key":
             key = await self._api_key(name)
             if key:
                 try:
@@ -329,19 +398,31 @@ class Runtimes:
                     checked = "in the provider's list"
                 except models_.ListFailed:
                     checked = ""
-        if not checked:
-            result = await self._check_runtime(name, model)
+        call = bool(model and not checked) or bool(effort and effort != before)
+        if call:
+            result = await self._check_runtime(name, model or model_for(self.config, name),
+                                               **({"effort": effort} if effort else {}))
             if not result.get("ok"):
                 return {"ok": False, "detail": result.get("detail") or "no answer"}
             checked = "answered"
         if role is not None:
-            await asyncio.to_thread(self.config.set, "role_models", str(role), {"runtime": name, "model": model})
+            chosen = {"runtime": name, "model": model} | ({"effort": effort} if effort else {})
+            if model or effort:
+                await asyncio.to_thread(self.config.set, "role_models", str(role), chosen)
+            else:
+                await asyncio.to_thread(self.config.remove, "role_models", str(role))
         else:
             await asyncio.to_thread(self.config.set, "models", name, model)
+            if effort:
+                await asyncio.to_thread(self.config.set, "efforts", name, effort)
+            else:
+                await asyncio.to_thread(self.config.remove, "efforts", name)
         self._available_cache.pop(name, None)
-        self._journal().append("runtimes.model", {"runtime": name, "model": model, "checked": checked}
-                               | ({"role": role} if role is not None else {}))
-        return {"ok": True, "model": model, "detail": checked}
+        self._journal().append("runtimes.model", {"runtime": name, "model": model or None, "effort": effort or None,
+                                                  "checked": checked} | ({"role": role} if role is not None else {}))
+        self._runtimes_changed(name, "model")
+        return {"ok": True, "model": model, "effort": effort,
+                "detail": checked or ("uses the connection's model" if role is not None and not model else "saved")}
 
     async def _keys_store(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """GATE-543: FERB.app's API key for a provider (APP_ONLY), stored through FERB's signed secret helper and read
@@ -359,6 +440,7 @@ class Runtimes:
         self._keys_problems(problems)
         self._available_cache.pop(provider, None)
         self._journal().append("keys.stored", {"provider": provider, "stored": stored})
+        self._runtimes_changed(provider, "key")
         return {"stored": stored}
 
     async def _keys_delete(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
@@ -373,6 +455,7 @@ class Runtimes:
         self._keys_problems(problems)
         self._available_cache.pop(provider, None)
         self._journal().append("keys.deleted", {"provider": provider, "removed": removed})
+        self._runtimes_changed(provider, "key")
         return {"removed": removed}
 
     async def _runtimes_check_calls(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:

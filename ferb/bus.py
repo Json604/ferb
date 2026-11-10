@@ -21,6 +21,7 @@ class EventClass(Enum):
 CRITICAL = {"task.created", "task.started", "task.finished", "task.retried", "task.steered", "approval.requested", "approval.resolved",
             "device.changed", "browser.profile_paired", "timer.fired", "memory.committed",
             "timer.changed",     # DMN-548: a timer set, cancelled (by any path) or fired: every client shows it
+            "runtimes.changed",  # DMN-580: a role's connection, model or effort, or a runtime's refusal, changed
             "memory.retired", "memory.expires",   # L36 §6: an item stops holding now, or gets the end its words give
             "memory.set_aside", "memory.restored",   # ORCH-317: the owner's words set aside as over, or used again
             "stop.engaged", "stop.lifted", "sense.paused", "sense.resumed", "sense.watcher_failed",

@@ -168,6 +168,7 @@ class Daemon(Compose, Chat, ChatHistoryRpc, MemoryGlue, MemoryImportGlue, Schedu
         self.device_id = "unknown-device"                     # [device] id, read at start (_load_config)
         self.protection: Protection | None = None             # the [protection] lists, read once at start (rule 10)
         self._available_cache: dict[str, tuple[str | None, bool]] = {}   # runtime -> (model, available), RUN-424
+        self._refusal_facts: dict[str, dict[str, str]] | None = None    # runtime -> its last refusal, APP-882
         # Slow reads the planner's facts and availability need on every turn (TCC checks, browser profile files),
         # kept for FRESH_S and refreshed in a worker thread
         self._fresh = _Fresh(FRESH_S)

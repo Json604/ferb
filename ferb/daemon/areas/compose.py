@@ -153,7 +153,7 @@ class Compose:
                 apps=self._installed_apps,
                 running_apps=self._running_apps,
                 relevant_context=self._relevant_context,           # its fourth element: the search's source refs
-                worker_types=self._worker_types, runtime_signed_out=self._runtime_signed_out,
+                worker_types=self._worker_types, runtime_account=self._runtime_account,
                 signals=self.signals, skills_catalog=skills.catalog,
                 abilities_catalog=self.registry.abilities.catalog),
             desktop=ports.DesktopPort(

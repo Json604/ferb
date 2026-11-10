@@ -289,7 +289,7 @@ class WorkerRuns:
     apps: Callable[[], list[tuple[str, str]]]
     running_apps: Callable[[], list[tuple[str, str, int]]]
     on_violation: Any
-    runtime_signed_out: Callable[[str], None]
+    runtime_account: Callable[[str, str], None]
     heartbeat_poll_s: float
     stall_s: float
     _active: dict[str, tuple[AgentRuntime, RunHandle]]
@@ -607,8 +607,8 @@ class WorkerRuns:
             if not worker_id:
                 self._stalled.discard(watch_id)
             if isinstance(exc, RuntimeUnavailable):     # a login problem is never the network's
-                if getattr(exc, "account", "") == "signed_out":
-                    self.runtime_signed_out(rt.name)    # its availability is now what the runtime said (RUN-424)
+                if getattr(exc, "account", "") in ACCOUNT_PROBLEMS:
+                    self.runtime_account(rt.name, str(getattr(exc, "account", "")))   # RUN-424; Settings → AI
                 raise ServiceError(str(exc), rt.name, getattr(exc, "reason", "") != "auth_required",
                                    account=getattr(exc, "account", "")) from None
             current = asyncio.current_task()
@@ -699,8 +699,8 @@ class WorkerRuns:
                     raise EmptyAnswer(str(ev.data.get("message")), rt.name)
                 elif ev.kind == "error":
                     account = str(ev.data.get("account") or "")      # the adapter's account fact (step 8b)
-                    if account == "signed_out":
-                        self.runtime_signed_out(rt.name)   # its availability is now what the runtime said (RUN-424)
+                    if account in ACCOUNT_PROBLEMS:
+                        self.runtime_account(rt.name, account)   # what the runtime said (RUN-424; Settings → AI)
                     raise ServiceError(str(ev.data.get("message")), rt.name, network=not account,
                                        account=account if account in ACCOUNT_PROBLEMS else "")
                 elif ev.kind == "invalid_answer":      # the adapter's own schema check found the answer outside it
@@ -715,6 +715,7 @@ class WorkerRuns:
                             "returncode": ev.data.get("returncode"),
                             "meaning": "tool names observed in provider request traces; not proof of invocation or complete deferred inventory"})
                     final = str(ev.data.get("text", ""))
+                    self.runtime_account(rt.name, "")    # it answered: an earlier refusal no longer stands
                 # RUN-445: wrong calls (made-up tools, and lookups the gateway refused once they were spent; lookups
                 # and tools that ran never count) stop the run at the cap; the finally below cancels it
                 refused = self.gateway.calls_refused(watch_id)

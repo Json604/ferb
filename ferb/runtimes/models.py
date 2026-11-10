@@ -77,3 +77,82 @@ def known_models(name: str, home: Path) -> list[str]:
         from ferb.runtimes.anthropic_api import LIMITS
         return sorted(LIMITS)
     return []
+
+
+# ---------- effort levels per model (owner 2026-11-10: "show the effort level along with model selection") ----------
+# Each list is what the provider documents for that model, read 2026-11-10; a model none names offers only Default and a
+# typed level (checked by one tiny call before it is saved). Matched by the longest documented id the model starts with.
+#
+# Anthropic Messages API, output_config.effort (https://platform.claude.com/docs/en/build-with-claude/effort, "Effort
+# levels"): low, medium, high on every model with effort; xhigh and max only on the models listed there; the default is
+# medium on Claude Opus 5.5 and Claude Haiku 5.5, high on the others. Claude Haiku 4.5 takes no effort (NO_EFFORT).
+# Claude Code passes its --effort to the same API (claude-agent-sdk 0.2.174 EffortLevel: low, medium, high, xhigh, max).
+_ALL5 = ("low", "medium", "high", "xhigh", "max")
+_NO_XHIGH = ("low", "medium", "high", "max")
+ANTHROPIC_LEVELS: dict[str, tuple[tuple[str, ...], str]] = {
+    **{m: (_ALL5, "high") for m in ("claude-fable-5-2", "claude-mythos-5-2", "claude-fable-5-1", "claude-mythos-5-1",
+                                    "claude-fable-5", "claude-mythos-5", "claude-opus-5", "claude-opus-4-8",
+                                    "claude-opus-4-7", "claude-sonnet-5-5", "claude-sonnet-5")},
+    "claude-opus-5-5": (_ALL5, "medium"), "claude-haiku-5-5": (_ALL5, "medium"),
+    **{m: (_NO_XHIGH, "high") for m in ("claude-mythos-preview", "claude-opus-4-6", "claude-sonnet-4-6")},
+    "claude-opus-4-5": (("low", "medium", "high"), "high"),
+}
+# Gemini API thinking level (https://ai.google.dev/gemini-api/docs/thinking, which now redirects to
+# https://aistudio.google.com/docs/thinking: its table of models, read 2026-11-10). FERB sends the same level names as
+# generationConfig.thinkingConfig.thinkingLevel (google_api.py).
+GOOGLE_LEVELS: dict[str, tuple[tuple[str, ...], str]] = {
+    "gemini-4-argon": (("low", "medium", "high"), "medium"),
+    "gemini-3.8-flash": (("low", "medium", "high"), "medium"),
+    "gemini-3.6-flash": (("minimal", "low", "medium", "high"), "medium"),
+    "gemini-3.5-flash-lite": (("minimal", "low", "medium", "high"), "minimal"),
+    "gemini-3.1-pro-preview": (("low", "medium", "high"), "high"),
+    "gemini-3.1-flash-lite-image": (("minimal", "high"), "minimal"),
+    "gemini-3-flash-preview": (("minimal", "low", "medium", "high"), "high"),
+    "gemini-3-pro-preview": (("low", "high"), "high"),
+}
+# OpenAI Responses API reasoning.effort (https://developers.openai.com/api/docs/guides/reasoning, read 2026-11-10): the
+# values are model-dependent and the guide lists no per-model set, so no list is offered (Default and a typed level);
+# only the defaults it names are shown.
+OPENAI_DEFAULTS = {"gpt-5.5": "medium", "gpt-5.6": "medium", "gpt-6.1-sol": "medium", "gpt-6-sol": "medium",
+                   "gpt-6-luna": "medium"}
+# Codex's own catalog lists levels per model; "ultra" hands work to sub-agents, which FERB keeps off (RUN-405)
+CODEX_HIDDEN = {"ultra"}
+
+
+def _documented(table: dict[str, Any], model: str) -> Any:
+    keys = [k for k in table if model == k or model.startswith(k + "-")]
+    return table[max(keys, key=len)] if keys else None
+
+
+def effort_levels(name: str, home: Path, models: list[str]) -> tuple[dict[str, list[str]], dict[str, str]]:
+    """Each model's effort levels the owner can pick (a model with none listed: only Default and a typed level), and
+    each model's default level where its provider documents one. Files and tables only: no model call. Claude Code's
+    own default isn't documented per model, so none is given for it."""
+    levels: dict[str, list[str]] = {}
+    defaults: dict[str, str] = {}
+    if name == "codex":
+        from ferb.runtimes.codex_exec import _catalog, _models
+        found = _catalog(home)
+        for row in (_models(found[0]) if found is not None else None) or []:
+            if not isinstance(row, dict) or not row.get("slug"):
+                continue
+            slug = str(row["slug"])
+            levels[slug] = [str(r["effort"]) for r in row.get("supported_reasoning_levels") or []
+                            if isinstance(r, dict) and r.get("effort") and str(r["effort"]) not in CODEX_HIDDEN]
+            if row.get("default_reasoning_level"):
+                defaults[slug] = str(row["default_reasoning_level"])
+        return levels, defaults
+    for model in models:
+        if name in ("claude", "anthropic"):
+            documented = _documented(ANTHROPIC_LEVELS, model)
+            if documented is not None:
+                levels[model] = list(documented[0])
+                if name == "anthropic":
+                    defaults[model] = documented[1]
+        elif name == "google":
+            documented = _documented(GOOGLE_LEVELS, model)
+            if documented is not None:
+                levels[model], defaults[model] = list(documented[0]), documented[1]
+        elif name == "openai" and (default := _documented(OPENAI_DEFAULTS, model)) is not None:
+            defaults[model] = default
+    return levels, defaults

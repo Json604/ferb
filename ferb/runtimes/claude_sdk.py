@@ -165,7 +165,9 @@ class ClaudeRuntime:
         self.refusals = refusals if refusals is not None else REFUSALS
         self.format_key = (Refusals.key("anthropic", ALIASES.get(model or "", model), self.shape.wire)
                            if self.shape is not None else "")
-        self.effort = effort             # L39: the SDK's own effort option when asked for ("high"); None: its default
+        # the SDK's own effort option (catalog.run_effort: the owner's setting, a checker's "high", low for one-turn
+        # calls, the planner included, owner 2026-11-10); None: Claude Code's default
+        self.effort = effort
         self.limit_s = limit_s           # one overall limit on this call (catalog.call_limit); None for a worker
         self.allowed = {f"mcp__ferb__{mcp_name(n)}" for n in (tool_names or [])}
         if output_schema:

@@ -53,7 +53,7 @@ def _rpc(daemon: RunningDaemon, name: str, params: dict[str, Any]) -> Any:
     return daemon.run(getattr(daemon.daemon, name)(None, params))
 
 
-# decision: RUN-429, RUN-431, DMN-551
+# decision: RUN-429, RUN-431, DMN-580
 def test_a_model_is_checked_before_it_is_saved(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
     """In the provider's list for this key: saved. Not in it: not saved, the previous model keeps running. No list
     (the provider didn't answer one): one tiny call decides. A role's own model is saved apart and cleared by empty."""

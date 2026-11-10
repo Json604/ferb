@@ -76,8 +76,8 @@ class Build:
     schema: dict[str, Any]
     model: str
     deps: RuntimeDeps
-    effort: str | None = None
-    planner: bool = False                 # the planner's chat turn (P20 cache; no overall limit, ORCH-528; the
+    effort: str | None = None             # the effort this call sends (run_effort); None: the runtime's default
+    planner: bool = False                # the planner's chat turn (P20 cache; no overall limit, ORCH-528; the
                                           # API loop's answer tool where its form is stated, RUN-447)
     limit_s: float | None = None
 
@@ -157,6 +157,55 @@ def role_model(cfg: Any, name: str, role: str) -> str:
     return model_for(cfg, name)
 
 
+def configured_effort(cfg: Any, name: str) -> str:
+    """The reasoning effort the owner set for a connection (`[efforts] <name>`); "" when none (the default applies)."""
+    value = cfg.get("efforts", name)
+    return str(value).strip() if isinstance(value, str) else ""
+
+
+def role_effort(cfg: Any, name: str, role: str) -> str:
+    """The effort the owner set for `role` on runtime `name`: the role's own (`[role_models] <role>` `effort`, kept with
+    the runtime it was set for, so it applies only while the role runs there), else the connection's, else ""."""
+    chosen = cfg.get("role_models", role.partition(":")[0])
+    if isinstance(chosen, dict) and chosen.get("runtime") == name and str(chosen.get("effort") or "").strip():
+        return str(chosen["effort"]).strip()
+    return configured_effort(cfg, name)
+
+
+# One-turn calls that aren't the planner's (the answer writer, distillation, intro suggestions, a check) and the
+# planner when the owner set nothing: low effort on every runtime, Claude Code included (owner 2026-11-10)
+ONE_TURN_EFFORT = "low"
+
+
+def run_effort(cfg: Any, name: str, role: str, mode: str, planner: bool, asked: str | None) -> str | None:
+    """The effort one call asks its runtime for (owner 2026-11-10): the planner's configured effort, else low; any other
+    one-turn call low; a worker its configured effort, else the runtime's default (None: nothing is sent); a checker
+    its configured effort, else what the caller asked (`asked`: "high" for a step that changed files), else the
+    default. The owner's setting, when made, always wins."""
+    if mode == "supervisor":
+        return (role_effort(cfg, name, "orchestrator") or ONE_TURN_EFFORT) if planner else ONE_TURN_EFFORT
+    kind = "checker" if role.partition(":")[0] == "checker" else "worker"
+    return role_effort(cfg, name, kind) or asked or None
+
+
+def effort_problem(name: str, effort: str) -> str:
+    """Why `effort` can't be sent to runtime `name` as it stands (argument shape only; the runtime's own check call
+    decides whether it takes it); "" when it can. Codex's "ultra" delegates to sub-agents, which FERB locks off
+    (RUN-405), so it is not offered."""
+    import re
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,31}", effort):
+        return "an effort level is one short word (letters, digits, - or _), at most 32 characters"
+    if name == "codex" and effort.lower() == "ultra":
+        return "Codex's ultra level hands work to sub-agents, which FERB keeps off; pick another level"
+    return ""
+
+
+def sign_in_fix(name: str) -> str:
+    """The owner's step when a runtime's own call said its sign-in failed."""
+    steps = {"codex": "sign in to ChatGPT again in Settings → AI", "claude": "sign in to Claude again in Settings → AI"}
+    return steps.get(name, f"replace your {label(name).removeprefix('the ')} key in Settings → AI")
+
+
 def api_providers() -> tuple[str, ...]:
     """The runtimes that run on a provider API key from the Keychain."""
     return tuple(name for name, entry in CATALOG.items() if entry.sign_in == "key")
@@ -179,7 +228,7 @@ def _build_codex(b: Build) -> Any:
                         cache_role="planner" if cache else None, cache_scope=b.deps.device_id,
                         cache_refusal=b.deps.cache_refusal, on_cache_skipped=b.deps.cache_skipped,
                         on_cache_fallback=b.deps.cache_fallback,
-                        effort=b.effort if b.mode == "worker" else None)
+                        effort=b.effort)
 
 
 def _build_claude(b: Build) -> Any:
@@ -190,7 +239,7 @@ def _build_claude(b: Build) -> Any:
     if not b.model:
         raise Unsupported("no model is chosen for Claude")
     return ClaudeRuntime(b.mode, b.deps.proxy(), str(b.home), shim_cmd=b.deps.shim_cmd, tool_names=b.tool_names,
-                         output_schema=b.schema, model=b.model, effort=b.effort if b.mode == "worker" else None,
+                         output_schema=b.schema, model=b.model, effort=b.effort,
                          limit_s=b.limit_s)
 
 
@@ -198,7 +247,7 @@ def _api(provider: Callable[[str], Any]) -> Callable[[Build], Any]:
     def build(b: Build) -> Any:
         from ferb.runtimes.api import ApiRuntime
         return ApiRuntime(provider(b.model), mode=b.mode, role=b.role, tool_names=b.tool_names, output_schema=b.schema,
-                          bridge=b.deps.bridge(), key=b.deps.api_key, effort=b.effort if b.mode == "worker" else None,
+                          bridge=b.deps.bridge(), key=b.deps.api_key, effort=b.effort,
                           limit_s=b.limit_s, planner=b.planner)
     return build
 

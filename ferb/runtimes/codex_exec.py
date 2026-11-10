@@ -15,7 +15,8 @@ Speed (owner decisions, 2026-10-01; all within the owner's Codex subscription):
 - FERB's own CODEX_HOME (`~/.ferb/codex-home`, from `ferb setup --codex-login`) so the owner's personal skills and
   settings never load; HOME is always `~/.ferb/codex-user`. There is no fallback to `~/.codex`: without that login
   the daemon refuses to build a Codex runtime and says to run `ferb setup --codex-login`;
-- supervisor-mode runs (the planner, the answer writer, distillation: no tools) use low reasoning effort and drop
+- supervisor-mode runs (the planner, the answer writer, distillation: no tools) use low reasoning effort (the planner
+  the owner's effort when set) and drop
   Codex's environment / permissions / apps / collaboration instruction blocks; tasks (worker mode) are unchanged;
 - every run uses the pinned app-server in an empty configuration home with an ephemeral thread (codex_stream);
   final-answer deltas are gated by the observed tool catalog and the complete trace is checked before final output."""
@@ -69,7 +70,9 @@ DISABLED = ["shell_tool", "unified_exec", "shell_snapshot", "multi_agent", "mult
 # Native tools Codex always offers: inert (MCP resource plumbing over FERB's server only; request_user_input fails
 # closed in exec and client actions are rejected in app-server; apply_patch, which CATALOG_LOCKDOWN now drops, cannot
 # write in the read-only sandbox).
-SUPERVISOR_SETTINGS = ["-c", 'model_reasoning_effort="low"', "-c", "include_environment_context=false",
+# A supervisor run's effort is added by CodexRuntime.supervisor_settings: low unless the owner set the planner's (or the
+# connection's) effort (owner 2026-11-10)
+SUPERVISOR_SETTINGS = ["-c", "include_environment_context=false",
                        "-c", "include_permissions_instructions=false", "-c", "include_apps_instructions=false",
                        "-c", "include_collaboration_mode_instructions=false"]
 # P20: no skills message for any role. Otherwise Codex adds a `<skills_instructions>` developer message right after
@@ -391,8 +394,9 @@ class CodexRuntime:
         self.binary, self.mode, self.ferb_home = binary, mode, ferb_home
         # the clock the run's timing reads (RUN-419, RUN-420): its start steps and each model call's; tests give a fake
         self.monotonic = monotonic
-        # L39: a worker-mode run's reasoning effort when the caller asks for one (a checker of a step that changed
-        # files: "high"); None keeps the model's default. Supervisor runs stay low (SUPERVISOR_SETTINGS)
+        # The reasoning effort this run sends (catalog.run_effort: the owner's setting, a checker's "high" for a step
+        # that changed files, low for one-turn calls); None keeps the model's default. A supervisor run built without
+        # one stays low (`sent_effort`)
         self.effort = effort
         # Codex's own error text passes through this before it is raised or reported (rule 14): the daemon's redactor,
         # which knows the values the owner stored, else the secret pattern classes
@@ -418,6 +422,16 @@ class CodexRuntime:
     @property
     def limits(self) -> ModelLimits:
         return limits_for(self.ferb_home, self.model)
+
+    @property
+    def sent_effort(self) -> str | None:
+        """The effort on this run's turn (and a supervisor run's config): its own, else low for a supervisor run, else
+        none (the model's default)."""
+        return self.effort or ("low" if self.mode == "supervisor" else None)
+
+    def supervisor_settings(self) -> list[str]:
+        """A supervisor run's settings: its effort, then Codex's instruction blocks dropped (SUPERVISOR_SETTINGS)."""
+        return ["-c", f"model_reasoning_effort={json.dumps(self.sent_effort)}"] + SUPERVISOR_SETTINGS
 
     def _mcp_settings(self, token_file: Path | None) -> list[str]:
         if not self.shim_cmd:

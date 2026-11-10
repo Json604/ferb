@@ -212,7 +212,9 @@ class ApiRuntime:
         # the planner's call (catalog Build.planner): offered the answer tool when its form is stated (RUN-447)
         self.planner = planner
         self.monotonic = monotonic       # the clock each model call's timing reads (RUN-419); tests give a fake
-        self.effort = effort             # L39: a worker run's effort when asked for ("high"); supervisor runs stay low
+        # the effort this run sends (catalog.run_effort: the owner's setting, a checker's "high", low for one-turn
+        # calls); a supervisor run built without one stays low, a worker's keeps the model's default
+        self.effort = effort
         self.mode, self.role, self.tool_names, self.output_schema = mode, role, list(tool_names or []), output_schema
         reshape = getattr(provider, "shape", None)
         self.refusals = refusals if refusals is not None else REFUSALS
@@ -258,7 +260,7 @@ class ApiRuntime:
                     tools.append(ToolSpec(mcp_name(capability), str(t["description"]), inline_refs(t["input_schema"])))
                     names[mcp_name(capability)] = capability
         state = self.provider.begin(request, tools, self.shape.wire if self.shape else None,
-                                    "low" if self.mode == "supervisor" else self.effort,
+                                    self.effort or ("low" if self.mode == "supervisor" else None),
                                     f"ferb:{self.role.partition(':')[0]}:{self.mode}")
         typed, answer_tool = "", False
         if self.shape is not None:

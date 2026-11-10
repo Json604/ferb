@@ -258,7 +258,7 @@ status = "active"
 rule = "The daemon keeps each runtime's availability (RUN-404) as last known: read at start, then again only after the owner's runtime or model change (runtimes.use, a one-tap switch, a model changed in config), a sign-in (Claude's finishing; the app's runtimes.status, which reads all afresh), a runtimes.check, or a call the runtime refused for its sign-in, which marks it unavailable (`runtime.signed_out`). No timed expiry. The Claude marker file and the API key read for the request itself stay."
 why = "Owner 2026-11-04: \"does it run for API and claude too??? fix this for them too\". The API runtimes re-ran a `security` Keychain presence check each (about 10 ms, on the event loop) whenever the old 60 s cache expired; the Claude SDK had no per-call probe."
 rejected = ["A shorter or longer expiry (any expiry probes again on some turn)"]
-paths = ["ferb/daemon/areas/runtimes.py::Runtimes._runtime_available", "ferb/daemon/areas/runtimes.py::Runtimes._runtime_signed_out", "ferb/daemon/areas/runtimes.py::Runtimes._runtimes_status", "ferb/orchestrator/worker.py::WorkerRuns._run_once"]
+paths = ["ferb/daemon/areas/runtimes.py::Runtimes._runtime_available", "ferb/daemon/areas/runtimes.py::Runtimes._runtime_account", "ferb/daemon/areas/runtimes.py::Runtimes._runtimes_status", "ferb/orchestrator/worker.py::WorkerRuns._run_once"]
 live = ["LIVE-766"]
 
 [RUN-425]
@@ -536,3 +536,49 @@ status = "active"
 rule = "Refines RUN-426. A Codex mcpToolCall item whose tool is list_mcp_resources or list_mcp_resource_templates passes the item gate when its server is `codex` (a listing of every server) or `ferb` (the model asked for FERB's server by name): FERB's bridge offers no resources, so either lists nothing. read_mcp_resource on any server and every other tool not FERB's still stop the run (RUN-405)."
 why = "Live 2026-11-10 (Codex short run): two attempts were thrown away on ferb.list_mcp_resources (journal runtime.failed 03:23:40, 03:39:16), about 10 s each. Claude Code is never offered resource tools (tools=[], FERB's server declares none): nothing to change there."
 paths = ["ferb/runtimes/codex_stream.py::events", "ferb/runtimes/codex_exec.py::RESOURCE_LIST_SERVERS"]
+
+[RUN-460]
+title = "The planner runs at low effort unless the owner picks one; Claude Code's planner too"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "Low by default, changeable (Recommended)"
+words_source = "Owner 2026-11-10, the option chosen when asked what effort the planner should use once effort is a setting"
+rule = "The planner stays on low effort unless the owner picks a level for it under Advanced (or for its connection). Claude Code's planner, which ran at Claude Code's default because no effort was sent, is set to low too. The owner's setting, when made, always wins."
+paths = ["ferb/runtimes/catalog.py::run_effort"]
+
+[RUN-461]
+title = "The checker uses exactly the effort the owner set; without one, high for changed files stays"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "My setting wins (Recommended)"
+words_source = "Owner 2026-11-10, the option chosen when asked whether a checker effort the owner set or the automatic high for a step that changed files comes first"
+rule = "When the owner set an effort for the checker (or its connection), FERB uses exactly that. With no setting, the checker of a step that changed files keeps running at high and other checks at the model's default."
+paths = ["ferb/runtimes/catalog.py::run_effort", "ferb/orchestrator/supervisor.py"]
+
+[RUN-462]
+title = "One resolution of each call's effort, and every adapter sends what it gets"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For APP-881, RUN-460, RUN-461. Config: [efforts] <runtime> = level; a [role_models] row may carry effort (model \"\" keeps the connection's). role_effort: the role's own while it runs there, else the connection's. catalog.run_effort: planner = set or low; other one-turn = low; worker = set or none; checker = set, else the caller's high, else none. _build_runtime sends it; Codex (-c and turn/start, template), Claude options, Anthropic output_config, OpenAI reasoning, Gemini thinkingConfig. Missing keys: today's behaviour."
+why = "Refines RUN-415's low effort for supervisor runs: still the default, now the planner's can be set."
+paths = ["ferb/runtimes/catalog.py::run_effort", "ferb/runtimes/catalog.py::role_effort", "ferb/daemon/areas/runtimes.py::Runtimes._build_runtime", "ferb/runtimes/codex_exec.py::CodexRuntime.sent_effort", "ferb/runtimes/codex_stream.py::_turn_params", "ferb/runtimes/api.py::ApiRuntime", "ferb/runtimes/claude_sdk.py::ClaudeRuntime"]
+live = ["LIVE-412"]
+
+[RUN-463]
+title = "Effort rulings: no Codex ultra, other one-turn calls stay low, a typed level is checked first"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For APP-881. Codex's \"ultra\" isn't offered or accepted (it hands work to sub-agents; FERB keeps multi-agent off, RUN-405). The answer writer, distillation, intro suggestions and checks stay on low and don't follow the planner's setting. A level is one short token (letters, digits, - or _, at most 32); a new level is checked with the tiny check call made at that level (the model's check folded in), and a refused one keeps the old setting, as models do (RUN-429)."
+paths = ["ferb/runtimes/catalog.py::effort_problem", "ferb/daemon/areas/runtimes.py::Runtimes._runtimes_model", "ferb/runtimes/models.py::CODEX_HIDDEN"]
+
+[RUN-464]
+title = "The effort levels offered per model come from each provider's own list"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For APP-881. Codex: its catalog's supported_reasoning_levels and default_reasoning_level, minus ultra. Anthropic API: platform.claude.com effort page (low/medium/high everywhere, xhigh and max per model; default medium on Opus 5.5 and Haiku 5.5, else high). Claude Code: the same levels, no default given (Claude Code's own). Gemini: its thinking page's per-model table. OpenAI: its guide gives no per-model set, so Default and a typed level, with the defaults it names. Read 2026-11-10."
+paths = ["ferb/runtimes/models.py::effort_levels"]

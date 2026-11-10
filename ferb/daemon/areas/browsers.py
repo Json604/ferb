@@ -836,21 +836,35 @@ class Browsers:
         connected = {key for key, br in self.hub.bridges.items() if br.conn} if self.hub is not None else set()
         others = await asyncio.to_thread(browser_profiles.unsupported)          # HAND-415
         rows = browser_rows(states, store, extension_path(self.home), self._identity_profile(), connected, others)
+        why = self._profile_problems()
+        for browser in rows["browsers"]:          # APP-883: each profile's own problem on its row
+            for row in browser["profiles"]:
+                if (text := why.get((browser["browser"], row["folder"]))) is not None:
+                    row["problem"] = text
         problems = ([files["problem"]] if files.get("problem") else []) + await self._extension_problems()
         return rows | ({"problem": " ".join(problems)} if problems else {})
 
-    async def _extension_problems(self) -> list[str]:
-        """HAND-406: each paired profile that isn't connected and that FERB knows why (refused in this run, or its
-        extension last reported a version FERB no longer takes), in the owner's words for setup's message."""
+    def _profile_problems(self) -> dict[tuple[str, str], str]:
+        """HAND-406: why each paired profile that isn't connected isn't (refused in this run, or its extension last
+        reported a version FERB no longer takes), when FERB knows."""
         if self.pairings is None or self.hub is None:
-            return []
-        found = await asyncio.to_thread(self._profiles)
-        out = []
+            return {}
+        out = {}
         for b in self.pairings.all():
             br = self.hub.bridges.get((b.browser, b.folder))
             if (br is None or br.conn is None) and (why := self.hub.problem(b)) is not None:
-                out.append(f"{browser_profiles.shown(browser_profiles.named(found, b.browser, b.folder))}: {why}.")
+                out[(b.browser, b.folder)] = why
         return out
+
+    async def _extension_problems(self) -> list[str]:
+        """HAND-406: each paired profile that isn't connected and that FERB knows why, in the owner's words for setup's
+        message."""
+        why = self._profile_problems()
+        if not why:
+            return []
+        found = await asyncio.to_thread(self._profiles)
+        return [f"{browser_profiles.shown(browser_profiles.named(found, b, f))}: {text}."
+                for (b, f), text in why.items()]
 
     async def _connect_browsers(self) -> dict[str, Any]:
         """DMN-507: FERB's native host and the Web Store install request in every installed browser, written by the

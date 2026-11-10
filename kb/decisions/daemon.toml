@@ -738,7 +738,8 @@ paths = ["ferb/daemon/areas/schedules.py::Schedules._schedules_card", "ferb/orch
 title = "runtimes.models and runtimes.model for the app's model chooser"
 by = "agent"
 date = 2026-11-08
-status = "active"
+status = "superseded"
+superseded_by = "DMN-580"
 rule = "For RUN-429. runtimes.models {runtime} -> {runtime, model, models, source (provider | known), roles, problem?} and runtimes.model {runtime, model, role?} -> {ok, model, detail} are on the app's role (auth.py) beside runtimes.use, with long waits (30 s, 90 s). No key is ever returned."
 paths = ["ferb/daemon/areas/rpc.py", "ferb/daemon/auth.py", "ferb/daemon/server.py::LONG_WAITS"]
 
@@ -818,3 +819,22 @@ date = 2026-11-09
 status = "active"
 rule = "For APP-805 and APP-806. chat.history.page {day, before?, limit? (30, at most 200), open?} gives the day's newest entries before the cursor, oldest first, with more, cursor (the oldest's at|id) and context (turns its replies answer that aren't on it); open adds every turn still waiting for FERB's answer. chat.history.days {} lists the days, newest first. A notice whose ref is one of attention_notices says that record's text and quotes, and attention.expire_derived (a forget, the typed-text purge) clears it in chat_history too."
 paths = ["ferb/store/chat_history.py::ChatHistory.page", "ferb/store/chat_history.py::clear_notice", "ferb/orchestrator/attention.py::expire_derived"]
+
+[DMN-580]
+title = "Settings' facts: each role's AI, a runtime's refusal, effort levels, runtimes.changed, browser rows"
+by = "agent"
+date = 2026-11-10
+status = "active"
+supersedes = ["DMN-551"]
+rule = "Keeps DMN-551. runtimes.status adds per runtime effort and refused {account, at, fix} (journal runtime.signed_out / usage_limit / answered, never cleared by the presence check) and role_details {role: runtime, model, effort}. runtimes.models adds effort, levels, default_efforts. runtimes.model takes effort (\"\" clears, absent keeps). runtimes.changed (critical bus) on a role, model, effort, key, sign-in or refusal change. setup.browsers rows add version, too_old, problem. Worker port runtime_account(name, account)."
+paths = ["ferb/daemon/areas/runtimes.py::Runtimes._runtimes_status", "ferb/daemon/areas/runtimes.py::Runtimes._runtime_account", "ferb/daemon/areas/runtimes.py::Runtimes._runtimes_models", "ferb/bus.py", "ferb/device/extensions.py::browser_rows", "ferb/daemon/areas/browsers.py", "ferb/orchestrator/ports.py::EnvironmentPort"]
+
+[DMN-581]
+title = "Test mode is removed completely"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "remveo test mdoe completelty"
+words_source = "Owner 2026-11-10, asked whether Settings should show when test mode (the send allowlist for tests) is on"
+rule = "Nothing shows test mode in Settings; test mode itself is removed completely. Its removal is its own job (T-1080), not part of the Settings fix."
+untestable = "Not built yet: T-1080 removes it."
