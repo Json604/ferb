@@ -1140,3 +1140,14 @@ why = "Live: controls under sticky headers and custom checkboxes (a hidden input
 evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
 paths = ["extensions/chromium/content.js::hitPoint", "extensions/chromium/content.js::coverOf", "extensions/chromium/content.js::standIn", "extensions/chromium/content.js::listed"]
 live = ["LIVE-890"]
+
+[HAND-491]
+title = "A tab a click opened is reported in that click's own result"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "While an act's change is looked for (HAND-487) the extension waits up to 1 s for a new tab it is claiming (HAND-443), so the popup event reaches the daemon before the act's reply. browser.act's result then leads with `opened` (\"the click opened tN\") and `opened_tabs`, before ok and detail."
+why = "Live: a tab opened by a click showed up only in a later call's opened_tabs, after the worker had already looked for the result in the original tab."
+evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
+paths = ["ferb/act/browser/tools.py::BrowserAct", "extensions/chromium/background.js::observeAct"]
+live = ["LIVE-890"]

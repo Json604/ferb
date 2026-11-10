@@ -58,7 +58,8 @@ def page(url: str) -> dict[str, Any]:
                 "elements": [{"role": "button", "label": "Add to cart", "in_view": False, "offscreen": "left",
                               "act_reply": {"ok": False, "detail": "outside_page: the element is outside the page even "
                                                                    "after scrolling, off its left edge"}},
-                             {"role": "button", "label": "Add to cart"}]}
+                             {"role": "button", "label": "Add to cart"},
+                             {"role": "button", "label": "Seller details", "opens": f"{u.scheme}://{u.netloc}/seller"}]}
     if u.path == "/form":
         return {"title": "Form", "text": "a form",
                 "elements": [{"role": "textbox", "label": "Name", "form": "other"},
@@ -716,6 +717,8 @@ class FakeExtension:
             self.send("event", {"event": "dialog", "tab_id": a["tab_id"], **d})
         if a["kind"] == "click" and el.get("href"):
             self.op_navigate({"tab_id": a["tab_id"], "url": el["href"]}, cid)
+        if a["kind"] == "click" and el.get("opens"):           # the page opens a new tab; claimed before the reply
+            self.popup(a["tab_id"], el["opens"])
         out = {"ok": True, "detail": a["kind"] + (" (trusted)" if trusted else " (page events)")}
         if el.get("submitted") and a["kind"] in ("click", "dblclick", "press"):   # the page's own submit event
             out["submitted"] = el["submitted"]

@@ -917,7 +917,11 @@ class BrowserAct(_Base):
         # facts come back from the page (option candidates, scroll state, dialogs): label them with the tab's page
         out = {"ok": r.ok, "detail": r.detail, **r.facts, "next": "take a new snapshot to see the result"}
         news, more = await _news(self.driver, ref)
-        return ToolResult(out | news, is_error=not r.ok, read_sources=self._page(ref.tab_id) + more, facts=r.observed)
+        # HAND-491: a tab this act opened (the extension waits for its claim while it looks, HAND-487) leads the result
+        opened = [str(t["tab"]) for t in news.get("opened_tabs", []) if t.get("tab")]
+        lead = {"opened": f"the {getattr(args, 'action')} opened {', '.join(opened)}"} if opened else {}
+        return ToolResult(lead | news | out, is_error=not r.ok, read_sources=self._page(ref.tab_id) + more,
+                          facts=r.observed)
 
 
 class BrowserLoginCode(_Base):
