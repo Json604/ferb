@@ -684,7 +684,8 @@ class Schedules:
     async def _schedule_finished(self, s: Any, final: dict[str, Any], overdue_s: float, retry: bool,
                                  now: datetime) -> None:
         """A scheduled run's result: counted (only a verified run counts as success), its one retry queued when it
-        failed, its watch's crossing told once, then the result told."""
+        failed, its watch's crossing told once, then the result told. ORCH-590 (owner: "Post every time"): every run
+        posts its result in the owner's chat, one that found nothing included; only a watch's met crossing alerts."""
         from ferb.orchestrator.schedules import FINISHED, watch_met
         sid = s.id
         # Only a verified run counts as success. A done-but-unverified run (V4) doesn't clear earlier failures, and
@@ -701,9 +702,8 @@ class Schedules:
         # A watch (fix wave 6c): a met condition (its check judged the reported condition) is told like a reminder,
         # once per crossing: not when the latest earlier finished check that reported it found it met, an unconfirmed
         # one included (the owner was told then; stored with the schedule, re-review N1). A confirmed met run of a
-        # one-shot watch ends it, as the owner's stored words for it say, and says so. A finished check with nothing
-        # new to tell is recorded but reaches no client (review I3), and so does a check of a one-shot watch that
-        # another check ended meanwhile (M1).
+        # one-shot watch ends it, as the owner's stored words for it say, and says so. A check of a one-shot watch
+        # that another check ended meanwhile (M1) alerts nothing. Every check posts its result like any run (ORCH-590).
         told_before = s.last_reported_met is True            # as this run's planner was shown it
         due = now - timedelta(seconds=overdue_s)             # when this run was due (its timer's time)
         reported = final.get("watch_met")                    # recorded only by a watch's check, which judged it
@@ -715,29 +715,22 @@ class Schedules:
         result = {**final, "goal": s.request, "name": s.label}
         ended = (met and not superseded and s.watch == "until_met" and status == "done"
                  and self._end_watch(sid, str(final.get("task_id"))))
-        if ended:                        # decided before `quiet`: the stop line always reaches the owner
+        if ended:
             line = f"🗓 Stopped checking: {s.label}"
             answer = f"{answer}\n\n{line}"
             self._record_stop_line(str(final.get("task_id")), line)
         # ORCH-320: the last run its end left it ends it, said once (never by a retry, which books nothing)
         expired = not ended and not retry and self._schedule_expired(sid)
-        if expired:                      # like the stop line: always reaches the owner
+        if expired:
             current = self.schedules.get(sid)
             line = self._ended_line(s.label, current.until if current is not None and current.until else now)
             answer = f"{answer}\n\n{line}"
             self._record_stop_line(str(final.get("task_id")), line)
-        # ORCH-317: an ordinary run that found nothing to tell and did nothing (its worker's report) posts nothing,
-        # as a watch check with nothing new doesn't: recorded, never published
-        idle_run = s.watch == "none" and status in FINISHED and final.get("nothing_to_tell") is True
-        quiet = not ended and not expired and (idle_run or s.watch != "none" and (
-            superseded or status in FINISHED and reported is not None and not alert))
         if overdue_s > 60:              # code's last line, after the answer's other code lines (fixed order)
             answer = f"{answer}\n(ran late)"
         cards = [self._run_card(sid, due)] + [c for c in final.get("cards") or [] if isinstance(c, dict)]
-        await self._task_result(result | {"answer": answer, "cards": cards}, shown=quiet, alert=alert,
-                                publish=not quiet)
-        if not quiet:                    # ORCH-588: what the owner's chat shows, so the planner's history shows it too
-            self._posted(sid, s.label, final, answer)
+        await self._task_result(result | {"answer": answer, "cards": cards}, shown=False, alert=alert)
+        self._posted(sid, s.label, final, answer)   # ORCH-588: the owner's chat shows it, so the planner's history does
 
     def _posted(self, sid: str, name: str, final: dict[str, Any], answer: str) -> None:
         """ORCH-588: a scheduled run's result FERB posted in the owner's chat, journaled as posted (schedule.posted)

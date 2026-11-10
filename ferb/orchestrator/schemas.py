@@ -221,10 +221,6 @@ _INPUT_NOTES = {"input_notes": {"type": "array", "items": _obj({"input": {"type"
 _PROPOSALS = {"conversation_proposals": {"type": "array", "items": CONVERSATION_SCHEMA}}
 _CONVERSATION = {"conversation_action": {"type": "string", "enum": ["wait", "handover", "finished", "blocked"]}}
 _WATCH = {"watch_met": {"type": ["boolean", "null"]}}       # whether the watched condition holds now (null: unseen)
-# ORCH-317: a scheduled run (not a watch) that found nothing to tell the owner and did nothing posts nothing
-_SCHEDULED = {"nothing_to_tell": {"type": "boolean", "description": (
-    "true only when this scheduled run found nothing its request asks to tell the owner and did nothing for them: "
-    "FERB records it without posting it. false whenever the answer has anything for the owner.")}}
 _LOOP = {"loop_action": {"type": "string", "enum": ["continue", "finished", "blocked"]},
          "probe": {"anyOf": [{"type": "null"}, PROBE_SCHEMA]}}
 # ORCH-319: a step of a multi-part task that finds an answer already posted to the owner is wrong or out of date
@@ -233,14 +229,14 @@ _PARTS = {"part_updates": {"type": "array", "items": _obj({"part": {"type": "str
 
 
 def worker_schema(*, inputs: bool = False, proposals: bool = False, conversation: bool = False, watch: bool = False,
-                  loop: bool = False, parts: bool = False, scheduled: bool = False) -> dict[str, Any]:
+                  loop: bool = False, parts: bool = False) -> dict[str, Any]:
     """The report schema for one worker run: the shared report, plus input notes (a do step with an input list),
     conversation proposals (a step a converse step takes its scopes from), a conversation turn's action, a watch's
-    watch_met, a loop round's action and probe, a multi-part task's step's corrections to answers already posted, a
-    scheduled run's nothing_to_tell."""
+    watch_met, a loop round's action and probe, a multi-part task's step's corrections to answers already posted. (A
+    scheduled run's nothing_to_tell is gone: every run posts, ORCH-590.)"""
     props = dict(_REPORT)
     for wanted, extra in ((inputs, _INPUT_NOTES), (proposals, _PROPOSALS), (conversation, _CONVERSATION),
-                          (watch, _WATCH), (loop, _LOOP), (parts, _PARTS), (scheduled, _SCHEDULED)):
+                          (watch, _WATCH), (loop, _LOOP), (parts, _PARTS)):
         if wanted:
             props |= extra
     return _obj(props)
@@ -577,7 +573,6 @@ class WorkerReport(BaseModel):
     loop_action: Literal['continue', 'finished', 'blocked'] | None = None
     probe: Probe | None = None
     part_updates: list[dict[str, Any]] = []
-    nothing_to_tell: bool = False
 
 
 class QuestionOutcome(BaseModel):

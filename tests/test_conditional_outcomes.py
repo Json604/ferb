@@ -51,3 +51,29 @@ def test_a_conditional_outcome_that_arose_is_met_only_by_a_recorded_submit(daemo
     assert final["status"] == "failed" and final["verification"][1]["path"] == "code"
     assert final["answer"].startswith("I couldn't finish this task. Not done: ")
     assert "usvisascheduling.com" in final["answer"]
+
+
+# decision: ORCH-594, ORCH-568
+def test_a_failed_run_still_tells_what_the_check_confirmed(daemon: RunningDaemon) -> None:
+    """Owner 2026-11-10 ("never hide what a run found"): a run that failed because a code check proved its claimed
+    booking false keeps that claim out (ORCH-568) but tells, after code's sentence, each condition the check judged met
+    with the checker's evidence; so does a run whose worker reported not done."""
+    install(daemon, [sup("task", "Checking.", _visa_task())],
+            {"worker": done(BOOKED), "worker.verify": _checked(True)})
+    final = outcome(chat(daemon, "check visa slots and book the earliest if any"))
+    assert final["status"] == "failed" and BOOKED not in final["answer"]
+    reason, confirmed = final["answer"].split("\n\nWhat the check confirmed:\n", 1)
+    assert reason.startswith("I couldn't finish this task. Not done: ")
+    assert confirmed.startswith(f"- {SLOTS[0]}: All five posts were read.")
+    blocked = json.dumps({"status": "not_done", "reason": "The site signed me out at Kolkata.", "question": None,
+                          "answer": "Chennai and Hyderabad had no slots.", "artifacts": [], "how": ""})
+    install(daemon, [sup("task", "Checking.", _visa_task())],
+            {"worker": blocked, "worker.verify": json.dumps({"results": [
+                {"index": 0, "met": True, "evidence": "Chennai and Hyderabad showed No Slots Available.", "how": None},
+                {"index": 1, "met": None, "evidence": "Not every post was read.", "how": "a sign-in"}],
+                "next": "fail", "findings": [], "missing": "", "instructions": "", "worker_type": None,
+                "question": "", "reason": ""})})
+    answer = outcome(chat(daemon, "check visa slots and book the earliest if any", session="s2"))["answer"]
+    assert answer.index("The site signed me out at Kolkata.") < answer.index(
+        f"What the check confirmed:\n- {SLOTS[0]}: Chennai and Hyderabad showed No Slots Available.") < \
+        answer.index("What I found: Chennai and Hyderabad had no slots.")

@@ -672,7 +672,7 @@ def _mentions(daemon: RunningDaemon) -> list[Any]:
     return [ap for ap in run(daemon, daemon.daemon.state.approvals.pending) if "Resume" in ap.options]
 
 
-# decision: ORCH-312, ORCH-317
+# decision: ORCH-312, ORCH-590
 def test_a_paused_task_is_mentioned_once_a_day_when_the_owner_is_back_and_resume_resumes_it(
         daemon: RunningDaemon) -> None:
     """ORCH-312: FERB mentions a paused task once a day, from its record, in its chat, with a Resume that goes the

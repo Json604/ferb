@@ -507,3 +507,13 @@ why = "Live 2026-11-10 (Codex X2): for a doctor search naming no site, the plann
 untestable = "Prompt text: TEST-500 keeps no wording tests; the live check judges it."
 paths = ["ferb/orchestrator/prompts/supervisor.md", "ferb/orchestrator/prompts/verifier.md", "ferb/orchestrator/supervisor.py::Supervisor._context"]
 live = ["LIVE-869"]
+
+[PRM-347]
+title = "roles/scheduled.md: every run's answer is posted"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For ORCH-590. roles/scheduled.md no longer explains nothing_to_tell (the field is gone): its first line says every run's answer is posted to the owner, one that found nothing included, so the answer says plainly what the run checked and found. Its schedule-facts line is unchanged."
+untestable = "Prompt text: TEST-500 keeps no wording tests; LIVE-892 judges it."
+paths = ["ferb/orchestrator/prompts/roles/scheduled.md"]
+live = ["LIVE-892"]

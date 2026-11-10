@@ -4029,3 +4029,12 @@ request = "Ask FERB to order a cheap item with cash on delivery. While its \"Pay
 pass = "After your Pay nothing is ordered: a second question comes with a picture of the page showing the new total. After Don't pay nothing is ordered; the trace's tool.call carries payment_changed."
 decisions = ["GATE-580", "GATE-578"]
 sitting = "after this change is installed"
+
+[LIVE-892]
+title = "A scheduled check that found nothing posts its result"
+area = "orchestration"
+surface = "FERB.app with this build; the visa-slot schedule, or any schedule whose check usually finds nothing (a watch too)"
+request = "Let the schedule run (or run it now) while there is nothing to find."
+pass = "Each run posts in the chat what it checked and found (\"No slots at any of the five posts\"); the journal has a schedule.posted row for every schedule.run; a failed run's post lists \"What the check confirmed:\" with each met condition's evidence."
+decisions = ["ORCH-590", "ORCH-594"]
+sitting = "after this change is installed"

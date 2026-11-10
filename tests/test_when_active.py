@@ -1,14 +1,14 @@
-"""Orchestration ORCH-317 ("when you're back at your Mac", clarified by the owner 2026-10-31): a reminder or schedule
+"""Orchestration ORCH-590, formerly ORCH-317 ("when you're back at your Mac", clarified by the owner 2026-10-31): a reminder or schedule
 the planner marks when_active fires while the Mac is in use and, held while it's out of use (asleep, displays asleep,
-locked, switched away), when it comes back (wake, unlock, login, restart); never on input idleness, and never polls; a
-scheduled run that found nothing to tell posts nothing. The real daemon with the scripted model; the Mac's presence is
+locked, switched away), when it comes back (wake, unlock, login, restart); never on input idleness, and never polls; every
+scheduled run posts its result (ORCH-590). The real daemon with the scripted model; the Mac's presence is
 told to the daemon's presence object (no macOS notifications in tests)."""
 import json
 from datetime import timedelta
 from typing import Any
 
 from ferb.policy.targets import Targets
-from tests.conftest import FakeCap, RunningDaemon, chat, install, report, sup, task, tool
+from tests.conftest import RunningDaemon, chat, install, report, sup, task
 from tests.support.schedules import fire, mac_away, mac_back, make_schedule, results, run, watching
 
 NO_TIME = {"in_minutes": None, "in_days": None, "day": None, "date": None, "time": None}
@@ -26,7 +26,7 @@ def _runs(d: RunningDaemon) -> int:
     return len(run(d, lambda: d.daemon.journal.of_kind("schedule.run")))
 
 
-# decision: ORCH-317
+# decision: ORCH-590
 def test_a_when_active_schedule_fires_when_the_owner_is_back_and_not_while_they_are_away(daemon: RunningDaemon) -> None:
     words = "remind me every day whenever I'm on my mac that I want to apply to YC"
     install(daemon, [_schedule(words), sup("reply", "Reminder: you want to apply to YC."),
@@ -58,7 +58,7 @@ def test_a_when_active_schedule_fires_when_the_owner_is_back_and_not_while_they_
 
 
 # decision: SENSE-201
-# decision: ORCH-317
+# decision: ORCH-590
 def test_input_idleness_is_not_away_and_waking_the_mac_is_a_return(daemon: RunningDaemon) -> None:
     """The owner watching a film touches nothing for an hour: still at the Mac, so the run goes at its time. Asleep
     displays hold the next one until the screens wake."""
@@ -88,7 +88,7 @@ def test_input_idleness_is_not_away_and_waking_the_mac_is_a_return(daemon: Runni
 
 
 # decision: SENSE-201
-# decision: ORCH-317
+# decision: ORCH-590
 def test_the_daemon_starting_in_a_new_login_session_is_a_return(daemon: RunningDaemon) -> None:
     """A restart or a login brings the daemon up in a new login session: what waited for the owner's return fires;
     the same session again (an update, a crash) is no return."""
@@ -129,7 +129,7 @@ def test_a_restart_in_the_same_login_session_is_no_return(daemon: RunningDaemon,
     assert run(daemon, d._record_start) is True              # a new login session: a restart of the Mac or a login
 
 
-# decision: ORCH-317
+# decision: ORCH-590
 def test_a_reminder_for_when_the_owner_is_back_waits_for_their_next_return(daemon: RunningDaemon) -> None:
     words = "when I'm back at my mac remind me to call Mom"
     install(daemon, [json.dumps({"kind": "reply", "text": "Okay.", "task": None, "schedule": None,
@@ -153,7 +153,7 @@ def test_a_reminder_for_when_the_owner_is_back_waits_for_their_next_return(daemo
 
 
 # decision: SENSE-201
-# decision: ORCH-317
+# decision: ORCH-590
 def test_without_the_presence_signal_a_when_active_schedule_runs_at_its_time(daemon: RunningDaemon) -> None:
     """FERB can't tell whether the Mac is in use (sensing paused): unknown counts as present."""
     words = "every day whenever I'm on my mac remind me to apply to YC"
@@ -164,42 +164,26 @@ def test_without_the_presence_signal_a_when_active_schedule_runs_at_its_time(dae
     assert _runs(daemon) == 1
 
 
-# decision: ORCH-317, ORCH-331
-def test_a_scheduled_run_that_found_nothing_to_tell_posts_nothing(daemon: RunningDaemon) -> None:
+# decision: ORCH-590
+def test_every_scheduled_run_posts_its_result_one_that_found_nothing_included(daemon: RunningDaemon) -> None:
+    """The owner's "Post every time" (2026-11-10): a run that found nothing posts what it checked, an ordinary run's
+    and a watch check's alike (it used to be recorded only), and each post is journaled for the planner."""
     now = daemon.daemon.clock.now()
     make_schedule(daemon, "tell me if the YC page changed", "every day tell me if the YC page changed", Targets.of(),
                   now + timedelta(minutes=1))
+    make_schedule(daemon, "book a visa slot when one is free", "watch for a visa slot", Targets.of(),
+                  now + timedelta(minutes=2), watch="until_met")
     install(daemon, [sup("task", "Checking.", task("Check the YC page")),
-                     sup("task", "Checking.", task("Check the YC page"))],
-                    {"worker": [json.dumps(report("done", "Nothing changed since yesterday.", nothing_to_tell=True)),
-                                json.dumps(report("done", "The deadline moved to Nov 5.", nothing_to_tell=False))]})
+                     sup("task", "Checking.", task("Check the visa slots"))],
+                    {"worker": [json.dumps(report("done", "Nothing changed since yesterday.")),
+                                json.dumps(report("done", "No slots at any of the five posts.", watch_met=False))]})
     published: list[dict[str, Any]] = []
     daemon.daemon.events.on({"task.result"}, lambda topic, data: published.append(data))
     fire(daemon, 61)
-    assert published == [] and results(daemon) == []         # recorded only
-    recorded = run(daemon, lambda: daemon.daemon.db.conn.execute("SELECT answer FROM task_results").fetchall())
-    assert [r[0] for r in recorded] == ["Nothing changed since yesterday."]
-    fire(daemon, 24 * 3600)
-    assert [r["answer"] for r in results(daemon)] == ["The deadline moved to Nov 5."] and len(published) == 1
-
-
-# decision: ORCH-331
-def test_a_scheduled_run_that_acted_posts_whatever_its_worker_said(daemon: RunningDaemon) -> None:
-    """ORCH-317 ("a run that did nothing posts nothing") rests on facts, not only the worker's word: a run whose tree
-    has an acting call that ran (here a form submitted) posts even when its worker reported nothing_to_tell."""
-    from ferb.policy.rules import Kind
-    submit = FakeCap("probe.submit", Kind.SUBMIT, {"probe"})
-    daemon.daemon.registry.capabilities[submit.name] = submit
-    now = daemon.daemon.clock.now()
-    make_schedule(daemon, "renew the library loan", "every day renew the library loan", Targets.of(),
-                  now + timedelta(minutes=1))
-
-    def worker(token: str) -> str:
-        tool(daemon.sock, token, "probe.submit", site="mysite.example", text="renew")
-        return json.dumps(report("done", "Renewed.", nothing_to_tell=True))
-    install(daemon, [sup("task", "Renewing.", task("Renew the library loan"))], {"worker": worker})
-    published: list[dict[str, Any]] = []
-    daemon.daemon.events.on({"task.result"}, lambda topic, data: published.append(data))
-    fire(daemon, 61)
-    assert submit.calls == 1
-    assert [r["answer"] for r in results(daemon)] == ["Renewed."] and len(published) == 1
+    fire(daemon, 60)
+    answers = [r["answer"] for r in results(daemon)]
+    assert any(a.startswith("Nothing changed since yesterday.") for a in answers), answers
+    assert any(a.startswith("No slots at any of the five posts.") for a in answers), answers
+    assert len(published) == 2
+    posted = run(daemon, lambda: daemon.daemon.journal.of_kind("schedule.posted"))
+    assert len(posted) == 2 and all(e.data["status"] == "done" for e in posted)

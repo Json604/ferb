@@ -196,7 +196,8 @@ legacy = "notes/orchestration.md decision 17"
 title = "\"On my Mac\" means the Mac coming back into use"
 by = "owner"
 date = 2026-10-31
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-590"
 supersedes = ["ORCH-316", "SENSE-200"]
 words_source = "notes/orchestration.md decision 17 as clarified by the owner 2026-10-31: an agent's paraphrase; no verbatim quote recorded"
 rule = "Reminders and schedules can fire when the owner is back at the Mac instead of polling; a scheduled run that did nothing posts nothing. Back at the Mac means the Mac coming back into use: lid opened or wake from sleep, screen unlocked, login or restart. Input idleness is not away: watching a film without touching anything is still being at the Mac. The paused-task mention uses the same signal."
@@ -341,9 +342,10 @@ legacy = "notes/orchestration.md Rulings (step 8e follow-up, 14b, 2026-11-01)"
 title = "A scheduled run that acted always posts"
 by = "agent"
 date = 2026-11-01
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-590"
 rule = "A one-step scheduled run (not a watch) that found nothing its request asks to tell and did nothing posts nothing (nothing_to_tell). The worker's word alone never silences a run: one whose tree has an acting call that ran without an error (cards.ACTING_KINDS) posts whatever its worker reported. Multi-step scheduled plans and planner replies always post."
-paths = ["ferb/orchestrator/cards.py::acted", "ferb/orchestrator/prompts/roles/scheduled.md"]
+paths = ["ferb/orchestrator/prompts/roles/scheduled.md"]
 legacy = "notes/orchestration.md Rulings (step 14b): a run that did nothing"
 
 [ORCH-332]
@@ -1239,3 +1241,36 @@ rule = "Refines ORCH-303 and ORCH-515, read minimally: the conversation the owne
 why = "Owner 2026-11-10 12:04 (\"whasts wrong here now?? ... also why did it not answer kym question correctly??\"): asked \"why couldn tyou finisnuh??\" under the failed scheduled visa post; the planner never saw that post and answered about the 10:25 Amazon order."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._self_post", "ferb/orchestrator/supervisor.py::Supervisor._timeline", "ferb/orchestrator/supervisor.py::SELF_POSTS", "ferb/daemon/areas/schedules.py::Schedules._posted"]
 live = ["LIVE-885"]
+
+[ORCH-589]
+title = "The planner knows what FERB did: eight fixes so one FERB answers for all of it"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "also witht the visa task, i want you to find out if the pkanner gets all context - caus ehta tis the only thing that fulfills my goal of aciveing the perception that a single ferb agent does eveyrhign adn im talking to one only / Build all 8 (Recommended)"
+words_source = "Owner 2026-11-10: the goal, then the choice given \"The audit found 8 fixes so the planner knows what FERB did (…). They add roughly 0-900 tokens per message (…). Build them?\""
+rule = "Refines ORCH-303 and ORCH-515. The planner also gets: what FERB did since the owner's previous message (ORCH-591); each schedule's last run (ORCH-592); lookups reaching the owner's scheduled runs and FERB's own posts (ORCH-593); a failed run's confirmed findings, every run posted (ORCH-594, ORCH-590); what a running task waits on and every open card (ORCH-595); a chat stop that keeps the planner's other answer (ORCH-596); the look-up-first line on every runtime (PRM-347); a scheduled run's worker gets the owner's messages behind its schedule (ORCH-597)."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._supervise"]
+untestable = "An umbrella for the eight builds; each carries its own tests and live checks (ORCH-590..ORCH-597, PRM-347)."
+
+[ORCH-590]
+title = "Every scheduled run posts its result, one that found nothing included"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "Post every time"
+words_source = "Owner 2026-11-10, asked \"…a watch that found nothing is quiet: it would post nothing. What should a scheduled check that found nothing do?\" The rest restates ORCH-317."
+why = "As on 8 Nov: each run posts its result in chat, e.g. \"No slots at any of the five posts\"."
+rule = "Supersedes ORCH-317 and ORCH-331. Every scheduled run, an ordinary run's and a watch check's, posts its result in the owner's chat and is journaled schedule.posted, also when it found nothing; only a watch's met crossing alerts. nothing_to_tell is gone. Kept from ORCH-317: reminders and schedules can fire when the owner is back at the Mac (lid opened or wake, screen unlocked, login or restart) instead of polling; input idleness is not away; the paused-task mention uses the same signal. Every other schedule rule stays (ORCH-511)."
+supersedes = ["ORCH-317", "ORCH-331"]
+paths = ["ferb/daemon/areas/schedules.py::Schedules._schedule_finished", "ferb/sense/watchers/presence.py::MacPresence", "ferb/orchestrator/prompts/roles/scheduled.md", "ferb/orchestrator/schemas.py::worker_schema"]
+live = ["LIVE-892"]
+
+[ORCH-594]
+title = "A failed task still says what its check confirmed"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For ORCH-589. Refines ORCH-568 and ORCH-585. A failed one-ask task's answer (scheduled or chat) is code's sentence (\"I couldn't finish this task.\" and the reason, a code check's \"Not done: …\" included), then \"What the check confirmed:\", one line per outcome condition judged met (\"Didn't apply\" too): the condition and the checker's evidence, at most 300 characters each, then \"What I found:\" as before. A done claim a code check proved false stays out (ORCH-568). Chosen by the verdict's structure, never its words."
+why = "Owner 2026-11-10 on the visa run beeb93f5: the check confirmed \"No Slots Available\" at all five posts, but the failed reply showed only the booking condition's code sentence."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrator/supervisor.py::Supervisor._confirmed_lines"]

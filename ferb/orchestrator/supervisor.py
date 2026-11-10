@@ -772,7 +772,6 @@ class _Tree:
     conversation_action: str | None = None
     conversation_proposals: list[dict[str, Any]] = field(default_factory=list)
     watch_met: bool | None = None        # a watch run's worker: whether the watched condition holds now (fix wave 6c)
-    nothing_to_tell: bool = False        # a scheduled run's worker: it found nothing to tell and did nothing (dec. 17)
     # a check-in or runtime-switch question this step waited on when FERB restarted: asked again first (`_restored`)
     restored_wait: dict[str, Any] = field(default_factory=dict)
     # ORCH-545: a fix round this step was in when FERB restarted (its saved answer and findings), settled by code first
@@ -5573,7 +5572,6 @@ class Supervisor(WorkerRuns):
         tree.input_notes, tree.conversation_proposals, tree.part_updates = [], [], []
         tree.conversation_action = tree.loop_action = None
         tree.watch_met = tree.probe = None
-        tree.nothing_to_tell = False
         tree.answer_settled = False
 
     @staticmethod
@@ -5602,12 +5600,12 @@ class Supervisor(WorkerRuns):
         flags = {"inputs": bool(tree.required_inputs), "proposals": proposals, "conversation": "conversation" in step,
                  "watch": tree.watch, "loop": "loop" in step,
                  "parts": bool(step.get("step")) and root is not None and root.card is not None,
-                 # ORCH-317: a one-step scheduled run (not a watch) may find nothing to tell, and then posts nothing
+                 # a one-step scheduled run (not a watch): its schedule facts' role block (every run posts, ORCH-590)
                  "scheduled": not step.get("step") and not tree.watch and root is not None and bool(root.schedule_id)}
         blocks = {"inputs": "inputs", "proposals": "proposals", "conversation": "converse", "watch": "watch",
                   "loop": "loop", "parts": "parts", "scheduled": "scheduled"}
         roles = (("step",) if step.get("step") else ()) + tuple(blocks[k] for k, on in flags.items() if on)
-        return worker_schema(**flags), roles
+        return worker_schema(**{k: on for k, on in flags.items() if k != "scheduled"}), roles
 
     def _read_report(self, tree: _Tree, task: Task, raw: dict[str, Any] | Outcome) -> Outcome:
         """The attempt's report as an Outcome: done (summary: the owner's answer) or not done ("failed", summary: why);
@@ -5624,7 +5622,6 @@ class Supervisor(WorkerRuns):
         tree.owner_answer, tree.how, tree.input_notes = w.answer, w.how, w.input_notes
         tree.conversation_action, tree.conversation_proposals = w.conversation_action, w.conversation_proposals
         tree.watch_met, tree.loop_action, tree.probe = w.watch_met, w.loop_action, w.probe
-        tree.nothing_to_tell = w.nothing_to_tell
         tree.part_updates = [u for u in w.part_updates if isinstance(u, dict)]
         tree.reason = w.reason if w.status == "not_done" else ""
         tree.worker_question = (w.question or "") if w.status == "not_done" else ""
@@ -5783,7 +5780,7 @@ class Supervisor(WorkerRuns):
             'verification': [r.as_dict() for r in tree.verification], 'unconfirmed': tree.unconfirmed,
             # the rest of the step's output (ORCH-548), so the steps after it read it after a restart as before
             'input_notes': tree.input_notes, 'conversation_proposals': tree.conversation_proposals,
-            'part_updates': tree.part_updates, 'how': tree.how, 'nothing_to_tell': tree.nothing_to_tell}}
+            'part_updates': tree.part_updates, 'how': tree.how}}
         self.plans.finish(tree.id, tree.step_id, {'status': 'running', **fixing})
 
     async def _restored_fix(self, tree: _Tree, task: Task, saved: dict[str, Any], span: str) -> Outcome:
@@ -5801,7 +5798,6 @@ class Supervisor(WorkerRuns):
         tree.conversation_proposals = [p for p in saved.get('conversation_proposals') or [] if isinstance(p, dict)]
         tree.part_updates = [u for u in saved.get('part_updates') or [] if isinstance(u, dict)]
         tree.how = str(saved.get('how') or '')
-        tree.nothing_to_tell = bool(saved.get('nothing_to_tell'))
         findings = [Finding.model_validate(f) for f in saved.get('findings') or [] if isinstance(f, dict)]
         done = settle(str(saved.get('answer') or ''), [(f.quote, f.kind) for f in findings])
         tree.owner_answer, tree.answer_settled = done.answer, True
@@ -5895,6 +5891,18 @@ class Supervisor(WorkerRuns):
         found = result.evidence.strip()
         lead = "Not done" if result.met is False else "Couldn't confirm"
         return f"{lead}: {said}. {found[:1].upper()}{found[1:]}"
+
+    @classmethod
+    def _confirmed_lines(cls, tree: _Tree, outcomes: list[ConditionResult]) -> list[str]:
+        """ORCH-594: a failed task's conditions the check judged met, each as the owner reads it with the checker's
+        evidence for it (a "Didn't apply" one with its own), one short line each: what the run found stays told when
+        the task as a whole failed. By the verdict's structure (met true), never by what the evidence says."""
+        lines = []
+        for r in outcomes:
+            if r.met is True and r.evidence.strip():
+                said = cls._owner_text(tree, r).strip().rstrip(".")
+                lines.append("- " + clip(" ".join(f"{said}: {r.evidence}".split()), CONFIRMED_CHARS))
+        return lines
 
     @staticmethod
     def _owner_text(tree: _Tree, result: ConditionResult) -> str:
@@ -6639,6 +6647,10 @@ class Supervisor(WorkerRuns):
             if not_done and src.reports and src.reason.strip() and not src.stop_by_code:
                 why = src.reason
                 answer = f"{NOT_FINISHED} {_sentence(why)}".strip()
+            # ORCH-594 (owner 2026-11-10: never hide what a run found): what the check confirmed, each condition it
+            # judged met with its evidence (the checker's record, never the worker's claim), after the reason
+            if confirmed := self._confirmed_lines(src, outcomes):
+                answer += f"\n\n{CHECK_CONFIRMED}\n" + "\n".join(confirmed)
             if own and own != why.strip():
                 answer += f"\n\n{FOUND_UNCHECKED} {own}"
         # D33: the answer and summary carry model-written lines (reports, the checker's question and reason); one that
@@ -6660,9 +6672,6 @@ class Supervisor(WorkerRuns):
                 {"how": src.how} if status in ("done", "done_unverified") and src.how.strip() else {}) | (
                 {"runtime_switch": switch} if switch and status == "failed" else {}) | (
                 {"watch_met": tree.watch_met} if tree.watch and tree.watch_met is not None else {}) | (
-                # ORCH-317: nothing to tell only when the worker says so and no call of the run acted (a fact)
-                {"nothing_to_tell": True} if src.nothing_to_tell and status in ("done", "done_unverified")
-                and not cards_.acted(self.spans, tree.id) else {}) | (
                 {"cards": cards} if cards else {}) | self._told_in(tree)
 
     def _final_card(self, tree: _Tree) -> dict[str, Any]:
@@ -6797,6 +6806,9 @@ NOTHING_TO_CHECK = "there was nothing to check it against"
 REPORT_UNCONFIRMED = "every detail of this answer against what I saw"   # its report condition stayed unmet
 NOT_ACCEPTED = "the check didn't confirm the result"     # a failure no reason came with (never a done claim)
 UNCONFIRMED_CHARS = 300                          # the "Couldn't confirm" line stays one short line
+# ORCH-594: a failed task's conditions the check judged met, under the reason; each line short, as a report's short form
+CHECK_CONFIRMED = "What the check confirmed:"
+CONFIRMED_CHARS = 300
 # The checker's code facts about how the work was done (ORCH-309) and what the task holds (ORCH-333)
 HOW_FACTS = ("FERB's code facts about how this work was done, measured by FERB's code from its own records (never the "
              "worker's words): judge background use, disturbance of the owner's screen, and the profile or account "
