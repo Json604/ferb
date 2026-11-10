@@ -11,7 +11,7 @@ from ferb.core.types import RuntimeEvent
 from ferb.orchestrator.attempts import CHECK_IN_AFTER
 from ferb.core.structured import check_final
 from ferb.orchestrator.schemas import CHECKER_SCHEMA, CheckerOutcome
-from ferb.orchestrator.supervisor import RUNTIME_ASK
+from ferb.orchestrator.supervisor import FOUND_UNCHECKED, RUNTIME_ASK
 from tests.conftest import (RunningDaemon, _context_of, answer_question, chat, done, install, outcome, report, sup,
                             task, cond, verdict)
 from tests.support.schedules import run
@@ -312,7 +312,7 @@ SIGNED_OUT = "The session had expired and the saved password could not be filled
 FOUND = "The visa site's sign-in page loaded; no appointment was booked."
 
 
-# decision: ORCH-568, ORCH-569
+# decision: ORCH-568, ORCH-585
 def test_a_failure_the_worker_explained_is_told_once(daemon: RunningDaemon) -> None:
     """Owner 2026-11-09, the 7:10 visa run: "why is this giving two replies????". The worker's reason, its answer and
     the checker's reason all said the same failure. The owner reads it once: the worker's own reason (what stopped
@@ -327,8 +327,9 @@ def test_a_failure_the_worker_explained_is_told_once(daemon: RunningDaemon) -> N
     result = outcome(chat(daemon, "check visa slots"))
     assert result["status"] == "failed"
     assert result["answer"].split("\n\n")[:2] == [f"I couldn't finish this task. {SIGNED_OUT}",
-                                                   f"What I found (not checked): {FOUND}"]
+                                                   f"{FOUND_UNCHECKED} {FOUND}"]
     assert result["answer"].count(SIGNED_OUT) == 1 and "could not reach availability" not in result["answer"]
+    assert "(not checked)" not in result["answer"]                    # ORCH-585: no bracket on the findings line
     assert "could not reach availability" in result["summary"]          # the checker's reason stays in the record
 
 
@@ -348,7 +349,7 @@ def test_a_failures_own_explanation_gets_the_same_findings_round(daemon: Running
     result = outcome(chat(daemon, "change my visa schedule"))
     assert result["status"] == "failed" and script.calls("worker") == ["worker", "worker.fix"]
     assert result["answer"].split("\n\n")[:2] == ["I couldn't finish this task. The edit didn't save.",
-                                                   f"What I found (not checked): {fixed}"]
+                                                   f"{FOUND_UNCHECKED} {fixed}"]
     assert claim not in result["answer"] and claim not in result["summary"]      # the reason's quote, removed by code
     assert "What FERB can use now" in _context_of(script, "worker.verify")
 

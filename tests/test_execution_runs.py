@@ -152,7 +152,7 @@ def test_a_runtimes_memory_compression_is_a_span_under_its_call_and_shows_in_the
     assert "model.compacted" in "\n".join(render_trace(trace, full=True))
 
 
-# decision: ORCH-530
+# decision: ORCH-530, ORCH-585
 def test_a_stopped_task_shows_only_a_reports_answer_as_found(daemon: RunningDaemon) -> None:
     """Task 8bf4e2e7 (2026-11-05): the stopped attempt's reason is "stopped by you", and the answer read
     "What I'd found before stopping (not checked): stopped by you". Only a report's answer is a finding."""
@@ -169,6 +169,7 @@ def test_a_stopped_task_shows_only_a_reports_answer_as_found(daemon: RunningDaem
     tree.reports.insert(0, {"status": "not_done", "answer": "The 9:40 flight is $212.", "reason": ""})
     final = run(daemon, lambda: daemon.daemon.supervisor._final(tree))
     assert f"{FOUND_BEFORE_STOP} The 9:40 flight is $212." in final["answer"]
+    assert "(not checked)" not in final["answer"]                       # ORCH-585: no bracket
 
 
 # decision: ORCH-308

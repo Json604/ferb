@@ -6507,8 +6507,9 @@ class Supervisor(WorkerRuns):
         status: str
         if tree.stop == STOPPED_BY_YOU:
             status, summary, answer = self._stop_status(tree), STOPPED_BY_YOU, "Stopped, as you asked."
-            # what the worker had found, from its latest report's answer: unchecked, so it says so (owner live use
-            # 2026-10-15). Only an answer is a finding; a stopped attempt's reason is "stopped by you" (ORCH-530).
+            # what the worker had found, from its latest report's answer (owner live use 2026-10-15; ORCH-585: no
+            # "(not checked)" bracket). Only an answer is a finding; a stopped attempt's reason is "stopped by you"
+            # (ORCH-530).
             said = [str(r.get("answer") or "").strip() for r in reversed(src.reports)]
             found = next((text for text in said if text), "")
             if found:
@@ -6668,7 +6669,7 @@ class _Changed:
     records: dict[str, str] = field(default_factory=dict)
     blocks: list[ContextBlock] = field(default_factory=list)
 
-FOUND_BEFORE_STOP = "What I'd found before stopping (not checked):"
+FOUND_BEFORE_STOP = "What I'd found before stopping:"   # ORCH-585: no "(not checked)" bracket
 NEEDS_ANSWER = "I need your answer to finish this task."
 def _stopped_plan_summary(steps: list[Any], states: dict[str, dict[str, Any]]) -> str:
     """Why a plan stopped, in the owner's terms (live 2026-10-27: "The plan needs attention before I can finish." left a
@@ -6687,7 +6688,7 @@ def _stopped_plan_summary(steps: list[Any], states: dict[str, dict[str, Any]]) -
 
 NOT_FINISHED = "I couldn't finish this task."
 COULDNT_DO = "Couldn't do:"                      # a part that couldn't be done, in its own row (ORCH-319)
-FOUND_UNCHECKED = "What I found (not checked):"
+FOUND_UNCHECKED = "What I found:"                 # ORCH-585 (owner): no "(not checked)" bracket
 WATCH_TEXT = "whether it has happened"          # a watch's own condition, in the owner's terms
 NOTHING_TO_CHECK = "there was nothing to check it against"
 REPORT_UNCONFIRMED = "every detail of this answer against what I saw"   # its report condition stayed unmet

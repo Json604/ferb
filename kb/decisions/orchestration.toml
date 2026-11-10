@@ -1079,7 +1079,8 @@ paths = ["ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrato
 title = "A failed task's reply keeps what was found: the reason, then the findings marked unchecked"
 by = "owner"
 date = 2026-11-09
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-585"
 words = "A: reason + findings (Recommended)"
 words_source = "Owner 2026-11-09, shown a side-by-side of a failed reply as the reason plus \"What I found (not checked):\" with partial findings (A) versus the reason only (B)."
 rule = "Confirms ORCH-568 as the owner's choice: a failed task's reply is \"I couldn't finish this task.\" with the worker's reason, then, only when the worker found something, its findings as \"What I found (not checked):\". Partial results are kept, marked unchecked; with nothing found there is no second part."
@@ -1197,3 +1198,14 @@ rule = "For ORCH-515. A query to chat.history counts a task.answer entry as this
 why = "Live 2026-11-10 (Codex F1, \"put that in a google sheet\"): the worker's chat.history searches returned the owner's messages but never the earlier laptop answer, and it asked the owner to paste it."
 paths = ["ferb/orchestrator/continuity.py::Continuity.belongs", "ferb/daemon/areas/memory.py::MemoryGlue._chat_search"]
 live = ["LIVE-871"]
+
+[ORCH-585]
+title = "A failed or stopped task's findings line has no \"(not checked)\" bracket"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "ferb replied here correctly too. jsut remove the code enfored bracket line; \"(not checked)\""
+words_source = "Owner 2026-11-10, relayed by the coordinator of the short-run fixes, about a failed task's reply \"What I found (not checked): No order was placed.\""
+rule = "Supersedes ORCH-569's wording and refines ORCH-568 and ORCH-530 (both lines, by the one-path rule). A failed task's reply is still \"I couldn't finish this task.\" with the worker's reason, then, only when the worker found something, its findings as \"What I found:\" (FOUND_UNCHECKED); a stopped task's is still \"Stopped, as you asked.\" then \"What I'd found before stopping:\" (FOUND_BEFORE_STOP) with the latest report's answer. With nothing found there is no second part. Old replies keep their text. Every other \"Couldn't confirm\" marking (ORCH-309, ORCH-545, ORCH-547) stays."
+supersedes = ["ORCH-569"]
+paths = ["ferb/orchestrator/supervisor.py::FOUND_UNCHECKED", "ferb/orchestrator/supervisor.py::FOUND_BEFORE_STOP", "ferb/orchestrator/supervisor.py::Supervisor._final"]
