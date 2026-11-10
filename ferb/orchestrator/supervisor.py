@@ -3915,7 +3915,7 @@ class Supervisor(WorkerRuns):
     def _since_block(self, current: Any) -> tuple[ContextBlock, set[str]] | None:
         """ORCH-591 (owner ORCH-589: the planner knows what FERB did): what happened since the owner's previous message,
         built by code from FERB's records only (`SINCE_KINDS`, one line each in time order): scheduled runs that ended
-        (name, status, the answer's first line; a failed run's conditions not met with the checker's evidence),
+        (name, status, the answer's first line; a failed run's judged conditions, unmet first, with the evidence),
         a run skipped, cards answered (the question's first line and the answer; a code, secret or password only as
         given or not, never its words), Stop presses, reminders and timers that arrived, AI and model changes, browser
         pairings and schedule changes. After the conversation (ORCH-325), so the cached prefix stays append-only; None
@@ -3957,11 +3957,13 @@ class Supervisor(WorkerRuns):
                                      "records": f"task.evidence task_id={tid}"}
             if data.get("status") not in ("done", "done_unverified") and tid:
                 outcome = json.loads(self.tasks.column(tid, "outcome_json") or "{}")
-                shown["conditions_not_met"] = [
+                # each condition the check judged, the unmet ones first: what failed, and what the run still found
+                judged = [r for r in outcome.get("verification") or [] if isinstance(r, dict)]
+                shown["conditions"] = [
                     {"condition": _since_line(str(r.get("condition", ""))),
-                     "result": "not met" if r.get("met") is False else "not confirmed",
+                     "result": "met" if r.get("met") is True else "not met" if r.get("met") is False else "not confirmed",
                      "check_found": clip(" ".join(str(r.get("evidence", "")).split()), SINCE_EVIDENCE_CHARS)}
-                    for r in outcome.get("verification") or [] if isinstance(r, dict) and r.get("met") is not True]
+                    for r in sorted(judged, key=lambda r: r.get("met") is True)]
             return shown, origins_.split(e.origin) | {origins_.INFERRED}
         if kind == "schedule.skipped":
             return {"what": "scheduled run skipped", "schedule": self._schedule_label(str(data.get("schedule_id"))),

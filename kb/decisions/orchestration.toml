@@ -1320,7 +1320,7 @@ title = "The planner is told what FERB did since the owner's previous message"
 by = "agent"
 date = 2026-11-10
 status = "active"
-rule = "For ORCH-589. An owner chat's planner turn gets, after the time block (outside the cached prefix, ORCH-325), \"Layer 2 — what happened since the owner's previous message\": journal rows after that message (SINCE_KINDS), oldest first, as code's record: scheduled runs ended (name, status, answer's first line, a failed run's unmet conditions with the check's evidence) or skipped, cards answered (question's first line and the answer; a secret card only given or not), Stop presses, reminders, AI changes, pairings, schedule changes. No block when nothing happened."
+rule = "For ORCH-589. An owner chat's planner turn gets, after the time block (outside the cached prefix, ORCH-325), \"Layer 2 — what happened since the owner's previous message\": journal rows after that message (SINCE_KINDS), oldest first, as code's record: scheduled runs ended (name, status, answer's first line, a failed run's judged conditions, unmet first, each with the check's evidence) or skipped, cards answered (question's first line and the answer; a secret card only given or not), Stop presses, reminders, AI changes, pairings, schedule changes. No block when nothing happened."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._since_block", "ferb/orchestrator/supervisor.py::Supervisor._since_event", "ferb/orchestrator/supervisor.py::SINCE_KINDS", "ferb/memory/journal.py::Journal.kinds_after"]
 live = ["LIVE-893"]
 
