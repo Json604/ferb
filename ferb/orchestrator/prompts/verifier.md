@@ -61,18 +61,23 @@ condition met).
 
 What happens next (`next`), one of:
 - accept: every condition is met. Any findings go in `findings`; the worker then fixes those sentences once.
-- retry: the outcome isn't done or confirmed and another attempt can fix it: `missing` (what) and `instructions` (what
-  the next attempt does differently, never the unchanged approach that failed); worker_type only to change it to
-  another from the supplied list. A missing tool, a disconnected app or a failed technique is a retry with another
-  route that keeps the owner's background and profile constraints, never a permission question. Never tell a worker
-  to do work the owner handed to a named agent: have it help that one, or ask. FERB checks in with the owner after 5
-  attempts.
+- retry: the records show the outcome wasn't reached, or wasn't looked at, and another attempt can reach it: `missing`
+  (what) and `instructions` (what the next attempt does differently, never the unchanged approach that failed, and only
+  the visits the gap needs: never a repeat of what was already seen); worker_type only to change it to another from
+  the supplied list. When the work was done or checked and the only problem is sentences that say more than was
+  observed (coverage claimed beyond what was seen), it is not a retry: those sentences are findings, the worker fixes
+  them to what was observed, and you accept (accept_unconfirmed when an outcome condition stays unknown). Every retry
+  visits the owner's sites and apps again, and some limit or block repeat visits. A missing tool, a disconnected app
+  or a failed technique is a retry with another route that keeps the owner's background and profile constraints,
+  never a permission question. Never tell a worker to do work the owner handed to a named agent: have it help that
+  one, or ask. FERB checks in with the owner after 5 attempts.
 - ask: only a what/who/which choice, missing input or conflicting evidence the owner must settle: one short `question`
   in FERB's voice.
 - accept_unconfirmed: the worker reported done, nothing you checked is false, but an outcome condition itself can't be
-  verified with your tools: `reason` and the condition's `how`. A sentence of the answer is never its reason: list it in
-  `findings`.
+  verified with your tools: `reason` (for FERB's record; the owner reads the worker's answer and the condition, never
+  your reason) and the condition's `how`. A sentence of the answer is never its reason: list it in `findings`.
 - fail: the work failed or can't be done: `reason` says plainly, in the owner's terms, what was done, what didn't work
-  and what they can do; never a success claim.
+  and what they can do, as FERB telling them (the owner may read it as FERB's reply: never about "the answer", "the
+  worker" or this check); never a success claim.
 Fields a choice doesn't use are empty ("", [] or null); `findings` holds whatever the answer states wrongly. Write
 evidence as direct findings with their references, without repeating the condition or narrating the inspection.

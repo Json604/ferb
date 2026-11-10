@@ -4081,5 +4081,5 @@ area = "orchestration"
 surface = "FERB.app with this build; the visa-slot schedule (or any scheduled check of a site that can block or rate-limit it)"
 request = "Let the schedule run (or run it now) when the site shows a block, a page-view limit or a rate-limit message; and once when it shows the calendar normally."
 pass = "The blocked run's post is the worker's own words (what it saw and that nothing was booked), then at most one \"Couldn't confirm: …\" line in your terms; no \"What the check confirmed:\", no checker sentence about \"the answer\", no \"whether it has happened:\" heading, nothing ending mid-word in \"…\"; it is done-unconfirmed, not failed, unless the worker itself reported not done (then \"I couldn't finish this task.\" with its reason, once). The trace keeps the checker's reason and evidence."
-decisions = ["ORCH-600", "ORCH-602", "ORCH-603"]
+decisions = ["ORCH-600", "ORCH-602", "ORCH-603", "PRM-349"]
 sitting = "after this change is installed"

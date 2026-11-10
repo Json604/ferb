@@ -517,3 +517,27 @@ rule = "roles/scheduled.md drops nothing_to_tell (ORCH-590): every run's answer 
 untestable = "Prompt text: TEST-500 keeps no wording tests; LIVE-892, LIVE-893 and LIVE-894 judge it."
 paths = ["ferb/orchestrator/prompts/roles/scheduled.md", "ferb/orchestrator/prompts/supervisor.md"]
 live = ["LIVE-892", "LIVE-893", "LIVE-894"]
+
+[PRM-348]
+title = "The check loop stays; its false negatives are made as rare as possible"
+by = "owner"
+date = 2026-11-11
+status = "active"
+words = "our loop i sok, BUT these bad mistakes shodlbnt happen. with our setup there are chances of false negatuives … BUT it also protexts against manuy thigns. we just ahve to maek sure ht false negatieves donha ppen as much as possible"
+words_source = "Owner 2026-11-11, relayed by the coordinator, on the visa run 2bb55837: a correct first answer was sent back for a retry, and the retry hit the site's page-view limit."
+rule = "The worker-checker loop (ORCH-302) stays as it is. Its false negatives (a correct attempt sent back, a retry that can't change the outcome) are cut as far as possible, without weakening what the check protects against."
+paths = ["ferb/orchestrator/prompts/verifier.md"]
+untestable = "A goal; PRM-349 is how it is met in the checker's instructions, and LIVE-897 judges it."
+live = ["LIVE-897"]
+
+[PRM-349]
+title = "verifier.md: a sentence that says more than was seen is fixed, not retried"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For PRM-348; refines PRM-330, PRM-331 and ORCH-545. Retry is for an outcome the records show wasn't reached or looked at that another attempt can reach; its instructions ask only for the visits the gap needs, never a repeat of what was seen (repeat visits can be limited or blocked). When the work was done or checked and the only problem is sentences saying more than was observed, they are findings for the fix turn and the check accepts (accept_unconfirmed if an outcome stays unknown). A fail reason is FERB telling the owner. Code still follows the checker's next."
+why = "Task 2bb55837 (00:02): the checker rightly flagged \"No B1/B2 appointment was available\" as unsupported (only November-December seen) but chose retry, and the second visit hit the site's page-view limit."
+evidence = "Owner's checks 2026-11-04..11: 46 retries of 228 verdicts; 31 of work not done, 15 of done reports. Correct attempts sent back: 3 clear, 1 probable, 2 research-depth. Code routing of findings-only retries would match 3: 2 false negatives, 1 legitimate retry, so it is not built."
+paths = ["ferb/orchestrator/prompts/verifier.md"]
+untestable = "Prompt text: TEST-500 keeps no wording tests; LIVE-897 judges it."
+live = ["LIVE-897"]
