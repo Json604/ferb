@@ -1148,3 +1148,13 @@ rule = "When a chat message stops a running task and the task ends within the st
 why = "Owner 2026-11-10, the EF Bridge run 28ae258f: the stop message's reply (\"Stopped, as you asked.\") and the task's own end (\"Stopped, as you asked.\" and its findings), 0.1 s apart, were both posted below the message, the reply quoting its own message."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._control", "ferb/orchestrator/supervisor.py::Supervisor._stop_told", "ferb/orchestrator/supervisor.py::Supervisor._told_in", "ferb/orchestrator/supervisor.py::_Tree"]
 live = ["LIVE-860"]
+
+[ORCH-580]
+title = "A step's inputs are compared in the inventory's own form; a folder stands for its files"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For ORCH-305. Before the plan's input checks, each do step's inputs are normalized as the inventory's roots are (~ expanded, a relative path inside the workspace) and resolved as the inventory resolves the files it finds (links followed); an input that is a folder stands for the inventoried files under it. The steps keep those paths, so the stored plan, the worker's inputs and its input notes all use them. An input that is neither stays as written and is told back as absent."
+why = "Live 2026-11-10 (Codex short run): ~/ferb-runs/.../statement.csv and the folder ~/ferb-runs/fixtures-extra/family were \"absent from inventory\" because the check compared them as text with the inventory's resolved paths; it cost a repair on every task with a file path and failed H3 and X19."
+paths = ["ferb/orchestrator/plans.py::resolve_inputs", "ferb/orchestrator/supervisor.py::Supervisor._problems"]
+live = ["LIVE-874"]

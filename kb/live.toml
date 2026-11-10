@@ -3877,3 +3877,12 @@ request = "Have FERB fill the test form, saving the answer \"booked\" when asked
 pass = "The answer shows the word, with no [redacted] in its place. The password field's value is in no snapshot, screenshot or trace (only its handle). The pasted key is hidden from the AI with the notice under the message."
 decisions = ["GATE-572", "GATE-573"]
 sitting = "after this change is installed"
+
+[LIVE-874]
+title = "A file or folder named the way you type it is a plan's input without a repair"
+area = "orchestration"
+surface = "FERB.app with this build, Codex as the AI; a disposable folder in your home with a small CSV and a large video"
+request = "Ask FERB, in one message, to total the CSV at ~/<folder>/<file>.csv and to make a smaller copy of the video in ~/<folder>."
+pass = "The trace shows no task.repair about inputs (\"absent from inventory\", \"unassigned inputs\" or \"tokens\"); both are done."
+decisions = ["ORCH-580"]
+sitting = "after this change is installed"

@@ -49,7 +49,7 @@ from ferb.sanitize.formats import hidden_note
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
 from ferb.orchestrator.plans import (DONE, SINGLE, Part, Plan, SendScope, Step, answer_steps, inventory, part_problems,
-                                     problems as plan_problems)
+                                     problems as plan_problems, resolve_inputs)
 from ferb.orchestrator.parts import Card, composed, done_line
 from ferb.orchestrator import cards as cards_
 from ferb.orchestrator.attempts import (CHECK_IN_AFTER, KEEP_GOING, STOP_HERE, Attempts, check_in_question,
@@ -1419,6 +1419,8 @@ class Supervisor(WorkerRuns):
                 worker = self.make_runtime("worker:" + candidate.task.worker_type, mode="worker", tool_names=[],
                                            schema=WORKER_SCHEMA)
                 available = max(0, model_limits(worker).context_budget - reserve)   # the worker model's window (L28)
+                # each step's inputs in the inventory's form (ORCH-580): checked, stored and handed to its worker so
+                resolve_inputs(plan, facts, lambda path: normalize_path(path, self.workspace))
                 problems.extend(plan_problems(plan, facts, context_tokens=available))
                 if problems:
                     problems.append('Measured inventory: ' + json.dumps(facts))

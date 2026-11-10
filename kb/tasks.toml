@@ -282,14 +282,6 @@ status = "open"
 why = "Capture is tested (secure/password fields, Secure Input, terminals, no digit rule), but nothing checks Perception.purge_text: typed_text/clipboard rows older than retention.TYPED_DAYS lose their text (content_expired) and keep their record; no test mentions content_expired."
 decisions = ["SENSE-401"]
 
-[T-800]
-title = "Write the test for ORCH-305"
-area = "orchestration"
-kind = "build"
-status = "open"
-why = "No test checks plan validation's input list: an input in no step or in two steps, and an input missing from the inventory, are told back to the planner (ferb/orchestrator/plans.py problems)."
-decisions = ["ORCH-305"]
-
 [T-801]
 title = "Write the test for ORCH-332"
 area = "orchestration"

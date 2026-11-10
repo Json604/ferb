@@ -160,6 +160,31 @@ def _inventory(paths: list[str], denied: Callable[[Path], object] | None) -> lis
     return list(found.values())
 
 
+def resolve_inputs(plan: Plan, facts: list[dict[str, Any]], normal: Callable[[str], str]) -> None:
+    """Each do step's input list in the inventory's own form, in place, before the plan's input checks and before any
+    step is handed its inputs (ORCH-580): an input is normalized as the inventory's roots are (`normal`: `~` expanded,
+    relative to the workspace) and resolved as the inventory resolves the files it finds (links followed). A folder
+    stands for the inventoried files under it. An input that is neither stays as it was normalized, so the check names
+    it as absent."""
+    known = [str(item['path']) for item in facts]
+    found = set(known)
+
+    def inventoried(value: str) -> list[str]:
+        written = normal(value)
+        try:
+            real = str(Path(written).resolve())
+        except (OSError, RuntimeError):
+            return [written]
+        if real in found:
+            return [real]
+        under = [path for path in known if path.startswith(real.rstrip('/') + '/')]
+        return under or [written]
+
+    for step in plan.steps:
+        if step.inputs:
+            step.inputs = list(dict.fromkeys(path for value in step.inputs for path in inventoried(value)))
+
+
 def single(goal: str) -> Plan:
     """A single task as the plan it runs as: one `do` step (the task's own worker, checked against the task's own
     conditions)."""
