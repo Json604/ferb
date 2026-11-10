@@ -3994,3 +3994,12 @@ request = "Open Settings → Permissions, switch Screen Recording off and on in 
 pass = "Rows say On/Off; a switch turned on in macOS reads \"On in macOS; FERB needs a restart to use it\" with the restart button; with the service stopped the pages say FERB isn't answering, dim their rows, and Privacy/Notifications show Unknown; the timer appears and goes on the open page without reopening it."
 decisions = ["APP-880", "APP-884"]
 sitting = "after this change is installed"
+
+[LIVE-884]
+title = "A watch whose action applies only when something is available reports the check when nothing is"
+area = "orchestration"
+surface = "FERB.app with this build; the visa-slot schedule (or any schedule that books only if a slot is free)"
+request = "Let the schedule run (or run it now) while no slot is free."
+pass = "The run ends done with what it saw (no slots at each place it checked); the trace's condition for booking reads \"Didn't apply\"; nothing was submitted."
+decisions = ["ORCH-587"]
+sitting = "after this change is installed"

@@ -266,6 +266,8 @@ FINDINGS_SCHEMA: dict[str, Any] = {"type": "array", "items": _obj({
     "evidence": {"type": "string"}})}
 CHECKER_SCHEMA: dict[str, Any] = _obj({
     "results": {"type": "array", "items": _obj({"index": {"type": "integer"}, "met": {"type": ["boolean", "null"]},
+                                                # ORCH-587: false when the condition's own "if" didn't occur
+                                                "applies": {"type": "boolean"},
                                                 "evidence": {"type": "string"},
                                                 "how": {"type": ["string", "null"]}})},
     "next": {"type": "string", "enum": NEXT},
@@ -587,6 +589,9 @@ class QuestionOutcome(BaseModel):
 class CheckerResult(BaseModel):
     index: int
     met: bool | None
+    # ORCH-587: false when the condition holds only "if" something that didn't occur (with the evidence that it
+    # didn't): satisfied, and no literal check is held against it. A verdict written before the field: applies
+    applies: bool = True
     evidence: str
     how: str | None = None     # unconfirmed only: one plain sentence on how the owner could check it themselves
 

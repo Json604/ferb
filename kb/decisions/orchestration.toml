@@ -1219,3 +1219,13 @@ rule = "For ORCH-301 and ORCH-507. While FERB's clarifying question in a chat is
 why = "Live 2026-11-10 (Codex, 03:17-03:18): code joined every message after a question into one \"complete new message\", so the Goa hotel and Toit table requests were read as answers to the Amazon question and never ran; a new task would also have carried the old request's words as the owner's."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._take_in", "ferb/orchestrator/supervisor.py::Supervisor._join_question", "ferb/orchestrator/supervisor.py::Supervisor._kept_question", "ferb/orchestrator/supervisor.py::Supervisor._carried", "ferb/orchestrator/schemas.py::SupervisorOutcome", "ferb/orchestrator/prompts/supervisor.md", "ferb/orchestrator/reply_stream.py::ReplyDraft._eligible"]
 live = ["LIVE-875"]
+
+[ORCH-587]
+title = "A condition whose own \"if\" didn't occur is satisfied; a literal check holds only one that applied"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Refines ORCH-576. The checker's result per condition carries a plain boolean applies (verifier.md): false when the condition holds just \"if\" something happens and its evidence shows it didn't. Such a condition counts as met (\"Didn't apply:\" and the evidence), and no literal check (sent, paid, submitted, trashed, deleted, downloaded) is held against it. A condition that applied keeps ORCH-576: false unless the recorded call exists. A verdict without the field reads as applies true."
+why = "Owner 2026-11-10 on the scheduled visa check (task beeb93f5, 12:00-12:04): \"whasts wrong here now??  and whjy didn tu give hte reasno??? iut used to befiore. also why did it not answer kym question correctly??\". No post had slots; the submitted check failed the run and hid the answer."
+paths = ["ferb/orchestrator/schemas.py::CheckerResult", "ferb/orchestrator/supervisor.py::Supervisor.verify", "ferb/orchestrator/supervisor.py::Supervisor._verifier", "ferb/orchestrator/prompts/verifier.md"]
+live = ["LIVE-884"]

@@ -6254,8 +6254,10 @@ class Supervisor(WorkerRuns):
         # The checker compares every condition and these observations against the complete request.
         results, verdict = await self._verifier(tree, task, judged, span, observations)
         # ORCH-576: an action check code found false (no such call ran without an error in the task's records) is
-        # false whatever the checker said: the work can't be accepted on words the records don't bear
-        refuted = {r.index: r for r in observations if r.met is False and
+        # false whatever the checker said: the work can't be accepted on words the records don't bear. ORCH-587: only
+        # for a condition the checker found applying; one whose own "if" didn't occur asked for no action
+        idle = {r.index for r in verdict.results if not r.applies} if verdict is not None else set()
+        refuted = {r.index: r for r in observations if r.met is False and r.index not in idle and
                    judged_kind(judged, r.index) in ACTION_CHECKS}
         return [refuted.get(r.index, r) for r in results], verdict
 
@@ -6366,7 +6368,10 @@ class Supervisor(WorkerRuns):
                     for r in verdict.results]})
         self._set_status(vtask.id, "done", verdict.model_dump())
         got = {r.index: r for r in verdict.results}
-        results = [ConditionResult(i, c.text, got[i].met if i in got else None, "verifier",
+        # ORCH-587: a condition whose own "if" didn't occur is satisfied, on the checker's evidence that it didn't
+        results = [ConditionResult(i, c.text, True, "verifier", DIDNT_APPLY + got[i].evidence)
+                   if i in got and not got[i].applies else
+                   ConditionResult(i, c.text, got[i].met if i in got else None, "verifier",
                                    got[i].evidence if i in got else "The check gave no answer for this.",
                                    (got[i].how or "") if i in got and got[i].met is None else "")
                    for i, c in judged]
@@ -6682,6 +6687,7 @@ class Supervisor(WorkerRuns):
 
 
 NOT_CHECKED = "Not checked: the task stopped before a check."
+DIDNT_APPLY = "Didn't apply: "      # ORCH-587: a condition whose own "if" didn't occur, with the checker's evidence
 SITES_LINE = "Sites contacted: "          # code's line counting the sites a task reached (L2); link cards stand for it
 
 

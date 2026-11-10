@@ -17,6 +17,9 @@ Judging each condition:
   say exactly what is missing, and give how: one plain sentence on how the owner could check it themselves (an app,
   page, folder or message they know by name, never an internal tool or id); how is null otherwise. Cite the record,
   source or time behind each verdict.
+- applies=false only for a condition that holds just "if" something happens (a slot opens, a price drops, a reply
+  comes) when your evidence shows it didn't happen: cite that evidence; the condition counts as satisfied and its
+  action was rightly not taken. Otherwise applies=true.
 - Judge the outcome the owner asked for, in their words as written, not details you would have preferred. Every part
   they named counts: each app, tool, agent, account, folder, source and date range, and each quality or limit they
   stated. When a planner condition misstates the request or names a proxy, judge the real outcome and say so. A site,
