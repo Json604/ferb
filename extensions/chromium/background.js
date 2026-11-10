@@ -2163,12 +2163,13 @@ const commands = {
   },
   async point({tab_id, snap, x, y, image_width, image_height}) {
     const visual = tabState(tab_id).visual;
-    await checkVisual(tab_id, visual);
+    await checkVisual(tab_id, visual, [0]);
     if (snap !== visual.snap || ![x,y,image_width,image_height].every(Number.isFinite) ||
         x < 0 || y < 0 || image_width <= 0 || image_height <= 0 || x >= image_width || y >= image_height)
       throw new Error("invalid_visual_point");
     const [width,height] = await inFrame(tab_id, 0, () => window.__ferb.viewport(), []);
     const point = await resolveVisualPoint(tab_id, snap, x * width / image_width, y * height / image_height);
+    await checkVisual(tab_id, visual, point.frames);   // every frame the point goes through still as in the picture
     const token = crypto.randomUUID();
     if (visual.points.size >= 32) throw new Error("too_many_visual_points; take another screenshot");
     visual.points.set(token, point);
@@ -2296,16 +2297,23 @@ const commands = {
     st.shot = null; st.visual = null;
     const first = skip ? NOT_ANSWERING : await step(run, "look", () => maskState(tab_id, deadline, run));
     if (first.withheld && !first.unread) return {withheld: first.withheld};
-    const before = snap == null || first.withheld ? null : JSON.stringify(await visualStates(tab_id));
+    const before = snap == null || first.withheld ? null : await visualStates(tab_id);
     const { data } = await step(run, "capture", () => cdp(tab_id, "Page.captureScreenshot",
                                                           { format: format || "jpeg", quality: quality || 70 }));
     const last = first.withheld ? first : await step(run, "look", () => maskState(tab_id, deadline, run));
     if (last.withheld && !last.unread) return {withheld: last.withheld};
     const extra = {...await unreadCapture(tab_id, first, last), ...(inputNote ? {input_note: inputNote} : {}),
                    steps: { ...run.steps }};
+    // Points on the picture (HAND-480): each frame's surface (pointer.js SURFACE) before the capture, and the frames whose
+    // surface changed during it, which no point may go through. A busy page is still captured: the secret fields are
+    // painted from the two looks above (mask.page_masks), which this check never stood in for.
     if (before !== null && !extra.unread) {
-      if (before !== JSON.stringify(await visualStates(tab_id))) throw new Error("page_changed_during_screenshot");
-      st.visual = {at: Date.now(), snap, states: before, points: new Map()};
+      const after = new Map(await visualStates(tab_id)), unsteady = {};
+      for (const [f, was] of before) {
+        const part = was && after.get(f) ? surfaceChange(was, after.get(f)) : "can't be read";
+        if (part) unsteady[f] = part;
+      }
+      st.visual = {at: Date.now(), snap, states: Object.fromEntries(before), unsteady, points: new Map()};
     }
     if (data.length <= SHOT_PART) { st.shot = null; return { data, format: format || "jpeg", ...extra }; }
     st.shot = data;

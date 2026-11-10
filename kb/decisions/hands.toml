@@ -1020,3 +1020,26 @@ words_source = "Owner 2026-11-10, relayed by the coordinator of the short-run fi
 rule = "A task's pairing (browser_pair) and FERB's own profile's pairing give the same reason and owner step Pair all gives (not_paired_step: removed, requested, not_added, off, too_old): a copy the owner removed says the browser won't add it again by itself and to add FERB from its Chrome Web Store page in that browser (the link), then FERB pairs it. No pairing page opens for a profile whose copy is removed, missing, off or too old. The planner's live facts mark such a profile's connection \"removed\" with the same step."
 paths = ["ferb/daemon/areas/browsers.py::Browsers._pair_one", "ferb/daemon/areas/browsers.py::Browsers._extension_stands", "ferb/daemon/areas/browsers.py::Browsers._identity_pair", "ferb/daemon/areas/environment.py::Environment._environment", "ferb/act/browser/autoinstall.py::owner_removed"]
 live = ["LIVE-872"]
+
+[HAND-480]
+title = "A screenshot point is checked on what its click depends on, not on any change in the page"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.8. A screenshot point and its press compare, for each frame the point goes through, only that frame's document, snapshot, viewport size, scroll and zoom; no count of DOM changes. When the point is resolved, before the gesture and right before the press, it is resolved again: the same frames, the same place in its frame, the same element with the same role, label, link and rect. Secret and disabled targets are refused; a screenshot holds 30 s and one gesture. A refusal names the frame and the part (\"visual_stale: frame 7 document ...\")."
+why = "Live 2026-11-10 (amazon.in, task 64a149b8): browser.point failed 10 of 10 as visual_stale. An epoch bumped by any DOM change or scroll was in every frame's state, and ads and carousels never sit still."
+evidence = "Owner 2026-11-10: \"also if hte fixes you'd proposed in code are good hten make them\"; about this failure: \"but why ferb deosnt use acceiblity tree??? taht shoudl be main, why rely on screenshots only???\""
+rejected = ["Keeping the epoch and retrying: a busy page never sits still", "Dropping the re-resolution: a click could land on a carousel's next slide or an overlay that appeared"]
+paths = ["extensions/chromium/pointer.js::checkVisual", "extensions/chromium/pointer.js::pointChange", "extensions/chromium/pointer.js::checkPoint", "extensions/chromium/content.js::visualState"]
+live = ["LIVE-890"]
+
+[HAND-481]
+title = "A screenshot of a busy page is taken; a frame that changed during it takes no point"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.8. A screenshot no longer fails with page_changed_during_screenshot: it records each frame's surface (HAND-480) before the capture and the frames whose surface changed during it, and a point through one of those is refused naming it. Secret-field masking is unchanged and exact: it comes from the two mask looks around the capture (mask.page_masks), which this check never stood in for."
+why = "Live 2026-11-10: the same task's screenshot failed 3 times as page_changed_during_screenshot, so the worker couldn't even look at the page."
+evidence = "Owner 2026-11-10: \"but why ferb deosnt use acceiblity tree??? taht shoudl be main, why rely on screenshots only???\""
+paths = ["extensions/chromium/background.js::surfaceChange", "extensions/chromium/pointer.js::surfaceChange"]
+live = ["LIVE-890"]

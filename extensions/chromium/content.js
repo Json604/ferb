@@ -35,20 +35,15 @@
     return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
   };
   const documentId = randomId();
-  let visualEpoch = 0;
   let pointerSeen = null;
   addEventListener("mousemove", e => {
     if (e.isTrusted) pointerSeen = [e.clientX, e.clientY];
   }, true);
-  const visualChanged = () => { visualEpoch++; };
-  new MutationObserver(records => {
-    if (records.some(r => r.type !== "attributes" || (r.attributeName !== ATTR && r.attributeName !== STAMP))) visualChanged();
-  }).observe(document, {subtree: true, childList: true, characterData: true, attributes: true});
-  addEventListener("scroll", visualChanged, true);
-  addEventListener("resize", visualChanged);
+  // What a screenshot point depends on in this frame (HAND-480): no count of every DOM change (a busy page never sat
+  // still for it); the element under the point is resolved again before the press (pointer.js checkPoint).
   function visualState() {
-    return {documentId, generation: snapGen, epoch: visualEpoch, viewport: [innerWidth, innerHeight],
-            scroll: [scrollX, scrollY], scale: devicePixelRatio};
+    return {documentId, generation: snapGen, viewport: [innerWidth, innerHeight], scroll: [scrollX, scrollY],
+            scale: devicePixelRatio};
   }
   function bind(el) {
     const token = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, "0")).join("");
