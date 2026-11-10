@@ -738,6 +738,8 @@ async function ownedTabs() {
 
 // Load a URL in a tab and wait for it: the old page is still "complete", so wait for the new load to start first.
 async function load(tabId, url) {
+  const st = TABS.get(tabId);
+  if (st) st.docStatus = new Map();                  // HAND-494: this load's document responses (onPaused)
   const started = new Promise((resolve) => {
     const on = (id, info) => { if (id === tabId && info.status === "loading") { chrome.tabs.onUpdated.removeListener(on); resolve(); } };
     chrome.tabs.onUpdated.addListener(on);
@@ -746,6 +748,18 @@ async function load(tabId, url) {
   await chrome.tabs.update(tabId, { url });
   await started;
   await waitComplete(tabId, 20000);
+}
+
+// HAND-494: the HTTP status of the document the tab's top frame got in the last load(), as the debugger's response
+// stage (Fetch, D35) saw it; null when it didn't (an unarmed tab, a cached or same-document load).
+async function pageStatus(tabId) {
+  const t = TABS.get(tabId);
+  if (!t || !t.docStatus || !t.docStatus.size) return null;
+  try {
+    const { frameTree } = await cdp(tabId, "Page.getFrameTree", {});
+    const s = t.docStatus.get(frameTree && frameTree.frame && frameTree.frame.id);
+    return Number.isInteger(s) ? s : null;
+  } catch (_) { return null; }
 }
 
 function waitComplete(tabId, ms) {
@@ -1274,6 +1288,9 @@ chrome.tabs.onRemoved.addListener(tabId => {
 
 async function onPaused(src, params) {
   const tabId = src.tabId, t = TABS.get(tabId), sid = src.sessionId;
+  // HAND-494: a document's status on the tab's own session (its frames in this process), kept for load()'s answer
+  if (t && t.docStatus && !sid && params.resourceType === "Document" && Number.isInteger(params.responseStatusCode)
+      && t.docStatus.size < 50) t.docStatus.set(params.frameId, params.responseStatusCode);
   let kind = null;
   try { kind = t && t.armed ? classify(params, t.redirects) : null; } catch (_) { kind = null; }
   if (t && (kind || (params.responseStatusCode >= 300 && params.responseStatusCode < 400 &&
@@ -2014,9 +2031,9 @@ const commands = {
     try { groupId = await joinGroup(tab.id, windowId, g); }
     catch (e) { console.warn("FERB group:", String(e.message || e)); }   // ungrouped, still FERB's (closed with its task)
     if (url !== "about:blank") await load(tab.id, url);   // FERB's daemon opens blank and navigates once the tab is its
-    const t = await chrome.tabs.get(tab.id);
+    const t = await chrome.tabs.get(tab.id), status = url !== "about:blank" ? await pageStatus(tab.id) : null;
     return { tab_id: t.id, url: maskUrl(t.url || t.pendingUrl || ""), title: t.title || "", window_id: t.windowId,
-             group_id: groupId, muted: silent };
+             group_id: groupId, muted: silent, ...(status ? { http_status: status } : {}) };
   },
   // Protocol 19 (HAND-207): mute or unmute one tab FERB opened (its records hold it, never borrowed), through the
   // browser's own tab mute; the owner's tabs are never touched. Returns the tab's sound state afterwards.
@@ -2058,8 +2075,9 @@ const commands = {
                  detail: "the page asked before leaving (it may hold unsaved changes) and FERB stayed, as leave_page said" };
       }
     } finally { st.leaving = false; choice.done(); }
-    const t = await chrome.tabs.get(tab_id);
-    return { tab_id: t.id, url: maskUrl(t.url || t.pendingUrl || ""), title: t.title || "" };
+    const t = await chrome.tabs.get(tab_id), status = await pageStatus(tab_id);
+    return { tab_id: t.id, url: maskUrl(t.url || t.pendingUrl || ""), title: t.title || "",
+             ...(status ? { http_status: status } : {}) };
   },
   async close({ tab_id, leave_page }) {
     if ((await keptTabs()).includes(tab_id)) {

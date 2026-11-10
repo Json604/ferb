@@ -993,6 +993,13 @@ class _Tab:
     # HAND-488: earlier ids a screenshot's snapshot found the same node for (they keep working), and what it said
     carried: set[str] = field(default_factory=set)
     ids_note: dict[str, Any] = field(default_factory=dict)
+    http_status: int | None = None  # HAND-494: the last load's document status, as the extension's debugger saw it
+
+
+def _status(v: dict[str, Any]) -> int | None:
+    """HAND-494: a reply's `http_status` (extension 0.19.8), only as a plain HTTP status number."""
+    n = v.get("http_status")
+    return n if isinstance(n, int) and not isinstance(n, bool) and 100 <= n <= 599 else None
 
 
 def _read_clipboard() -> tuple[int, str | None, bool]:
@@ -1191,6 +1198,7 @@ class _TabDriver:
                     e.facts.update(tab=ref.tab_id, tab_left_open=f"the blank tab couldn't be closed: {cleanup}")
             raise
         t.url = str(loaded.get("url") or url)
+        t.http_status = _status(loaded)
         return ref
 
     def _group(self, owner: str) -> dict[str, Any]:
@@ -1468,6 +1476,12 @@ class _TabDriver:
         if v.get("navigated") is False:                  # e.g. download_capture_unavailable: the URL never loaded
             raise DriverError(str(v.get("detail") or "the tab didn't navigate"), facts=v)
         t.url = str(v.get("url") or url)
+        t.http_status = _status(v)
+
+    def http_status(self, tab: TabRef) -> int | None:
+        """HAND-494: the HTTP status of the page the tab's last open or navigate loaded, when the extension saw it."""
+        t = self._tabs.get(tab.tab_id)
+        return t.http_status if t is not None else None
 
     async def tabs(self) -> list[TabRef]:
         return [t.ref for t in self._tabs.values()]

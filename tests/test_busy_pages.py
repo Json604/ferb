@@ -493,3 +493,32 @@ def test_a_wrong_tab_id_lists_the_tasks_open_tabs_and_a_refused_acts_hint_isnt_l
     parked = next(e["id"] for e in els if e.get("offscreen") == "left")
     refused = call(d, g, "browser.act", tab=tab, element=parked, action="click")["content"]
     assert "didn't go through" in refused["next"]
+
+
+# decision: HAND-494
+def test_open_and_navigate_say_the_pages_http_status(bd: Any) -> None:  # noqa: F811
+    d, launched = bd
+    ext = pair(d, launched, "Work")
+    ext.wait_for(lambda: ext.gen is not None)
+    g = task(d, "s", OWNER, {"research"})
+    opened = call(d, g, "browser.open", url="https://shop.example/form")["content"]
+    assert opened["http_status"] == 200 and "http_note" not in opened
+    moved = call(d, g, "browser.navigate", tab=opened["tab"], url="https://shop.example/missing")["content"]
+    assert moved["http_status"] == 404 and "404" in moved["http_note"]
+
+
+# decision: HAND-494
+def test_the_extension_keeps_the_top_documents_status_of_a_load() -> None:
+    out = worker(r'''(async () => {
+      const t = tabState(4); t.armed = true; t.docStatus = new Map();
+      cdp = async (tab, method) => method === "Page.getFrameTree" ? {frameTree: {frame: {id: "TOP"}}} : {};
+      classify = () => null;
+      await onPaused({tabId: 4}, {requestId: "r1", frameId: "TOP", resourceType: "Document", responseStatusCode: 301,
+                                  request: {url: "https://s.example/a", headers: {}}});
+      await onPaused({tabId: 4}, {requestId: "r2", frameId: "TOP", resourceType: "Document", responseStatusCode: 404,
+                                  request: {url: "https://s.example/b", headers: {}}});
+      await onPaused({tabId: 4}, {requestId: "r3", frameId: "AD", resourceType: "Document", responseStatusCode: 200,
+                                  request: {url: "https://ads.example/", headers: {}}});
+      return await pageStatus(4);
+    })()''')
+    assert out == 404

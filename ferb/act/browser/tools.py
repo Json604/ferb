@@ -90,6 +90,15 @@ async def _news(driver: Any, tab: TabRef, wait: float = 0.0) -> tuple[dict[str, 
     return news, _download_sources(found) + tuple(("web", str(t.get("url") or "")) for t in tabs)
 
 
+def _http(driver: Any, tab: TabRef) -> dict[str, Any]:
+    """HAND-494: the page's HTTP status as a fact (a 404 or 500 isn't left to be read from the page's words)."""
+    status = getattr(driver, "http_status", lambda ref: None)(tab)
+    if not isinstance(status, int):
+        return {}
+    return {"http_status": status} | ({"http_note": f"the server answered {status}, an HTTP error status"}
+                                       if status >= 400 else {})
+
+
 def _download_sources(found: list[dict[str, Any]]) -> tuple[tuple[str, str], ...]:
     """A downloaded file, its name and its source are outside content: external:download (MP2)."""
     return tuple(("download", str(f.get("path") or f.get("source_url") or "")) for f in found)
@@ -264,7 +273,7 @@ class BrowserOpen(_Base):
         foreground = bool(getattr(args, "allow_foreground")) and not ctx.observe_only
         tab = await self.driver.open_for(url, ctx.task_id, profile, window_id=getattr(args, "window_id"),
                                          allow_foreground=foreground)
-        out: dict[str, object] = {"tab": tab.tab_id, "url": self.driver.tab_url(tab.tab_id)}
+        out: dict[str, object] = {"tab": tab.tab_id, "url": self.driver.tab_url(tab.tab_id), **_http(self.driver, tab)}
         if self.family.identity is Identity.OWNER:
             out["profile"] = f"{tab.browser}/{tab.profile}"
         news, more = await _news(self.driver, tab, SETTLE_S)
@@ -505,7 +514,7 @@ class BrowserNavigate(_Base):
         leave = getattr(args, "leave_page", None)
         _leave_unsaid(self.driver, ref, leave, "loads another page")
         await self.driver.navigate(ref, str(getattr(args, "url")), **({"leave_page": leave} if leave else {}))
-        out: dict[str, Any] = {"tab": ref.tab_id, "url": self.driver.tab_url(ref.tab_id)}
+        out: dict[str, Any] = {"tab": ref.tab_id, "url": self.driver.tab_url(ref.tab_id), **_http(self.driver, ref)}
         news, more = await _news(self.driver, ref, SETTLE_S)
         return ToolResult(out | news, read_sources=self._page(ref.tab_id) + more)
 

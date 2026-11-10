@@ -465,7 +465,8 @@ class FakeExtension:
             return {"tab_id": a["tab_id"], "url": old, "title": page(old)["title"]}
         self.tabs[a["tab_id"]] = a["url"]
         self.tab_event("updated", a["tab_id"], a["url"])
-        return {"tab_id": a["tab_id"], "url": a["url"], "title": page(a["url"])["title"]}
+        status = {"/missing": 404}.get(urlsplit(a["url"]).path, 200)   # the document's status (HAND-494)
+        return {"tab_id": a["tab_id"], "url": a["url"], "title": page(a["url"])["title"], "http_status": status}
 
     def start_download(self, tab_id: int, name: str, data: bytes, source_url: str, size: int | None | str = "len",
                        mime: str = "application/octet-stream", source: str = "attachment") -> str:

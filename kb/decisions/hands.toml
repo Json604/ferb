@@ -1173,3 +1173,14 @@ why = "Live: \"take a new snapshot to see the result\" after refusals sent worke
 evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
 paths = ["ferb/act/browser/tools.py::BrowserAct", "ferb/act/browser/ext_bridge.py::owned_by", "ferb/act/browser/ext_bridge.py::_pointer"]
 live = ["LIVE-890"]
+
+[HAND-494]
+title = "browser.open and browser.navigate say the page's HTTP status"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Extension 0.19.8 keeps the status of each document response its debugger already pauses at the response stage (D35, the tab's own session), per frame, for the current load, and open and navigate return the top frame's as `http_status`. The tools pass it on; 400 and above add a plain note that the server answered an HTTP error status. A load the extension didn't see (no debugger, cached, same document) says nothing."
+why = "Live: workers inferred a 404 or an error page from the page's words, or didn't notice it at all."
+evidence = "Owner 2026-11-10 via the coordinator: \"yes fix them\" (batch 2)."
+paths = ["extensions/chromium/background.js::pageStatus", "extensions/chromium/background.js::onPaused", "ferb/act/browser/tools.py::_http", "ferb/act/browser/ext_bridge.py::_status"]
+live = ["LIVE-890"]
