@@ -353,6 +353,76 @@ def test_a_clarifying_question_is_declined_in_its_own_turn_and_never_answered_by
     assert [q["kind"] for q in got["questions"]] == ["clarify"]
 
 
+# decision: GATE-574
+def test_a_question_still_open_after_the_declines_sends_the_next_task_to_a_fresh_chat(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Live 2026-11-10 (Codex): FERB asked the Amazon question again after every decline; the runner then sent the hotel
+    and table tasks into the same chat, where FERB read them with its open question. The question left open is recorded
+    as unanswered, and the next task starts in a chat of its own."""
+    sent: list[tuple[str, str]] = []
+
+    class Fake:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def stream(self, method: str, params: dict[str, Any]) -> Any:
+            sent.append((params["session_id"], params["text"]))
+            if sent[0][1] == "order me cables" and len(sent) <= qr.MAX_CLARIFY + 1:
+                yield {"type": "clarify", "request_id": f"r{len(sent)}", "text": "Which Amazon account?"}
+            else:
+                yield {"type": "reply", "request_id": f"r{len(sent)}", "text": "Done."}
+
+        def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+            return {"test.mode": {"questions": "record"}, "runtimes.status": {"roles": {}},
+                    "runtimes.models": {"model": "m", "roles": {}}, "trace.get": {"spans": []}}.get(method, {})
+
+        def set_timeout(self, s: float) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+    monkeypatch.setattr(qr, "Client", Fake)
+    monkeypatch.setattr(qr, "mac_usage", lambda: (_Usage(_START[1]), ""))
+    monkeypatch.setattr(qr, "ps_text", lambda: _START[0])
+    monkeypatch.setattr(qr, "ferb_home", lambda: tmp_path)
+    tasks = tmp_path / "tasks.txt"
+    tasks.write_text("order me cables\nbook a hotel\nbook a table\n")
+    out = tmp_path / "run.json"
+    monkeypatch.setattr("sys.argv", ["question_run.py", str(tasks), "--runtime", "codex", "--out", str(out)])
+    assert qr.main() == 0
+    texts = [t for _, t in sent]
+    assert texts == ["order me cables", *[qr.DECLINE] * qr.MAX_CLARIFY, "book a hotel", "book a table"]
+    cables, hotel, table = (s for s, t in sent if t in ("order me cables", "book a hotel", "book a table"))
+    assert hotel != cables and table == hotel                   # a fresh chat after the open question only
+    report = json.loads(out.read_text())
+    asked = report["tasks"][0]["turns"][0]["clarify"]
+    assert [q["answer"] for q in asked] == [qr.DECLINE] * qr.MAX_CLARIFY + [qr.UNANSWERED]
+
+
+# decision: GATE-574
+def test_test_mode_goes_off_on_a_new_connection_when_the_runs_own_one_broke(
+        capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, Any]] = []
+
+    class Broken:
+        def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+            raise OSError("the socket closed")
+
+    class Fresh:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+            calls.append(dict(params or {}))
+            return {"enabled": False}
+
+        def close(self) -> None:
+            pass
+    monkeypatch.setattr(qr, "Client", Fresh)
+    qr.test_mode_off(Broken())
+    assert calls == [{"off": True}] and "test mode: off" in capsys.readouterr().err
+
+
 # decision: GATE-553
 def test_the_compare_table_marks_tasks_the_old_runner_tangled_and_totals_without_them() -> None:
     spec = importlib.util.spec_from_file_location("question_compare",

@@ -1019,3 +1019,12 @@ rule = "For GATE-572. The registry (sanitize/known.py) holds only API keys (prel
 why = "The owner kept only API keys and tokens; the proxy's tokens and the Claude sign-in code are the same kind of credential FERB itself holds (the sign-in code is this ruling's call)."
 paths = ["ferb/sanitize/redact.py::Redactor.add_secret_value", "ferb/sanitize/redact.py::Redactor.preload", "ferb/daemon/areas/chat.py", "ferb/act/browser/ext_bridge.py::Router.owner_secret"]
 live = ["LIVE-867"]
+
+[GATE-574]
+title = "The run tool starts the next task in a fresh chat when FERB's question is left open"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Refines GATE-553 and GATE-554. When FERB asks again after the run tool's MAX_CLARIFY (3) declines, no decline follows and the question is recorded as left unanswered (UNANSWERED); FERB has no RPC that withdraws its question in a chat, so the next task of the run starts in a chat of its own (the run's session with a -N suffix); later turns of the same task stay in its chat. test_mode_off tries once more on a new connection when the run's own one broke."
+why = "Live 2026-11-10 (Codex): after the declines the runner sent the hotel and table tasks into the chat where FERB's Amazon question was still open, and FERB read them with it, so neither ran."
+paths = ["scripts/question_run.py::send", "scripts/question_run.py::run", "scripts/question_run.py::test_mode_off", "scripts/question_run.py::UNANSWERED"]

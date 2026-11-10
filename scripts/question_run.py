@@ -364,12 +364,16 @@ def add_forms(total: dict[str, Any], one: dict[str, Any]) -> dict[str, Any]:
 # GATE-546), so the next task's text never answers it; at most this many in one turn
 DECLINE = "No answer in this test run; decide yourself or report what you need"
 MAX_CLARIFY = 3
+# GATE-574: FERB has no way to withdraw its question in a chat (no RPC closes it), and its next message there would be
+# read with the question as one request; so a task after a question left open starts in a chat of its own
+UNANSWERED = "(left unanswered: the next task starts in a fresh chat)"
 
 
 def send(session: str, text: str, tag: dict[str, str], limit_s: float) -> dict[str, Any]:
     """One chat turn, streamed to its end (the turn's tasks finished), on a connection of its own. When FERB answers
     with a clarifying question and no task started, the question is recorded and the runner replies DECLINE in the same
-    chat, and waits on (GATE-553): the next task is only sent once this turn ended. Past `limit_s` (the whole turn) the
+    chat, and waits on (GATE-553): the next task is only sent once this turn ended. FERB asking again after the
+    MAX_CLARIFY-th decline leaves its question open (`question_open`, GATE-574). Past `limit_s` (the whole turn) the
     runner stops the turn's tasks through FERB's own stop (task.stop) and waits for the stream to end."""
     started = time.monotonic()
     turn: dict[str, Any] = {"text": text, "request_id": None, "task_ids": [], "replies": [], "outcomes": [],
@@ -393,7 +397,7 @@ def send(session: str, text: str, tag: dict[str, str], limit_s: float) -> dict[s
         finally:
             c.close()
     message = text
-    for _ in range(MAX_CLARIFY + 1):
+    for tries in range(MAX_CLARIFY + 1):
         asked: list[str] = []
         worker = threading.Thread(target=stream, args=(message, asked), daemon=True)
         worker.start()
@@ -404,9 +408,11 @@ def send(session: str, text: str, tag: dict[str, str], limit_s: float) -> dict[s
             break
         if not asked or turn["task_ids"]:
             break
+        last = tries == MAX_CLARIFY                 # no decline is sent after the last one: the question stays open
         for question in asked:                      # recorded like FERB's other questions, then declined
             turn["clarify"].append({"at": datetime.now().astimezone().isoformat(timespec="seconds"),
-                                    "question": question, "answer": DECLINE})
+                                    "question": question, "answer": UNANSWERED if last else DECLINE})
+        turn["question_open"] = last                # GATE-574: the next task goes to a fresh chat
         message = DECLINE
     turn["ended_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
     turn["seconds"] = round(time.monotonic() - started, 1)
@@ -560,9 +566,16 @@ def test_mode_off(client: Any) -> None:
     """Test mode off, said on the terminal: every way out of a run comes through here."""
     try:
         got = client.call("test.mode", {"off": True})
-    except Exception as e:                                 # the daemon gone: say so, never claim it is off
-        print(f"test mode: couldn't turn it off ({e}); turn it off in Settings", file=sys.stderr)
-        return
+    except Exception:
+        try:                                               # the run's own connection broke: once more on a new one
+            fresh = Client(socket_path(), timeout=60)
+            try:
+                got = fresh.call("test.mode", {"off": True})
+            finally:
+                fresh.close()
+        except Exception as e:                             # the daemon gone: say so, never claim it is off
+            print(f"test mode: couldn't turn it off ({e}); turn it off in Settings", file=sys.stderr)
+            return
     print("test mode: off" if not got.get("enabled") else "test mode: still on; turn it off in Settings",
           file=sys.stderr)
 
@@ -629,13 +642,17 @@ def run(p: argparse.ArgumentParser, args: argparse.Namespace, tasks: list[dict[s
     out.parent.mkdir(parents=True, exist_ok=True)
     try:
         for run in range(1, args.repeat + 1):                 # GATE-552: each run is the whole file, in order
+            fresh = 0                                          # GATE-574: chats started after a question left open
             for task in tasks:
                 spent = sum(t["cost_usd"] for t in report["tasks"])
                 if args.cost_cap is not None and spent >= args.cost_cap:
                     report["stopped"] = f"the cost cap ${args.cost_cap:g} was reached (${spent:.4f})"
                     raise StopIteration
+                if report["tasks"] and report["tasks"][-1]["turns"] and \
+                        report["tasks"][-1]["turns"][-1].get("question_open"):
+                    fresh += 1     # FERB's question is still open there: this task's text would be read as its answer
                 session = (f"qrun-{stamp}-{args.runtime}-{task['id']}-{run}" if args.chat_per_task
-                           else f"qrun-{stamp}-{args.runtime}-{run}")   # one chat for the run: context builds up
+                           else f"qrun-{stamp}-{args.runtime}-{run}" + (f"-{fresh}" if fresh else ""))
                 row: dict[str, Any] = {"id": task["id"], "run": run, "session": session, "turns": []}
                 report["tasks"].append(row)
                 for text in task["turns"]:
