@@ -35,7 +35,7 @@ public struct CardRow: Codable, Equatable, Identifiable {
     public let taskID: String
     public let part: String
     public var label: String
-    /// working, done, failed, asks, paused or updated.
+    /// working, done, failed, stopped (the owner's No on its action's card, ORCH-613), asks, paused or updated.
     public var state: String
     /// The answer; a failed row's "Couldn't do: …"; a paused row's reason.
     public var text: String?
@@ -61,8 +61,8 @@ public struct CardRow: Codable, Equatable, Identifiable {
 
     public var id: String { part }
     public var isDone: Bool { state == "done" || state == "updated" }
-    /// Filled, failed or updated: nothing more is coming for it in this run.
-    public var isSettled: Bool { isDone || state == "failed" }
+    /// Filled, failed, stopped by the owner (ORCH-613) or updated: nothing more is coming for it in this run.
+    public var isSettled: Bool { isDone || state == "failed" || state == "stopped" }
 
     public init?(_ value: [String: Any], taskID fallback: String) {
         guard let part = value["part"] as? String, !part.isEmpty else { return nil }

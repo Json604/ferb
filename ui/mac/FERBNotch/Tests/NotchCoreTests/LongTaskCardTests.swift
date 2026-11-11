@@ -97,6 +97,23 @@ final class LongTaskCardTests: XCTestCase {
         XCTAssertNil(line.range(of: #"\d+:\d\d"#, options: .regularExpression))
     }
 
+    // decision: ORCH-613, ORCH-614, APP-718
+    func testARowTheOwnerDeclinedIsTheirDecisionNeverAFailure() {
+        // the live run 9b96e830: the owner's Don't pay on the order's card; the step failed beside it is still running
+        let order = row("order", state: "stopped")
+        let shown = RowDisplay.make(row: order, steps: ["order": step("failed")], rows: [order], live: true)
+        XCTAssertEqual(shown.kind, .stopped)
+        XCTAssertNotEqual(shown.kind, .failed)
+        XCTAssertFalse(shown.spinner)
+        XCTAssertTrue(order.isSettled)                                       // no live preview watches it
+        XCTAssertNil(RowPreview.watch(order, shown))
+        let card = TurnCard(["request_id": "R", "done": 0, "total": 2, "rows": []], taskID: "T")!
+        let line = CardStatusLine.text(card: card, displays: [shown, RowDisplay(kind: .running, spinner: true)])
+        let pieces = line.components(separatedBy: " · ")
+        XCTAssertEqual(pieces.count, 3)                                      // done, stopped by you, running
+        XCTAssertTrue(pieces[1].hasPrefix("1"))
+    }
+
     // decision: ORCH-531
     func testStepEventsApplyByOrderAndThePayloadNeverOverridesANewerState() {
         var card = TurnCard(["request_id": "R", "rows": [["part": "leads", "label": "Leads", "state": "working",

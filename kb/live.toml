@@ -4098,8 +4098,8 @@ title = "Saying no on an action's card ends the task as your decision, the same 
 area = "orchestration"
 surface = "FERB.app with this build; an Amazon.in cash-on-delivery checkout of a cheap item, and a two-part request with a booking"
 request = "Ask FERB to order a cheap item with cash on delivery; at the payment card press Don't pay. Again, and this time type \"cancel, not ordering\" in the card's box. Then a two-part request (a booking and a comparison): decline the booking's card."
-pass = "Each ends without Failed and without Send to developer: the single task shows Cancelled under the worker's own sentence (no \"I couldn't finish this task.\", no \"No payment went through\"); the booking's row fills with the worker's words and counts in \"2 of 2 done\". Nothing is ordered or booked."
-decisions = ["ORCH-613"]
+pass = "Each ends without Failed and without Send to developer: the single task shows Cancelled under the worker's own sentence (no \"I couldn't finish this task.\", no \"No payment went through\"); the booking's row shows the worker's words in grey (no \"Couldn't do:\", no red), the footer reads \"1 of 2 done · 1 stopped by you\" and the task ends done when the other part is done. Nothing is ordered or booked."
+decisions = ["ORCH-613", "ORCH-614", "ORCH-615"]
 sitting = "after this change is installed"
 
 [LIVE-900]

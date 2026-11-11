@@ -18,6 +18,9 @@ from ferb.trace.lines import shorten
 
 KIND = "chat.part"
 DONE = ("done", "updated")           # counted as done ("N of M done")
+# ORCH-613: a part the owner declined on its action's own card: their decision, told in the worker's own words, drawn as
+# a stop is (neutral, never red) and counted apart ("1 of 2 done · 1 stopped by you"), never as a failure
+STOPPED = "stopped"
 UPDATED_WHY = "Updated"              # the prefix of an updated row's one line why ("Updated: <why>")
 WHY_CORRECTION = "done after your correction"     # a failed part a correction in the same run carried through
 WHY_FOLLOW_UP = "changed after your follow-up"    # a part a later turn of the task changed
@@ -89,6 +92,26 @@ class Card:
         done = sum(1 for p in shown if p.direct is not None or records.get(p.id, {}).get("state") in DONE)
         return done, len(shown)
 
+    def stopped(self) -> int:
+        """How many of this card's rows the owner stopped (ORCH-613: declined on the action's own card)."""
+        records = self.records()
+        return sum(1 for p in self.parts if p.direct is None and self._shown(p, records)
+                   and records.get(p.id, {}).get("state") == STOPPED)
+
+    def line(self) -> str:
+        """The card's count as the footer and the index say it."""
+        done, total = self.tally()
+        return done_line(done, total, self.stopped())
+
+    def ended(self) -> str:
+        """How the rows end the task when nothing stopped it as a whole: done when every row is done or the owner's
+        decision (at least one done), cancelled when every row is the owner's decision, failed otherwise."""
+        done, total = self.tally()
+        stopped = self.stopped()
+        if done + stopped < total:
+            return "failed"
+        return "done" if done else "cancelled"
+
     def unposted(self) -> list[Part]:
         """This card's answer rows that have neither filled nor failed in this run."""
         records = self.records()
@@ -123,7 +146,7 @@ class Card:
     def settle(self, part: Part, outcome: str, text: str, *, note: str = "", verified: bool = False,
                step_task: str = "") -> bool:
         """A part's answer step ended: done (its checked answer and at most one "Couldn't confirm" line) or failed
-        ("Couldn't do: reason"). Posted once: a rerun in the same run (a restart) never posts it again, and a later
+        ("Couldn't do: reason"), or stopped (the owner's No on its action's card, ORCH-613). Posted once: a rerun in the same run (a restart) never posts it again, and a later
         failure never replaces an answer. A changed answer is an `updated` row with one line why: a failed part a
         correction carried through, or a part a follow-up turn changed (the same answer posts nothing). Whether it
         posted."""
@@ -131,9 +154,9 @@ class Card:
         if latest is None:
             return self._post(part, outcome, text, note=note, verified=verified, step_task=step_task)
         same_run, before = latest.get("request_id") == self.request_id, latest.get("state")
-        if outcome == "failed":
-            if before == "failed" and not same_run:          # still failing in a follow-up: this card says so
-                return self._post(part, "failed", text, step_task=step_task)
+        if outcome in ("failed", STOPPED):
+            if before in ("failed", STOPPED) and not same_run:   # still not done in a follow-up: this card says so
+                return self._post(part, outcome, text, step_task=step_task)
             return False
         if before in DONE and (same_run or latest.get("text") == text):
             return False
@@ -197,15 +220,14 @@ def composed(card: Card, lines: list[str], artifacts: Sequence[str] = (), chars:
         state, text = row.get("state"), _first_line(row.get("text"))
         if state == "asks" and isinstance(row.get("question"), dict):
             text = _first_line(row["question"].get("text"))
-        said = text if text and (state in (*DONE, "failed", "asks")) else NOT_FINISHED
+        said = text if text and (state in (*DONE, "failed", STOPPED, "asks")) else NOT_FINISHED
         # a done row its check didn't verify (ORCH-606: its fixed line is in its text; an older row's note)
         if state == "done" and not row.get("direct") and (row.get("note") or not row.get("verified")):
             said += f" ({PARTLY_UNCONFIRMED})"
         out.append(f"{row['label']}: {said}")
     if artifacts:
         out.append(RESULTS + ", ".join(artifacts))
-    done, total = card.tally()
-    return "\n".join(_clip(line, chars) for line in [*out, done_line(done, total), *lines])
+    return "\n".join(_clip(line, chars) for line in [*out, card.line(), *lines])
 
 
 def _first_line(text: Any) -> str:
@@ -217,5 +239,6 @@ def _clip(line: str, chars: int) -> str:
     return line if len(line) <= chars else shorten(line, chars, fold=False)
 
 
-def done_line(done: int, total: int) -> str:
-    return f"{done} of {total} done"
+def done_line(done: int, total: int, stopped: int = 0) -> str:
+    """"N of M done", and how many of the rest the owner stopped (ORCH-613): "1 of 2 done · 1 stopped by you"."""
+    return f"{done} of {total} done" + (f" \u00b7 {stopped} stopped by you" if stopped else "")

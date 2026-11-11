@@ -51,7 +51,7 @@ from ferb.sanitize.terminal import printable
 from ferb.orchestrator import progress
 from ferb.orchestrator.plans import (DONE, SINGLE, Part, Plan, SendScope, Step, answer_steps, inventory, part_problems,
                                      problems as plan_problems, resolve_inputs)
-from ferb.orchestrator.parts import Card, composed, done_line
+from ferb.orchestrator.parts import STOPPED as STOPPED_ROW, Card, composed
 from ferb.orchestrator import cards as cards_
 from ferb.orchestrator.attempts import (CHECK_IN_AFTER, KEEP_GOING, STOP_HERE, Attempts, check_in_question,
                                         stopped_after)
@@ -771,6 +771,7 @@ class _Tree:
     stop_told_in: str = ""               # ORCH-579: the request whose reply tells the owner's stop of this task
     stands_unconfirmed: bool = False     # the last attempt's done report stands, though no check confirmed it (V4)
     kept_contradicted: bool = False      # the fix round's fallback marked a contradicted sentence it couldn't remove
+    declined: bool = False               # ORCH-613: the step ended so because the owner said no on its action's card
     check_told: str = ""                 # ORCH-600: the checker's own fail reason, the only checker text a reply may say
     checker_judged: set[int] = field(default_factory=set)   # ORCH-600: conditions the last check's checker itself
     #                                      judged met or not met (before code's no-look rule made a pass unconfirmed)
@@ -4295,7 +4296,7 @@ class Supervisor(WorkerRuns):
         rows = [row | {"step_task_id": self._step_task(tree.id, str(row["step"]))} if row.get("step") else row
                 for row in tree.card.rows()]
         return {"request_id": tree.card.request_id, "rows": rows, "done": done, "total": total,
-                "steps": self._step_payload(tree)}
+                **({"stopped": stopped} if (stopped := tree.card.stopped()) else {}), "steps": self._step_payload(tree)}
 
     @staticmethod
     def _step_task(tree_id: str, step_id: str) -> str:
@@ -4710,7 +4711,7 @@ class Supervisor(WorkerRuns):
                 status = self._finish_step(tree, out)
                 output = {'status': status, 'summary': out.summary, 'answer': tree.owner_answer,
                           'artifacts': out.artifacts, 'evidence': out.evidence, **self._checked_record(tree),
-                          'steers_seen': tree.result_revision,
+                          'steers_seen': tree.result_revision, **({'declined': True} if tree.declined else {}),
                           **({'question': tree.owner_question} if out.status == 'needs_user' else {})}
                 self._post_part(tree, step.id, tree, status, output)
                 return output
@@ -4749,7 +4750,7 @@ class Supervisor(WorkerRuns):
                 output = {'status': status, 'summary': out.summary, 'answer': member.owner_answer,
                           'artifacts': out.artifacts, 'evidence': out.evidence, 'input_notes': member.input_notes,
                           'conversation_proposals': member.conversation_proposals, **self._checked_record(member),
-                          'steers_seen': member.result_revision,
+                          'steers_seen': member.result_revision, **({'declined': True} if member.declined else {}),
                           **({'question': member.owner_question} if out.status == 'needs_user' else {})}
                 directory = Path(self.workspace) / 'task-notes' / tree.id
                 path = directory / (hashlib.sha256(step.id.encode()).hexdigest() + '.json')
@@ -4812,11 +4813,9 @@ class Supervisor(WorkerRuns):
         artifacts = list(dict.fromkeys(p for o in outputs for p in o.get('artifacts', [])))
         evidence = [e for o in outputs for e in o.get('evidence', [])]
         if tree.card is not None:                   # several asks: the rows are the answer (_final_card)
-            done, total = tree.card.tally()
             if self._stopped(tree):
                 return Outcome(tree.worker.id, 'cancelled', tree.stop or STOPPED_BY_YOU, artifacts, evidence)
-            return Outcome(tree.worker.id, 'done' if done == total else 'failed', done_line(done, total),
-                           artifacts, evidence)
+            return Outcome(tree.worker.id, cast(Any, tree.card.ended()), tree.card.line(), artifacts, evidence)
         if result['status'] == 'done':
             members = [tree.answers.get(key) for key in answering]
             if len(members) == 1 and members[0] is not None and members[0].outcome is not None:
@@ -4903,7 +4902,13 @@ class Supervisor(WorkerRuns):
         part = card.part_of(step_id)
         task_id = member.worker.id if member is not None else ''
         if part is not None:
-            if status in DONE:
+            declined = member.declined if member is not None else bool(output.get('declined'))
+            if status in DONE and declined:
+                # ORCH-613 (owner 2026-11-11: "should we have a stoped by me color???"): the owner said no on the
+                # action's own card: the worker's own words, as their decision (never "Couldn't do:", never a failure)
+                said = member.owner_answer if member is not None else str(output.get('answer') or '')
+                card.settle(part, STOPPED_ROW, self._said(said or DECLINED_LINE), step_task=task_id)
+            elif status in DONE:
                 if member is not None and member.outcome is not None:
                     text, note, verified = self._checked_answer(member, member.outcome)
                 else:
@@ -4978,11 +4983,12 @@ class Supervisor(WorkerRuns):
     def _finish_step(self, member: _Tree, out: Outcome) -> str:
         """A step's (or a conversation turn's) status from its attempt loop's outcome, written once: done but not
         confirmed stays its own status (V4), never stored as done. ORCH-613: a step the owner declined ended as they
-        decided: done (its row says what the worker said, as any finished row); a single task's own run, cancelled,
-        as the task ends (`_final`)."""
+        decided: done, so the steps after it run on its report (its row is the owner's decision, `_post_part`); a single
+        task's own run, cancelled, as the task ends (`_final`)."""
         status = ('done_unverified' if out.status == 'done' and (member.stands_unconfirmed or member.kept_contradicted)
                   else out.status)
-        if self._declined(member, out):
+        member.declined = self._declined(member, out)
+        if member.declined:
             status = 'cancelled' if member.step_id == WORKER else 'done'
         self._set_status(member.worker.id, status, {'summary': out.summary})
         return status
@@ -6590,7 +6596,17 @@ class Supervisor(WorkerRuns):
             if verdict is not None else set()
         refuted = {r.index: r for r in observations if r.met is False and r.index not in idle and
                    r.index not in unconfirmed and judged_kind(judged, r.index) in ACTION_CHECKS}
-        return [refuted.get(r.index, r) for r in results], verdict
+        merged = [refuted.get(r.index, r) for r in results]
+        # ORCH-613: an action condition the checker found not met (code had seen an earlier call of its kind run, such
+        # as a checkout's first form) is the owner's decision when the latest such call is one they declined on its
+        # card, as when code finds nothing of the kind ran
+        conditions = dict(judged)
+        if self.checks is not None:
+            for n, r in enumerate(merged):
+                if r.met is False and r.path != DECLINED and r.index in conditions and \
+                        (owner := self.checks.declined(r.index, conditions[r.index], task.id, ctx)) is not None:
+                    merged[n] = owner
+        return merged, verdict
 
     def _carry(self, tree: _Tree, results: list[ConditionResult]) -> list[ConditionResult]:
         """Conditions confirmed in an earlier attempt of this loop carry over (fix list): a later check that can't see
@@ -6985,30 +7001,31 @@ class Supervisor(WorkerRuns):
         sites = sites_contacted(self.spans, tree.id)
         lines = self._code_lines(tree, sites)
         cards = self._result_cards(tree, sorted(out.artifacts), sites)
-        done, total = card.tally()
-        rows = [p for p in card.parts if p.direct is None]
+        ended = card.ended()
         records = card.records()
-        verified = not tree.stop and done == total and all(records.get(p.id, {}).get("verified") for p in rows)
+        # ORCH-613: a row the owner stopped (their No on its card) is their decision: the others decide the end
+        rows = [p for p in card.parts if p.direct is None and records.get(p.id, {}).get("state") != STOPPED_ROW]
+        verified = not tree.stop and ended == "done" and all(records.get(p.id, {}).get("verified") for p in rows)
         headline = ""
         status: str
         if tree.stop == STOPPED_BY_YOU:
             status, headline = self._stop_status(tree), "Stopped, as you asked."
         elif tree.stop:
             status, headline = self._stop_status(tree), f"I couldn't finish that: {tree.stop}"
-        elif done == total:
+        elif ended == "done":
             status = "done" if verified else "done_unverified"
         else:
-            status = "failed"
+            status = ended
         answer = composed(card, lines, sorted(out.artifacts), REPORT_SHORT_CHARS)
         if headline:                     # one paragraph with the index, so the planner's short form keeps every line
             answer = headline + "\n" + answer
         answer = confirm.from_task_lines(answer)
-        summary = headline or done_line(done, total)
+        summary = headline or card.line()
         return {"type": "outcome", "task_id": tree.id, "status": status, "summary": summary, "answer": answer,
                 "verified": verified, "verification": [],
                 "subtasks": {WORKER: {"status": out.status, "summary": out.summary}},
                 "artifacts": sorted(out.artifacts), "resources": tree.resources, "stop_reason": tree.stop_reason,
-                "card": self._card_payload(tree) | {"line": done_line(done, total), "lines": lines,
+                "card": self._card_payload(tree) | {"line": card.line(), "lines": lines,
                                                     **({"headline": headline} if headline else {})}} | (
                 {"runtime_switch": tree.runtime_switch} if tree.runtime_switch and status == "failed" else {}) | (
                 {"cards": cards} if cards else {}) | self._told_in(tree)

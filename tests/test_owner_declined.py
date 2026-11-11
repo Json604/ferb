@@ -9,6 +9,7 @@ from typing import Any
 
 from ferb.daemon.gateway import CONFIRM_ASK
 from ferb.orchestrator.answer_marks import DECLINED_LINE, NOT_FINISHED
+from ferb.orchestrator.parts import STOPPED
 from ferb.orchestrator.verify import DECLINED
 from ferb.policy.rules import Kind
 from ferb.core.types import ActionFacts, ActionSpec, Target, ToolResult
@@ -121,30 +122,72 @@ def test_another_condition_found_false_keeps_it_a_failure(daemon: RunningDaemon)
     assert final["status"] == "failed" and final["answer"].startswith(NOT_FINISHED)
 
 
-# decision: ORCH-613, ORCH-319
-def test_a_declined_part_fills_its_row_with_the_workers_words_like_any_finished_row(daemon: RunningDaemon) -> None:
-    """The same No inside a multi-part task (the owner's c30ed21d case, where typed words on the worker's own question
-    already ended the row done): the row fills with the worker's words, counted, never "Couldn't do"."""
+class _BuyNow(_Checkout):
+    """A checkout's first form (Buy Now): a form submission on the same site that needs no Yes and runs."""
+
+    def __init__(self) -> None:
+        FakeCap.__init__(self, "probe.buy_now", Kind.CLICK, {"probe"})
+
+    def describe(self, args: Any) -> ActionSpec:
+        return ActionSpec(Kind.CLICK, Target(site="www.orderly.example"),
+                          facts=ActionFacts(page_url="https://www.orderly.example/item", submits_form=True,
+                                            tab_chain="t1"))
+
+
+def _parts(daemon: RunningDaemon, order: dict[str, Any], worker: Any, verify: str) -> list[dict[str, Any]]:
+    """A two-part request: the order (its condition `order`) and a laptop comparison that is done."""
     from ferb.orchestrator.plans import Plan, Step
-    daemon.daemon.registry.capabilities["probe.checkout"] = _Checkout()
-    spec = task("Order the batteries and compare laptops",
-                conds=(PAY, cond("Three laptops are compared")))
+    spec = task("Order the batteries and compare laptops", conds=(order, cond("Three laptops are compared")))
     spec["parts"] = [{"id": "order", "quote": "order the batteries", "label": "Battery order", "direct": None,
                       "answer_step": "order", "conditions": [0]},
                      {"id": "laptops", "quote": "compare laptops", "label": "Laptop comparison", "direct": None,
                       "answer_step": "laptops", "conditions": [1]}]
     spec["plan"] = Plan(steps=[Step(id="order", kind="do", goal="Order the batteries"),
                                Step(id="laptops", kind="do", goal="Compare three laptops")]).model_dump()
-    said = "No batteries were ordered: you declined the payment."
     install(daemon, [sup("task", "Ordering and comparing.", spec)],
-            {"step.order": _pays(daemon, said, "not_done"), "step.laptops": json.dumps(report("done", "A, B and C.")),
-             "step.order.verify": verdict(False, next="fail"), "step.laptops.verify": verdict(True)})
+            {"step.order": worker, "step.laptops": json.dumps(report("done", "A, B and C.")),
+             "step.order.verify": verify, "step.laptops.verify": verdict(True)})
     with FerbAnswers(daemon, yes=False):
-        events = chat(daemon, "order the batteries and compare laptops")
-    row = next(e for e in events if e["type"] == "part" and e["part"] == "order")
-    assert row["state"] == "done" and row["text"] == said, row
+        return chat(daemon, "order the batteries and compare laptops")
+
+
+def _told_as_the_owners_decision(events: list[dict[str, Any]], said: str) -> None:
+    """The row is the owner's decision in the worker's words (no "Couldn't do:"), counted apart, and the task ends
+    done because the other part is (owner 2026-11-11: "should we have a stoped by me color???")."""
+    row = [e for e in events if e["type"] == "part" and e["part"] == "order"][-1]
+    assert row["state"] == STOPPED and row["text"] == said, row
     final = outcome(events)
-    assert final["status"] == "done" and final["card"]["line"] == "2 of 2 done", (final["status"], row)
+    assert final["status"] == "done", final
+    assert final["card"]["line"] == "1 of 2 done \u00b7 1 stopped by you", final["card"]
+    assert final["answer"].splitlines()[0] == f"Battery order: {said}", final["answer"]
+
+
+# decision: ORCH-613, ORCH-614, ORCH-319
+def test_a_declined_part_is_the_owners_decision_in_its_row(daemon: RunningDaemon) -> None:
+    """The same No inside a multi-part task: the row tells the worker's words as the owner's decision, never
+    "Couldn't do", and the task's end isn't failed because of it."""
+    daemon.daemon.registry.capabilities["probe.checkout"] = _Checkout()
+    said = "No batteries were ordered: you declined the payment."
+    _told_as_the_owners_decision(_parts(daemon, PAY, _pays(daemon, said, "not_done"), verdict(False, next="fail")),
+                                 said)
+
+
+# decision: ORCH-613, ORCH-614, ORCH-615, ORCH-576
+def test_a_declined_order_after_the_checkouts_first_form_is_still_the_owners_decision(daemon: RunningDaemon) -> None:
+    """The live run 9b96e830 (2026-11-11 11:43): the order's condition was "submitted on amazon.in"; the Buy Now form
+    had gone through, so code's check read the submission as made, the checker found the order not placed and failed
+    it, and the row said "Couldn't do: …" in red. The latest submission at that site is the one the owner said no to:
+    their decision."""
+    daemon.daemon.registry.capabilities["probe.checkout"] = _Checkout()
+    daemon.daemon.registry.capabilities["probe.buy_now"] = _BuyNow()
+    said = "I picked AA batteries for ₹72.05, but you declined the final purchase confirmation, so nothing was ordered."
+
+    def worker(token: str) -> str:
+        tool(daemon.sock, token, "probe.buy_now")
+        tool(daemon.sock, token, "probe.checkout", effect="pay")
+        return json.dumps(report("not_done", said, reason="You declined the payment."))
+    submitted = cond("An item is ordered on orderly.example", "submitted", site="orderly.example")
+    _told_as_the_owners_decision(_parts(daemon, submitted, worker, verdict(False, next="fail")), said)
 
 
 # decision: ORCH-613, ORCH-576

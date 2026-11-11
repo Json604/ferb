@@ -579,7 +579,7 @@ extension NotchModel {
         saveConversation()
         onBackgroundChange?(true)
         // A filled row never moves the view: a pill names it when it is out of sight (APP-720).
-        if let part = event["part"] as? String, ["done", "updated", "failed"].contains(event["state"] as? String ?? "") {
+        if let part = event["part"] as? String, ["done", "updated", "failed", "stopped"].contains(event["state"] as? String ?? "") {
             let label = conversation.turns.first { $0.id == turnID }?.card?.row(part)?.label ?? ""
             requestScroll(TranscriptTarget.row(turn: turnID, part: part), .quietFill, label: label)
         }

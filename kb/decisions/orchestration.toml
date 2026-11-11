@@ -1505,3 +1505,26 @@ rejected = ["Status done for a single task: the task row would say the order hap
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._declined", "ferb/orchestrator/supervisor.py::Supervisor._final", "ferb/orchestrator/supervisor.py::Supervisor._finish_step", "ferb/orchestrator/verify.py::Checks._action", "ferb/orchestrator/cards.py::tried", "ferb/daemon/gateway.py::Answer", "ferb/daemon/areas/schedules.py", "ferb/orchestrator/answer_marks.py::DECLINED_LINE"]
 live = ["LIVE-899"]
 untestable = "A worker's not-done whose blocker isn't the declined action, with every other condition met, reads as declined: code can't tell blockers apart without reading words."
+
+[ORCH-614]
+title = "A part the owner declined on its card is told as their decision, in a neutral row, counted apart"
+by = "owner"
+date = 2026-11-11
+status = "active"
+words = "should we have a stoped by me color??? it says the message correctly but color??"
+words_source = "Owner 2026-11-11, live on build 202611102239, task 9b96e830: Don't pay on the Amazon order's card; its row read \"Couldn't do: …\" in red and the task ended failed."
+rule = "Refines ORCH-613 and ORCH-319 for a part. A part whose action the owner declined on its own card (ORCH-613's structure) posts a `stopped` row: the worker's own words, no \"Couldn't do:\" prefix, drawn in the neutral colour a stopped task has, never red, and the card keeps no tint for it. The count says it apart: \"1 of 2 done · 1 stopped by you\" (footer, running status line, the saved index). It never makes the task's end failed: when every other part is done the task is done, when every part was declined it is cancelled; the index line is \"<label>: <worker's words>\"."
+why = "The owner's No is their decision, not FERB failing; ORCH-613 said so for a single task, and a part must read the same. Counting the row as done would claim the order happened; counting it as not done made the end a failure."
+rejected = ["Counting the declined row as done (ORCH-613's first build): \"2 of 2 done\" claims the order happened", "A new colour: the app already draws a stopped task in the neutral secondary colour"]
+paths = ["ferb/orchestrator/parts.py::STOPPED", "ferb/orchestrator/parts.py::Card.ended", "ferb/orchestrator/parts.py::done_line", "ferb/orchestrator/supervisor.py::Supervisor._post_part", "ferb/orchestrator/supervisor.py::Supervisor._final_card", "ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::RowDisplay", "ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::CardStatusLine", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::CardRowView"]
+live = ["LIVE-899"]
+
+[ORCH-615]
+title = "The owner's No decides an action condition whoever found it not met"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For ORCH-613. An action check's condition is the owner's decision (verify.DECLINED) when, of the task's calls of its kind at its target that went ahead or that the owner was asked about, the latest is one they declined on its card, whether code found nothing of the kind ran or the checker found it not met after an earlier call of the kind ran (a checkout's Buy Now form before the declined Place your order). Checks.declined is the one test both use."
+why = "Live 9b96e830: the condition was submitted on amazon.in; the Buy Now form had gone through, so code's literal check read a submission as made and ORCH-613's test never ran; the checker found the order not placed and failed the step, and the row said Couldn't do."
+paths = ["ferb/orchestrator/verify.py::Checks.declined", "ferb/orchestrator/supervisor.py::Supervisor.verify"]
+live = ["LIVE-899"]

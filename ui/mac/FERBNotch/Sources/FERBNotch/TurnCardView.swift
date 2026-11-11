@@ -221,6 +221,11 @@ struct CardRowView: View {
                 collapsible { NativeMessageText(row.text ?? "Couldn't do it.", color: Palette.redSoftText) }
             case .wontRun:
                 NativeMessageText(display.words ?? "", color: Palette.redSoftText)
+            case .stopped:
+                // ORCH-613 (owner 2026-11-11: "should we have a stoped by me color???"): the owner's decision, in the
+                // neutral secondary colour a stopped task has (Palette.taskColor(.stopped)), never the failure's red;
+                // the card keeps no tint for it
+                if let text = row.text { collapsible { NativeMessageText(text, secondary: true) } }
             case .done, .updated:
                 if let text = row.text { collapsible { MarkdownContent(text).equatable() } }
             case .needsYou, .paused:
@@ -262,7 +267,7 @@ struct CardRowView: View {
     static func stateName(_ kind: RowDisplay.Kind) -> String {
         [.waiting: "waiting", .starting: "starting", .running: "working", .checking: "checking the result",
          .retrying: "trying again", .needsYou: "asks you", .paused: "paused", .done: "done", .updated: "updated",
-         .failed: "couldn't do", .wontRun: "won't run", .notFinished: "not finished", .loop: "watching",
+         .failed: "couldn't do", .wontRun: "won't run", .stopped: "stopped by you", .notFinished: "not finished", .loop: "watching",
          .working: "working", .preview: "preview, nothing done", .previewRunning: "preview, nothing done"][kind]
             ?? kind.rawValue
     }

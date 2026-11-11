@@ -55,6 +55,9 @@ public struct RowDisplay: Equatable {
     public enum Kind: String {
         case waiting, starting, running, checking, retrying, needsYou, paused, done, updated, failed, wontRun
         case notFinished, loop, working, preview, previewRunning
+        /// ORCH-613: the owner said no to the part's action on its own card: their decision, drawn as a stop is
+        /// (neutral, never red), its text the worker's own words.
+        case stopped
     }
 
     public let kind: Kind
@@ -71,7 +74,7 @@ public struct RowDisplay: Equatable {
     /// Counted as running in the card's status line.
     public var isRunning: Bool { [.starting, .running, .checking, .retrying, .loop, .working].contains(kind) }
     /// Its text collapses to its first lines (APP-719): an answer or a failure; a row that needs the owner stays open.
-    public var collapses: Bool { [.done, .updated, .failed, .wontRun].contains(kind) }
+    public var collapses: Bool { [.done, .updated, .failed, .wontRun, .stopped].contains(kind) }
 
     /// A row's display from its own state, its step's (`steps`, by step id), the card's rows (to name a step it waits
     /// for by its row's label), whether its turn is still running (`live`: history and a dead task never show live
@@ -83,6 +86,7 @@ public struct RowDisplay: Equatable {
         if row.state == "paused" { return RowDisplay(kind: .paused) }
         if row.state == "updated" { return RowDisplay(kind: .updated) }
         if row.state == "done" { return RowDisplay(kind: .done) }
+        if row.state == "stopped" { return RowDisplay(kind: .stopped) }
         let step = row.step.flatMap { steps[$0] }
         if row.state == "failed" {
             return step?.status == "wont_run"
@@ -140,11 +144,13 @@ public struct RowDisplay: Equatable {
     }
 }
 
-/// The running card's one status line (APP-718, APP-723 without the time, APP-752): "1 of 4 done · 2 running ·
-/// 1 waiting".
+/// The running card's one status line (APP-718, APP-723 without the time, APP-752): "1 of 4 done · 1 stopped by you ·
+/// 2 running · 1 waiting" (the daemon's footer says the first two the same way, ORCH-613).
 public enum CardStatusLine {
     public static func text(card: TurnCard, displays: [RowDisplay]) -> String {
         var pieces = ["\(card.done) of \(card.total) done"]
+        let stopped = displays.filter { $0.kind == .stopped }.count
+        if stopped > 0 { pieces.append("\(stopped) stopped by you") }
         let running = displays.filter(\.isRunning).count
         let waiting = displays.filter { $0.kind == .waiting }.count
         let asking = displays.filter { $0.kind == .needsYou || $0.kind == .paused }.count
