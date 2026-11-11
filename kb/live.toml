@@ -4162,7 +4162,7 @@ area = "orchestration"
 surface = "FERB.app with this build, the owner's chat; FERB's Google account (or the owner's) for the sheet"
 request = "Ask for something with a longer answer in two parts, e.g. \"book a table for 2 at toit this friday 8pm and top 3 laptops under 80k for coding in india, short comparison\" (decline the booking). Right after the card finishes: \"put that laptop res in a google sheet and give me the link\"."
 pass = "The plan line comes within a few seconds (one planner call: `ferb trace <task> --json` shows no task.evidence or chat.history lookup by the planner). The task's worker context shows \"Earlier results this task uses\" with the whole laptop comparison; the sheet holds all three laptops with their prices and links, nothing about the table booking; the answer gives the link."
-decisions = ["ORCH-619"]
+decisions = ["ORCH-619", "PRM-350"]
 sitting = "after this change is installed"
 
 [LIVE-907]
@@ -4171,5 +4171,5 @@ area = "orchestration"
 surface = "FERB.app with this build, the owner's chat"
 request = "After LIVE-906's comparison, ask one unrelated thing that FERB answers with a task (\"what's the weather in Bangalore now?\"). Then: \"email me the laptop comparison from before\"."
 pass = "The plan comes without the planner looking anything up; the task's worker context shows the laptop comparison in full under \"Earlier results this task uses\"; the email holds the whole comparison. Asked to your own address, no question about sending your data to a new site appears."
-decisions = ["ORCH-619"]
+decisions = ["ORCH-619", "PRM-350"]
 sitting = "after this change is installed"

@@ -30,14 +30,17 @@ ANSWER_TOOL_DESC = ("Give FERB your final answer for this message: call this onc
                     "where the schema allows it for a value that doesn't apply. FERB acts on this answer; nothing you "
                     "call in the same reply runs.")
 # PRM-336 (owner 2026-11-09: "Yes, build with this wording (Recommended)"): the planner's answer form where its typed
-# format isn't used, in place of the stated schema, beside ANSWER_TOOL
+# format isn't used, in place of the stated schema, beside ANSWER_TOOL. PRM-350 (owner ORCH-618, 2026-11-11: "i like
+# the id part, why isnt the planner depending on taht id then???"): a task names an earlier result by its id instead
+# of the planner reading it into the goal
 PLANNER_ANSWER = ("FERB's answer format (required): your lookup tools are for you, not for a task. When the owner asks "
                   "about something from before (a detail of an earlier answer, what an earlier task found or did, "
                   "something they told you, memory), call the lookups yourself first and answer from what they "
                   "return: a short-form result's full text is one chat.history call with its entry_id, an earlier "
                   "task's records are task.evidence with its task_id. Never make a task just to read FERB's own "
                   "records; when a task needs something from an earlier result (a file it made, the values to send), "
-                  "read it first and put it in the goal. Then give your final answer by calling the ferb_answer tool "
+                  "name that result's Result id in the task's earlier_results instead of reading it into the goal: "
+                  "FERB gives the worker its full text. Then give your final answer by calling the ferb_answer tool "
                   "with the whole answer (its input schema is the answer format), or reply with only that JSON "
                   "object, nothing before or after it.")
 # RUN-447: the result other calls get when they came in the same reply as the answer, and the answer's when an owner

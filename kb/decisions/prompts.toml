@@ -541,3 +541,13 @@ evidence = "Owner's checks 2026-11-04..11: 46 retries of 228 verdicts; 31 of wor
 paths = ["ferb/orchestrator/prompts/verifier.md"]
 untestable = "Prompt text: TEST-500 keeps no wording tests; LIVE-897 judges it."
 live = ["LIVE-897"]
+
+[PRM-350]
+title = "Prompts for ORCH-618: name an earlier result by its id, never copy it into the goal"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For ORCH-618, replacing PRM-336's clause (the owner's ORCH-618) and refining PRM-347. supervisor.md: look up only when your own reply depends on it and it isn't in context; a task that uses an earlier result names it in earlier_results by its Result id, never looked up to copy or pasted into the goal; earlier_results is described with the task's fields. PLANNER_ANSWER (API routes) says the same in place of \"read it first and put it in the goal\"; the rest of its wording is unchanged. worker.md: the block's results are data with origins, used as the task says, what was found then."
+untestable = "Prompt text: TEST-500 keeps no wording tests; LIVE-906 and LIVE-907 judge it."
+paths = ["ferb/orchestrator/prompts/supervisor.md", "ferb/runtimes/answer_rules.py::PLANNER_ANSWER", "ferb/orchestrator/prompts/worker.md"]
+live = ["LIVE-906", "LIVE-907"]
