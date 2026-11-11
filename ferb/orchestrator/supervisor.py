@@ -638,12 +638,29 @@ def _short_report(text: str, index: bool = False) -> str:
     REPORT_SHORT_CHARS; chat.history keeps the full text. A multi-part task's answer is already an index whose every
     line code clipped to REPORT_SHORT_CHARS (`index`, ORCH-534): shown whole, so the planner sees each part's outcome."""
     paragraphs = [p.strip() for p in text.strip().split("\n\n") if p.strip()]
-    first = paragraphs[0] if paragraphs else ""
     if index:
-        return first
+        return paragraphs[0] if paragraphs else ""
+    # ORCH-616: a paragraph that is only a Markdown heading says what follows, not what was found: the short form
+    # starts at the first paragraph with content (a heading line with nothing else is structure, never words)
+    paragraphs = [p for p in paragraphs if not _heading_only(p)] or paragraphs
+    first = paragraphs[0] if paragraphs else ""
     if len(paragraphs) > 1 and first in (NOT_FINISHED, STOPPED, f"{STOPPED} {WHERE_STOOD}"):   # ORCH-605, ORCH-611
         first = f"{first} {paragraphs[1]}"
     return shorten(first, REPORT_SHORT_CHARS, fold=False)     # ORCH-601: at a sentence or word, never mid-word
+
+
+_HEADING = re.compile(r"#{1,6}[ \t]+\S.*|#{1,6}")
+
+
+def _heading_only(paragraph: str) -> bool:
+    """ORCH-616: a paragraph that is one Markdown heading line and nothing else ("### Top 3 laptops")."""
+    return "\n" not in paragraph.strip() and bool(_HEADING.fullmatch(paragraph.strip()))
+
+
+def _first_content_line(text: str) -> str:
+    """ORCH-616: a text's first line that isn't empty or only a Markdown heading (its first line when every one is)."""
+    lines = [line.strip() for line in text.strip().split("\n") if line.strip()]
+    return next((line for line in lines if not _heading_only(line)), lines[0] if lines else "")
 
 
 def _within_tokens(text: str, limit: int) -> str:
@@ -3575,8 +3592,9 @@ class Supervisor(WorkerRuns):
             who, said = f"FERB (code record: {what}; its words were written when it was set)", \
                 str(data.get("message", ""))
         else:
-            # a part as the task's index shows it (ORCH-535: its row's first line), a scheduled result as a report
-            short = _short_report(text.strip().split("\n", 1)[0] if entry.kind == "chat.part" else text)
+            # a part as the task's index shows it (ORCH-535: its row's first line; ORCH-616: the first with content, not
+            # a heading), a scheduled result as a report
+            short = _short_report(_first_content_line(text) if entry.kind == "chat.part" else text)
             cut = "; short form" if short != text else ""
             if entry.kind == "schedule.posted":
                 who = (f"FERB (posted by itself: scheduled run “{data.get('name', '')}” result, {data.get('status')}"

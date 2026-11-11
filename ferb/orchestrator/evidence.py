@@ -68,7 +68,12 @@ class TaskEvidence:
         "Inspect this task's recorded tool calls, original request, intake receipts, full context sources, "
         "reports, cleanup and disturbance facts, or the registered parent worker when checking its result; with "
         "task_id, those of an earlier task of this conversation (chat.history include_tasks=true lists them). "
-        "Search actual inputs/results with query (a literal substring); list records chronologically with after "
+        "Search actual inputs/results with query (a literal substring); kind keeps one record kind: tool.call (each "
+        "tool call with its result), worker (each worker run's report: its answer, status and reason), task (the "
+        "task's own record and outcome), context.source (a full context source it was given), context.exposure "
+        "(what its models were shown), task.intake, task.cleanup, disturbance.change / disturbance.summary (screen "
+        "changes around its actions); a kind with no record answers with the kinds the task has. List records "
+        "chronologically with after "
         "pagination, then read a record by span_id with offset pagination. These are timestamped, redacted source "
         "observations and action results, not the worker's summary or proof of the current state. kind=evidence "
         "lists what FERB captured during the task (app windows, screenshots, snapshot images, recordings: a brief "
@@ -150,7 +155,11 @@ class TaskEvidence:
         refs = {ref for item in page['records']
                 for ref in record_sources(self.spans.tool_call(source, item['id'], root_id=root, whole=whole)
                                           or {})}
-        return ToolResult({"source_task": source, **page, 'source_refs': sorted(refs)}, read_sources=_passed(origins))
+        # ORCH-617: a kind with no record here is answered with the kinds this task has, so the next read can use one
+        kinds = ({"kinds_here": self.spans.evidence_kinds(source, root, whole)}
+                 if args.kind and not page["records"] and not args.after else {})
+        return ToolResult({"source_task": source, **page, 'source_refs': sorted(refs), **kinds},
+                          read_sources=_passed(origins))
 
     def _captures(self, args: Any, source: str) -> ToolResult:
         """V1: the source task's stored captures, as facts each labeled with its capture's origin (passed through);

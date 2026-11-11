@@ -1528,3 +1528,21 @@ rule = "For ORCH-613. An action check's condition is the owner's decision (verif
 why = "Live 9b96e830: the condition was submitted on amazon.in; the Buy Now form had gone through, so code's literal check read a submission as made and ORCH-613's test never ran; the checker found the order not placed and failed the step, and the row said Couldn't do."
 paths = ["ferb/orchestrator/verify.py::Checks.declined", "ferb/orchestrator/supervisor.py::Supervisor.verify"]
 live = ["LIVE-899"]
+
+[ORCH-616]
+title = "A short form skips a first paragraph that is only a heading"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "Refines ORCH-326 and ORCH-588. The planner's short form of a task report (_short_report) leaves out paragraphs that are one Markdown heading line and nothing else, and starts at the first paragraph with content (all headings: as before); a part posted as it landed shows its first line that isn't empty or only a heading. A structural fact (a line of #s and a title), never the words. The saved multi-part index the owner reads is unchanged."
+why = "Live 2026-11-11 03:03 (request 7c3a2abb): the laptop row's short form was \"### Top 3 coding laptops under ₹80,000\", which says what follows, not what was found. Paused, then approved in the 2026-11-11 discussion of what the planner is shown of earlier results."
+paths = ["ferb/orchestrator/supervisor.py::_short_report", "ferb/orchestrator/supervisor.py::_heading_only", "ferb/orchestrator/supervisor.py::_first_content_line", "ferb/orchestrator/supervisor.py::Supervisor._self_post"]
+
+[ORCH-617]
+title = "task.evidence answers a kind with no record with the kinds the task has"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "A task.evidence list read with a kind that matches no record of the task (first page) answers with kinds_here: each record kind the task has and how many, as the same read sees them (SpanStore.evidence_kinds). Its description lists the kinds and what each holds (tool.call, worker, task, context.source, context.exposure, task.intake, task.cleanup, disturbance.*)."
+why = "Live 2026-11-11 03:03 (request 7c3a2abb): the planner's first lookup asked kind=\"reports\" and got 0 records with no hint; the worker's reports are kind \"worker\". Paused, then approved in the 2026-11-11 discussion."
+paths = ["ferb/orchestrator/evidence.py::TaskEvidence", "ferb/store/spans.py::SpanStore.evidence_kinds"]

@@ -478,6 +478,12 @@ class SpanStore:
                     "has_output": row["output_json"] is not None, "origin": row["origin"]} for row in rows[:limit]]
         return {"records": records, "next_after": rows[limit - 1]["cursor"] if len(rows) > limit else None}
 
+    def evidence_kinds(self, task_id: str, root_id: str | None = None, whole: bool = False) -> dict[str, int]:
+        """ORCH-617: how many records of each kind task.evidence can read for this task, as `tool_calls` reads them."""
+        where, params = self._evidence_where(task_id, root_id, whole)
+        return {str(kind): int(count) for kind, count in self._db.conn.execute(
+            "SELECT kind, COUNT(*) FROM spans WHERE " + where + " GROUP BY kind ORDER BY COUNT(*) DESC, kind", params)}
+
 
 Held = tuple[str, str | None]                   # a span's recorded input and output, as stored
 
