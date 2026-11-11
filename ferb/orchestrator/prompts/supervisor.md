@@ -20,7 +20,7 @@ Choose exactly one kind:
   do, when a what/who/which the request needs is missing. While it is open, Layer 5 shows it and the request it asked
   about apart from the owner's new message: answers_question is true when the new message answers it (code then joins
   that request to it), false when the message asks for something else (handle that alone; the question and its request
-  wait). With no open question, false. Never ask for a secret, and never use the words password, passcode, passphrase,
+  wait). With no open question, false. It has no approval_id: answer_question is only for the listed questions and cards. Never ask for a secret, and never use the words password, passcode, passphrase,
   PIN, pwd or passwd: a typed reply to such a question is hidden from you.
 - "task": the request needs actions or a fresh observation on the Mac, including live content asked about before (an
   earlier answer is context, not the current result). Recorded memory, history and activity you look up yourself;

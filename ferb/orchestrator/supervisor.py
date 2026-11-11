@@ -2583,7 +2583,8 @@ class Supervisor(WorkerRuns):
             # The answer is recorded first; the rest of the turn then runs as in any turn (final review M1). When FERB has
             # to ask which question the answer is for, the whole message comes back with the owner's reply, so nothing
             # else in it runs now (or twice).
-            kind, said = self._answer(turn, out.answer_question)
+            routed = out.answer_question
+            kind, said = self._answer(turn, routed)
             out = out.model_copy(update={"answer_question": None})
             if kind == "clarify":
                 async for event in self._exit(turn, out, "clarify", said, by=origins_.FERB, side=False,
@@ -2591,11 +2592,22 @@ class Supervisor(WorkerRuns):
                     yield event
                 return
             ends_in_reply = out.control is None and not (out.kind == "task" and out.task is not None)
-            if ends_in_reply and not out.text.strip() and not _carries_more(out):
+            alone = ends_in_reply and not out.text.strip() and not _carries_more(out)
+            if said == NO_QUESTION and (turn.joined or not alone):
+                # ORCH-621: a routing that names no open question (live 2026-11-11 12:58: the id of the wrapper around
+                # FERB's own question) says nothing when the message already does something: it answered FERB's own
+                # question (ORCH-586) or the turn has its own reply, task or entries. Recorded, never shown
+                self.journal.append("question.routing_unused", {"request_id": turn.request_id,
+                                                                "approval_id": routed.approval_id,
+                                                                "joined": turn.joined})
+                said = ""
+            elif alone:
                 async for event in self._exit(turn, out, "reply", said, by=origins_.FERB, side=False):
                     yield event
                 return
-            if ends_in_reply and out.text.strip():   # one message: FERB's word on the answer opens the planner's reply
+            if not said:
+                pass
+            elif ends_in_reply and out.text.strip():   # one message: FERB's word on the answer opens the planner's reply
                 turn.acknowledged = said
             else:                          # a stop, correction or task follows: its own line first
                 await self._record_reply(turn, "reply", said, {origins_.FERB})

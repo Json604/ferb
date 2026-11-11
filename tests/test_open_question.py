@@ -105,3 +105,22 @@ def test_an_answer_written_before_the_field_continues_the_request_as_before(daem
     chat(daemon, CABLES)
     chat(daemon, "2 meters")
     assert CABLES in seen[0] and "2 meters" in seen[0]
+
+
+# decision: ORCH-621
+def test_an_answer_to_ferbs_question_routed_to_no_question_starts_its_task_with_no_stray_line(
+        daemon: RunningDaemon) -> None:
+    """Live 2026-11-11 12:58 (qrun-20261111-125635-codex-1): the planner answered FERB's own question (answers_question)
+    and also routed the message as an answer to an open card by the id of the wrapper around that question; the owner
+    read "No question is waiting for your answer right now." just before the task started."""
+    seen: list[str] = []
+    wrong = json.loads(_answer("task", "Ordering.", task("Order 2 m cables"), answers=True))
+    wrong["answer_question"] = {"approval_id": "c71432da6150", "answer": "2 meters"}
+    install(daemon, [_answer("clarify", QUESTION, answers=False), json.dumps(wrong)],
+            {"worker": _payloads(daemon, seen)})
+    chat(daemon, CABLES)
+    events = chat(daemon, "2 meters")
+    assert not [e for e in events if e["type"] == "reply"]
+    assert any(e["type"] == "plan" for e in events) and CABLES in seen[0] and "2 meters" in seen[0]
+    assert [r["text"] for r in _kinds(daemon, "chat.reply")] == []
+    assert _kinds(daemon, "question.routing_unused")[0]["joined"] is True
