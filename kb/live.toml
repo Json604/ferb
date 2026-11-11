@@ -4191,3 +4191,12 @@ request = "Ask for a browser task that clicks around (\"find the cheapest pack o
 pass = "The short view and the box show the same line the card row shows (e.g. \"Clicking in www.amazon.in\", \"Reading www.amazon.in\", \"Asking you\"), changing as the task moves; never \"browser.act\", \"owner.ask\" or another dotted tool name, and never a bare \"started\"."
 decisions = ["APP-893"]
 sitting = "after this change is installed"
+
+[LIVE-910]
+title = "A plan's question about something FERB just made shows that thing with the question"
+area = "orchestration"
+surface = "FERB.app with this build; a file in ~/Downloads"
+request = "\"Find the newest file in my Downloads, make a one-line summary, show me the summary and ask before writing it to ~/Desktop/ferb-plan.txt.\""
+pass = "The card asking whether to write it shows, under its question, the step's whole answer (the file's name and the proposed one-line summary), so you can judge it before Yes or No; nothing in it is cut."
+decisions = ["ORCH-623"]
+sitting = "after this change is installed"

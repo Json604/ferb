@@ -26,8 +26,8 @@ from ferb.core.types import Identity
 from ferb.daemon.gateway import CONFIRM_ASK
 from ferb.orchestrator.plans import Plan, SendScope, Step
 from ferb.policy.rules import ActionRequest
-from tests.conftest import (Answers, FakeCap, RunningDaemon, chat, done, gateway_request, gateway_setup, install, sup,
-                            task, tool)
+from tests.conftest import (Answers, FakeCap, RunningDaemon, answer_question, chat, done, gateway_request,
+                            gateway_setup, install, sup, task, tool)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -295,6 +295,27 @@ def test_a_plans_ask_step_is_labelled_and_a_stop_closes_it_as_superseded(daemon:
     daemon.daemon.supervisor.stop_tree(trees[0].id)
     turn.join(10)
     assert question.state == "superseded"
+
+
+# decision: ORCH-623
+def test_an_ask_step_shows_what_the_steps_before_it_answered(daemon: RunningDaemon) -> None:
+    """Live 2026-11-11 13:14 (task 9cc51e80): "Should I write this exact one-line summary to Desktop/ferb-plan.txt?"
+    was asked while the summary itself was shown nowhere: the planner wrote the question before the summary existed."""
+    summary = ("Newest file: `manifest-2026-11-10.json`\n\nProposed one-line summary: **A Claude data-export manifest "
+               "listing six ZIP files.**")
+    spec = task("Summarize the newest download, ask, then write it")
+    spec["plan"] = Plan(steps=[
+        Step(id="summarize", kind="do", goal="Summarize the newest file in ~/Downloads in one line"),
+        Step(id="approve", kind="ask", question="Should I write this exact one-line summary to Desktop/ferb-plan.txt?",
+             options=["Yes", "No"], depends_on=["summarize"]),
+        Step(id="write", kind="do", goal="Write the approved summary", depends_on=["approve"])]).model_dump()
+    install(daemon, [sup("task", "On it.", spec)], {"step.summarize": done(summary), "step.write": done("Written.")})
+    turn = threading.Thread(target=lambda: chat(daemon, "summarize my newest download, show me, then save it"))
+    turn.start()
+    asked = answer_question(daemon, choice="Yes")
+    turn.join(20)
+    assert asked.reason == "Should I write this exact one-line summary to Desktop/ferb-plan.txt?"
+    assert asked.detail == summary                                   # whole, under the question
 
 
 # ---------- (d) no "/answer" anywhere owner-facing ----------

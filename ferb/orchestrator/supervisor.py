@@ -4841,6 +4841,14 @@ class Supervisor(WorkerRuns):
             return {'status': 'blocked', 'summary': 'I need your answer before I continue.'}
         return {'status': 'done', 'summary': reply.words, 'answer': reply.words, 'approval_id': wait.approval.id}
 
+    def _ask_card(self, step: Step, prior: dict[str, Any]) -> dict[str, Any]:
+        """ORCH-623: an ask step's card shows, under its question, the checked answers of the steps it depends on, whole
+        (ORCH-601: never cut), in its depends_on order: the planner wrote the question before they existed ("this
+        exact summary"), so the owner sees what they're asked about. None when those steps answered nothing."""
+        said = [str((prior.get(d) or {}).get('answer') or '').strip() for d in step.depends_on]
+        shown = "\n\n".join(s for s in said if s)
+        return {'detail': self.gateway.redact(shown)} if shown else {}
+
     def _safe_scopes(self, plan: Plan) -> list[SendScope]:
         return [SendScope.model_validate(self.gateway.redact(s.model_dump())) for s in plan.standing_sends]
 
@@ -4922,7 +4930,8 @@ class Supervisor(WorkerRuns):
 
         async def execute(step: Step, inputs: list[str], prior: dict[str, Any]) -> dict[str, Any]:
             if step.kind == 'ask':
-                return await self._plan_question(tree, step.question, step.options, step_id=step.id)
+                return await self._plan_question(tree, step.question, step.options, step_id=step.id,
+                                                 card=self._ask_card(step, prior))
             if step.kind == 'converse' or step.loops:
                 # a loop or a conversation that answers: its end check also judges the task's conditions it answers
                 answers = self._answer_conditions(tree, step.id, answering)

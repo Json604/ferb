@@ -49,6 +49,11 @@ struct ApprovalView: View {
                 if let exact = approval.exact { ExactBox(text: exact) }
             } else {
                 MarkdownContent(approval.visibleReason).equatable().font(.system(size: 12, weight: inRow ? .medium : .regular))
+                if let detail = approval.detail {
+                    // ORCH-623: what a plan's question is about (the checked answers of the steps before it), whole,
+                    // under it, as the answers themselves read
+                    MarkdownContent(detail).equatable().font(.system(size: 11.5)).foregroundStyle(Palette.secondary)
+                }
             }
             if let why = approval.why {                // the task's reason, its own words, smaller (2026-10-27)
                 // chat text draws through FERB's own text view (APP-788); GATE-566: marked as the AI's words
