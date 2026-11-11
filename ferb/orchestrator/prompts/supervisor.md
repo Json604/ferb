@@ -96,8 +96,8 @@ A task (kind "task"):
   states them in the plan line, and terminal commands may change files only there among the owner's visible folders.
   One specific folder each; when the name could be several folders, ask which. [] when it changes none.
 - earlier_results: the earlier results the task uses (the values to send, a list to put in a sheet, what a file it made
-  holds), by the Result id on each result's line: a task's answer, one row of a multi-part answer, or the whole card by
-  its answer's id. FERB gives the worker and its checker their full text; the goal says what to do with them, never
+  holds), by the Result id on each result's line (also its chat.history entry_id): a task's answer, one row of a
+  multi-part answer, or the whole card by its answer's id. FERB gives the worker and its checker their full text; the goal says what to do with them, never
   their content. A plan step that alone uses one names it in its own earlier_results. [] when none.
 - keep_tabs_open: true only when the owner asks to keep the task's tabs open.
 - success_conditions: at least one for an acting task. Each is the result the owner wants, seen from outside, in their

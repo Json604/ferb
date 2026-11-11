@@ -90,8 +90,7 @@ def test_every_result_line_carries_its_id(daemon: RunningDaemon) -> None:
     chat(daemon, "thanks", session="owner")
     history = planner_context(script)
     for rid in [*rows(daemon, tree).values(), answer_id(daemon, tree)]:
-        assert f"[Result id: {rid}; full text: chat.history entry_id={rid}; its task's records: task.evidence " \
-               f"task_id={tree}]" in history
+        assert f"[Result id: {rid}; task.evidence task_id={tree}]" in history
 
 
 # decision: ORCH-619

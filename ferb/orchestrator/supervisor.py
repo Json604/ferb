@@ -755,10 +755,9 @@ class _Entry:
 
 
 def result_reference(entry_id: str, task_id: Any) -> str:
-    """ORCH-619: how every result's line in the planner's conversation ends: the id a task names it by, where its full
-    text is and where its task's records are."""
-    return (f"Result id: {entry_id}; full text: chat.history entry_id={entry_id}"
-            + (f"; its task's records: task.evidence task_id={task_id}" if task_id else ""))
+    """ORCH-619: how every result's line in the planner's conversation ends: the id a task names it by (also the
+    chat.history entry_id of its full text, as supervisor.md says) and where its task's records are."""
+    return f"Result id: {entry_id}" + (f"; task.evidence task_id={task_id}" if task_id else "")
 
 
 # ORCH-622: the labels FERB's conversation puts before an entry's text for the planner (`Supervisor._timeline`): its tag,
