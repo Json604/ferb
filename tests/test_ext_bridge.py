@@ -91,6 +91,7 @@ def test_refusal_metadata_distinguishes_protocol_failure_from_pairing_failure(pa
         assert reply['minimum_version'] == MIN_EXTENSION_VERSION
 
 
+# decision: APP-892
 def test_reinstalled_extension_is_reported_without_claiming_a_profile(bd: Any) -> None:
     d, launched = bd
     old = pair(d, launched, "Work")
@@ -100,6 +101,24 @@ def test_reinstalled_extension_is_reported_without_claiming_a_profile(bd: Any) -
     fresh = FakeExtension(d.daemon.home)
     fresh.connect()
     fresh.wait_for(lambda: fresh.install_id in d.daemon.hub.unpaired)
+    assert d.daemon.hub.unpaired_copies() == {'chrome': fresh.version}
+    # APP-892 (live 2026-11-11, Brave "Work"): Settings → Browsers says the paired profile needs pairing again, with
+    # the new copy's version, never "open this profile"; a browser with no unpaired copy connected is only closed
+    from ferb.act.browser import autoinstall
+    from ferb.device.extensions import browser_rows
+    work_files = autoinstall.ProfileStatus("chrome", "Profile 1", "Work", "id", True, False, True, version="")
+    closed = autoinstall.ProfileStatus("brave", "Default", "Home", "id", True, False, True, version="0.19.8")
+    [chrome, brave] = browser_rows([autoinstall.BrowserState("chrome", None, (work_files,)),
+                                    autoinstall.BrowserState("brave", None, (closed,))], "", d.daemon.home, None,
+                                   {}, None, d.daemon.hub.unpaired_copies())["browsers"]
+    row = chrome["profiles"][0]
+    assert row["needs_pairing"] and row["version"] == fresh.version and not row["connected"]
+    assert not brave["profiles"][0]["needs_pairing"] and brave["profiles"][0]["version"] == "0.19.8"
+    # paired again: connected, and the version is the one the connected copy said (its files may name none)
+    [after] = browser_rows([autoinstall.BrowserState("chrome", None, (work_files,))], "", d.daemon.home, None,
+                           {("chrome", "Profile 1"): fresh.version}, None, {})["browsers"]
+    assert after["profiles"][0]["connected"] and not after["profiles"][0]["needs_pairing"]
+    assert after["profiles"][0]["version"] == fresh.version
     c = Client(d.sock)
     try:
         report = c.call('browsers.list')

@@ -4146,3 +4146,12 @@ request = "Ask for two things in one message that both browse, and in another me
 pass = "With the card's running rows in view, the strip shows only the single task's picture; \"2 active tasks\" and the time stay. Scrolled out of view, the strip shows the two-part task's picture again; back in view, it goes. Activity Monitor shows FERB's CPU no higher than with the rows alone."
 decisions = ["APP-891"]
 sitting = "after this change is installed"
+
+[LIVE-905]
+title = "A profile whose FERB extension was added again says it needs pairing, and pairs from its row"
+area = "app"
+surface = "FERB.app with this build; Brave \"Work\" (paired), Settings → Browsers"
+request = "In Brave \"Work\", turn the FERB extension off and add it again (Load unpacked or remove and re-add it from the store), keep Brave open; open Settings → Browsers. Then press Pair on that row."
+pass = "Before: the row reads \"Needs pairing again: FERB's extension here is a new copy\" with \"Extension <version>\" and a Pair button, not \"open this profile\". After Pair: \"Paired · connected\" with the version."
+decisions = ["APP-892"]
+sitting = "after this change is installed"

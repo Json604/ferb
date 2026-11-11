@@ -139,6 +139,27 @@ final class SetupModelsTests: XCTestCase {
         XCTAssertEqual(rows[0].version, "0.19.4")
     }
 
+    /// Live 2026-11-11, Brave "Work": its paired store copy switched off and a new copy (a new identity) connected
+    /// but unpaired; the row said "Paired · not connected (open this profile)", which opening would never fix. Now it
+    /// needs pairing again, with the new copy's version and the Pair button; once paired it is connected.
+    // decision: APP-892, APP-883
+    func testAPairedProfileWhoseNewCopyIsConnectedUnpairedOffersPairAgain() throws {
+        let before = try XCTUnwrap(BrowserSnapshot(reply: ["browsers": [["browser": "brave", "profiles": [
+            ["folder": "Default", "name": "Work", "state": "paired", "connected": false, "needs_pairing": true,
+             "version": "0.19.9"],
+            ["folder": "P1", "name": "Home", "state": "paired", "connected": false]]]]]))
+        let (work, home) = (before.browsers[0].profiles[0], before.browsers[0].profiles[1])
+        XCTAssertTrue(work.needsPairing && work.offersPair && work.needsAttention)
+        XCTAssertNotEqual(work.stateText, home.stateText)                // not "open this profile"
+        XCTAssertEqual(work.version, "0.19.9")
+        XCTAssertFalse(home.offersPair)                                  // closed: opening it connects it
+        let after = try XCTUnwrap(BrowserSnapshot(reply: ["browsers": [["browser": "brave", "profiles": [
+            ["folder": "Default", "name": "Work", "state": "paired", "connected": true, "version": "0.19.9"]]]]]))
+        let paired = after.browsers[0].profiles[0]
+        XCTAssertFalse(paired.offersPair || paired.needsAttention)
+        XCTAssertEqual(paired.stateText, "Paired · connected")
+    }
+
     // decision: APP-884
     func testASettingFERBDidntGiveIsUnknownNotADefault() {
         let snapshot = SettingsSnapshot(["values": ["sense.window_titles": false]])

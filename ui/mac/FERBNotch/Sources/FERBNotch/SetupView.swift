@@ -511,7 +511,7 @@ struct BrowsersStepView: View {
                                     if profile.state.canAdd {
                                         Button("Add to \(browser.label)") { Task { await model.addExtension(profile) } }
                                     }
-                                    if profile.state == .on && !profile.ferbIdentity {
+                                    if profile.offersPair {
                                         Button("Pair") { Task { await model.pairProfile(profile) } }
                                             .disabled(model.pairing || profile.tooOld)
                                     }

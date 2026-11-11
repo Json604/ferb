@@ -447,11 +447,21 @@ class Bridge:
 
 
 class Hub:
+    def unpaired_copies(self) -> dict[str, str]:
+        """APP-892: each browser with an unpaired FERB copy connected now, and that copy's version ("" when it said
+        none, or when there are several there and they differ)."""
+        out: dict[str, str] = {}
+        for install, browser in self.unpaired.items():
+            version = self.unpaired_version.get(install, "")
+            out[browser] = version if out.get(browser, version) == version else ""
+        return out
+
     def __init__(self, pairings: Pairings, ledger: Ledger, publish: Publish, device_id: Callable[[], str]) -> None:
         self.pairings, self.ledger, self.publish, self.device_id = pairings, ledger, publish, device_id
         self.bridges: dict[tuple[str, str], Bridge] = {}
         self.refused: dict[str, str] = {}                    # install_id -> why (e.g. protocol mismatch)
         self.unpaired: dict[str, str] = {}                   # install_id -> browser: installed, connected, not paired
+        self.unpaired_version: dict[str, str] = {}           # install_id -> the version its hello said (APP-892)
         self.on_unpaired: Callable[[], None] = lambda: None  # an unpaired copy said hello: FERB can pair it (L25)
         # The activity trail: every tab event goes to on_tab; while paused, only tabs FERB owns are tracked.
         self.on_tab: Callable[["Bridge", TabEvent], None] = lambda br, e: None
@@ -615,6 +625,7 @@ class Hub:
         finally:
             if conn.unpaired_install:
                 self.unpaired.pop(conn.unpaired_install, None)
+                self.unpaired_version.pop(conn.unpaired_install, None)
             if conn.bridge is not None:
                 conn.bridge.drop(conn)
                 self.publish("browser.disconnected", {"profile": conn.bridge.name})
@@ -633,6 +644,7 @@ class Hub:
             return                                           # unpaired / bad MAC / replay: dropped, nothing acts
         if v.reply is not None:                              # just paired: hand the key back on this connection
             self.unpaired.pop(m.install_id, None)
+            self.unpaired_version.pop(m.install_id, None)
             conn.writer.write(json.dumps(v.reply).encode() + b"\n")
             await conn.writer.drain()
             if v.binding:
@@ -642,11 +654,13 @@ class Hub:
         if v.binding is None:                                # unpaired hello: nothing acts; FERB can tell the owner
             if m.type == "hello":
                 try:
-                    b = str(m.body().get("browser") or "")
+                    said = m.body()
                 except ValueError:
-                    b = ""
+                    said = {}
+                b = str(said.get("browser") or "")
                 if b in ("chrome", "brave"):
                     self.unpaired[m.install_id] = b
+                    self.unpaired_version[m.install_id] = str(said.get("version") or "")[:32]
                     conn.unpaired_install = m.install_id
                     self.on_unpaired()
                 conn.writer.write(json.dumps({"type": "pairing_required"}).encode() + b"\n")

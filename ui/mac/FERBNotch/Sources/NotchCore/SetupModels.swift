@@ -181,9 +181,13 @@ public struct BrowserProfileRow: Equatable, Identifiable {
     public let tooOld: Bool
     /// Why a paired profile isn't connected, in the daemon's words (refused, or too old as last reported); "" none.
     public let problem: String
+    /// APP-892: paired, but the copy of FERB's extension that answers there now is a new one (added again: a new
+    /// identity), connected and not paired: opening the profile won't connect it, pairing it again will.
+    public let needsPairing: Bool
 
     public init(browser: String, folder: String, name: String, email: String = "", state: ProfileSetupState,
-                ferbIdentity: Bool, connected: Bool, version: String = "", tooOld: Bool = false, problem: String = "") {
+                ferbIdentity: Bool, connected: Bool, version: String = "", tooOld: Bool = false, problem: String = "",
+                needsPairing: Bool = false) {
         self.browser = browser
         self.folder = folder
         self.name = name
@@ -194,6 +198,7 @@ public struct BrowserProfileRow: Equatable, Identifiable {
         self.version = version
         self.tooOld = tooOld
         self.problem = problem
+        self.needsPairing = needsPairing
     }
 
     /// The row's state as it stands now (APP-883): its problem first, then too old, then paired and whether its
@@ -201,12 +206,16 @@ public struct BrowserProfileRow: Equatable, Identifiable {
     public var stateText: String {
         if !problem.isEmpty { return "Not connected: " + problem }
         if tooOld { return "Too old (version \(version)): update FERB's extension in this profile" }
+        if needsPairing { return "Needs pairing again: FERB's extension here is a new copy" }
         if state == .paired { return connected ? "Paired · connected" : "Paired · not connected (open this profile)" }
         return state.text
     }
 
-    /// A row that needs the owner: a problem or an extension too old.
-    public var needsAttention: Bool { !problem.isEmpty || tooOld }
+    /// A row that needs the owner: a problem, an extension too old, or a new copy to pair (APP-892).
+    public var needsAttention: Bool { !problem.isEmpty || tooOld || needsPairing }
+
+    /// The row offers Pair: FERB's extension is on there and not paired, or a new copy needs pairing again (APP-892).
+    public var offersPair: Bool { !ferbIdentity && (state == .on || needsPairing) }
 }
 
 public struct BrowserRow: Equatable, Identifiable {
@@ -255,7 +264,8 @@ public struct BrowserSnapshot: Equatable {
                 return BrowserProfileRow(browser: name, folder: folder, name: p["name"] as? String ?? folder,
                                          email: p["email"] as? String ?? "", state: state, ferbIdentity: p["ferb_identity"] as? Bool ?? false,
                                          connected: p["connected"] as? Bool ?? false, version: p["version"] as? String ?? "",
-                                         tooOld: p["too_old"] as? Bool ?? false, problem: p["problem"] as? String ?? "")
+                                         tooOld: p["too_old"] as? Bool ?? false, problem: p["problem"] as? String ?? "",
+                                         needsPairing: p["needs_pairing"] as? Bool ?? false)
             }
             return BrowserRow(browser: name, label: browser["label"] as? String ?? name,
                               requested: browser["requested"] as? Bool ?? false,

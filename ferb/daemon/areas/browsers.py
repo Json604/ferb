@@ -826,9 +826,11 @@ class Browsers:
         paired = {(b.browser, b.folder) for b in self.pairings.all()} if self.pairings is not None else None
         states = await asyncio.to_thread(autoinstall.read_states, self.browser_support, store, ids, paired,
                                          self.browser_data_dirs)
-        connected = {key for key, br in self.hub.bridges.items() if br.conn} if self.hub is not None else set()
+        # APP-892: the version each connected copy said in its hello, and the browsers with an unpaired copy connected
+        connected = {key: br.version for key, br in self.hub.bridges.items() if br.conn} if self.hub is not None else {}
         others = await asyncio.to_thread(browser_profiles.unsupported)          # HAND-415
-        rows = browser_rows(states, store, extension_path(self.home), self._identity_profile(), connected, others)
+        rows = browser_rows(states, store, extension_path(self.home), self._identity_profile(), connected, others,
+                            self.hub.unpaired_copies() if self.hub is not None else {})
         why = self._profile_problems()
         for browser in rows["browsers"]:          # APP-883: each profile's own problem on its row
             for row in browser["profiles"]:

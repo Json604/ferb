@@ -3475,3 +3475,14 @@ rule = "Refines APP-888. While a running row of a task's multi-part card shows i
 why = "Measured with the daemon's real TaskPreviews (249 ms captures, the owner's 11:42-11:47 average): the strip's copy adds no capture (one capture per task, shared) but 51% more preview requests (9.3 to 14.1 a second) and 45% more frames sent and decoded (2.8 to 4.1 a second)."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift::TaskActivityBubble", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::RowPreview", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.rowPreview", "ui/mac/FERBNotch/Sources/FERBNotch/TaskPreview.swift::OnScreenReader"]
 live = ["LIVE-904"]
+
+[APP-892]
+title = "Settings → Browsers: a paired profile whose new extension copy is connected unpaired needs pairing"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "Refines APP-883. When a browser has a FERB copy connected but not paired (Hub.unpaired_copies: a reinstall or a newly loaded copy has a new identity), each paired profile of that browser that isn't connected reads \"Needs pairing again: FERB's extension here is a new copy\", in the attention colour, with the Pair button and that copy's version (setup.browsers `needs_pairing`). After pairing it reads \"Paired · connected\" with the version the connected copy said in its hello, before its files' one. \"(open this profile)\" stays only for a paired profile with nothing known against it."
+why = "Live 2026-11-11, Brave \"Work\": the paired store copy was off and a new copy connected unpaired; the row said \"Paired · not connected (open this profile)\" with no version, and opening would never fix it. The task side already said so (ext_bridge `_connected`)."
+paths = ["ferb/device/extensions.py::browser_rows", "ferb/act/browser/ext_bridge.py::Hub.unpaired_copies", "ferb/daemon/areas/browsers.py", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift::BrowserProfileRow", "ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift"]
+untestable = "Which profile a new copy is in: its hello names only its browser, so with two paired profiles of that browser not connected, both read needs pairing again (the task side guesses the same way)."
+live = ["LIVE-905"]

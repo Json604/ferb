@@ -106,14 +106,32 @@ def not_paired_step(p: Any, label: str, requested: bool, store_url: str, extensi
 
 
 def browser_rows(states: list[Any], store_id: str, extension_dir: Path, ferb_identity: tuple[str, str] | None,
-                 connected: set[tuple[str, str]], unsupported: list[dict[str, str]] | None = None) -> dict[str, Any]:
+                 connected: set[tuple[str, str]] | dict[tuple[str, str], str],
+                 unsupported: list[dict[str, str]] | None = None,
+                 unpaired: dict[str, str] | None = None) -> dict[str, Any]:
     """`setup.browsers`'s reply: per browser whether FERB asked it to install the extension and whether Load unpacked is
     the way there (as `autoinstall.describe` says it), and per profile its state; `unsupported`: each installed
     Chromium-family browser FERB doesn't know, with its plain line (HAND-415). APP-883: each profile's installed
-    extension version (from its files, read afresh) and whether it is below MIN_EXTENSION_VERSION (`too_old`)."""
+    extension version (from its files, read afresh) and whether it is below MIN_EXTENSION_VERSION (`too_old`).
+    APP-892: `connected` may carry each connected profile's version as its hello said it (the copy that answers), shown
+    before the files' one; `unpaired` (browser -> version, Hub.unpaired_copies) names browsers where a FERB copy is
+    connected but not paired: a paired profile there that isn't connected `needs_pairing` (a reinstall gives the copy a
+    new identity, so opening the profile won't connect it; pairing it again will), with that copy's version."""
     from ferb.act.browser import autoinstall, profiles
     from ferb.act.browser.ext_protocol import version_ok
     valid = autoinstall.valid_id(store_id)
+    versions = connected if isinstance(connected, dict) else {}
+    unpaired = unpaired or {}
+
+    def row(p: Any) -> dict[str, Any]:
+        key = (p.browser, p.folder)
+        state = profile_state(p)
+        needs = state == "paired" and key not in connected and p.browser in unpaired
+        version = (unpaired[p.browser] if needs else versions.get(key, "")) or p.version
+        return {"folder": p.folder, "name": p.name, "email": p.email, "state": state,
+                "ferb_identity": key == ferb_identity, "connected": key in connected,
+                "needs_pairing": needs, "version": version,
+                "too_old": bool(version) and not version_ok(version)}
     return {"store_url": store_page(store_id) or None, "extension_dir": str(extension_dir),
             "unsupported": [{"app": u["app"], "bundle_id": u["bundle_id"],
                              "message": autoinstall.unsupported_line(u["app"])} for u in unsupported or []],
@@ -122,11 +140,5 @@ def browser_rows(states: list[Any], store_id: str, extension_dir: Path, ferb_ide
                           "manual": not valid,          # HAND-247: every browser adds FERB from its store page
                           "unconfirmed": autoinstall.UNCONFIRMED.get(s.browser, ""),
                           "note": autoinstall.INSTALL.get(s.browser, ("store", ""))[1],
-                          "profiles": [{"folder": p.folder, "name": p.name, "email": p.email,
-                                        "state": profile_state(p),
-                                        "ferb_identity": (p.browser, p.folder) == ferb_identity,
-                                        "connected": (p.browser, p.folder) in connected,
-                                        "version": p.version,
-                                        "too_old": bool(p.version) and not version_ok(p.version)}
-                                       for p in s.profiles]}
+                          "profiles": [row(p) for p in s.profiles]}
                          for s in states]}
