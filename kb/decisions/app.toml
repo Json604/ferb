@@ -3451,3 +3451,15 @@ rule = "Refines APP-828 and APP-888. A picture FERB shows small (the payment pag
 why = "The popover had no visible way back: a click outside it was the only one, and nothing said so."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/VisualComponents.swift::EnlargeablePicture", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.closeEnlargedPicture", "ui/mac/FERBNotch/Sources/FERBNotch/PaymentPicture.swift::PaymentPictureView", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::RowPreview", "ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowPanel", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
 live = ["LIVE-902"]
+
+[APP-890]
+title = "A task's live picture enlarges in its short view and its own box; the box says only the current line"
+by = "owner"
+date = 2026-11-11
+status = "active"
+words = "good, can we have that for normal task preview also??? the enlarge on click on both extracted and normal clcik to see??? also in the extracted preview box, there is every log shoein in a scroll windo, lets keep it like normla only showing what command currently ran. this already happens when i click the preview box normally and it opens a short view so yeah"
+words_source = "Owner 2026-11-11, replying to the APP-889 plan (\"The same goes for the enlarged row previews\")."
+rule = "Refines APP-889 and APP-403. The live picture in a task's short view (the round picture by the active tasks, clicked) and in its own box (the short view's Detach activity) enlarges on a click, closed as APP-889 says. The box shows its heading, the task's name, its ✕, the picture and one line: what FERB is doing now, the same line the short view shows (TaskItem.currentLine); no list. The whole list stays in Show activity and the Tasks page."
+why = "The box repeated every line in a scrolling list while the short view already said the one that matters."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift::TaskActivityBubble", "ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift::DetachedTaskActivityView", "ui/mac/FERBNotch/Sources/FERBNotch/TaskList.swift::TaskItem.currentLine"]
+live = ["LIVE-903"]

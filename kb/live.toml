@@ -4128,3 +4128,12 @@ request = "At the payment card, click the checkout picture; close it with its �
 pass = "Each click shows the picture larger with a ✕ in its corner; each of the four ways makes it small again; Esc closes only the picture (the notch and the chat window stay); typing goes on in the box or field you were in without clicking it again. In the chat window the card's own picture is a small preview, not page-sized."
 decisions = ["APP-889"]
 sitting = "after this change is installed"
+
+[LIVE-903]
+title = "A task's live picture enlarges in its short view and its own box; the box says only the current line"
+area = "app"
+surface = "FERB.app with this build, a task that browses for a minute"
+request = "While it runs, click the round picture by the active task: in the short view click the picture, close it (its ✕, a click on it, a click outside, Esc). Press Detach activity: in the box click the picture and close it the same ways. Watch the box's line as the task goes on."
+pass = "Both pictures show larger with a ✕ and close each of the four ways; the box shows the heading, the task's name, its ✕, the picture and one line that changes as the task works (the same as the short view's), with no scrolling list; Show activity still lists every step."
+decisions = ["APP-890", "APP-889"]
+sitting = "after this change is installed"

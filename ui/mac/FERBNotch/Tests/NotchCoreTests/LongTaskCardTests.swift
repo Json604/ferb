@@ -114,6 +114,20 @@ final class LongTaskCardTests: XCTestCase {
         XCTAssertTrue(pieces[1].hasPrefix("1"))
     }
 
+    /// Owner 2026-11-11: "in the extracted preview box, there is every log shoein in a scroll windo, lets keep it like
+    /// normla only showing what command currently ran". The short view and the extracted box say the same one line:
+    /// the latest thing FERB did; and either picture enlarges past the short view's size.
+    // decision: APP-890, APP-889
+    func testTheShortViewAndTheExtractedBoxSayOnlyTheCurrentLine() {
+        let working = TaskItem(id: "t", backendID: "t", localID: nil, title: "Order batteries", status: "working",
+                               activity: [TaskActivity(title: "opened amazon.in"), TaskActivity(title: "clicked Buy Now")])
+        XCTAssertEqual(working.currentLine, "clicked Buy Now")
+        let starting = TaskItem(id: "s", backendID: "s", localID: nil, title: "Order", status: "working", activity: [])
+        XCTAssertFalse(starting.currentLine.isEmpty)
+        XCTAssertGreaterThan(EnlargedPreview.size.width, 300)          // larger than the short view's picture
+        XCTAssertLessThan(DetachedTaskActivityView.height, 370)        // the box lost its list
+    }
+
     // decision: ORCH-531
     func testStepEventsApplyByOrderAndThePayloadNeverOverridesANewerState() {
         var card = TurnCard(["request_id": "R", "rows": [["part": "leads", "label": "Leads", "state": "working",

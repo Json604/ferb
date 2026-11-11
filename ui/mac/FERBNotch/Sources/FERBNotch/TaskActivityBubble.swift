@@ -98,14 +98,21 @@ struct TaskActivityBubble: View {
 
     private func expandedBubble(for item: TaskItem) -> some View {
         VStack(spacing: 8) {
-            TaskVideoView(preview: model.preview(for: item))
-                .frame(width: 300, height: 170)
-                .clipShape(RoundedRectangle(cornerRadius: 9))
+            // APP-890: a click shows it larger, closed as every enlarged picture is (APP-889)
+            EnlargeablePicture(model: model, label: "Live preview of " + item.title) {
+                TaskVideoView(preview: model.preview(for: item))
+                    .frame(width: 300, height: 170)
+                    .clipShape(RoundedRectangle(cornerRadius: 9))
+            } large: {
+                TaskVideoView(preview: model.preview(for: item))
+                    .frame(width: EnlargedPreview.size.width, height: EnlargedPreview.size.height)
+                    .clipShape(RoundedRectangle(cornerRadius: 9))
+            }
             HStack(alignment: .center, spacing: 9) {
             ProgressView().controlSize(.small)
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
-                Text(item.activity.last?.title ?? "Starting task…")
+                Text(item.currentLine)
                     .font(.system(size: 10)).foregroundStyle(Palette.secondary).lineLimit(1)
             }
             Button {
@@ -131,7 +138,7 @@ struct TaskActivityBubble: View {
 
 final class TaskActivityPanel: NSPanel {
     init(model: NotchModel, taskID: String, onClose: @escaping () -> Void) {
-        let size = CGSize(width: 350, height: 370)
+        let size = CGSize(width: DetachedTaskActivityView.width, height: DetachedTaskActivityView.height)
         let screen = NSScreen.main?.visibleFrame ?? CGRect(x: 100, y: 100, width: 1200, height: 800)
         let origin = CGPoint(x: screen.midX - size.width / 2, y: screen.midY - size.height / 2)
         super.init(contentRect: CGRect(origin: origin, size: size),
@@ -159,6 +166,9 @@ struct DetachedTaskActivityView: View {
     @ObservedObject var model: NotchModel
     let taskID: String
     let onClose: () -> Void
+    /// The box's size: its title, the picture and the one line (APP-890), no list under them.
+    static let width: CGFloat = 350
+    static let height: CGFloat = 300
 
     private var task: TaskItem? { model.taskItems.first { $0.id == taskID } }
 
@@ -177,22 +187,23 @@ struct DetachedTaskActivityView: View {
                                 .frame(width: 23, height: 23)
                         }.buttonStyle(.plain).help("Close activity")
                     }
-                    TaskVideoView(preview: model.preview(for: task))
-                        .frame(height: 170)
-                        .clipShape(RoundedRectangle(cornerRadius: 9))
-                    Divider().opacity(0.4)
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 8) {
-                            ForEach(task.activity) { item in
-                                // chat text draws through FERB's own text view (APP-788)
-                                HStack(alignment: .top, spacing: 6) {
-                                    Image(systemName: item.symbol).font(.system(size: 11))
-                                    NativeMessageText(item.title, size: 11)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            if task.activity.isEmpty { Text("Starting task…").font(.system(size: 11)).foregroundStyle(Palette.secondary) }
-                        }
+                    // APP-890: a click shows it larger, closed as every enlarged picture is (APP-889)
+                    EnlargeablePicture(model: model, label: "Live preview of " + task.title) {
+                        TaskVideoView(preview: model.preview(for: task))
+                            .frame(width: Self.width - 30, height: 170)
+                            .clipShape(RoundedRectangle(cornerRadius: 9))
+                    } large: {
+                        TaskVideoView(preview: model.preview(for: task))
+                            .frame(width: EnlargedPreview.size.width, height: EnlargedPreview.size.height)
+                            .clipShape(RoundedRectangle(cornerRadius: 9))
+                    }
+                    // APP-890 (owner 2026-11-11: "lets keep it like normla only showing what command currently ran"):
+                    // the one line of what FERB is doing now, as the short view says it; the whole list stays in Show
+                    // activity and the Tasks page
+                    HStack(alignment: .center, spacing: 9) {
+                        ProgressView().controlSize(.small)
+                        Text(task.currentLine).font(.system(size: 11)).foregroundStyle(Palette.secondary).lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
                 .padding(15)

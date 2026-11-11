@@ -17,6 +17,9 @@ struct TaskItem: Identifiable, Equatable {
     var isRunning: Bool { Self.isRunning(status) }
     /// Still going: running, or a loop kept between its rounds. Either can be stopped.
     var isOngoing: Bool { isRunning || standing != nil }
+    /// APP-890: what FERB is doing now, the one line its short view and its own box show (the whole list stays in
+    /// Show activity and the Tasks page).
+    var currentLine: String { activity.last?.title ?? "Starting task…" }
     static func isRunning(_ status: String) -> Bool { status == "working" || status == "needs_user" }
 }
 
