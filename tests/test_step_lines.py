@@ -113,3 +113,26 @@ def test_tool_finished_publishes_only_the_shown_args_clipped(daemon: RunningDaem
         return json.loads(daemon.daemon.db.conn.execute(
             "SELECT input_json FROM spans WHERE kind = 'tool.call'").fetchone()[0])["args"]
     assert daemon.run(go()) == {"text": "y" * 500, "to": "someone@x.com", "site": "a.com"}
+
+
+# decision: APP-893
+def test_a_tasks_plain_live_line_goes_on_the_bus_for_its_short_view(daemon: RunningDaemon) -> None:
+    """Live 2026-11-11: the short view and the detached box showed the gateway's tool name ("browser.act") while the
+    card row showed "Clicking in www.amazon.in". The plain line now goes on the bus too (task.progress), by the task."""
+    from tests.conftest import chat, install, outcome, sup, task, tool
+    sv = daemon.daemon.supervisor
+    seen: list[tuple[str, dict]] = []
+    original = sv.publish
+    sv.publish = lambda topic, data: (seen.append((topic, data)), original(topic, data))[1]
+    folder = daemon.daemon.home / "workspace"
+    folder.mkdir(parents=True, exist_ok=True)
+
+    def look(token: str) -> str:
+        assert not tool(daemon.sock, token, "fs.list", path=str(folder))["is_error"]
+        return json.dumps({"status": "done", "reason": "", "question": None, "answer": "It's empty.",
+                           "artifacts": [], "how": ""})
+    install(daemon, [sup("task", "Looking.", task("List the workspace folder"))], {"worker": look})
+    final = outcome(chat(daemon, "what's in my workspace folder?"))
+    said = [d for topic, d in seen if topic == "task.progress"]
+    assert said and {"task_id": final["task_id"], "step_task_id": final["task_id"] + ".worker",
+                     "text": "looking in workspace"}.items() <= said[0].items()

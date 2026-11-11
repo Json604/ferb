@@ -4621,8 +4621,7 @@ class Supervisor(WorkerRuns):
             self._sleeping[root] = self.gateway.redact({"until": f"{until.astimezone():%H:%M}",
                                                         "until_at": until.isoformat(), "reason": reason})
             text = sleeping_line(self._sleeping[root])
-        self._tell_tree(root, {"type": "progress", "step_task_id": task_id, "text": self.gateway.redact(text),
-                               "started_at": self.clock.now().isoformat()})
+        self._progress_line(root, task_id, self.gateway.redact(text))
 
     def preview_status(self, root: str, worker: str) -> tuple[str, str] | None:
         """What a task is doing now, for its live preview (APP-404), from FERB's own records: done

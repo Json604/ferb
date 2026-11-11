@@ -137,8 +137,9 @@ public struct RowDisplay: Equatable {
         return names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
     }
 
-    /// The live line as the row's words: its first letter capitalized.
-    static func sentence(_ text: String) -> String {
+    /// The live line as the row's words: its first letter capitalized. APP-893: a task's short view and its own box
+    /// say it the same way.
+    public static func sentence(_ text: String) -> String {
         guard let first = text.first else { return text }
         return first.uppercased() + text.dropFirst()
     }

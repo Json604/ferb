@@ -3486,3 +3486,13 @@ why = "Live 2026-11-11, Brave \"Work\": the paired store copy was off and a new 
 paths = ["ferb/device/extensions.py::browser_rows", "ferb/act/browser/ext_bridge.py::Hub.unpaired_copies", "ferb/daemon/areas/browsers.py", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift::BrowserProfileRow", "ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift"]
 untestable = "Which profile a new copy is in: its hello names only its browser, so with two paired profiles of that browser not connected, both read needs pairing again (the task side guesses the same way)."
 live = ["LIVE-905"]
+
+[APP-893]
+title = "A task's card row, short view and own box say the same plain line, never a tool's name"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "Refines APP-890. The daemon puts each task's plain live line (code's words: progress.describe, a sleep's line; ORCH-531/532) on the bus as task.progress {task_id: the task, step_task_id, text, started_at}, beside its stream's progress event. FERB.app takes that one line for a card row's live words (stepLive), for the task's activity list and so TaskItem.currentLine (the short view and the detached box), each worded as the row says it (first letter capitalized). tool.called no longer adds a tool's name to the activity, and a step's bare state (\"started\") is no line."
+why = "Live 2026-11-11: the row said \"Clicking in www.amazon.in\" while the short view and the detached box said \"browser.act\" and \"owner.ask\"."
+paths = ["ferb/orchestrator/worker.py::WorkerRuns._progress_line", "ferb/bus.py", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TaskList.swift::TaskItem.currentLine", "ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::RowDisplay.sentence"]
+live = ["LIVE-909"]

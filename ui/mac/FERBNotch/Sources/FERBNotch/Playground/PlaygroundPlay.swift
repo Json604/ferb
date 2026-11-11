@@ -263,6 +263,9 @@ final class PlaygroundPlayer: ObservableObject {
 
     func live(_ id: String, _ text: String) {
         push(["type": "progress", "step_task_id": ids.step(id), "text": text, "started_at": Self.now])
+        // APP-893: the same line on the bus, as the daemon sends it, for the task's short view and its own box
+        workspace.emit("task.progress", ["task_id": ids.task, "step_task_id": ids.step(id), "text": text,
+                                         "started_at": Self.now])
     }
 
     func part(_ id: String, _ label: String, _ state: String, text: String? = nil, note: String? = nil,

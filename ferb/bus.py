@@ -40,6 +40,7 @@ TELEMETRY = {"tool.called", "tool.finished", "trail.event", "action.observed", "
              "memory.embedding_unavailable", "perception.attention", "perception.batch", "security.alignment",
              "memory.import.progress",   # a memory import's counts as it goes (memory.import.status has them too)
              "task.step",     # ORCH-531: a plan step's state (a lost one is re-read: bus.dropped -> chat.status)
+             "task.progress",  # APP-893: a task's plain live line (a lost one is replaced by the next)
              "cursor.point"}   # L33: where an action is about to land, for the notch overlay (geometry only)
 STABLE_TOPICS = CRITICAL | TELEMETRY
 DROPPED = "bus.dropped"   # synthetic notice to a subscriber: {"count": n} telemetry events were dropped

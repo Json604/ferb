@@ -319,8 +319,7 @@ class WorkerRuns:
         if (notice := self._connection.get(grant.worker_id)) is not None:
             notice.back()
         tree = self._tree_of.get(grant.task_id)
-        live = self._live.get(tree.id) if tree is not None else None
-        if tree is None or live is None:        # no running task stream to show it on
+        if tree is None:                        # no running task to show it on
             return
         try:
             app = progress.app_name(args, site, self.apps(), self.running_apps) if name.startswith("mac.") else None
@@ -333,8 +332,15 @@ class WorkerRuns:
             "tool": name, "line": text, **({"site": site} if site else {}), **({"app": app} if app else {}),
             "at": f"{self.clock.now().astimezone():%H:%M}"})
         # the step's own task id, so each of a card's parallel rows shows its own line (ORCH-531)
-        live.put_nowait({"type": "progress", "task_id": tree.id, "step_task_id": tree.worker.id, "text": text,
-                         "started_at": self.clock.now().isoformat()})
+        self._progress_line(tree.id, tree.worker.id, text)
+
+    def _progress_line(self, tree_id: str, step_task_id: str, text: str) -> None:
+        """APP-893: a task's plain live line (code's words: `progress.describe`, a sleep's line), the one source its card
+        row, its short view and its own box show: on the tree's stream while it runs, and on the bus (`task.progress`)
+        for FERB.app whichever chat or schedule the task belongs to."""
+        line = {"step_task_id": step_task_id, "text": text, "started_at": self.clock.now().isoformat()}
+        self._tell_tree(tree_id, {"type": "progress", **line})
+        self.publish("task.progress", {"task_id": tree_id, **line})
 
     def _tell_tree(self, tree_id: str, event: dict[str, Any]) -> None:
         """An event on a tree's live line (its run's stream, L8), while the tree runs."""

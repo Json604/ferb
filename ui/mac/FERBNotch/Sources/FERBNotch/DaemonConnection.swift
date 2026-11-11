@@ -426,7 +426,8 @@ extension NotchModel {
             feedback.play(.error)
             onBackgroundChange?(true)
         case "subtask":
-            let text = event["summary"] as? String ?? event["status"] as? String ?? "Task updated"
+            // APP-893: a step's summary is a line; its bare state ("started") is not: the live line says what it does
+            guard let text = event["summary"] as? String, !text.isEmpty else { return false }
             if let taskID = session.backendTaskID { noteTaskActivity(taskID: taskID, title: text) }
             session.noteBackendActivity(text)
         case "verification":
@@ -525,22 +526,19 @@ extension NotchModel {
                 cursor?.point(taskID: taskID, kind: kind, rect: CGRect(x: r[0], y: r[1], width: r[2], height: r[3]),
                               display: display)
             }
-        case "tool.called":
-            guard let taskID else { return }
-            let matches: (String?) -> Bool = { root in
-                guard let root else { return false }
-                return taskID == root || taskID.hasPrefix(root + ".")
+        case "task.progress":
+            // APP-893: the task's plain live line (code's words, ORCH-531/532), the one source its card row, its short
+            // view and its own box show; a tool's name (tool.called) is never shown
+            guard let taskID, let text = data["text"] as? String, !text.isEmpty else { return }
+            noteTaskActivity(taskID: taskID, title: text, symbol: "globe")
+            if let step = data["step_task_id"] as? String, !step.isEmpty,
+               conversation.turns.contains(where: { $0.card?.rows.contains { $0.stepTaskID == step } == true }) {
+                stepLive[step] = LiveProgress(text: text,
+                                              startedAt: LiveProgress.time(data["started_at"]) ?? Date())
             }
-            let title = data["tool"] as? String ?? "Working"
-            var roots = Set(runningTasks.keys)
-            roots.formUnion(workSessions.values.compactMap(\.backendTaskID))
-            if let current = session.backendTaskID { roots.insert(current) }
-            let activityID = roots.filter { taskID == $0 || taskID.hasPrefix($0 + ".") }
-                .max(by: { $0.count < $1.count }) ?? taskID
-            noteTaskActivity(taskID: activityID, title: title, symbol: "globe")
-            if matches(session.backendTaskID) { session.noteBackendActivity(title) }
-            else if let local = workSessions.first(where: { matches($0.value.backendTaskID) })?.key {
-                withWorkSession(local) { session.noteBackendActivity(title) }
+            if session.backendTaskID == taskID { session.noteBackendActivity(text) }
+            else if let local = workSessions.first(where: { $0.value.backendTaskID == taskID })?.key {
+                withWorkSession(local) { session.noteBackendActivity(text) }
             }
         case "task.part":
             receivePart(data)

@@ -141,7 +141,7 @@ final class LongTaskCardTests: XCTestCase {
     func testTheShortViewAndTheExtractedBoxSayOnlyTheCurrentLine() {
         let working = TaskItem(id: "t", backendID: "t", localID: nil, title: "Order batteries", status: "working",
                                activity: [TaskActivity(title: "opened amazon.in"), TaskActivity(title: "clicked Buy Now")])
-        XCTAssertEqual(working.currentLine, "clicked Buy Now")
+        XCTAssertEqual(working.currentLine, "Clicked Buy Now")          // APP-893: worded as a card row says it
         let starting = TaskItem(id: "s", backendID: "s", localID: nil, title: "Order", status: "working", activity: [])
         XCTAssertFalse(starting.currentLine.isEmpty)
         XCTAssertGreaterThan(EnlargedPreview.size.width, 300)          // larger than the short view's picture
@@ -182,6 +182,29 @@ final class LongTaskCardTests: XCTestCase {
                                                               "seq": "2026-11-05T10:00:03+00:00"]])
         XCTAssertEqual(turn(id, model).card?.steps["mail"]?.status, "checking")
         XCTAssertNil(model.stepLive["T.step.mail"])
+    }
+
+    // decision: APP-893
+    func testTheRowTheShortViewAndTheBoxSayTheSamePlainLineNeverAToolName() throws {
+        // Live 2026-11-11: the row said "Clicking in www.amazon.in" while the short view and the detached box said
+        // "browser.act"; all three now read the daemon's one plain line (task.progress)
+        let model = makeModel()
+        let id = begin("mail and leads", in: model)
+        model.receiveChatEvent(plan(), localID: id)
+        model.receiveChatEvent(["type": "step", "request_id": "R", "task_id": "T", "step": "mail", "status": "running",
+                                "step_task_id": "T.step.mail", "seq": "2026-11-05T10:00:01+00:00"], localID: id)
+        model.receiveBusEvent(["topic": "tool.called", "data": ["task_id": "T.step.mail", "tool": "browser.act"]])
+        model.receiveBusEvent(["topic": "task.progress", "data": [
+            "task_id": "T", "step_task_id": "T.step.mail", "text": "clicking in www.amazon.in",
+            "started_at": "2026-11-05T10:00:02+00:00"]])
+        let card = try XCTUnwrap(turn(id, model).card)
+        let row = try XCTUnwrap(card.row("mail"))
+        let shownRow = RowDisplay.make(row: row, steps: card.steps, rows: card.rows, live: true,
+                                       liveLine: row.stepTaskID.flatMap { model.stepLive[$0] })
+        let item = try XCTUnwrap(model.taskItems.first { $0.id == "T" })
+        XCTAssertEqual(shownRow.words, "Clicking in www.amazon.in")
+        XCTAssertEqual(item.currentLine, "Clicking in www.amazon.in")     // the short view and the detached box
+        XCTAssertFalse(item.activity.contains { $0.title.contains("browser.") })
     }
 
     // ---------- collapsed text ----------

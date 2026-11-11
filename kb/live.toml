@@ -4182,3 +4182,12 @@ request = "Right after a task's answer that lists several things (LIVE-906's lap
 pass = "FERB replies in a few seconds from the answer's details, naming the right item; `ferb trace` of the reply's turn shows one planner call and no chat.history or task.evidence lookup; its context holds \"Layer 2 — the latest result shown in this chat\" with the whole answer."
 decisions = ["ORCH-620", "PRM-351"]
 sitting = "after this change is installed"
+
+[LIVE-909]
+title = "A running task's short view and its detached box say what the card row says, never a tool's name"
+area = "app"
+surface = "FERB.app with this build and its daemon; a browser task in FERB's profile"
+request = "Ask for a browser task that clicks around (\"find the cheapest pack of AA batteries on amazon.in\"). While it runs, click its round picture by the active tasks (short view), then Detach activity (its own box). For a two-part request, compare a running row's line too."
+pass = "The short view and the box show the same line the card row shows (e.g. \"Clicking in www.amazon.in\", \"Reading www.amazon.in\", \"Asking you\"), changing as the task moves; never \"browser.act\", \"owner.ask\" or another dotted tool name, and never a bare \"started\"."
+decisions = ["APP-893"]
+sitting = "after this change is installed"

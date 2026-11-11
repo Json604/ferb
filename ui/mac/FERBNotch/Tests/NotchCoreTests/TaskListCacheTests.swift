@@ -74,9 +74,10 @@ final class TaskListCacheTests: XCTestCase {
         XCTAssertEqual(model.taskItems.first?.title, "Draft the reply")
         model.receiveChatEvent(["type": "plan", "task_id": "reply", "goal": "Draft the reply"], localID: first)
         assertFresh(model, "request planned")
-        model.receiveBusEvent(["topic": "tool.called", "data": ["task_id": "reply.worker", "tool": "mail.compose"]])
+        model.receiveBusEvent(["topic": "task.progress", "data": ["task_id": "reply", "step_task_id": "reply.worker",
+                                                                  "text": "drafting in Mail"]])
         assertFresh(model, "activity")
-        XCTAssertEqual(model.taskItems.first { $0.id == "reply" }?.activity.last?.title, "mail.compose")
+        XCTAssertEqual(model.taskItems.first { $0.id == "reply" }?.activity.last?.title, "drafting in Mail")
         model.session.draft = "Water the plants"
         model.startWork()
         assertFresh(model, "second request")
