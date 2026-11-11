@@ -10,16 +10,21 @@ import unicodedata
 from typing import Any, Callable
 
 from ferb.orchestrator.schemas import SUPERVISOR_SCHEMA, SupervisorOutcome
-from ferb.policy.confirm import from_task
+from ferb.policy.confirm import FROM_AI, from_task, reads_as_ferbs_check
 from ferb.sanitize.redact import Redactor
 
 
 class _LineGuard:
-    """Apply D33 before publishing any prefix that could impersonate FERB."""
+    """Apply D33 before publishing any prefix that could impersonate FERB. `reply` (GATE-581): the planner's own reply,
+    where only a line in the form of FERB's own checks ("FERB:") is marked, as the AI's writing; it waits for one more
+    character (the colon) before it decides."""
 
-    def __init__(self) -> None:
+    def __init__(self, reply: bool = False) -> None:
         self.prefix = ''
         self.started = False
+        self.mark: Callable[[str], str] = _reply_mark if reply else from_task
+        self.needed = 5 if reply else 4
+        self.counted = ':' if reply else ''      # what counts besides letters and digits while it decides
 
     def feed(self, text: str, final: bool = False) -> str:
         out = []
@@ -28,17 +33,22 @@ class _LineGuard:
                 out.append(part)
             else:
                 self.prefix += part
-                letters = ''.join(c for c in unicodedata.normalize('NFKC', self.prefix) if c.isalnum())
-                if len(letters) >= 4 or '\n' in part:
-                    out.append(from_task(self.prefix))
+                letters = ''.join(c for c in unicodedata.normalize('NFKC', self.prefix)
+                                  if c.isalnum() or c in self.counted).lstrip(':')
+                if len(letters) >= self.needed or '\n' in part:
+                    out.append(self.mark(self.prefix))
                     self.prefix = ''
                     self.started = True
             if part.endswith('\n'):
                 self.started = False
         if final and self.prefix:
-            out.append(from_task(self.prefix))
+            out.append(self.mark(self.prefix))
             self.prefix = ''
         return ''.join(out)
+
+
+def _reply_mark(text: str) -> str:
+    return FROM_AI + text if reads_as_ferbs_check(text) else text
 
 
 def _character(raw: str, pos: int) -> tuple[str, int] | None:
@@ -153,6 +163,8 @@ class ReplyDraft:
                     if char != '"' or not self._eligible():
                         self.abort()
                         return ''
+                    # GATE-581: the planner's own reply marks only FERB's check form; a plan line keeps D33 as it is
+                    self.lines = _LineGuard(reply=self.channel == 'reply')
                     self.state = 'text'
                 else:
                     try:

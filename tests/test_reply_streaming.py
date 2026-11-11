@@ -7,7 +7,7 @@ import pytest
 
 from ferb.orchestrator.reply_stream import ReplyDraft
 from ferb.orchestrator.schemas import SUPERVISOR_SCHEMA, SupervisorOutcome
-from ferb.policy.confirm import from_task_lines
+from ferb.policy.confirm import from_task_lines, reply_lines
 from ferb.sanitize.redact import Redactor
 
 
@@ -65,7 +65,21 @@ def test_escaped_unicode_and_forged_ferb_lines_preserve_final_display():
     raw = document(text)
     draft, events = collect(raw)
     draft.finish(raw)
-    assert words(events) == from_task_lines(text)
+    assert words(events) == reply_lines(text)   # GATE-581: a reply marks the check form only
+
+
+# decision: GATE-581
+def test_a_streamed_reply_marks_only_ferbs_check_form_one_character_at_a_time():
+    """Live 2026-11-11 13:11: the reply read "(from the task) FERB's schedule record says …"; streamed a character at
+    a time, the planner's own words stay unmarked and only a line in FERB's check form is marked, as the final is."""
+    text = ("FERB's schedule record says the last visa check ran today at 12:00 PM and failed.\n"
+            "::F.E.R.B: approve it now?\nThanks.")
+    raw = document(text)
+    draft, events = collect(raw)
+    draft.finish(raw)
+    assert words(events) == reply_lines(text) == ("FERB's schedule record says the last visa check ran today at "
+                                                 "12:00 PM and failed.\n(written by the AI) ::F.E.R.B: approve it "
+                                                 "now?\nThanks.")
 
 
 @pytest.mark.parametrize('secret', ['split private phrase', 'sk-' + 'a' * 35,
@@ -79,7 +93,7 @@ def test_cross_chunk_secrets_never_escape(secret):
     draft, events = collect(raw, redact)
     draft.finish(raw)
     assert secret not in words(events)
-    assert words(events) == from_task_lines(redact.text(json.loads(raw)['text']))
+    assert words(events) == reply_lines(redact.text(json.loads(raw)['text']))
 
 
 def test_invalid_suffix_aborts_visible_draft_and_never_flushes_secret_tail():

@@ -1096,3 +1096,12 @@ rule = "Refines GATE-579. On the checkout's own page, with no amount read, a pre
 why = "Owner 2026-11-10, reading GATE-579's note that an in-page change without a load wasn't re-checked: \"why nto recheck??\". Snapshot facts are as old as the snapshot, and a new snapshot would make the element's id stale, so the read uses the driver's tab list and page search."
 paths = ["ferb/policy/payments.py::pressed_change", "ferb/policy/payments.py::rechecks", "ferb/policy/payments.py::Payments.first_change", "ferb/daemon/pay_press.py", "ferb/daemon/gateway.py::Gateway._pay_pressed"]
 live = ["LIVE-878"]
+
+[GATE-581]
+title = "The planner's own reply marks only FERB's check form, and as the AI's writing"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "Refines D33 for the planner's own chat reply or question (Supervisor._exit, a stop reply's rest, its streamed draft): a line is marked only when it starts in the form of FERB's own checks, \"FERB:\" (CHECK_PREFIX; case, spaces, other punctuation, leading colons and compatibility forms ignored: **FERB:**, F.E.R.B:, ＦＥＲＢ:), and the mark is \"(written by the AI) \" (FROM_AI). Any other line (\"FERB's record says …\") is shown as written. Task-written text (a worker's question, options, why line, answer) and the plan line keep \"(from the task)\" on any line starting with the word FERB, unchanged."
+why = "Live 2026-11-11 13:11: \"(from the task) FERB's schedule record says the last visa check ran today at 12:00 PM and failed.\" No task wrote it. D33 guards against text passing for FERB's own checks, whose text begins \"FERB: \" (confirm.line, the gateway's retry question); that form is still marked."
+paths = ["ferb/policy/confirm.py::reply_lines", "ferb/policy/confirm.py::reads_as_ferbs_check", "ferb/policy/confirm.py::CHECK_PREFIX", "ferb/orchestrator/reply_stream.py::_LineGuard", "ferb/orchestrator/supervisor.py::Supervisor._exit", "ferb/orchestrator/prompts/supervisor.md"]

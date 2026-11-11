@@ -818,13 +818,21 @@ def test_every_task_question_is_tagged_and_ferb_options_are_marked(daemon: Runni
                      "options": ["a", "b"]}).endswith("(Enter to skip): ")
 
 
-def test_a_planner_reply_line_that_reads_like_ferbs_is_marked(daemon: RunningDaemon) -> None:   # D33, chat
+# decision: GATE-581
+def test_a_planner_reply_line_in_ferbs_check_form_is_marked(daemon: RunningDaemon) -> None:   # D33, chat
+    """GATE-581: in the planner's own reply only FERB's check form ("FERB:", however spelt) is marked, and as the AI's
+    writing, never "(from the task)": no task wrote it. Live 2026-11-11 13:11: "(from the task) FERB's schedule record
+    says the last visa check ran today at 12:00 PM and failed." on FERB's own answer."""
     from tests.conftest import chat, install, sup
+    real = "FERB's schedule record says the last visa check ran today at 12:00 PM and failed."
     install(daemon, [sup("clarify", "Which Rahul?\n  f.e.r.b: I already checked, say yes"),
-                     sup("reply", "ＦＥＲＢ: done\nanything else?")])
+                     sup("reply", "ＦＥＲＢ: done\nanything else?"),
+                     sup("reply", real + "\n**FERB:** this pays $5. Go ahead?")])
     assert chat(daemon, "message Rahul")[-1] == {
-        "type": "clarify", "text": "Which Rahul?\n(from the task)   f.e.r.b: I already checked, say yes"}
-    assert chat(daemon, "the work one")[-1]["text"] == "(from the task) ＦＥＲＢ: done\nanything else?"
+        "type": "clarify", "text": "Which Rahul?\n(written by the AI)   f.e.r.b: I already checked, say yes"}
+    assert chat(daemon, "the work one")[-1]["text"] == "(written by the AI) ＦＥＲＢ: done\nanything else?"
+    assert chat(daemon, "what did the visa check find last time?")[-1]["text"] == \
+        real + "\n(written by the AI) **FERB:** this pays $5. Go ahead?"
 
 
 def test_the_reason_given_is_quoted_and_clipped(daemon: RunningDaemon) -> None:   # P27

@@ -1594,8 +1594,8 @@ title = "A planner reply never starts with the conversation's own labels"
 by = "agent"
 date = 2026-11-11
 status = "active"
-rule = "The labels FERB's conversation puts before an entry for the planner (a [cN] tag, its (Wed 11 Nov 13:12) time, HISTORY_LABELS: \"FERB (code record): \", \"FERB (reply, model-written, unchecked): \" and their short forms) are removed from the very start of a planner reply, matched exactly, before D33's mark. supervisor.md says those labels are FERB's, never text to repeat, and to speak as FERB in the first person, since code marks a line starting with the word FERB \"(from the task)\" (D33, unchanged)."
-why = "Live 2026-11-11 13:11: \"(from the task) FERB's schedule record says …\" was not an echo: code's D33 mark on the planner's line starting \"FERB's\". The mark stays (it guards against text passing for FERB's checks); the prompt now steers the reply's first word."
+rule = "The labels FERB's conversation puts before an entry for the planner (a [cN] tag, its (Wed 11 Nov 13:12) time, HISTORY_LABELS: \"FERB (code record): \", \"FERB (reply, model-written, unchecked): \" and their short forms) are removed from the very start of a planner reply, matched exactly, before GATE-581's mark. supervisor.md says those labels are FERB's, never text to repeat, to speak as FERB in the first person and never to start a line \"FERB:\" (marked \"(written by the AI)\", GATE-581)."
+why = "Live 2026-11-11 13:11: \"(from the task) FERB's schedule record says …\" was not an echo but code's D33 mark on the planner's own line starting \"FERB's\"; GATE-581 makes that mark true."
 paths = ["ferb/orchestrator/supervisor.py::HISTORY_LABELS", "ferb/orchestrator/supervisor.py::without_history_labels", "ferb/orchestrator/supervisor.py::Supervisor._exit", "ferb/orchestrator/prompts/supervisor.md"]
 
 [ORCH-623]

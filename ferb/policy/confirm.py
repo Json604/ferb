@@ -123,6 +123,10 @@ SHOWN = 3                                 # display only: items one question nam
 QUOTED_CHARS = 200                        # display only: a page or item quoted in FERB's question is clipped to
                                           # this, like the task's reason; it decides nothing
 FROM_TASK = "(from the task) "            # a task's text that reads like FERB's own (D33)
+# GATE-581: how FERB's own checks begin (`line`, the gateway's retry question): the form D33 guards the planner's reply
+# against, and the true mark on a planner line that takes it (no task wrote a planner reply)
+CHECK_PREFIX = "FERB:"
+FROM_AI = "(written by the AI) "
 _BUNDLE_LIKE = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+){2,}", re.I)   # an app's id (com.apple.MobileSMS): internal
 Known = Callable[[str, str], bool]
 
@@ -320,8 +324,22 @@ def task_question(text: str) -> str:
 
 
 def from_task_lines(text: str) -> str:
-    """A planner's chat reply or clarify: each line that starts with "FERB" is marked as the task's."""
+    """Model-written lines: each line that starts with "FERB" is marked as the task's."""
     return "\n".join(from_task(line) for line in text.split("\n"))
+
+
+def reads_as_ferbs_check(text: str) -> bool:
+    """GATE-581: whether a text starts with FERB's own checks' prefix "FERB:", ignoring case, spaces, punctuation other
+    than the colon and compatibility forms (fullwidth, **FERB:**, F.E.R.B:). "FERB's record says" doesn't."""
+    kept = "".join(c for c in unicodedata.normalize("NFKC", text) if c.isalnum() or c == ":").lstrip(":").casefold()
+    return kept.startswith(CHECK_PREFIX.casefold())
+
+
+def reply_lines(text: str) -> str:
+    """GATE-581: the planner's own chat reply or question. A line in the form of FERB's own checks ("FERB: … Go
+    ahead?") is marked as the AI's writing; every other line, one starting with the word FERB too, is its words as
+    written: no task wrote them, so "(from the task)" would be false there."""
+    return "\n".join(FROM_AI + line if reads_as_ferbs_check(line) else line for line in text.split("\n"))
 
 
 def shown_origins(labels: Iterable[str]) -> str:

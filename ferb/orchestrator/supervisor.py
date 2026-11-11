@@ -2657,7 +2657,7 @@ class Supervisor(WorkerRuns):
         for event in effects.events:
             yield event
         said = text if ready or by == origins_.FERB else \
-            confirm.from_task_lines(self.gateway.redact(without_history_labels(text)))      # ORCH-622, then D33
+            confirm.reply_lines(self.gateway.redact(without_history_labels(text)))     # ORCH-622, GATE-581
         if turn.acknowledged:
             said = turn.acknowledged + ("\n" if "\n" in turn.acknowledged else " ") + said
             turn.acknowledged = ""
@@ -2821,7 +2821,7 @@ class Supervisor(WorkerRuns):
                     # that end on the task's own turn (`told_in`) instead of posting it again. ORCH-596: the planner's
                     # own answer to the rest of the message follows it, recorded as its own words (ORCH-566)
                     answer, cards, made = told
-                    rest = confirm.from_task_lines(self.gateway.redact(without_history_labels(out.text))).strip() \
+                    rest = confirm.reply_lines(self.gateway.redact(without_history_labels(out.text))).strip() \
                         if out.text.strip() else ""
                     text = answer + (f"\n\n{rest}" if rest and rest != answer.strip() else "")
                     async for event in self._exit(turn, out, "reply", text, ready=True,
