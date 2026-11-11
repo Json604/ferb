@@ -207,7 +207,8 @@ def test_the_developer_block_is_the_recorded_context_with_every_label(daemon: Ru
     task_line = next(line for line in block.split("\n") if PLANTED in line)
     assert re.search(r"FERB \(task \S+ result, done; origin ", task_line) and "external:email" in task_line   # a report, as data
     after = block.split(task_line, 1)[1].lstrip("\n").split("\n", 1)[0]
-    assert after.startswith("[Full source: chat.history entry_id=")    # its source, one fetch away
+    # its id (ORCH-619) and its source, one fetch away
+    assert after.startswith("[Result id: ") and "; full text: chat.history entry_id=" in after
     assert PASTED in block and '<untrusted-data id="' not in block.split(PASTED)[0][-200:]   # the owner's words
     assert "(noticed; origin external:notification:WhatsApp,ferb)" in block and NOTICE_QUOTE in block
     # what changes every turn stays in the user turn: the situation and the owner's new message

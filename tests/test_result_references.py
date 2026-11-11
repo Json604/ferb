@@ -59,3 +59,111 @@ def test_a_kind_with_no_record_answers_with_the_kinds_the_task_has(daemon: Runni
     chat(daemon, "what did the laptop step find?", session="owner")
     assert seen["records"] == [] and seen["kinds_here"].get("worker", 0) >= 2
     assert "reports" not in seen["kinds_here"]
+
+
+def rows(d: RunningDaemon, tree: str) -> dict[str, str]:
+    """The card's chat.part row ids by part."""
+    return run(d, lambda: {str(e.data["part"]): e.id for e in d.daemon.journal.of_kind("chat.part", "task_id", tree)})
+
+
+def answer_id(d: RunningDaemon, tree: str) -> str:
+    return str(run(d, lambda: d.daemon.journal.of_kind("task.answer", "task_id", tree)[-1].id))
+
+
+def sheet(ids: list[str], goal: str = "Put the laptop comparison in a Google Sheet and give the link") -> dict[str, Any]:
+    spec = task(goal, conds=(cond("A sheet holds the comparison and its link is given"),))
+    spec["earlier_results"] = ids
+    return spec
+
+
+def given(script: Any, key: str) -> str:
+    return str(next(c for _, k, c, _ in reversed(script.contexts) if k == key))
+
+
+# decision: ORCH-619
+def test_every_result_line_carries_its_id(daemon: RunningDaemon) -> None:
+    tree = two_parts(daemon)
+    script = install(daemon, [sup("reply", "Sure.")])
+    chat(daemon, "thanks", session="owner")
+    history = planner_context(script)
+    for rid in [*rows(daemon, tree).values(), answer_id(daemon, tree)]:
+        assert f"[Result id: {rid}; full text: chat.history entry_id={rid}; its task's records: task.evidence " \
+               f"task_id={tree}]" in history
+
+
+# decision: ORCH-619
+def test_a_task_naming_a_row_gives_its_worker_and_checker_the_rows_full_text(daemon: RunningDaemon) -> None:
+    tree = two_parts(daemon)
+    laptops = rows(daemon, tree)["laptops"]
+    script = install(daemon, [sup("task", "Putting it in a sheet.", sheet([laptops]))],
+                     {"worker": done("https://docs.google.com/spreadsheets/d/abc")})
+    final = outcome(chat(daemon, "put that laptop res in a google sheet and give me the lin", session="owner"))
+    assert final["status"] == "done"
+    assert len(script.calls("planner")) == 1                       # no lookup, no repair: one planner call
+    for key in ("worker", "worker.verify"):
+        ctx = given(script, key)
+        block = ctx[ctx.index("Earlier results this task uses"):]
+        assert f"Result {laptops} (" in block and "part “Coding laptop comparison”" in block
+        assert LAPTOPS in block and TABLE not in block
+    exposures = run(daemon, lambda: [json.loads(r[0]) for r in daemon.daemon.journal.db.conn.execute(
+        "SELECT input_json FROM spans WHERE task_id = ? AND kind = 'context.exposure'", (final["task_id"],))])
+    assert any(f"entry:{laptops}" in e.get("source_refs", []) for e in exposures)
+
+
+# decision: ORCH-619
+def test_a_cards_id_gives_every_row_in_full_in_the_owners_order(daemon: RunningDaemon) -> None:
+    tree = two_parts(daemon)
+    script = install(daemon, [sup("task", "Putting both in a sheet.", sheet([answer_id(daemon, tree)]))],
+                     {"worker": done("https://docs.google.com/spreadsheets/d/abc")})
+    chat(daemon, "put both of those in a sheet", session="owner")
+    ctx = given(script, "worker")
+    assert ctx.index(TABLE) < ctx.index(LAPTOPS)
+
+
+# decision: ORCH-619
+def test_an_older_result_still_reaches_the_worker_in_full(daemon: RunningDaemon) -> None:
+    tree = two_parts(daemon)
+    laptops = rows(daemon, tree)["laptops"]
+    install(daemon, [sup("task", "Checking.", task("Check the weather"))], {"worker": done("Sunny, 31°C.")})
+    chat(daemon, "what's the weather", session="owner")
+    script = install(daemon, [sup("task", "Putting it in a sheet.", sheet([laptops]))],
+                     {"worker": done("https://docs.google.com/spreadsheets/d/abc")})
+    chat(daemon, "put the laptop comparison from before in a sheet", session="owner")
+    assert LAPTOPS in given(script, "worker")
+
+
+# decision: ORCH-619
+def test_a_wrong_id_goes_back_once_with_a_plain_problem(daemon: RunningDaemon) -> None:
+    tree = two_parts(daemon)
+    laptops = rows(daemon, tree)["laptops"]
+    script = install(daemon, [sup("task", "Putting it in a sheet.", sheet(["c12"])),
+                              sup("task", "Putting it in a sheet.", sheet([laptops]))],
+                     {"worker": done("https://docs.google.com/spreadsheets/d/abc")})
+    final = outcome(chat(daemon, "put that laptop res in a google sheet", session="owner"))
+    repair = planner_context(script, 1)
+    assert 'earlier_results \\"c12\\" isn\'t a result shown in this chat' in repair
+    assert final["status"] == "done" and LAPTOPS in given(script, "worker")
+
+
+# decision: ORCH-619
+def test_a_result_of_another_chat_is_not_reachable(daemon: RunningDaemon) -> None:
+    tree = two_parts(daemon)
+    laptops = rows(daemon, tree)["laptops"]
+    script = install(daemon, [sup("task", "Putting it in a sheet.", sheet([laptops])),
+                              sup("reply", "Which comparison do you mean?")])
+    chat(daemon, "put that laptop res in a google sheet", session="other")
+    assert "isn't a result shown in this chat" in planner_context(script, 1)
+    assert not script.calls("worker")
+
+
+# decision: ORCH-619
+def test_results_that_dont_fit_the_workers_context_go_back_for_repair(daemon: RunningDaemon,
+                                                                       monkeypatch: Any) -> None:
+    tree = two_parts(daemon)
+    laptops = rows(daemon, tree)["laptops"]
+    script = install(daemon, [sup("task", "Putting it in a sheet.", sheet([laptops])),
+                              sup("reply", "That comparison is too long for one worker.")])
+    monkeypatch.setattr(type(daemon.daemon.supervisor), "_worker_room", lambda self, turn, identity, kind: 100)
+    chat(daemon, "put that laptop res in a google sheet", session="owner")
+    assert "the earlier results it names need about" in planner_context(script, 1)
+    assert not script.calls("worker")

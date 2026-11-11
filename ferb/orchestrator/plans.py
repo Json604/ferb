@@ -47,6 +47,8 @@ class Step(BaseModel):
     question: str = ''
     options: list[str] = Field(default_factory=list)
     repeat: Repeat | None = None
+    # ORCH-619: earlier results this step uses, by id, beside its task's; a step saved before the field has none
+    earlier_results: list[str] = Field(default_factory=list)
 
     @model_validator(mode='before')
     @classmethod

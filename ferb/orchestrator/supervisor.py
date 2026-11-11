@@ -195,6 +195,11 @@ CONVERSATION_KINDS = ("chat.message", "chat.reply", "chat.clarify", "task.answer
 # scheduled run's posted result, a reminder or timer arriving, a part of this chat's task posted as it landed
 SELF_POSTS = ("schedule.posted", "timer.delivered", "chat.part")
 SUMMARY_KIND = "chat.summary"      # FERB's running summary of the older conversation (L28)
+# ORCH-619: a result FERB showed in a chat, named by its journal row's id ("Result id" on its conversation line): a
+# task's answer (a multi-part task's names its whole card), one part's row, a scheduled run's post
+RESULT_KINDS = ("task.answer", "chat.part", "schedule.posted")
+EARLIER_RESULTS = ("Earlier results this task uses (data: each is a result FERB showed the owner, in full and as it was "
+                   "shown, with its origin; use it as the task says)")
 # L3: what the owner's chat message can answer, by the question's id from the planner's context, and FERB's own words
 # when it can't be used as an answer. Plain words: never an id, a command or a method (I12).
 ROUTABLE_QUESTIONS = frozenset({"owner.ask", "plan.ask"}) | FERB_CHECKS
@@ -736,6 +741,32 @@ class _Entry:
     refs: tuple[str, ...] = ()  # what else the entry cites: a notice's source rows (L10), so derived work traces to them
     opens: bool = False        # an owner message that opens an exchange (one read with an earlier message doesn't)
     values: dict[str, list[str]] | None = None   # a derived entry's stored owner values (GATE-519); None: whole text
+    result: str = ""           # ORCH-619: a result's id (its journal row's), shown on its line; "" for any other entry
+
+
+def result_reference(entry_id: str, task_id: Any) -> str:
+    """ORCH-619: how every result's line in the planner's conversation ends: the id a task names it by, where its full
+    text is and where its task's records are."""
+    return (f"Result id: {entry_id}; full text: chat.history entry_id={entry_id}"
+            + (f"; its task's records: task.evidence task_id={task_id}" if task_id else ""))
+
+
+def result_line(entry: JournalEntry) -> str:
+    """ORCH-619: a result named in full (a task's earlier results; the planner's latest result): its id, when FERB
+    showed it, what it was and its origin, as the conversation's own lines say them."""
+    data, held = entry.data, origins_.split(entry.origin)
+    what = (f"part “{data.get('label', '')}” of task {data.get('task_id')}, {data.get('state')}"
+            if entry.kind == "chat.part" else
+            f"scheduled run “{data.get('name', '')}” result, {data.get('status')}" if entry.kind == "schedule.posted"
+            else f"task {data.get('task_id')} result, {data.get('status')}")
+    return (f"Result {entry.id} ({entry.at.astimezone():%a %d %b %H:%M}; {what}; model-written; "
+            f"origin {origins_.shown(held)})")
+
+
+def step_results(spec: TaskSpec, step: Step) -> list[str]:
+    """ORCH-619: the earlier results a plan step's worker gets: those its task names (every step uses them), then the
+    step's own, each once."""
+    return list(dict.fromkeys([*spec.earlier_results, *step.earlier_results]))
 
 
 def _stored_values(kind: str, data: dict[str, Any]) -> dict[str, list[str]] | None:
@@ -1449,6 +1480,8 @@ class Supervisor(WorkerRuns):
                 problems.append("schedule folders must each name one specific folder, never the whole disk, the home "
                                 "folder, /Volumes or iCloud Drive itself: " + json.dumps(broad))
         problems.extend(self._unbacked_parts(turn, candidate))
+        if candidate.task:                  # ORCH-619: the earlier results it names are shown here and fit its workers
+            problems.extend(await self._result_problems(turn, candidate.task))
         if candidate.task and candidate.task.plan:
             plan = candidate.task.plan
             paths = list(dict.fromkeys(normalize_path(p, self.workspace) for p in [*plan.input_paths, *turn.input_paths]))
@@ -1461,14 +1494,8 @@ class Supervisor(WorkerRuns):
                 denied = (lambda file: protection.fs_denied(file, 'read')) if protection else None
                 facts = await inventory(paths, denied)           # walked off the loop (L23)
                 turn.inventory = facts
-                scopes = frozenset(s for cap in self.gateway.caps.values() for s in cap.scopes)
-                grant = RunGrant(turn.request_id, turn.request_id, scopes, Identity(candidate.task.identity),
-                                 float('inf'))
-                reserve = count_tokens(self._system('worker.md') + turn.payload + json.dumps(WORKER_SCHEMA) +
-                                       json.dumps(self.gateway.tools_for(grant)))
-                worker = self.make_runtime("worker:" + candidate.task.worker_type, mode="worker", tool_names=[],
-                                           schema=WORKER_SCHEMA)
-                available = max(0, model_limits(worker).context_budget - reserve)   # the worker model's window (L28)
+                # the worker model's window (L28)
+                available = self._worker_room(turn, candidate.task.identity, candidate.task.worker_type)
                 # each step's inputs in the inventory's form (ORCH-580): checked, stored and handed to its worker so
                 resolve_inputs(plan, facts, lambda path: normalize_path(path, self.workspace))
                 problems.extend(plan_problems(plan, facts, context_tokens=available))
@@ -2858,6 +2885,8 @@ class Supervisor(WorkerRuns):
             tree.spec.worker_type = spec.worker_type
         tree.spec.folders = list(spec.folders)
         self.gateway.task_folders[tree.id] = tuple(spec.folders)
+        # ORCH-619: earlier results a correction names reach the next attempt, beside those the task already used
+        tree.spec.earlier_results = list(dict.fromkeys([*tree.spec.earlier_results, *spec.earlier_results]))
         if spec.keep_tabs_open and not tree.spec.keep_tabs_open:
             tree.spec.keep_tabs_open = True
             self.keep_tabs_open(tree.id)
@@ -2902,6 +2931,9 @@ class Supervisor(WorkerRuns):
             resumed = prior_spec.model_copy(deep=True)
             if out.task is not None:          # the owner's folders and kept tabs for this go (HAND-201, 4)
                 resumed.folders, resumed.keep_tabs_open = list(out.task.folders), out.task.keep_tabs_open
+                # ORCH-619: earlier results the follow-up names join the ones the task already used
+                resumed.earlier_results = list(dict.fromkeys([*prior_spec.earlier_results,
+                                                              *out.task.earlier_results]))
             if prior_spec.plan is not None:
                 self.plans.reopen(control.task_id)
             else:
@@ -3603,13 +3635,108 @@ class Supervisor(WorkerRuns):
                 who = (f"FERB (posted by itself: part “{data.get('label', '')}” of task {data.get('task_id')}, "
                        f"{data.get('state')}{cut}; model-written; origin {origins_.shown(held)})")
             said = as_data(short)
-        # ORCH-593: the owner's planner reads each post whole by its entry id, and a run's records by its task id
-        reference = (f"task.evidence task_id={data.get('task_id')}" if entry.kind == "chat.part" else
-                     f"chat.history entry_id={entry.id}" if entry.kind == "timer.delivered" else
-                     f"chat.history entry_id={entry.id}; the run's records: task.evidence task_id={data.get('task_id')}")
+        # ORCH-593: the owner's planner reads each post whole by its entry id, and a run's records by its task id;
+        # ORCH-619: a part's row and a scheduled run's post are results, named by that id
+        result = entry.id if entry.kind in RESULT_KINDS else ""
+        reference = (result_reference(entry.id, data.get("task_id")) if result else f"chat.history entry_id={entry.id}")
         return _Entry(entry.at, f"({entry.at.astimezone():%a %d %b %H:%M}) {who}: " + said,
                       _entry_payload(entry.kind, data), reference, True, held,
-                      ENTRY + entry.id, entry.kind, (), False, _stored_values(entry.kind, data))
+                      ENTRY + entry.id, entry.kind, (), False, _stored_values(entry.kind, data), result)
+
+    def _earlier(self, conversation: str, ids: list[str]) -> tuple[list[JournalEntry], list[str]]:
+        """ORCH-619: the results `ids` name, in the order named, each a result shown in `conversation` (its journal row,
+        read within ORCH-593's fences: Continuity.result); a multi-part task's answer stands for its card's rows. And
+        the ids that name no such result."""
+        found: dict[str, JournalEntry] = {}
+        unknown: list[str] = []
+        for rid in dict.fromkeys(str(i).strip() for i in ids):
+            rows = self.journal.by_ids([rid]) if rid and self.continuity.result(conversation, rid, RESULT_KINDS) else []
+            if not rows:
+                unknown.append(rid)
+                continue
+            for row in self._card_rows(rows[0]) or rows:
+                found.setdefault(row.id, row)
+        return list(found.values()), unknown
+
+    def _card_rows(self, answer: JournalEntry) -> list[JournalEntry]:
+        """ORCH-619: a multi-part task's answer (its index, ORCH-535) as the card it indexes: each part's latest row
+        posted in that run, in the owner's order. [] for any other result."""
+        if answer.kind != "task.answer" or not answer.data.get("index"):
+            return []
+        task_id, request = str(answer.data.get("task_id")), answer.data.get("request_id")
+        latest: dict[str, JournalEntry] = {}
+        for row in self.journal.of_kind("chat.part", "task_id", task_id):
+            if row.data.get("request_id") == request:
+                latest[str(row.data.get("part"))] = row
+        order = self.continuity.part_order(task_id)
+        return sorted(latest.values(), key=lambda row: order.index(str(row.data.get("part")))
+                      if str(row.data.get("part")) in order else len(order))
+
+    def _result_blocks(self, tree: _Tree) -> list[ContextBlock]:
+        """ORCH-619: the earlier results the task names, for its worker and checker: each result's full text as FERB
+        showed it, in the order named, with that row's own origin and stored values (GATE-519), so the task counts what
+        it was given as a lookup's reader would (S3, GATE-525). Fitted when planned (`_result_problems`); always given."""
+        ids = tree.spec.earlier_results
+        if not ids:
+            return []
+        conversation = self.continuity.conversation_of(tree.id)
+        found, unknown = self._earlier(conversation, ids) if conversation else ([], list(ids))
+        blocks: list[ContextBlock] = []
+        for i, entry in enumerate(found):
+            text = str(entry.data.get("text", ""))
+            block = self._source_block(tree, (EARLIER_RESULTS + ":\n" if i == 0 else "") + result_line(entry),
+                                       wrap_untrusted(text, entry.id[:12]), entry.origin, (ENTRY + entry.id,),
+                                       payload=text)
+            blocks.append(dataclasses.replace(block, protected=True, cache=True,
+                                              values=_stored_values(entry.kind, entry.data)))
+        if unknown:                       # a result that went (its chat cleared) is said, never silently left out
+            blocks.append(ContextBlock(("" if found else EARLIER_RESULTS + ":\n") + "No longer in FERB's records: "
+                                       + ", ".join(unknown), "task specification", protected=True, cache=True))
+        return blocks
+
+    async def _result_problems(self, turn: "_Turn", spec: TaskSpec) -> list[str]:
+        """ORCH-619: the planner's earlier_results, told back for repair: each id must be a result shown in this chat,
+        and each worker's results, in full, must fit its context as inputs must (`plans.problems`): never cut."""
+        steps = [s for s in (spec.plan.steps if spec.plan else []) if s.kind in ("do", "converse")]
+        named = list(dict.fromkeys([*spec.earlier_results, *(r for s in steps for r in s.earlier_results)]))
+        if not named:
+            return []
+        resolved: dict[str, list[JournalEntry]] = {}
+        problems: list[str] = []
+        for rid in named:
+            found, unknown = self._earlier(turn.session.id, [rid])
+            if unknown:
+                problems.append(f"earlier_results {json.dumps(rid)} isn't a result shown in this chat. Name a result "
+                                "by the id on its line (\"Result id: …\"), or leave earlier_results empty when the task "
+                                "uses none.")
+            resolved[rid] = found
+        if problems:
+            return problems
+        users = [(f"step {s.id}", step_results(spec, s), s.worker_type) for s in steps] if spec.plan else \
+            [("The task", spec.earlier_results, spec.worker_type)]
+        rooms: dict[str, int] = {}
+        for who, ids, worker_type in users:
+            rows = {e.id: e for rid in ids for e in resolved.get(rid, [])}
+            if not rows:
+                continue
+            need = sum(count_tokens(result_line(e) + "\n" + str(e.data.get("text", ""))) for e in rows.values())
+            if worker_type not in rooms:
+                rooms[worker_type] = self._worker_room(turn, spec.identity, worker_type)
+            if need > rooms[worker_type]:
+                problems.append(f"{who}: the earlier results it names need about {need} tokens in full, and its "
+                                f"worker's context has room for {rooms[worker_type]}. Name only the results it uses, "
+                                "or one row of a multi-part result (that row's id) instead of the whole card.")
+        return problems
+
+    def _worker_room(self, turn: "_Turn", identity: str, worker_type: str) -> int:
+        """Tokens a worker of this type has for what the task hands it, after its instructions, the request, its report
+        schema and its tools (L28): the window the plan's inputs and earlier results must fit."""
+        scopes = frozenset(s for cap in self.gateway.caps.values() for s in cap.scopes)
+        grant = RunGrant(turn.request_id, turn.request_id, scopes, Identity(identity), float('inf'))
+        reserve = count_tokens(self._system('worker.md') + turn.payload + json.dumps(WORKER_SCHEMA) +
+                               json.dumps(self.gateway.tools_for(grant)))
+        worker = self.make_runtime("worker:" + worker_type, mode="worker", tool_names=[], schema=WORKER_SCHEMA)
+        return max(0, model_limits(worker).context_budget - reserve)
 
     def _timeline(self, current: Any, conversation: str | None,
                   summary: Any = None) -> tuple[list["_Entry"], dict[str, datetime]]:
@@ -3626,6 +3753,8 @@ class Supervisor(WorkerRuns):
         # ORCH-596: the requests FERB replied to, so a stopped task's end told by its stop reply shows there only
         replied = {str(e.data.get("request_id")) for e in rows if e.kind == "chat.reply"
                    and e.data.get("request_id") not in leave_out}
+        # ORCH-619: a stopped task's end told in its stop reply is that task's result, named by its answer's id
+        answers = {str(e.data.get("task_id")): e.id for e in rows if e.kind == "task.answer"}
         for entry in rows:
             data = entry.data
             if data.get("request_id") in leave_out or data.get("read_with") in leave_out:
@@ -3643,6 +3772,7 @@ class Supervisor(WorkerRuns):
             who = "Owner" if entry.kind == "chat.message" else "FERB"
             said = str(data.get("text", ""))
             held = origins_.split(entry.origin)
+            result = entry.id if entry.kind == "task.answer" else ""
             if entry.kind == "task.answer":
                 if self._told_in_reply(data, replied):
                     continue                       # ORCH-596: its end is the stop reply's first part, shown there once
@@ -3663,6 +3793,7 @@ class Supervisor(WorkerRuns):
                     # ORCH-596: a stop told in chat: the stopped task's end as code recorded it, then the planner's
                     # own answer to the rest of the message (model-written, unchecked), then code's lines
                     short, rest = _short_report(end), prose[len(end):].strip()
+                    result = answers.get(str(data.get("told_task")), "")
                     who += (f" (task {data.get('told_task')} result, stopped, as code recorded it"
                             f"{'; short form' if short != end else ''}; origin {origins_.shown(held)})")
                     said = as_data(short) + (
@@ -3682,11 +3813,13 @@ class Supervisor(WorkerRuns):
                 who += f" (noticed; origin {origins_.shown(held)})"
                 said = json.dumps({"text": said, "quotes": data.get("quotes", [])})
                 refs = tuple(notice_sources(self.journal.db, str(data.get("id", ""))))   # the rows it came from
+            task_of = data.get("told_task") if entry.kind == "chat.reply" else data.get("task_id")
             timeline.append(_Entry(entry.at, f"({entry.at.astimezone():%a %d %b %H:%M}) {who}: " + said,
-                                   _entry_payload(entry.kind, data), f"chat.history entry_id={entry.id}", True,
-                                   origins_.split(entry.origin), ENTRY + entry.id, entry.kind, refs,
+                                   _entry_payload(entry.kind, data),
+                                   result_reference(result, task_of) if result else f"chat.history entry_id={entry.id}",
+                                   True, origins_.split(entry.origin), ENTRY + entry.id, entry.kind, refs,
                                    entry.kind == "chat.message" and not data.get("read_with"),
-                                   _stored_values(entry.kind, data)))
+                                   _stored_values(entry.kind, data), result))
         covered = self._covered(summary)
         ages: dict[str, datetime] = {}
         shown: list[_Entry] = []
@@ -3697,7 +3830,9 @@ class Supervisor(WorkerRuns):
             if item.handle in covered:
                 continue                           # FERB's running summary covers it
             ages[tag[1:-2]] = item.at
-            shown.append(dataclasses.replace(item, text=f"{tag}{item.text}\n[Full source: {item.reference}]"))
+            # ORCH-619: a result's line ends with its id, where its full text is and where its task's records are
+            shown.append(dataclasses.replace(item, text=f"{tag}{item.text}\n[" + (
+                item.reference if item.result else f"Full source: {item.reference}") + "]"))
         return shown, ages
 
     def _told_in_reply(self, data: dict[str, Any], replied: set[str]) -> bool:
@@ -4736,6 +4871,7 @@ class Supervisor(WorkerRuns):
             child_spec = tree.spec.model_copy(deep=True)
             child_spec.plan, child_spec.parts = None, []
             child_spec.goal, child_spec.worker_type = step.goal, step.worker_type
+            child_spec.earlier_results = step_results(tree.spec, step)
             # an answer step is checked against the success conditions it answers (its part's; a one-ask plan's last
             # step, all of them), then its own; any other step against its own (ORCH-319)
             child_spec.success_conditions = [*self._answer_conditions(tree, step.id, answering), *(
@@ -5115,6 +5251,7 @@ class Supervisor(WorkerRuns):
             child_spec.plan = None
             child_spec.goal = step.goal + '\nContinue only the approved topic: ' + scope.topic
             child_spec.worker_type = step.worker_type
+            child_spec.earlier_results = step_results(tree.spec, step)
             child_spec.success_conditions = [Condition(text=text, owner_text=text,
                 check=Check(kind='none', path=None, text=None, url_contains=None, site=None, expected=None))
                 for text in (step.conditions or ["The correct account and conversation were read afresh; this turn has "
@@ -5281,6 +5418,7 @@ class Supervisor(WorkerRuns):
         async def round_play(cause: dict[str, Any]) -> dict[str, Any]:
             spec = tree.spec.model_copy(deep=True)
             spec.plan, spec.goal, spec.worker_type = None, step.goal, step.worker_type
+            spec.earlier_results = step_results(tree.spec, step)
             spec.success_conditions = list(conditions)
             why = round_reason(cause)
             # what earlier rounds left held, so this one uses it instead of finding and borrowing it again
@@ -6392,6 +6530,7 @@ class Supervisor(WorkerRuns):
                  ContextBlock((f"Parent task goal: {tree.parent_goal}\n" if tree.parent_goal else "") +
                               f"Task: {spec.goal}\nWorker type: {spec.worker_type}", "task specification",
                               protected=True, cache=True),
+                 *self._result_blocks(tree),           # ORCH-619: the earlier results the task names, in full
                  dataclasses.replace(self._source_block(tree, "Layer 3 — relevant activity", *activity,
                                                                source_refs=tuple(activity_refs or ()) if activity[0] else (),
                                                                payload=_context_payload(activity_source) if activity[0] else ""), priority=1),

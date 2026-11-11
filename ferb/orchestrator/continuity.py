@@ -203,6 +203,20 @@ class Continuity:
         row =self.db.conn.execute(f"SELECT * FROM journal WHERE id = ? AND {where}", [entry_id, *args]).fetchone()
         return self._record(row) if row is not None else None
 
+    def result(self, conversation: str, entry_id: str, kinds: tuple[str, ...]) -> bool:
+        """ORCH-619: whether `entry_id` is a result (a row of `kinds`) shown in this conversation, read as the owner's
+        planner turn reads it there (ORCH-593: an owner chat also reaches the owner's scheduled runs and FERB's own
+        posts; FERB's own planner sessions only their own tasks)."""
+        where, args = self._where(conversation, not conversation.startswith(RESERVED_SESSIONS))
+        marks = ",".join("?" * len(kinds))
+        return self.db.conn.execute(f"SELECT 1 FROM journal WHERE id = ? AND kind IN ({marks}) AND {where}",
+                                    [entry_id, *kinds, *args]).fetchone() is not None
+
+    def part_order(self, task_id: str) -> list[str]:
+        """The ids of a registered task's parts in the owner's order (its saved spec); [] when it has none."""
+        row = self.db.conn.execute("SELECT spec_json FROM task_context WHERE task_id = ?", (task_id,)).fetchone()
+        return [p.id for p in TaskSpec.model_validate_json(row[0]).parts] if row is not None else []
+
     def belongs(self, conversation: str, kind: str, session: str, request: str, doc: str = "",
                 schedules: bool = False) -> bool:
         """Whether an indexed conversation entry (its kind, chat and request or task id, its `journal:` doc) is in this

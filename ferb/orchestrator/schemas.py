@@ -68,6 +68,8 @@ STEP_SCHEMA = _obj({
     "conversation": {"anyOf": [{"type": "null"}, CONVERSATION_SCHEMA]},
     "repeat": {"anyOf": [{"type": "null"}, _obj({"end_when": {"type": "string"}, "event": _nullable("string"),
                                                  "event_match": EVENT_MATCH_SCHEMA})]},
+    # ORCH-619: the ids of earlier results this step uses (its line's "Result id"); [] when none (ORCH-330)
+    "earlier_results": _strings(),
 })
 SEND_SCOPE_SCHEMA = _obj({
     "capability": {"type": "string"}, "identity": {"type": "string", "enum": ["owner", "ferb"]},
@@ -101,6 +103,9 @@ TASK_SCHEMA: dict[str, Any] = _obj({
     "keep_tabs_open": {"type": "boolean"},
     # ORCH-319: the owner's separate asks (empty for one ask): each posts once, in its own row, when checked
     "parts": {"type": "array", "items": PART_SCHEMA},
+    # ORCH-619: the ids of earlier results the task uses (each result's line shows its "Result id"): code gives the
+    # worker and its checker their full text; [] when none (ORCH-330: no union or nullable)
+    "earlier_results": _strings(),
 })
 
 # L36 §6: a remembered item's last day in the owner's own date words; code works out the date
@@ -342,6 +347,8 @@ class TaskSpec(BaseModel):
     folders: list[str] = []          # resolved folders (HAND-204); a spec saved before step 8c has none
     keep_tabs_open: bool = False     # the owner asked to keep its tabs open (HAND-201)
     parts: list[Part] = []           # the owner's separate asks (ORCH-319); a spec saved before step 8d has none
+    # ORCH-619: earlier results the task uses, by id; a spec or answer written before the field has none (STORE-403)
+    earlier_results: list[str] = []
 
 
 class Until(BaseModel):
