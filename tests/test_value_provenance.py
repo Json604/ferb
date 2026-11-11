@@ -150,10 +150,13 @@ def test_outside_influenced_ferb_entries_are_quoted_as_data(daemon: RunningDaemo
     assert outcome(chat(daemon, "What does the notice on mysite.example say?"))["status"] == "done"
     chat(daemon, "Thanks.")
     planner = [r for _, key, r in script.requests if key == "supervisor"][-1]
-    [line] = [x for x in planner.context.split("\n") if "billing@vendor.example" in x]
+    line, full = [x for x in planner.context.split("\n") if "billing@vendor.example" in x]
     label, said = line.split(": ", 1)
     assert "result, done" in label and "external:web" in label                     # marked outside
     assert said.startswith('"') and said.endswith('"')                            # one quoted string (as_data)
+    # ORCH-620: the latest result in full is one quoted string too, under its line naming its origin
+    head = planner.context.split("\n")[planner.context.split("\n").index(full) - 1]
+    assert full.startswith('"') and full.endswith('"') and "external:web" in head
 
 
 # ---------- in one task: read order decides (S9, S10, S11) ----------

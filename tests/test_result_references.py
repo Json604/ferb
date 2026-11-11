@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from ferb.orchestrator.plans import Plan, Step
+from ferb.sanitize.untrusted import as_data
 from tests.conftest import RunningDaemon, chat, cond, done, install, outcome, sup, task, tool
 from tests.support.schedules import run
 
@@ -14,6 +15,7 @@ LAPTOPS = ("### Top 3 coding laptops under ₹80,000\n\n"
            "   - Core Ultra 5 125H, 16GB LPDDR5, 512GB SSD\n\n"
            "2. **Acer Aspire 14 AS14H-53 — ₹69,999** — **Best value**\n\n"
            "**My pick:** Swift Neo for the best complete coding machine.")
+SHOWN = as_data(LAPTOPS)                     # the comparison as a result block holds it: one quoted string (MP2)
 TABLE = "No table was booked. You changed your mind before any reservation was submitted."
 
 
@@ -27,7 +29,8 @@ def two_parts(d: RunningDaemon) -> str:
     spec["parts"] = [_part("table", "book a table for 2 at toit", "Toit table booking", "book", 0),
                      _part("laptops", "top 3 laptops under 80k for coding", "Coding laptop comparison", "compare", 1)]
     spec["plan"] = Plan(steps=[Step(id="book", kind="do", goal="Book the table"),
-                               Step(id="compare", kind="do", goal="Compare laptops")]).model_dump()
+                               # one after the other, so the laptop row is always the newest
+                               Step(id="compare", kind="do", goal="Compare laptops", depends_on=["book"])]).model_dump()
     install(d, [sup("task", "On it.", spec)], {"step.book": done(TABLE), "step.compare": done(LAPTOPS)})
     final = outcome(chat(d, "book a table for 2 at toit and top 3 laptops under 80k for coding", session="owner"))
     return str(final["task_id"])
@@ -104,7 +107,7 @@ def test_a_task_naming_a_row_gives_its_worker_and_checker_the_rows_full_text(dae
         ctx = given(script, key)
         block = ctx[ctx.index("Earlier results this task uses"):]
         assert f"Result {laptops} (" in block and "part “Coding laptop comparison”" in block
-        assert LAPTOPS in block and TABLE not in block
+        assert SHOWN in block and TABLE not in block
     exposures = run(daemon, lambda: [json.loads(r[0]) for r in daemon.daemon.journal.db.conn.execute(
         "SELECT input_json FROM spans WHERE task_id = ? AND kind = 'context.exposure'", (final["task_id"],))])
     assert any(f"entry:{laptops}" in e.get("source_refs", []) for e in exposures)
@@ -117,7 +120,7 @@ def test_a_cards_id_gives_every_row_in_full_in_the_owners_order(daemon: RunningD
                      {"worker": done("https://docs.google.com/spreadsheets/d/abc")})
     chat(daemon, "put both of those in a sheet", session="owner")
     ctx = given(script, "worker")
-    assert ctx.index(TABLE) < ctx.index(LAPTOPS)
+    assert ctx.index(TABLE) < ctx.index(SHOWN)
 
 
 # decision: ORCH-619
@@ -129,7 +132,7 @@ def test_an_older_result_still_reaches_the_worker_in_full(daemon: RunningDaemon)
     script = install(daemon, [sup("task", "Putting it in a sheet.", sheet([laptops]))],
                      {"worker": done("https://docs.google.com/spreadsheets/d/abc")})
     chat(daemon, "put the laptop comparison from before in a sheet", session="owner")
-    assert LAPTOPS in given(script, "worker")
+    assert SHOWN in given(script, "worker")
 
 
 # decision: ORCH-619
@@ -142,7 +145,7 @@ def test_a_wrong_id_goes_back_once_with_a_plain_problem(daemon: RunningDaemon) -
     final = outcome(chat(daemon, "put that laptop res in a google sheet", session="owner"))
     repair = planner_context(script, 1)
     assert 'earlier_results \\"c12\\" isn\'t a result shown in this chat' in repair
-    assert final["status"] == "done" and LAPTOPS in given(script, "worker")
+    assert final["status"] == "done" and SHOWN in given(script, "worker")
 
 
 # decision: ORCH-619
@@ -167,3 +170,84 @@ def test_results_that_dont_fit_the_workers_context_go_back_for_repair(daemon: Ru
     chat(daemon, "put that laptop res in a google sheet", session="owner")
     assert "the earlier results it names need about" in planner_context(script, 1)
     assert not script.calls("worker")
+
+
+def latest_block(context: str) -> str:
+    """The planner's latest-result block ("" when there is none)."""
+    if "Layer 2 — the latest result shown in this chat" not in context:
+        return ""
+    start = context.index("Layer 2 — the latest result shown in this chat")
+    return context[start:context.index("Layer 5 — owner's", start)]
+
+
+# decision: ORCH-620
+def test_the_planner_answers_from_the_latest_card_in_full_newest_row_first(daemon: RunningDaemon) -> None:
+    tree = two_parts(daemon)
+    script = install(daemon, [sup("reply", "The Swift Neo, at 1.25 kg.")])
+    chat(daemon, "which of those is lightest?", session="owner")
+    block = latest_block(planner_context(script))
+    assert f"Result {answer_id(daemon, tree)} names the whole card" in block
+    assert SHOWN in block and TABLE in block and block.index(SHOWN) < block.index(TABLE)
+    assert len(script.calls("planner")) == 1
+
+
+# decision: ORCH-620
+def test_the_block_rides_along_until_a_newer_result_replaces_it(daemon: RunningDaemon) -> None:
+    two_parts(daemon)
+    script = install(daemon, [sup("reply", "You're welcome."), sup("task", "Checking.", task("Check the weather")),
+                              sup("reply", "Sunny.")], {"worker": done("Sunny, 31°C in Bangalore.")})
+    chat(daemon, "thanks", session="owner")
+    assert SHOWN in latest_block(planner_context(script, 0))
+    chat(daemon, "what's the weather", session="owner")
+    chat(daemon, "and tomorrow?", session="owner")
+    block = latest_block(planner_context(script, 2))
+    assert "Sunny, 31°C in Bangalore." in block and SHOWN not in block
+
+
+# decision: ORCH-620
+def test_a_result_over_the_cap_is_left_out_whole_and_its_id_still_works(daemon: RunningDaemon,
+                                                                         monkeypatch: Any) -> None:
+    import ferb.orchestrator.supervisor as supervisor
+    tree = two_parts(daemon)
+    laptops = rows(daemon, tree)["laptops"]
+    monkeypatch.setattr(supervisor, "LATEST_RESULT_TOKENS", 40)            # holds neither row whole
+    script = install(daemon, [sup("task", "Putting it in a sheet.", sheet([laptops]))],
+                     {"worker": done("https://docs.google.com/spreadsheets/d/abc")})
+    chat(daemon, "put that laptop res in a google sheet", session="owner")
+    context = planner_context(script)
+    assert latest_block(context) == "" and f"[Result id: {laptops};" in context
+    assert SHOWN in given(script, "worker")
+    monkeypatch.setattr(supervisor, "LATEST_RESULT_TOKENS", 200)     # a card: the newest row is too long, so none
+    two_parts(daemon)
+    script = install(daemon, [sup("reply", "Sure.")])
+    chat(daemon, "thanks", session="owner")
+    assert latest_block(planner_context(script)) == ""
+
+
+# decision: ORCH-620
+def test_a_card_over_the_cap_keeps_its_newest_whole_rows(daemon: RunningDaemon, monkeypatch: Any) -> None:
+    import ferb.orchestrator.supervisor as supervisor
+    from ferb.core.context import count_tokens
+    tree = two_parts(daemon)
+    laptops = rows(daemon, tree)["laptops"]
+    row = run(daemon, lambda: daemon.daemon.journal.by_ids([laptops])[0])
+    head = supervisor.LATEST_CARD.format(card=f"Result {answer_id(daemon, tree)} names the whole card, ")
+    newest = supervisor.result_line(row) + ":\n" + SHOWN
+    monkeypatch.setattr(supervisor, "LATEST_RESULT_TOKENS", count_tokens(head) + count_tokens(newest))
+    script = install(daemon, [sup("reply", "Sure.")])
+    chat(daemon, "thanks", session="owner")
+    block = latest_block(planner_context(script))
+    assert SHOWN in block and TABLE not in block and "1 older row of this card didn't fit here" in block
+
+
+# decision: ORCH-620
+def test_the_block_adds_no_origin_its_conversation_line_doesnt_already_carry(daemon: RunningDaemon,
+                                                                             monkeypatch: Any) -> None:
+    import ferb.orchestrator.supervisor as supervisor
+    two_parts(daemon)
+    install(daemon, [sup("reply", "Sure."), sup("reply", "Sure.")])
+    chat(daemon, "thanks", session="owner")
+    monkeypatch.setattr(supervisor, "LATEST_RESULT_TOKENS", 0)
+    chat(daemon, "thanks again", session="owner")
+    with_block, without = run(daemon, lambda: [e.origin for e in daemon.daemon.journal.of_kind("chat.reply")][-2:])
+    assert with_block == without

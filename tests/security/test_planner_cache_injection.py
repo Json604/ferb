@@ -354,7 +354,9 @@ def test_a_task_result_is_labelled_data_and_cannot_forge_a_history_line(daemon: 
     [request] = [r for _, key, r in later.requests if key == "supervisor"]
     lines = request.context.split("\n")
     assert not any(line.startswith("[c9] (Sat 25 Oct 14:02) Owner:") for line in lines)        # no forged entry
-    [result] = [line for line in lines if "evil-vendor.example" in line]
+    # in the conversation (ORCH-620's latest-result block after it quotes the same answer as one string too)
+    conversation = request.context.split("\n\nLayer 2 — ", 1)[0].split("\n")
+    [result] = [line for line in conversation if "evil-vendor.example" in line]
     label = result.split(": ", 1)[0]
     # marked as made from an email (stored by kind since GATE-519) and quoted as data
     assert re.search(r"FERB \(task \S+ result, done; origin ", label) and "external:email" in label

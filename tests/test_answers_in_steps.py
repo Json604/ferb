@@ -167,9 +167,11 @@ def test_a_multi_part_answer_is_saved_as_an_index_the_planner_reads_whole(daemon
     rows = {r["part"]: r["text"] for r in _records(daemon, final["task_id"])}
     assert rows["p1"] == permit                                                # the full row stays in the card
     chat(daemon, "thanks")
-    history = [c for _, k, c, _ in script.contexts if k == "supervisor"][-1]
+    context = [c for _, k, c, _ in script.contexts if k == "supervisor"][-1]
+    history, latest = context.split("\n\nLayer 2 — ", 1)
     assert "No new permit rule changes this week." in history and "20 January 2029" in history
     assert "Nothing pending." not in history                                    # rows past their first line aren't
+    assert "Nothing pending." in latest       # ORCH-620: the latest card's rows in full, in their own block after it
 
 
 # decision: ORCH-549, APP-755

@@ -1569,3 +1569,13 @@ rule = "For ORCH-618. A result is the journal row FERB showed: a task's answer (
 why = "The planner already sees each result's journal id (chat.history entry_id); origins ride on the rows as a lookup's would (S3, GATE-525). Older answers and specs without the field read as [] (STORE-403)."
 paths = ["ferb/orchestrator/supervisor.py::RESULT_KINDS", "ferb/orchestrator/supervisor.py::result_reference", "ferb/orchestrator/supervisor.py::result_line", "ferb/orchestrator/supervisor.py::step_results", "ferb/orchestrator/supervisor.py::Supervisor._earlier", "ferb/orchestrator/supervisor.py::Supervisor._card_rows", "ferb/orchestrator/supervisor.py::Supervisor._result_blocks", "ferb/orchestrator/supervisor.py::Supervisor._result_problems", "ferb/orchestrator/supervisor.py::Supervisor._worker_room", "ferb/orchestrator/continuity.py::Continuity.result", "ferb/orchestrator/schemas.py::TaskSpec", "ferb/orchestrator/plans.py::Step"]
 live = ["LIVE-906", "LIVE-907"]
+
+[ORCH-620]
+title = "The planner gets the latest result shown in its chat in full, after what happened since"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For ORCH-618. An owner chat's planner turn gets, right after \"what happened since\" (outside the cached prefix, ORCH-325), the newest result line of its conversation in full: a task's answer or a scheduled run's post whole; a multi-part card (its answer, or a row of a card still filling) as its rows newest first. At most LATEST_RESULT_TOKENS (8,000, the owner's): a result is never cut; one over it is left out, and a card keeps the newest whole rows that fit and says how many didn't. Each row is its own block with its row's origin and stored values."
+why = "The block carries exactly the origins its conversation line already gives the turn, so the sink rule's view of a follow-up task is unchanged; it widens only when the window dropped that line, and then the block was itself shown."
+paths = ["ferb/orchestrator/supervisor.py::LATEST_RESULT_TOKENS", "ferb/orchestrator/supervisor.py::Supervisor._latest_blocks", "ferb/orchestrator/supervisor.py::Supervisor._rows_of", "ferb/orchestrator/supervisor.py::Supervisor._conversation_blocks"]
+live = ["LIVE-908"]

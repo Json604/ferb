@@ -4173,3 +4173,12 @@ request = "After LIVE-906's comparison, ask one unrelated thing that FERB answer
 pass = "The plan comes without the planner looking anything up; the task's worker context shows the laptop comparison in full under \"Earlier results this task uses\"; the email holds the whole comparison. Asked to your own address, no question about sending your data to a new site appears."
 decisions = ["ORCH-619", "PRM-350"]
 sitting = "after this change is installed"
+
+[LIVE-908]
+title = "\"Which of those…?\" right after a result is answered from it, with no lookup"
+area = "orchestration"
+surface = "FERB.app with this build, the owner's chat"
+request = "Right after a task's answer that lists several things (LIVE-906's laptop comparison, or any list FERB found), ask \"which of those is lightest?\" (or a question only the answer's details settle)."
+pass = "FERB replies in a few seconds from the answer's details, naming the right item; `ferb trace` of the reply's turn shows one planner call and no chat.history or task.evidence lookup; its context holds \"Layer 2 — the latest result shown in this chat\" with the whole answer."
+decisions = ["ORCH-620", "PRM-351"]
+sitting = "after this change is installed"

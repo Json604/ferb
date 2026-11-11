@@ -112,10 +112,9 @@ def _shown(c: str) -> str:
     return f"\\u{ord(c):04x}" if ord(c) <= 0xFFFF else f"\\U{ord(c):08x}"
 
 
-def wrap_untrusted(text: str, uid: str = "") -> str:
-    """Data, not instructions: in tags with a random id; a forged closing tag inside can't end ours. `uid`: a fixed id
-    for a block that must read the same on every call (a cached prefix); the escape alone keeps it closed."""
-    tag, uid = "untrusted-data", uid or secrets.token_hex(6)
+def wrap_untrusted(text: str) -> str:
+    """Data, not instructions: in tags with a random id; a forged closing tag inside can't end ours."""
+    tag, uid = "untrusted-data", secrets.token_hex(6)
     body = text.replace(f"</{tag}", f"<\\/{tag}")
     return f'<{tag} id="{uid}">\n{body}\n</{tag} id="{uid}">'
 

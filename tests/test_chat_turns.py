@@ -240,7 +240,8 @@ def test_a_stop_asked_in_chat_is_told_once_by_its_reply(daemon: RunningDaemon) -
     assert said[0]["text"].count("Stopped, as you asked.") == 1
     script.sup.append(sup("reply", "Sure."))
     chat(daemon, "ok thanks")
-    history = _planner_calls(script)[-1].context.split("Layer 5 — owner's", 1)[0]
+    # the conversation shows it once (ORCH-620's latest-result block holds the same end in full, after it)
+    history = _planner_calls(script)[-1].context.split("Layer 5 — owner's", 1)[0].split("\n\nLayer 2 — ", 1)[0]
     assert history.count("Stopped, as you asked.") == 1
     assert f"FERB (reply, model-written, unchecked): {why}" in history
 

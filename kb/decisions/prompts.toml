@@ -551,3 +551,13 @@ rule = "For ORCH-618, replacing PRM-336's clause (the owner's ORCH-618) and refi
 untestable = "Prompt text: TEST-500 keeps no wording tests; LIVE-906 and LIVE-907 judge it."
 paths = ["ferb/orchestrator/prompts/supervisor.md", "ferb/runtimes/answer_rules.py::PLANNER_ANSWER", "ferb/orchestrator/prompts/worker.md"]
 live = ["LIVE-906", "LIVE-907"]
+
+[PRM-351]
+title = "supervisor.md names the latest-result block among Layer 2's records"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For ORCH-620. supervisor.md's context paragraph lists, after what happened since the owner's previous message, \"the latest result shown in this chat in full (a very long one is left out: its short form and id stay in the conversation)\". Nothing else changes."
+untestable = "Prompt text: TEST-500 keeps no wording tests; LIVE-908 judges it."
+paths = ["ferb/orchestrator/prompts/supervisor.md"]
+live = ["LIVE-908"]
