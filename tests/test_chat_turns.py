@@ -517,3 +517,18 @@ def test_the_planners_device_facts_leave_out_the_installed_apps() -> None:
     stable, live = svc.summary(env, "26.0", {"com.apple.Notes"})
     assert "Notes" not in stable and "com.apple.Notes" not in stable
     assert "macOS 26.0" in stable and "Work" in stable and "com.apple.Notes" in live
+
+
+# decision: ORCH-622
+def test_a_reply_never_starts_with_the_conversations_own_labels(daemon: RunningDaemon) -> None:
+    """Live 2026-11-11 13:11 (qrun-20261111-125635-codex-1): FERB's reply read "(from the task) FERB's schedule record
+    says …". That tag is code's own D33 mark on a model-written line starting with the word FERB (unchanged here); the
+    conversation's labels ([cN], the time, "FERB (reply, model-written, unchecked):") a planner might copy are removed
+    from the very start of its reply, exactly as FERB writes them."""
+    install(daemon, [sup("reply", "[c12] (Wed 11 Nov 13:12) FERB (reply, model-written, unchecked): The last visa "
+                                  "check ran at 12:00 and failed."),
+                     sup("reply", "FERB's schedule record says the last visa check failed.")])
+    first = [e["text"] for e in chat(daemon, "what did the visa check find last time?") if e["type"] == "reply"]
+    assert first == ["The last visa check ran at 12:00 and failed."]
+    second = [e["text"] for e in chat(daemon, "and before that?") if e["type"] == "reply"]
+    assert second == ["(from the task) FERB's schedule record says the last visa check failed."]   # D33, as before

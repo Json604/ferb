@@ -1588,3 +1588,12 @@ status = "active"
 rule = "Refines ORCH-586 and L3. When the planner routes the owner's message to an open question (answer_question) whose id names no routable open question, FERB says \"No question is waiting for your answer right now.\" only when that is all the turn does; when the message answered FERB's own question (answers_question, joined) or the turn has its own reply, task, control or entries, nothing is said and question.routing_unused is journaled (request, the id, joined). supervisor.md says FERB's own question has no approval_id."
 why = "Live 2026-11-11 12:58 (qrun-20261111-125635-codex-1): the planner joined FERB's Google-account question and also routed the message by the id of the data wrapper around it; the owner read that line, then the task started."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._route", "ferb/orchestrator/supervisor.py::NO_QUESTION", "ferb/orchestrator/prompts/supervisor.md"]
+
+[ORCH-622]
+title = "A planner reply never starts with the conversation's own labels"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "The labels FERB's conversation puts before an entry for the planner (a [cN] tag, its (Wed 11 Nov 13:12) time, HISTORY_LABELS: \"FERB (code record): \", \"FERB (reply, model-written, unchecked): \" and their short forms) are removed from the very start of a planner reply, matched exactly, before D33's mark. supervisor.md says those labels are FERB's, never text to repeat, and to speak as FERB in the first person, since code marks a line starting with the word FERB \"(from the task)\" (D33, unchanged)."
+why = "Live 2026-11-11 13:11: \"(from the task) FERB's schedule record says …\" was not an echo: code's D33 mark on the planner's line starting \"FERB's\". The mark stays (it guards against text passing for FERB's checks); the prompt now steers the reply's first word."
+paths = ["ferb/orchestrator/supervisor.py::HISTORY_LABELS", "ferb/orchestrator/supervisor.py::without_history_labels", "ferb/orchestrator/supervisor.py::Supervisor._exit", "ferb/orchestrator/prompts/supervisor.md"]

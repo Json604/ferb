@@ -761,6 +761,27 @@ def result_reference(entry_id: str, task_id: Any) -> str:
             + (f"; its task's records: task.evidence task_id={task_id}" if task_id else ""))
 
 
+# ORCH-622: the labels FERB's conversation puts before an entry's text for the planner (`Supervisor._timeline`): its tag,
+# its time and the fixed speaker labels. Never the planner's own words: one at the very start of its reply is removed
+HISTORY_LABELS = ("FERB (code record): ", "FERB (reply, model-written, unchecked): ", "FERB (code record) ",
+                  "(code record) ", "(reply, model-written, unchecked) ")
+_HISTORY_TAG = re.compile(r"\[c\d+\][ \t]*|\((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{2} [A-Z][a-z]{2} \d{2}:\d{2}\)[ \t]*")
+
+
+def without_history_labels(text: str) -> str:
+    """ORCH-622: a planner reply without the conversation's own labels at its very start, matched exactly (the [cN] tag,
+    the (Wed 11 Nov 13:12) time, the fixed speaker labels): structure FERB wrote, never a judgement of its words."""
+    while True:
+        lead = len(text) - len(text.lstrip())
+        rest = text[lead:]
+        if (tag := _HISTORY_TAG.match(rest)) is not None:
+            text = rest[tag.end():]
+        elif (label := next((l for l in HISTORY_LABELS if rest.startswith(l)), None)) is not None:
+            text = rest[len(label):]
+        else:
+            return text
+
+
 def result_line(entry: JournalEntry) -> str:
     """ORCH-619: a result named in full (a task's earlier results; the planner's latest result): its id, when FERB
     showed it, what it was and its origin, as the conversation's own lines say them."""
@@ -2636,7 +2657,8 @@ class Supervisor(WorkerRuns):
         effects = await self._side_entries(turn, out, named) if side else _Side([], [], [])
         for event in effects.events:
             yield event
-        said = text if ready or by == origins_.FERB else confirm.from_task_lines(self.gateway.redact(text))
+        said = text if ready or by == origins_.FERB else \
+            confirm.from_task_lines(self.gateway.redact(without_history_labels(text)))      # ORCH-622, then D33
         if turn.acknowledged:
             said = turn.acknowledged + ("\n" if "\n" in turn.acknowledged else " ") + said
             turn.acknowledged = ""
@@ -2800,7 +2822,8 @@ class Supervisor(WorkerRuns):
                     # that end on the task's own turn (`told_in`) instead of posting it again. ORCH-596: the planner's
                     # own answer to the rest of the message follows it, recorded as its own words (ORCH-566)
                     answer, cards, made = told
-                    rest = confirm.from_task_lines(self.gateway.redact(out.text)).strip() if out.text.strip() else ""
+                    rest = confirm.from_task_lines(self.gateway.redact(without_history_labels(out.text))).strip() \
+                        if out.text.strip() else ""
                     text = answer + (f"\n\n{rest}" if rest and rest != answer.strip() else "")
                     async for event in self._exit(turn, out, "reply", text, ready=True,
                                                   made=made | ({origins_.INFERRED} | turn.turn_origins if rest else set()),
