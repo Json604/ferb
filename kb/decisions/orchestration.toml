@@ -1581,11 +1581,11 @@ paths = ["ferb/orchestrator/supervisor.py::LATEST_RESULT_TOKENS", "ferb/orchestr
 live = ["LIVE-908"]
 
 [ORCH-621]
-title = "A routing that names no open question says nothing when the message already does something"
+title = "A routing that names no open question says nothing when the message answered FERB's own question"
 by = "agent"
 date = 2026-11-11
 status = "active"
-rule = "Refines ORCH-586 and L3. When the planner routes the owner's message to an open question (answer_question) whose id names no routable open question, FERB says \"No question is waiting for your answer right now.\" only when that is all the turn does; when the message answered FERB's own question (answers_question, joined) or the turn has its own reply, task, control or entries, nothing is said and question.routing_unused is journaled (request, the id, joined). supervisor.md says FERB's own question has no approval_id."
+rule = "Refines ORCH-586 and L3. When the planner routes the owner's message to an open question (answer_question) whose id names no routable open question, but the message answered FERB's own question (answers_question, joined), FERB says nothing about it (its answer was taken) and journals question.routing_unused (request, the id, joined); the task or reply goes on. Otherwise \"No question is waiting for your answer right now.\" is said as before (ORCH-508 keeps the planner's reply after it). supervisor.md says FERB's own question has no approval_id."
 why = "Live 2026-11-11 12:58 (qrun-20261111-125635-codex-1): the planner joined FERB's Google-account question and also routed the message by the id of the data wrapper around it; the owner read that line, then the task started."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._route", "ferb/orchestrator/supervisor.py::NO_QUESTION", "ferb/orchestrator/prompts/supervisor.md"]
 

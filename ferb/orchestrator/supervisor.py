@@ -2613,10 +2613,10 @@ class Supervisor(WorkerRuns):
                 return
             ends_in_reply = out.control is None and not (out.kind == "task" and out.task is not None)
             alone = ends_in_reply and not out.text.strip() and not _carries_more(out)
-            if said == NO_QUESTION and (turn.joined or not alone):
+            if said == NO_QUESTION and turn.joined:
                 # ORCH-621: a routing that names no open question (live 2026-11-11 12:58: the id of the wrapper around
-                # FERB's own question) says nothing when the message already does something: it answered FERB's own
-                # question (ORCH-586) or the turn has its own reply, task or entries. Recorded, never shown
+                # FERB's own question) says nothing when the message answered FERB's own question (ORCH-586): its
+                # answer was taken. Recorded, never shown; a message that answered nothing still hears the line
                 self.journal.append("question.routing_unused", {"request_id": turn.request_id,
                                                                 "approval_id": routed.approval_id,
                                                                 "joined": turn.joined})
