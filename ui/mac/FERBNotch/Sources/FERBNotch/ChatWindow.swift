@@ -11,6 +11,8 @@ import NotchCore
 /// opens or clicks it; on every Space, full-screen ones included (D20).
 final class ChatWindowPanel: NSPanel {
     var onClose: (() -> Void)?
+    /// APP-889: Esc first makes an enlarged picture small again (true: it did, and the window stays).
+    var onEscapeFirst: (() -> Bool)?
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
@@ -20,14 +22,14 @@ final class ChatWindowPanel: NSPanel {
     /// profile menu, a field) instead of only bringing the window to keyboard focus (APP-759).
     override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown, Self.isPlainEscape(event), !composingText {
-            onClose?()
+            if onEscapeFirst?() != true { onClose?() }
             return
         }
         if [.leftMouseDown, .rightMouseDown].contains(event.type), !isKeyWindow { makeKey() }
         super.sendEvent(event)
     }
 
-    override func cancelOperation(_ sender: Any?) { if !composingText { onClose?() } }
+    override func cancelOperation(_ sender: Any?) { if !composingText, onEscapeFirst?() != true { onClose?() } }
     override func performClose(_ sender: Any?) { onClose?() }
 
     private var composingText: Bool { (firstResponder as? NSTextView)?.hasMarkedText() == true }
@@ -187,6 +189,7 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
         panel.minSize = ChatWindowFrames.minimumSize
         panel.delegate = self
         panel.onClose = { [weak self] in self?.onClose?() }
+        panel.onEscapeFirst = { [weak model] in model?.closeEnlargedPicture() ?? false }
         controls.close = { [weak self] in self?.onClose?() }
         let hosting = NSHostingView(rootView: ChatWindowView(model: model, controls: controls))
         hosting.sizingOptions = []
@@ -504,7 +507,7 @@ struct ChatWindowView: View {
         .foregroundStyle(Palette.ink)
         .preferredColorScheme(.dark)
         .onDrop(of: [UTType.fileURL], delegate: ChatFileDrop(session: model.drops))
-        .onExitCommand { controls.close() }
+        .onExitCommand { if !model.closeEnlargedPicture() { controls.close() } }   // APP-889
         .accessibilityElement(children: .contain)
         .accessibilityLabel("FERB window")
     }

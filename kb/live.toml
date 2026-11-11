@@ -4119,3 +4119,12 @@ request = "Ask FERB to (1) email yourself a small file from your Desktop as an a
 pass = "Each upload's browser.act result says route field (or drop) with bytes_match true, and the page then shows the file (the attachment chip in Gmail, the imported rows in Sheets, the file name on the page); nothing says the browser refused; no shell workaround. If a site shows nothing after the file was set, the result's next step names the site's other way in and the worker reports what it saw."
 decisions = ["HAND-499", "HAND-500", "HAND-501"]
 sitting = "after this change is installed and 0.19.9 is published"
+
+[LIVE-902]
+title = "An enlarged picture has a ✕ and closes by click or Esc, in the notch and in the chat window"
+area = "app"
+surface = "FERB.app with this build; a cash-on-delivery checkout of a cheap item (its payment card), then a two-part request whose rows show live previews; the chat in the notch, then in the window"
+request = "At the payment card, click the checkout picture; close it with its ✕. Click it again and close it by clicking the larger picture, then by clicking outside it, then with Esc. Do the same with a running row's small live picture. Type in the card's box or the chat field before each click."
+pass = "Each click shows the picture larger with a ✕ in its corner; each of the four ways makes it small again; Esc closes only the picture (the notch and the chat window stay); typing goes on in the box or field you were in without clicking it again. In the chat window the card's own picture is a small preview, not page-sized."
+decisions = ["APP-889"]
+sitting = "after this change is installed"

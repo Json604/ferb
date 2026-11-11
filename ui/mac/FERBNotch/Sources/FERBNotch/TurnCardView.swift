@@ -392,7 +392,6 @@ struct RowPreview: View {
     @ObservedObject var model: NotchModel
     let preview: TaskPreview
     let label: String
-    @State private var enlarged = false
 
     /// The step task id a row watches: one whose step is working now (starting, running, retrying, checking).
     static func watch(_ row: CardRow, _ display: RowDisplay) -> String? {
@@ -402,21 +401,16 @@ struct RowPreview: View {
     }
 
     var body: some View {
-        Button { enlarged = true } label: {
+        // APP-889: enlarged with its ✕, made small again by a click on it, outside it or Esc
+        EnlargeablePicture(model: model, label: "Live preview of " + label) {
             TaskVideoView(preview: preview, compact: true, active: model.expanded && !model.isYielded)
                 .frame(width: 22, height: 22)
                 .clipShape(Circle())
                 .overlay(Circle().stroke(Palette.amber.opacity(0.65), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-        .help("Watch " + label)
-        .accessibilityLabel("Live preview of " + label)
-        .popover(isPresented: $enlarged, arrowEdge: .bottom) {
+        } large: {
             TaskVideoView(preview: preview)
-                .frame(width: 300, height: 170)
+                .frame(width: EnlargedPreview.size.width, height: EnlargedPreview.size.height)
                 .clipShape(RoundedRectangle(cornerRadius: 9))
-                .padding(8)
-                .background(TaskPreviewWindow(model: model, hidesFromCapture: true))
         }
     }
 }

@@ -175,3 +175,66 @@ struct SectionCaption: View {
             .foregroundStyle(Palette.secondary)
     }
 }
+
+/// APP-889 (owner 2026-11-11: "the image enlarged but theres no lcose button"): a picture a click shows larger, in a
+/// popover hidden from screen sharing (APP-406), the same way everywhere it is used (a payment page, a row's live
+/// preview). Closing is plain and standard: its ✕, a click on the larger picture, a click outside it, or Esc
+/// (NotchModel.closeEnlargedPicture, which the notch and the chat window ask first); the keyboard focus then goes back
+/// where it was.
+struct EnlargeablePicture<Small: View, Large: View>: View {
+    @ObservedObject var model: NotchModel
+    let label: String
+    @ViewBuilder let small: () -> Small
+    @ViewBuilder let large: () -> Large
+    /// This view's own key: the same picture drawn in two places never opens twice.
+    @State private var key = UUID().uuidString
+
+    var body: some View {
+        let model = model, key = key
+        Button { model.togglePicture(key) } label: { small() }
+            .buttonStyle(.plain)
+            .help(model.isEnlarged(key) ? "Click to make it small again" : "Click to enlarge")
+            .accessibilityLabel(label)
+            .accessibilityHint("Shows it larger")
+            .popover(isPresented: Binding(get: { model.isEnlarged(key) },
+                                         set: { if !$0, model.isEnlarged(key) { model.closeEnlargedPicture() } }),
+                     arrowEdge: .bottom) {
+                EnlargedPicture(label: label, close: { model.closeEnlargedPicture() }, content: large)
+                    .background(TaskPreviewWindow(model: model, hidesFromCapture: true))
+            }
+    }
+}
+
+/// The larger picture with its ✕ in the top corner; a click on the picture makes it small again, as does Esc.
+struct EnlargedPicture<Content: View>: View {
+    let label: String
+    let close: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        content()
+            .contentShape(Rectangle())
+            .onTapGesture { close() }
+            .overlay(alignment: .topTrailing) {
+                Button(action: close) {
+                    Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                        .frame(width: 22, height: 22)
+                        .background(.black.opacity(0.6), in: Circle())
+                        .overlay(Circle().stroke(.white.opacity(0.28), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .padding(6)
+                .help("Close (Esc)")
+                .accessibilityLabel("Close the larger picture")
+            }
+            .padding(8)
+            .onExitCommand { close() }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(label + ", larger")
+    }
+}
+
+/// APP-889: how large a task's live preview shows when enlarged (16:9, as the short view's 300 × 170).
+enum EnlargedPreview {
+    static let size = CGSize(width: 640, height: 360)
+}

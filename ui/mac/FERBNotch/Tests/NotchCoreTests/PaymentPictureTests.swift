@@ -84,6 +84,41 @@ final class PaymentPictureTests: XCTestCase {
         XCTAssertNil(pictures.images["ap-pay"])
     }
 
+    /// Owner 2026-11-11: "the image enlarged but theres no lcose button". One enlarged picture at a time; a second click
+    /// (on the small picture or the larger one, the ✕) makes it small; Esc in the chat window makes it small before it
+    /// hides the window, and the keyboard focus goes back to the field that had it.
+    // decision: APP-889, APP-828, APP-888
+    func testAnEnlargedPictureClosesByClickOrEscFirstAndFocusGoesBack() {
+        let model = NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults())
+        let panel = ChatWindowPanel(contentRect: CGRect(x: 0, y: 0, width: 300, height: 200),
+                                    styleMask: [.nonactivatingPanel], backing: .buffered, defer: true)
+        let field = NSTextView(frame: CGRect(x: 0, y: 0, width: 200, height: 20))
+        let other = NSTextView(frame: CGRect(x: 0, y: 40, width: 200, height: 20))
+        panel.contentView?.addSubview(field)
+        panel.contentView?.addSubview(other)
+        XCTAssertTrue(panel.makeFirstResponder(field))
+        var hidden = 0
+        panel.onClose = { hidden += 1 }
+        panel.onEscapeFirst = { model.closeEnlargedPicture() }
+
+        model.enlargePicture("a", focus: panel)
+        XCTAssertTrue(model.isEnlarged("a"))
+        model.enlargePicture("b", focus: panel)                  // one at a time
+        XCTAssertFalse(model.isEnlarged("a"))
+        model.togglePicture("b")                                 // a click again makes it small
+        XCTAssertNil(model.enlargedPicture)
+
+        model.enlargePicture("a", focus: panel)
+        panel.makeFirstResponder(other)                          // the keys went elsewhere meanwhile
+        panel.cancelOperation(nil)                               // Esc
+        XCTAssertNil(model.enlargedPicture)
+        XCTAssertEqual(hidden, 0, "Esc made the picture small and left the window open")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(panel.firstResponder === field, "the focus went back to the field")
+        panel.cancelOperation(nil)                               // nothing enlarged: Esc hides the window as before
+        XCTAssertEqual(hidden, 1)
+    }
+
     private static func png() -> String {
         let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 3, bitsPerSample: 8,
                                    samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,

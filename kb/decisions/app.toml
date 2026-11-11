@@ -3439,3 +3439,15 @@ rule = "Refines APP-403. A row of a multi-part card whose step is working (start
 why = "The daemon already kept a surface per step (DMN-404) and FERB.app's TaskPreview already took a step; only the rows didn't ask. Parallel rows share the task's one capture in turn (DMN-584), so two rows never double the capture work."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::RowPreview", "ui/mac/FERBNotch/Sources/FERBNotch/TaskPreview.swift::TaskPreview"]
 live = ["LIVE-900"]
+
+[APP-889]
+title = "An enlarged picture closes by its ✕, a click on it, a click outside or Esc, and focus goes back"
+by = "owner"
+date = 2026-11-11
+status = "active"
+words = "the image enlarged but theres no lcose button"
+words_source = "Owner 2026-11-11, live on build 202611102239: the payment card \"Pay INR 72.05?\" in the chat window; the checkout picture enlarged and nothing showed how to make it small again."
+rule = "Refines APP-828 and APP-888. A picture FERB shows small (the payment page in its card, a row's live preview) shows larger on a click, in a popover hidden from screen sharing, with a ✕ in its top corner. A click on the larger picture, its ✕, a click outside it or Esc makes it small again; Esc does that first, before it hides the chat or closes the notch. One picture is enlarged at a time, and the keyboard focus goes back to the view that had it (the card's box, the chat field). The payment page in its card is at most 180 points tall, so it never reads as enlarged in the wide chat window."
+why = "The popover had no visible way back: a click outside it was the only one, and nothing said so."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/VisualComponents.swift::EnlargeablePicture", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.closeEnlargedPicture", "ui/mac/FERBNotch/Sources/FERBNotch/PaymentPicture.swift::PaymentPictureView", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::RowPreview", "ui/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowPanel", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+live = ["LIVE-902"]

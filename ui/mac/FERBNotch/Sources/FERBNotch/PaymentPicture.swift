@@ -50,7 +50,8 @@ final class PaymentPictures: ObservableObject {
     }
 }
 
-/// The picture under the payment card's first line, fitted to the card's width; a click shows it larger. Until it
+/// The picture under the payment card's first line, fitted to the card's width (at most `cardHeight` tall); a click
+/// shows it larger with a ✕, and a click on it, outside it or Esc makes it small again (APP-889). Until it
 /// comes, a quiet placeholder of its own: the view always draws something, so it appears and asks for the picture
 /// (an empty Group never appears, which left the 2026-11-11 cards without their picture, APP-887). A picture the
 /// daemon couldn't capture, or FERB.app couldn't get, is one line in its place.
@@ -58,25 +59,22 @@ struct PaymentPictureView: View {
     @ObservedObject var model: NotchModel
     @ObservedObject var pictures: PaymentPictures
     let approval: DaemonApproval
-    @State private var enlarged = false
+
+    /// APP-889: the picture in the card stays a picture of the card's width, at most this tall, so it never reads as
+    /// already enlarged in the wide chat window; the whole page is one click away, with its ✕.
+    static let cardHeight: CGFloat = 180
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let image = pictures.images[approval.id] {
-                Button { enlarged = true } label: {
+                EnlargeablePicture(model: model, label: "The payment page") {
                     Image(nsImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: .infinity)
+                        .frame(maxWidth: .infinity, maxHeight: Self.cardHeight)
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .help("Click to enlarge")
-                .accessibilityLabel("The payment page")
-                .popover(isPresented: $enlarged, arrowEdge: .bottom) {
+                } large: {
                     Image(nsImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
                         .frame(maxWidth: min(image.size.width, 900), maxHeight: min(image.size.height, 700))
-                        .padding(8)
-                        .accessibilityLabel("The payment page")
-                        .background(TaskPreviewWindow(model: model, hidesFromCapture: true))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
             } else if let problem = approval.pictureProblem ?? pictures.missing[approval.id] {
                 Text(problem).font(.system(size: 11)).foregroundStyle(Palette.secondary)

@@ -584,7 +584,10 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
         panel.collectionBehavior = Self.overlayBehavior
         panel.animationBehavior = .none
-        panel.onEscape = { [weak self] in self?.model.collapse(keyboard: true) }
+        panel.onEscape = { [weak self] in   // APP-889: Esc first makes an enlarged picture small again
+            guard let self, !self.model.closeEnlargedPicture() else { return }
+            self.model.collapse(keyboard: true)
+        }
         let hosting = TrackingHostingView(rootView: NotchView(model: model, presentation: presentation))
         hostingView = hosting
         hosting.sizingOptions = []

@@ -610,7 +610,52 @@ final class NotchModel: ObservableObject {
         else if previewPopoverIDs.remove(id) != nil { onInteractionEnded?() }
     }
 
-    func dismissPreviewPopovers() { previewDismissalRevision &+= 1 }
+    func dismissPreviewPopovers() {
+        previewDismissalRevision &+= 1
+        enlargedPicture = nil
+        focusBeforeEnlarging = nil
+    }
+
+    /// APP-889: the one picture shown larger now (a payment page, a row's or a task's live preview), by its key. It
+    /// closes by its ✕, a click on it, a click outside it, or Esc, which closes it before anything else Esc does; the
+    /// keyboard focus goes back to the view that had it (the card's box, the chat field).
+    @Published private(set) var enlargedPicture: String?
+    private var focusBeforeEnlarging: (window: NSWindow, responder: NSResponder?)?
+
+    func isEnlarged(_ key: String) -> Bool { enlargedPicture == key }
+
+    /// `focus`: the window whose keyboard focus comes back on closing (the one with the keys now).
+    func enlargePicture(_ key: String, focus: NSWindow? = NSApp.keyWindow) {
+        guard enlargedPicture != key else { return }
+        if enlargedPicture == nil, let window = focus {
+            focusBeforeEnlarging = (window, window.firstResponder)
+        }
+        enlargedPicture = key
+    }
+
+    func togglePicture(_ key: String) {
+        if enlargedPicture == key { closeEnlargedPicture() } else { enlargePicture(key) }
+    }
+
+    /// Closes the enlarged picture, if one shows; whether one did (Esc then does nothing else).
+    @discardableResult
+    func closeEnlargedPicture() -> Bool {
+        guard enlargedPicture != nil else { return false }
+        enlargedPicture = nil
+        let focus = focusBeforeEnlarging
+        focusBeforeEnlarging = nil
+        if let focus {
+            // after the popover has gone, so its window doesn't keep the keys
+            DispatchQueue.main.async {
+                if focus.window.isVisible, !focus.window.isKeyWindow { focus.window.makeKey() }
+                if let responder = focus.responder, focus.window.firstResponder !== responder,
+                   (responder as? NSView)?.window === focus.window {
+                    focus.window.makeFirstResponder(responder)
+                }
+            }
+        }
+        return true
+    }
 
     // A preview is a hover surface, not a modal interaction. The coordinator checks
     // its actual window bounds; merely being presented must never hold the chat open.
