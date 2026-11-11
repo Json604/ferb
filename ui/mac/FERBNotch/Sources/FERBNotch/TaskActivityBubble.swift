@@ -6,7 +6,11 @@ struct TaskActivityBubble: View {
     @State private var hoveredTaskID: String?
     @State private var ringOpen = false
 
-    private var activeTasks: [TaskItem] { model.taskItems.filter(\.isRunning) }
+    /// APP-891: a preview is shown once: a task whose card rows show their live pictures on screen now has no picture
+    /// here (the work row's count and time still count it).
+    private var activeTasks: [TaskItem] {
+        model.taskItems.filter { $0.isRunning && !model.rowsShowPreview(of: $0.backendID ?? $0.id) }
+    }
     private var featured: [TaskItem] { Array(activeTasks.prefix(2)) }
     private var remaining: [TaskItem] { Array(activeTasks.dropFirst(2)) }
 

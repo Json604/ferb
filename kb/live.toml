@@ -4137,3 +4137,12 @@ request = "While it runs, click the round picture by the active task: in the sho
 pass = "Both pictures show larger with a ✕ and close each of the four ways; the box shows the heading, the task's name, its ✕, the picture and one line that changes as the task works (the same as the short view's), with no scrolling list; Show activity still lists every step."
 decisions = ["APP-890", "APP-889"]
 sitting = "after this change is installed"
+
+[LIVE-904]
+title = "A live preview shows once: a card's running rows, or the strip, never both"
+area = "app"
+surface = "FERB.app with this build, the chat in the notch and then in the window"
+request = "Ask for two things in one message that both browse, and in another message a single browsing task. While all run, look at the card and at the round pictures by \"N active tasks\"; scroll the card out of view and back; close the chat and open it."
+pass = "With the card's running rows in view, the strip shows only the single task's picture; \"2 active tasks\" and the time stay. Scrolled out of view, the strip shows the two-part task's picture again; back in view, it goes. Activity Monitor shows FERB's CPU no higher than with the rows alone."
+decisions = ["APP-891"]
+sitting = "after this change is installed"

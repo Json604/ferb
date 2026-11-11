@@ -3463,3 +3463,15 @@ rule = "Refines APP-889 and APP-403. The live picture in a task's short view (th
 why = "The box repeated every line in a scrolling list while the short view already said the one that matters."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift::TaskActivityBubble", "ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift::DetachedTaskActivityView", "ui/mac/FERBNotch/Sources/FERBNotch/TaskList.swift::TaskItem.currentLine"]
 live = ["LIVE-903"]
+
+[APP-891]
+title = "A live preview is shown once: on-screen card rows take the active-task strip's place for their task"
+by = "owner"
+date = 2026-11-11
+status = "active"
+words = "is this redundantness ok??? does this pose high system load??? shoudl we show in bothb places???"
+words_source = "Owner 2026-11-11, live on build 202611102239: a two-part card's two row pictures and the same task's picture again by \"2 active tasks · 2:44\"."
+rule = "Refines APP-888. While a running row of a task's multi-part card shows its live picture on screen in the open chat (inside the transcript's view, the chat showing and not stepped aside), the round pictures by \"N active tasks\" leave that task out; the count and the time still count it. Scrolled away, the chat closed or the rows no longer running, the strip shows it again. Single tasks keep their strip picture. \"N active tasks\" counts tasks, not parts."
+why = "Measured with the daemon's real TaskPreviews (249 ms captures, the owner's 11:42-11:47 average): the strip's copy adds no capture (one capture per task, shared) but 51% more preview requests (9.3 to 14.1 a second) and 45% more frames sent and decoded (2.8 to 4.1 a second)."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift::TaskActivityBubble", "ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::RowPreview", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.rowPreview", "ui/mac/FERBNotch/Sources/FERBNotch/TaskPreview.swift::OnScreenReader"]
+live = ["LIVE-904"]

@@ -185,6 +185,74 @@ struct TaskVideoView: View {
     }
 }
 
+/// APP-891: reports whether this view is on screen now: in a window that is visible, and inside what its scroll view
+/// shows (a transcript row scrolled out of view, or taken out of the list, is not). Reported on change only, after the
+/// layout pass that changed it.
+struct OnScreenReader: NSViewRepresentable {
+    let changed: (Bool) -> Void
+
+    func makeNSView(context: Context) -> Reader {
+        let view = Reader()
+        view.changed = changed
+        return view
+    }
+    func updateNSView(_ nsView: Reader, context: Context) { nsView.changed = changed }
+    static func dismantleNSView(_ nsView: Reader, coordinator: ()) { nsView.gone() }
+
+    final class Reader: NSView {
+        var changed: ((Bool) -> Void)?
+        private var observers: [NSObjectProtocol] = []
+        private var last: Bool?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            for observer in observers { NotificationCenter.default.removeObserver(observer) }
+            observers = []
+            if let window {
+                let center = NotificationCenter.default
+                observers.append(center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window,
+                                                    queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.report() }
+                })
+                if let clip = enclosingScrollView?.contentView {
+                    clip.postsBoundsChangedNotifications = true
+                    observers.append(center.addObserver(forName: NSView.boundsDidChangeNotification, object: clip,
+                                                        queue: .main) { [weak self] _ in
+                        MainActor.assumeIsolated { self?.report() }
+                    })
+                }
+            }
+            report()
+        }
+
+        override func layout() {
+            super.layout()
+            report()
+        }
+
+        /// On screen now: a visible window, not hidden, and some of it inside every clip view around it.
+        var onScreen: Bool {
+            guard let window, window.isVisible, window.occlusionState.contains(.visible),
+                  !isHiddenOrHasHiddenAncestor else { return false }
+            return !visibleRect.isEmpty
+        }
+
+        func report() { tell(onScreen) }
+
+        /// Taken out of its window for good.
+        func gone() { tell(false) }
+
+        private func tell(_ visible: Bool) {
+            guard visible != last else { return }
+            last = visible
+            let changed = changed
+            DispatchQueue.main.async { changed?(visible) }
+        }
+
+        deinit { for observer in observers { NotificationCenter.default.removeObserver(observer) } }
+    }
+}
+
 /// Reports whether the window holding this view is visible on screen (not covered by other windows, not ordered out).
 struct WindowVisibilityReader: NSViewRepresentable {
     let changed: (Bool) -> Void

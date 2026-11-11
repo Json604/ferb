@@ -114,6 +114,26 @@ final class LongTaskCardTests: XCTestCase {
         XCTAssertTrue(pieces[1].hasPrefix("1"))
     }
 
+    /// Owner 2026-11-11 (two row pictures and the same task's picture again by "2 active tasks"): "is this redundantness
+    /// ok??? ... shoudl we show in bothb places???". A preview is shown once: while a row of the task's card shows its
+    /// picture on screen, the strip leaves that task out; when the last such row leaves the screen it is back.
+    // decision: APP-891, APP-888
+    func testAPreviewIsShownOnceRowsOnScreenTakeTheStripsPlace() {
+        let model = makeModel()
+        let first = UUID(), second = UUID()
+        XCTAssertFalse(model.rowsShowPreview(of: "T"))
+        model.rowPreview(first, task: "T", onScreen: true)
+        model.rowPreview(second, task: "T", onScreen: true)
+        XCTAssertTrue(model.rowsShowPreview(of: "T"))
+        XCTAssertFalse(model.rowsShowPreview(of: "other"))               // another task keeps its strip picture
+        model.rowPreview(first, task: "T", onScreen: false)
+        XCTAssertTrue(model.rowsShowPreview(of: "T"))                    // one row still shows it
+        model.rowPreview(second, task: "T", onScreen: false)             // scrolled away, or the row stopped running
+        XCTAssertFalse(model.rowsShowPreview(of: "T"))
+        XCTAssertTrue(model.rowPreviewsOnScreen.isEmpty)
+        XCTAssertFalse(OnScreenReader.Reader().onScreen)                 // in no window: not on screen
+    }
+
     /// Owner 2026-11-11: "in the extracted preview box, there is every log shoein in a scroll windo, lets keep it like
     /// normla only showing what command currently ran". The short view and the extracted box say the same one line:
     /// the latest thing FERB did; and either picture enlarges past the short view's size.

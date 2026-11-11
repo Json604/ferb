@@ -199,7 +199,8 @@ struct CardRowView: View {
                 if display.kind == .updated { UpdatedTag() }
                 Spacer(minLength: 0)
                 if let watch {
-                    RowPreview(model: model, preview: model.preview(task: row.taskID, worker: watch), label: row.label)
+                    RowPreview(model: model, preview: model.preview(task: row.taskID, worker: watch), label: row.label,
+                               task: row.taskID)
                 }
             }
             content.padding(.top, 2)
@@ -392,6 +393,10 @@ struct RowPreview: View {
     @ObservedObject var model: NotchModel
     let preview: TaskPreview
     let label: String
+    /// The task whose strip picture this row stands for while it is on screen (APP-891).
+    var task: String = ""
+    @State private var id = UUID()
+    @State private var onScreen = false
 
     /// The step task id a row watches: one whose step is working now (starting, running, retrying, checking).
     static func watch(_ row: CardRow, _ display: RowDisplay) -> String? {
@@ -412,5 +417,11 @@ struct RowPreview: View {
                 .frame(width: EnlargedPreview.size.width, height: EnlargedPreview.size.height)
                 .clipShape(RoundedRectangle(cornerRadius: 9))
         }
+        // APP-891: while this row's picture is on screen in the open chat, the active-task strip leaves its task out
+        .background(OnScreenReader { visible in onScreen = visible })
+        .onChange(of: onScreen && model.expanded && !model.isYielded, initial: true) { _, shown in
+            model.rowPreview(id, task: task, onScreen: shown)
+        }
+        .onDisappear { model.rowPreview(id, task: task, onScreen: false) }
     }
 }

@@ -616,6 +616,20 @@ final class NotchModel: ObservableObject {
         focusBeforeEnlarging = nil
     }
 
+    /// APP-891 (owner 2026-11-11: "shoudl we show in bothb places???"): a preview is shown once. The running rows of a
+    /// multi-part card whose live previews are on screen now, by their root task: while any is, the active-task strip
+    /// shows no picture of that task (its count and time stay); scrolled away or not showing, the strip shows it again.
+    @Published private(set) var rowPreviewsOnScreen: [String: Set<UUID>] = [:]
+
+    func rowPreview(_ id: UUID, task: String, onScreen: Bool) {
+        var shown = rowPreviewsOnScreen[task] ?? []
+        guard onScreen ? shown.insert(id).inserted : shown.remove(id) != nil else { return }
+        rowPreviewsOnScreen[task] = shown.isEmpty ? nil : shown
+    }
+
+    /// Whether a row of this task's card shows its live preview on screen now (APP-891).
+    func rowsShowPreview(of task: String) -> Bool { !(rowPreviewsOnScreen[task]?.isEmpty ?? true) }
+
     /// APP-889: the one picture shown larger now (a payment page, a row's or a task's live preview), by its key. It
     /// closes by its ✕, a click on it, a click outside it, or Esc, which closes it before anything else Esc does; the
     /// keyboard focus goes back to the view that had it (the card's box, the chat field).
