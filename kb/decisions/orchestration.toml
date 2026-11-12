@@ -1656,3 +1656,14 @@ status = "active"
 rule = "Refines L8's live line and ORCH-595's last step. While a worker's shell.wait or shell.read call is on one of its own task's commands, the live line (and so a card row, a checklist line, the short view and the planner's running row) says \"waiting for `<command>` (14 min)\" or \"reading the output of `<command>`\": the command's first line, printable, cut at a word to COMMAND_CHARS (40, as a name's cut) and quoted as the task's own words, as ORCH-598 quotes a sleep's reason; the minutes it has run from 1. Redacted as every live line."
 why = "Live 2026-11-12 16:06-16:26 (task f68317e9): the step's line read \"shell.wait\" for 20 minutes; asked twice what it waited for, the planner said the task record didn't show the command."
 paths = ["ferb/orchestrator/progress.py::waiting_for", "ferb/orchestrator/worker.py::WorkerRuns._waiting_line", "ferb/orchestrator/ports.py::EnvironmentPort", "ferb/daemon/areas/desktop.py::Desktop._shell_process"]
+
+[ORCH-629]
+title = "The owner's last word on a purchase wins: a Yes at Buy Now then a No at the order is no payment"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "For GATE-582, refining ORCH-576 and ORCH-321. A purchase is a payment-class call's site and tab chain (cards.purchase). When its last such call was refused after FERB asked (declined on its card, set aside by the owner's words, or never answered Yes) and nothing of it went ahead after, the paid check and the payment card count none of its earlier approved calls; the check then reads as ORCH-613's decline. Of a purchase's several Yeses, one card: the last Yes's, with its page's amount."
+why = "Since GATE-582 Buy Now is a payment call: a Yes there and a No at Place your order showed a payment card and \"FERB paid on www.amazon.in after your Yes\" with nothing ordered."
+rejected = ["Telling Buy Now from Place your order by the control's words: rule 4"]
+untestable = "Two separate orders on one site in one tab chain within one task show as one card (the later): which step paid can't be told structurally."
+paths = ["ferb/orchestrator/cards.py::purchase", "ferb/orchestrator/cards.py::withdrawn", "ferb/orchestrator/cards.py::payments", "ferb/orchestrator/cards.py::paid"]

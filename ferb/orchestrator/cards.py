@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from ferb.policy.confirm import site_key
 from ferb.policy.rules import Kind, declared_of
 from ferb.store.spans import SpanStore, tree_where
 
@@ -103,34 +104,77 @@ def _host(url: Any) -> str:
         return ""
 
 
-def payments(spans: SpanStore, tree_id: str) -> list[dict[str, Any]]:
-    """One expense row per payment the owner said Yes to that then ran: payment-class calls covered by a granted
-    `floor:pay` confirmation, grouped by that Yes. Amount and merchant are the page's (`ActionFacts.page_amount` /
-    `page_merchant`, read by code): the first the payment's calls recorded, i.e. the checkout's; the card is the saved
-    entry's name the gateway recorded with them (`card_entry`, ORCH-321)."""
-    calls = [c for c in _calls(spans, tree_id) if Kind.PAY in _kinds(c)]
-    ids = {str(i) for c in calls for i in [*(c.get("confirmations") or []),
-                                           (c.get("payment") or {}).get("covered_by")] if i}
+def _yes_of(call: dict[str, Any]) -> list[str]:
+    """The confirmations a call carries: those asked for it and the payment approval that covered it."""
+    return [str(i) for i in [*(call.get("confirmations") or []), (call.get("payment") or {}).get("covered_by")] if i]
+
+
+def _pay_granted(spans: SpanStore, calls: list[dict[str, Any]]) -> set[str]:
+    """Which of these calls' confirmations are the owner's granted Yes to a payment."""
+    ids = sorted({i for c in calls for i in _yes_of(c)})
     if not ids:
-        return []
-    granted = {row["id"] for row in spans.db.conn.execute(
+        return set()
+    return {row["id"] for row in spans.db.conn.execute(
         f"SELECT id FROM confirmations WHERE rule = ? AND granted = 1 AND id IN ({','.join('?' * len(ids))})",
-        (PAY_RULE, *sorted(ids)))}
+        (PAY_RULE, *ids))}
+
+
+def purchase(call: dict[str, Any]) -> tuple[str, str]:
+    """ORCH-629: the purchase a payment-class call belongs to: its site (as the gateway checked it, else the page's
+    host) and its tab chain (one checkout and the tabs it opened)."""
+    facts = call.get("facts") or {}
+    site = site_key(str((call.get("target") or {}).get("site") or _host(facts.get("page_url"))))
+    return site, str(facts.get("tab_chain") or (call.get("payment") or {}).get("scope") or "")
+
+
+def withdrawn(spans: SpanStore, tree_id: str) -> set[tuple[str, str]]:
+    """ORCH-629: the purchases whose last payment-class call FERB asked the owner about and didn't get their Yes for
+    (declined on its card, set aside by their words, or never answered), with nothing of that purchase going ahead
+    after it: the owner's last word on that purchase stands, so an earlier step they approved (Buy Now) is no payment.
+    From the recorded calls only: a call that went ahead, or one refused after FERB asked (`declined`, or carrying the
+    question's confirmation); a call refused before any question (a boundary) says nothing about it."""
+    where, params = tree_where(tree_id)
+    rows = spans.db.conn.execute("SELECT input_json FROM spans WHERE kind = 'tool.call' AND ended_at IS NOT NULL "
+                                 f"AND {where} ORDER BY started_at, rowid", params).fetchall()
+    last: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        data = json.loads(row["input_json"] or "{}")
+        if data.get("ferb_question") or Kind.PAY not in _kinds(data):
+            continue
+        if data.get("boundary_refused") and not (data.get("declined") or data.get("confirmations")):
+            continue
+        last[purchase(data)] = data
+    return {key for key, call in last.items() if call.get("boundary_refused")}
+
+
+def payments(spans: SpanStore, tree_id: str) -> list[dict[str, Any]]:
+    """One expense row per purchase the owner said Yes to that then ran: payment-class calls covered by a granted
+    `floor:pay` confirmation, grouped by that Yes; of a purchase's Yeses (ORCH-629: its site and tab chain, e.g. Buy Now
+    then Place your order), the last one's row, and none when the owner's last word on it was no (`withdrawn`).
+    Amount and merchant are the page's (`ActionFacts.page_amount` / `page_merchant`, read by code): the first the
+    payment's calls recorded, i.e. the checkout's; the card is the saved entry's name the gateway recorded with them
+    (`card_entry`, ORCH-321)."""
+    calls = [c for c in _calls(spans, tree_id) if Kind.PAY in _kinds(c)]
+    granted = _pay_granted(spans, calls)
+    if not granted:
+        return []
+    gone = withdrawn(spans, tree_id)
     by: dict[str, dict[str, Any]] = {}
+    of: dict[str, tuple[str, str]] = {}                  # each Yes's purchase: its first call's
     for c in calls:
-        yes = next((str(i) for i in [*(c.get("confirmations") or []), (c.get("payment") or {}).get("covered_by")]
-                    if i and str(i) in granted), None)
+        yes = next((i for i in _yes_of(c) if i in granted), None)
         if yes is None:
             continue
         facts, target = c.get("facts") or {}, c.get("target") or {}
+        of.setdefault(yes, purchase(c))
         card = by.setdefault(yes, {"type": "payment"})
         for key, value in (("amount", facts.get("page_amount")), ("merchant", facts.get("page_merchant")),
                            ("site", _host(facts.get("page_url")) or target.get("site")),
                            ("card", c.get("card_entry"))):
             if value and key not in card:
                 card[key] = str(value)
-    return list(by.values())
-
+    final = {key: yes for yes, key in of.items()}        # each purchase's last Yes (the calls are in order)
+    return [card for yes, card in by.items() if of[yes] not in gone and final[of[yes]] == yes]
 
 def sends(spans: SpanStore, tree_id: str) -> list[dict[str, Any]]:
     """One contact card per recipient and channel a send-class call reached: the destination the gateway checked for
@@ -196,17 +240,14 @@ def structural_kinds(call: dict[str, Any]) -> set[str]:
 
 
 def paid(spans: SpanStore, tree_id: str) -> list[dict[str, Any]]:
-    """The payment-class calls that ran under a granted Yes to a payment (as `payments` counts them)."""
+    """The payment-class calls that ran under a granted Yes to a payment (as `payments` counts them), leaving out a
+    purchase the owner's last word was no to (ORCH-629, `withdrawn`)."""
     calls = ran(spans, tree_id, Kind.PAY)
-    ids = {str(i) for c in calls for i in [*(c.get("confirmations") or []),
-                                           (c.get("payment") or {}).get("covered_by")] if i}
-    if not ids:
+    granted = _pay_granted(spans, calls)
+    if not granted:
         return []
-    granted = {row["id"] for row in spans.db.conn.execute(
-        f"SELECT id FROM confirmations WHERE rule = ? AND granted = 1 AND id IN ({','.join('?' * len(ids))})",
-        (PAY_RULE, *sorted(ids)))}
-    return [c for c in calls if any(str(i) in granted for i in [*(c.get("confirmations") or []),
-                                                                (c.get("payment") or {}).get("covered_by")] if i)]
+    gone = withdrawn(spans, tree_id)
+    return [c for c in calls if purchase(c) not in gone and any(i in granted for i in _yes_of(c))]
 
 
 def downloaded(spans: SpanStore, tree_id: str) -> list[str]:
