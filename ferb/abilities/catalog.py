@@ -13,7 +13,8 @@ from ferb.core.errors import Refused
 
 def builtin_definitions() -> tuple[AbilityDefinition, ...]:
     from ferb.abilities.browser_verification.definition import DEFINITION
-    return (DEFINITION,)
+    from ferb.abilities.google_docs.definition import DEFINITION as GOOGLE_DOCS
+    return (DEFINITION, GOOGLE_DOCS)
 
 
 @contextmanager

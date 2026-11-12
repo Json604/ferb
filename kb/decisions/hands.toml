@@ -1316,3 +1316,14 @@ why = "Rich editors keep headings and lists only from a paste; a trusted cmd+v w
 evidence = "Lab 2026-11-11: Quill, ProseMirror, TipTap, Lexical, Draft, CKEditor, TinyMCE, Monaco, CM6, CM5 and Ace kept the heading and list; a plain contenteditable and Slate took nothing and the result said so."
 paths = ["extensions/chromium/content.js::act", "extensions/chromium/background.js::act", "ferb/act/browser/ext_bridge.py::act", "ferb/act/browser/tools.py::BrowserAct"]
 live = ["LIVE-916"]
+
+[HAND-507]
+title = "A shipped procedure for Google Docs, Sheets and Slides: the routes in, and reading back"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For HAND-503. ferb/abilities/google_docs (abilities.list/read, no runner) gives the routes in order: paste with html at the caret (HAND-506); typing line by line, Enter and Tab as keys (HAND-505); importing a written .md/.docx/.csv/.xlsx through the editor's own import and upload; reading back through the export addresses (Docs format=txt|md, Sheets format=csv&gid=, Slides txt). Never the system clipboard unless the owner asked. It says which steps are unverified."
+why = "The editors are canvas-drawn and the snapshot shows no document text, so a worker needs the routes that work and a way to check what it wrote; it is general web input, kept out of the tools' code."
+evidence = "The CSV import into Sheets worked live (task 9b96e830). Typing and paste into the real signed-in Docs and Sheets are unverified until LIVE-916 and LIVE-917; Slides' txt export is unverified."
+paths = ["ferb/abilities/google_docs/SKILL.md", "ferb/abilities/google_docs/definition.py", "ferb/abilities/catalog.py::builtin_definitions"]
+live = ["LIVE-916", "LIVE-917"]

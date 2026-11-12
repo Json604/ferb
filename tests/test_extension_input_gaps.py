@@ -169,3 +169,12 @@ def test_an_older_extension_is_never_sent_a_paste(bd: Any, monkeypatch: pytest.M
     out = call(d, g, "browser.act", tab=tab, element=ids["Name"], action="paste", text="Hi")
     assert "0.19.10" in str(out) and "type the text instead" in str(out)
     assert not [a for a in ext.acts if a.get("kind") == "paste"]
+
+
+# decision: HAND-507
+def test_the_google_docs_procedure_is_listed_and_reads_from_the_package() -> None:
+    from ferb.abilities.catalog import AbilityCatalog
+    catalog = AbilityCatalog()
+    assert [a["id"] for a in catalog.catalog()] == ["browser_verification", "google_docs"]
+    read = catalog.read("google_docs")
+    assert read["source_kind"] == "builtin" and read["origin"] == "ferb" and read["body"].startswith("# Google Docs")
