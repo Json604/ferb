@@ -667,6 +667,6 @@ title = "Publish extension 0.19.10 to the Chrome Web Store"
 area = "hands"
 kind = "live"
 status = "open"
-why = "HAND-504..516 reach the owner's browsers only through the store. Package: build/store/ferb-extension-0.19.10.zip; no new permission, so no listing change (HAND-404); 0.19.4's self-update (HAND-430) installs it. Then LIVE-916..914."
+why = "HAND-504..516 reach the owner's browsers only through the store. Package: build/store/ferb-extension-0.19.10.zip; no new permission, so no listing change (HAND-404); 0.19.4's self-update (HAND-430) installs it. Then LIVE-916..924."
 decisions = ["HAND-504", "HAND-516", "HAND-404", "HAND-430"]
 after = ["T-1092"]
