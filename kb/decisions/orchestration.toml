@@ -1747,3 +1747,17 @@ rejected = ["Keeping ORCH-635's AGENT_CLIS list and model-name matching current:
 untestable = "The rule is prompt text (TEST-500 keeps no wording tests) and the absence of a code check; LIVE-929 and LIVE-930 judge it."
 paths = ["ferb/orchestrator/prompts/worker.md", "ferb/orchestrator/prompts/supervisor.md"]
 live = ["LIVE-929", "LIVE-930"]
+
+[ORCH-637]
+title = "Messages read together each keep their own front-window picture; the planner gets each, labelled"
+by = "agent"
+date = 2026-11-12
+status = "active"
+words = "does image not read reach ferb as soon as i send a message??? cause i send message on branve youtube screen but it showed in answer the vs code one taht i swithced ot after that req"
+words_source = "Owner 2026-11-12, relayed by the coordinator, who agreed the fix with the owner."
+rule = "Refines GATE-504 for ORCH-529. Each message's capture is kept under its own request, also when it is read with another (it is stopped only when its own turn ends before routing). The planner waits for each (DMN-520's 10 s each, a restart going on with what is left) and gets one block per window, headed with the message it was sent with (one line, at most 80 characters), newest last, images in that order; the same app, window title and page is one block, the newer capture, headed with both messages. A single message is unchanged; the worker reuses the newest message's picture."
+why = "Live 2026-11-12: a message sent from Brave while FERB planned one sent from VS Code was read with it; its capture was cancelled when its stream ended as merged, so the planner saw only VS Code. A restart during the first wait would also have cancelled that capture."
+evidence = "Owner's database: 06918ceb's capture kept 20:58:43.36 (VS Code); 8a3416b7 acked 20:58:47.39, chat.restarted 20:58:47.41; no evidence or screen.capture_stalled row for 8a3416b7."
+rejected = ["Only the newest message's picture: the planner can't tell what the earlier message pointed at", "A second capture when the turn restarts: the owner may have moved on by then"]
+paths = ["ferb/orchestrator/supervisor.py::_by_window", "ferb/orchestrator/supervisor.py::Supervisor._screen_at_send", "ferb/orchestrator/supervisor.py::Supervisor._take_in", "ferb/daemon/areas/chat.py::Chat._chat_send"]
+live = ["LIVE-934"]

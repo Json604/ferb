@@ -356,6 +356,7 @@ class Chat:
                   if self.front_window is not None else None)
         my_tasks: set[str] = set()
         attached = {"on": True}                     # False once the owner closes chat: the task keeps running
+        merged = {"into": False}                    # read with another message: that message's turn reads its window
         sub = self.bus.subscribe({"tool.called", "approval.requested", "action.*"})
 
         def stamped(ev: dict[str, Any]) -> dict[str, Any]:
@@ -367,6 +368,7 @@ class Chat:
                                                      input_paths=input_paths, request_id=request_id, screen=screen,
                                                      hidden=hidden, test_run=test_run):
                     ev = stamped(ev)
+                    merged["into"] = merged["into"] or ev.get("type") == "merged"
                     if ev.get("task_id"):
                         my_tasks.add(ev["task_id"])
                         if attached["on"]:
@@ -391,7 +393,9 @@ class Chat:
                                                       "text": said}, origin=origin_.FERB)
                 await queue.put(stamped({"type": "reply", "text": said, "status": "failed"}))
             finally:
-                if screen is not None and not screen.done():   # the turn ended before routing used it
+                # the turn ended before routing used it. A message read with another one keeps its capture: that
+                # turn reads it, and its picture is kept under its own request either way (L12)
+                if screen is not None and not screen.done() and not merged["into"]:
                     screen.cancel()
                 await queue.put(None)
 

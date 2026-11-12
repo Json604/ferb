@@ -29,6 +29,7 @@ reliably cover) and never named: the planner is told an app FERB doesn't look at
 it everywhere else) is in front."""
 
 import asyncio
+from concurrent.futures import Executor
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
@@ -97,7 +98,12 @@ class Sources:
     redact_image: Callable[[bytes], bytes]                # F5 on-device redaction; raises when it can't redact
     redact: Callable[[Any], Any]                          # text redaction
     keep: Callable[[bytes, dict[str, Any], str], Awaitable[str]]   # (image, facts, origin) -> evidence id
-    sender: int | None = None                             # the app hosting the CLI the message came from (`sending_app`)
+    # the process the message came from: the app hosting it (`sending_app`) is found after the window list is read
+    client: int | None = None
+    parent: Callable[[int], int | None] = lambda pid: parent_pid(pid)   # a process's parent (`parent_pid`)
+    # the threads the window choice runs on (None: the loop's default pool); the daemon gives it threads of its own,
+    # so the choice is never queued behind other work in the shared pool
+    chooser: Executor | None = None
     # a process's main window frame (x, y, w, h, top-left origin) from Accessibility; None: it can't say
     main_frame: Callable[[int], tuple[float, float, float, float] | None] = lambda pid: None
     # the steps the capture has begun, in order: a capture stopped by the planner's wait names the one it was on
@@ -161,14 +167,16 @@ def app_of(pid: int) -> tuple[str, str] | None:
 
 def _topmost(src: Sources) -> tuple[Window, str, str] | None:
     """The topmost window not owned by FERB, with its owner's app name and bundle id; when that is the sending CLI's
-    app window, the one after it. Of that app, its main window when Accessibility names one on screen here."""
+    app window, the one after it. Of that app, its main window when Accessibility names one on screen here. The window
+    list is read first, before anything else is looked up: it is the moment the capture stands for."""
     sender_skipped = False
     windows = src.windows()
+    sender = sending_app(src.client, src.app_of, src.parent) if src.client else None
     for w in windows:
         name, bundle = src.app_of(w.pid) or ("", "")
         if src.own(w.pid, bundle):
             continue
-        if w.pid == src.sender and not sender_skipped:     # the window the owner typed this message in
+        if w.pid == sender and not sender_skipped:         # the window the owner typed this message in
             sender_skipped = True
             continue
         main = src.main_frame(w.pid)
@@ -195,7 +203,7 @@ async def capture(src: Sources) -> FrontWindow | None:
     """The owner's front window now, or None when no window but FERB's is in front. Never brings anything forward."""
     from ferb.act.mac.tools import _sources            # the mac tools' labels for what an app's window shows
     src.stage.append("windows")
-    found = await asyncio.to_thread(_topmost, src)
+    found = await asyncio.get_running_loop().run_in_executor(src.chooser, _topmost, src)
     if found is None:
         return None
     w, name, bundle = found

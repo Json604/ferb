@@ -876,3 +876,14 @@ rule = "Refines DMN-26. A thread that services its own run loop does it only thr
 why = "Every daemon run since 2026-11-04 grew ~100-180 MB an awake hour to 2.8-3.5 GB: 8.9 M NSRunningApplication objects and as many locks, from the Accessibility watcher listing ~110 apps a second with only its run-loop slice pooled."
 paths = ["ferb/device/autorelease.py::native_loop"]
 live = ["LIVE-914"]
+
+[DMN-586]
+title = "The front window is chosen first, on threads of its own"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "For L12 and ORCH-637. A capture at send first reads the window list, then finds the app that sent the message (the sending CLI's host) and picks the window, in one step on FRONT_WINDOW_CHOOSER (two threads of its own), never queued behind other work in the loop's shared pool. A capture stopped during that step is journaled as screen.capture_stalled with the step \"windows\"."
+why = "The choice is the moment the picture stands for. Before, a thread call to find the sending app came first and both waited in the shared pool (14 threads on a 10-core Mac), so a busy pool could delay the choice."
+evidence = "210 captures in the owner's database: arrival to kept evidence median 0.58 s, p90 1.64 s, max 5.05 s; in the 12 where the owner switched apps meanwhile, the captured app was always the one in front at send. No late choice seen; the change removes the possibility."
+paths = ["ferb/sense/front_window.py::_topmost", "ferb/daemon/areas/desktop.py::FRONT_WINDOW_CHOOSER"]
+live = ["LIVE-934"]

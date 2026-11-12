@@ -18,9 +18,14 @@ from ferb.act.shell.proxy import EgressProxy
 from ferb.act.shell.sandbox import Sandbox
 from ferb.core.errors import NoTarget, Refused, Withheld
 from ferb.core.types import Identity
-from ferb.device.autorelease import pool
+from ferb.device.autorelease import DrainingExecutor, pool
 from ferb.registry import add_evidence, add_hearing, add_mac, add_shell, add_time, add_trail, add_wait
 from ferb.sanitize.redact import Redactor
+
+# The front window's choice at send (which window is in front: the window list, then the apps owning it) runs on
+# threads of its own, never queued behind other work in the loop's shared pool: the choice is the moment the capture
+# stands for (L12). Two, so a choice held by an app that doesn't answer Accessibility never holds the next message's.
+FRONT_WINDOW_CHOOSER = DrainingExecutor(max_workers=2, thread_name_prefix="ferb-front-window")
 
 
 class Desktop:
@@ -218,14 +223,12 @@ class Desktop:
         async def keep(image: bytes, facts: dict[str, Any], origin: str) -> str:
             return await evidence.put_async(request_id, None, "front_window", image=image, data=facts, origin=origin)
         try:
-            sender = await asyncio.to_thread(fw.sending_app, client_pid, fw.app_of, fw.parent_pid) \
-                if client_pid else None
             sources = fw.Sources(
                 windows=screenshot.normal_windows, app_of=fw.app_of,
                 own=lambda pid, bundle: fw.ferb_process(pid, bundle, daemon_pid, fw.parent_pid),
                 excluded=lambda bundle, name, url: exclusions.app(bundle, name) or exclusions.url(url),
-                tab=self._front_tab, shoot=shoot, keep=keep, redact=self.redact, sender=sender,
-                main_frame=accessibility.main_window_frame,
+                tab=self._front_tab, shoot=shoot, keep=keep, redact=self.redact, client=client_pid,
+                parent=fw.parent_pid, chooser=FRONT_WINDOW_CHOOSER, main_frame=accessibility.main_window_frame,
                 redact_image=ImageRedactor(self.redact if isinstance(self.redact, Redactor) else Redactor()))
             started = time.monotonic()
             try:

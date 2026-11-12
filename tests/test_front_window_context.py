@@ -26,8 +26,8 @@ from ferb.runtimes.google_api import GoogleProvider
 from ferb.runtimes.openai_api import OpenAIProvider
 from ferb.sanitize.redact import Redactor
 from ferb.sense import front_window as fw
-from tests.conftest import (Answers, FakeCap, FakeRuntime, RunningDaemon, Script, chat, done, install, outcome, sup,
-                            task, tool)
+from tests.conftest import (STALL, Answers, FakeCap, FakeRuntime, RunningDaemon, Script, chat, done, install, outcome,
+                            sup, task, tool)
 from tests.mackit import BOUNDS, _fake_mac
 from tests.support.browser_sink import FakeBrowser, asked
 from tests.support.runtime_fakes import Process
@@ -110,7 +110,7 @@ class Screen:
             own=lambda pid, bundle: fw.ferb_process(pid, bundle, DAEMON, self.parents.get),
             excluded=lambda bundle, name, url: bool({bundle, name, url} & self.excluded),
             tab=self._tab, shoot=self._shoot, redact_image=self._redact_image, redact=Redactor(), keep=self._keep,
-            sender=self.sender, main_frame=self.main_frames.get)
+            client=self.sender, main_frame=self.main_frames.get)
 
 
 def owners() -> dict[int, tuple[str, str]]:
@@ -179,6 +179,32 @@ def test_the_front_window_of_the_app_hosting_the_sending_cli_is_skipped() -> Non
     screen = Screen([terminal, terminal2], apps)                     # only the one in front is the chat's window
     screen.sender = 77
     assert asyncio.run(fw.capture(screen.sources())).title == "zsh"    # type: ignore[union-attr]
+
+
+# decision: DMN-586
+def test_the_window_list_is_read_before_anything_else_on_the_chooser_threads() -> None:
+    """The choice is the moment the picture stands for: the window list comes first, the sending app after it, both
+    on the threads the capture was given."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    order: list[tuple[str, str]] = []
+    apps = owners() | {77: ("Terminal", "com.apple.Terminal")}
+    screen = Screen([NOTCH, BRAVE], apps)
+    screen.sender = 77
+
+    def windows() -> list[Window]:
+        order.append(("windows", threading.current_thread().name))
+        return [NOTCH, BRAVE]
+
+    def app_of(pid: int) -> tuple[str, str] | None:
+        order.append((f"app {pid}", threading.current_thread().name))
+        return apps.get(pid)
+    with ThreadPoolExecutor(1, thread_name_prefix="chooser") as chooser:
+        src = dataclasses.replace(screen.sources(), windows=windows, app_of=app_of, chooser=chooser)
+        front = asyncio.run(fw.capture(src))
+    assert front is not None and front.app == "Brave Browser"
+    assert order[0][0] == "windows" and order[1][0] == "app 77"
+    assert all(name.startswith("chooser") for _, name in order)
 
 
 def test_the_sending_app_is_the_first_ancestor_with_a_bundle_id() -> None:
@@ -943,6 +969,76 @@ def test_the_worker_for_that_message_starts_from_the_same_image_with_no_second_c
     assert "image" not in replies[0] and "initial_image" not in replies[0]["content"]   # no second start picture
     checker = [r for _, key, r in script.requests if key == "worker.verify"]
     assert all(r.images == () for r in checker)                       # the checker looks for itself
+
+
+# ---------- (d) messages read together each keep their own window ----------
+
+NOTES = Window(111, 11, BOUNDS, "Groceries")                         # Notes is pid 11 on the fake Mac, Brave pid 12
+
+
+def two_quick_messages(d: RunningDaemon, mp: pytest.MonkeyPatch, second_window: Window,
+                       planner: list[Any], workers: dict[str, Any] | None = None) -> tuple[Any, str, str]:
+    """The owner sends from Notes, then, while FERB still plans that message, sends again from `second_window`; the
+    second capture is held until the second message's own stream has ended (it is read with the first), so a capture
+    stopped with that stream would leave no picture. Returns the script and both request ids."""
+    import threading
+    from ferb.act.mac import screenshot
+    from tests.test_chat_turns import Stream, _until
+    shots, _ = _fake_mac(d, mp)
+    front = [NOTES]
+    mp.setattr(screenshot, "normal_windows", lambda: list(front))
+    mp.setattr(fw, "app_of", {11: ("Notes", "com.apple.Notes"), 12: ("Brave", "com.brave.Browser")}.get)
+    mp.setattr(fw, "parent_pid", {}.get)
+    mp.setattr(d.daemon, "_front_tab", lambda bundle, window, after_shot=False: (URL, BRAVE.title))
+    d.daemon.front_window = d.daemon._front_window
+    script = install(d, [STALL, *planner], workers)
+    first = Stream(d, "what does this line say?")
+    lead = first.acked()["request_id"]
+    _until(lambda: len(planner_requests(script)) == 1)              # the first message is being planned
+    held = threading.Event()
+    shots.on_capture = lambda: held.wait(20)
+    front[:] = [second_window]
+    second = Stream(d, "and what is in this one?")
+    later = second.acked()["request_id"]
+    assert [e["type"] for e in second.done()] == ["merged"]          # read with the first: its stream ended
+    held.set()
+    first.done()
+    assert [e.data["messages"] for e in journal(d, "chat.restarted")] == [[lead, later]]
+    return script, lead, later
+
+
+# decision: ORCH-637
+def test_messages_read_together_each_give_the_planner_the_window_they_were_sent_from(
+        daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Live 2026-11-12: a message sent from Brave while FERB still planned one sent from VS Code was read with it; its
+    capture was stopped with its own stream and the planner saw only VS Code. Each message keeps its picture, and
+    the planner gets both, each labelled with its message, newest last; the worker starts from the newest."""
+    brave_window = Window(121, 12, BOUNDS, BRAVE.title)
+    script, lead, later = two_quick_messages(
+        daemon, monkeypatch, brave_window, [sup("task", "Looking.", task("describe the picture"))],
+        {"worker": lambda token: done("A Korean lesson on YouTube.")})
+    [notes_row] = daemon.run(rows_of(daemon, lead))
+    [brave_row] = daemon.run(rows_of(daemon, later))                 # kept under its own request
+    assert notes_row["data"]["app"] == "Notes" and brave_row["data"]["url"] == URL
+    request = planner_requests(script)[-1]
+    blocks = [p for p in request.parts if p.startswith("Layer 2 — the owner's front window")]
+    assert len(blocks) == 2
+    assert "“what does this line say?”" in blocks[0] and "Groceries" in blocks[0]
+    assert "“and what is in this one?”" in blocks[1] and URL in blocks[1]   # newest last
+    assert [i.ref for i in request.images] == [notes_row["id"], brave_row["id"]]
+    worker = next(r for _, key, r in script.requests if key == "worker")
+    assert [i.ref for i in worker.images] == [brave_row["id"]]
+
+
+# decision: ORCH-637
+def test_two_messages_sent_from_the_same_window_give_it_once(daemon: RunningDaemon,
+                                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    script, lead, later = two_quick_messages(daemon, monkeypatch, NOTES, [sup("reply", "Both answered.")])
+    [first_row], [second_row] = daemon.run(rows_of(daemon, lead)), daemon.run(rows_of(daemon, later))
+    request = planner_requests(script)[-1]
+    [block] = [p for p in request.parts if p.startswith("Layer 2 — the owner's front window")]
+    assert "“what does this line say?” and “and what is in this one?”" in block
+    assert [i.ref for i in request.images] == [second_row["id"]] and first_row["id"] != second_row["id"]
 
 
 # ---------- (e) every runtime adapter takes an image on a planner call ----------

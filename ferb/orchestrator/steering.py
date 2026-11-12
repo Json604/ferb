@@ -248,9 +248,9 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
         tree.worker.success_conditions = [c.text for c in tree.spec.success_conditions]
         turn = supervisor._turns.get(request_id)
         made = set(turn.message_origin) if turn is not None else set()
-        # The window this correction was sent from is outside content the running tree now holds (L12, S4)
-        front = turn.front_window if turn is not None else None
-        shown = {o for o in origin.split(front.origin) if origin.is_external(o)} if front is not None else set()
+        # The windows this correction was sent from are outside content the running tree now holds (L12, S4)
+        shown = {o for front in (turn.fronts if turn is not None else []) for o in origin.split(front.origin)
+                 if origin.is_external(o)}
         updated = Request(prior.request_id, prior.words + '\n' + clean['words'], supervisor._targets(tree.spec),
                           (prior.payload or prior.words) + '\n\nOwner correction:\n' + clean['payload'],
                           prior.asked_origins | frozenset(o for o in made if origin.is_external(o)))

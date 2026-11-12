@@ -4406,3 +4406,12 @@ request = "Start four tasks. Look at the pictures by \"4 active tasks\" before a
 pass = "Two round pictures, a bit larger; before a frame each is a soft grey disc, not black. A working task's ring is a turning white arc with no amber; the asking task's ring is solid amber and gently pulses. \"+2\" opens a plain list (picture, name, current line, amber if it waits), not a circle; a picture there enlarges, the button opens its own window. With Reduce Motion nothing turns or pulses. VoiceOver says e.g. \"Amazon order, waiting for you\". No popover shows in a screen recording."
 decisions = ["APP-899"]
 sitting = "after this change is installed"
+
+[LIVE-934]
+title = "Two quick messages from two windows: the answer to the second describes the second window"
+area = "orchestration"
+surface = "FERB.app with this build; a Notes note and a YouTube page in Brave; `ferb trace` of the turn"
+request = "With the note in front, send \"what does this note say?\". Within a couple of seconds, before FERB answers, bring the YouTube page to the front and send \"and what's in this one?\". Then switch to a third app."
+pass = "FERB answers both: the note's text for the first and the YouTube page for the second, never the third app. The database has a front_window evidence row under each message's request; the turn's planner prompt has two front-window blocks, each headed with its message, the YouTube one last."
+decisions = ["ORCH-637", "DMN-586"]
+sitting = "after this change is installed"

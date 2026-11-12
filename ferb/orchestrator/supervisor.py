@@ -464,13 +464,15 @@ class _Arrival:
     request_id: str
     text: str
     input_paths: list[str]
-    screen: Awaitable[Any] | None
+    screen: "asyncio.Future[Any] | None"  # its own front window, captured as it arrived (L12)
     role: "asyncio.Future[tuple[str, Any]]"
     entry: JournalEntry | None = None    # its chat.message, journaled once however often its turn restarts
     marked: Any = None                   # its own words and pasted parts (sanitize.untrusted.mark)
     paths: list[str] = field(default_factory=list)
     hidden: list[str] = field(default_factory=list)    # the kinds of secret masked in its text, by name
     test_run: dict[str, str] | None = None               # GATE-550: a test run's tag {run, connection}
+    seen: dict[str, Any] | None = None   # its front window, awaited once however often its turn restarts
+    deadline: float | None = None        # when the wait for it ends (the loop's time), set as the wait first begins
 
 
 @dataclass
@@ -531,7 +533,12 @@ class _Turn:
     message_origin: set[str] = field(default_factory=set)
     request_origins: set[str] | None = None    # a scheduled run's: what the message that made it carried (L4)
     environment: dict[str, Any] = field(default_factory=dict)    # "stable" and "live" (EnvironmentPort.environment)
-    screen: dict[str, Any] | None = None       # the front window at send (L12); None when none was taken
+    # the front window at send (L12); None when none was taken. With several messages, the newest one's: the picture
+    # its worker starts from
+    screen: dict[str, Any] | None = None
+    # several messages read together: each one's window, newest last, a window two of them show given once with both
+    # (`_by_window`); each carries `said`, the messages it was taken at. Empty for a single message
+    screens: list[dict[str, Any]] = field(default_factory=list)
     schedule_previous: dict[str, Any] | None = None
     turn_origins: set[str] = field(default_factory=set)          # what its planner saw (S3)
     shown: list[tuple[set[str], str, Any]] = field(default_factory=list)   # (labels, text, values) it saw (GATE-519)
@@ -567,6 +574,12 @@ class _Turn:
     def front_image(self) -> ModelImage | None:
         return (self.screen or {}).get("front_image")
 
+    @property
+    def fronts(self) -> list[Any]:
+        """Every front window this turn's planner was given (one per message's window)."""
+        shown = [s.get("front_window") for s in self.screens] if self.screens else [self.front_window]
+        return [front for front in shown if front is not None]
+
 
 @dataclass
 class _Run:
@@ -579,7 +592,6 @@ class _Run:
     restart: bool = False
     think: "asyncio.Task[None] | None" = None
     start: _Start | None = None
-    seen: dict[str, Any] | None = None           # the lead's front window, awaited once
     turn: _Turn | None = None
     out: SupervisorOutcome | None = None
     answered: bool = False                       # ORCH-586: FERB's open question recorded as kept by this turn
@@ -715,17 +727,54 @@ IMAGE_REFUSED = "the screenshot couldn't be given to the model"
 
 
 CAPTURE_LATE = "the front window couldn't be captured in time, so this message goes on without it"
+FRONT_WINDOW_AT = "Layer 2 — the owner's front window as they sent "
+SAID_CHARS = 80                     # how much of a message names it in that heading
 
 
-def front_window_block(front: Any, image: ModelImage | None, heading: str,
-                       withheld: str | None = None, missing: str | None = None) -> tuple[ContextBlock, set[str]]:
+def sent_from(said: list[str]) -> str:
+    """The heading of a window block when several messages are read together: the messages it was taken at."""
+    return FRONT_WINDOW_AT + " and ".join(f"“{text}”" for text in said)
+
+
+def _said(text: str) -> str:
+    """A message as a window's heading names it: its words on one line, cut at SAID_CHARS."""
+    words = " ".join(text.split())
+    return words if len(words) <= SAID_CHARS else words[:SAID_CHARS - 1].rstrip() + "…"
+
+
+def _window_of(seen: dict[str, Any]) -> tuple[str, ...]:
+    """What makes two captures the same window: its app, title and page (a missing capture: why it is missing)."""
+    front = seen.get("front_window")
+    if front is None:
+        return ("missing", str(seen.get("front_window_missing") or ""))
+    return (str(front.bundle_id), str(front.app), str(front.title), str(front.url or ""))
+
+
+def _by_window(arrivals: list["_Arrival"]) -> list[dict[str, Any]]:
+    """L12: the front window of each message read together, newest last; a window two messages show is given once,
+    as the newer message captured it, with both messages in `said`."""
+    windows: dict[tuple[str, ...], dict[str, Any]] = {}
+    for arrival in arrivals:
+        seen = dict(arrival.seen or {})
+        key = _window_of(seen)
+        earlier = windows.pop(key, {}).get("said", [])
+        text = arrival.marked.for_model if arrival.marked is not None else arrival.text
+        windows[key] = seen | {"said": [*earlier, _said(text)]}
+    return list(windows.values())
+
+
+def front_window_block(front: Any, image: ModelImage | None, heading: str, withheld: str | None = None,
+                       missing: str | None = None,
+                       nth: tuple[int, int] | None = None) -> tuple[ContextBlock, set[str]]:
     """L12: the window the owner had in front of them when they sent the message (ferb/sense/front_window.py), as
     labelled data with the window content's own origin (MP2), and whether its redacted screenshot is attached
-    (`withheld`: why it no longer is). None: nothing could be captured (`missing`: why, when known)."""
+    (`withheld`: why it no longer is; `nth`: which of the request's images it is, when there are several). None:
+    nothing could be captured (`missing`: why, when known)."""
     if front is None:
         return ContextBlock(heading + f": not available ({missing or 'nothing could be captured'})",
                             "front window at send", protected=True, origin=origins_.FERB), {origins_.FERB}
-    facts = front.facts() | {"screenshot": f"attached to this request as an image (evidence {front.image_ref})"
+    which = f"image {nth[0]} of {nth[1]}" if nth is not None and nth[1] > 1 else "an image"
+    facts = front.facts() | {"screenshot": f"attached to this request as {which} (evidence {front.image_ref})"
                              if image is not None else "withheld: " + (withheld or front.withheld or "not captured")}
     masking: str = getattr(front, "masking", "")             # how its secret fields were found (L13)
     if image is not None and masking:
@@ -2338,7 +2387,9 @@ class Supervisor(WorkerRuns):
         `request_id`: the id the daemon acknowledged it under (L7). `screen`: the owner's front window, as the daemon
         captures it from when the message arrived (L12). `hidden`: the kinds of secret the daemon masked in `text`
         (names only, `Redactor.kinds`)."""
-        arrival = _Arrival(request_id or self.ids.new_id(), text, list(input_paths or []), screen,
+        # a future, so a restarted turn awaits the same capture again (`_screen_at_send`)
+        arrival = _Arrival(request_id or self.ids.new_id(), text, list(input_paths or []),
+                           asyncio.ensure_future(screen) if screen is not None else None,
                            asyncio.get_running_loop().create_future(), hidden=list(hidden or []), test_run=test_run)
         if test_run:                                 # GATE-550: known as a test run's before anything reads it
             TestRuns.of(self.journal.db).add(session_id, arrival.request_id)
@@ -2477,7 +2528,7 @@ class Supervisor(WorkerRuns):
     async def _intake(self, session_id: str, run: _Run) -> _Turn:
         """The turn's messages, taken in: each journaled once (a message read with the lead names it, `read_with`),
         their own words and pasted parts, what a question of FERB's in this chat continues (read once), the attached
-        files, the environment and the lead's front window at send (L12)."""
+        files, the environment and each message's front window at send (L12)."""
         start = run.start
         if start is None:
             await self.settle()                              # a forget still being finished completes first (I2)
@@ -2543,10 +2594,12 @@ class Supervisor(WorkerRuns):
         prep.steps.mark("messages")
         environment = await _value(self.environment(words))
         prep.steps.mark("environment")
-        if run.seen is None:
-            run.seen = (await self._screen_at_send(run.lead.request_id, run.lead.screen)
-                        if run.lead.screen is not None else {})
+        waiting = [a for a in run.arrivals if a.screen is not None and a.seen is None]
+        if waiting:                               # each message's own capture, waited for together (DMN-520)
+            for arrival, seen in zip(waiting, await asyncio.gather(*map(self._screen_at_send, waiting))):
+                arrival.seen = seen
             prep.steps.mark("front_window")       # the wait for the capture at send (DMN-520), redaction included
+        captured = [a for a in run.arrivals if a.seen is not None]
         turn = _Turn(run.lead.request_id, start.session, words=words, payload=payload, own_words=own_words,
                      typed=typed, typed_lines=typed_lines, for_model=for_model,
                      untrusted=any(m.untrusted for m in marks),
@@ -2554,7 +2607,8 @@ class Supervisor(WorkerRuns):
                      carried=start.carried if joins else [], focus=start.focus, clarified=start.asked,
                      open=start if start.asked else None,
                      input_paths=paths, attached=attached, message_origin=made, environment=dict(environment or {}),
-                     screen=dict(run.seen) if run.seen else None, prepare=prep)
+                     screen=dict(captured[-1].seen or {}) if captured else None,
+                     screens=_by_window(captured) if len(captured) > 1 else [], prepare=prep)
         self._turns[turn.request_id] = turn
         return turn
 
@@ -2606,16 +2660,30 @@ class Supervisor(WorkerRuns):
         self.journal.append("question.kept", {"request_id": str(rows[-1].data.get("request_id", "")) if rows else "",
                                               "by": turn.request_id})
 
-    async def _screen_at_send(self, request_id: str, screen: Awaitable[Any]) -> dict[str, Any]:
+    async def _screen_at_send(self, arrival: _Arrival) -> dict[str, Any]:
         """L12: the front window the daemon captured as the owner sent this message, and its redacted screenshot as
         the image for the planner and for this request's worker. A failed capture is journaled by type and gives
-        "not available": it never blocks the message."""
+        "not available": it never blocks the message. A turn that restarts while it waits leaves the capture running
+        and waits again for what is left of the same limit."""
+        screen, request_id = arrival.screen, arrival.request_id
+        assert screen is not None
+        loop = asyncio.get_running_loop()
+        if arrival.deadline is None:
+            arrival.deadline = loop.time() + self.front_window_timeout_s
         try:
-            front = await asyncio.wait_for(screen, self.front_window_timeout_s)
+            if screen.cancelled():
+                raise asyncio.CancelledError
+            front = await asyncio.wait_for(asyncio.shield(screen), max(0.0, arrival.deadline - loop.time()))
         except asyncio.TimeoutError:      # I4: a hung or huge front app never holds the plan; the capture is stopped
+            screen.cancel()
             self.journal.append("screen.capture_timeout", {"request_id": request_id,
                                                            "timeout_s": self.front_window_timeout_s})
             return {"front_window": None, "front_image": None, "front_window_missing": CAPTURE_LATE}
+        except asyncio.CancelledError:
+            task = asyncio.current_task()
+            if not screen.cancelled() or (task is not None and task.cancelling()):
+                raise                     # this turn is the one cancelled (a restart, a stop)
+            front = None                  # the capture was stopped by its own message's end
         except Exception as e:
             self.journal.append("screen.capture_failed", {"request_id": request_id, "error": type(e).__name__})
             front = None
@@ -3415,13 +3483,23 @@ class Supervisor(WorkerRuns):
             # ORCH-620 (owner ORCH-618): the latest result shown in this owner chat, in full, after both
             if not turn.preview and not session.id.startswith(RESERVED_SESSIONS):
                 situation.extend(self._latest_blocks(latest))
-            if turn.screen is not None:                       # L12: what the owner saw as they sent this message
+            images: tuple[ModelImage, ...] = ()
+            if turn.screens:                    # L12: messages read together: the window each was sent from
+                attached = [s["front_image"] for s in turn.screens if s.get("front_image") is not None]
+                for seen in turn.screens:
+                    image = seen.get("front_image")
+                    situation.append(front_window_block(
+                        seen.get("front_window"), image, sent_from(seen["said"]), seen.get("image_withheld"),
+                        seen.get("front_window_missing"),
+                        nth=(attached.index(image) + 1, len(attached)) if image is not None else None))
+                images = tuple(attached)
+            elif turn.screen is not None:                     # L12: what the owner saw as they sent this message
                 situation.append(front_window_block(turn.front_window, turn.front_image, FRONT_WINDOW,
                                                     turn.screen.get("image_withheld"),
                                                     turn.screen.get("front_window_missing")))
+                images = (turn.front_image,) if turn.front_image is not None else ()
             if turn.schedule_previous is not None or session.id.startswith(SCHEDULE_SESSION):
                 situation.append(self._previous_run_block(turn.schedule_previous))   # a recurring run compares with it
-            images = (turn.front_image,) if turn.front_image is not None else ()
             state: list[tuple[ContextBlock, set[str]]] = []
             if tasks_block is not None:
                 state.append(tasks_block)
@@ -3548,8 +3626,9 @@ class Supervisor(WorkerRuns):
         # L12: a model that won't take the screenshot must not fail the message: once more without it, saying so,
         # with the provider's own words (free of the key; the journal redacts what it stores)
         self.journal.append("screen.image_refused", {"request_id": turn.request_id, "error": refused})
-        assert turn.screen is not None
-        turn.screen = {**turn.screen, "front_image": None, "image_withheld": IMAGE_REFUSED}
+        withheld = {"front_image": None, "image_withheld": IMAGE_REFUSED}
+        turn.screen = {**turn.screen, **withheld} if turn.screen is not None else None
+        turn.screens = [{**seen, **withheld} for seen in turn.screens]
         return await self._supervise(turn, repair, emit=emit, notify=notify)
 
     def _lookup_tools(self, turn: _Turn) -> list[str]:
@@ -4377,7 +4456,8 @@ class Supervisor(WorkerRuns):
             {origins_.external("unlabeled")}
         # The front window this request's planner and worker are given is outside content read, as a tool result's
         # would be: a screenshot of other people's messages counts, though it is the owner's data too (L12, S4).
-        shown = {o for o in origins_.split(front.origin) if origins_.is_external(o)} if front is not None else set()
+        shown = {o for seen in (turn.fronts if turn is not None else []) for o in origins_.split(seen.origin)
+                 if origins_.is_external(o)}
         request_origins = set(asked) | shown | (self.spans.request_origins(prior_task) if prior_task else set())
         root_span = self.spans.start("task", task_id=tree_id, device_id=self.device_id,
                                      input={"goal": spec.goal, "identity": spec.identity,
