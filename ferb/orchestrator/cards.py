@@ -82,7 +82,11 @@ def _calls(spans: SpanStore, tree_id: str) -> list[dict[str, Any]]:
         data = json.loads(row["input_json"] or "{}")
         if data.get("boundary_refused") or data.get("ferb_question"):
             continue
-        out.append(data)
+        output = json.loads(row["output_json"] or "{}")
+        output = output if isinstance(output, dict) else {}
+        after = output.get("after") if isinstance(output.get("after"), dict) else {}
+        # HAND-487: the acting call's own read-back saw the page change after it (a structural fact, not its words)
+        out.append(data | {"observed_change": output.get("observed_change") is True or after.get("changed") is True})
     return out
 
 
@@ -175,6 +179,20 @@ def tried(spans: SpanStore, tree_id: str, *kinds: str) -> list[dict[str, Any]]:
         if _kinds(data) & set(kinds):
             out.append(data)
     return out
+
+
+def approved(spans: SpanStore, call: dict[str, Any]) -> bool:
+    """Whether the gateway asked the owner about this call and they said Yes: a confirmation it carries is granted."""
+    ids = sorted({str(i) for i in call.get("confirmations") or [] if i})
+    return bool(ids) and spans.db.conn.execute(
+        f"SELECT 1 FROM confirmations WHERE granted = 1 AND id IN ({','.join('?' * len(ids))}) LIMIT 1",
+        ids).fetchone() is not None
+
+
+def structural_kinds(call: dict[str, Any]) -> set[str]:
+    """The kinds the gateway itself recorded for a call (its own and those its structural facts add), without the
+    worker's declaration."""
+    return {str(call.get("kind") or "")} | {str(k) for k in call.get("fact_kinds") or []}
 
 
 def paid(spans: SpanStore, tree_id: str) -> list[dict[str, Any]]:

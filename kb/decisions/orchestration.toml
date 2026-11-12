@@ -1608,3 +1608,13 @@ why = "Live 2026-11-11 13:14 (task 9cc51e80): \"Should I write this exact one-li
 rejected = ["The preceding step's worker asks with the content in its question: only when the planner plans it so, and the plan's own ask step would still ask blind"]
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._ask_card", "ferb/orchestrator/supervisor.py::Supervisor._plan_question", "ui/mac/FERBNotch/Sources/FERBNotch/ApprovalView.swift"]
 live = ["LIVE-910"]
+
+[ORCH-624]
+title = "A Submit the owner said Yes to, or whose page changed after it, is a recorded submit"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "For ORCH-576's submitted {site}. A recorded submit is a call at the site that ran without an error and that the gateway saw submit a form (its kind or structural facts), or that it treated as a send or submit there (its kind or the declared effect) and that carried the owner's granted Yes or whose own read-back saw the page change after it (HAND-487). A declaration with neither never counts (rule 5); a claim with no such call stays false (ORCH-609). ORCH-613's declined test reads the same calls."
+why = "Live 2026-11-12 00:37 (task aa3cb86a): hack2skill.com's Submit is a script button, not a form. The worker clicked it declaring a send, the owner said Yes, the site recorded the attempt, and the task ended \"No form on hack2skill.com was submitted.\""
+rejected = ["Count any declared send at the site: the worker's declaration alone would prove its own claim", "Count any click with a changed page: a Cancel or a menu changes the page too"]
+paths = ["ferb/orchestrator/verify.py::Checks._submits", "ferb/orchestrator/verify.py::Checks._aimed", "ferb/orchestrator/cards.py::approved", "ferb/orchestrator/cards.py::structural_kinds", "ferb/orchestrator/cards.py::_calls"]

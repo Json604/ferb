@@ -161,7 +161,7 @@ class Checks:
             return not_met(f"FERB didn't pay; no payment you said Yes to went through{on} in this task")
         if k.kind == "submitted":
             assert aimed is not None
-            if any(aimed[1](call) for call in cards.ran(self.spans, task_id, *aimed[0])):
+            if any(aimed[1](call) and self._submits(call) for call in cards.ran(self.spans, task_id, *aimed[0])):
                 return result(True, f"FERB submitted the form on {k.site}")
             return not_met(f"FERB didn't submit it; no form on {k.site} went through in this task")
         try:
@@ -182,6 +182,16 @@ class Checks:
             return result(True, f"FERB {did}")
         return not_met(f"FERB didn't do it; nothing in this task {did}")
 
+    def _submits(self, call: dict[str, Any]) -> bool:
+        """ORCH-624 (for ORCH-576): a recorded submit at the site is a call that ran without an error and that the
+        gateway itself saw submit a form (its own kind or its structural facts), or that it treated as a send or submit
+        there (`_aimed`) and either asked the owner about, who said Yes, or whose own read-back saw the page change
+        after it (HAND-487): a site's Submit that is a script button, not a form (live 2026-11-12, hack2skill.com). The
+        worker's declaration alone never counts (rule 5: it can only add a question)."""
+        assert self.spans is not None
+        return (Kind.SUBMIT in cards.structural_kinds(call) or call.get("observed_change") is True
+                or cards.approved(self.spans, call))
+
     def _aimed(self, c: Condition, ctx: ToolContext | None) -> tuple[tuple[str, ...], Callable[[dict[str, Any]], bool]] | None:
         """An action check's call kinds and whether a recorded call has its target (who, where or which file, compared
         as the gateway compares them); None for a check with no such call (a download, a path FERB refuses)."""
@@ -199,8 +209,9 @@ class Checks:
             return tuple(cards.SEND_KINDS), reaches
         if k.kind == "paid":
             return (Kind.PAY,), on_site
-        if k.kind == "submitted":
-            return (Kind.SUBMIT,), lambda call: site_key((call.get("target") or {}).get("site")) == site_key(k.site)
+        if k.kind == "submitted":       # a form submit, or a send to that site (its Yes is checked by `_submits`)
+            return ((Kind.SUBMIT, *cards.SEND_KINDS),
+                    lambda call: site_key((call.get("target") or {}).get("site")) == site_key(k.site))
         if k.kind not in ("trashed", "deleted") or ctx is None:
             return None
         try:
