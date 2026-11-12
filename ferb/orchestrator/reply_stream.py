@@ -9,7 +9,7 @@ import json
 import unicodedata
 from typing import Any, Callable
 
-from ferb.orchestrator.schemas import SUPERVISOR_SCHEMA, SupervisorOutcome
+from ferb.orchestrator.schemas import SUPERVISOR_SCHEMA, SupervisorOutcome, ungrouped
 from ferb.policy.confirm import FROM_AI, from_task, reads_as_ferbs_check
 from ferb.sanitize.redact import Redactor
 
@@ -106,8 +106,8 @@ class ReplyDraft:
         if set(self.metadata) != expected:
             return False
         field = self.field
-        metadata = ({key: field(key, value) for key, value in self.metadata.items()} if field is not None
-                    else self.metadata)
+        metadata = ungrouped({key: field(key, value) for key, value in self.metadata.items()} if field is not None
+                             else self.metadata)    # ORCH-630: the side entries read as the fields they are
         if metadata.get('kind') == 'task':
             # Only the public text streams. Validate the complete preceding metadata
             # exactly as a final outcome; never publish nested plans or execute them.

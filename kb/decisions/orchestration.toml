@@ -1667,3 +1667,13 @@ why = "Since GATE-582 Buy Now is a payment call: a Yes there and a No at Place y
 rejected = ["Telling Buy Now from Place your order by the control's words: rule 4"]
 untestable = "Two separate orders on one site in one tab chain within one task show as one card (the later): which step paid can't be told structurally."
 paths = ["ferb/orchestrator/cards.py::purchase", "ferb/orchestrator/cards.py::withdrawn", "ferb/orchestrator/cards.py::payments", "ferb/orchestrator/cards.py::paid"]
+
+[ORCH-630]
+title = "The planner's side entries sit in one object, null on most turns; a check is null when none fits"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "Refines ORCH-330 for two fields (owner approved fewer empty fields, same strict check). SUPERVISOR_SCHEMA holds the nine SIDE_ENTRIES in one `side_entries` object: null when the turn has none, else all nine required. A condition's `check` is null when no code check fits (kind \"none\" still reads). Code reads both back into SupervisorOutcome's own fields (schemas.ungrouped; Condition: null is kind \"none\"), as the reply draft does, so nothing downstream changes; an answer without the group still reads (STORE-403). `text` stays last."
+why = "2026-11-12: 122 recorded Codex planner answers re-encoded: 46 fewer tokens on average (13.5%), a reply's text starts after 23 tokens, not 58. Real Codex, 11 prompts twice per form: every moved field used right in both; replies 67 -> 32 tokens, tasks 7.4-8.4 s vs 8.6-14 s."
+rejected = ["Move `text` first so the reply streams at once: the draft could no longer know a reply carries no action before showing it, which keeps actions and receipts final-only (reply_stream, GATE-581)", "Make side entries optional: OpenAI's and Codex's strict form requires every property", "Group plan steps' rarely used fields too: plans are in 1 answer in 8; a measured follow-up"]
+paths = ["ferb/orchestrator/schemas.py::SIDE_ENTRIES_SCHEMA", "ferb/orchestrator/schemas.py::SUPERVISOR_SCHEMA", "ferb/orchestrator/schemas.py::CONDITION_SCHEMA", "ferb/orchestrator/schemas.py::ungrouped", "ferb/orchestrator/schemas.py::grouped", "ferb/orchestrator/schemas.py::Condition", "ferb/orchestrator/schemas.py::SupervisorOutcome", "ferb/orchestrator/reply_stream.py::ReplyDraft._eligible"]

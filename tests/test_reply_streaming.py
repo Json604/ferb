@@ -6,7 +6,7 @@ import threading
 import pytest
 
 from ferb.orchestrator.reply_stream import ReplyDraft
-from ferb.orchestrator.schemas import SUPERVISOR_SCHEMA, SupervisorOutcome
+from ferb.orchestrator.schemas import SUPERVISOR_SCHEMA, SupervisorOutcome, grouped
 from ferb.policy.confirm import from_task_lines, reply_lines
 from ferb.sanitize.redact import Redactor
 
@@ -14,7 +14,7 @@ from ferb.sanitize.redact import Redactor
 def document(text='The draft is in Gmail. ', **changes):
     values = SupervisorOutcome(kind='reply', text=text, task=None).model_dump()
     values.update(changes)
-    return json.dumps({key: values[key] for key in SUPERVISOR_SCHEMA['properties']})
+    return json.dumps(grouped(values))          # the planner's form: side entries in one object (ORCH-630)
 
 
 def collect(raw, redactor=None):

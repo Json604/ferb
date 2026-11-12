@@ -264,10 +264,7 @@ class Provider(FakeProvider):
     limits = ModelLimits("fake-model", 1_000_000, 100_000, "test double")
 
 
-REPLY = sample(core.SUPERVISOR_SCHEMA, False) | {
-    "kind": "reply", "text": "Your dentist is Dr. Rao.", "show_schedules": False,
-    **{k: [] for k in ("remember", "timers", "schedules", "schedule_changes", "reminder_cancels", "forget",
-                       "conversation_changes")}}
+REPLY = sample(core.SUPERVISOR_SCHEMA, False) | {"kind": "reply", "text": "Your dentist is Dr. Rao."}
 
 
 def text(value: Any) -> tuple[int, dict[str, Any]]:

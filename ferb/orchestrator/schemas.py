@@ -46,10 +46,13 @@ CONDITION_SCHEMA = _obj({
     "text": {"type": "string"},
     "owner_text": {"type": "string"},
     "layer": {"type": "string", "enum": ["outcome", "intake", "artifact", "external"]},
-    # a code-checkable form when the condition allows one (verified without a model); kind "none" otherwise
-    "check": _obj({"kind": {"type": "string", "enum": CHECK_KINDS}, "path": _nullable("string"),
-                   "text": _nullable("string"), "url_contains": _nullable("string"), "site": _nullable("string"),
-                   "expected": _nullable("string"), "tool": _nullable("string")}),
+    # a code-checkable form when the condition allows one (verified without a model); null otherwise (ORCH-630: the
+    # planner writes one null instead of kind "none" and six nulls; `Condition` reads null as kind "none"). "none"
+    # stays in the enum, so an answer written that way on a runtime that doesn't enforce the form needs no repair
+    "check": {"anyOf": [{"type": "null"}, _obj({
+        "kind": {"type": "string", "enum": CHECK_KINDS}, "path": _nullable("string"),
+        "text": _nullable("string"), "url_contains": _nullable("string"), "site": _nullable("string"),
+        "expected": _nullable("string"), "tool": _nullable("string")})]},
 })
 CONVERSATION_SCHEMA = _obj({
     "identity": {"type": "string", "enum": ["owner", "ferb"]},
@@ -181,13 +184,29 @@ SCHEDULE_CHANGE_SCHEMA = _obj({"id": {"type": "string"},
                                # a new short name for it, written only when this change renames it; "" keeps its name
                                "name": NAME_SCHEMA})
 REMINDER_CHANGE_SCHEMA = _obj({"id": {"type": "string"}, "quote": {"type": "string"}})
+# The planner's entries that act without a task (ORCH-324's side entries, an answer to an open question, the schedules
+# list shown). ORCH-630: the planner writes them inside one `side_entries` object, null when a turn has none (most
+# turns), so it no longer writes nine empty fields every turn; `SupervisorOutcome` reads them back as its own fields
+SIDE_ENTRIES_SCHEMA: dict[str, Any] = _obj({
+    "answer_question": {"anyOf": [{"type": "null"}, _obj({"approval_id": {"type": "string"},
+                         "answer": {"type": "string"}})]},
+    "remember": {"type": "array", "items": REMEMBER_SCHEMA},
+    "forget": {"type": "array", "items": _obj({"item_id": {"type": "string"}, "quote": {"type": "string"}})},
+    "timers": {"type": "array", "items": TIMER_SCHEMA},
+    "schedules": {"type": "array", "items": SCHEDULE_SCHEMA},          # T-1066: several in one message
+    "schedule_changes": {"type": "array", "items": SCHEDULE_CHANGE_SCHEMA},
+    # T-1066: the owner asked about their schedules; code shows its list of them, from FERB's records
+    "show_schedules": {"type": "boolean"},
+    "reminder_cancels": {"type": "array", "items": REMINDER_CHANGE_SCHEMA},
+    "conversation_changes": {"type": "array", "items": _obj({"id": {"type": "string"},
+        "action": {"type": "string", "enum": ["pause", "resume", "takeover", "close"]}, "quote": {"type": "string"}})},
+})
+SIDE_ENTRIES = tuple(SIDE_ENTRIES_SCHEMA["properties"])
 SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "kind": {"type": "string", "enum": ["reply", "clarify", "task"]},
     # ORCH-586: whether the new message answers FERB's open question in this chat (Layer 5 shows it apart); only then
     # does code join the request it asked about to the message. false with no open question
     "answers_question": {"type": "boolean"},
-    "answer_question": {"anyOf": [{"type": "null"}, _obj({"approval_id": {"type": "string"},
-                         "answer": {"type": "string"}})]},
     "task": {"anyOf": [{"type": "null"}, TASK_SCHEMA]},
     "control": {"anyOf": [{"type": "null"}, _obj({"task_id": {"type": "string"},
                   "action": {"type": "string", "enum": ["stop", "retry", "continue", "pause"]},
@@ -197,20 +216,42 @@ SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
                   "standing_sends": {"anyOf": [{"type": "string", "enum": ["unchanged"]},
                                                {"type": "array", "items": SEND_SCOPE_SCHEMA}]},
                   "supersedes": _strings()})]},
-    "remember": {"type": "array", "items": REMEMBER_SCHEMA},
-    "timers": {"type": "array", "items": TIMER_SCHEMA},
-    "schedules": {"type": "array", "items": SCHEDULE_SCHEMA},          # T-1066: several in one message
-    "schedule_changes": {"type": "array", "items": SCHEDULE_CHANGE_SCHEMA},
-    # T-1066: the owner asked about their schedules; code shows its list of them, from FERB's records
-    "show_schedules": {"type": "boolean"},
-    "reminder_cancels": {"type": "array", "items": REMINDER_CHANGE_SCHEMA},
-    # memory review I2: a forget the owner asked for in chat, by the id the planner was shown; code asks Yes/No first
-    "forget": {"type": "array", "items": _obj({"item_id": {"type": "string"}, "quote": {"type": "string"}})},
-    "conversation_changes": {"type": "array", "items": _obj({"id": {"type": "string"},
-        "action": {"type": "string", "enum": ["pause", "resume", "takeover", "close"]}, "quote": {"type": "string"}})},
+    "side_entries": {"anyOf": [{"type": "null"}, SIDE_ENTRIES_SCHEMA]},
     # the owner's answer, shown in full and streamed: last, so a pure reply streams after every action field
     "text": {"type": "string"},
 })
+
+
+def ungrouped(answer: Any) -> Any:
+    """A planner answer with its side entries (ORCH-630) as top-level fields, the form `SupervisorOutcome` and every
+    reader before the group use; null (no side entries) leaves none. An answer without the group (written before it,
+    STORE-403) is returned as it is; a top-level field the answer also has wins."""
+    if not isinstance(answer, dict) or "side_entries" not in answer:
+        return answer
+    out = {k: v for k, v in answer.items() if k != "side_entries"}
+    group = answer["side_entries"]
+    if isinstance(group, dict):
+        out.update({k: v for k, v in group.items() if k not in out})
+    return out
+
+
+def grouped(answer: dict[str, Any]) -> dict[str, Any]:
+    """`ungrouped`'s inverse: an answer in the fields `SupervisorOutcome` has (a dump of one, or one written before
+    ORCH-630), in the form SUPERVISOR_SCHEMA asks the planner for: its side entries in one object, null when all are
+    empty, and each condition's check null when it is kind "none" (fakes, re-encoded recorded answers)."""
+    out = {k: v for k, v in answer.items() if k not in SIDE_ENTRIES and k in SUPERVISOR_SCHEMA["properties"]}
+    entries = {k: answer.get(k, [] if k not in ("answer_question", "show_schedules") else
+                             None if k == "answer_question" else False) for k in SIDE_ENTRIES}
+    if "schedule" in answer and answer["schedule"] is not None:      # the single schedule before T-1066
+        entries["schedules"] = [*(entries["schedules"] or []), answer["schedule"]]
+    out["side_entries"] = entries if any(entries.values()) else None
+    task = out.get("task")
+    if isinstance(task, dict):
+        conditions = [{**c, "check": None if (c.get("check") or {}).get("kind", "none") == "none" else
+                       {k: c["check"].get(k) for k in NO_CHECK}}
+                      for c in task.get("success_conditions") or []]
+        out["task"] = {**task, "success_conditions": conditions}
+    return {k: out.get(k) for k in SUPERVISOR_SCHEMA["properties"] if k in out or k == "side_entries"}
 
 # The worker's report (step 8b, kb area orchestration "Attempt loop"): done or not done, the reason and an optional
 # question for the owner when not done, the owner's answer, the artifacts and a `how` note for memory (kb area memory
@@ -331,11 +372,24 @@ class Check(BaseModel):
         return data
 
 
+NO_CHECK: dict[str, Any] = {"kind": "none", "path": None, "text": None, "url_contains": None, "site": None,
+                            "expected": None, "tool": None}
+
+
 class Condition(BaseModel):
     text: str
     owner_text: str = ''
     check: Check
     layer: Literal["outcome", "intake", "artifact", "external"] = "outcome"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_code_check(cls, data: Any) -> Any:
+        """ORCH-630: the planner writes check null when no code check fits; that is kind "none", as an answer or a
+        saved spec written before it says."""
+        if isinstance(data, dict) and data.get("check") is None:
+            return {**data, "check": dict(NO_CHECK)}
+        return data
 
 
 class TaskSpec(BaseModel):
@@ -421,12 +475,6 @@ class TaskControl(BaseModel):
     supersedes: list[str]
 
 
-# The planner's entries that act without a task (ORCH-324's side entries, an answer to an open question, the schedules
-# list shown)
-SIDE_ENTRIES = ("answer_question", "remember", "forget", "timers", "schedules", "schedule_changes", "show_schedules",
-                "reminder_cancels", "conversation_changes")
-
-
 class SupervisorOutcome(BaseModel):
     control: TaskControl | None = None
     kind: Literal["reply", "clarify", "task"]
@@ -448,7 +496,9 @@ class SupervisorOutcome(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _one_schedule(cls, data: Any) -> Any:
-        """An answer written for the earlier schema's single `schedule` (T-1066: `schedules`) is read as a list."""
+        """An answer written for the earlier schema's single `schedule` (T-1066: `schedules`) is read as a list. The
+        side entries the planner groups (ORCH-630) are read first as the fields they are."""
+        data = ungrouped(data)
         if isinstance(data, dict) and "schedule" in data:
             one = data["schedule"]
             data = {k: v for k, v in data.items() if k != "schedule"}
@@ -469,6 +519,7 @@ class SupervisorOutcome(BaseModel):
         """ORCH-582: kind "task" with no task and no control whose side entries hold something (a schedule, a reminder,
         a memory entry, a change or cancel of one, an answer to a question) is that turn as a reply: those entries do
         it, and there is no task to start. A structural fact (which fields are filled), never what the words say."""
+        data = ungrouped(data)
         if isinstance(data, dict) and data.get("kind") == "task" and data.get("task") is None and \
                 data.get("control") is None and any(data.get(key) for key in (*SIDE_ENTRIES, "schedule")):
             return {**data, "kind": "reply"}

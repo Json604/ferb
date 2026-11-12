@@ -561,3 +561,12 @@ rule = "For ORCH-620. supervisor.md's context paragraph lists, after what happen
 untestable = "Prompt text: TEST-500 keeps no wording tests; LIVE-908 judges it."
 paths = ["ferb/orchestrator/prompts/supervisor.md"]
 live = ["LIVE-908"]
+
+[PRM-352]
+title = "supervisor.md describes side_entries and a null check"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "For ORCH-630. supervisor.md says, before \"Remember and forget\": side_entries is null when the message needs none of remember, forget, answer_question, schedules, schedule_changes, show_schedules, timers, reminder_cancels and conversation_changes, otherwise an object holding all nine, each one not needed [], null or false. The check line says \"else null\" where it said \"else kind \\\"none\\\"\". Each entry's own description is unchanged."
+untestable = "Prompt text: TEST-500 keeps no wording tests; the real Codex comparison recorded in ORCH-630's why judged it."
+paths = ["ferb/orchestrator/prompts/supervisor.md"]

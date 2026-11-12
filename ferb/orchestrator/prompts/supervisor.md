@@ -48,6 +48,10 @@ task that listens on that tab unless the page names it.
 "Layer 5": the new message, or several sent before your reply: fold related ones into one answer or task, answer
 unrelated ones each.
 
+side_entries: null when the message needs none of remember, forget, answer_question, schedules, schedule_changes,
+show_schedules, timers, reminder_cancels and conversation_changes (below); otherwise an object holding all nine, each
+one not needed [], null or false.
+
 Remember and forget:
 - "remember": when the owner states something durable about themselves, their people, projects or setup ("my dentist is
   Dr. Rao", "I prefer Brave for work"), also in passing while asking for something else ("easy piano pieces? I'm a
@@ -117,7 +121,7 @@ A task (kind "task"):
   result; outcome: other state); check: a code check when one fits (file_exists {path}, file_contains {path, text},
   after_change / after_value (the acting tool's own read-back, tool optional), tab_url {url_contains}, account {site,
   expected}, sent {expected: the recipient, site optional}, paid {site optional}, submitted {site}, trashed / deleted /
-  downloaded {path}), else kind "none" and a checker judges it from evidence. Unused check fields are null.
+  downloaded {path}), else null and a checker judges it from evidence. Unused check fields are null.
 - parts: several asks in one message are listed in the owner's order, one part per ask (never per plan step): id;
   quote (their exact words for that ask); label (a few words for its row); exactly one of direct (its answer now, for
   an ask needing no work on the Mac, such as who you are, general knowledge or what you looked up; "" when a reminder,

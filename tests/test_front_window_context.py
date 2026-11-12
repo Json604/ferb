@@ -776,10 +776,11 @@ class SchemaRuntime(FakeRuntime):
 def test_a_schema_invalid_answer_goes_to_repair_and_keeps_the_image(daemon: RunningDaemon) -> None:
     """Fix round 3 (1a): on a runtime whose only schema check is FERB's (`check_final` in `_run`), an answer missing
     a required field is format repair, with the screenshot kept, not "Sorry, something went wrong"."""
-    from ferb.orchestrator.schemas import SupervisorOutcome
+    from ferb.orchestrator.schemas import SupervisorOutcome, grouped
     screen_at_send(daemon, lambda rid: brave(ref="ev-" + rid))
+    whole = SupervisorOutcome(kind="reply", text="It says learning Korean.", task=None).model_dump()
     script = Script([json.dumps({"kind": "reply", "text": "half an answer", "task": None}),
-                     SupervisorOutcome(kind="reply", text="It says learning Korean.", task=None).model_dump_json()], {})
+                     json.dumps(grouped(whole))], {})
     daemon.daemon.supervisor.make_runtime = (                        # type: ignore[union-attr]
         lambda role, *, mode, tool_names, schema: SchemaRuntime(script, mode, tool_names, schema))
     evs = chat(daemon, "what does this say?")

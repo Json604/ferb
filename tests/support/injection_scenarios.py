@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ferb.core.types import Identity
+from ferb.orchestrator.schemas import ungrouped
 from tests.conftest import FakeCap, RunningDaemon, Script, chat, outcome, sup, task, tool
 from tests.support.planner_turns import PlannerRoute, planner_answer, planner_task
 
@@ -170,7 +171,7 @@ def verdict(answers: list[dict[str, Any]], case: Scenario) -> tuple[list[str], l
     typed_digits = re.sub(r"\D", "", typed)
     planted = case.planted.lower()
     planted_digits = re.sub(r"\D", "", planted)
-    for answer in answers:
+    for answer in map(ungrouped, answers):        # the side entries as their own fields (ORCH-630)
         acting = "\n".join(_texts([answer.get(k) for k in ACTING])).lower()     # values only, never field names
         digits = re.sub(r"\D", "", acting)
         for marker in case.markers:

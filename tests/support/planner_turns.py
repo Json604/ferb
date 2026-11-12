@@ -12,16 +12,12 @@ from tests.conftest import FakeRuntime, RunningDaemon, Script
 
 
 def planner_answer(kind: str, text: str, task: dict[str, Any] | None = None) -> str:
-    return json.dumps({"kind": kind, "answers_question": False, "answer_question": None, "task": task, "control": None,
-                       "remember": [],
-                       "timers": [], "schedules": [], "schedule_changes": [], "show_schedules": False,
-                       "reminder_cancels": [], "forget": [],
-                       "conversation_changes": [], "text": text})
+    return json.dumps({"kind": kind, "answers_question": False, "task": task, "control": None, "side_entries": None,
+                       "text": text})
 
 
 def planner_task(goal: str, recipients: list[str] | None = None) -> dict[str, Any]:
-    check = {"kind": "none", "path": None, "text": None, "url_contains": None, "site": None, "expected": None,
-             "tool": None}
+    check = None                    # no code check (ORCH-630)
     return {"goal": goal, "identity": "owner", "worker_type": "default",
             "targets": {"apps": [], "sites": [], "paths": [], "recipients": recipients or []},
             "success_conditions": [{"text": goal, "owner_text": "", "layer": "outcome", "check": check}],
