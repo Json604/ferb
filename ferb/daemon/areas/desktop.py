@@ -407,6 +407,12 @@ class Desktop:
         p = self._device_profile()
         return [(a.bundle_id, a.name) for a in p.apps] if p is not None else []
 
+    def _shell_process(self, proc_id: str) -> dict[str, Any] | None:
+        """ORCH-628: one of FERB's shell commands by its id, for the live line of a task waiting on it."""
+        hit = next((p for p in (self.shells.list() if self.shells is not None else []) if p.id == proc_id), None)
+        return None if hit is None else {"command": hit.command, "started": hit.started, "owner_task": hit.owner_task,
+                                         "running": hit.running}
+
     def _running_apps(self) -> list[tuple[str, str, int]]:
         """(bundle id, name, pid) of the apps running now; none when they can't be read. Called on the event loop's
         thread too, so it drains its own autorelease pool."""

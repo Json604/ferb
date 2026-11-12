@@ -1151,6 +1151,7 @@ class Supervisor(WorkerRuns):
         self._turns: dict[str, _Turn] = {}         # request id -> its planning turn while it runs (step 8c)
         self.apps: Callable[[], list[tuple[str, str]]] = environment.apps
         self.running_apps: Callable[[], list[tuple[str, str, int]]] = environment.running_apps
+        self.shell_process: Callable[[str], dict[str, Any] | None] = environment.shell_process
         # chat capture (I1): per saved item, {"receipt": ..., "line": ...}, and per refused one {"refused": code's
         # reason in plain words} (a coroutine function: a login name is written in a worker thread). `sites`: the sites
         # the turn's task names (L36 §5); `elsewhere`: those the owner typed only for a task of another chat

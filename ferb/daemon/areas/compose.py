@@ -150,7 +150,7 @@ class Compose:
             environment=ports.EnvironmentPort(
                 environment=self._environment, live_facts=self._live_facts, availability=self._availability,
                 apps=self._installed_apps,
-                running_apps=self._running_apps,
+                running_apps=self._running_apps, shell_process=self._shell_process,
                 relevant_context=self._relevant_context,           # its fourth element: the search's source refs
                 worker_types=self._worker_types, runtime_account=self._runtime_account,
                 signals=self.signals, skills_catalog=skills.catalog,

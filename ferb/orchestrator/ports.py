@@ -58,6 +58,8 @@ class EnvironmentPort:
     availability: Callable[[], Any]                     # what the planner may use right now
     apps: Callable[[], list[tuple[str, str]]]           # (bundle id, name) from the device profile
     running_apps: Callable[[], list[tuple[str, str, int]]]   # (bundle id, name, pid) running now
+    # ORCH-628: a task's shell command by its id: {"command", "started" (epoch seconds), "owner_task"}; None if unknown
+    shell_process: Callable[[str], dict[str, Any] | None]
     relevant_context: Callable[[str], Any]              # (text, origin, payload, source refs), run off the loop
     worker_types: Callable[[], list[str]]
     # the account fact a runtime's own call reported ("signed_out", "usage_limit"), or "" for a call it answered:

@@ -1,7 +1,8 @@
 """Owns the live progress line (L8): what a task is doing right now, in a few plain words, built by code from the tool
 and its target. Must not use model text: the worker's `why`, typed text, message bodies, commands, queries, page
-content and its own names for apps never appear, so injected text can't speak through the line. The one exception is a
-file's name the worker chose (its basename). Describes; never gates or judges a call. (Outside these lines, a task asleep
+content and its own names for apps never appear, so injected text can't speak through the line. The exceptions are a
+file's name the worker chose (its basename) and, while a call waits on or reads one of the task's own commands, that
+command's first line, cut and quoted as the task's own words (ORCH-628, `waiting_for`). Describes; never gates or judges a call. (Outside these lines, a task asleep
 in time.sleep_until shows its worker's reason quoted as the task's own words, one clipped line: ORCH-598.)
 
 The target is the page's host (parsed as the browser opens it), an app's name as FERB knows it (`app_name`: the Mac's
@@ -72,6 +73,21 @@ def describe(tool: str, args: Mapping[str, Any], *, kind: str = "", site: str | 
     with_target, alone = TOOLS.get(name) or KINDS.get(kind) or (WORKING, WORKING)
     target = _target(family, args, kind, site, app)
     return with_target.format(target) if target and "{}" in with_target else alone
+
+
+WAITS_ON_COMMAND = {"shell.wait": "waiting for", "shell.read": "reading the output of"}
+COMMAND_CHARS = 40                           # a command's first line in a live line, cut at a word (NAME_CHARS)
+
+
+def waiting_for(tool: str, command: str, minutes: int) -> str:
+    """ORCH-628: the line of a call that waits on or reads one of the task's commands: the command's first line,
+    printable, cut at a word, in backticks as the task's own words, and how long it has run ("waiting for `codex exec
+    -s danger-full-access …` (14 min)"). The caller redacts it as every live line."""
+    first = " ".join(printable(next((line for line in command.splitlines() if line.strip()), "")).split())
+    if len(first) > COMMAND_CHARS:
+        first = first[:COMMAND_CHARS - 1].rsplit(" ", 1)[0].rstrip() + " …"
+    said = f"{WAITS_ON_COMMAND[tool]} `{first.replace('`', '')}`" if first else f"{WAITS_ON_COMMAND[tool]} a command"
+    return said + (f" ({minutes} min)" if minutes >= 1 else "")
 
 
 def app_name(args: Mapping[str, Any], site: str | None, installed: Iterable[tuple[str, str]],

@@ -289,6 +289,7 @@ class WorkerRuns:
     browser_context: Callable[[str], str]
     apps: Callable[[], list[tuple[str, str]]]
     running_apps: Callable[[], list[tuple[str, str, int]]]
+    shell_process: Callable[[str], dict[str, Any] | None]
     on_violation: Any
     runtime_account: Callable[[str, str], None]
     heartbeat_poll_s: float
@@ -323,7 +324,8 @@ class WorkerRuns:
             return
         try:
             app = progress.app_name(args, site, self.apps(), self.running_apps) if name.startswith("mac.") else None
-            text = self.gateway.redact(progress.describe(name, args, kind=kind, site=site, app=app))
+            text = self.gateway.redact(self._waiting_line(name, args, grant.task_id)
+                                       or progress.describe(name, args, kind=kind, site=site, app=app))
         except Exception as e:
             self.journal.append("progress.failed", {"task_id": grant.task_id, "tool": name, "error": type(e).__name__})
             return
@@ -333,6 +335,18 @@ class WorkerRuns:
             "at": f"{self.clock.now().astimezone():%H:%M}"})
         # the step's own task id, so each of a card's parallel rows shows its own line (ORCH-531)
         self._progress_line(tree.id, tree.worker.id, text)
+
+    def _waiting_line(self, name: str, args: dict[str, Any], task_id: str) -> str | None:
+        """ORCH-628: a call that waits on or reads one of the task's own commands says which command and how long it
+        has run ("waiting for `codex exec …` (14 min)"), the command quoted as the task's own words (as ORCH-598 quotes
+        a sleep's reason); None for any other call, or a command that isn't this task's."""
+        if name not in progress.WAITS_ON_COMMAND or not isinstance(args.get("id"), str):
+            return None
+        proc = self.shell_process(args["id"])
+        if proc is None or str(proc.get("owner_task") or "") != task_id:
+            return None
+        minutes = int(max(0.0, self.clock.now().timestamp() - float(proc.get("started") or 0)) // 60)
+        return progress.waiting_for(name, str(proc.get("command") or ""), minutes)
 
     def _progress_line(self, tree_id: str, step_task_id: str, text: str) -> None:
         """APP-893: a task's plain live line (code's words: `progress.describe`, a sleep's line), the one source its card

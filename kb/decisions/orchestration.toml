@@ -1647,3 +1647,12 @@ status = "active"
 rule = "Refines ORCH-600, ORCH-605 and ORCH-609 for plans. When a one-ask plan ends failed at a step that ran in this run, that step's own run is whose answer is told: \"I couldn't finish this task.\" then code's finding (verify.not_done_said) or the step's own one text, by the same rules as a single task. No step goal, no condition text, no \"Done before that\" list of the other steps' reports: the checklist shows which step stopped (APP-894) and the trace keeps the reports. A step that ended before a restart is named by its checklist words only."
 why = "Live 2026-11-12 16:30 (task f68317e9): \"I couldn't finish this task. I stopped at “In Brave “Work,” fill every required …”: Not done: <condition text>. FERB didn't submit it; …\" then two whole step reports."
 paths = ["ferb/orchestrator/supervisor.py::Supervisor._execute_plan", "ferb/orchestrator/supervisor.py::_stopped_plan_summary", "ferb/orchestrator/supervisor.py::_Tree"]
+
+[ORCH-628]
+title = "A task waiting on its own command says which command and for how long"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "Refines L8's live line and ORCH-595's last step. While a worker's shell.wait or shell.read call is on one of its own task's commands, the live line (and so a card row, a checklist line, the short view and the planner's running row) says \"waiting for `<command>` (14 min)\" or \"reading the output of `<command>`\": the command's first line, printable, cut at a word to COMMAND_CHARS (40, as a name's cut) and quoted as the task's own words, as ORCH-598 quotes a sleep's reason; the minutes it has run from 1. Redacted as every live line."
+why = "Live 2026-11-12 16:06-16:26 (task f68317e9): the step's line read \"shell.wait\" for 20 minutes; asked twice what it waited for, the planner said the task record didn't show the command."
+paths = ["ferb/orchestrator/progress.py::waiting_for", "ferb/orchestrator/worker.py::WorkerRuns._waiting_line", "ferb/orchestrator/ports.py::EnvironmentPort", "ferb/daemon/areas/desktop.py::Desktop._shell_process"]
