@@ -15,7 +15,6 @@
   const NATIVE = new Set(["A", "BUTTON", "INPUT", "SELECT", "TEXTAREA", "SUMMARY"]);
   const HEADING = new Set(["H1", "H2", "H3", "H4", "H5", "H6"]);
   const SKIP_TEXT = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "SVG", "HEAD", "TITLE"]);
-  const SECRET_NAME = /otp|one.?time|2fa|totp|mfa|passcode|verification.?code|security.?code|\bpin\b/i;
   const sealedFields = new WeakSet(); // Exact caller-selected fields remain masked after a sealed fill.
   // Unclassified split widgets may replace every node while retaining individual secret characters.
   // Without stable bindings, mask captured editable values for this document until navigation.
@@ -217,36 +216,55 @@
     }
     return [];
   }
-  // A real password: type=password, or a password autocomplete on an input of any type (a tel/number PIN). A
-  // password field is also one a site's "Show password" made type=text (Google keeps autocomplete current-password
-  // and name Passwd), named so by its name, id or label. Checkboxes, buttons and email fields are no such field.
-  const realPassword = (el) => (el.type || "").toLowerCase() === "password" ||
-    /\b(?:current|new)-password\b/.test(el.autocomplete || "");
-  const passwordField = (el) => el.tagName === "INPUT" && (realPassword(el) ||
-    ["text", ""].includes((el.type || "").toLowerCase()) &&
-    /passw|pwd/i.test((el.name || "") + " " + (el.id || "") + " " + label(el)));
-  // A field that names itself a code field ("One-time password" holds "passw" too) stays one for a login code.
-  const codeField = (el) => /one-time-code/.test(el.autocomplete || "") ||
-    SECRET_NAME.test((el.name || "") + " " + (el.id || "") + " " + label(el)) || codeGroup(el).length > 1;
-  // A card field, by the page's own autocomplete token (cc-number, cc-csc, cc-exp, cc-exp-month, cc-exp-year, with
-  // any section-/billing/shipping prefix): an input, or a select for the expiry (GATE-206).
-  const CARD = /(?:^|\s)cc-(number|csc|exp|exp-month|exp-year)(?:\s|$)/;
+  // HAND-515 (owner 2026-11-12): a secret field is known by its structure only, never by its words (a delivery "pin
+  // code" or a voucher's "security code" is an ordinary field). The page's own autocomplete tokens, in any case and
+  // order (section-…, billing, shipping and the like are tokens of their own):
+  const tokens = (el) => String((el.getAttribute && el.getAttribute("autocomplete")) || "").toLowerCase().split(/\s+/).filter(Boolean);
+  // A real password: type=password, or a password autocomplete on an input of any type (a tel/number PIN). A field
+  // that was a password field in this document stays one when a "show password" eye makes it type=text (kept per
+  // element, `passwordSeen`, and noticed when its type changes), and an input the page draws as dots
+  // (-webkit-text-security) is one. Checkboxes, buttons and email fields are no such field.
+  const passwordSeen = new WeakSet();
+  const realPassword = (el) => {
+    const pw = (el.type || "").toLowerCase() === "password" || tokens(el).some((t) => t === "current-password" || t === "new-password");
+    if (pw) passwordSeen.add(el);
+    return pw;
+  };
+  const dotted = (el) => {
+    try { const s = getComputedStyle(el); const v = s.webkitTextSecurity || s.getPropertyValue("-webkit-text-security"); return !!v && v !== "none"; }
+    catch (_) { return false; }
+  };
+  const passwordField = (el) => el.tagName === "INPUT" && (realPassword(el) || passwordSeen.has(el) || dotted(el));
+  try {                                            // the eye: a password field turned to text, noticed as it happens
+    new MutationObserver((records) => { for (const r of records) if (r.oldValue && r.oldValue.toLowerCase() === "password" &&
+      r.target.tagName === "INPUT") passwordSeen.add(r.target); })
+      .observe(document, { subtree: true, attributes: true, attributeFilter: ["type"], attributeOldValue: true });
+  } catch (_) { /* no observer: fieldKind still remembers each password field it saw */ }
+  // A login code: autocomplete one-time-code, or one of a run of single-character numeric boxes (codeGroup).
+  const codeField = (el) => tokens(el).includes("one-time-code") || codeGroup(el).length > 1;
+  // A card field, by the page's own autocomplete token (cc-number, cc-csc, cc-exp, cc-exp-month, cc-exp-year): an
+  // input, or a select for the expiry (GATE-206).
+  const CARD = { "cc-number": "card_number", "cc-csc": "card_csc", "cc-exp": "card_expiry", "cc-exp-month": "card_expiry",
+                 "cc-exp-year": "card_expiry" };
   const cardKind = (el) => {
     if (el.tagName !== "INPUT" && el.tagName !== "SELECT") return null;
-    const m = CARD.exec(String((el.getAttribute && el.getAttribute("autocomplete")) || el.autocomplete || "").toLowerCase());
-    return m ? (m[1] === "number" ? "card_number" : m[1] === "csc" ? "card_csc" : "card_expiry") : null;
+    const t = tokens(el).find((x) => Object.hasOwn(CARD, x));
+    return t ? CARD[t] : null;
   };
-  // The one secret-field rule (protocol 18): a password (type=password, current/new-password, a shown-password text
-  // field), a login code (one-time-code, a code name, a split-code box) or a card field. Its kind is reported
+  // The one secret-field rule (protocol 18): a password (type=password, current/new-password, one that was a password
+  // field, a dotted input), a login code (one-time-code, a split-code box) or a card field. Its kind is reported
   // (ActionFacts.field_kinds); its value never is; its box is painted in captures; typing and text-entering keys into it
   // are refused; it is filled only through the sealed path.
   function fieldKind(el) {
     const card = cardKind(el);
     if (card) return card;
     if (el.tagName !== "INPUT") return null;
-    if ((el.type || "").toLowerCase() === "password" || /\bcurrent-password\b/.test(el.autocomplete || "")) return "password";
+    if ((el.type || "").toLowerCase() === "password" || tokens(el).includes("current-password")) {
+      passwordSeen.add(el);
+      return "password";
+    }
     if (codeField(el)) return "one_time_code";     // a code marker wins over new-password (codeFill's own rule)
-    if (passwordField(el)) return /\bnew-password\b/.test(el.autocomplete || "") ? "new_password" : "password";
+    if (passwordField(el)) return tokens(el).includes("new-password") ? "new_password" : "password";
     return null;
   }
   const isSecret = (el) => sealedFields.has(el) || fieldKind(el) !== null;
@@ -255,7 +273,7 @@
   // autocomplete new-password, which pages set on OTP boxes to stop autofill (controller ruling).
   const codeFill = (el, secret = isSecret(el)) => secret && el.tagName === "INPUT" && !cardKind(el) &&
     (el.type || "").toLowerCase() !== "password" &&
-    !/\bcurrent-password\b/.test(el.autocomplete || "") && (codeField(el) || !passwordField(el));
+    !tokens(el).includes("current-password") && (codeField(el) || !passwordField(el));
 
   // What submitting from this control would do (protocol 18, GATE-202), from the form's own markup: a click
   // on a submit control (`click`), or Enter in a field whose form submits implicitly (`enter`), with the action's host

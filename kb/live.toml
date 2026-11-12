@@ -4316,3 +4316,12 @@ request = "Ask FERB to open that link and tell you one fact from the PDF's first
 pass = "The snapshot after the click says the tab shows a PDF; FERB reads it from a screenshot or fetches the file and reads it, and gives the fact with where it came from; no loop of empty snapshots."
 decisions = ["HAND-513"]
 sitting = "after this change is installed and 0.19.10 is loaded"
+
+[LIVE-924]
+title = "FERB enters a delivery pincode on a shopping site"
+area = "hands"
+surface = "FERB.app with this build and the FERB extension 0.19.10; Flipkart or Amazon in your browser profile (signed in or not); no order is placed"
+request = "Ask FERB to check whether a product you name delivers to your pincode (give the pincode), on Flipkart or Amazon."
+pass = "FERB types the pincode into the site's pincode box (no \"that's a secret field\" refusal) and reports the delivery answer the page shows; nothing is bought."
+decisions = ["HAND-515", "HAND-516"]
+sitting = "after this change is installed and 0.19.10 is loaded"

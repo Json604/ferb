@@ -393,3 +393,27 @@ def test_the_daemon_sends_held_keys_only_with_a_real_click(bd: Any) -> None:  # 
     assert ext.acts[-1]["modifiers"] == 12
     bad = call(d, g, "browser.act", tab=tab, element=ids["Name"], action="type", text="x", modifiers=["shift"])
     assert bad["is_error"] and ext.acts[-1].get("kind") == "click"     # refused before anything was sent
+
+
+# decision: HAND-515, HAND-516
+def test_secret_fields_are_known_by_their_structure_never_their_words() -> None:
+    """Owner 2026-11-12: a delivery "pin code" or a voucher's "security code" is an ordinary field (live: Flipkart, task
+    97e27b93, FERB refused to type a pincode). The structural ones stay: a password field that an eye made text, a
+    dotted input, autocomplete tokens in any case and order."""
+    from tests.test_shown_password_fields import extension
+    out = extension(r'''
+globalThis.getComputedStyle = (el) => ({webkitTextSecurity: el.dots ? 'disc' : 'none'});
+const kind = (attrs, text) => { const e = describe(input(attrs, text), 1); return e.field_kind || null; };
+const eye = input({type: 'password'}, 'Password');
+const before = describe(eye, 1).field_kind;
+eye.type = 'text';                                          // the "show password" eye
+console.log(JSON.stringify({before, after: describe(eye, 1).field_kind,
+  pin: kind({inputMode: 'numeric', maxLength: 6, name: 'pincode'}, 'Delivery pin code'),
+  voucher: kind({name: 'security_code'}, 'Coupon security code'), otpWords: kind({name: 'otp'}, 'Enter OTP'),
+  pinPassword: kind({type: 'password'}, 'PIN'), dots: kind({dots: true}, 'Account number'),
+  upper: kind({autocomplete: 'Shipping CC-Number'}, ''), month: kind({autocomplete: 'section-pay billing cc-exp-month'}, ''),
+  code: kind({autocomplete: 'ONE-TIME-CODE'}, '')}));
+''')
+    assert out == {"before": "password", "after": "password", "pin": None, "voucher": None, "otpWords": None,
+                   "pinPassword": "password", "dots": "password", "upper": "card_number", "month": "card_expiry",
+                   "code": "one_time_code"}

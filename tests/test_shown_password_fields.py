@@ -155,11 +155,10 @@ def test_value_changes_of_password_and_secure_fields_are_never_recorded() -> Non
 def extension(after: str) -> Any:
     """content.js's own secret classification and element description, run in node over plain input objects."""
     source = Path('extensions/chromium/content.js').read_text()
-    secret_name = re.search(r'  const SECRET_NAME = .*\n', source).group()
     group = source[source.index('  function codeGroup('):source.index('\n\n  function formKind')]
     describe = source[source.index('  function describe('):source.index('  // Visible text nearest')]
     fill = source[source.index('  function fill('):source.index('\n\n  window.__ferb =')]
-    script = secret_name + r'''
+    script = r'''
 class HTMLInputElement {}
 class HTMLFormElement {}                                   // content.js reads a form through its prototype's getters
 class HTMLTextAreaElement {}
@@ -172,13 +171,15 @@ const formKind = () => null, maskUrl = u => u, innerWidth = 1000, innerHeight = 
 const clickables = new WeakSet();                          // HAND-489: none of these inputs is a pointer cluster
 const input = (attrs, labelText = '') => Object.assign(new HTMLInputElement(), {tagName: 'INPUT', type: 'text', name: '', id: '',
   autocomplete: '', value: '', maxLength: -1, inputMode: '', pattern: '', disabled: false, readOnly: false,
-  parentElement: null, labelText, getAttribute: () => null, isConnected: true,
+  parentElement: null, labelText, isConnected: true,
+  getAttribute(k) { return k === 'autocomplete' && this.autocomplete ? this.autocomplete : null; },
   getBoundingClientRect: () => ({x: 0, y: 0, width: 10, height: 10, left: 0, top: 0, right: 10, bottom: 10})}, attrs);
 ''' + group + '\n' + describe + fill + '\n' + after
     ran = subprocess.run([_node(), '-e', script], capture_output=True, text=True, check=True)
     return json.loads(ran.stdout)
 
 
+# decision: HAND-516
 def test_the_extension_masks_the_google_shown_password_field() -> None:
     shown = extension(r'''
 const google = input({autocomplete: 'current-password', name: 'Passwd', value: 'Hunter2!x'}, 'Enter your password');
@@ -192,7 +193,8 @@ console.log(JSON.stringify({google: describe(google, 1), each: [one({autocomplet
 ''')
     assert shown['google']['secret'] is True and shown['google']['value'] == 'filled'
     assert 'Hunter2!x' not in json.dumps(shown['google'])
-    assert shown['each'] == [{'secret': True, 'value': 'filled'}] * 5
+    # HAND-515: by structure only: the password autocomplete tokens mark it; a name, id or label never does
+    assert shown['each'] == [{'secret': True, 'value': 'filled'}] * 2 + [{'secret': False, 'value': 'Hunter2!x'}] * 3
     assert shown['checkbox'] == {'secret': False, 'value': 'checked'}
     assert shown['email'] == {'secret': False, 'value': 'Hunter2!x'}
     assert shown['reset'] == {'secret': False, 'value': 'Hunter2!x'}
@@ -200,10 +202,11 @@ console.log(JSON.stringify({google: describe(google, 1), each: [one({autocomplet
 
 
 CODE_FIELDS = {  # name: (attrs, label), and whether a login code may be sealed into it
-    'otp': (({}, 'One-time password'), True), 'otpName': (({'name': 'one_time_password'}, ''), True),
+    'otp': (({}, 'One-time password'), False), 'otpName': (({'name': 'one_time_password'}, ''), False),
     'autocomplete': (({'autocomplete': 'one-time-code', 'name': 'otp_pwd'}, ''), True),
-    'newOtp': (({'autocomplete': 'new-password', 'name': 'otp'}, ''), True),        # ruling: a code marker wins
-    'pin': (({'type': 'tel', 'autocomplete': 'new-password', 'name': 'otp'}, ''), True),
+    'newOtp': (({'autocomplete': 'new-password', 'name': 'otp'}, ''), False),       # HAND-515: a name is no marker
+    'pin': (({'type': 'tel', 'autocomplete': 'new-password', 'name': 'otp'}, ''), False),
+    'newCode': (({'autocomplete': 'new-password one-time-code'}, ''), True),         # a code token still wins
     'shown': (({'autocomplete': 'current-password', 'name': 'Passwd'}, 'Enter your password'), False),
     'labelled': (({}, 'Password'), False), 'hidden': (({'type': 'password'}, 'One-time password'), False),
     'current': (({'autocomplete': 'current-password'}, 'One-time password'), False),
@@ -213,11 +216,12 @@ CODE_FIELDS = {  # name: (attrs, label), and whether a login code may be sealed 
     'search': (({}, 'Search'), False)}
 
 
+# decision: HAND-516
 def test_the_element_list_says_whether_a_login_code_may_go_there_by_the_fill_s_own_rule() -> None:
     """describe().code_fill and fill()'s code-only check are one predicate: the daemon can refuse before asking the
-    owner, and a refusal says what it is. "passw" also matches "One-time password": a code marker keeps a code field
-    one, and it overrides autocomplete new-password (pages set it on OTP boxes to stop autofill); type=password and
-    current-password always refuse."""
+    owner, and a refusal says what it is. HAND-516: by structure only (the one-time-code token, a split-code box): a
+    field's name or label never makes it a code field; the code token overrides autocomplete new-password (pages set
+    it on OTP boxes to stop autofill); type=password and current-password always refuse."""
     cases = json.dumps({name: list(field) for name, (field, _) in CODE_FIELDS.items()})
     out = extension(r'''
 const cases = ''' + cases + r''';

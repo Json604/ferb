@@ -1401,3 +1401,27 @@ rule = "For HAND-503, extension 0.19.10. browser.act click, dblclick and rightcl
 why = "Lab: a shift-click range in a list couldn't be made; not_a_select said nothing about what works; a noUiSlider's handles had no value, so the worker couldn't tell where they were."
 evidence = "Lab 2026-11-12: shift-click selects b..d (was d only); the handles read 20.00 (0.0-80.0) and 80.00 (20.0-100.0); a custom combobox's select says how."
 paths = ["extensions/chromium/background.js::trusted", "extensions/chromium/content.js::describe", "extensions/chromium/content.js::act", "ferb/act/browser/tools.py::BrowserAct"]
+
+[HAND-515]
+title = "Secret fields by structure only: no word list (\"pin code\", \"security code\") makes a field secret"
+by = "owner"
+date = 2026-11-12
+status = "active"
+words = "remove it, but considerother edgce cases for our soliution if you havnet. we jsut have to conver our side, not worry about other sites not up to the mark"
+words_source = "Relayed by the coordinator, 2026-11-12, answering whether to stop treating fields labelled \"pin code\" or \"security code\" as secret (live: Flipkart, task 97e27b93)."
+rule = "The extension's word list that made a field secret by its name, id or label (otp, passcode, security code, pin and the like, and passw/pwd for a text field) is removed; secret fields are known by their structure, with FERB's own side covering the edge cases. Pages that mark nothing are not FERB's to guess."
+why = "Everyday fields (a delivery pincode, a voucher's security code) were refused as login-code fields, so FERB couldn't do ordinary tasks."
+paths = ["extensions/chromium/content.js::fieldKind"]
+live = ["LIVE-924"]
+
+[HAND-516]
+title = "The structural secret-field rule and its edge cases"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "HAND-515, extension 0.19.10. Secret (fieldKind): an input of type password, or with the autocomplete token current-password or new-password; one that was such a field in this document (a show-password eye made it text: kept per element, also seen as its type changes); an input drawn as dots (-webkit-text-security); one-time-code; a run of single-character numeric boxes; cc-number, cc-csc, cc-exp(-month/-year) on an input or select. Tokens in any case or order. Every frame, shadow root; never contenteditable. One rule for typing, snapshot values, model screenshots, browser.html, sealed fills."
+why = "A word list both refused ordinary fields and missed unlabelled ones; the page's own markup is what a browser itself uses to treat a field as a password, a code or a card."
+evidence = "Lab 2026-11-12 secrets.html: pincode, voucher code, a PIN-named search box and a notes editor take typing; type=password \"PIN\", the eye-toggled field, a dotted input, upper-case and reordered tokens, one-time-code, a 6-box code, shadow and cross-origin card fields are refused."
+rejected = ["Treating an OTP box marked only by its name (autocomplete new-password, name otp) as a code field: a name is words; the owner fills it with browser.secret"]
+paths = ["extensions/chromium/content.js::fieldKind", "extensions/chromium/content.js::codeFill", "extensions/chromium/content.js::passwordField"]
+live = ["LIVE-924"]

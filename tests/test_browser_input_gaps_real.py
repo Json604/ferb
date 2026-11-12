@@ -598,24 +598,53 @@ def _point_act(w: Worker, selector: str, action: str, **args: Any) -> Any:
     return w.act(p["id"], action, **args) if "id" in p else p
 
 
-def test_everyday_fields_read_as_secret(worker: Worker, site: LabServer) -> None:
-    """GAP: a delivery pin code (India's postal code) and a voucher's "security code" are classified as login-code
-    fields by their words, so FERB refuses to type into them (live: Flipkart, task 97e27b93)."""
+EVERYDAY = {"Delivery pin code": ("pincode", "560034"), "Coupon security code (printed on the voucher)": ("voucher", "SAVE10"),
+            "Search by PIN or name": ("pinsearch", "Asha"), "Notes": ("notes", "hello")}
+STRUCTURAL = {"PIN": "pinpw", "Masked by CSS": "cssmask", "Card number (upper case token)": "ccup",
+              "Expiry month": "ccmonth", "Login code": "otc", "Digit 1": "boxes", "Shadow card number": "shadow",
+              "Framed card number": None}
+
+
+def test_secret_fields_by_structure(worker: Worker, site: LabServer) -> None:
+    """HAND-515 (owner, 2026-11-12: "remove it, ..."): secret fields by structure only. Before, a delivery pin code and
+    a voucher's security code were login-code fields by their words, so FERB refused to type into them (live: Flipkart,
+    task 97e27b93). The structural ones stay secret: type=password (also once an eye made it text), a CSS-masked input,
+    autocomplete tokens in any case and order, a 6-box code, card fields in a shadow root and in a cross-origin frame."""
     w = worker
-    w.open(f"{site.a}/widgets.html", wait_ready=15)
+    w.open(f"{site.a}/secrets.html?b={site.b}", wait_ready=15)
+    time.sleep(0.5)
     out: dict[str, Any] = {}
-    for label, text in (("Delivery pin code", "560034"), ("Coupon security code (printed on the voucher)", "SAVE10")):
+
+    def attempt(label: str, text: str) -> dict[str, Any]:
         w.snapshot()
         e = w.el(label)
-        out[label] = {"secret": e and e.secret, "field_kind": e and e.field_kind}
+        if e is None:
+            return {"missing": [(x.role, x.label) for x in w.snap.elements][:40]}
+        rec: dict[str, Any] = {"secret": e.secret, "kind": e.field_kind, "value": e.value}
         try:
-            out[label]["type"] = w.act(e.id, "type", text=text) if e else None
-        except Exception as ex:                                  # noqa: BLE001 - the refusal is the finding
-            out[label]["type"] = repr(ex)[:300]
-    out["truth"] = {k: w.truth()[k] for k in ("pincode", "voucher")}
-    report("secret-words", w, out)
-    assert out["Delivery pin code"]["field_kind"] == "one_time_code"      # GAP today; flips when fixed
-    assert out["truth"]["pincode"] == ""
+            rec["type"] = w.act(e.id, "type", text=text)
+        except Exception as ex:                                  # noqa: BLE001 - a refusal is the finding
+            rec["type"] = repr(ex)[:200]
+        return rec
+    for label, (_, text) in EVERYDAY.items():
+        out[label] = attempt(label, text)
+    for label in STRUCTURAL:
+        out[label] = attempt(label, "4242")
+    _try(w, "Show password", "click")                          # the eye: the password field is type=text now
+    w.snapshot()
+    eye = next((e for e in w.snap.elements if e.label.startswith("Password (with eye)") and e.role == "textbox"), None)
+    out["eye"] = {"secret": eye and eye.secret, "kind": eye and eye.field_kind,
+                  "type": w.act(eye.id, "type", text="hunter2") if eye else None}
+    out["truth"] = w.truth()
+    report("secrets", w, out)
+    t = out["truth"]
+    for label, (key, text) in EVERYDAY.items():               # typeable now: their words don't make them secret
+        assert out[label]["secret"] is False and t[key] == text, (label, out[label], t[key])
+    for label, key in STRUCTURAL.items():                      # still secret, still refused, nothing typed
+        assert out[label]["secret"] is True and "secret" in str(out[label]["type"]), (label, out[label])
+        if key:
+            assert not t[key], (label, t[key])
+    assert t["eyeType"] == "text" and out["eye"]["secret"] is True and not t["eyepw"], out["eye"]
 
 
 # ---------- drag and drop, hold ----------
