@@ -1347,3 +1347,13 @@ status = "active"
 rule = "For HAND-503, extension 0.19.10. A type on a date, time, datetime-local, month, week, color or range input (its type, a structural fact) sets the value through the input's setter with input and change events; a value the browser rejects is put back and the type fails `value_not_taken`, naming the form it takes. A type whose focus isn't in an editable field fails `not_editable` (nothing typed). After a replace in an input or textarea, a value that differs from the typed text is returned as `field_value` and in `observed`, never a secret field's."
 why = "Lab: real typing into a native date or time input answered \"typed (trusted)\" and set nothing; typing on a button answered ok; a phone mask turned 9876543210 into +91 87654 3210 and the worker couldn't know."
 paths = ["extensions/chromium/content.js::setPicked", "extensions/chromium/content.js::fieldValue", "extensions/chromium/background.js::trusted"]
+
+[HAND-510]
+title = "Scrolling: sideways, several screens or to an end at once, and an id for every scroll pane"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For HAND-503, extension 0.19.10. browser.scroll takes left and right (the wheel's deltaX on the pane), `screens` (that many panes, up to 50, in one wheel) and `to` start or end (set at once by script, so a virtual list draws what is there); act scroll left or right moves the nearest pane that scrolls sideways. A snapshot gives every visible scroll pane an id (at most 60), also one that holds only text, with its `axis`. An older extension is refused these, nothing sent."
+why = "Lab: scroll \"right\" scrolled the page down (deltaX always 0, only vertical panes found), a feed of plain text had no id, and row 500 of a virtual list took about 58 calls."
+evidence = "Lab 2026-11-11 scroll.html: the carousel moves 400 px right and back to 0; the feed and carousel have ids; row 500 in 2 calls of 29 screens; the feed's end reached all 200 posts."
+paths = ["extensions/chromium/content.js::allScrollers", "extensions/chromium/content.js::scrollEdge", "extensions/chromium/background.js::scroll", "ferb/act/browser/ext_bridge.py::scroll", "ferb/act/browser/tools.py::BrowserScroll"]

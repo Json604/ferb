@@ -589,6 +589,8 @@ def test_drag_and_hold(worker: Worker, site: LabServer) -> None:
 # ---------- scrolling ----------
 
 def test_scrolling(worker: Worker, site: LabServer) -> None:
+    """HAND-510: every scroll pane has an id (a feed of text, a carousel), sideways scrolling, screens at once, to the
+    end. Before: the feed had no id, "right" scrolled the page down, and row 500 took about 58 one-screen calls."""
     w = worker
     w.open(f"{site.a}/scroll.html", wait_ready=10)
     view = w.snapshot()
@@ -598,7 +600,7 @@ def test_scrolling(worker: Worker, site: LabServer) -> None:
     cid = next((v for k, v in scrollers.items() if k and "Messages" in k), None)
     calls, t0 = 0, time.monotonic()
     while cid and calls < 80:
-        r = w.scroll("down", cid)
+        r = w.scroll("down", cid, screens=29)            # a worker's sum: row 500 is ~59 screens of 300 px down
         calls += 1
         if "Message 500" in w.truth()["virtualShown"] or "Message 500" in str(w.find("Message 500").get("text")):
             break
@@ -606,35 +608,32 @@ def test_scrolling(worker: Worker, site: LabServer) -> None:
             break
     out["virtual_scrolls_to_500"] = {"calls": calls, "seconds": round(time.monotonic() - t0, 1),
                                      "shown": w.truth()["virtualShown"]}
+    out["virtual_to_end"] = w.scroll("down", cid, to="end") if cid else None
+    out["virtual_end_shown"] = w.truth()["virtualShown"]
     w.log.clear()
     fid = next((v for k, v in scrollers.items() if k and "Feed" in k), None)
-    n, r = 0, {}
-    while fid and n < 40:
-        r = w.scroll("down", fid)
+    n, r, had = 0, {}, -1
+    while fid and n < 40 and w.truth()["feedLoaded"] > had:     # to the end until the feed stops loading more
+        had = w.truth()["feedLoaded"]
+        r = w.scroll("down", fid, to="end")
         n += 1
-        if r.get("at_end"):
-            time.sleep(0.6)
-            r = w.scroll("down", fid)
-            if r.get("at_end"):
-                break
+        time.sleep(0.6)
     out["feed"] = {"calls": n, "loaded": w.truth()["feedLoaded"], "last": r}
-    w.snapshot()
-    car = w.el("Carousel")
-    out["carousel_in_snapshot"] = car and (car.id, car.role, car.container)
-    try:
-        out["carousel_scroll_right"] = w.act(car.id, "scroll", text="right") if car else None
-    except Exception as e:                                     # noqa: BLE001 - the refusal is the finding
-        out["carousel_scroll_right"] = repr(e)
-    out["carousel_press_right"] = w.act(car.id, "press", text="ArrowRight") if car else None
+    car = next((v for k, v in scrollers.items() if k and "Carousel" in k), None)
+    out["carousel_scroll_right"] = w.scroll("right", car) if car else None
     out["carousel_left"] = w.truth()["carouselLeft"]
+    out["carousel_back"] = w.scroll("left", car, to="start") if car else None
+    out["carousel_left_after_start"] = w.truth()["carouselLeft"]
     out["deep_button"] = _try(w, "Deep button", "click")
     out["bottom"] = _try(w, "Bottom button", "click")
     out["final"] = w.truth()
     report("scroll", w, out)
-    assert "Feed" not in out["scroller_labels"]               # GAP: a scroller with only text in it gets no id
-    assert out["carousel_left"] == 0                          # GAP: nothing scrolls sideways
-    assert out["carousel_scroll_right"]["y"] > 0              # GAP: scroll "right" scrolled the page down instead
-    assert out["virtual_scrolls_to_500"]["calls"] >= 40       # awkward: about one call per 8 rows
+    assert "Feed" in out["scroller_labels"] and "Carousel" in out["scroller_labels"], out["scroller_labels"]
+    assert out["carousel_left"] > 0 and out["carousel_scroll_right"]["x"] > 0, out["carousel_scroll_right"]
+    assert out["carousel_left_after_start"] == 0
+    assert out["virtual_scrolls_to_500"]["calls"] <= 4, out["virtual_scrolls_to_500"]
+    assert "Message 10000" in str(out["virtual_end_shown"]) or out["virtual_to_end"]["at_end"], out["virtual_to_end"]
+    assert out["feed"]["loaded"] >= 200, out["feed"]
 
 
 # ---------- pointer-only affordances ----------

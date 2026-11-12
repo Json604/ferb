@@ -358,29 +358,69 @@
   }
 
   const parentOf = (el) => el.parentElement || (el.getRootNode() instanceof ShadowRoot ? el.getRootNode().host : null);
+  // A scroll pane, on each axis (HAND-510): overflow that scrolls (auto, scroll, overlay) with more to show than its box.
   const scrollerCache = new Map();
-  function isScroller(p) {
+  const SCROLLING = new Set(["auto", "scroll", "overlay"]);
+  function scrollAxes(p) {
     let v = scrollerCache.get(p);
     if (v === undefined) {
-      const o = getComputedStyle(p).overflowY;
-      v = (o === "auto" || o === "scroll" || o === "overlay") && p.scrollHeight > p.clientHeight + 1;
+      const s = getComputedStyle(p);
+      v = { y: SCROLLING.has(s.overflowY) && p.scrollHeight > p.clientHeight + 1,
+            x: SCROLLING.has(s.overflowX) && p.scrollWidth > p.clientWidth + 1 };
       scrollerCache.set(p, v);
     }
     return v;
   }
-  function scrollerOf(el) {
+  function isScroller(p, axis = "any") {
+    const a = scrollAxes(p);
+    return axis === "y" ? a.y : axis === "x" ? a.x : a.x || a.y;
+  }
+  function scrollerOf(el, axis = "any") {
     for (let p = parentOf(el); p && p !== document.documentElement && p !== document.body; p = parentOf(p))
-      if (isScroller(p)) return p;
+      if (isScroller(p, axis)) return p;
     return null;
   }
-  function scrollState(sc) {       // sc: a container element or null for the window
-    if (!sc) {
-      const d = document.scrollingElement || document.documentElement;
-      return { y: Math.round(d.scrollTop), height: d.scrollHeight, viewport_h: innerHeight,
-               at_end: d.scrollTop + innerHeight >= d.scrollHeight - 2 };
+  function scrollState(sc) {       // sc: a container element or null for the window; both axes (HAND-510)
+    const d = sc || document.scrollingElement || document.documentElement;
+    const vh = sc ? sc.clientHeight : innerHeight, vw = sc ? sc.clientWidth : innerWidth;
+    return { y: Math.round(d.scrollTop), height: d.scrollHeight, viewport_h: vh,
+             at_end: d.scrollTop + vh >= d.scrollHeight - 2,
+             x: Math.round(d.scrollLeft), width: d.scrollWidth, viewport_w: vw,
+             at_end_x: d.scrollLeft + vw >= d.scrollWidth - 2 };
+  }
+  // A scroll pane's id for the latest snapshot (`c1`, ...), the same one each time it is asked for.
+  function containerId(sc) {
+    let id = sc.__ferbCid;
+    if (!id || !containers.has(id) || containers.get(id).deref() !== sc) {
+      id = `c${containers.size + 1}`;
+      sc.__ferbCid = id;
+      containers.set(id, new WeakRef(sc));
     }
-    return { y: Math.round(sc.scrollTop), height: sc.scrollHeight, viewport_h: sc.clientHeight,
-             at_end: sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 2 };
+    return id;
+  }
+  // Every scroll pane the page draws, including ones that hold only text (a feed, a log) and sideways ones (a
+  // carousel), in document order; at most SCROLLERS_MAX (HAND-510).
+  const SCROLLERS_MAX = 60;
+  function allScrollers() {
+    const out = [];
+    eachElement(document, (el) => {
+      if (out.length >= SCROLLERS_MAX || el === document.body || el === document.documentElement) return;
+      if (el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth <= el.clientWidth + 1) return;   // cheap first
+      if (!isScroller(el) || !visible(el)) return;
+      const r = el.getBoundingClientRect();
+      if (r.width >= 20 && r.height >= 20) out.push(el);
+    });
+    return out;
+  }
+  // HAND-510: a pane (or the page) to its start or end on one axis, at once (a virtual list then draws what is there)
+  function scrollEdge(cid, to, axis) {
+    const ref = cid && containers.get(cid), sc = ref ? ref.deref() : null;
+    if (cid && (!sc || !sc.isConnected)) return { error: "stale" };
+    const d = sc || document.scrollingElement || document.documentElement;
+    const end = to === "end";
+    if (axis === "x") d.scrollTo({ left: end ? d.scrollWidth : 0, behavior: "instant" });
+    else d.scrollTo({ top: end ? d.scrollHeight : 0, behavior: "instant" });
+    return scrollState(sc);
   }
 
   // L33: what a scroll into view moves besides the page, for FERB's cursor (geometry facts only), up the element's
@@ -493,15 +533,7 @@
     const meets = r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight;
     const occluded = meets ? hitTest(el, r) : false;
     const sc = scrollerOf(el);
-    let container = null;
-    if (sc) {
-      container = sc.__ferbCid;
-      if (!container || !containers.has(container) || containers.get(container).deref() !== sc) {
-        container = `c${containers.size + 1}`;
-        sc.__ferbCid = container;
-        containers.set(container, new WeakRef(sc));
-      }
-    }
+    const container = sc ? containerId(sc) : null;
     const e = { id, role, label: label(el), value, rect: [round(r.x), round(r.y), round(r.width), round(r.height)],
                 in_view: meets && !occluded, input_type: el.tagName === "INPUT" ? (el.type || "text") : null,
                 href: el.tagName === "A" ? maskUrl(el.href) : null, form: formKind(el), secret,
@@ -698,13 +730,15 @@
     const out = shown.map((el,id) => {
       const {target, e} = listed(el, id); e.binding = bind(el); els.set(id, new WeakRef(target)); return e;
     });
-    const usedContainers = new Set(out.map((e) => e.container).filter(Boolean));
+    // HAND-510: every scroll pane gets an id, also one that holds only text or scrolls sideways
+    for (const sc of allScrollers()) containerId(sc);
     const scrollers = [];
     for (const [cid, ref] of containers) {
       const sc = ref.deref();
-      if (!sc || !usedContainers.has(cid)) { containers.delete(cid); continue; }
-      const r = sc.getBoundingClientRect();
+      if (!sc || !sc.isConnected) { containers.delete(cid); continue; }
+      const r = sc.getBoundingClientRect(), axes = scrollAxes(sc);
       scrollers.push({ id: cid, label: labelText(sc.getAttribute("aria-label") || sc.getAttribute("role") || sc.id || sc.tagName.toLowerCase()),
+                       axis: axes.x && axes.y ? "both" : axes.x ? "x" : "y",
                        rect: [round(r.x), round(r.y), round(r.width), round(r.height)], ...scrollState(sc) });
     }
     const iframes = [];
@@ -1052,11 +1086,15 @@
       return { ok: true, detail: "pasted (the page's paste event; the system clipboard untouched)", paste_taken: ev.defaultPrevented };
     }
     if (kind === "scroll") {                       // element-relative: its own box if it scrolls, else its container
-      const sc = isScroller(el) ? el : scrollerOf(el);
-      const step = Math.round((sc ? sc.clientHeight : innerHeight) * 0.85) * (text === "up" ? -1 : 1);
+      // HAND-510: left and right scroll sideways (the nearest pane that scrolls that way), up and down vertically
+      const axis = text === "left" || text === "right" ? "x" : "y";
+      const sc = isScroller(el, axis) ? el : scrollerOf(el, axis);
+      const size = axis === "x" ? (sc ? sc.clientWidth : innerWidth) : (sc ? sc.clientHeight : innerHeight);
+      const step = Math.round(size * 0.85) * (text === "up" || text === "left" ? -1 : 1);
+      const by = axis === "x" ? {left: step, behavior: "instant"} : {top: step, behavior: "instant"};
       // instant: a smooth-scrolling page would still report where it was (L33 review)
-      if (sc) sc.scrollBy({top: step, behavior: "instant"}); else window.scrollBy({top: step, behavior: "instant"});
-      return { ok: true, detail: "scrolled", ...scrollState(sc) };
+      if (sc) sc.scrollBy(by); else window.scrollBy(by);
+      return { ok: true, detail: `scrolled ${text === "up" || text === "left" || text === "right" ? text : "down"}`, ...scrollState(sc) };
     }
     return { ok: false, detail: "unknown_action" };
   }
@@ -1538,6 +1576,6 @@
     pointerArm: () => { pointerSeen = null; }, pointerSeen: () => pointerSeen || [],
     viewport: () => [innerWidth, innerHeight], act, fill, origin: () => location.origin, rect, focus, isActive,
     focusedSecret, focusedField, setPicked, fieldValue, takeSubmits, stamp, unstamp, scroller, scrolled, probeArm, probeSeen: () => probeSeen,
-    downloadPart, armDownloads, releaseDownload, dropDownload: (id) => { heldDownloads.delete(id); },
+    scrollEdge, downloadPart, armDownloads, releaseDownload, dropDownload: (id) => { heldDownloads.delete(id); },
     watchNear, nearChange, documentKey: () => documentId, markup };
 })();

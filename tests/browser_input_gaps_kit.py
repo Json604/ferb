@@ -168,8 +168,8 @@ class Worker:
     def act(self, element: str, action: str, **args: Any) -> dict[str, Any]:
         return self.tool(BrowserAct, element=element, action=action, **args)
 
-    def scroll(self, direction: str = "down", container: str | None = None) -> dict[str, Any]:
-        return self.tool(BrowserScroll, direction=direction, container=container)
+    def scroll(self, direction: str = "down", container: str | None = None, **args: Any) -> dict[str, Any]:
+        return self.tool(BrowserScroll, direction=direction, container=container, **args)
 
     def find(self, text: str) -> dict[str, Any]:
         return self.tool(BrowserFind, text=text)

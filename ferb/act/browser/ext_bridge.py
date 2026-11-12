@@ -1631,7 +1631,9 @@ class _TabDriver:
                 local = str(sc['id'])
                 alias = local if fid == 0 else f"f{fid}:{local}"
                 containers[alias] = (fid, local)
-                scrollers.append({k: sc[k] for k in ("label", "y", "height", "viewport_h", "at_end") if k in sc}
+                scrollers.append({k: sc[k] for k in ("label", "axis", "y", "height", "viewport_h", "at_end") if k in sc}
+                                 | ({k: sc[k] for k in ("x", "width", "viewport_w") if k in sc}
+                                    if sc.get("axis") in ("x", "both") else {})
                                  | {"id": alias, "frame": fid})
             truncated = truncated or bool(f.get("truncated"))
             for raw in f.get("elements", []):
@@ -2167,14 +2169,26 @@ class _TabDriver:
             out.append(hit)
         return out
 
-    async def scroll(self, tab: TabRef, direction: str, container: str | None = None) -> dict[str, Any]:
+    async def scroll(self, tab: TabRef, direction: str, container: str | None = None, screens: float | None = None,
+                     to: str | None = None) -> dict[str, Any]:
         """Scroll the page, or one scroll container from the latest snapshot, about one screen (a real wheel event
-        at the scroller's centre); where that scroller is now and whether it reached the end."""
+        at the scroller's centre), `screens` screens, or `to` its start or end (HAND-510: left and right sideways);
+        where that scroller is now and whether it reached the end."""
         t = self._tab(tab)
         if container and container not in t.containers:
             raise StaleRef(f"no container {container} in the latest snapshot")
+        version = str(getattr(t.bridge, "version", "") or "")
+        if (direction in ("left", "right") or screens is not None or to) and \
+                not version_ok(version, INPUT_EXTENSION_VERSION):
+            raise Refused(f"the FERB extension in this profile is {version or 'an older version'}; scrolling sideways, "
+                          f"by several screens or to the start or end needs {INPUT_EXTENSION_VERSION} or later: scroll "
+                          "up or down one screen at a time meanwhile. Their browser updates the extension by itself")
         frame, local = t.containers[container] if container else (0, None)
         args: dict[str, Any] = {"tab_id": t.chrome_id, "direction": direction, "frame_id": frame}
+        if screens is not None:
+            args["screens"] = screens
+        if to:
+            args["to"] = to
         if container:
             args["container"] = local
         t.moved = True                                  # L33: the snapshot's rects go stale
@@ -2193,6 +2207,8 @@ class _TabDriver:
                                "at_end": bool(v.get("at_end"))}
         if v.get("viewport_h") is not None:
             out["viewport_h"] = int(v["viewport_h"])
+        if direction in ("left", "right") and v.get("x") is not None:     # HAND-510: the sideways position
+            out |= {"x": int(v["x"]), "page_width": int(v.get("width") or 0), "viewport_w": int(v.get("viewport_w") or 0)}
         if container:
             out["container"] = container
             out["frame"] = frame

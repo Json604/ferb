@@ -2,6 +2,7 @@
 the input gaps the lab (tests/test_browser_input_gaps_real.py) found. Live 2026-11-11, task 9e7c14ed: 8 minutes failing to
 put text into a Google Doc, every type and press refused "target_occluded" while the document had the focus."""
 
+import json
 from typing import Any
 
 import pytest
@@ -220,3 +221,43 @@ def test_a_date_field_is_set_by_its_value_a_button_takes_no_typing_and_a_mask_sa
     assert out["button"]["outcome"] == "failed"
     assert out["phone"]["value"]["field_value"] == "+91 87654 3210"
     assert out["phone"]["value"]["observed"].endswith('the field now reads "+91 87654 3210"')
+
+
+# decision: HAND-510
+def test_right_scrolls_sideways_screens_scroll_at_once_and_to_end_goes_there() -> None:
+    """Lab: "right" scrolled the page down (deltaX was always 0), and row 500 of a virtual list took 58 calls."""
+    out = run('''
+      let pos = {x: 0, y: 0};
+      page.scroller = {px: 100, py: 100, viewport_h: 120, viewport_w: 400, y: 0, height: 120, x: 0, width: 2000};
+      page.scrolled = () => ({...pos, height: 3000, width: 2000, viewport_h: 300, viewport_w: 400, at_end: false, at_end_x: false});
+      page.scrollEdge = (c, to, axis) => { pos = {...pos, [axis]: to === "end" ? 1600 : 0}; return pos; };
+      const wheel = () => cmds.filter(([m, p]) => p.type === "mouseWheel").map(([m, p]) => [p.deltaX, p.deltaY]);
+      const go = async (args) => { await onCommand({gen: 1, id: "s" + (++n), op: "scroll", args: {tab_id: 8, frame_id: 0, ...args}});
+                                   return sent[sent.length - 1].value; };
+      const right = await go({direction: "right", container: "c4"});
+      const many = await go({direction: "down", container: "c1", screens: 10});
+      const end = await go({direction: "right", container: "c4", to: "end"});
+      return {right, many, end, wheel: wheel()};
+    ''')
+    assert out["wheel"] == [[340, 0], [0, 1020]]                  # 0.85 of the pane's width; ten screens of 120 px
+    assert out["end"]["x"] == 1600                                # straight to the end, no wheel
+
+
+# decision: HAND-510
+@pytest.mark.parametrize("version", ["current", "0.19.9"])
+def test_scrolls_sideways_by_screens_or_to_the_end_go_only_to_a_current_extension(  # noqa: F811
+        bd: Any, monkeypatch: pytest.MonkeyPatch, version: str) -> None:
+    if version != "current":
+        monkeypatch.setattr("tests.browserkit.FakeExtension", lambda home: FakeExtension(home, version=version))
+    d, launched = bd
+    ext, g = _ready(d, launched)
+    tab, _ = _form(d, g, "/chat")
+    a = call(d, g, "browser.scroll", tab=tab, direction="down", screens=3)
+    b = call(d, g, "browser.scroll", tab=tab, direction="right", to="end")
+    sent = [json.loads(json.loads(m)["body"]) for m in ext.wire if '"type": "cmd"' in m]
+    scrolls = [(c["args"].get("direction"), c["args"].get("screens"), c["args"].get("to"))
+               for c in sent if c["op"] == "scroll"]
+    if version == "current":
+        assert scrolls == [("down", 3, None), ("right", None, "end")]
+    else:
+        assert scrolls == [] and "0.19.10" in str(a) and "up or down" in str(b)

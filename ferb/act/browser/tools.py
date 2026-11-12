@@ -284,23 +284,30 @@ class BrowserScroll(_Base):
     verb = "scroll"
     moves_view = True     # it changes what the page shows or plays (a loop's look-only rule); raises no window
     observation = True                                 # only reads: the final checker may use it (V3, W4)
-    blurb = ("Scroll a page in one of this task's tabs ({whose}) by about one screen, up or down — no element "
-             "needed — or one scroll container from the latest snapshot (its `container` id, e.g. a chat list or "
-             "side panel). Returns that scroller's position and whether it reached the end; take a snapshot to read "
+    blurb = ("Scroll a page in one of this task's tabs ({whose}) by about one screen, up, down, left or right (left "
+             "and right scroll sideways: a carousel, a wide table) — no element needed — or one scroll container from "
+             "the latest snapshot (its `container` id from `scrollers`: a chat list, a feed, a side panel; `axis` says "
+             "which way it scrolls). `screens` scrolls that many screens at once (a long list); `to` start or end goes "
+             "straight there. Returns that scroller's position and whether it reached the end; take a snapshot to read "
              "what's shown. Pages that load more as you scroll (comments, feeds) keep going until at_end.")
 
     class Input(_Tab):
-        direction: Literal["down", "up"] = "down"
+        direction: Literal["down", "up", "left", "right"] = "down"
         container: str | None = Field(default=None, description="a scroller id from the latest snapshot's "
                                                                 "`scrollers` (default: the page itself)")
+        screens: float | None = Field(default=None, gt=0, le=50, allow_inf_nan=False,
+                                      description="how many screens to scroll at once (default 1)")
+        to: Literal["start", "end"] | None = Field(default=None, description="go straight to the start or the end "
+                                                   "(of the axis `direction` names); then screens is ignored")
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.READ, Target(site=self._site(args)))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
+        extra = {k: v for k in ("screens", "to") if (v := getattr(args, k, None)) is not None}   # HAND-510
         return ToolResult(await self.driver.scroll(ref, str(getattr(args, "direction")),   # type: ignore[attr-defined]
-                                                   getattr(args, "container", None)),
+                                                   getattr(args, "container", None), **extra),
                           read_sources=self._page(ref.tab_id))
 
 

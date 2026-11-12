@@ -1932,7 +1932,7 @@ async function settled(tabId, frameId, cid) {
     await sleep(60);
     const s = await inFrame(tabId, frameId, (c) => window.__ferb.scrolled(c), [cid || null]);
     if (s.error) return s;
-    if (last && last.y === s.y) return s;
+    if (last && last.y === s.y && last.x === s.x) return s;
     last = s;
   }
   return last;
@@ -2235,8 +2235,22 @@ const commands = {
     return { adopted: true, tab_id, group_id: groupId, muted: silent };
   },
   // Trusted wheel at the scroller's centre: the window, or a container from the latest snapshot.
-  async scroll({ tab_id, frame_id = 0, direction, container, dy }) {
+  // HAND-510 (0.19.10): `direction` left and right scroll sideways (deltaX); `screens` scrolls that many screens of the
+  // pane at once; `to` (start | end) puts the pane at its start or end on that axis at once (a virtual list then draws
+  // what is there). The reply has both axes' positions; at_end is for the direction asked.
+  async scroll({ tab_id, frame_id = 0, direction, container, dy, screens, to }) {
     const cid = container || null;
+    const sideways = direction === "left" || direction === "right";
+    const back = direction === "up" || direction === "left";
+    const reply = (s) => ({container: cid, frame_id, y: s.y, height: s.height, viewport_h: s.viewport_h, x: s.x, width: s.width,
+                           viewport_w: s.viewport_w, at_end: sideways ? (back ? s.x <= 0 : s.at_end_x) : (back ? s.y <= 0 : s.at_end)});
+    if (to === "start" || to === "end") {
+      const s = await inFrame(tab_id, frame_id, (c, t, a) => window.__ferb.scrollEdge(c, t, a), [cid, to, sideways ? "x" : "y"]);
+      if (s.error) throw Error(s.error === 'stale' ? 'that container is from an older snapshot' : s.error);
+      const done = await settled(tab_id, frame_id, cid);
+      if (done.error) throw Error(done.error);
+      return {...reply(done), at_end: sideways ? (to === "end" ? done.at_end_x : done.x <= 0) : (to === "end" ? done.at_end : done.y <= 0)};
+    }
     try { await attach(tab_id); }
     catch (e) {
       if (!e.debuggerRefused) throw e;
@@ -2251,13 +2265,15 @@ const commands = {
       if (point.error || point.occluded) throw Error(point.error || 'scroll container is occluded');
       return {target, point};
     });
-    const step = Number.isFinite(dy) ? dy : Math.round(target.viewport_h * 0.85) * (direction === 'up' ? -1 : 1);
+    const many = Number.isFinite(screens) && screens > 0 ? Math.min(screens, 50) : 1;
+    const size = sideways ? (target.viewport_w || 0) : target.viewport_h;
+    const step = Number.isFinite(dy) && !sideways ? dy : Math.round(size * 0.85 * many) * (back ? -1 : 1);
     await cdp(tab_id, 'Input.dispatchMouseEvent', {type:'mouseMoved', x:point.x, y:point.y});
-    await cdp(tab_id, 'Input.dispatchMouseEvent', {type:'mouseWheel', x:point.x, y:point.y, deltaX:0, deltaY:step});
+    await cdp(tab_id, 'Input.dispatchMouseEvent', {type:'mouseWheel', x:point.x, y:point.y,
+                                                   deltaX: sideways ? step : 0, deltaY: sideways ? 0 : step});
     const s = await settled(tab_id, frame_id, cid);
     if (s.error) throw Error(s.error);
-    return {container:cid, frame_id, y:s.y, height:s.height, viewport_h:s.viewport_h,
-            at_end:direction === 'up' ? s.y <= 0 : s.at_end};
+    return reply(s);
   },
   // L26: one media element of the latest snapshot, in its exact frame, through the content script's own controls.
   async media({ tab_id, frame_id = 0, snap, index, action, to = null }) {

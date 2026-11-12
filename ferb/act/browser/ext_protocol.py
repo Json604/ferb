@@ -150,7 +150,10 @@ Extension 0.19.10 keeps protocol 21 and the minimum (HAND-504..; an older extens
   clipboard; `paste_taken`, or `reason: "paste_not_taken"` when no handler took it and nothing changed.
 - `act` type on a date, time, month, week, colour or range input sets its value (setter, input, change) or fails with
   `value_not_taken`; on something that isn't an editable field it fails `not_editable`; a field that reformats what was
-  typed returns `field_value` (never a secret field's)."""
+  typed returns `field_value` (never a secret field's).
+- `scroll` takes direction left and right (the wheel's deltaX), `screens` (that many panes at once) and `to` (start or
+  end, set at once); its reply adds x, width and viewport_w. A snapshot's `scrollers` lists every scroll pane the page
+  draws (also one holding only text, or scrolling sideways) with its `axis` (x, y, both)."""
 
 import base64
 import hashlib
