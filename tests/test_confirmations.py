@@ -356,7 +356,7 @@ def test_unattended_runs_decline_and_the_action_does_not_run(daemon: RunningDaem
     daemon.daemon.state.approvals.unattended.add("req-1")
     r = gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")
     assert r["is_error"] and "needs you" in r["content"]["error"] and pay.calls == 0
-    assert r["content"]["error"].startswith("FERB: this pays an amount FERB couldn't read to x@y.com.")     # FERB's line, then the fact
+    assert r["content"]["error"].startswith("FERB: this pays 5 to x@y.com.")     # FERB's line, then the fact
     assert "nobody is at chat (a scheduled run); not done." in r["content"]["error"]
     assert "needs the owner" in r["content"]["next"]
     assert _rows(daemon, "confirmations") == []
@@ -680,7 +680,7 @@ def test_one_yes_never_pays_twice_when_both_wait_for_the_owner(daemon: RunningDa
     _until(lambda: pay.calls == 1)
     _until(lambda: len(approvals.pending()) == 1)                          # A claimed that Yes: B asks again
     [b_question] = approvals.pending()
-    assert b_question.reason.startswith("FERB: this pays an amount FERB couldn't read to x@y.com.")
+    assert b_question.reason.startswith("FERB: this pays 5 to x@y.com.")
     daemon.call_soon(approvals.resolve, b_question.id, True, 2)          # No to the second payment
     refused = second.result(10)
     daemon.loop.call_soon_threadsafe(pay.gate.set)

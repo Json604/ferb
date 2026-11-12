@@ -580,3 +580,13 @@ rule = "For ORCH-631 and ORCH-634. worker.md: watching what the task started nam
 untestable = "Prompt and description text: TEST-500 keeps no wording tests; LIVE-927 and LIVE-929 judge it."
 paths = ["ferb/orchestrator/prompts/worker.md", "ferb/orchestrator/prompts/supervisor.md", "ferb/act/shell/tools.py::ShellStart", "ferb/act/shell/tools.py::ShellRun", "ferb/act/shell/tools.py::ShellWait"]
 live = ["LIVE-927", "LIVE-929"]
+
+[PRM-354]
+title = "The effect contract says a payment declares the amount it expects to pay"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "For GATE-584. EFFECT_HELP's pay entry (the worker's Effects, written once by PRM-314) reads: the final Pay or confirm control of a payment, or an action FERB says can pay, with the amount you expect to pay in destination. Nothing else in the contract changes; pay is not widened to other controls (a declaration only adds a question)."
+untestable = "Prompt text: TEST-500 keeps no wording tests; LIVE-936 judges it."
+paths = ["ferb/daemon/gateway.py::EFFECT_HELP"]
+live = ["LIVE-936"]

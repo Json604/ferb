@@ -17,6 +17,13 @@ CHECKOUT = "https://www.amazon.in/checkout/p/p-000-0000000-0000000/spc?pipelineT
 PRODUCT_AMOUNTS = ["₹67.00", "₹232.00", "₹3,502.00", "₹17,999.00", "₹65.05", "₹ 65", "05 ₹", "₹16.26", "₹299",
                    "₹11,853.65", "₹85.00", "₹179.00", "₹17.90", "₹329.05", "₹220.00", "₹90.00", "20,699 ₹"]
 CHECKOUT_AMOUNTS = ["₹65.05", "₹0.00", "₹7.00", "₹72.05", "₹19.00", "₹ 65", "₹16.26"]
+# An eraser's product page at Buy Now (tree 62252d57, 2026-11-12): 39 amounts, so none read as the price. The page's
+# amounts as recorded; the address is invented (PROJ-500)
+ERASER = "https://www.amazon.in/Clear-Eraser-Pack-of-5/dp/B000000000"
+ERASER_AMOUNTS = ["₹132.05", "₹166.95", "₹65.05", "₹67.00", "₹3,502.00", "₹17,999.00", "₹40.00", "₹ 40", "00 ₹",
+                  "₹8.00", "₹80", "₹8", "₹2.00", "20 ₹", "55.00 ₹", "₹2.75", "₹95.00", "₹ 95", "₹55.00", "₹ 55",
+                  "₹60.00", "₹80.00", "854 ₹", "100.00 ₹", "₹5.00", "2 ₹", "60.00 ₹", "₹3.00", "₹800.00", "₹50.00",
+                  "₹649.00", "₹ 649", "₹64.90", "₹999.00", "₹87.07", "₹ 87", "₹4.35", "₹100.00", "5 INR"]
 
 
 class _Form(FakeCap):
@@ -58,13 +65,22 @@ def _pays(d: RunningDaemon) -> list[dict[str, Any]]:
     return d.run(go())
 
 
+def _asked_after_the_amount(d: RunningDaemon, grant: Any, **args: Any) -> dict[str, Any]:
+    """GATE-584: a payment with no amount read or stated goes back to the worker once, unasked; the same call again
+    (still no amount) is asked."""
+    asked = len(_pays(d))
+    back = gateway_tool_call(d, grant, "probe.form", **args)
+    assert back["is_error"] and "amount" in back["content"]["error"] and len(_pays(d)) == asked
+    return gateway_tool_call(d, grant, "probe.form", **args)
+
+
 # decision: GATE-582
 def test_a_same_site_post_on_a_page_with_amounts_asks_as_a_payment_and_nothing_else_does(daemon: RunningDaemon) -> None:
     form = _Form()
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order it on www.shop.example"), [form])
     owner = Answers(daemon, granted=False, choice=2)
     try:
-        r = gateway_tool_call(daemon, grant, "probe.form", shown=["₹499.00", "₹40.00"])        # no card field
+        r = _asked_after_the_amount(daemon, grant, shown=["₹499.00", "₹40.00"])                 # no card field
         assert r["is_error"] and form.ran == [] and len(_pays(daemon)) == 1
         for i, case in enumerate(({"method": "GET", "shown": ["₹499.00"]},                    # a search, a filter
                                   {"shown": []},                                              # no amount shown
@@ -74,8 +90,8 @@ def test_a_same_site_post_on_a_page_with_amounts_asks_as_a_payment_and_nothing_e
             r = gateway_tool_call(daemon, grant, "probe.form", tab=f"t{i + 2}", **case)
             assert not r["is_error"], (case, r)
         assert len(_pays(daemon)) == 1 and len(form.ran) == 4
-        r = gateway_tool_call(daemon, grant, "probe.form", tab="t9", url="https://pay.shop.example/go",
-                              shown=["₹499.00"])                                              # same site, other host
+        r = _asked_after_the_amount(daemon, grant, tab="t9", url="https://pay.shop.example/go",
+                                    shown=["₹499.00"])                                        # same site, other host
         assert r["is_error"] and len(_pays(daemon)) == 2
     finally:
         owner.stop()
@@ -91,7 +107,7 @@ def test_the_owner_can_turn_it_off_in_config(daemon: RunningDaemon) -> None:
         r = gateway_tool_call(daemon, grant, "probe.form", shown=["₹499.00"])
         assert not r["is_error"] and _pays(daemon) == []
         daemon.daemon.config.set("policy", "pay_same_site_forms", True)                    # read at each call
-        r = gateway_tool_call(daemon, grant, "probe.form", tab="t2", shown=["₹499.00"])
+        r = _asked_after_the_amount(daemon, grant, tab="t2", shown=["₹499.00"])
         assert r["is_error"] and len(_pays(daemon)) == 1
     finally:
         owner.stop()
@@ -114,8 +130,9 @@ def test_the_recorded_amazon_orders_ask_at_buy_now_and_again_at_place_your_order
     owner = Answers(daemon, granted=True, choice=1)
     try:
         for chain in ("t1", "t18", "t3"):
-            buy = gateway_tool_call(daemon, grant, "probe.form", tab=chain, url=PRODUCT, action_host="www.amazon.in",
-                                    shown=PRODUCT_AMOUNTS, label="Buy Now")
+            for _ in range(2):                           # GATE-584: sent back once for the amount, then asked
+                buy = gateway_tool_call(daemon, grant, "probe.form", tab=chain, url=PRODUCT,
+                                        action_host="www.amazon.in", shown=PRODUCT_AMOUNTS, label="Buy Now")
             place = gateway_tool_call(daemon, grant, "probe.form", tab=chain, url=CHECKOUT,
                                       action_host="www.amazon.in", shown=CHECKOUT_AMOUNTS, label="Place your order",
                                       effect="pay", destination={"amount": 72.05, "currency": "INR",
@@ -127,3 +144,37 @@ def test_the_recorded_amazon_orders_ask_at_buy_now_and_again_at_place_your_order
     assert [a.summary for a in owner.asked] == ["Pay? FERB couldn't read the amount", "Pay INR 72.05?"] * 3
     assert [a.exact for a in owner.asked] == ["an amount FERB couldn't read on the page · amazon.in",
                                               "INR 72.05 · amazon.in"] * 3
+
+
+# decision: GATE-583, GATE-584, GATE-578
+def test_a_payment_with_no_amount_goes_back_once_for_it_and_its_card_then_says_it(daemon: RunningDaemon) -> None:
+    """Tonight's Buy Now (39 amounts on the page, none read, none declared): the call goes back to the worker unrun with
+    the fact and no question; the retry with ₹40 asks "Pay ₹40?" (₹40.00 is on the page); a retry still without an
+    amount asks the unread card, never a second bounce; an amount the page doesn't show says so."""
+    form = _Form()
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("buy the cheapest eraser on amazon.in"), [form])
+    owner = Answers(daemon, granted=False, choice=2)
+    buy = dict(url=ERASER, action_host="www.amazon.in", shown=ERASER_AMOUNTS, label="Buy Now")
+    try:
+        r = gateway_tool_call(daemon, grant, "probe.form", tab="t5", **buy)
+        assert r["is_error"] and form.ran == [] and _pays(daemon) == []
+        fact = r["content"]["error"] + " " + r["content"]["next"]
+        assert "amount" in fact and "floor:" not in fact and "probe.form" not in fact
+        r = gateway_tool_call(daemon, grant, "probe.form", tab="t5", effect="pay",
+                              destination={"amount": 40, "currency": "₹"}, **buy)
+        assert r["is_error"] and form.ran == [] and len(_pays(daemon)) == 1
+        r = gateway_tool_call(daemon, grant, "probe.form", tab="t6", **buy)                  # another payment: back once
+        assert r["is_error"] and len(_pays(daemon)) == 1
+        r = gateway_tool_call(daemon, grant, "probe.form", tab="t6", **buy)                  # still none: the unread card
+        assert r["is_error"] and len(_pays(daemon)) == 2
+        gateway_tool_call(daemon, grant, "probe.form", tab="t7", **buy)
+        r = gateway_tool_call(daemon, grant, "probe.form", tab="t7", effect="pay",
+                              destination={"amount": 41, "currency": "₹"}, **buy)            # not among the page's
+        assert r["is_error"] and len(_pays(daemon)) == 3 and form.ran == []
+    finally:
+        owner.stop()
+    assert [(a.summary, a.exact) for a in owner.asked] == [
+        ("Pay ₹40?", "₹40 · amazon.in"),
+        ("Pay? FERB couldn't read the amount", "an amount FERB couldn't read on the page · amazon.in"),
+        ("Pay ₹41?", "₹41 · amazon.in")]
+    assert "couldn't find ₹41" in owner.asked[2].detail and "couldn't find" not in owner.asked[0].detail

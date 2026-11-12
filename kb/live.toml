@@ -4424,3 +4424,12 @@ request = "With VS Code in front send \"what file is this?\" three times, a minu
 pass = "FERB names the VS Code file each time; the front_window evidence is kept within about 0.8 s of each message (it was 1.6-1.85 s on 2026-11-12). In What FERB saw, the dialog's password box is painted over and the rest of the window is readable."
 decisions = ["HAND-518"]
 sitting = "after this change is installed"
+
+[LIVE-936]
+title = "An Amazon Buy Now's payment card shows the item's amount"
+area = "gateway"
+surface = "FERB.app with this build; the owner's own shop account (amazon.in), a cheap item the owner wants; `ferb trace TASK --full`"
+request = "Ask FERB to buy one cheap item on amazon.in with Buy Now."
+pass = "The question before Buy Now's click reads \"Pay ₹<the item's price>?\" (not \"FERB couldn't read the amount\"), with no line saying FERB couldn't find it on the page; the trace shows the Buy Now call sent back once (amount_asked) and called again with effect pay and that amount; Place your order asks with the order's amount; nothing is ordered without a Yes."
+decisions = ["GATE-583", "GATE-584", "PRM-354"]
+sitting = "after this change is installed"

@@ -68,7 +68,8 @@ def _run(d: RunningDaemon, answers: list[bool], said: str, status: str, check: s
     d.daemon.registry.capabilities["probe.shop"] = _Step()
 
     def worker(token: str) -> str:
-        tool(d.sock, token, "probe.shop")                       # Buy Now
+        tool(d.sock, token, "probe.shop")                       # Buy Now: no amount read or stated, sent back (GATE-584)
+        tool(d.sock, token, "probe.shop", effect="pay", destination={"amount": 65.05, "currency": "₹"})   # stated
         tool(d.sock, token, "probe.shop", final=True, effect="pay")   # Place your order
         return json.dumps(report(status, said, reason="You declined the payment." if status != "done" else ""))
     install(d, [sup("task", "Ordering.", task("Order the batteries", conds=(PAY,)))],

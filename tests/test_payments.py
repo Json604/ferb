@@ -124,7 +124,8 @@ def test_a_changed_amount_on_the_checkout_asks_again_and_an_unread_one_says_so(d
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("buy it"), [tab])
     owner = Answers(daemon, granted=True, choice=1)
     try:
-        assert not _pay(daemon, grant)["is_error"]                         # no amount on the page
+        assert _pay(daemon, grant)["is_error"] and _asked(daemon) == []    # GATE-584: back once for the amount
+        assert not _pay(daemon, grant)["is_error"]                         # no amount on the page, none stated
         assert "an amount FERB couldn't read on the page" in _asked(daemon)[0]["args"]["question"]
         assert not _pay(daemon, grant)["is_error"] and len(_asked(daemon)) == 1   # still unread: covered
         assert not _pay(daemon, grant, amount="$20.00")["is_error"]        # read now: asked, showing it
@@ -314,13 +315,16 @@ class _MacPay(FakeCap):
 def test_a_mac_payment_is_scoped_to_its_app_window(daemon: RunningDaemon) -> None:
     """Coordinator ruling (step 6b): like a tab, one Yes covers that app window for 10 minutes."""
     mac = _MacPay()
+    price = {"amount": 4.99, "currency": "$"}                               # GATE-584: the AI states the price
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("buy the app"), [mac])
     owner = Answers(daemon, granted=True, choice=1)
     try:
         for point in (1, 2):
-            assert not gateway_tool_call(daemon, grant, "mac.fakepay", effect="pay", point=point)["is_error"]
+            assert not gateway_tool_call(daemon, grant, "mac.fakepay", effect="pay", point=point, destination=price)[
+                "is_error"]
         assert len(_asked(daemon)) == 1
-        assert not gateway_tool_call(daemon, grant, "mac.fakepay", effect="pay", window=8)["is_error"]
+        assert not gateway_tool_call(daemon, grant, "mac.fakepay", effect="pay", window=8, destination=price)[
+            "is_error"]
         assert len(_asked(daemon)) == 2                                   # another window asks
     finally:
         owner.stop()

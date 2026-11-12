@@ -161,6 +161,13 @@ PAY_CHANGED_AGAIN = ("nothing was pressed: the page changed after the owner's Ye
                      "asked about this change")
 PAY_CHANGED_NEXT = ("Read the page again. Once it is steady, press the payment control again; FERB asks the owner if the "
                     "page differs from what they approved. Report it if the page keeps changing.")
+# GATE-583 (owner), GATE-584: a payment with no amount code read and none the AI stated goes back to the worker once,
+# before any question, so the owner's card can say what it pays
+PAY_AMOUNT_UNSTATED = ("Nothing was done and the owner wasn't asked yet: this action can pay, and FERB couldn't read "
+                       "the amount on the page.")
+PAY_AMOUNT_NEXT = ("Find the amount you expect to pay, as the page shows it. Then make the same call again, declared as "
+                   "a payment (effect pay) with that amount and its currency in destination (for example amount 40, "
+                   "currency ₹). FERB then asks the owner to pay that amount.")
 # D31, review round 1 finding 5: the question would show it redacted while the real value is typed
 TERMINAL_SECRET = ("{field} holds a secret (one of FERB's keys or a credential's format), so FERB neither shows it in a "
                    "question nor puts it into a terminal; a secret goes in only through mac.secret, the owner's hidden "
@@ -502,6 +509,12 @@ class Observer:
 
 
 
+def _read_amount(values: dict[str, str]) -> str:
+    """The amount code read for a payment question (the page's, the bank page's or the capability's); "" when unread."""
+    read = str(values.get("amount") or "")
+    return "" if read.startswith(confirm.UNREAD_AMOUNT) else read
+
+
 def _window_of(found: Any) -> str | None:
     """The app window a Mac call's stable P19 identity names (its window-server id), wherever it sits in it."""
     if isinstance(found, dict):
@@ -610,6 +623,7 @@ class Gateway:
         self.hidden = HiddenInput(self)                    # hidden-input questions (secrets, codes, admin password)
         self.refused = RefusedFills(self.spans)            # GATE-562: a page that asked again after a sealed fill
         self.payments = payments.Payments(lambda: clock.now())   # GATE-204: each tab's approved payment
+        self._amount_asked: dict[str, set[tuple[str, str | None]]] = {}   # GATE-584: payments sent back for the amount
         # where a fault the gateway survives is journaled (the daemon's journal): kind, redacted data
         self.journal_problem: Callable[[str, dict[str, Any]], None] = deps.journal_problem
         self.profile_name: Callable[[str, str], str] = deps.profile_name
@@ -858,6 +872,7 @@ class Gateway:
         for task_id in task_ids:
             self._outside.pop(task_id, None)
             self._confirming.pop(task_id, None)
+            self._amount_asked.pop(task_id, None)
         for armed in [k for k in self._terminal_arms if k.split(".", 1)[0] in task_ids]:
             del self._terminal_arms[armed]
         for kept in [k for k in self._undelivered if k[0] in task_ids]:
@@ -1548,13 +1563,15 @@ class Gateway:
                 return str(call["card_entry"])
         return None
 
-    async def _payment(self, c: "Call", needs: list[confirm.Need]) -> list[confirm.Need]:
+    async def _payment(self, c: "Call", needs: list[confirm.Need]) -> list[confirm.Need] | dict[str, Any]:
         """GATE-204: a payment in a task's browser tab is asked once per payment: its tab chain's approval covers it
         unless the page shows another payment (ferb/policy/payments.py); outside a tab each run asks (SQ1)."""
         pays = [n for n in needs if n.rule == confirm.ALWAYS[Kind.PAY]]
         f = c.facts
         if not pays:
             return needs
+        # GATE-578: the AI's stated amount, shown plainly only where code read none; never keyed
+        stated = confirm.shown_amount(c.checked.target.amount, c.checked.target.currency)
         if f is not None and f.tab_chain:
             kinds = set(f.field_kinds)
             c.pay = payments.PayFacts(f.tab_chain, host_of(f.page_url), (f.frame_host or "").lower() or None,
@@ -1568,12 +1585,14 @@ class Gateway:
             site = str(c.spec.target.site)
             amount = shown if (shown := pays[0].values.get("amount")) and shown != confirm.UNREAD_AMOUNT else None
             c.pay = payments.PayFacts(f"mac:{site}:{window}", site, amount=amount)
-        else:
-            return needs                                  # no tab and no window to scope it: each run asks (SQ1)
+        else:                                            # no tab and no window to scope it: each run asks (SQ1)
+            on_page = tuple(f.page_amounts) if f is not None else ()
+            needs = [dataclasses.replace(n, values=n.values | payments.stated(_read_amount(n.values), stated, on_page))
+                     if n.rule == confirm.ALWAYS[Kind.PAY] else n for n in needs]
+            return self._amount_unstated(c, [n for n in needs if n.rule == confirm.ALWAYS[Kind.PAY]]) or needs
         rest = [n for n in needs if n.rule != confirm.ALWAYS[Kind.PAY]]
-        # GATE-578: the AI's stated amount, shown plainly only where code read none; never keyed. GATE-580: the page
-        # as asked about (its address without the fragment, the control's label), for the press-time re-check
-        stated = confirm.shown_amount(c.checked.target.amount, c.checked.target.currency)
+        # GATE-580: the page as asked about (its address without the fragment, the control's label), for the
+        # press-time re-check
         c.pay = dataclasses.replace(c.pay, declared=stated or None, page=payments.page_key(f.page_url if f else None),
                                     control=(f.control_label or "").strip() or None if f else None)
         c.pay_values = {**pays[0].values, **({"declared": stated} if stated else {})}
@@ -1583,8 +1602,32 @@ class Gateway:
             c.extra["payment"] = {"covered_by": check.approval.cid, "scope": c.pay.chain}
             return rest
         assert check.need is not None
+        if (back := self._amount_unstated(c, [check.need])) is not None:
+            return back
         c.pay_key = check.need.key
         return rest + [check.need]
+
+    def _amount_unstated(self, c: "Call", pays: list[confirm.Need]) -> dict[str, Any] | None:
+        """GATE-583 (owner), GATE-584: a payment question that would show no amount (none read by code, none the AI
+        stated) isn't asked yet: the call goes back to the worker unrun with the fact, once per payment on its page
+        (the need's key and the page's address without its fragment), so it states the amount and calls again. Not a
+        failure (no ledger row), no question, nothing declined. A payment the owner already said No to, or a second
+        call still without an amount, goes on to today's question (the No, or the unread card)."""
+        unread = [n for n in pays if not _read_amount(n.values) and not confirm.ai_amount(n.values)]
+        if not unread:
+            return None
+        reopened = self.spans.reopened_answers(c.root)
+        if any((row := self.confirmations.find(c.root, n.key, reopened)) is not None and not row["granted"]
+               for n in unread):
+            return None
+        page = payments.page_key(c.facts.page_url if c.facts is not None else None)
+        seen = self._amount_asked.setdefault(c.root, set())
+        fresh = {(n.key, page) for n in unread} - seen
+        if not fresh:
+            return None
+        seen.update(fresh)
+        c.extra["amount_asked"] = True                   # on the record: went back for the amount, nothing ran
+        return {"error": PAY_AMOUNT_UNSTATED, "next": PAY_AMOUNT_NEXT}
 
     def _pair_need(self, c: "Call") -> confirm.Need | None:
         browser, _, folder = str(c.arguments.get("profile") or "").partition("/")
@@ -2764,7 +2807,8 @@ EARLIER_ATTEMPT = ("This identical action already ran to completion in an earlie
                    "didn't reach you; it was not done again. This is that attempt's result.")
 EFFECT_HELP = ("The kind of change this action makes, declared truthfully. send: it delivers the owner's message, "
                "post or email to people or a public audience (a sign-in, search, filter or settings change is edit "
-               "or navigate); pay: the final Pay or confirm control of a payment; destroy: a permanent delete; "
+               "or navigate); pay: the final Pay or confirm control of a payment, or an action FERB says can pay, "
+               "with the amount you expect to pay in destination; destroy: a permanent delete; "
                "account_security: changing a password, two-factor or recovery settings, or deleting the account; "
                "signing in with existing credentials is edit. FERB checks a declared send, "
                "payment, delete or account-security change like one and asks the owner when it must; a declaration "

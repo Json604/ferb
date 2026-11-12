@@ -816,8 +816,11 @@ class FakeCap:
         self.boom, self.reads, self.content, self.calls = boom, reads, content or {"ok": True}, 0
 
     def describe(self, args: Any) -> ActionSpec:
+        # a fake payment capability describes its amount (GATE-216), as a real one would; `amount=-1` leaves it unread
+        # (a payment with no amount goes back to the worker once first, GATE-584)
+        amount = (5.0 if self.kind == "pay" else None) if args.amount is None else args.amount
         return ActionSpec(self.kind, Target(recipients=(args.to,) if args.to else (), site=args.site or None,
-                                            amount=args.amount, account=args.account or None),
+                                            amount=None if amount == -1 else amount, account=args.account or None),
                           content=args.text or None)
 
     async def run(self, args: Any, ctx: ToolContext) -> ToolResult:

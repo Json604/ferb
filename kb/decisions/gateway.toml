@@ -1119,3 +1119,26 @@ evidence = "The 223 browser acts since page_amounts began (2026-11-11 02:56): 21
 rejected = ["Letting an earlier step's Yes (Buy Now) cover the final order: GATE-217 counts that submit as the payment", "Reading the control's words to pick the final step: rule 4"]
 paths = ["ferb/daemon/gateway.py::Gateway._pays_on_site", "ferb/daemon/gateway.py::GatewayDeps", "ferb/policy/confirm.py::registrable", "ferb/daemon/areas/compose.py"]
 live = ["LIVE-926"]
+
+[GATE-583]
+title = "GATE-582 stays, and a payment card shows an amount instead of \"FERB couldn't read the amount\""
+by = "owner"
+date = 2026-11-12
+status = "active"
+words = "ok fix that, ig 2 questiosn are better htan accidental paymetn"
+words_source = "Owner 2026-11-12, relayed by the coordinator: its keep-or-remove question on GATE-582 after an Amazon Buy Now card read \"Pay? FERB couldn't read the amount\" (tree 62252d57)."
+rule = "Keeps GATE-582 (two payment questions on Amazon, Buy Now and Place your order). Its payment card must show an amount: code's when it read one, else the amount the AI states for the action (GATE-578), with code's check that the page shows it."
+why = "At Buy Now the page held 39 money amounts, so code read none as the price, and the worker declared none: the card had no amount."
+paths = ["ferb/daemon/gateway.py::Gateway._amount_unstated", "ferb/daemon/gateway.py::Gateway._payment"]
+live = ["LIVE-936"]
+
+[GATE-584]
+title = "A payment with no amount read or stated goes back to the worker once for it, before any question"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "For GATE-583, in the one payment path (Gateway._payment). A payment question with no amount (none read by code, none the AI stated) isn't asked: the call goes back to the worker unrun with the fact (state the amount as the page shows it, as a payment's destination, and call again). No question, no ledger row, nothing declined. Once per payment per page: a call still without one gets the unread card; a payment already refused goes to that No. Refines GATE-216: with no tab or window the AI's amount is shown as GATE-578 says."
+why = "Asking first and again with an amount is one more question; picking the price from page words breaks rule 4. Code's amount still wins and keys the Yes; the AI's is checked against page_amounts. Once-key: need key + page address, per tree."
+rejected = ["Picking the price from the page's words or layout: rule 4", "Showing the card unread and asking again once an amount is stated: one more question for the owner", "Bouncing until an amount comes: a worker that can't find it would loop"]
+paths = ["ferb/daemon/gateway.py::Gateway._amount_unstated", "ferb/daemon/gateway.py::Gateway._payment", "ferb/daemon/gateway.py::PAY_AMOUNT_UNSTATED", "ferb/daemon/gateway.py::PAY_AMOUNT_NEXT", "ferb/policy/payments.py::stated"]
+live = ["LIVE-936"]

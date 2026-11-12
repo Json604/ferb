@@ -161,8 +161,9 @@ def test_a_payment_on_the_campaign_site_always_asks(daemon: RunningDaemon) -> No
     assert result["is_error"] and browser.clicks() == []
     question = ferb_questions(daemon)[0]
     assert [c["rule"] for c in question["confirm"]] == ["floor:pay"]
-    # GATE-204: the worker's declared amount is never shown; the page showed none code could read
-    assert question["question"].startswith("FERB: this pays an amount FERB couldn't read on x.com from @samxyz.")
+    # GATE-578, GATE-584: no amount code read, so the AI's, with code's check that the page shows it
+    assert question["question"].startswith("FERB: this pays 8 on x.com from @samxyz (FERB couldn't find 8 on this "
+                                           "page).")
 
 
 def test_an_account_security_change_on_the_campaign_site_always_asks(daemon: RunningDaemon) -> None:
@@ -613,7 +614,7 @@ def test_a_payment_or_account_security_declared_on_any_acting_tool_asks(daemon: 
     grant, _ = campaign_grant(daemon, WORDS, [shell])
     owner = _answering(daemon, yes=False)
     try:
-        assert gateway_tool_call(daemon, grant, "probe.shell", text="pay", effect="pay")["is_error"]
+        assert gateway_tool_call(daemon, grant, "probe.shell", text="pay", effect="pay", amount=5)["is_error"]
         assert gateway_tool_call(daemon, grant, "probe.shell", text="pw", effect="account_security")["is_error"]
         assert not gateway_tool_call(daemon, grant, "probe.shell", text="rm", effect="destroy")["is_error"]
         assert not gateway_tool_call(daemon, grant, "probe.shell", text="curl", effect="send")["is_error"]

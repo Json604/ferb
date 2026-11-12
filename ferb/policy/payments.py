@@ -274,6 +274,15 @@ def pressed_change(a: Approval, facts: PayFacts, now: Pressed | None, asked_here
     return None
 
 
+def stated(read: str | None, declared: str | None, shown: tuple[str, ...]) -> dict[str, str]:
+    """GATE-578: the payment question's values for the AI's stated amount: none when code read an amount or the AI
+    stated none; else `declared`, and `unseen` when the page's money amounts don't hold it (compared as GATE-217)."""
+    if read or not declared:
+        return {}
+    seen = any(_same(a, declared, amount_key) is True for a in shown)
+    return {"declared": declared} | ({} if seen else {"unseen": "1"})
+
+
 def need(facts: PayFacts, values: dict[str, str], approved: Approval | None = None) -> confirm.Need:
     """The payment question: the amount and merchant read on the page (or that FERB couldn't read them); on a bank page
     that differs from the approved payment, both."""
@@ -284,10 +293,7 @@ def need(facts: PayFacts, values: dict[str, str], approved: Approval | None = No
     # worker's destination) is the card's amount, said plainly; it never keys the Yes and never replaces an amount read.
     # Code's check: it must be among the money amounts the page shows (compared as GATE-217 compares, never by the words
     # beside it); when it isn't, `unseen` makes the card say so in one line
-    if facts.amount is None and values.get("declared"):
-        shown["declared"] = values["declared"]
-        if not any(_same(a, values["declared"], amount_key) is True for a in facts.shown):
-            shown["unseen"] = "1"
+    shown.update(stated(facts.amount, values.get("declared"), facts.shown))
     if approved is not None:
         shown["approved"] = (approved.amount or UNREAD) + (f" to {approved.merchant}" if approved.merchant else "")
         shown["bank"] = facts.frame_host if facts.frame_host and facts.frame_host != approved.host else facts.host
