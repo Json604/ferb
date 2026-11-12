@@ -1,0 +1,1242 @@
+{
+ "stub_extension_id": "jaclnphefmmgmpofnabffahdkbjjompm",
+ "scenarios": [
+  {
+   "name": "a call before auth.hello is refused and the connection ends",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"ping\", \"params\": {}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"error\": {\"code\": -32001, \"message\": \"authenticate first (auth.hello)\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "cli hello, ping, echo",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"trace.get\", \"params\": {\"task_id\": \"x\", \"n\": [1, 2, {\"a\": null}]}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"echo\": {\"task_id\": \"x\", \"n\": [1, 2, {\"a\": null}]}}}\n"
+    }
+   ]
+  },
+  {
+   "name": "values a result can carry are written as json.dumps writes them",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"about.get\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"text\": \"na\\u00efve \\u2014 \\u65e5\\u672c \\ud83d\\ude00 \\u007f \\u0001 \\\"q\\\" \\\\ / \\n\\t\\r\\b\\f\", \"float\": 1.5, \"big\": 1e+16, \"small\": 1e-07, \"whole\": 2.0, \"third\": 0.1, \"neg\": -2.5e-05, \"large\": 123456789012345.0, \"edge\": 1234567890123456.0, \"edge2\": 1.2345678901234568e+16, \"tiny\": 0.0001, \"tinier\": 1e-05, \"avogadro\": 6.02214076e+23, \"int\": -7, \"u64\": 18446744073709551615, \"list\": [1, \"a\", null, true, false], \"nested\": {\"k\": {}}, \"empty\": []}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"trace.get\", \"params\": {\"s\": \"caf\\u00e9 \\ud83d\\ude00\", \"f\": 1.0, \"e\": 1e+300, \"z\": 0.0, \"nz\": -0.0}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"echo\": {\"s\": \"caf\\u00e9 \\ud83d\\ude00\", \"f\": 1.0, \"e\": 1e+300, \"z\": 0.0, \"nz\": -0.0}}}\n"
+    }
+   ]
+  },
+  {
+   "name": "a refusal is -32004 with its words; a fault is -32603 with only its type",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"doctor.check\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"error\": {\"code\": -32004, \"message\": \"the check said no\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"memory.list\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"error\": {\"code\": -32603, \"message\": \"RuntimeError\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    }
+   ]
+  },
+  {
+   "name": "a method outside the role's list, and one in it that nobody registered",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"nope\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"error\": {\"code\": -32001, \"message\": \"nope not allowed for cli\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"tools.call\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"error\": {\"code\": -32001, \"message\": \"tools.call not allowed for cli\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"ps.list\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"error\": {\"code\": -32601, \"message\": \"no method ps.list\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"error\": {\"code\": -32001, \"message\": \"auth.hello not allowed for cli\"}}\n"
+    }
+   ]
+  },
+  {
+   "name": "a FERB.app-only method from another program is -32005",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tasks.preview\", \"params\": {\"task_id\": \"t\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"error\": {\"code\": -32005, \"message\": \"tasks.preview is for FERB.app only\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"intro.preview\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"error\": {\"code\": -32005, \"message\": \"intro.preview is for FERB.app only\"}}\n"
+    }
+   ]
+  },
+  {
+   "name": "a FERB.app-only method from FERB.app is answered",
+   "server": {
+    "is_app": true
+   },
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tasks.preview\", \"params\": {\"task_id\": \"t\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"frame\": 1}}\n"
+    }
+   ]
+  },
+  {
+   "name": "a stream sends its events, then that it ended; the connection keeps serving",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"logs.subscribe\", \"params\": {\"n\": 3}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"method\": \"logs.subscribe.event\", \"params\": {\"i\": 0}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"method\": \"logs.subscribe.event\", \"params\": {\"i\": 1}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"method\": \"logs.subscribe.event\", \"params\": {\"i\": 2}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"ended\": true}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"logs.subscribe\", \"params\": {\"n\": 0}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"ended\": true}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    }
+   ]
+  },
+  {
+   "name": "a stream that fails says so with -32004 and the error's type",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"notifications.subscribe\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"method\": \"notifications.subscribe.event\", \"params\": {\"first\": true}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"error\": {\"code\": -32004, \"message\": \"Refused: the stream said no\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"ps.attach\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"error\": {\"code\": -32004, \"message\": \"ValueError: bad value\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    }
+   ]
+  },
+  {
+   "name": "request ids: text, none, null, whole float, true, false, negative, large",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": \"abc\", \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": \"abc\", \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"2.0\",\"method\":\"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": null, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"2.0\",\"id\":4.0,\"method\":\"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": true, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": false, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 0, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": -12, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": -12, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 9223372036854775807, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 9223372036854775807, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": \"\", \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": \"\", \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": \"caf\\u00e9\", \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": \"caf\\u00e9\", \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    }
+   ]
+  },
+  {
+   "name": "requests that are not valid requests get -32600 with pydantic's words",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"1.0\",\"id\":2,\"method\":\"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Input should be '2.0'\"}}\n"
+    },
+    {
+     "send": "{\"id\":2,\"method\":\"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Field required\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"2.0\",\"id\":2}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Field required\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":5}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Input should be a valid string\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":null}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Input should be a valid string\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\",\"params\":[]}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Input should be a valid dictionary\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\",\"params\":null}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Input should be a valid dictionary\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\",\"params\":\"x\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Input should be a valid dictionary\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"2.0\",\"id\":1.5,\"method\":\"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Input should be a valid integer, got a number with a fractional part\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"2.0\",\"id\":[1],\"method\":\"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Input should be a valid integer\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"2.0\",\"id\":{},\"method\":\"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Input should be a valid integer\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":2.0,\"id\":2,\"method\":\"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Input should be '2.0'\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":null,\"id\":2,\"method\":\"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Input should be '2.0'\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"1.0\",\"id\":[1],\"method\":5,\"params\":3}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Input should be '2.0'\"}}\n"
+    },
+    {
+     "send": "[1]\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Input should be a valid dictionary or instance of Request\"}}\n"
+    },
+    {
+     "send": "\"x\"\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Input should be a valid dictionary or instance of Request\"}}\n"
+    },
+    {
+     "send": "5\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Input should be a valid dictionary or instance of Request\"}}\n"
+    },
+    {
+     "send": "null\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Input should be a valid dictionary or instance of Request\"}}\n"
+    },
+    {
+     "send": "true\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Input should be a valid dictionary or instance of Request\"}}\n"
+    },
+    {
+     "send": "{}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Field required\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    }
+   ]
+  },
+  {
+   "name": "lines that are not JSON get -32700 and the connection keeps serving",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send": "{not json\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32700, \"message\": \"invalid JSON\"}}\n"
+    },
+    {
+     "send": "\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32700, \"message\": \"invalid JSON\"}}\n"
+    },
+    {
+     "send": "   \n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32700, \"message\": \"invalid JSON\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"2.0\",}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32700, \"message\": \"invalid JSON\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"} trailing\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32700, \"message\": \"invalid JSON\"}}\n"
+    },
+    {
+     "send": "\r\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32700, \"message\": \"invalid JSON\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    }
+   ]
+  },
+  {
+   "name": "spacing, extra fields, a repeated key and CRLF are accepted",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send": "  { \"jsonrpc\" : \"2.0\" , \"id\" : 2 , \"method\" : \"ping\" , \"extra\" : [1] }  \n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"2.0\",\"id\":3,\"id\":4,\"method\":\"nope\",\"method\":\"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"ping\"}\r\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"trace.get\",\"params\":{\"a\":1,\"a\":2,\"b\":\"\\ud83d\\ude00\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"result\": {\"echo\": {\"a\": 2, \"b\": \"\\ud83d\\ude00\"}}}\n"
+    }
+   ]
+  },
+  {
+   "name": "garbage before hello: not JSON and not a request keep the connection, a non-hello ends it",
+   "server": {},
+   "steps": [
+    {
+     "send": "{not json\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32700, \"message\": \"invalid JSON\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"1.0\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32600, \"message\": \"Input should be '2.0'\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"trace.get\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"error\": {\"code\": -32001, \"message\": \"authenticate first (auth.hello)\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "hello with an unknown role",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"admin\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"error\": {\"code\": -32600, \"message\": \"Input should be 'cli', 'mcp_shim' or 'native_host'\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "hello without a role",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": \"h\", \"method\": \"auth.hello\", \"params\": {}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": \"h\", \"error\": {\"code\": -32600, \"message\": \"Field required\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "hello without params",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"error\": {\"code\": -32600, \"message\": \"Field required\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "hello with a token that is not text",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": 5}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"error\": {\"code\": -32600, \"message\": \"Input should be a valid string\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "hello with an origin that is not text",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"native_host\", \"origin\": [\"x\"]}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"error\": {\"code\": -32600, \"message\": \"Input should be a valid string\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "hello with a role that is not text",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": 1}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"error\": {\"code\": -32600, \"message\": \"Input should be 'cli', 'mcp_shim' or 'native_host'\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "cli hello with extra fields and a null token",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\", \"token\": null, \"origin\": null, \"more\": 1}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    }
+   ]
+  },
+  {
+   "name": "cli hello from another uid is refused",
+   "server": {
+    "owner_uid_other": true
+   },
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"error\": {\"code\": -32001, \"message\": \"cli role requires the owner's uid\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "mcp_shim hello with an unknown token",
+   "server": {
+    "token": {
+     "task_id": "task-1.2",
+     "worker_id": "w-1",
+     "ttl_s": 60
+    }
+   },
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"made-up\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"error\": {\"code\": -32001, \"message\": \"unknown or revoked run token\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "mcp_shim hello without a token",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"error\": {\"code\": -32001, \"message\": \"unknown or revoked run token\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "mcp_shim: its three methods only, and a revoked token stops at the next call",
+   "server": {
+    "token": {
+     "task_id": "task-1.2",
+     "worker_id": "w-1",
+     "ttl_s": 60
+    }
+   },
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"$TOKEN\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"mcp_shim\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"pid\": 4242, \"role\": \"mcp_shim\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"trace.get\", \"params\": {\"task_id\": \"t\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"error\": {\"code\": -32001, \"message\": \"trace.get not allowed for mcp_shim\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"tools.list\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"error\": {\"code\": -32601, \"message\": \"no method tools.list\"}}\n"
+    },
+    {
+     "op": "revoke_all"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"error\": {\"code\": -32001, \"message\": \"run token revoked\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"method\": \"nope\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"error\": {\"code\": -32001, \"message\": \"run token revoked\"}}\n"
+    }
+   ]
+  },
+  {
+   "name": "mcp_shim: a call is answered and the connection keeps serving",
+   "server": {
+    "token": {
+     "task_id": "task-1.2",
+     "worker_id": "w-1",
+     "ttl_s": 60
+    }
+   },
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"$TOKEN\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"mcp_shim\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools.call\", \"params\": {\"call_id\": \"c1\", \"name\": \"x\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"task\": \"task-1.2\", \"worker\": \"w-1\", \"left\": false}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"pid\": 4242, \"role\": \"mcp_shim\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    }
+   ]
+  },
+  {
+   "name": "mcp_shim: an expired token stops at the next call",
+   "server": {
+    "token": {
+     "task_id": "task-1.2",
+     "worker_id": "w-1",
+     "ttl_s": 60
+    }
+   },
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"$TOKEN\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"mcp_shim\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"pid\": 4242, \"role\": \"mcp_shim\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    },
+    {
+     "op": "advance",
+     "seconds": 60
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"error\": {\"code\": -32001, \"message\": \"run token expired\"}}\n"
+    }
+   ]
+  },
+  {
+   "name": "mcp_shim hello with an expired token",
+   "server": {
+    "token": {
+     "task_id": "task-1.2",
+     "worker_id": "w-1",
+     "ttl_s": 60
+    }
+   },
+   "steps": [
+    {
+     "op": "advance",
+     "seconds": 61
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"$TOKEN\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"error\": {\"code\": -32001, \"message\": \"run token expired\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "mcp_shim: a tree's tokens go with the tree",
+   "server": {
+    "token": {
+     "task_id": "task-1.2",
+     "worker_id": "w-1",
+     "ttl_s": 60
+    }
+   },
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"$TOKEN\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"mcp_shim\"}}\n"
+    },
+    {
+     "op": "revoke_tree",
+     "tree": "task-1"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"error\": {\"code\": -32001, \"message\": \"run token revoked\"}}\n"
+    }
+   ]
+  },
+  {
+   "name": "native_host hello when the browser bridge is not running",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"native_host\", \"origin\": \"chrome-extension://jaclnphefmmgmpofnabffahdkbjjompm/\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"error\": {\"code\": -32003, \"message\": \"FERB's browser bridge isn't running\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "native_host hello from an unknown extension",
+   "server": {
+    "native": true
+   },
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"native_host\", \"origin\": \"chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"error\": {\"code\": -32001, \"message\": \"unknown extension origin\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "native_host hello without an origin",
+   "server": {
+    "native": true
+   },
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"native_host\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"error\": {\"code\": -32001, \"message\": \"unknown extension origin\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "native_host hello with a web origin",
+   "server": {
+    "native": true
+   },
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"native_host\", \"origin\": \"https://jaclnphefmmgmpofnabffahdkbjjompm/\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"error\": {\"code\": -32001, \"message\": \"unknown extension origin\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "native_host hello from another uid",
+   "server": {
+    "native": true,
+    "owner_uid_other": true
+   },
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"native_host\", \"origin\": \"chrome-extension://jaclnphefmmgmpofnabffahdkbjjompm/\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"error\": {\"code\": -32001, \"message\": \"native_host role requires the owner's uid\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "native_host: after hello the connection is the extension channel",
+   "server": {
+    "native": true
+   },
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"native_host\", \"origin\": \"chrome-extension://jaclnphefmmgmpofnabffahdkbjjompm/\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"native_host\"}}\n"
+    },
+    {
+     "send": "anything at all\n"
+    },
+    {
+     "recv": "native:anything at all\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "a message over the cap is refused and the connection ends",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send_padded": {
+      "prefix": "",
+      "suffix": "",
+      "content_len": 1048577
+     }
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32002, \"message\": \"message exceeds 1048576 bytes\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "a message over the cap before hello",
+   "server": {},
+   "steps": [
+    {
+     "send_padded": {
+      "prefix": "",
+      "suffix": "",
+      "content_len": 1048586
+     }
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32002, \"message\": \"message exceeds 1048576 bytes\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "a message of exactly the cap is taken",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send_padded": {
+      "prefix": "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"memory.show\",\"params\":{\"p\":\"",
+      "suffix": "\"}}",
+      "content_len": 1048576
+     }
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"result\": {\"len\": 1048511}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    }
+   ]
+  },
+  {
+   "name": "a message one byte over the cap is refused",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send_padded": {
+      "prefix": "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"memory.show\",\"params\":{\"p\":\"",
+      "suffix": "\"}}",
+      "content_len": 1048577
+     }
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32002, \"message\": \"message exceeds 1048576 bytes\"}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "a last line without its newline is answered when the caller stops sending",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"ping\"}"
+    },
+    {
+     "op": "shut_wr"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "a line that is not UTF-8 ends the connection without an answer",
+   "server": {},
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send_hex": "7b22ff227d0a"
+    },
+    {
+     "eof": true
+    }
+   ]
+  },
+  {
+   "name": "while the daemon starts only ping is answered; the rest waits for the start",
+   "server": {
+    "starting": true
+   },
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"ping\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"pid\": 4242, \"role\": \"cli\", \"now\": \"2026-11-13T10:00:00+00:00\", \"stopped\": false}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"trace.get\", \"params\": {\"a\": 1}}\n"
+    },
+    {
+     "silent_ms": 200
+    },
+    {
+     "op": "set_ready"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"echo\": {\"a\": 1}}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"nope\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"error\": {\"code\": -32001, \"message\": \"nope not allowed for cli\"}}\n"
+    }
+   ]
+  },
+  {
+   "name": "while starting, the role and FERB.app checks still answer at once",
+   "server": {
+    "starting": true
+   },
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"nope\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"error\": {\"code\": -32001, \"message\": \"nope not allowed for cli\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"tasks.preview\"}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"error\": {\"code\": -32005, \"message\": \"tasks.preview is for FERB.app only\"}}\n"
+    }
+   ]
+  },
+  {
+   "name": "a start that fails ends the connections that waited for it",
+   "server": {
+    "starting": true
+   },
+   "steps": [
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}\n"
+    },
+    {
+     "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"trace.get\"}\n"
+    },
+    {
+     "silent_ms": 100
+    },
+    {
+     "op": "close"
+    },
+    {
+     "eof": true
+    }
+   ]
+  }
+ ]
+}

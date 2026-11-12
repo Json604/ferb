@@ -1,0 +1,15 @@
+{
+ "groups": {
+  "text": 2427,
+  "spans": 607,
+  "lines": 437,
+  "known": 509,
+  "small": 2551,
+  "fields": 750,
+  "walk": 270,
+  "stream": 324,
+  "untrusted": 87,
+  "origin": 246
+ },
+ "total": 8208
+}

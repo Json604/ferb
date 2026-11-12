@@ -1,0 +1,1772 @@
+{
+ "made_by": "rust/fixtures/store/make.py",
+ "python_sqlite": "3.53.4",
+ "applied": [
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13,
+  14,
+  15,
+  16,
+  17,
+  18,
+  19,
+  20,
+  21,
+  22,
+  23,
+  24,
+  25,
+  26,
+  28,
+  30,
+  32,
+  33,
+  34,
+  35,
+  36,
+  37,
+  38,
+  39,
+  41,
+  42,
+  43,
+  44,
+  45,
+  46,
+  47,
+  48,
+  49,
+  50,
+  51,
+  52,
+  53,
+  54,
+  55,
+  56,
+  57,
+  58,
+  59,
+  60,
+  61,
+  62
+ ],
+ "known_schema": 62,
+ "schema_version": [
+  [
+   1,
+   "0e8fd4de6c26abb4b7a1b8db9c473feba85ac870785d7cf775d4f4e340dea06f"
+  ],
+  [
+   2,
+   "36c6e55d224a5d9568cf44db38d771040d294753b75412e61c6b34666e83970b"
+  ],
+  [
+   3,
+   "cbf247d25aba0aa745832c8c4f4e6fd066fee211c40453400b4ecf5aadb7e791"
+  ],
+  [
+   4,
+   "acc76f97051592e192b42662355975c43f1e620ef62185e4f5555fa911b170a2"
+  ],
+  [
+   5,
+   "709bad52af9a8b83c0026949c833c5141bf0220723064b10b6bcc80001786b45"
+  ],
+  [
+   6,
+   "dd7b5ea1e989f26686467f9f598c9db23ad2c58896ba2051c9ee83ea73b6bd58"
+  ],
+  [
+   7,
+   "0c79477a48927c6119508ddbc9e9d0c070d9e58ca88f30081c18b58202d29846"
+  ],
+  [
+   8,
+   "84361718d5d91addb006d187fa334f1764f736c129cf07710319f688d7182ae1"
+  ],
+  [
+   9,
+   "2a1eec1d5fa6418560cb20a971e554e4cf243a19dd78f2981df6957ca06aa0b9"
+  ],
+  [
+   10,
+   "2c7df9b49d788d875ba0fb833cef1f9a7a45f8d29bade70fac61f2c8574e6d45"
+  ],
+  [
+   11,
+   "c5be1b4239f7a4e4e8795e3c11efa060ee9426810dfe7ec8bc593e18da3f2ca1"
+  ],
+  [
+   12,
+   "be6bb82ec93458d75175ca443b18107f373bb3c9b940a13435041d338b4f836a"
+  ],
+  [
+   13,
+   "7c76632355d42b1316c989a8bfd1f11e36033944ac4f80a6340f28e79fb1bcb4"
+  ],
+  [
+   14,
+   "2ad3e8f917f8e3f8774017f7a3c0c94f3e5b3b8b142fc2eb43786543f9b99003"
+  ],
+  [
+   15,
+   "b88dd5a2ec4e672b9d3ca6d27bab6faf0b1bed399bb73e7400ab6e87e714bf08"
+  ],
+  [
+   16,
+   "cfffefddd13c038d07f540f34fa14fd763631b12a2ebf7cb04e38add8a5a30ea"
+  ],
+  [
+   17,
+   "0068cb61ace9a0ba765c7f7ea12e015f88bb64f0c256d7d649d277ff2e6fed22"
+  ],
+  [
+   18,
+   "9e3e50e0eb28842ea9649837e19bae6571f63b3f070e1359badc9f75f0010187"
+  ],
+  [
+   19,
+   "34792d77514e40ca502e0ac86b60355e8a0c4904f1c9c25895b9d73953d61a67"
+  ],
+  [
+   20,
+   "3bf30e7bd5ff902039560df4e225ee4cb79676c6e0681c2a173912fd1f64525c"
+  ],
+  [
+   21,
+   "e5e2574b68cd693ae6bedb2b81499d832263249a94b265c52767c5ca2aae38cd"
+  ],
+  [
+   22,
+   "732b9cdf9e28537761af821f0f8b1a9fa16b940a2d43385dda8407d3db9eafe7"
+  ],
+  [
+   23,
+   "26d24ae8f86e721c5f332bd4d4e71ae2e141616851a82e18168b217f46e829bf"
+  ],
+  [
+   24,
+   "f68bde83bc9ea59786f9fc276612213be8ebe68b862d28f962c0595599ee69c8"
+  ],
+  [
+   25,
+   "209de7b6d2ca02e3bb829342c485026c8363cc6ff5f8e66153e9dab3dd791f4d"
+  ],
+  [
+   26,
+   "27f7c958afa85c7e0d3c965772cb99024213188e509a19841075f154305ebc81"
+  ],
+  [
+   28,
+   "a48d87de4edb0bd7af70c7a0856b2f95b2b4333e459106508f50f0b2ea36bce2"
+  ],
+  [
+   30,
+   "0d0de9212f4567e9857658a2818c457e2659a63a1fda9a517e695ca5915b2d6c"
+  ],
+  [
+   32,
+   "0dc73aaef68343984bb2ef0195c0233805a2ae7d35179fa70c52667e6f5d0248"
+  ],
+  [
+   33,
+   "9f0a2b69ea57964b87cca9c47ebda4159b00189a7fe3eeaed80b51c1f7554ac6"
+  ],
+  [
+   34,
+   "7ca1145229051e5837d955392606cda2f08e576d34a31dd79fb5f3c360e19afd"
+  ],
+  [
+   35,
+   "5b14e4fd8478b6d80bc42709c7df57ae2fca70f7fb101d43879252f57caf0859"
+  ],
+  [
+   36,
+   "aba0ddd8eae518595a8c923e085f6fcb7f7c822b51f53e2ab42d9c9ae932e33e"
+  ],
+  [
+   37,
+   "65137e1e522c5a59eb393d535e38b00f0a2ec764107d440ca7e82ad6d2236e69"
+  ],
+  [
+   38,
+   "baa6219045da61869a3b4f3b0b6ad4ca3ea2ff5ea28a28354f22875b1df3b981"
+  ],
+  [
+   39,
+   "452435a5c3e26f545186064c09aea45d793f67ecbe640a21d6f86e8b69080fbc"
+  ],
+  [
+   41,
+   "52c9db1e4bf1d64580bbbb9eb1b0e37f0c7dc88bea984f23c04ccbcb409b125c"
+  ],
+  [
+   42,
+   "a2c17edde1796a75f767b6cc43e674b9949ea41edeb0e79c88573ebb1473f6d2"
+  ],
+  [
+   43,
+   "26309446eace054c216148ee85b3c8042fbce8588e8d095a3b98f84f9018872e"
+  ],
+  [
+   44,
+   "d8e49ed827f05ef93d4eef63215ecdef8db8ae37fa14cd3168e76924c446d05a"
+  ],
+  [
+   45,
+   "16996c10e593313d51f63a36f06f8f9765bc0bc76ae720a170af01f82c4b3157"
+  ],
+  [
+   46,
+   "21af5de3ff2b81aba5a57fe79a80a796567fd7f678b7015f4e719a20d9c331d8"
+  ],
+  [
+   47,
+   "4d497cf73a65fe02c52b8da9083f65d69d8a9eff98a10471cf5bfd536b3f2957"
+  ],
+  [
+   48,
+   "b363467b6d59c8a792722c8d98142f5140cdace1e7c2be5cb852f42e74df4fef"
+  ],
+  [
+   49,
+   "411033a5bddb76d83172f2fcaa0daf3f202c2988e142e40f10e25ef9f7f3d225"
+  ],
+  [
+   50,
+   "e576a44ab930fd608336e3c622e21c54e16f20da645501893e6a6c3c34f72e79"
+  ],
+  [
+   51,
+   "a8b628601f382e437734d141a4fd1be48e934b329708b675b4806f99d62d4676"
+  ],
+  [
+   52,
+   "7ecffa131754ae0f69f8567e8809cbff96da76741cac30501fbf1c514241c84b"
+  ],
+  [
+   53,
+   "863dba24465829c960c89ce2f5b08e94044493282e32ad8311bb1faf6453d573"
+  ],
+  [
+   54,
+   "cf0dd1b72c7a3159dab5e38f3813040da4c473678d314fc1f33cae6555e5a05a"
+  ],
+  [
+   55,
+   "8f7ff1eee236d952ea76f91cf9e59ffcdfaaa834c0360f7aef8a2e5ddad5b51c"
+  ],
+  [
+   56,
+   "9a1ebd674cf82e9eb5eee24e18211848a2ce546374fda077f03c7ebcb4e5114b"
+  ],
+  [
+   57,
+   "a6867fcefbbe9e8d448a8689b182a69abb973fd98e87683eff9489bec64c27d9"
+  ],
+  [
+   58,
+   "873b2d65532d2542ed33585ae3ad170fb9bbd436fc47921f3855af3fb3f65667"
+  ],
+  [
+   59,
+   "0ffffd3447b85840efd4339fd6f22564d2ef3ced1611f7fb3e58fbb16b9d02d4"
+  ],
+  [
+   60,
+   "85f99239b89650222c997c815b9cad7a469c6a8932a53d616ef4beafa75e52d7"
+  ],
+  [
+   61,
+   "def82dd44bc9123708a5ecd5091662c5b2d4668c08f76be0e1ac910c9385275e"
+  ],
+  [
+   62,
+   "583454c60be0006476e29fb9c826fa1a903822d8235e77751fb3cc9538023aa9"
+  ]
+ ],
+ "pragmas": {
+  "auto_vacuum": 2,
+  "journal_mode": "wal",
+  "journal_size_limit": 67108864,
+  "foreign_keys": 1,
+  "secure_delete": 1,
+  "busy_timeout": 5000,
+  "page_size": 4096,
+  "encoding": "UTF-8",
+  "user_version": 0,
+  "application_id": 0
+ },
+ "mode": "0o600",
+ "sqlite_master": [
+  {
+   "type": "index",
+   "name": "action_ledger_same_action",
+   "tbl_name": "action_ledger",
+   "sql": "CREATE INDEX action_ledger_same_action ON action_ledger(task_id, capability, payload_hash, state)"
+  },
+  {
+   "type": "index",
+   "name": "action_ledger_state",
+   "tbl_name": "action_ledger",
+   "sql": "CREATE INDEX action_ledger_state ON action_ledger(state)"
+  },
+  {
+   "type": "index",
+   "name": "chat_history_day",
+   "tbl_name": "chat_history",
+   "sql": "CREATE INDEX chat_history_day ON chat_history (day, at, id)"
+  },
+  {
+   "type": "index",
+   "name": "chat_history_open",
+   "tbl_name": "chat_history",
+   "sql": "CREATE INDEX chat_history_open ON chat_history (open) WHERE open = 1"
+  },
+  {
+   "type": "index",
+   "name": "chat_history_ref",
+   "tbl_name": "chat_history",
+   "sql": "CREATE INDEX chat_history_ref ON chat_history (kind, ref)"
+  },
+  {
+   "type": "index",
+   "name": "confirmations_tree",
+   "tbl_name": "confirmations",
+   "sql": "CREATE INDEX confirmations_tree ON confirmations(tree_id, key)"
+  },
+  {
+   "type": "index",
+   "name": "decisions_at",
+   "tbl_name": "decisions",
+   "sql": "CREATE INDEX decisions_at ON decisions(at)"
+  },
+  {
+   "type": "index",
+   "name": "decisions_question",
+   "tbl_name": "decisions",
+   "sql": "CREATE INDEX decisions_question ON decisions(question, seq)"
+  },
+  {
+   "type": "index",
+   "name": "decisions_ref",
+   "tbl_name": "decisions",
+   "sql": "CREATE INDEX decisions_ref ON decisions(ref)"
+  },
+  {
+   "type": "index",
+   "name": "delegated_conversations_tree",
+   "tbl_name": "delegated_conversations",
+   "sql": "CREATE INDEX delegated_conversations_tree ON delegated_conversations(tree_id)"
+  },
+  {
+   "type": "index",
+   "name": "downloads_task",
+   "tbl_name": "downloads",
+   "sql": "CREATE INDEX downloads_task ON downloads(task_id)"
+  },
+  {
+   "type": "index",
+   "name": "evidence_task",
+   "tbl_name": "evidence",
+   "sql": "CREATE INDEX evidence_task ON evidence(task_id)"
+  },
+  {
+   "type": "index",
+   "name": "evidence_time",
+   "tbl_name": "evidence",
+   "sql": "CREATE INDEX evidence_time ON evidence(captured_at)"
+  },
+  {
+   "type": "index",
+   "name": "ext_installs_profile",
+   "tbl_name": "ext_installs",
+   "sql": "CREATE UNIQUE INDEX ext_installs_profile ON ext_installs(browser, folder)"
+  },
+  {
+   "type": "index",
+   "name": "journal_kind",
+   "tbl_name": "journal",
+   "sql": "CREATE INDEX journal_kind ON journal(kind, seq)"
+  },
+  {
+   "type": "index",
+   "name": "known_destinations_value",
+   "tbl_name": "known_destinations",
+   "sql": "CREATE UNIQUE INDEX known_destinations_value ON known_destinations(kind, value)"
+  },
+  {
+   "type": "index",
+   "name": "learning_kind_key",
+   "tbl_name": "learning_nodes",
+   "sql": "CREATE INDEX learning_kind_key ON learning_nodes(kind,key,valid_to)"
+  },
+  {
+   "type": "index",
+   "name": "learning_source_ref",
+   "tbl_name": "learning_sources",
+   "sql": "CREATE INDEX learning_source_ref ON learning_sources(source_ref)"
+  },
+  {
+   "type": "index",
+   "name": "learning_vectors_partition",
+   "tbl_name": "learning_vectors",
+   "sql": "CREATE INDEX learning_vectors_partition ON learning_vectors(model,month)"
+  },
+  {
+   "type": "index",
+   "name": "memory_import_runs_status",
+   "tbl_name": "memory_import_runs",
+   "sql": "CREATE INDEX memory_import_runs_status ON memory_import_runs(status)"
+  },
+  {
+   "type": "index",
+   "name": "memory_items_key",
+   "tbl_name": "memory_items",
+   "sql": "CREATE INDEX memory_items_key ON memory_items(kind, subject, key)"
+  },
+  {
+   "type": "index",
+   "name": "memory_sources_source",
+   "tbl_name": "memory_sources",
+   "sql": "CREATE INDEX memory_sources_source ON memory_sources(kind, source_id)"
+  },
+  {
+   "type": "index",
+   "name": "owner_verdicts_task",
+   "tbl_name": "owner_verdicts",
+   "sql": "CREATE INDEX owner_verdicts_task ON owner_verdicts(task_id, seq)"
+  },
+  {
+   "type": "index",
+   "name": "recovery_task",
+   "tbl_name": "recovery",
+   "sql": "CREATE INDEX recovery_task ON recovery(task_id)"
+  },
+  {
+   "type": "index",
+   "name": "recovery_time",
+   "tbl_name": "recovery",
+   "sql": "CREATE INDEX recovery_time ON recovery(at)"
+  },
+  {
+   "type": "index",
+   "name": "resource_samples_day",
+   "tbl_name": "resource_samples",
+   "sql": "CREATE INDEX resource_samples_day ON resource_samples(day)"
+  },
+  {
+   "type": "index",
+   "name": "spans_parent",
+   "tbl_name": "spans",
+   "sql": "CREATE INDEX spans_parent ON spans(parent_id)"
+  },
+  {
+   "type": "index",
+   "name": "spans_task",
+   "tbl_name": "spans",
+   "sql": "CREATE INDEX spans_task ON spans(task_id)"
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_action_ledger_1",
+   "tbl_name": "action_ledger",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_attention_notices_1",
+   "tbl_name": "attention_notices",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_browser_profiles_1",
+   "tbl_name": "browser_profiles",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_chat_history_1",
+   "tbl_name": "chat_history",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_confirmations_1",
+   "tbl_name": "confirmations",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_conversation_events_1",
+   "tbl_name": "conversation_events",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_conversation_turns_1",
+   "tbl_name": "conversation_turns",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_conversation_workers_1",
+   "tbl_name": "conversation_workers",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_conversations_1",
+   "tbl_name": "conversations",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_decisions_1",
+   "tbl_name": "decisions",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_delegated_conversations_1",
+   "tbl_name": "delegated_conversations",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_distill_runs_1",
+   "tbl_name": "distill_runs",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_downloads_1",
+   "tbl_name": "downloads",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_episode_how_1",
+   "tbl_name": "episode_how",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_episodes_1",
+   "tbl_name": "episodes",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_evidence_1",
+   "tbl_name": "evidence",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_ext_autopair_off_1",
+   "tbl_name": "ext_autopair_off",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_ext_installs_1",
+   "tbl_name": "ext_installs",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_forgotten_refs_1",
+   "tbl_name": "forgotten_refs",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_journal_1",
+   "tbl_name": "journal",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_known_destinations_1",
+   "tbl_name": "known_destinations",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_learning_card_inputs_1",
+   "tbl_name": "learning_card_inputs",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_learning_digests_1",
+   "tbl_name": "learning_digests",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_learning_embedding_evals_1",
+   "tbl_name": "learning_embedding_evals",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_learning_jobs_1",
+   "tbl_name": "learning_jobs",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_learning_nodes_1",
+   "tbl_name": "learning_nodes",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_learning_receipts_1",
+   "tbl_name": "learning_receipts",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_learning_sources_1",
+   "tbl_name": "learning_sources",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_learning_vectors_1",
+   "tbl_name": "learning_vectors",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_loop_state_1",
+   "tbl_name": "loop_state",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_memory_context_1",
+   "tbl_name": "memory_context",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_memory_forgotten_1",
+   "tbl_name": "memory_forgotten",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_memory_import_done_1",
+   "tbl_name": "memory_import_done",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_memory_import_items_1",
+   "tbl_name": "memory_import_items",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_memory_import_runs_1",
+   "tbl_name": "memory_import_runs",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_memory_items_1",
+   "tbl_name": "memory_items",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_memory_profile_1",
+   "tbl_name": "memory_profile",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_memory_questions_1",
+   "tbl_name": "memory_questions",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_memory_set_aside_1",
+   "tbl_name": "memory_set_aside",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_memory_sources_1",
+   "tbl_name": "memory_sources",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_notification_rules_1",
+   "tbl_name": "notification_rules",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_notification_told_1",
+   "tbl_name": "notification_told",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_owner_questions_1",
+   "tbl_name": "owner_questions",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_perception_batches_1",
+   "tbl_name": "perception_batches",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_perception_floor_1",
+   "tbl_name": "perception_floor",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_perception_labels_1",
+   "tbl_name": "perception_labels",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_perception_receipts_1",
+   "tbl_name": "perception_receipts",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_perception_seen_1",
+   "tbl_name": "perception_seen",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_plan_steps_1",
+   "tbl_name": "plan_steps",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_recall_state_1",
+   "tbl_name": "recall_state",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_recall_vectors_1",
+   "tbl_name": "recall_vectors",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_recovery_1",
+   "tbl_name": "recovery",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_schedule_ends_1",
+   "tbl_name": "schedule_ends",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_schedule_names_1",
+   "tbl_name": "schedule_names",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_schedules_1",
+   "tbl_name": "schedules",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_shell_downloads_1",
+   "tbl_name": "shell_downloads",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_spans_1",
+   "tbl_name": "spans",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_standing_permissions_1",
+   "tbl_name": "standing_permissions",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_task_context_1",
+   "tbl_name": "task_context",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_task_memory_refs_1",
+   "tbl_name": "task_memory_refs",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_task_plans_1",
+   "tbl_name": "task_plans",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_task_result_cards_1",
+   "tbl_name": "task_result_cards",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_task_result_names_1",
+   "tbl_name": "task_result_names",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_task_results_1",
+   "tbl_name": "task_results",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_tasks_1",
+   "tbl_name": "tasks",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_timer_deliveries_1",
+   "tbl_name": "timer_deliveries",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_timer_names_1",
+   "tbl_name": "timer_names",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_timer_repeats_1",
+   "tbl_name": "timer_repeats",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_timer_repeats_2",
+   "tbl_name": "timer_repeats",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_timer_when_active_1",
+   "tbl_name": "timer_when_active",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_timers_1",
+   "tbl_name": "timers",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_trail_1",
+   "tbl_name": "trail",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "task_context_conversation",
+   "tbl_name": "task_context",
+   "sql": "CREATE INDEX task_context_conversation ON task_context(conversation_id)"
+  },
+  {
+   "type": "index",
+   "name": "task_memory_refs_ref",
+   "tbl_name": "task_memory_refs",
+   "sql": "CREATE INDEX task_memory_refs_ref ON task_memory_refs(ref)"
+  },
+  {
+   "type": "index",
+   "name": "tasks_status",
+   "tbl_name": "tasks",
+   "sql": "CREATE INDEX tasks_status ON tasks(status)"
+  },
+  {
+   "type": "index",
+   "name": "tasks_tree",
+   "tbl_name": "tasks",
+   "sql": "CREATE INDEX tasks_tree ON tasks(tree_id)"
+  },
+  {
+   "type": "index",
+   "name": "timers_due",
+   "tbl_name": "timers",
+   "sql": "CREATE INDEX timers_due ON timers(state, fire_at)"
+  },
+  {
+   "type": "index",
+   "name": "trail_day",
+   "tbl_name": "trail",
+   "sql": "CREATE INDEX trail_day ON trail(day)"
+  },
+  {
+   "type": "index",
+   "name": "trail_source",
+   "tbl_name": "trail",
+   "sql": "CREATE INDEX trail_source ON trail(source, seq)"
+  },
+  {
+   "type": "table",
+   "name": "action_ledger",
+   "tbl_name": "action_ledger",
+   "sql": "CREATE TABLE action_ledger (\n    id            TEXT PRIMARY KEY,          -- also the idempotency key sent to drivers\n    task_id       TEXT NOT NULL,\n    capability    TEXT NOT NULL,\n    target_json   TEXT NOT NULL,\n    payload_hash  TEXT NOT NULL,\n    state         TEXT NOT NULL CHECK (state IN ('intended', 'executing', 'done', 'failed', 'unknown')),\n    created_at    TEXT NOT NULL,\n    updated_at    TEXT NOT NULL,\n    reconciled    INTEGER NOT NULL DEFAULT 0,\n    evidence_json TEXT NOT NULL DEFAULT '[]'\n, retry_approved TEXT, retried_by TEXT)"
+  },
+  {
+   "type": "table",
+   "name": "attention_notices",
+   "tbl_name": "attention_notices",
+   "sql": "CREATE TABLE attention_notices (\n    id TEXT PRIMARY KEY,\n    source_refs_json TEXT NOT NULL,\n    text TEXT NOT NULL,\n    origin TEXT NOT NULL,\n    created_at TEXT NOT NULL,\n    delivered_at TEXT\n, quotes_json TEXT NOT NULL DEFAULT '[]', considered_refs_json TEXT NOT NULL DEFAULT '[]', cards_json TEXT NOT NULL DEFAULT '[]')"
+  },
+  {
+   "type": "table",
+   "name": "browser_profiles",
+   "tbl_name": "browser_profiles",
+   "sql": "CREATE TABLE browser_profiles (\n    device_id    TEXT NOT NULL,\n    browser      TEXT NOT NULL,\n    folder       TEXT NOT NULL,              -- identity of a profile; display names change, folders don't\n    display_name TEXT NOT NULL,\n    email        TEXT NOT NULL DEFAULT '',\n    aliases_json TEXT NOT NULL DEFAULT '[]',\n    PRIMARY KEY (device_id, browser, folder)\n)"
+  },
+  {
+   "type": "table",
+   "name": "chat_fts",
+   "tbl_name": "chat_fts",
+   "sql": "CREATE VIRTUAL TABLE chat_fts USING fts5(doc UNINDEXED, kind UNINDEXED, session UNINDEXED,\n    at UNINDEXED, request UNINDEXED, text, tokenize=\"unicode61 categories 'L* N* Co M*'\")"
+  },
+  {
+   "type": "table",
+   "name": "chat_fts_config",
+   "tbl_name": "chat_fts_config",
+   "sql": "CREATE TABLE 'chat_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+  },
+  {
+   "type": "table",
+   "name": "chat_fts_content",
+   "tbl_name": "chat_fts_content",
+   "sql": "CREATE TABLE 'chat_fts_content'(id INTEGER PRIMARY KEY, c0, c1, c2, c3, c4, c5)"
+  },
+  {
+   "type": "table",
+   "name": "chat_fts_data",
+   "tbl_name": "chat_fts_data",
+   "sql": "CREATE TABLE 'chat_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+  },
+  {
+   "type": "table",
+   "name": "chat_fts_docsize",
+   "tbl_name": "chat_fts_docsize",
+   "sql": "CREATE TABLE 'chat_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+  },
+  {
+   "type": "table",
+   "name": "chat_fts_idx",
+   "tbl_name": "chat_fts_idx",
+   "sql": "CREATE TABLE 'chat_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+  },
+  {
+   "type": "table",
+   "name": "chat_history",
+   "tbl_name": "chat_history",
+   "sql": "CREATE TABLE chat_history (\n    id         TEXT PRIMARY KEY,\n    kind       TEXT NOT NULL,\n    at         TEXT NOT NULL,\n    day        TEXT NOT NULL,\n    open       INTEGER NOT NULL DEFAULT 0,\n    ref        TEXT,\n    body_json  TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "confirmations",
+   "tbl_name": "confirmations",
+   "sql": "CREATE TABLE confirmations (\n    id        TEXT PRIMARY KEY,\n    tree_id   TEXT NOT NULL,\n    rule      TEXT NOT NULL,        -- floor:pay | floor:account_security | floor:delete_permanent | floor:new_recipient\n                                    -- | sink:new_destination | sink:outside_value | destination | escape:<rule id>\n    key       TEXT NOT NULL,        -- rule plus the exact value(s) one answer covers\n    granted   INTEGER NOT NULL,     -- 1 Yes, 0 No\n    ask_span  TEXT,                 -- the owner.ask tool.call span that recorded the answer\n    used      INTEGER NOT NULL DEFAULT 0,\n    at        TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "conversation_events",
+   "tbl_name": "conversation_events",
+   "sql": "CREATE TABLE conversation_events (\n    seq INTEGER PRIMARY KEY AUTOINCREMENT,\n    conversation_id TEXT NOT NULL REFERENCES delegated_conversations(id),\n    source_id TEXT NOT NULL,\n    origin TEXT NOT NULL,\n    data_json TEXT NOT NULL,\n    at TEXT NOT NULL,\n    UNIQUE(conversation_id,source_id)\n)"
+  },
+  {
+   "type": "table",
+   "name": "conversation_owner_changes",
+   "tbl_name": "conversation_owner_changes",
+   "sql": "CREATE TABLE conversation_owner_changes (\n    seq INTEGER PRIMARY KEY AUTOINCREMENT,\n    conversation_id TEXT NOT NULL REFERENCES delegated_conversations(id),\n    action TEXT NOT NULL,\n    owner_words TEXT NOT NULL,\n    at TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "conversation_turns",
+   "tbl_name": "conversation_turns",
+   "sql": "CREATE TABLE conversation_turns (\n    conversation_id TEXT NOT NULL REFERENCES delegated_conversations(id),\n    number INTEGER NOT NULL,\n    output_json TEXT,\n    status TEXT NOT NULL,\n    PRIMARY KEY(conversation_id,number)\n)"
+  },
+  {
+   "type": "table",
+   "name": "conversation_workers",
+   "tbl_name": "conversation_workers",
+   "sql": "CREATE TABLE conversation_workers (\n    task_id TEXT PRIMARY KEY,\n    conversation_id TEXT NOT NULL REFERENCES delegated_conversations(id)\n)"
+  },
+  {
+   "type": "table",
+   "name": "conversations",
+   "tbl_name": "conversations",
+   "sql": "CREATE TABLE conversations (\n    id TEXT PRIMARY KEY,\n    pending TEXT NOT NULL DEFAULT '',\n    asked TEXT NOT NULL DEFAULT ''\n, pending_payload TEXT NOT NULL DEFAULT '')"
+  },
+  {
+   "type": "table",
+   "name": "current_conversation",
+   "tbl_name": "current_conversation",
+   "sql": "CREATE TABLE current_conversation (\n    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),\n    conversation_id TEXT NOT NULL REFERENCES conversations(id)\n)"
+  },
+  {
+   "type": "table",
+   "name": "decisions",
+   "tbl_name": "decisions",
+   "sql": "CREATE TABLE \"decisions\" (\n    seq         INTEGER PRIMARY KEY AUTOINCREMENT,\n    id          TEXT NOT NULL UNIQUE,\n    at          TEXT NOT NULL,\n    question    TEXT NOT NULL,\n    ref         TEXT,\n    baseline    TEXT NOT NULL,             -- FERB's existing decision (current behaviour)\n    jev         TEXT,                      -- Jev's answer; NULL when Jev wasn't asked or didn't answer\n    confidence  REAL,\n    latency_ms  INTEGER,\n    error       TEXT,                      -- why Jev didn't answer (unavailable, timeout, no key, ...)\n    mode        TEXT NOT NULL CHECK (mode IN ('shadow', 'enabled', 'live')),\n    effect      TEXT                       -- what the answer did; NULL = nothing\n)"
+  },
+  {
+   "type": "table",
+   "name": "delegated_conversations",
+   "tbl_name": "delegated_conversations",
+   "sql": "CREATE TABLE delegated_conversations (\n    id TEXT PRIMARY KEY,\n    tree_id TEXT NOT NULL,\n    scope_json TEXT NOT NULL,\n    status TEXT NOT NULL CHECK(status IN ('proposed','active','waiting','paused','handed_over','closed','declined','blocked')),\n    approval_id TEXT,\n    turn INTEGER NOT NULL DEFAULT 0,\n    cursor INTEGER NOT NULL DEFAULT 0,\n    turn_cursor INTEGER NOT NULL DEFAULT 0,\n    handover_json TEXT,\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "distill_runs",
+   "tbl_name": "distill_runs",
+   "sql": "CREATE TABLE distill_runs (\n    day       TEXT PRIMARY KEY,\n    attempts  INTEGER NOT NULL DEFAULT 0,\n    status    TEXT NOT NULL,              -- 'summarized' | 'distilled' | 'failed'\n    at        TEXT NOT NULL,\n    detail    TEXT\n, inputs TEXT)"
+  },
+  {
+   "type": "table",
+   "name": "downloads",
+   "tbl_name": "downloads",
+   "sql": "CREATE TABLE downloads (\n    id         TEXT PRIMARY KEY,\n    task_id    TEXT,\n    profile    TEXT NOT NULL,         -- browser/folder\n    identity   TEXT NOT NULL,         -- owner | ferb\n    tab        TEXT,                  -- the task's tab alias (t1)\n    state      TEXT NOT NULL,\n    path       TEXT,                  -- absolute path of the taken file (NULL unless taken)\n    name       TEXT,                  -- the safe file name (after the id prefix)\n    bytes      INTEGER,               -- bytes received (taken) or announced (refused)\n    sha256     TEXT,\n    mime       TEXT,\n    source_url TEXT,                  -- redacted\n    reason     TEXT,\n    origin     TEXT NOT NULL,\n    at         TEXT NOT NULL,\n    trashed_to TEXT,                  -- where the Trash put the file (retention), NULL while kept\n    kept       TEXT                   -- retention: NULL while kept, trash | gone | \"stuck: ...\" (left in place)\n)"
+  },
+  {
+   "type": "table",
+   "name": "episode_how",
+   "tbl_name": "episode_how",
+   "sql": "CREATE TABLE episode_how (\n    task_id TEXT PRIMARY KEY REFERENCES episodes(task_id) ON DELETE CASCADE,\n    how     TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "episodes",
+   "tbl_name": "episodes",
+   "sql": "CREATE TABLE episodes (\n    task_id         TEXT PRIMARY KEY,\n    request_id      TEXT,\n    request_text    TEXT NOT NULL,\n    goal            TEXT NOT NULL,\n    status          TEXT NOT NULL,\n    verified        INTEGER,\n    started_at      TEXT,\n    ended_at        TEXT,\n    seconds         REAL,\n    answer          TEXT NOT NULL,\n    conditions_json TEXT NOT NULL,   -- [{text, met: true|false|null, evidence}]\n    steps_json      TEXT NOT NULL,   -- [{at, role, seconds, text, mark}]\n    problems_json   TEXT NOT NULL,   -- [\"⚠ …\"]\n    tools_json      TEXT NOT NULL,   -- {tool: {calls, errors}}\n    origins         TEXT NOT NULL,   -- comma-joined origins of the task's request, context sources and tool results\n    tool_origins    TEXT NOT NULL DEFAULT '',   -- only the task's own tool results' origins (F5's sink rule: own reads\n                                                -- apart from inherited context)\n    external_read   INTEGER NOT NULL,\n    usage_json      TEXT NOT NULL,\n    desktop_json    TEXT NOT NULL,\n    made_by         TEXT NOT NULL,\n    built_at        TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "evidence",
+   "tbl_name": "evidence",
+   "sql": "CREATE TABLE evidence (\n    id          TEXT PRIMARY KEY,\n    task_id     TEXT NOT NULL,\n    span_id     TEXT,\n    kind        TEXT NOT NULL,        -- app_window | snapshot | recording | screenshot\n    mime        TEXT,                 -- image/jpeg, video/mp4; NULL for a data-only row\n    path        TEXT,                 -- file on disk, relative to the evidence root; NULL for a data-only row\n    data_json   TEXT,                 -- small structured facts (title, url, element count), redacted\n    origin      TEXT NOT NULL,        -- ferb/core/origin.py\n    captured_at TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "ext_autopair_off",
+   "tbl_name": "ext_autopair_off",
+   "sql": "CREATE TABLE ext_autopair_off (\n    browser TEXT NOT NULL,\n    folder TEXT NOT NULL,\n    at TEXT NOT NULL,\n    PRIMARY KEY (browser, folder)\n)"
+  },
+  {
+   "type": "table",
+   "name": "ext_installs",
+   "tbl_name": "ext_installs",
+   "sql": "CREATE TABLE ext_installs (\n    install_id  TEXT PRIMARY KEY,\n    browser     TEXT NOT NULL,\n    folder      TEXT NOT NULL,\n    identity    TEXT NOT NULL CHECK (identity IN ('owner', 'ferb')),\n    key         BLOB NOT NULL,               -- per-install HMAC key; never logged or returned by any method\n    last_seq    INTEGER NOT NULL DEFAULT 0,\n    paired_at   TEXT NOT NULL,\n    ext_version TEXT NOT NULL DEFAULT ''\n)"
+  },
+  {
+   "type": "table",
+   "name": "forgotten_refs",
+   "tbl_name": "forgotten_refs",
+   "sql": "CREATE TABLE forgotten_refs (ref TEXT PRIMARY KEY, at TEXT NOT NULL)"
+  },
+  {
+   "type": "table",
+   "name": "journal",
+   "tbl_name": "journal",
+   "sql": "CREATE TABLE journal (\n    seq       INTEGER PRIMARY KEY AUTOINCREMENT,\n    id        TEXT NOT NULL UNIQUE,\n    at        TEXT NOT NULL,\n    kind      TEXT NOT NULL,\n    data_json TEXT NOT NULL\n, origin TEXT)"
+  },
+  {
+   "type": "table",
+   "name": "known_destinations",
+   "tbl_name": "known_destinations",
+   "sql": "CREATE TABLE known_destinations (\n    id         TEXT PRIMARY KEY,\n    kind       TEXT NOT NULL,       -- email | phone | host | name\n    value      TEXT NOT NULL,\n    how        TEXT NOT NULL,       -- named | answered | confirmed\n    request_id TEXT,\n    span_id    TEXT,\n    at         TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "learning_card_inputs",
+   "tbl_name": "learning_card_inputs",
+   "sql": "CREATE TABLE learning_card_inputs (task_id TEXT PRIMARY KEY, inputs TEXT NOT NULL, status TEXT NOT NULL, error TEXT)"
+  },
+  {
+   "type": "table",
+   "name": "learning_changes",
+   "tbl_name": "learning_changes",
+   "sql": "CREATE TABLE learning_changes (\n seq INTEGER PRIMARY KEY, batch_id TEXT NOT NULL, node_id TEXT NOT NULL,\n action TEXT NOT NULL, prior_id TEXT, at TEXT NOT NULL, rolled_back INTEGER NOT NULL DEFAULT 0\n)"
+  },
+  {
+   "type": "table",
+   "name": "learning_digests",
+   "tbl_name": "learning_digests",
+   "sql": "CREATE TABLE learning_digests (day TEXT PRIMARY KEY, ids_json TEXT NOT NULL, at TEXT NOT NULL)"
+  },
+  {
+   "type": "table",
+   "name": "learning_embedding_evals",
+   "tbl_name": "learning_embedding_evals",
+   "sql": "CREATE TABLE learning_embedding_evals (\n id TEXT PRIMARY KEY, model TEXT NOT NULL, dataset_hash TEXT NOT NULL, at TEXT NOT NULL,\n result_json TEXT NOT NULL, adopted INTEGER NOT NULL DEFAULT 0\n)"
+  },
+  {
+   "type": "table",
+   "name": "learning_fts",
+   "tbl_name": "learning_fts",
+   "sql": "CREATE VIRTUAL TABLE learning_fts USING fts5(id UNINDEXED, text, tokenize=\"unicode61 categories 'L* N* Co M*'\")"
+  },
+  {
+   "type": "table",
+   "name": "learning_fts_config",
+   "tbl_name": "learning_fts_config",
+   "sql": "CREATE TABLE 'learning_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+  },
+  {
+   "type": "table",
+   "name": "learning_fts_content",
+   "tbl_name": "learning_fts_content",
+   "sql": "CREATE TABLE 'learning_fts_content'(id INTEGER PRIMARY KEY, c0, c1)"
+  },
+  {
+   "type": "table",
+   "name": "learning_fts_data",
+   "tbl_name": "learning_fts_data",
+   "sql": "CREATE TABLE 'learning_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+  },
+  {
+   "type": "table",
+   "name": "learning_fts_docsize",
+   "tbl_name": "learning_fts_docsize",
+   "sql": "CREATE TABLE 'learning_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+  },
+  {
+   "type": "table",
+   "name": "learning_fts_idx",
+   "tbl_name": "learning_fts_idx",
+   "sql": "CREATE TABLE 'learning_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+  },
+  {
+   "type": "table",
+   "name": "learning_jobs",
+   "tbl_name": "learning_jobs",
+   "sql": "CREATE TABLE learning_jobs (source_ref TEXT PRIMARY KEY, status TEXT NOT NULL, at TEXT NOT NULL, error TEXT, inputs TEXT)"
+  },
+  {
+   "type": "table",
+   "name": "learning_nodes",
+   "tbl_name": "learning_nodes",
+   "sql": "CREATE TABLE learning_nodes (\n id TEXT PRIMARY KEY, kind TEXT NOT NULL, key TEXT NOT NULL, body_json TEXT NOT NULL,\n origin TEXT NOT NULL, made_by TEXT NOT NULL, recorded_at TEXT NOT NULL,\n valid_from TEXT NOT NULL, valid_to TEXT, supersedes TEXT, batch_id TEXT,\n state TEXT NOT NULL DEFAULT 'candidate', confirmed INTEGER NOT NULL DEFAULT 0\n, origins_json TEXT NOT NULL DEFAULT '[]')"
+  },
+  {
+   "type": "table",
+   "name": "learning_receipts",
+   "tbl_name": "learning_receipts",
+   "sql": "CREATE TABLE learning_receipts (\n procedure_id TEXT NOT NULL REFERENCES learning_nodes(id) ON DELETE CASCADE,\n episode_id TEXT NOT NULL REFERENCES learning_nodes(id) ON DELETE CASCADE,\n slots_json TEXT NOT NULL, successful INTEGER NOT NULL, at TEXT NOT NULL,\n PRIMARY KEY(procedure_id,episode_id)\n)"
+  },
+  {
+   "type": "table",
+   "name": "learning_search_version",
+   "tbl_name": "learning_search_version",
+   "sql": "CREATE TABLE learning_search_version (version TEXT NOT NULL, through TEXT)"
+  },
+  {
+   "type": "table",
+   "name": "learning_sources",
+   "tbl_name": "learning_sources",
+   "sql": "CREATE TABLE learning_sources (\n node_id TEXT NOT NULL REFERENCES learning_nodes(id) ON DELETE CASCADE,\n source_ref TEXT NOT NULL, PRIMARY KEY(node_id,source_ref)\n)"
+  },
+  {
+   "type": "table",
+   "name": "learning_titles",
+   "tbl_name": "learning_titles",
+   "sql": "CREATE VIRTUAL TABLE learning_titles USING fts5(id UNINDEXED, text, tokenize='trigram')"
+  },
+  {
+   "type": "table",
+   "name": "learning_titles_config",
+   "tbl_name": "learning_titles_config",
+   "sql": "CREATE TABLE 'learning_titles_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+  },
+  {
+   "type": "table",
+   "name": "learning_titles_content",
+   "tbl_name": "learning_titles_content",
+   "sql": "CREATE TABLE 'learning_titles_content'(id INTEGER PRIMARY KEY, c0, c1)"
+  },
+  {
+   "type": "table",
+   "name": "learning_titles_data",
+   "tbl_name": "learning_titles_data",
+   "sql": "CREATE TABLE 'learning_titles_data'(id INTEGER PRIMARY KEY, block BLOB)"
+  },
+  {
+   "type": "table",
+   "name": "learning_titles_docsize",
+   "tbl_name": "learning_titles_docsize",
+   "sql": "CREATE TABLE 'learning_titles_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+  },
+  {
+   "type": "table",
+   "name": "learning_titles_idx",
+   "tbl_name": "learning_titles_idx",
+   "sql": "CREATE TABLE 'learning_titles_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+  },
+  {
+   "type": "table",
+   "name": "learning_vectors",
+   "tbl_name": "learning_vectors",
+   "sql": "CREATE TABLE learning_vectors (\n node_id TEXT NOT NULL REFERENCES learning_nodes(id) ON DELETE CASCADE,\n model TEXT NOT NULL, vector_blob BLOB NOT NULL, month TEXT NOT NULL, text_hash TEXT NOT NULL,\n PRIMARY KEY(node_id,model)\n)"
+  },
+  {
+   "type": "table",
+   "name": "loop_state",
+   "tbl_name": "loop_state",
+   "sql": "CREATE TABLE loop_state (\n    task_id       TEXT NOT NULL,\n    step_id       TEXT NOT NULL,\n    state         TEXT NOT NULL DEFAULT 'acting',   -- acting / watching / backing_off / paused / finished / stopped\n    rounds        INTEGER NOT NULL DEFAULT 0,\n    probe_json    TEXT,                             -- the armed probe, NULL when none\n    baseline_json TEXT,                             -- its baseline value (JSON), NULL when none\n    reads         INTEGER NOT NULL DEFAULT 0,       -- probe reads since it was armed (saved with each change)\n    pacing_json   TEXT NOT NULL DEFAULT '{}',\n    recent_json   TEXT NOT NULL DEFAULT '[]',       -- the last few rounds' one-line results, for the next round\n    note          TEXT NOT NULL DEFAULT '',         -- why the last probe was refused, for the next round\n    event_cursor  INTEGER NOT NULL DEFAULT 0,\n    steer_seen    INTEGER NOT NULL DEFAULT 0,\n    updated_at    TEXT NOT NULL,\n    PRIMARY KEY (task_id, step_id)\n)"
+  },
+  {
+   "type": "table",
+   "name": "memory_context",
+   "tbl_name": "memory_context",
+   "sql": "CREATE TABLE memory_context (\n    item_id   TEXT PRIMARY KEY,\n    about     TEXT NOT NULL DEFAULT '',\n    review_at TEXT                         -- ISO time; NULL = no check due\n)"
+  },
+  {
+   "type": "table",
+   "name": "memory_forgotten",
+   "tbl_name": "memory_forgotten",
+   "sql": "CREATE TABLE memory_forgotten (\n    fingerprint TEXT PRIMARY KEY,\n    at          TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "memory_fts",
+   "tbl_name": "memory_fts",
+   "sql": "CREATE VIRTUAL TABLE memory_fts USING fts5(subject, key, content, content='memory_items', content_rowid='seq',\n    tokenize=\"unicode61 categories 'L* N* Co M*'\")"
+  },
+  {
+   "type": "table",
+   "name": "memory_fts_config",
+   "tbl_name": "memory_fts_config",
+   "sql": "CREATE TABLE 'memory_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+  },
+  {
+   "type": "table",
+   "name": "memory_fts_data",
+   "tbl_name": "memory_fts_data",
+   "sql": "CREATE TABLE 'memory_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+  },
+  {
+   "type": "table",
+   "name": "memory_fts_docsize",
+   "tbl_name": "memory_fts_docsize",
+   "sql": "CREATE TABLE 'memory_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+  },
+  {
+   "type": "table",
+   "name": "memory_fts_idx",
+   "tbl_name": "memory_fts_idx",
+   "sql": "CREATE TABLE 'memory_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+  },
+  {
+   "type": "table",
+   "name": "memory_import_done",
+   "tbl_name": "memory_import_done",
+   "sql": "CREATE TABLE memory_import_done (\n    source TEXT NOT NULL,\n    part   TEXT NOT NULL,\n    run_id TEXT NOT NULL,\n    at     TEXT NOT NULL,\n    PRIMARY KEY (source, part)\n)"
+  },
+  {
+   "type": "table",
+   "name": "memory_import_items",
+   "tbl_name": "memory_import_items",
+   "sql": "CREATE TABLE memory_import_items (\n    item_id TEXT NOT NULL,\n    source  TEXT NOT NULL,\n    run_id  TEXT NOT NULL,\n    said_at TEXT NOT NULL,\n    PRIMARY KEY (item_id, source)\n)"
+  },
+  {
+   "type": "table",
+   "name": "memory_import_runs",
+   "tbl_name": "memory_import_runs",
+   "sql": "CREATE TABLE memory_import_runs (\n    id          TEXT PRIMARY KEY,\n    source      TEXT NOT NULL,                 -- chatgpt | claude | claude_code | codex | gemini\n    path        TEXT NOT NULL DEFAULT '',\n    status      TEXT NOT NULL,                 -- running | done | failed | cancelled\n    started_at  TEXT NOT NULL,\n    updated_at  TEXT NOT NULL,\n    finished_at TEXT,\n    counts_json TEXT NOT NULL DEFAULT '{}',\n    error       TEXT NOT NULL DEFAULT ''\n)"
+  },
+  {
+   "type": "table",
+   "name": "memory_items",
+   "tbl_name": "memory_items",
+   "sql": "CREATE TABLE memory_items (\n    seq         INTEGER PRIMARY KEY AUTOINCREMENT,\n    id          TEXT NOT NULL UNIQUE,\n    kind        TEXT NOT NULL CHECK (kind IN ('fact', 'preference', 'person', 'project', 'env')),\n    subject     TEXT NOT NULL,             -- \"owner\", \"project:ferb\", \"person:<slug>\", ...\n    key         TEXT NOT NULL,             -- what the item is about (e.g. \"dentist\"): versions share it\n    content     TEXT NOT NULL,\n    origin      TEXT NOT NULL CHECK (origin IN ('owner_stated', 'observed', 'inferred', 'third_party')),\n    status      TEXT NOT NULL CHECK (status IN ('proposed', 'active', 'retracted')),\n    confidence  REAL NOT NULL,\n    observed_at TEXT NOT NULL,\n    valid_from  TEXT NOT NULL,\n    valid_to    TEXT,                      -- set when superseded: history is kept, never overwritten\n    supersedes  TEXT,\n    created_at  TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "memory_profile",
+   "tbl_name": "memory_profile",
+   "sql": "CREATE TABLE memory_profile (\n    item_id  TEXT PRIMARY KEY,\n    section  TEXT NOT NULL,\n    position INTEGER NOT NULL,\n    added_by TEXT NOT NULL,                -- 'seed' | 'code' | 'pass' | 'owner'\n    added_at TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "memory_questions",
+   "tbl_name": "memory_questions",
+   "sql": "CREATE TABLE memory_questions (\n    approval_id TEXT PRIMARY KEY,\n    kind        TEXT NOT NULL,      -- 'confirm', 'forget:memory' or 'forget:learning'\n    target      TEXT NOT NULL,      -- the memory item or learned node it is about\n    reason      TEXT NOT NULL,      -- the question as the owner saw it\n    request_id  TEXT NOT NULL,\n    at          TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "memory_set_aside",
+   "tbl_name": "memory_set_aside",
+   "sql": "CREATE TABLE memory_set_aside (\n    item_id TEXT PRIMARY KEY,\n    at      TEXT NOT NULL,\n    why     TEXT NOT NULL DEFAULT ''\n)"
+  },
+  {
+   "type": "table",
+   "name": "memory_sources",
+   "tbl_name": "memory_sources",
+   "sql": "CREATE TABLE memory_sources (\n    item_id   TEXT NOT NULL,\n    kind      TEXT NOT NULL CHECK (kind IN ('journal', 'trail')),\n    source_id TEXT NOT NULL,\n    day       TEXT,\n    actor     TEXT,\n    PRIMARY KEY (item_id, kind, source_id)\n)"
+  },
+  {
+   "type": "table",
+   "name": "notification_rules",
+   "tbl_name": "notification_rules",
+   "sql": "CREATE TABLE notification_rules (\n    id TEXT PRIMARY KEY,\n    app TEXT NOT NULL,\n    conversation TEXT,\n    topic TEXT,\n    owner_quote TEXT NOT NULL,\n    until_at TEXT,\n    exceptions_json TEXT NOT NULL DEFAULT '[]',\n    created_at TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "notification_told",
+   "tbl_name": "notification_told",
+   "sql": "CREATE TABLE notification_told (\n    id TEXT PRIMARY KEY,\n    app TEXT NOT NULL,\n    conversation TEXT NOT NULL,\n    event_id TEXT NOT NULL,\n    text TEXT NOT NULL,\n    at TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "owner_questions",
+   "tbl_name": "owner_questions",
+   "sql": "CREATE TABLE owner_questions (\n    seq      INTEGER PRIMARY KEY AUTOINCREMENT,\n    id       TEXT NOT NULL UNIQUE,\n    at       TEXT NOT NULL,\n    kind     TEXT NOT NULL,                 -- folder_access\n    target   TEXT NOT NULL,\n    question TEXT NOT NULL,\n    state    TEXT NOT NULL CHECK (state IN ('open', 'yes', 'no'))\n)"
+  },
+  {
+   "type": "table",
+   "name": "owner_verdicts",
+   "tbl_name": "owner_verdicts",
+   "sql": "CREATE TABLE owner_verdicts (\n    seq      INTEGER PRIMARY KEY AUTOINCREMENT,\n    id       TEXT NOT NULL,\n    task_id  TEXT NOT NULL,\n    verdict  TEXT NOT NULL CHECK (verdict IN ('pass', 'fail')),\n    note     TEXT NOT NULL DEFAULT '',\n    at       TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "perception_batches",
+   "tbl_name": "perception_batches",
+   "sql": "CREATE TABLE perception_batches (\n    id TEXT PRIMARY KEY,\n    created_at TEXT NOT NULL,\n    reason TEXT NOT NULL,\n    state TEXT NOT NULL CHECK(state IN ('pending','done','unavailable')),\n    event_ids_json TEXT NOT NULL,\n    error TEXT\n)"
+  },
+  {
+   "type": "table",
+   "name": "perception_floor",
+   "tbl_name": "perception_floor",
+   "sql": "CREATE TABLE perception_floor (\n    source TEXT PRIMARY KEY CHECK (source IN ('trail', 'notification')),\n    seq    INTEGER,          -- trail: the last trail seq before install; notification: records found at the first\n                             -- read (NULL until that read)\n    at     TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "perception_labels",
+   "tbl_name": "perception_labels",
+   "sql": "CREATE TABLE perception_labels (\n    event_id TEXT PRIMARY KEY,\n    expected TEXT NOT NULL,\n    owner_quote TEXT NOT NULL,\n    at TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "perception_receipts",
+   "tbl_name": "perception_receipts",
+   "sql": "CREATE TABLE perception_receipts (\n    event_id TEXT PRIMARY KEY,\n    batch_id TEXT NOT NULL REFERENCES perception_batches(id) ON DELETE CASCADE\n)"
+  },
+  {
+   "type": "table",
+   "name": "perception_seen",
+   "tbl_name": "perception_seen",
+   "sql": "CREATE TABLE perception_seen (\n    source TEXT NOT NULL,\n    external_id TEXT NOT NULL,\n    event_id TEXT,\n    PRIMARY KEY(source, external_id)\n)"
+  },
+  {
+   "type": "table",
+   "name": "plan_events",
+   "tbl_name": "plan_events",
+   "sql": "CREATE TABLE plan_events (\n seq INTEGER PRIMARY KEY AUTOINCREMENT, event TEXT NOT NULL, payload TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "plan_steps",
+   "tbl_name": "plan_steps",
+   "sql": "CREATE TABLE plan_steps (\n task_id TEXT NOT NULL REFERENCES task_plans(task_id), step_id TEXT NOT NULL,\n status TEXT NOT NULL DEFAULT 'pending', output TEXT NOT NULL DEFAULT '{}',\n PRIMARY KEY(task_id, step_id)\n)"
+  },
+  {
+   "type": "table",
+   "name": "recall_state",
+   "tbl_name": "recall_state",
+   "sql": "CREATE TABLE recall_state (name TEXT PRIMARY KEY, value TEXT NOT NULL)"
+  },
+  {
+   "type": "table",
+   "name": "recall_vectors",
+   "tbl_name": "recall_vectors",
+   "sql": "CREATE TABLE recall_vectors (\n    doc       TEXT NOT NULL,\n    model     TEXT NOT NULL,\n    kind      TEXT NOT NULL,                -- 'fact' | a learning node kind | 'chat'\n    at        TEXT NOT NULL,\n    text_hash TEXT NOT NULL,\n    vector    BLOB NOT NULL,\n    bits      BLOB NOT NULL,\n    PRIMARY KEY (doc, model)\n)"
+  },
+  {
+   "type": "table",
+   "name": "recovery",
+   "tbl_name": "recovery",
+   "sql": "CREATE TABLE recovery (\n    id             TEXT PRIMARY KEY,\n    task_id        TEXT,\n    kind           TEXT NOT NULL,       -- clone | trash\n    original       TEXT NOT NULL,       -- the path FERB changed or deleted\n    saved_to       TEXT,                -- the clone's path under ~/.ferb/recovery (clone), or the Trash path (trash)\n    reason         TEXT,                -- overwrite | edit | trash\n    at             TEXT NOT NULL,\n    written_sha256 TEXT                 -- clone: SHA-256 of the file after FERB's change (NULL: not known)\n, saved_dev INTEGER, saved_ino INTEGER)"
+  },
+  {
+   "type": "table",
+   "name": "resource_samples",
+   "tbl_name": "resource_samples",
+   "sql": "CREATE TABLE resource_samples (\n    id              INTEGER PRIMARY KEY,\n    at              TEXT NOT NULL,      -- the window's end, ISO 8601 with offset\n    day             TEXT NOT NULL,      -- local date (YYYY-MM-DD): the unit of `ferb stats` and of retention\n    window_s        REAL NOT NULL,      -- seconds the window covers (monotonic clock: stops while the Mac sleeps)\n    cpu_s           REAL NOT NULL,      -- the daemon's user + system CPU seconds in the window\n    footprint       INTEGER,            -- the daemon's physical footprint, bytes; NULL: couldn't be read\n    peak_footprint  INTEGER,            -- its lifetime maximum\n    child_count     INTEGER NOT NULL,   -- the daemon's descendants at the window's end\n    child_footprint INTEGER NOT NULL,\n    child_cpu_s     REAL NOT NULL,      -- their CPU in the window, ended ones included\n    app_cpu_s       REAL,               -- FERB.app's other processes; NULL: not running\n    app_footprint   INTEGER,\n    db_bytes        INTEGER,            -- the database and its WAL\n    work_json       TEXT NOT NULL       -- the window's work counts\n)"
+  },
+  {
+   "type": "table",
+   "name": "schedule_ends",
+   "tbl_name": "schedule_ends",
+   "sql": "CREATE TABLE schedule_ends (\n    schedule_id TEXT PRIMARY KEY REFERENCES schedules(id) ON DELETE CASCADE,\n    ends_at     TEXT NOT NULL            -- UTC ISO time; no run after it\n)"
+  },
+  {
+   "type": "table",
+   "name": "schedule_names",
+   "tbl_name": "schedule_names",
+   "sql": "CREATE TABLE schedule_names (\n    schedule_id TEXT PRIMARY KEY REFERENCES schedules(id) ON DELETE CASCADE,\n    name        TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "schedules",
+   "tbl_name": "schedules",
+   "sql": "CREATE TABLE schedules (\n    seq          INTEGER PRIMARY KEY AUTOINCREMENT,\n    id           TEXT NOT NULL UNIQUE,\n    request      TEXT NOT NULL,             -- what to do, in the owner's words\n    own_words    TEXT NOT NULL,             -- the owner's whole message when it was scheduled (target checks)\n    intent_json  TEXT NOT NULL,             -- the recorded intent: kinds, recipients, sites, accounts, paths, amount\n    rule_json    TEXT NOT NULL,             -- repeat: none | daily | weekdays | weekly | every; at (HH:MM), tz, ...\n    next_run     TEXT,                      -- ISO UTC; NULL when finished\n    timer_id     TEXT,\n    state        TEXT NOT NULL CHECK (state IN ('active', 'paused', 'cancelled', 'done')),\n    failures     INTEGER NOT NULL DEFAULT 0,\n    last_run     TEXT,\n    created_at   TEXT NOT NULL\n, watch TEXT NOT NULL DEFAULT 'none' CHECK (watch IN ('none', 'until_met', 'standing')), last_reported_met INTEGER CHECK (last_reported_met IN (0, 1)))"
+  },
+  {
+   "type": "table",
+   "name": "schema_version",
+   "tbl_name": "schema_version",
+   "sql": "CREATE TABLE schema_version (version INTEGER NOT NULL, sha256 TEXT)"
+  },
+  {
+   "type": "table",
+   "name": "shell_downloads",
+   "tbl_name": "shell_downloads",
+   "sql": "CREATE TABLE shell_downloads (\n    tree_id TEXT PRIMARY KEY,\n    bytes   INTEGER NOT NULL,           -- bytes received through the proxy by the tree's shell commands so far\n    at      TEXT NOT NULL               -- last update (UTC ISO)\n)"
+  },
+  {
+   "type": "table",
+   "name": "spans",
+   "tbl_name": "spans",
+   "sql": "CREATE TABLE spans (\n    id          TEXT PRIMARY KEY,\n    parent_id   TEXT REFERENCES spans(id),\n    task_id     TEXT,              -- NULL for daemon-level spans\n    kind        TEXT NOT NULL,\n    device_id   TEXT,\n    started_at  TEXT NOT NULL,     -- ISO 8601 with offset\n    ended_at    TEXT,\n    input_json  TEXT NOT NULL,\n    output_json TEXT,\n    cost_usd    REAL,\n    error       TEXT\n, origin TEXT, summary TEXT)"
+  },
+  {
+   "type": "table",
+   "name": "sqlite_sequence",
+   "tbl_name": "sqlite_sequence",
+   "sql": "CREATE TABLE sqlite_sequence(name,seq)"
+  },
+  {
+   "type": "table",
+   "name": "standing_permissions",
+   "tbl_name": "standing_permissions",
+   "sql": "CREATE TABLE standing_permissions (\n id TEXT PRIMARY KEY, task_id TEXT NOT NULL, scope TEXT NOT NULL, approval_id TEXT NOT NULL,\n active INTEGER NOT NULL DEFAULT 1\n)"
+  },
+  {
+   "type": "table",
+   "name": "summary_fts",
+   "tbl_name": "summary_fts",
+   "sql": "CREATE VIRTUAL TABLE summary_fts USING fts5(text, tokenize=\"unicode61 categories 'L* N* Co M*'\")"
+  },
+  {
+   "type": "table",
+   "name": "summary_fts_config",
+   "tbl_name": "summary_fts_config",
+   "sql": "CREATE TABLE 'summary_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+  },
+  {
+   "type": "table",
+   "name": "summary_fts_content",
+   "tbl_name": "summary_fts_content",
+   "sql": "CREATE TABLE 'summary_fts_content'(id INTEGER PRIMARY KEY, c0)"
+  },
+  {
+   "type": "table",
+   "name": "summary_fts_data",
+   "tbl_name": "summary_fts_data",
+   "sql": "CREATE TABLE 'summary_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+  },
+  {
+   "type": "table",
+   "name": "summary_fts_docsize",
+   "tbl_name": "summary_fts_docsize",
+   "sql": "CREATE TABLE 'summary_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+  },
+  {
+   "type": "table",
+   "name": "summary_fts_idx",
+   "tbl_name": "summary_fts_idx",
+   "sql": "CREATE TABLE 'summary_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+  },
+  {
+   "type": "table",
+   "name": "task_context",
+   "tbl_name": "task_context",
+   "sql": "CREATE TABLE task_context (\n    task_id TEXT PRIMARY KEY REFERENCES tasks(id),\n    conversation_id TEXT NOT NULL REFERENCES conversations(id),\n    spec_json TEXT NOT NULL,\n    owner_words TEXT NOT NULL,\n    prior_task TEXT REFERENCES tasks(id)\n, request_payload TEXT NOT NULL DEFAULT '')"
+  },
+  {
+   "type": "table",
+   "name": "task_memory_refs",
+   "tbl_name": "task_memory_refs",
+   "sql": "CREATE TABLE task_memory_refs (task_id TEXT NOT NULL, ref TEXT NOT NULL, PRIMARY KEY (task_id, ref))"
+  },
+  {
+   "type": "table",
+   "name": "task_plans",
+   "tbl_name": "task_plans",
+   "sql": "CREATE TABLE task_plans (\n task_id TEXT PRIMARY KEY, plan TEXT NOT NULL, request TEXT NOT NULL, conversation TEXT,\n status TEXT NOT NULL DEFAULT 'running', approved INTEGER NOT NULL DEFAULT 0\n)"
+  },
+  {
+   "type": "table",
+   "name": "task_result_cards",
+   "tbl_name": "task_result_cards",
+   "sql": "CREATE TABLE task_result_cards (\n    task_id    TEXT PRIMARY KEY,\n    cards_json TEXT NOT NULL            -- JSON list of cards, redacted as the result is\n)"
+  },
+  {
+   "type": "table",
+   "name": "task_result_names",
+   "tbl_name": "task_result_names",
+   "sql": "CREATE TABLE task_result_names (\n    task_id TEXT PRIMARY KEY,\n    name    TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "task_results",
+   "tbl_name": "task_results",
+   "sql": "CREATE TABLE task_results (\n    task_id   TEXT PRIMARY KEY,\n    at        TEXT NOT NULL,\n    status    TEXT NOT NULL,\n    goal      TEXT NOT NULL,\n    answer    TEXT NOT NULL,\n    shown     INTEGER NOT NULL DEFAULT 0\n)"
+  },
+  {
+   "type": "table",
+   "name": "tasks",
+   "tbl_name": "tasks",
+   "sql": "CREATE TABLE \"tasks\" (\n    id           TEXT PRIMARY KEY,\n    tree_id      TEXT NOT NULL,              -- the request's root task\n    parent_id    TEXT,\n    request_id   TEXT NOT NULL,\n    goal         TEXT NOT NULL,\n    identity     TEXT NOT NULL,\n    role         TEXT NOT NULL,\n    scopes_json  TEXT NOT NULL,\n    status       TEXT NOT NULL CHECK (status IN ('planned', 'running', 'paused', 'done', 'done_unverified', 'failed',\n                                                 'cancelled', 'needs_user', 'interrupted', 'skipped', 'unknown')),\n    outcome_json TEXT NOT NULL DEFAULT '{}',\n    created_at   TEXT NOT NULL,\n    updated_at   TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "timer_deliveries",
+   "tbl_name": "timer_deliveries",
+   "sql": "CREATE TABLE timer_deliveries (\n    timer_id TEXT PRIMARY KEY,\n    at       TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "timer_names",
+   "tbl_name": "timer_names",
+   "sql": "CREATE TABLE timer_names (\n    timer_id TEXT PRIMARY KEY REFERENCES timers(id) ON DELETE CASCADE,\n    name     TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "timer_repeats",
+   "tbl_name": "timer_repeats",
+   "sql": "CREATE TABLE timer_repeats (\n    timer_id  TEXT PRIMARY KEY REFERENCES timers(id) ON DELETE CASCADE,\n    repeat_id TEXT NOT NULL UNIQUE REFERENCES timers(id) ON DELETE CASCADE\n)"
+  },
+  {
+   "type": "table",
+   "name": "timer_when_active",
+   "tbl_name": "timer_when_active",
+   "sql": "CREATE TABLE timer_when_active (\n    timer_id     TEXT PRIMARY KEY REFERENCES timers(id) ON DELETE CASCADE,\n    return_after TEXT                    -- UTC ISO time, or NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "timers",
+   "tbl_name": "timers",
+   "sql": "CREATE TABLE \"timers\" (\n    seq          INTEGER PRIMARY KEY AUTOINCREMENT,\n    id           TEXT NOT NULL UNIQUE,\n    kind         TEXT NOT NULL CHECK (kind IN ('reminder', 'timer', 'sleep', 'schedule')),\n    fire_at      TEXT NOT NULL,\n    message      TEXT NOT NULL DEFAULT '',\n    task_id      TEXT,\n    request_id   TEXT,\n    state        TEXT NOT NULL CHECK (state IN ('pending', 'claimed', 'delivered', 'cancelled')),\n    claim_token  TEXT,\n    claimed_at   TEXT,\n    delivered_at TEXT,\n    overdue_s    REAL,\n    chat_shown   INTEGER NOT NULL DEFAULT 0,\n    created_at   TEXT NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "trail",
+   "tbl_name": "trail",
+   "sql": "CREATE TABLE trail (\n    seq        INTEGER PRIMARY KEY AUTOINCREMENT,\n    id         TEXT NOT NULL UNIQUE,\n    at         TEXT NOT NULL,              -- ISO 8601 with offset\n    day        TEXT NOT NULL,              -- local date (YYYY-MM-DD): the unit of summaries and retention\n    device_id  TEXT NOT NULL,\n    actor      TEXT NOT NULL CHECK (actor IN ('owner', 'ferb', 'unknown')),\n    task_id    TEXT,\n    source     TEXT NOT NULL,\n    data_json  TEXT NOT NULL,\n    relevance  TEXT,\n    sensitive  INTEGER\n)"
+  },
+  {
+   "type": "table",
+   "name": "trail_changes",
+   "tbl_name": "trail_changes",
+   "sql": "CREATE TABLE trail_changes (\n    id INTEGER PRIMARY KEY CHECK (id = 1),\n    n  INTEGER NOT NULL\n)"
+  },
+  {
+   "type": "table",
+   "name": "trail_fts",
+   "tbl_name": "trail_fts",
+   "sql": "CREATE VIRTUAL TABLE trail_fts USING fts5(text, tokenize=\"unicode61 categories 'L* N* Co M*'\")"
+  },
+  {
+   "type": "table",
+   "name": "trail_fts_config",
+   "tbl_name": "trail_fts_config",
+   "sql": "CREATE TABLE 'trail_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+  },
+  {
+   "type": "table",
+   "name": "trail_fts_content",
+   "tbl_name": "trail_fts_content",
+   "sql": "CREATE TABLE 'trail_fts_content'(id INTEGER PRIMARY KEY, c0)"
+  },
+  {
+   "type": "table",
+   "name": "trail_fts_data",
+   "tbl_name": "trail_fts_data",
+   "sql": "CREATE TABLE 'trail_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+  },
+  {
+   "type": "table",
+   "name": "trail_fts_docsize",
+   "tbl_name": "trail_fts_docsize",
+   "sql": "CREATE TABLE 'trail_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+  },
+  {
+   "type": "table",
+   "name": "trail_fts_idx",
+   "tbl_name": "trail_fts_idx",
+   "sql": "CREATE TABLE 'trail_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+  },
+  {
+   "type": "trigger",
+   "name": "journal_append_only",
+   "tbl_name": "journal",
+   "sql": "CREATE TRIGGER journal_append_only BEFORE UPDATE ON journal\nBEGIN\n    SELECT RAISE(ABORT, 'journal is append-only');\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "learning_body_immutable",
+   "tbl_name": "learning_nodes",
+   "sql": "CREATE TRIGGER learning_body_immutable BEFORE UPDATE OF body_json,origin,origins_json,made_by,recorded_at ON learning_nodes\nBEGIN\n SELECT RAISE(ABORT, 'derived content is versioned, never overwritten');\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "learning_delete_indexes",
+   "tbl_name": "learning_nodes",
+   "sql": "CREATE TRIGGER learning_delete_indexes AFTER DELETE ON learning_nodes\nBEGIN\n DELETE FROM learning_fts WHERE id=old.id;\n DELETE FROM learning_titles WHERE id=old.id;\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "memory_fts_delete",
+   "tbl_name": "memory_items",
+   "sql": "CREATE TRIGGER memory_fts_delete AFTER DELETE ON memory_items BEGIN\n    INSERT INTO memory_fts(memory_fts, rowid, subject, key, content) VALUES ('delete', old.seq, old.subject, old.key,\n                                                                              old.content);\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "memory_fts_insert",
+   "tbl_name": "memory_items",
+   "sql": "CREATE TRIGGER memory_fts_insert AFTER INSERT ON memory_items BEGIN\n    INSERT INTO memory_fts(rowid, subject, key, content) VALUES (new.seq, new.subject, new.key, new.content);\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "memory_fts_update",
+   "tbl_name": "memory_items",
+   "sql": "CREATE TRIGGER memory_fts_update AFTER UPDATE OF subject, key, content ON memory_items BEGIN\n    INSERT INTO memory_fts(memory_fts, rowid, subject, key, content) VALUES ('delete', old.seq, old.subject, old.key,\n                                                                              old.content);\n    INSERT INTO memory_fts(rowid, subject, key, content) VALUES (new.seq, new.subject, new.key, new.content);\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "memory_import_item_gone",
+   "tbl_name": "memory_items",
+   "sql": "CREATE TRIGGER memory_import_item_gone AFTER DELETE ON memory_items BEGIN\n    DELETE FROM memory_import_items WHERE item_id = old.id;\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "recall_journal_gone",
+   "tbl_name": "journal",
+   "sql": "CREATE TRIGGER recall_journal_gone AFTER DELETE ON journal BEGIN\n    DELETE FROM chat_fts WHERE doc = 'journal:' || old.id;\n    DELETE FROM recall_vectors WHERE doc = 'journal:' || old.id;\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "recall_vectors_added",
+   "tbl_name": "recall_vectors",
+   "sql": "CREATE TRIGGER recall_vectors_added AFTER INSERT ON recall_vectors BEGIN\n    UPDATE recall_state SET value = CAST(value AS INTEGER) + 1 WHERE name = 'vectors';\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "recall_vectors_item_gone",
+   "tbl_name": "memory_items",
+   "sql": "CREATE TRIGGER recall_vectors_item_gone AFTER DELETE ON memory_items BEGIN\n    DELETE FROM recall_vectors WHERE doc = 'memory:' || old.id;\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "recall_vectors_node_gone",
+   "tbl_name": "learning_nodes",
+   "sql": "CREATE TRIGGER recall_vectors_node_gone AFTER DELETE ON learning_nodes BEGIN\n    DELETE FROM recall_vectors WHERE doc = old.id;\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "recall_vectors_removed",
+   "tbl_name": "recall_vectors",
+   "sql": "CREATE TRIGGER recall_vectors_removed AFTER DELETE ON recall_vectors BEGIN\n    UPDATE recall_state SET value = CAST(value AS INTEGER) + 1 WHERE name = 'vectors';\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "summary_fts_ad",
+   "tbl_name": "journal",
+   "sql": "CREATE TRIGGER summary_fts_ad AFTER DELETE ON journal\nWHEN old.kind IN ('trail.day_summary', 'trail.day_narrative') BEGIN\n    DELETE FROM summary_fts WHERE rowid = old.seq;\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "summary_fts_ai",
+   "tbl_name": "journal",
+   "sql": "CREATE TRIGGER summary_fts_ai AFTER INSERT ON journal\nWHEN new.kind IN ('trail.day_summary', 'trail.day_narrative') BEGIN\n    INSERT INTO summary_fts(rowid, text) VALUES (new.seq,\n            coalesce((SELECT group_concat(value, ' ') FROM json_tree((CASE WHEN json_valid(new.data_json) THEN new.data_json ELSE '{}' END), '$.windows') WHERE type = 'text'), '')\n            || ' ' || coalesce((SELECT group_concat(value, ' ') FROM json_tree((CASE WHEN json_valid(new.data_json) THEN new.data_json ELSE '{}' END), '$.hours') WHERE type = 'text'), '')\n            || ' ' || coalesce((SELECT group_concat(value, ' ') FROM json_tree((CASE WHEN json_valid(new.data_json) THEN new.data_json ELSE '{}' END), '$.ferb.tasks') WHERE type = 'text' AND key = 'summary'), '')\n            || ' ' || coalesce((SELECT group_concat(value, ' ') FROM json_tree((CASE WHEN json_valid(new.data_json) THEN new.data_json ELSE '{}' END), '$.text') WHERE type = 'text'), '')\n            || ' ' || coalesce((SELECT group_concat(key, ' ') FROM json_each((CASE WHEN json_valid(new.data_json) THEN new.data_json ELSE '{}' END), '$.sites') WHERE json_type((CASE WHEN json_valid(new.data_json) THEN new.data_json ELSE '{}' END), '$.sites') = 'object'), '')\n            || ' ' || coalesce((SELECT group_concat(key, ' ') FROM json_each((CASE WHEN json_valid(new.data_json) THEN new.data_json ELSE '{}' END), '$.folders') WHERE json_type((CASE WHEN json_valid(new.data_json) THEN new.data_json ELSE '{}' END), '$.folders') = 'object'), '')\n            || ' ' || coalesce((SELECT group_concat(key, ' ') FROM json_each((CASE WHEN json_valid(new.data_json) THEN new.data_json ELSE '{}' END), '$.apps_min') WHERE json_type((CASE WHEN json_valid(new.data_json) THEN new.data_json ELSE '{}' END), '$.apps_min') = 'object'), ''));\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "trail_append_only",
+   "tbl_name": "trail",
+   "sql": "CREATE TRIGGER trail_append_only BEFORE UPDATE OF id, at, day, device_id, actor, task_id, source ON trail\nBEGIN\n    SELECT RAISE(ABORT, 'trail rows are append-only');\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "trail_changes_data",
+   "tbl_name": "trail",
+   "sql": "CREATE TRIGGER trail_changes_data AFTER UPDATE OF data_json ON trail\nBEGIN\n    UPDATE trail_changes SET n = n + 1 WHERE id = 1;\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "trail_changes_delete",
+   "tbl_name": "trail",
+   "sql": "CREATE TRIGGER trail_changes_delete AFTER DELETE ON trail\nBEGIN\n    UPDATE trail_changes SET n = n + 1 WHERE id = 1;\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "trail_fts_ad",
+   "tbl_name": "trail",
+   "sql": "CREATE TRIGGER trail_fts_ad AFTER DELETE ON trail BEGIN\n    DELETE FROM trail_fts WHERE rowid = old.seq;\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "trail_fts_ai",
+   "tbl_name": "trail",
+   "sql": "CREATE TRIGGER trail_fts_ai AFTER INSERT ON trail BEGIN\n    INSERT INTO trail_fts(rowid, text) VALUES (new.seq, coalesce((SELECT group_concat(value, ' ') FROM json_tree((CASE WHEN json_valid(new.data_json) THEN new.data_json ELSE '{}' END)) WHERE type = 'text'), ''));\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "trail_fts_au",
+   "tbl_name": "trail",
+   "sql": "CREATE TRIGGER trail_fts_au AFTER UPDATE OF data_json ON trail BEGIN\n    DELETE FROM trail_fts WHERE rowid = old.seq;\n    INSERT INTO trail_fts(rowid, text) VALUES (new.seq, coalesce((SELECT group_concat(value, ' ') FROM json_tree((CASE WHEN json_valid(new.data_json) THEN new.data_json ELSE '{}' END)) WHERE type = 'text'), ''));\nEND"
+  }
+ ]
+}

@@ -8,10 +8,11 @@ Lines are Python lines at `63369cb3`. Update the row in the commit that changes 
 
 | Part | Python | Lines | Rust crate | State |
 |---|---|---|---|---|
-| Store: connection, migrations, checksums | `ferb/store` | 1,794 | `ferb-store` | not started |
-| Redaction and origins | `ferb/sanitize` | 2,118 | `ferb-sanitize` | not started |
-| RPC wire, roles, app-only check | `ferb/daemon/server.py`, `auth.py`, `app_peer.py` | ~900 | `ferb-rpc` | not started |
-| Browser native-messaging relay | `ferb/native_host` | 73 | `ferb-native-host` | not started |
+| Store: connection, migrations, checksums | `ferb/store/db.py`, migrations | 240 | `ferb-store` | verified (journal 3) |
+| Store: typed tables (journal, spans, tasks, history, retention, salvage) | `ferb/store` | ~1,550 | `ferb-store` | not started |
+| Redaction and origins | `ferb/sanitize` (not `images.py`), `ferb/core/origin.py` | 2,118 | `ferb-sanitize` | verified, with open differences (journal 4) |
+| RPC wire, roles, app-only check | `ferb/daemon/server.py`, `auth.py`, `app_peer.py` | ~900 | `ferb-rpc` | verified offline; signed-app check unproven (journal 5) |
+| Browser native-messaging relay | `ferb/native_host` | 73 | `ferb-native-host` | verified offline; no browser run yet (journal 6) |
 | Core types, context, prompts, structured answers | `ferb/core` | 1,368 | - | not started |
 | Config, paths, bus, registry | `ferb/*.py` | 704 | - | not started |
 | Secrets helper caller, owner secrets | `ferb/identity` | 826 | - | not started |
