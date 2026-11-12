@@ -30,13 +30,6 @@ struct SetupActionStyle: ButtonStyle {
     }
 }
 
-struct SetupFieldStyle: TextFieldStyle {
-    func _body(configuration: TextField<Self._Label>) -> some View {
-        configuration.textFieldStyle(.plain).padding(12)
-            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
-    }
-}
-
 struct StepHeader: View {
     let title: String
     let lines: [String]
@@ -119,7 +112,7 @@ struct AIStepView: View {
                         ForEach(model.ai?.unsavedKeys ?? APIProvider.allCases) { Text($0.label).tag($0) }
                     }
                     HStack {
-                        SecureField("Paste your API key", text: $key).onSubmit(saveKey)
+                        SecureField("Paste your API key", text: $key).ferbField().onSubmit(saveKey)
                         Button("Save", action: saveKey).disabled(key.isEmpty)
                     }
                 }.padding(.top, 10)
@@ -169,7 +162,7 @@ struct APIKeyCard: View {
             }
             if replacing {
                 HStack {
-                    SecureField("Paste the new key", text: $key).onSubmit(save)
+                    SecureField("Paste the new key", text: $key).ferbField().onSubmit(save)
                     Button("Save", action: save).disabled(key.isEmpty)
                 }
             }
@@ -219,7 +212,7 @@ struct ModelRow: View {
                     Text("Other…").tag(Self.other)
                 }.labelsHidden()
                 if choice == Self.other {
-                    TextField("Model id, e.g. claude-opus-5-5", text: $typed).onSubmit(save)
+                    TextField("Model id, e.g. claude-opus-5-5", text: $typed).ferbField().onSubmit(save)
                 }
             }
             HStack {
@@ -230,7 +223,7 @@ struct ModelRow: View {
                     Text("Other…").tag(Self.other)
                 }.labelsHidden()
                 if effortChoice == Self.other {
-                    TextField("Effort level, e.g. high", text: $typedEffort).onSubmit(save)
+                    TextField("Effort level, e.g. high", text: $typedEffort).ferbField().onSubmit(save)
                 }
                 Button(busy ? "Checking…" : "Use") { save() }.disabled(busy || !changed || incomplete)
             }
@@ -555,7 +548,7 @@ struct IdentityStepView: View {
                 }
             } else {
                 HStack {
-                    TextField("FERB's Google address", text: $model.identityAddress).onSubmit { Task { await model.refreshIdentity() } }
+                    TextField("FERB's Google address", text: $model.identityAddress).ferbField().onSubmit { Task { await model.refreshIdentity() } }
                     Button("Find its profile") { Task { await model.refreshIdentity() } }
                 }
                 ForEach(model.identity?.candidates ?? []) { candidate in
@@ -641,7 +634,7 @@ struct ClaudeSignInRow: View {
                     Button("Open the sign-in page") { model.openClaudeSignInPage() }
                 }
                 HStack {
-                    SecureField("Code from the page (only if it shows one)", text: $code).onSubmit(sendCode)
+                    SecureField("Code from the page (only if it shows one)", text: $code).ferbField().onSubmit(sendCode)
                     Button("Send", action: sendCode).disabled(code.isEmpty)
                 }
             }

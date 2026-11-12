@@ -3517,3 +3517,13 @@ rule = "For APP-894 and APP-888. A multi-part card carries its plan's steps (`pl
 why = "Live 2026-11-11 14:41 (task f67b5efe): \"Improved pitch deck: Waiting for an earlier step\" while three feeder steps did the work and their preview showed only by \"1 active task\". Owner: \"did you not fix the one row each having its own preview circle???\""
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::TurnCardView", "ui/mac/FERBNotch/Sources/NotchCore/TurnCard.swift::TurnCard.feeders", "ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::RowDisplay.make", "ferb/orchestrator/supervisor.py::Supervisor._plan_lines"]
 live = ["LIVE-913"]
+
+[APP-896]
+title = "Every text and secure field has FERB's one field look, never AppKit's dark bezel"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "A TextField or SecureField FERB.app shows has the question cards' look: plain style (no AppKit bezel), 8-point inset, a white 7% rounded fill (corner 8), focused or not. FerbField (.ferbField()) is that look, used by every field: Settings (API key, replace key, sign-in code, model and effort ids, FERB's address, lists, days), the intro's entry and the cards' (a question's answer and secret, a guess's words). A field keeps its own submit, focus and secrecy behaviour."
+why = "Owner 2026-11-09: \"what is this black box UI when i click pon text box???\". A default-style or .roundedBorder field draws a near-black bezel on FERB's dark glass (rendered 2026-11-12); the intro's entry used .roundedBorder and Settings' fields only a window-wide style."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/FieldLook.swift::FerbField"]
+live = ["LIVE-915"]

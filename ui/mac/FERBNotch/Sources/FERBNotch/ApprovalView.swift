@@ -89,16 +89,14 @@ struct ApprovalView: View {
             if approval.isSecret {
                 SecureField(approval.fieldLabel ?? (approval.kind == "owner_login_code" ? "Code" : "Type it here"),
                             text: $answer)
-                    .textFieldStyle(.plain).padding(8)
-                    .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+                    .ferbField()
                     .focused($inputFocused)
                     .privacySensitive()
                     .onSubmit(send)
                     .accessibilityLabel(approval.kind == "owner_login_code" ? "Private verification code" : "Private password or secret")
             } else if takesTypedAnswer {
                 TextField(box == .correction ? "Or tell FERB what to do instead…" : "Or type your answer…", text: $answer)
-                    .textFieldStyle(.plain).padding(8)
-                    .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+                    .ferbField()
                     .focused($inputFocused).onSubmit(send)
                     .accessibilityLabel(box == .correction ? "Tell the task something else instead" : "Your answer")
             }

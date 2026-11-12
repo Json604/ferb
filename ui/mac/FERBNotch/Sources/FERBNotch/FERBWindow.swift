@@ -154,7 +154,6 @@ struct FERBWindowView: View {
         .frame(minWidth: 880, minHeight: 620)
         .font(.system(size: 13))
         .buttonStyle(SetupActionStyle())
-        .textFieldStyle(SetupFieldStyle())
         .foregroundStyle(.white.opacity(0.92))
         .background {
             SetupGlass()

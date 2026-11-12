@@ -4235,3 +4235,12 @@ request = "After installing this build, leave the Mac awake and FERB idle (no ta
 pass = "The daemon's physical footprint stays within a few tens of MB of where it settled after start; it no longer climbs ~100-180 MB an hour (before: 120-230 MB at start, 2.8-3.5 GB by restart)."
 decisions = ["DMN-585"]
 sitting = "after this change is installed"
+
+[LIVE-915]
+title = "Settings' key and sign-in code fields look like the question cards' fields"
+area = "app"
+surface = "FERB.app with this build: Settings → AI, a question card with a typed answer"
+request = "Open Settings → AI. Open \"Other ways to connect: an API key\" and click into the key field; on a saved key's card press Replace key and click into its field; start Claude's sign-in and click into the code field. Compare each with a question card's answer field. Do it with macOS in Dark and then in Light appearance."
+pass = "Each field is a soft light rounded box like the question card's field, focused or not, in both appearances; no black or near-black box appears around or behind a field when it is clicked. (A small box under the cursor that names a keyboard input source is macOS's own indicator, not FERB's.)"
+decisions = ["APP-896"]
+sitting = "after this change is installed"

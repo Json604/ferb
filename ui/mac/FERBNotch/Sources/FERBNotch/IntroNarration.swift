@@ -238,7 +238,7 @@ struct IntroNarrationView: View {
                         if entry.secure { SecureField(entry.placeholder, text: typed) }
                         else { TextField(entry.placeholder, text: typed) }
                     }
-                    .textFieldStyle(.roundedBorder)
+                    .ferbField()
                     .onSubmit { submit(act) }
                     .onDisappear { typed.wrappedValue = "" }
                     Button("OK") { submit(act) }.buttonStyle(FerbButtonStyle())

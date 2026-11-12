@@ -528,8 +528,7 @@ private struct GuessRow: View {
                     }.buttonStyle(FerbButtonStyle(quiet: true))
                 }
                 TextField("Or type it in your own words…", text: $words)
-                    .textFieldStyle(.plain).padding(6)
-                    .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+                    .ferbField(inset: 6)
                     .onSubmit {
                         let typed = words.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !typed.isEmpty else { return }

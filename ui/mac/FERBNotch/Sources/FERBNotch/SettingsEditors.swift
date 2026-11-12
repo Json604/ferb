@@ -47,7 +47,7 @@ struct StringListEditor: View {
             }
         }
         HStack {
-            TextField(placeholder, text: $draft.text).onSubmit(add)
+            TextField(placeholder, text: $draft.text).ferbField().onSubmit(add)
             Button(draft.saving ? "Saving…" : "Add", action: add).disabled(!draft.canAdd)
         }
         if let problem = draft.problem { Text(problem).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
@@ -98,7 +98,7 @@ struct DaysField: View {
                 Spacer(minLength: 16)
                 TextField(title, text: $draft.text)
                     .labelsHidden().multilineTextAlignment(.trailing).monospacedDigit()
-                    .frame(width: 96).focused($focused).disabled(draft.saving)
+                    .ferbField().frame(width: 96).focused($focused).disabled(draft.saving)
                     .accessibilityLabel("\(title), days")
                     .onSubmit(commit)
                     .onExitCommand { draft.reset(to: store.settings.int(key)); focused = false }

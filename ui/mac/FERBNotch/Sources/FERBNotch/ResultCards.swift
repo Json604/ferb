@@ -404,8 +404,7 @@ struct NoteCard: View {
         if let words = editing {
             VStack(alignment: .leading, spacing: 6) {
                 TextField("In your words…", text: Binding(get: { words }, set: { editing = $0 }), axis: .vertical)
-                    .textFieldStyle(.plain).font(.system(size: 12)).padding(7)
-                    .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+                    .font(.system(size: 12)).ferbField(inset: 7)
                     .onSubmit(save)
                 HStack(spacing: 6) {
                     Button("Save", action: save).buttonStyle(FerbButtonStyle(primary: true))
