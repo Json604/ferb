@@ -1,0 +1,101 @@
+<!doctype html>
+<!-- Lab page: everyday form widgets, native and from real libraries (pinned CDN versions). window.labState() reads
+     each widget's own value. -->
+<meta charset="utf-8">
+<title>Widgets lab</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js@10.2.0/public/assets/styles/choices.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nouislider@15.8.1/dist/nouislider.min.css">
+<style>
+  body { font: 15px -apple-system, sans-serif; margin: 20px; width: 700px; }
+  label { display: block; margin-top: 14px; }
+  .stars span { font-size: 26px; cursor: pointer; color: #bbb; }
+  .stars span.on { color: #e9a400; }
+  #switch { width: 46px; height: 24px; border-radius: 12px; background: #ccc; border: 0; }
+  #switch[aria-checked="true"] { background: #2a7; }
+  #slider { margin: 20px 10px; }
+  .listbox { border: 1px solid #888; width: 240px; }
+  .listbox [role=option] { padding: 4px; }
+  .listbox [role=option][aria-selected=true] { background: #cde; }
+</style>
+<h1>Widgets</h1>
+<label>Country (native select) <select id="native" aria-label="Country"><option>Choose</option><option>India</option>
+  <option>Japan</option><option>Kenya</option></select></label>
+<label>Birth date (native date) <input type="date" id="date" aria-label="Birth date"></label>
+<label>Meeting time (native time) <input type="time" id="time" aria-label="Meeting time"></label>
+<label>Local date-time <input type="datetime-local" id="dtl" aria-label="Local date-time"></label>
+<label>Month <input type="month" id="month" aria-label="Month"></label>
+<label>Volume (native range) <input type="range" id="range" aria-label="Volume" min="0" max="100" value="10"></label>
+<label>Colour (native color) <input type="color" id="color" aria-label="Colour" value="#000000"></label>
+<label>Quantity (native number) <input type="number" id="number" aria-label="Quantity" min="1" max="9" value="1"></label>
+<label>City (Choices.js) <select id="choices" aria-label="City"><option value="">Pick a city</option>
+  <option value="blr">Bengaluru</option><option value="bom">Mumbai</option><option value="del">Delhi</option></select></label>
+<label>Language (Tom Select, type to search) <select id="tom" aria-label="Language" placeholder="Search a language">
+  <option value="">Search a language</option><option value="hi">Hindi</option><option value="ta">Tamil</option>
+  <option value="te">Telugu</option><option value="kn">Kannada</option></select></label>
+<label>Check-in (flatpickr) <input id="flat" aria-label="Check-in date" placeholder="Select a date"></label>
+<label>Price range (noUiSlider)</label><div id="slider" aria-label="Price range"></div>
+<label>Rating</label><div class="stars" id="stars" aria-label="Rating"><span data-v="1">★</span><span data-v="2">★</span>
+  <span data-v="3">★</span><span data-v="4">★</span><span data-v="5">★</span></div>
+<label>Notifications <button type="button" role="switch" id="switch" aria-checked="false" aria-label="Notifications"></button></label>
+<label>Phone (masked, IMask) <input id="phone" aria-label="Phone" placeholder="+91 00000 00000"></label>
+<label>Card number (masked) <input id="card" aria-label="Gift card number" placeholder="0000 0000 0000 0000"></label>
+<label>Delivery pin code <input id="pincode" inputmode="numeric" maxlength="6"></label>
+<label>Coupon security code (printed on the voucher) <input id="voucher"></label>
+<label>Fruit (ARIA listbox, keyboard)</label>
+<div class="listbox" role="listbox" id="lb" tabindex="0" aria-label="Fruit" aria-activedescendant="o1">
+  <div role="option" id="o1" aria-selected="true">Apple</div><div role="option" id="o2" aria-selected="false">Banana</div>
+  <div role="option" id="o3" aria-selected="false">Cherry</div></div>
+<label>Assignee (ARIA combobox, autocomplete)
+  <input role="combobox" id="combo" aria-label="Assignee" aria-expanded="false" aria-controls="combolist" aria-autocomplete="list"></label>
+<ul role="listbox" id="combolist" hidden></ul>
+<p><input type="checkbox" id="terms" style="opacity:0;position:absolute"><label for="terms" id="termslabel">I agree to the terms</label></p>
+<script src="https://cdn.jsdelivr.net/npm/choices.js@10.2.0/public/assets/scripts/choices.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/nouislider@15.8.1/dist/nouislider.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/imask@7.6.1/dist/imask.min.js"></script>
+<script>
+  const $ = (s) => document.querySelector(s);
+  const choices = new Choices("#choices", {searchEnabled: false, itemSelectText: ""});
+  const tom = new TomSelect("#tom", {create: false});
+  const flat = flatpickr("#flat", {dateFormat: "Y-m-d"});
+  const slider = $("#slider");
+  noUiSlider.create(slider, {start: [20, 80], connect: true, range: {min: 0, max: 100}, step: 1});
+  let stars = 0;
+  document.querySelectorAll("#stars span").forEach((s) => s.addEventListener("click", () => {
+    stars = +s.dataset.v; document.querySelectorAll("#stars span").forEach((x) => x.classList.toggle("on", +x.dataset.v <= stars)); }));
+  $("#switch").addEventListener("click", (e) => e.currentTarget.setAttribute("aria-checked",
+    e.currentTarget.getAttribute("aria-checked") === "true" ? "false" : "true"));
+  const phone = IMask($("#phone"), {mask: "+{91} 00000 00000"});
+  const card = IMask($("#card"), {mask: "0000 0000 0000 0000"});
+  const lb = $("#lb");
+  lb.addEventListener("keydown", (e) => {
+    const opts = [...lb.querySelectorAll("[role=option]")];
+    let i = opts.findIndex((o) => o.getAttribute("aria-selected") === "true");
+    if (e.key === "ArrowDown") i = Math.min(i + 1, opts.length - 1); else if (e.key === "ArrowUp") i = Math.max(i - 1, 0); else return;
+    e.preventDefault(); opts.forEach((o, k) => o.setAttribute("aria-selected", k === i ? "true" : "false"));
+    lb.setAttribute("aria-activedescendant", opts[i].id); });
+  lb.querySelectorAll("[role=option]").forEach((o) => o.addEventListener("click", () => {
+    lb.querySelectorAll("[role=option]").forEach((x) => x.setAttribute("aria-selected", x === o ? "true" : "false")); }));
+  const people = ["Asha Rao", "Arjun Mehta", "Bina Shah", "Chirag Jain"];
+  const combo = $("#combo"), list = $("#combolist");
+  let picked = "";
+  combo.addEventListener("input", () => {
+    const q = combo.value.toLowerCase(), hits = people.filter((p) => p.toLowerCase().includes(q));
+    list.innerHTML = hits.map((p, i) => `<li role="option" id="p${i}">${p}</li>`).join("");
+    list.hidden = !q || !hits.length; combo.setAttribute("aria-expanded", String(!list.hidden));
+    list.querySelectorAll("li").forEach((li) => li.addEventListener("mousedown", (e) => { e.preventDefault();
+      picked = combo.value = li.textContent; list.hidden = true; combo.setAttribute("aria-expanded", "false"); }));
+  });
+  combo.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !list.hidden) { const first = list.querySelector("li"); if (first) { picked = combo.value = first.textContent;
+      list.hidden = true; combo.setAttribute("aria-expanded", "false"); e.preventDefault(); } } });
+  window.labState = () => ({ready: true, native: $("#native").value, date: $("#date").value, time: $("#time").value,
+    dtl: $("#dtl").value, month: $("#month").value, range: $("#range").value, color: $("#color").value,
+    number: $("#number").value, choices: choices.getValue(true), tom: tom.getValue(), flat: $("#flat").value,
+    slider: slider.noUiSlider.get(), stars, switch: $("#switch").getAttribute("aria-checked"),
+    pincode: $("#pincode").value, voucher: $("#voucher").value, phone: phone.unmaskedValue, phoneShown: $("#phone").value, card: card.unmaskedValue,
+    fruit: lb.querySelector("[aria-selected=true]").textContent, combo: combo.value, picked, terms: $("#terms").checked});
+</script>

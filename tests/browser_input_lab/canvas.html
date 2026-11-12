@@ -1,0 +1,58 @@
+<!doctype html>
+<!-- Lab page: canvas-drawn editors. ?k=grid loads x-data-spreadsheet (a real open-source canvas spreadsheet: the grid
+     is pixels; a cell is edited in an overlay textarea that appears on double-click or typing, as in Sheets and Excel
+     for the web). ?k=doc is a stand-in for Google Docs' structure, written from what the live trace of task 9e7c14ed
+     showed (not Google's code): the page is pixels on a canvas, and the keyboard goes to a contenteditable "Document
+     content" textbox inside a 1-pixel iframe at the caret, under the canvas. Clicking the canvas focuses it; keydown
+     Enter/Backspace and beforeinput insertText edit the model. labState() reads the model. -->
+<meta charset="utf-8">
+<title>Canvas lab</title>
+<link rel="stylesheet" href="https://unpkg.com/x-data-spreadsheet@1.1.9/dist/xspreadsheet.css">
+<style>body { font: 15px -apple-system, sans-serif; margin: 0; } #doc { position: relative; margin: 20px; }
+  #page { border: 1px solid #ccc; display: block; } #ifr { position: absolute; width: 1px; height: 20px; border: 0; z-index: -1; }</style>
+<div id="host"></div>
+<script src="https://unpkg.com/x-data-spreadsheet@1.1.9/dist/xspreadsheet.js"></script>
+<script>
+  const k = new URLSearchParams(location.search).get("k") || "grid";
+  if (k === "grid") {
+    document.title = "Grid lab";
+    const s = x_spreadsheet("#host", {showToolbar: true, showGrid: true, view: {height: () => 600, width: () => 1000}});
+    window.labState = () => {
+      const rows = s.getData()[0].rows || {}, out = {};
+      for (const [r, row] of Object.entries(rows)) if (row && row.cells)
+        for (const [c, cell] of Object.entries(row.cells)) if (cell && cell.text) out[String.fromCharCode(65 + +c) + (+r + 1)] = cell.text;
+      return {ready: true, cells: out};
+    };
+  } else {
+    document.title = "Doc lab";
+    document.getElementById("host").innerHTML = '<div id="doc" role="main" aria-label="Document"><canvas id="page" width="800" height="500"></canvas>' +
+      '<iframe id="ifr" title="Document text input"></iframe></div>';
+    const paras = [""], caret = {p: 0, o: 0}, c = document.getElementById("page"), g = c.getContext("2d");
+    const ifr = document.getElementById("ifr"), d = ifr.contentDocument;
+    d.open(); d.write('<body style="margin:0"><div contenteditable="true" role="textbox" aria-label="Document content" ' +
+      'aria-multiline="true" style="white-space:pre"></div></body>'); d.close();
+    const ed = d.querySelector("div");
+    const draw = () => { g.clearRect(0, 0, 800, 500); g.font = "16px sans-serif";
+      paras.forEach((p, i) => g.fillText(p, 20, 30 + i * 24));
+      ifr.style.left = (20 + g.measureText(paras[caret.p].slice(0, caret.o)).width) + "px"; ifr.style.top = (14 + caret.p * 24) + "px"; };
+    const insert = (t) => { const p = paras[caret.p]; paras[caret.p] = p.slice(0, caret.o) + t + p.slice(caret.o); caret.o += t.length; };
+    window.docEvents = [];
+    c.addEventListener("mousedown", (e) => { e.preventDefault(); caret.p = Math.max(0, Math.min(paras.length - 1, Math.floor((e.offsetY - 12) / 24)));
+      caret.o = paras[caret.p].length; draw(); ed.focus(); });
+    ed.addEventListener("keydown", (e) => { docEvents.push("keydown:" + e.key + (e.isTrusted ? "" : "(untrusted)"));
+      if (e.key === "Enter") { const p = paras[caret.p]; paras.splice(caret.p + 1, 0, p.slice(caret.o)); paras[caret.p] = p.slice(0, caret.o);
+        caret.p++; caret.o = 0; e.preventDefault(); draw(); }
+      else if (e.key === "Backspace" && caret.o > 0) { const p = paras[caret.p]; paras[caret.p] = p.slice(0, caret.o - 1) + p.slice(caret.o); caret.o--; e.preventDefault(); draw(); }
+      else if (e.key === "a" && e.metaKey) { e.preventDefault(); window.selectedAll = true; } });
+    ed.addEventListener("beforeinput", (e) => { docEvents.push("beforeinput:" + e.inputType + (e.isTrusted ? "" : "(untrusted)"));
+      e.preventDefault();
+      if (e.inputType === "insertText" && typeof e.data === "string") {
+        if (window.selectedAll) { paras.splice(0, paras.length, ""); caret.p = 0; caret.o = 0; window.selectedAll = false; }
+        const lines = e.data.split("\n"); insert(lines[0]);
+        for (const line of lines.slice(1)) { const p = paras[caret.p]; paras.splice(caret.p + 1, 0, p.slice(caret.o)); paras[caret.p] = p.slice(0, caret.o); caret.p++; caret.o = 0; insert(line); }
+      } else if (e.inputType === "insertFromPaste" && e.dataTransfer) insert(e.dataTransfer.getData("text/plain"));
+      draw(); });
+    draw();
+    window.labState = () => ({ready: true, text: paras.join("\n"), events: docEvents.slice(-50)});
+  }
+</script>

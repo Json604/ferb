@@ -1,0 +1,24 @@
+<!doctype html>
+<!-- Lab page (never the clipboard: the lab Chrome shares the Mac's clipboard with the owner): things the browser itself draws or asks. Each button starts one: a popup window (OAuth-like), print,
+     a notifications permission prompt, a location prompt, a PDF in the built-in viewer, a
+     page behind HTTP basic auth. labState() says what each call returned (or that it is still waiting). -->
+<meta charset="utf-8">
+<title>Browser UI lab</title>
+<style>body { font: 15px -apple-system, sans-serif; margin: 20px; } button { display: block; margin: 8px 0; }</style>
+<h1>Browser UI lab</h1>
+<button type="button" id="popup">Sign in with Lab (popup)</button>
+<button type="button" id="print">Print this page</button>
+<button type="button" id="notify">Allow notifications</button>
+<button type="button" id="geo">Use my location</button>
+<a href="/doc.pdf" id="pdf">Invoice PDF</a> · <a href="/auth" id="auth">Members area (password)</a>
+<script>
+  const s = {};
+  const $ = (q) => document.querySelector(q);
+  addEventListener("message", (e) => { if (e.data && e.data.lab === "popup") s.popup = e.data.v; });
+  $("#popup").onclick = () => { s.popupOpened = !!window.open("frame-child.html?name=popup", "auth", "width=420,height=300"); };
+  $("#print").onclick = () => { s.print = "called"; window.print(); s.print = "returned"; };
+  $("#notify").onclick = async () => { s.notify = "asked"; s.notify = await Notification.requestPermission(); };
+  $("#geo").onclick = () => { s.geo = "asked"; navigator.geolocation.getCurrentPosition(() => { s.geo = "granted"; },
+    (e) => { s.geo = "error " + e.code + " " + e.message; }, {timeout: 8000}); };
+  window.labState = () => ({ready: true, ...s});
+</script>

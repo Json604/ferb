@@ -1,0 +1,12 @@
+<!doctype html>
+<!-- Lab frame: a small form that reports its field and click to the top page (and to /seen on its own origin). -->
+<meta charset="utf-8">
+<title>child</title>
+<body style="font:14px sans-serif;margin:6px">
+<script>
+  const q = new URLSearchParams(location.search), name = q.get("name") || "child";
+  const tell = (v) => { top.postMessage({lab: name, v}, "*"); try { parent.postMessage({lab: name, v}, "*"); } catch (_) {} };
+  document.write(`<label>${name} field <input aria-label="${name} field"></label> <button type="button" id="go">${name} pay</button>`);
+  if (q.get("inner")) document.write(`<iframe src="${q.get("inner")}/frame-child.html?name=nested-inner" width="460" height="80" title="Inner frame"></iframe>`);
+  document.getElementById("go").addEventListener("click", (e) => tell({value: document.querySelector("input").value, trusted: e.isTrusted}));
+</script>

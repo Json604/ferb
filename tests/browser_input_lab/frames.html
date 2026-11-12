@@ -1,0 +1,24 @@
+<!doctype html>
+<!-- Lab page: frames. ?b=<other origin> gives the cross-origin side. A same-origin frame, a cross-origin frame (a
+     "payment" form, like Stripe Elements or a 3-D Secure page), a sandboxed frame (scripts only), a srcdoc frame, a
+     cross-origin frame scrolled inside its own scroller, and a frame with its own contenteditable editor (like Gmail's
+     older composer or TinyMCE). Each frame reports to its parent with postMessage, kept in labState(). -->
+<meta charset="utf-8">
+<title>Frames lab</title>
+<style>body { font: 15px -apple-system, sans-serif; margin: 20px; } iframe { display: block; margin: 10px 0; border: 1px solid #999; }</style>
+<h1>Frames lab</h1>
+<script>
+  const b = new URLSearchParams(location.search).get("b") || location.origin;
+  const reports = {};
+  addEventListener("message", (e) => { if (e.data && e.data.lab) reports[e.data.lab] = e.data.v; });
+  const child = (name) => `frame-child.html?name=${name}`;
+  document.write(`<iframe id="same" src="${child("same")}" width="500" height="90" title="Same-origin frame"></iframe>`);
+  document.write(`<iframe id="cross" src="${b}/${child("cross")}" width="500" height="90" title="Payment frame"></iframe>`);
+  document.write(`<iframe id="sandboxed" sandbox="allow-scripts" src="${b}/${child("sandboxed")}" width="500" height="90" title="Sandboxed frame"></iframe>`);
+  document.write(`<iframe id="srcdoc" srcdoc="<button onclick=&quot;parent.postMessage({lab:'srcdoc',v:event.isTrusted},'*')&quot;>Srcdoc button</button>" width="500" height="50" title="Srcdoc frame"></iframe>`);
+  document.write(`<div style="height:120px;overflow:auto;width:520px;border:1px solid #333"><div style="height:300px"></div>
+    <iframe id="scrolled" src="${b}/${child("scrolled")}" width="500" height="90" title="Scrolled frame"></iframe></div>`);
+  document.write(`<iframe id="nested" src="${b}/${child("nested")}&inner=${encodeURIComponent(location.origin)}" width="500" height="200" title="Nested frame"></iframe>`);
+  document.write(`<iframe id="editor" src="${b}/frame-editor.html" width="500" height="120" title="Framed editor"></iframe>`);
+  window.labState = () => ({ready: true, ...reports});
+</script>

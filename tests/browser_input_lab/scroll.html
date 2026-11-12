@@ -1,0 +1,56 @@
+<!doctype html>
+<!-- Lab page: scrolling surfaces. (1) a virtualised list of 10,000 rows (only ~20 rows exist in the DOM at a time, as
+     in Gmail, Slack, X, Sheets' side panels), (2) an infinite feed that loads 20 more items near its end, (3) a
+     scroll-snap carousel scrolled sideways, (4) a sticky header over the page, (5) a nested scroller inside a scroller.
+     labState() reports what each one shows. -->
+<meta charset="utf-8">
+<title>Scroll lab</title>
+<style>
+  body { font: 15px -apple-system, sans-serif; margin: 0; }
+  header { position: sticky; top: 0; background: #234; color: #fff; padding: 14px; z-index: 5; }
+  #virtual { height: 300px; width: 360px; overflow-y: auto; border: 1px solid #333; position: relative; margin: 10px; }
+  #virtual .row { position: absolute; left: 0; right: 0; height: 30px; line-height: 30px; padding-left: 8px; border-bottom: 1px solid #eee; }
+  #feed { height: 240px; width: 360px; overflow-y: auto; border: 1px solid #333; margin: 10px; }
+  #feed p { margin: 0; padding: 18px 8px; border-bottom: 1px solid #ddd; }
+  #carousel { width: 400px; overflow-x: auto; display: flex; scroll-snap-type: x mandatory; margin: 10px; border: 1px solid #333; }
+  #carousel section { flex: 0 0 400px; height: 120px; scroll-snap-align: start; display: flex; align-items: center; justify-content: center; font-size: 22px; }
+  #outer { height: 200px; width: 380px; overflow-y: auto; border: 1px solid #333; margin: 10px; }
+  #inner { height: 120px; overflow-y: auto; border: 1px solid #a33; margin: 300px 10px; }
+  .filler { height: 1400px; }
+</style>
+<header>Sticky header: Scroll lab</header>
+<h2>Virtual list</h2>
+<div id="virtual" role="list" aria-label="Messages"><div id="spacer"></div></div>
+<h2>Feed</h2>
+<div id="feed" role="feed" aria-label="Feed"></div>
+<h2>Carousel</h2>
+<div id="carousel" aria-label="Carousel"></div>
+<h2>Nested</h2>
+<div id="outer" aria-label="Outer panel"><div id="inner" aria-label="Inner panel">
+  <div style="height:600px">Inner top<br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br>
+  <button type="button" id="deep">Deep button</button></div></div></div>
+<div class="filler">Filler</div>
+<button type="button" id="bottom" onclick="this.textContent='Bottom clicked'">Bottom button</button>
+<script>
+  const $ = (s) => document.querySelector(s);
+  const v = $("#virtual"), N = 10000, H = 30;
+  $("#spacer").style.height = N * H + "px";
+  function draw() {
+    const first = Math.floor(v.scrollTop / H), last = Math.min(N, first + 12);
+    v.querySelectorAll(".row").forEach((r) => r.remove());
+    for (let i = first; i < last; i++) {
+      const r = document.createElement("div"); r.className = "row"; r.setAttribute("role", "listitem");
+      r.style.top = i * H + "px"; r.textContent = "Message " + (i + 1); v.appendChild(r);
+    }
+  }
+  v.addEventListener("scroll", draw); draw();
+  const feed = $("#feed"); let loaded = 0;
+  function more() { for (let i = 0; i < 20; i++) { const p = document.createElement("p"); p.textContent = "Post " + (++loaded); feed.appendChild(p); } }
+  more();
+  feed.addEventListener("scroll", () => { if (feed.scrollTop + feed.clientHeight > feed.scrollHeight - 50 && loaded < 200) setTimeout(more, 300); });
+  $("#carousel").innerHTML = [1, 2, 3, 4, 5].map((i) => `<section aria-label="Slide ${i}">Slide ${i}</section>`).join("");
+  window.labState = () => ({ready: true, virtualTop: v.scrollTop,
+    virtualShown: [...v.querySelectorAll(".row")].map((r) => r.textContent).slice(0, 3), feedLoaded: loaded,
+    carouselLeft: $("#carousel").scrollLeft, innerTop: $("#inner").scrollTop, outerTop: $("#outer").scrollTop,
+    pageY: scrollY, bottom: $("#bottom").textContent});
+</script>

@@ -1,0 +1,61 @@
+<!doctype html>
+<!-- Lab page: pointer-only affordances. (1) a CSS :hover menu whose items exist only while hovered, (2) a JS mouseenter
+     menu, (3) a custom right-click menu, (4) a double-click-to-edit cell, (5) a row whose action buttons show on hover,
+     (6) shift-click range selection and cmd-click multi-selection in a list (Gmail, Drive, Finder-like), (7) a
+     tooltip with the only copy of some text. labState() reads each result. -->
+<meta charset="utf-8">
+<title>Pointer lab</title>
+<style>
+  body { font: 15px -apple-system, sans-serif; margin: 20px; }
+  nav .menu { display: inline-block; position: relative; padding: 8px 14px; background: #eee; }
+  nav .menu ul { display: none; position: absolute; top: 100%; left: 0; background: #fff; border: 1px solid #999; list-style: none; padding: 0; margin: 0; }
+  nav .menu:hover ul { display: block; }
+  nav .menu li a { display: block; padding: 6px 14px; white-space: nowrap; }
+  #jsmenu ul { position: absolute; background: #fff; border: 1px solid #999; list-style: none; padding: 0; margin: 0; }
+  #ctx { position: fixed; display: none; background: #fff; border: 1px solid #333; }
+  #ctx button { display: block; width: 140px; text-align: left; }
+  .row { width: 360px; padding: 10px; border-bottom: 1px solid #ddd; position: relative; }
+  .row .actions { visibility: hidden; position: absolute; right: 8px; top: 6px; }
+  .row:hover .actions { visibility: visible; }
+  #files li { padding: 4px; user-select: none; }
+  #files li.sel { background: #cde; }
+  #tip { position: relative; border-bottom: 1px dotted; }
+  #tip .bubble { display: none; position: absolute; top: 120%; left: 0; background: #333; color: #fff; padding: 4px 8px; white-space: nowrap; }
+  #tip:hover .bubble { display: block; }
+</style>
+<h1>Pointer lab</h1>
+<nav><div class="menu" tabindex="0">Products <ul><li><a href="#laptops" onclick="window.picked='Laptops'">Laptops</a></li>
+  <li><a href="#phones" onclick="window.picked='Phones'">Phones</a></li></ul></div></nav>
+<div id="jsmenu" style="margin-top:40px"><span id="account" style="padding:8px;background:#eee">Account</span></div>
+<p id="area" style="margin-top:60px;padding:20px;border:1px dashed #999;width:300px">Right-click this area</p>
+<div id="ctx" role="menu"><button role="menuitem" onclick="window.ctxPicked='Rename';ctx.style.display='none'">Rename</button>
+  <button role="menuitem" onclick="window.ctxPicked='Archive';ctx.style.display='none'">Archive</button></div>
+<table border="1"><tr><td id="cell" style="width:200px;padding:6px">Double-click to edit</td></tr></table>
+<div class="row" id="row1">Invoice 1001<span class="actions"><button type="button" onclick="window.rowAction='archive 1001'">Archive</button></span></div>
+<div class="row" id="row2">Invoice 1002<span class="actions"><button type="button" onclick="window.rowAction='archive 1002'">Archive</button></span></div>
+<ul id="files" role="listbox" aria-multiselectable="true" aria-label="Files">
+  <li role="option" aria-selected="false">a.txt</li><li role="option" aria-selected="false">b.txt</li>
+  <li role="option" aria-selected="false">c.txt</li><li role="option" aria-selected="false">d.txt</li>
+  <li role="option" aria-selected="false">e.txt</li></ul>
+<p>Order <span id="tip" tabindex="0">#A-77<span class="bubble">Delivered 3 Nov to Locker 12</span></span></p>
+<script>
+  const $ = (s) => document.querySelector(s);
+  const acct = $("#account");
+  acct.addEventListener("mouseenter", () => { if ($("#jsmenu ul")) return;
+    const ul = document.createElement("ul"); ul.innerHTML = '<li><button type="button" onclick="window.picked=\'Sign out\'">Sign out</button></li>';
+    $("#jsmenu").appendChild(ul); });
+  $("#jsmenu").addEventListener("mouseleave", () => { const ul = $("#jsmenu ul"); if (ul) ul.remove(); });
+  const ctx = $("#ctx");
+  $("#area").addEventListener("contextmenu", (e) => { e.preventDefault(); ctx.style.left = e.clientX + "px"; ctx.style.top = e.clientY + "px"; ctx.style.display = "block"; });
+  $("#cell").addEventListener("dblclick", () => { const c = $("#cell"); c.innerHTML = '<input aria-label="Cell value" value="' + c.textContent + '">';
+    c.firstChild.focus(); c.firstChild.addEventListener("keydown", (e) => { if (e.key === "Enter") { c.textContent = c.firstChild.value; } }); });
+  const items = [...document.querySelectorAll("#files li")]; let anchor = 0;
+  items.forEach((li, i) => li.addEventListener("click", (e) => {
+    if (e.shiftKey) { const [a, b] = [Math.min(anchor, i), Math.max(anchor, i)]; items.forEach((x, k) => x.classList.toggle("sel", k >= a && k <= b)); }
+    else if (e.metaKey || e.ctrlKey) { li.classList.toggle("sel"); anchor = i; }
+    else { items.forEach((x) => x.classList.toggle("sel", x === li)); anchor = i; }
+    items.forEach((x) => x.setAttribute("aria-selected", String(x.classList.contains("sel")))); }));
+  window.labState = () => ({ready: true, picked: window.picked || null, ctx: window.ctxPicked || null,
+    cell: $("#cell").textContent, rowAction: window.rowAction || null,
+    selected: items.filter((x) => x.classList.contains("sel")).map((x) => x.textContent)});
+</script>

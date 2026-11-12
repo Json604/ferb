@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- Lab page: web components. An open shadow root with a field and a button, a closed shadow root with the same, a
+     slotted button, nested shadow roots, and real Shoelace components (sl-input, sl-select, sl-checkbox) from a CDN.
+     labState() reads each value. -->
+<meta charset="utf-8">
+<title>Shadow lab</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.15.1/cdn/themes/light.css">
+<script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.15.1/cdn/shoelace-autoloader.js"></script>
+<style>body { font: 15px -apple-system, sans-serif; margin: 20px; width: 600px; } sl-input, sl-select { margin: 10px 0; }</style>
+<h1>Shadow lab</h1>
+<open-form></open-form>
+<closed-form></closed-form>
+<slot-card><button type="button" id="slotted" onclick="window.slotted = true">Slotted action</button></slot-card>
+<outer-shell></outer-shell>
+<sl-input id="slin" label="Full name"></sl-input>
+<sl-select id="slsel" label="Plan"><sl-option value="free">Free</sl-option><sl-option value="pro">Pro</sl-option>
+  <sl-option value="team">Team</sl-option></sl-select>
+<sl-checkbox id="slchk">Subscribe</sl-checkbox>
+<script>
+  const state = {};
+  function form(mode, tag) {
+    customElements.define(tag, class extends HTMLElement {
+      constructor() { super(); const r = this.attachShadow({mode});
+        r.innerHTML = `<label>${mode} email <input aria-label="${mode} email"></label> <button type="button">${mode} save</button>`;
+        r.querySelector("button").addEventListener("click", (e) => { state[mode] = {saved: r.querySelector("input").value, trusted: e.isTrusted}; }); }
+    });
+  }
+  form("open", "open-form"); form("closed", "closed-form");
+  customElements.define("slot-card", class extends HTMLElement {
+    constructor() { super(); this.attachShadow({mode: "open"}).innerHTML = "<div style='border:1px solid #999;padding:8px'><b>Card</b> <slot></slot></div>"; } });
+  customElements.define("inner-leaf", class extends HTMLElement {
+    constructor() { super(); const r = this.attachShadow({mode: "closed"});
+      r.innerHTML = "<button type='button'>Deep leaf</button>"; r.querySelector("button").onclick = (e) => { state.leaf = e.isTrusted; }; } });
+  customElements.define("outer-shell", class extends HTMLElement {
+    constructor() { super(); this.attachShadow({mode: "open"}).innerHTML = "<p>Shell <inner-leaf></inner-leaf></p>"; } });
+  window.labState = () => ({ready: !!customElements.get("sl-input"), ...state, slotted: !!window.slotted,
+    slin: document.querySelector("#slin").value, slsel: document.querySelector("#slsel").value,
+    slchk: document.querySelector("#slchk").checked});
+</script>

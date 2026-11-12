@@ -1,0 +1,161 @@
+<!doctype html>
+<!-- Lab page (tests/test_browser_input_gaps_real.py): one real open-source rich-text or code editor, chosen by
+     ?e=<name>, loaded from a public CDN at a pinned version. window.labState() says what the editor's own model holds
+     (never what FERB's snapshot read), so a test compares FERB's result with the editor's truth. -->
+<meta charset="utf-8">
+<title>Editor lab</title>
+<style>
+  body { font: 15px -apple-system, sans-serif; margin: 20px; }
+  #host { width: 760px; min-height: 260px; border: 1px solid #999; }
+  #host .ProseMirror, #host [contenteditable] { min-height: 240px; outline: none; padding: 6px; }
+  #status { color: #555; }
+</style>
+<h1 id="name">Editor</h1>
+<p id="status">loading</p>
+<div id="host"></div>
+<p><button type="button" id="after">A button after the editor</button></p>
+<script>
+  window.labEvents = [];
+  for (const t of ["keydown", "beforeinput", "input", "paste", "compositionend"])
+    document.addEventListener(t, (e) => labEvents.push({type: t, trusted: e.isTrusted,
+      inputType: e.inputType || null, key: e.key || null, data: typeof e.data === "string" ? e.data.slice(0, 40) : null}), true);
+  const e = new URLSearchParams(location.search).get("e") || "plain";
+  document.getElementById("name").textContent = "Editor: " + e;
+  window.labReady = false;
+  window.labState = () => ({ready: window.labReady, text: window.labText ? window.labText() : null,
+    html: window.labHtml ? window.labHtml() : null, events: labEvents.slice(-400)});
+  const ready = (text, html) => { window.labText = text; window.labHtml = html || null; window.labReady = true;
+    document.getElementById("status").textContent = "ready"; };
+  const css = (href) => { const l = document.createElement("link"); l.rel = "stylesheet"; l.href = href; document.head.appendChild(l); };
+  const js = (src) => new Promise((ok, bad) => { const s = document.createElement("script"); s.src = src; s.onload = ok;
+    s.onerror = bad; document.head.appendChild(s); });
+  const host = document.getElementById("host");
+  window.labLoaders = {
+    // a plain contenteditable and a textarea: the browser's own editing, no library
+    async plain() {
+      host.innerHTML = '<div contenteditable="true" role="textbox" aria-multiline="true" aria-label="Plain editor"></div>' +
+        '<textarea aria-label="Plain textarea" rows="5" cols="80"></textarea>';
+      const ce = host.querySelector("[contenteditable]"), ta = host.querySelector("textarea");
+      ready(() => ({editor: ce.innerText, textarea: ta.value}), () => ce.innerHTML);
+    },
+    // LinkedIn's post box and Slack's older composer are Quill
+    async quill() {
+      css("https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css");
+      await js("https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js");
+      const q = new Quill(host, {theme: "snow", placeholder: "Write a post"});
+      ready(() => q.getText(), () => q.root.innerHTML);
+    },
+    // Linear, Atlassian, the New York Times' editor are ProseMirror
+    async prosemirror() {
+      css("https://cdn.jsdelivr.net/npm/prosemirror-view@1.33.8/style/prosemirror.css");
+      css("https://cdn.jsdelivr.net/npm/prosemirror-menu@1.2.4/style/menu.css");
+      css("https://cdn.jsdelivr.net/npm/prosemirror-example-setup@1.2.3/style/style.css");
+      const [{EditorState}, {EditorView}, {schema}, {exampleSetup}] = await Promise.all([
+        import("https://esm.sh/prosemirror-state@1.4.3"), import("https://esm.sh/prosemirror-view@1.33.8"),
+        import("https://esm.sh/prosemirror-schema-basic@1.2.3"), import("https://esm.sh/prosemirror-example-setup@1.2.3")]);
+      const view = new EditorView(host, {state: EditorState.create({schema, plugins: exampleSetup({schema})}),
+        attributes: {"aria-label": "ProseMirror editor", role: "textbox"}});
+      window.pmView = view;
+      ready(() => view.state.doc.textBetween(0, view.state.doc.content.size, "\n"), () => view.dom.innerHTML);
+    },
+    // TipTap (ProseMirror): Linear, GitLab, Substack
+    async tiptap() {
+      const [{Editor}, {default: StarterKit}] = await Promise.all([
+        import("https://esm.sh/@tiptap/core@2.6.6"), import("https://esm.sh/@tiptap/starter-kit@2.6.6")]);
+      const ed = new Editor({element: host, extensions: [StarterKit], editorProps: {attributes: {"aria-label": "TipTap editor"}}});
+      ready(() => ed.getText({blockSeparator: "\n"}), () => ed.getHTML());
+    },
+    // Lexical: Facebook, WhatsApp Web's composer
+    async lexical() {
+      const [lex, rich, hist] = await Promise.all([import("https://esm.sh/lexical@0.17.1"),
+        import("https://esm.sh/@lexical/rich-text@0.17.1"), import("https://esm.sh/@lexical/history@0.17.1")]);
+      host.innerHTML = '<div contenteditable="true" role="textbox" aria-label="Lexical editor"></div>';
+      const editor = lex.createEditor({namespace: "lab", nodes: [rich.HeadingNode, rich.QuoteNode], onError: (e) => { throw e; }});
+      editor.setRootElement(host.firstChild);
+      rich.registerRichText(editor);
+      hist.registerHistory(editor, hist.createEmptyHistoryState(), 300);
+      ready(() => editor.getEditorState().read(() => lex.$getRoot().getTextContent()), () => host.firstChild.innerHTML);
+    },
+    // Slate: Discord's message box, many React apps
+    async slate() {
+      const deps = "?deps=react@18.3.1,react-dom@18.3.1";
+      const [React, {createRoot}, {createEditor, Node}, {Slate, Editable, withReact}] = await Promise.all([
+        import("https://esm.sh/react@18.3.1"), import("https://esm.sh/react-dom@18.3.1/client"),
+        import("https://esm.sh/slate@0.103.0" ), import("https://esm.sh/slate-react@0.108.0" + deps + ",slate@0.103.0")]);
+      const editor = withReact(createEditor());
+      const initial = [{type: "paragraph", children: [{text: ""}]}];
+      window.slateEditor = editor;
+      createRoot(host).render(React.createElement(Slate, {editor, initialValue: initial},
+        React.createElement(Editable, {"aria-label": "Slate editor", placeholder: "Message"})));
+      await new Promise((r) => setTimeout(r, 300));
+      ready(() => editor.children.map((n) => Node.string(n)).join("\n"), () => host.innerHTML);
+    },
+    // Draft.js: X (Twitter)'s composer
+    async draft() {
+      const deps = "?deps=react@18.3.1,react-dom@18.3.1";
+      const [React, {createRoot}, Draft] = await Promise.all([import("https://esm.sh/react@18.3.1"),
+        import("https://esm.sh/react-dom@18.3.1/client"), import("https://esm.sh/draft-js@0.11.7" + deps)]);
+      let state = Draft.EditorState.createEmpty();
+      function App() {
+        const [s, set] = React.useState(state);
+        window.draftState = s;
+        return React.createElement(Draft.Editor, {editorState: s, onChange: (n) => { state = n; set(n); },
+          ariaLabel: "Draft editor", placeholder: "What is happening?!"});
+      }
+      createRoot(host).render(React.createElement(App));
+      await new Promise((r) => setTimeout(r, 300));
+      ready(() => window.draftState.getCurrentContent().getPlainText("\n"));
+    },
+    // CKEditor 5 (classic build): many CMSs and webmail
+    async ckeditor() {
+      await js("https://cdn.ckeditor.com/ckeditor5/41.4.2/classic/ckeditor.js");
+      const ed = await ClassicEditor.create(host);
+      ready(() => ed.getData().replace(/<\/p>/g, "\n").replace(/<[^>]+>/g, "").trim(), () => ed.getData());
+    },
+    // TinyMCE: its editing surface is a contenteditable body inside an iframe
+    async tinymce() {
+      await js("https://cdn.jsdelivr.net/npm/tinymce@7.3.0/tinymce.min.js");
+      host.innerHTML = '<textarea id="tiny"></textarea>';
+      const [ed] = await tinymce.init({selector: "#tiny", license_key: "gpl", menubar: false, height: 300,
+        base_url: "https://cdn.jsdelivr.net/npm/tinymce@7.3.0", suffix: ".min", promotion: false, branding: false});
+      ready(() => ed.getContent({format: "text"}), () => ed.getContent());
+    },
+    // Monaco: VS Code for the web, GitHub's web editor, LeetCode, Azure
+    async monaco() {
+      await js("https://cdn.jsdelivr.net/npm/monaco-editor@0.50.0/min/vs/loader.js");
+      require.config({paths: {vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.50.0/min/vs"}});
+      window.MonacoEnvironment = {getWorkerUrl: () => "data:text/javascript;charset=utf-8," +
+        encodeURIComponent("self.MonacoEnvironment={baseUrl:'https://cdn.jsdelivr.net/npm/monaco-editor@0.50.0/min/'};" +
+                           "importScripts('https://cdn.jsdelivr.net/npm/monaco-editor@0.50.0/min/vs/base/worker/workerMain.js');")};
+      await new Promise((r) => require(["vs/editor/editor.main"], r));
+      host.style.height = "300px";
+      const ed = monaco.editor.create(host, {value: "", language: "python", automaticLayout: true, ariaLabel: "Code editor"});
+      ready(() => ed.getValue());
+    },
+    // CodeMirror 6: Replit, Observable, many code boxes
+    async cm6() {
+      const [{basicSetup, EditorView}, {python}] = await Promise.all([import("https://esm.sh/codemirror@6.0.1"),
+        import("https://esm.sh/@codemirror/lang-python@6.1.6")]);
+      const view = new EditorView({doc: "", extensions: [basicSetup, python(),
+        EditorView.contentAttributes.of({"aria-label": "CodeMirror 6 editor"})], parent: host});
+      ready(() => view.state.doc.toString());
+    },
+    // CodeMirror 5: Jupyter classic, older Colab-like pages; input goes through a hidden textarea
+    async cm5() {
+      css("https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css");
+      await js("https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js");
+      const cm = CodeMirror(host, {value: "", lineNumbers: true, screenReaderLabel: "CodeMirror 5 editor"});
+      ready(() => cm.getValue());
+    },
+    // Ace: Cloud9, AWS console, many judges; also a hidden textarea
+    async ace() {
+      await js("https://cdnjs.cloudflare.com/ajax/libs/ace/1.35.0/ace.js");
+      host.style.height = "300px";
+      const ed = ace.edit(host);
+      ed.textInput.getElement().setAttribute("aria-label", "Ace editor");
+      ready(() => ed.getValue());
+    },
+  };
+  (window.labLoaders[e] || window.labLoaders.plain)().catch((err) => {
+    document.getElementById("status").textContent = "load failed: " + err; window.labError = String(err && err.stack || err); });
+</script>

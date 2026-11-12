@@ -1,0 +1,62 @@
+<!doctype html>
+<!-- Lab page: drag and drop as the web does it. (1) SortableJS with the browser's own HTML5 drag and drop (its desktop
+     default; Jira/Trello-like boards built on native DnD), (2) SortableJS forceFallback (pointer/mouse events, like
+     dnd-kit or react-beautiful-dnd), (3) a hand-written native DnD kanban between two columns, (4) a resize handle,
+     (5) a pannable "map" (drag to move), (6) a press-and-hold button (long press). labState() reads each one. -->
+<meta charset="utf-8">
+<title>Drag lab</title>
+<style>
+  body { font: 15px -apple-system, sans-serif; margin: 20px; }
+  .list { width: 220px; display: inline-block; vertical-align: top; margin-right: 30px; }
+  .list div { border: 1px solid #888; margin: 4px 0; padding: 8px; background: #f6f6f6; }
+  .col { width: 200px; min-height: 160px; border: 2px dashed #aaa; display: inline-block; vertical-align: top; margin-right: 20px; padding: 6px; }
+  .card { border: 1px solid #555; padding: 8px; margin: 4px 0; background: #fff; }
+  #box { width: 200px; height: 80px; border: 1px solid #333; position: relative; margin-top: 20px; }
+  #grip { position: absolute; right: -6px; bottom: -6px; width: 14px; height: 14px; background: #333; cursor: nwse-resize; }
+  #map { width: 300px; height: 150px; overflow: hidden; border: 1px solid #333; position: relative; margin-top: 20px; }
+  #tiles { position: absolute; left: 0; top: 0; width: 900px; height: 450px;
+           background: repeating-linear-gradient(45deg, #ddd 0 20px, #eee 20px 40px); }
+  #hold { margin-top: 20px; padding: 10px 20px; }
+</style>
+<h1>Drag lab</h1>
+<div class="list" id="native" aria-label="Native sortable"><div>N1 Alpha</div><div>N2 Bravo</div><div>N3 Charlie</div><div>N4 Delta</div></div>
+<div class="list" id="pointer" aria-label="Pointer sortable"><div>P1 Alpha</div><div>P2 Bravo</div><div>P3 Charlie</div><div>P4 Delta</div></div>
+<div>
+  <div class="col" id="todo" aria-label="To do column"><b>To do</b><div class="card" draggable="true" id="c1">Card one</div>
+    <div class="card" draggable="true" id="c2">Card two</div></div>
+  <div class="col" id="done" aria-label="Done column"><b>Done</b></div>
+</div>
+<div id="box">Resizable box<div id="grip" aria-label="Resize handle" role="separator"></div></div>
+<div id="map" aria-label="Map"><div id="tiles"></div></div>
+<button type="button" id="hold">Hold to confirm</button>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script>
+  const $ = (s) => document.querySelector(s);
+  window.dragEvents = [];
+  for (const t of ["dragstart", "dragover", "drop", "dragend", "pointerdown", "pointerup", "mousedown", "mouseup"])
+    document.addEventListener(t, (e) => dragEvents.push(t + (e.isTrusted ? "" : "(untrusted)")), true);
+  Sortable.create($("#native"), {animation: 0});
+  Sortable.create($("#pointer"), {animation: 0, forceFallback: true});
+  for (const card of document.querySelectorAll(".card"))
+    card.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", card.id));
+  for (const col of document.querySelectorAll(".col")) {
+    col.addEventListener("dragover", (e) => e.preventDefault());
+    col.addEventListener("drop", (e) => { e.preventDefault(); const c = document.getElementById(e.dataTransfer.getData("text/plain")); if (c) col.appendChild(c); });
+  }
+  let resizing = null;
+  $("#grip").addEventListener("pointerdown", (e) => { resizing = {x: e.clientX, w: $("#box").offsetWidth}; e.target.setPointerCapture(e.pointerId); });
+  $("#grip").addEventListener("pointermove", (e) => { if (resizing) $("#box").style.width = (resizing.w + e.clientX - resizing.x) + "px"; });
+  $("#grip").addEventListener("pointerup", () => { resizing = null; });
+  let pan = null, off = [0, 0];
+  $("#map").addEventListener("mousedown", (e) => { pan = {x: e.clientX, y: e.clientY, o: off.slice()}; });
+  addEventListener("mousemove", (e) => { if (!pan) return; off = [pan.o[0] + e.clientX - pan.x, pan.o[1] + e.clientY - pan.y];
+    $("#tiles").style.transform = `translate(${off[0]}px, ${off[1]}px)`; });
+  addEventListener("mouseup", () => { pan = null; });
+  let held = 0, timer = null, confirmed = false;
+  $("#hold").addEventListener("pointerdown", () => { held = Date.now(); timer = setTimeout(() => { confirmed = true; $("#hold").textContent = "Confirmed"; }, 1500); });
+  $("#hold").addEventListener("pointerup", () => { clearTimeout(timer); held = Date.now() - held; });
+  const order = (s) => [...document.querySelectorAll(s + " > div")].map((d) => d.textContent.slice(0, 2));
+  window.labState = () => ({ready: true, native: order("#native"), pointer: order("#pointer"),
+    done: [...document.querySelectorAll("#done .card")].map((c) => c.id), boxWidth: $("#box").offsetWidth, pan: off,
+    holdMs: held, confirmed, events: [...new Set(dragEvents)]});
+</script>

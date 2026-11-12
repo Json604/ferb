@@ -1,0 +1,11 @@
+<!doctype html>
+<!-- Lab frame: a contenteditable editor inside a cross-origin frame; reports its text to the top page on every input. -->
+<meta charset="utf-8">
+<title>framed editor</title>
+<body style="margin:0">
+<div contenteditable="true" role="textbox" aria-label="Framed editor" aria-multiline="true"
+     style="min-height:100px;padding:6px;font:14px sans-serif"></div>
+<script>
+  const ed = document.querySelector("[contenteditable]");
+  ed.addEventListener("input", () => top.postMessage({lab: "editor", v: ed.innerText}, "*"));
+</script>
