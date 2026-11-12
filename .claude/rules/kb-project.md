@@ -3,6 +3,7 @@ paths:
   - "README.md"
   - "CLAUDE.md"
   - "AGENTS.md"
+  - "HANDOFF.md"
   - "LICENSE/**"
   - "NOTICE/**"
   - "THIRD_PARTY_NOTICES.md"
