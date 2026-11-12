@@ -515,10 +515,11 @@ class Hub:
         """A running task still holds this tab (a loop's, resting between rounds, included): it isn't let go of here."""
         return any(d.holds(br, chrome_id) for d in self.drivers)
 
-    def tab_removed(self, br: "Bridge", chrome_id: int) -> None:
-        """A tab closed in the browser: a task tab is marked closed in its driver (re-review 2, R5)."""
+    def tab_removed(self, br: "Bridge", chrome_id: int, by_page: bool = False) -> None:
+        """A tab closed in the browser: a task tab is marked closed in its driver (re-review 2, R5); `by_page`: its
+        own page closed it (HAND-511)."""
         for d in self.drivers:
-            d.tab_closed(br, chrome_id)
+            d.tab_closed(br, chrome_id, by_page)
 
     def _spawn(self, coro: Awaitable[Any]) -> None:
         async def quiet() -> None:
@@ -738,6 +739,10 @@ class Hub:
                 self.publish("browser.file_chooser", {"profile": br.name, **ev.model_dump(exclude_none=True)})
             elif ev.event == "download":
                 self.on_download(br, ev)                     # its parts come back on this connection: never awaited
+                if ev.blank_tab is True and ev.download_id:   # HAND-511: the tab held only this download
+                    for d in self.drivers:
+                        if d.task_tab(br, ev.tab_id) is not None:
+                            self._spawn(d.download_tab_done(br, ev.tab_id))
             elif ev.event == "open":
                 self._on_open(br, ev)
             elif ev.event == "popup":
@@ -754,7 +759,7 @@ class Hub:
             except ValueError:
                 return
             if e.event == "removed":
-                self.tab_removed(br, e.tab_id)
+                self.tab_removed(br, e.tab_id, e.closed_by_page is True)
                 if (job := self.on_tab_closed(br, e.tab_id)) is not None:
                     self._spawn(job)
             if self.paused() and not self.owned(br, e.tab_id):
@@ -1023,6 +1028,9 @@ class _Tab:
     closed: bool = False            # closed in the browser (the owner): listed as closed, never driven again
     left: str = ""                  # why FERB no longer drives it (closed, taken by the owner, lost on a reconnect)
     closing: bool = False           # FERB itself is closing it: its removal is no owner's stop
+    closed_news: list[dict[str, Any]] = field(default_factory=list)   # HAND-511: tabs that closed, not yet reported
+    download_only: bool = False     # HAND-511: its only content became a download FERB took; FERB closes it
+    loading: bool = False           # FERB's open is loading its address (HAND-511: not closed under it)
     held: bool = False              # it counts in its bridge's keepalive holds
     frame_urls: dict[int, str] = field(default_factory=dict)   # the latest snapshot's frames' URLs (masked)
     commerce: dict[str, Any] = field(default_factory=dict)     # the page's structured amount/merchant (protocol 18)
@@ -1081,6 +1089,9 @@ class _TabDriver:
         self.downloads: Downloads | None = None         # D35: shared by both drivers, daemon supplied
         self.uploads: Uploads | None = None             # rule 17: daemon supplied; the browser reads FERB's copy
         self.task_running: Callable[[str], bool] = lambda task: True   # daemon supplied: the task hasn't ended
+        # HAND-511, daemon supplied: the owner's own keyboard or mouse input is under way or just ended (the input
+        # tap's timing); None when the tap isn't running
+        self.owner_input_near: Callable[[], bool | None] = lambda: None
         # daemon supplied (L31): a loop holds this task's tabs between its rounds; the owner's own tab is then theirs
         # again for downloads and new tabs (owner, 2026-10-25: "give them back between rounds")
         self.task_resting: Callable[[str], bool] = lambda task: False
@@ -1234,7 +1245,11 @@ class _TabDriver:
             await self._orphaned(ref)
             raise DriverError("the task had already let go of its tabs; the new tab was closed before it loaded")
         try:
-            loaded = await br.call("navigate", {"tab_id": t.chrome_id, "url": url}, timeout=30)
+            t.loading = True
+            try:
+                loaded = await br.call("navigate", {"tab_id": t.chrome_id, "url": url}, timeout=30)
+            finally:
+                t.loading = False
             if loaded.get("navigated") is False:
                 raise DriverError(str(loaded.get("detail") or "the tab didn't load"), facts=loaded)
         except BaseException as e:                       # never a blank task tab the worker doesn't know about
@@ -1367,16 +1382,26 @@ class _TabDriver:
         return any(t.bridge is br and t.chrome_id == chrome_id and t.owner and not t.closed
                    and self.task_running(t.owner) for t in self._tabs.values())
 
-    def tab_closed(self, br: Bridge, chrome_id: int) -> None:
+    def tab_closed(self, br: Bridge, chrome_id: int, by_page: bool = False) -> None:
         """The browser closed this tab: the task's inventory says so; a reopened tab is a new one. Not FERB's own close,
         while its task runs: the owner stopped that part of the task (HAND-201), published for the supervisor
         (`browser.owner_stopped`; step 8 asks the owner whether to continue). `part` is "group" when no other tab FERB
-        opened for that task tree is left on this profile (the owner closed the group), else "tab"."""
+        opened for that task tree is left on this profile (the owner closed the group), else "tab".
+        HAND-511: a tab that closed itself is no owner's stop but a plain fact for the worker (`closed_tabs` in its next
+        result): its page said it closed its own window (`by_page`, the page hook), its only content was a download
+        FERB took, or a page opened it and the owner wasn't using the keyboard or mouse when it went."""
         for alias, t in self._tabs.items():
             if t.bridge is not br or t.chrome_id != chrome_id or t.closed:
                 continue
-            self._drop(t, "the owner closed this tab")
+            itself = by_page or t.download_only or (t.opener is not None and self.owner_input_near() is not True)
+            self._drop(t, "its page closed it" if itself else "the owner closed this tab")
             if t.closing or not t.owner or not self.task_running(t.owner):
+                continue
+            if itself:
+                self._closed_news(t, alias, "its page closed it (a sign-in window does once it is done)" if by_page
+                                  else "it only downloaded a file (see downloads)" if t.download_only
+                                  else "a page opened it, and it closed while the owner wasn't using the keyboard or "
+                                       "mouse: its page or the browser closed it")
                 continue
             root = self.task_root(t.owner)
             left = any(o is not t and o.bridge is br and not o.closed and not o.attached and o.owner
@@ -1384,6 +1409,55 @@ class _TabDriver:
             self.hub.publish("browser.owner_stopped", {"task_id": t.owner, "tab": alias, "profile": br.name,
                                                        "borrowed": t.attached,
                                                        "part": "tab" if left or t.attached else "group"})
+
+    def _closed_news(self, t: _Tab, alias: str, why: str) -> None:
+        """HAND-511: a task tab that closed itself, told in the next result of the tab that opened it, else of the
+        task's first tab still open."""
+        entry = {"tab": alias, "closed": why}
+        to = self._tabs.get(t.opener or "")
+        if to is None or to.closed:
+            to = next((o for o in self._tabs.values() if o.owner == t.owner and not o.closed and o is not t), None)
+        if to is not None:
+            to.closed_news.append(entry)
+
+    def closed_for(self, tab: TabRef) -> list[dict[str, Any]]:
+        """Tabs of this task that closed themselves (HAND-511), not yet reported."""
+        t = self._tabs.get(tab.tab_id)
+        if t is None:
+            return []
+        out, t.closed_news = t.closed_news, []
+        return out
+
+    def download_only(self, tab: TabRef) -> bool:
+        """HAND-511: this tab's only content became a download FERB took; FERB closes it (download_tab_done)."""
+        t = self._tabs.get(tab.tab_id)
+        return bool(t and t.download_only)
+
+    async def download_tab_done(self, br: Bridge, chrome_id: int) -> None:
+        """HAND-511: a task tab whose own page became a download and shows nothing else (a tab a page opened only to
+        download, FERB's open of an address that is a file) is closed by FERB once the file is taken, so it never
+        lingers blank or is closed by the browser as if the owner had."""
+        t = self._live(br, chrome_id)
+        if t is None or t.attached:
+            return
+        t.download_only = True
+        while self.downloads is not None and self.downloads.busy(br, chrome_id):   # closing it would fail the transfer;
+            await self.downloads.settle(br, chrome_id, 60)                         # a stalled one ends (HAND-233)
+        for _ in range(200):                           # FERB's own open still loading it: its answer comes first
+            live = self._live(br, chrome_id)
+            if live is None or not live.loading:
+                break
+            await asyncio.sleep(0.2)
+        t = self._live(br, chrome_id)
+        if t is None:
+            return
+        try:
+            await self.close(t.ref)
+        except DriverError:
+            pass                                       # its task's clean-up closes it otherwise
+        alias = t.ref.tab_id
+        if t.opener is not None:                       # a page's tab: told to the opener; FERB's own open says so itself
+            self._closed_news(t, alias, "it only downloaded a file (see downloads); FERB closed it")
 
     def task_tab(self, br: Bridge, chrome_id: int) -> TaskTab | None:
         """The live task that drives this tab now, for a download caught in it. A tab whose task ended, or whose

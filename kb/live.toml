@@ -4280,3 +4280,21 @@ request = "Ask FERB to archive that test email from the inbox list, using the ar
 pass = "The hover's result says ok with what changed under the pointer (no visual_target_changed, no outcome unknown), the archive click follows on a fresh snapshot or screenshot, and the email is in All Mail, not the inbox."
 decisions = ["HAND-508"]
 sitting = "after this change is installed and 0.19.10 is loaded"
+
+[LIVE-920]
+title = "A \"Sign in with Google\" window becomes the task's, and its closing doesn't stop the task"
+area = "hands"
+surface = "FERB.app with this build and the FERB extension 0.19.10; your browser profile signed in to Google; a site with \"Sign in with Google\" you already use (no new account)"
+request = "Ask FERB to sign in to that site with Google and tell you the account name it shows after."
+pass = "The click's result says it opened a tab (tN); FERB picks your account in that window; when the window closes itself FERB carries on (no \"You closed a tab I was using\" question), the next result lists it in closed_tabs, and FERB reports the signed-in name."
+decisions = ["HAND-511"]
+sitting = "after this change is installed and 0.19.10 is loaded"
+
+[LIVE-921]
+title = "A download a page starts in a new tab, and an address that is a file, leave no tab and no question"
+area = "hands"
+surface = "FERB.app with this build and the FERB extension 0.19.10; Brave \"Work\" (or your browser); a public Google Drive PDF link"
+request = "Ask FERB to download that Drive file with Drive's Download button, then again from its direct download address."
+pass = "Both times the file is in FERB's downloads (browser_downloads), no blank tab is left in the task's group, FERB asks no \"You closed a tab\" question, and the trace shows the download tab in closed_tabs or `closed`. Note whether the browser came to the front."
+decisions = ["HAND-511"]
+sitting = "after this change is installed and 0.19.10 is loaded"

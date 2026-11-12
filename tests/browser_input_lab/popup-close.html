@@ -1,0 +1,13 @@
+<!doctype html>
+<!-- Lab popup: a sign-in window that tells its opener it is done and closes itself, as "Sign in with Google" does. -->
+<meta charset="utf-8">
+<title>Lab sign-in</title>
+<body style="font:14px sans-serif;margin:10px">
+<p>Signing you in…</p>
+<button type="button" id="ok">Continue as Lab user</button>
+<script>
+  document.getElementById("ok").addEventListener("click", () => {
+    if (window.opener) window.opener.postMessage({lab: "signin", v: "done"}, "*");
+    setTimeout(() => window.close(), 300);
+  });
+</script>

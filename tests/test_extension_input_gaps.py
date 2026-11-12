@@ -3,6 +3,7 @@ the input gaps the lab (tests/test_browser_input_gaps_real.py) found. Live 2026-
 put text into a Google Doc, every type and press refused "target_occluded" while the document had the focus."""
 
 import json
+import time
 from typing import Any
 
 import pytest
@@ -261,3 +262,68 @@ def test_scrolls_sideways_by_screens_or_to_the_end_go_only_to_a_current_extensio
         assert scrolls == [("down", 3, None), ("right", None, "end")]
     else:
         assert scrolls == [] and "0.19.10" in str(a) and "up or down" in str(b)
+
+
+# decision: HAND-511
+def test_a_popup_window_the_tasks_click_opened_is_claimed_though_chrome_names_another_tab_as_its_opener() -> None:
+    """Live (task c301938e): "Sign in with Google" opened a sized window; Chrome's openerTabId named the active tab of
+    the owner's window, the task tab was a background one, so the window was never the task's."""
+    from tests.test_extension_dialogs import SETUP as DIALOGS
+    out = worker("(async () => {" + DIALOGS + '''
+      targets[23] = {targetId: "T23", openerId: "T8"};             // the browser's own word: tab 8 opened it
+      targets[24] = {targetId: "T24", openerId: "T99"};
+      chrome.windows = {get: async (id) => ({id, type: id === 5 ? "popup" : "normal"})};
+      chrome.tabs.get = async id => ({id, windowId: id === 23 || id === 24 ? 5 : 9, url, status: "complete", title: "S",
+                                      openerTabId: 1});              // Chrome names the owner's active tab
+      await arm(8);
+      await (await command("act", {kind: "click", snap: 1, el: 1})).done;
+      tabCreated({id: 23, pendingUrl: "https://accounts.example/signin"});
+      tabCreated({id: 24, pendingUrl: "https://other.example/"});     // another tab's popup window: let go of
+      await new Promise(r => setTimeout(r, 50));
+      return {popups: events.filter(e => e.event === "popup"), attached};
+    })()''')
+    assert out["popups"] == [{"event": "popup", "tab_id": 23, "opener_tab_id": 8, "url": "https://accounts.example/signin"}]
+    assert 24 in out["attached"] and -24 in out["attached"]
+
+
+# decision: HAND-511
+def test_a_tab_that_closed_itself_is_a_fact_for_the_worker_never_the_owner_stopping_the_task(bd: Any) -> None:  # noqa: F811
+    """Live 2026-11-12 (task f68317e9): Drive's download tab closed by itself and FERB asked the owner "You closed a
+    tab I was using"; earlier (task c301938e) a Google sign-in window that closed itself ended the task."""
+    from tests.test_browser_groups import _chrome_id, _drv, _published
+    d, launched = bd
+    ext, g = _ready(d, launched)
+    seen = _published(d)
+    stops = lambda: [e["tab"] for t, e in seen if t == "browser.owner_stopped"]  # noqa: E731
+    tab, ids = _form(d, g, "/product")
+    news: list[dict[str, Any]] = []                                # what the worker's results said about closed tabs
+
+    def popup() -> tuple[str, int]:
+        out = call(d, g, "browser.act", tab=tab, element=ids["Seller details"], action="click")["content"]
+        news.extend(out.get("closed_tabs") or [])
+        alias = out["opened_tabs"][0]["tab"]
+        return alias, _chrome_id(d, alias)
+
+    def removed(alias: str, by_page: bool = False) -> None:
+        cid = _chrome_id(d, alias)
+        ext.tabs.pop(cid, None)
+        ext.send("tab_event", {"event": "removed", "tab_id": cid, **({"closed_by_page": True} if by_page else {})})
+        ext.wait_for(lambda: _drv(d)._tabs[alias].closed)
+
+    a, _ = popup()
+    removed(a, by_page=True)                                       # its page closed it (window.close)
+    b, _ = popup()
+    _drv(d).owner_input_near = lambda: None                        # the input tap can't say: a page's tab went itself
+    removed(b)
+    c, _ = popup()
+    _drv(d).owner_input_near = lambda: True                        # the owner was using the keyboard or mouse
+    removed(c)
+    news.extend(call(d, g, "browser.snapshot", tab=tab)["content"].get("closed_tabs") or [])
+    time.sleep(0.2)
+    assert stops() == [c]                                          # only the close the owner could have made
+    assert [x["tab"] for x in news] == [a, b] and "its page closed it" in news[0]["closed"]
+    own = call(d, g, "browser.open", url=f"{SHOP}/a")["content"]["tab"]
+    _drv(d).owner_input_near = lambda: None
+    removed(own)                                                   # FERB's own tab, closed with no page's word
+    time.sleep(0.2)
+    assert stops() == [c, own]                                     # HAND-201 as before

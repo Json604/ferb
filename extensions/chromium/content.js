@@ -1480,16 +1480,23 @@
       catch (_) { downloadsArmed = false; }       // orphaned: the hook loads its popup itself after 1.5 s
     }
   };
+  // HAND-511: the page closes its own window (the hook's window.close): told to the service worker before it goes
+  const onClosing = () => {
+    if (!downloadsArmed || window !== top) return;
+    try { chrome.runtime.sendMessage({ ferbClosing: true }); } catch (_) { downloadsArmed = false; }
+  };
   function listenHook(token) {
     if (typeof token !== "string" || !/^[0-9a-f]{12}$/.test(token) || token === hookToken ||
         typeof document.addEventListener !== "function") return;
     if (hookToken) {
       document.removeEventListener(hookToken + ":armed", onArmed);
       document.removeEventListener(hookToken + ":popup", onPopup);
+      document.removeEventListener(hookToken + ":closing", onClosing);
     }
     hookToken = token;
     document.addEventListener(token + ":armed", onArmed);
     document.addEventListener(token + ":popup", onPopup);
+    document.addEventListener(token + ":closing", onClosing);
   }
   // whether FERB drives this tab now, and the hook's event names (asked once the listeners above exist)
   try {

@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 
 from ferb.act.browser.tools import OWNER_BROWSER as OWNER
+from ferb.act.browser.tools import BrowserSnapshot
 from tests.browser_input_gaps_kit import LabServer, Worker, report
 from tests.chromelab import browser_lab
 
@@ -238,12 +239,59 @@ def test_browser_ui(worker: Worker, site: LabServer, lab: Any) -> None:
         out["pdf_find"] = repr(e)[:300]
     out["front_changes"] = front.changes[before:]
     report("browser-ui", w, out)
-    # GAP: a window.open popup window (sign-in style) is counted ("it opened a new tab") but never becomes the task's
-    assert out["popup"].get("observed") == "it opened a new tab" and "opened" not in out["popup"]
-    assert not out["popup_news"] and len(out["task_tabs"]) == 1
+    # a window.open popup window (sign-in style, a named target and a size) becomes the task's (HAND-511; the lab's
+    # task now counts as running, which it didn't before, so the earlier "never the task's" was the lab's own gap)
+    assert "opened" in out["popup"] and len(out["task_tabs"]) == 2, (out["popup"], out["task_tabs"])
     assert any("name=popup" in u for u in out["lab_pages"])
     assert out["permission_state"].get("notify") == "asked"                    # GAP: a prompt waits; no fact says so
     assert isinstance(out["pdf_snapshot"], dict) and out["pdf_snapshot"]["elements"] == 0   # GAP: PDF viewer unreadable
+    assert out["front_changes"] == []
+
+
+def test_popups_and_tabs_that_close_themselves(worker: Worker, site: LabServer, lab: Any) -> None:
+    """HAND-511: a sign-in window (window.open with a name and a size) that closes itself once done, and a download a
+    page starts in a new tab (Drive's Download button: live 2026-11-12, task f68317e9, the browser closed that tab and
+    FERB asked the owner "You closed a tab I was using"), and browser.open of an address that is a download."""
+    from ferb.act.browser.tools import BrowserDownloads, BrowserOpen
+    w = worker
+    _, _, front = lab
+    before = len(front.changes)
+    w.open(f"{site.a}/chrome-ui.html", wait_ready=10)
+    out: dict[str, Any] = {"signin": _try(w, "Sign in with Lab (closes itself)", "click")}
+    time.sleep(1)
+    tabs = lambda: [(a, t.url) for a, t in w.router._tabs.items() if t.owner == w.task and not t.closed]  # noqa: E731
+    out["task_tabs_after_signin"] = tabs()
+    popup = next((a for a, u in out["task_tabs_after_signin"] if "popup-close" in u), None)
+    opener = w.tab
+    if popup:
+        w.tab = popup
+        out["popup_continue"] = _try(w, "Continue as Lab user", "click")
+        w.tab = opener
+        time.sleep(1.5)
+    out["signin_state"] = w.truth()
+    out["owner_stopped_after_signin"] = list(w.published("browser.owner_stopped"))
+    out["opener_snapshot_news"] = {k: v for k, v in w.tool(BrowserSnapshot).items()
+                                   if k in ("opened_tabs", "closed_tabs", "downloads")}
+    out["dltab"] = _try(w, "Download in a new tab", "click")
+    time.sleep(3)
+    out["downloads"] = w.tool(BrowserDownloads)
+    out["owner_stopped_after_download_tab"] = list(w.published("browser.owner_stopped"))
+    out["task_tabs_after_download_tab"] = tabs()
+    tool = BrowserOpen(w.router, OWNER)
+    res = w.run(tool.run(tool.Input(url=f"{site.a}/download?name=direct.pdf", profile="Lab"), w.ctx()))
+    out["open_download"] = dict(res.content)
+    time.sleep(1)
+    out["owner_stopped_after_open"] = list(w.published("browser.owner_stopped"))
+    out["task_tabs_after_open"] = tabs()
+    out["front_changes"] = front.changes[before:]
+    report("popups", w, out)
+    assert popup and out["popup_continue"].get("ok") and out["signin_state"].get("signin") == "done", out
+    # HAND-511: a window or tab that closed itself is a plain fact for the worker, never the owner stopping the task
+    assert out["owner_stopped_after_open"] == [], out["owner_stopped_after_open"]
+    assert [c["tab"] for c in out["opener_snapshot_news"].get("closed_tabs", [])] == [popup], out["opener_snapshot_news"]
+    assert out["downloads"]["downloads"][0]["state"] == "taken"
+    assert [a for a, _ in out["task_tabs_after_open"]] == [opener], out["task_tabs_after_open"]
+    assert "closed" in out["open_download"] and out["open_download"]["downloads"][0]["state"] == "taken"
     assert out["front_changes"] == []
 
 

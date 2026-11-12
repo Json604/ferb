@@ -153,7 +153,10 @@ Extension 0.19.10 keeps protocol 21 and the minimum (HAND-504..; an older extens
   typed returns `field_value` (never a secret field's).
 - `scroll` takes direction left and right (the wheel's deltaX), `screens` (that many panes at once) and `to` (start or
   end, set at once); its reply adds x, width and viewport_w. A snapshot's `scrollers` lists every scroll pane the page
-  draws (also one holding only text, or scrolling sideways) with its `axis` (x, y, both)."""
+  draws (also one holding only text, or scrolling sideways) with its `axis` (x, y, both).
+- A new tab in a popup window right after a task tab's input is checked as a popup of every such task tab (HAND-511).
+  A `removed` tab event carries `closed_by_page` when the page hook saw the page close its own window; a `download`
+  event carries `blank_tab` when the tab shows nothing but that download."""
 
 import base64
 import hashlib
@@ -263,6 +266,8 @@ class TabEvent(BaseModel):
     # updated (extension 0.19.8, optional, HAND-492): the load kept the document the last snapshot read (a single-page
     # app's route change), so that snapshot's element ids still name its elements
     same_document: bool | None = None
+    # removed (extension 0.19.10, optional, HAND-511): the tab's own page closed it (the page hook saw window.close)
+    closed_by_page: bool | None = None
 
 
 class Event(BaseModel):
@@ -288,6 +293,7 @@ class Event(BaseModel):
     size: int | None = Field(default=None, ge=0)                   # download: Content-Length / blob size, if known
     source_url: str | None = Field(default=None, max_length=8192)  # download: masked by the extension, redacted here
     source: str | None = None                  # download: attachment | type | link | page
+    blank_tab: bool | None = None              # download (0.19.10, HAND-511): the tab's own page became it, nothing else
     uncaptured: bool | None = None             # download: nothing is held (the browser started it itself, or detail
                                                # "dropped": a page's save past the hold caps, neither taken nor given)
     count: int | None = Field(default=None, ge=1)  # download "dropped" (protocol 20): how many saves this event reports

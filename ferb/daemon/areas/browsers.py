@@ -64,6 +64,16 @@ class Browsers:
             del self.registry.capabilities[name]
         self._spawn(driver.shutdown(), "identity cleared: browser")
 
+    def _owner_input_near(self) -> bool | None:
+        """HAND-511: the owner's own keyboard or mouse input is under way or ended within disturbance.OWNER_NEAR_S (the
+        input tap's timing, on the daemon's clock); None when the tap isn't running."""
+        from ferb.daemon.disturbance import OWNER_NEAR_S
+        tap = getattr(self, "owner_input", None)
+        if tap is None or not tap.running:
+            return None
+        last = tap.last_owner_wall
+        return bool(tap.active()) or (last is not None and self.clock.now().timestamp() - float(last) <= OWNER_NEAR_S)
+
     def _tab_closed(self, br: Any, tab_id: int) -> Awaitable[None] | None:
         """A tab closed in a paired browser: the upload copies it showed need not stay (rule 17). Those of a tree that
         already ended go now, in the background."""
@@ -300,6 +310,7 @@ class Browsers:
             drv.downloads = self.downloads
             drv.uploads = self.uploads
             drv.task_running = lambda task_id: self.tasks.get(task_id) is not None   # removed when its tree ends
+            drv.owner_input_near = self._owner_input_near            # HAND-511: who closed a page's tab
             # L31: between a loop's rounds, the owner's tab it holds is theirs again (downloads, new tabs)
             drv.task_resting = lambda task_id: self.supervisor is not None and self.supervisor.loop_resting(task_id)
             drv.task_root = self._task_root

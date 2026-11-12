@@ -55,6 +55,14 @@ class LabServer:
                         return
                 elif u.path == "/doc.pdf":
                     body, kind = _pdf(), "application/pdf"
+                elif u.path == "/download":                    # a file the server sends as a download (attachment)
+                    name = parse_qs(u.query).get("name", ["file.pdf"])[0].replace('"', "")
+                    self.send_response(200)
+                    self.send_header("content-type", "application/octet-stream")
+                    self.send_header("content-disposition", f'attachment; filename="{name}"')
+                    self.end_headers()
+                    self.wfile.write(_pdf())
+                    return
                 else:
                     f = PAGES / (u.path.strip("/") or "editors.html")
                     if not f.is_file() or PAGES not in f.resolve().parents:
@@ -104,6 +112,27 @@ class Worker:
     log: list[dict[str, Any]] = field(default_factory=list)
     tab: str = ""
     snap: Any = None
+
+    def __post_init__(self) -> None:
+        """The lab's task counts as running for the driver (a popup or a link's new tab becomes a running task's only),
+        and what the driver publishes is kept (`published`: e.g. browser.owner_stopped), once per daemon."""
+        r = self.router
+        if not getattr(r.task_running, "lab", False):
+            before = r.task_running
+
+            def running(task: str) -> bool:
+                return task.startswith("test_") or bool(before(task))
+            running.lab = True                                   # type: ignore[attr-defined]
+            r.task_running = running
+            publish, seen = r.hub.publish, []
+
+            def keep(topic: str, data: Any) -> Any:
+                seen.append((topic, data))
+                return publish(topic, data)
+            r.hub.publish, r.hub.lab_published = keep, seen
+
+    def published(self, topic: str) -> list[Any]:
+        return [d for t, d in self.router.hub.lab_published if t == topic and d.get("task_id") == self.task]
 
     @property
     def router(self) -> Any:

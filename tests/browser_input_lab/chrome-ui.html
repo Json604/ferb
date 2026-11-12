@@ -7,6 +7,8 @@
 <style>body { font: 15px -apple-system, sans-serif; margin: 20px; } button { display: block; margin: 8px 0; }</style>
 <h1>Browser UI lab</h1>
 <button type="button" id="popup">Sign in with Lab (popup)</button>
+<button type="button" id="signin">Sign in with Lab (closes itself)</button>
+<button type="button" id="dltab">Download in a new tab</button>
 <button type="button" id="print">Print this page</button>
 <button type="button" id="notify">Allow notifications</button>
 <button type="button" id="geo">Use my location</button>
@@ -16,6 +18,10 @@
   const $ = (q) => document.querySelector(q);
   addEventListener("message", (e) => { if (e.data && e.data.lab === "popup") s.popup = e.data.v; });
   $("#popup").onclick = () => { s.popupOpened = !!window.open("frame-child.html?name=popup", "auth", "width=420,height=300"); };
+  addEventListener("message", (e) => { if (e.data && e.data.lab === "signin") s.signin = e.data.v; });
+  // a sign-in window that closes itself once done; a download a page starts in a new tab (Drive's Download button)
+  $("#signin").onclick = () => { s.signinOpened = !!window.open("popup-close.html", "signin", "width=420,height=300"); };
+  $("#dltab").onclick = () => { s.dltabOpened = !!window.open("/download?name=lab-report.pdf", "_blank"); };
   $("#print").onclick = () => { s.print = "called"; window.print(); s.print = "returned"; };
   $("#notify").onclick = async () => { s.notify = "asked"; s.notify = await Notification.requestPermission(); };
   $("#geo").onclick = () => { s.geo = "asked"; navigator.geolocation.getCurrentPosition(() => { s.geo = "granted"; },

@@ -102,6 +102,13 @@ function ferbPageHook(token) {
     document.addEventListener(token + ":leave", () => { leaveUntil = Date.now() + 10000; });
   }
   const dispatch = EventTarget.prototype.dispatchEvent, click = HTMLElement.prototype.click, open = window.open;
+  // Extension 0.19.10 (HAND-511): the page closing its own window (a sign-in window once it is done) is told to
+  // content.js first ("<token>:closing"), so FERB never reads that close as the owner's. The close itself is the page's.
+  const close = window.close;
+  if (typeof close === "function") window.close = function () {
+    try { dispatch.call(document, new CustomEvent(token + ":closing")); } catch (_) { /* told or not, it closes */ }
+    return close.apply(this, arguments);
+  };
   const armed = () => !dispatch.call(document, new CustomEvent(token + ":armed", { cancelable: true }));
   const unseenSave = (el) => (el instanceof HTMLAnchorElement || el instanceof HTMLAreaElement) && !el.isConnected &&
     el.hasAttribute("download") && /^(blob|data):/i.test(String(el.href || ""));

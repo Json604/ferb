@@ -16,7 +16,7 @@ from ferb.act.browser.downloads import SETTLE_S
 from ferb.act.browser.snapshot import for_model
 from ferb.act.fs.files import owner_path
 from ferb.act.point import Point, PreviewTarget, display_of
-from ferb.core.errors import DriverError, FerbError, Refused
+from ferb.core.errors import DriverError, FerbError, Refused, StaleRef
 from ferb.core.interfaces import BrowserDriver
 from ferb.core.types import (ActionFacts, ActionResult, ActionSpec, BrowserAction, ElementRef, FileAccess, Identity, PageElement,
                              RiskLevel, SecretRef, SecretSpec, TabRef, Target, TerminalInput, ToolContext, ToolResult,
@@ -86,7 +86,9 @@ async def _news(driver: Any, tab: TabRef, wait: float = 0.0) -> tuple[dict[str, 
     fetch, opened = getattr(driver, "downloads_for", None), getattr(driver, "opened_for", None)
     found = list(await fetch(tab, wait)) if fetch is not None else []
     tabs = list(opened(tab)) if opened is not None else []
-    news = ({"downloads": found} if found else {}) | ({"opened_tabs": tabs} if tabs else {})
+    closed = list(getattr(driver, "closed_for", lambda ref: [])(tab))   # HAND-511: tabs that closed themselves
+    news = ({"downloads": found} if found else {}) | ({"opened_tabs": tabs} if tabs else {}) | \
+        ({"closed_tabs": closed} if closed else {})
     return news, _download_sources(found) + tuple(("web", str(t.get("url") or "")) for t in tabs)
 
 
@@ -277,6 +279,9 @@ class BrowserOpen(_Base):
         if self.family.identity is Identity.OWNER:
             out["profile"] = f"{tab.browser}/{tab.profile}"
         news, more = await _news(self.driver, tab, SETTLE_S)
+        if getattr(self.driver, "download_only", lambda ref: False)(tab):   # HAND-511: nothing to show in the tab
+            out["closed"] = (f"the address is a file: FERB takes it (`downloads`, or browser_downloads) and closes {tab.tab_id} "
+                             "once it is in; there is no page to read")
         return ToolResult(out | news, read_sources=self._page(tab.tab_id) + more)
 
 
@@ -1006,7 +1011,10 @@ class BrowserAct(_Base):
                         if r.ok and "observed" in r.facts else "take a new snapshot to see the result" if r.ok else
                         "it didn't go through (detail says why); act on what the detail names, or take a new snapshot "
                         "before choosing another way")}
-        news, more = await _news(self.driver, ref)
+        try:
+            news, more = await _news(self.driver, ref)
+        except StaleRef as e:                          # HAND-511: the act went through and then its tab went (a
+            news, more = {"tab_closed": str(e)}, ()     # sign-in window that closes itself): a fact, not a failure
         # HAND-491: a tab this act opened (the extension waits for its claim while it looks, HAND-487) leads the result
         opened = [str(t["tab"]) for t in news.get("opened_tabs", []) if t.get("tab")]
         lead = {"opened": f"the {getattr(args, 'action')} opened {', '.join(opened)}"} if opened else {}

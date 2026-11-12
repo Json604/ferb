@@ -528,6 +528,10 @@ class Downloads:
         """Downloads from this tab the worker hasn't seen in a result yet (each final state once per tab)."""
         return self._unreported.pop((br.name, int(chrome_id)), [])
 
+    def busy(self, br: Any, chrome_id: int) -> bool:
+        """A download this tab started is still being taken (HAND-511: its tab stays open until it is done)."""
+        return bool(self._active.get((br.name, int(chrome_id))))
+
     async def settle(self, br: Any, chrome_id: int, timeout: float = SETTLE_S) -> None:
         """Wait (bounded) for the downloads this tab started to finish taking."""
         jobs = list(self._active.get((br.name, int(chrome_id)), ()))

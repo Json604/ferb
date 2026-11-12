@@ -525,7 +525,14 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
     return true;
   }
   else if (m && m.ferbPopup && sender && sender.tab) reply(pageHookPopup(sender.tab.id, sender.frameId || 0, m.ferbPopup));
+  // HAND-511: the top page of a tab FERB drives closes its own window (the hook's window.close)
+  else if (m && m.ferbClosing && sender && sender.tab && !sender.frameId && (TABS.get(sender.tab.id) || {}).armed) {
+    if (selfClosing.size > 200) selfClosing.delete(selfClosing.keys().next().value);
+    selfClosing.set(sender.tab.id, Date.now());
+  }
 });
+const selfClosing = new Map();       // tabId -> when its page said it closes itself (HAND-511)
+const SELF_CLOSE_MS = 5000;
 
 // ---------- commands ----------
 
@@ -1321,7 +1328,17 @@ async function onPaused(src, params) {
                requestId: params.requestId, stream: null, page: null, offset: 0, timer: null };
   downloads.set(tr.id, tr);
   idle(tr);
-  await send("event", { event: "download", tab_id: tabId, download_id: tr.id,
+  // HAND-511: the tab shows nothing but this download (its committed page is blank, or none: a tab a page opened only
+  // to download, or FERB's open of an address that is a file). A blank page has no frames of its own, so the
+  // response is the tab's own document's. The browser's tab record only, no debugger call.
+  let blank = false;
+  if (!sid) {
+    try {
+      const u = String((await chrome.tabs.get(tabId)).url || "");
+      blank = !u || /^about:blank/.test(u) || u === params.request.url;
+    } catch (_) { blank = false; }
+  }
+  await send("event", { event: "download", tab_id: tabId, download_id: tr.id, ...(blank ? { blank_tab: true } : {}),
     name: downloadName(params.responseHeaders, params.request.url), mime: mimeOf(h) || null,
     size: h["content-length"] !== undefined && Number.isSafeInteger(size) && size >= 0 ? size : null,
     source_url: downloadSource(params.request.url, maskUrl), source: kind });
@@ -1517,7 +1534,14 @@ async function openedByInput(tabId, url) {
     try { const o = await chrome.tabs.get(id); if (o.windowId === tab.windowId || tab.openerTabId === id) near.push(id); }
     catch (_) { /* closed */ }
   }
-  if (!near.length && !(Number.isInteger(tab.openerTabId) && (TABS.get(tab.openerTabId) || {}).armed)) return;
+  if (!near.length && !(Number.isInteger(tab.openerTabId) && (TABS.get(tab.openerTabId) || {}).armed)) {
+    // HAND-511: a popup window (window.open with a size, "Sign in with Google") is a window of its own, and Chrome's
+    // openerTabId names the active tab of the opener's window, which a background task tab isn't: such a window is
+    // checked against every task tab with input just now, by the browser's own opener (openedBy) as any other
+    let popupWindow = false;
+    try { popupWindow = chrome.windows && (await chrome.windows.get(tab.windowId)).type === "popup"; } catch (_) { popupWindow = false; }
+    if (!popupWindow) return;
+  }
   openers = near.length ? near : openers;
   if ((TABS.get(tabId) || {}).attached) return;
   const t = tabState(tabId);
@@ -2737,9 +2761,17 @@ async function tabEvent(event, tab) {
       same = !!(r && r.result) && r.result === t.snapDoc;
     } catch (_) { same = null; }
   }
+  // HAND-511: a removed tab whose page closed it itself says so (the page's message may trail the removal briefly)
+  let byPage = false;
+  if (event === "removed") {
+    for (let i = 0; i < 3 && !selfClosing.has(tab.id); i++) await sleep(100);
+    const at = selfClosing.get(tab.id);
+    selfClosing.delete(tab.id);
+    byPage = at !== undefined && Date.now() - at <= SELF_CLOSE_MS;
+  }
   await send("tab_event", { event, tab_id: tab.id, url: tab.url ? maskUrl(tab.url) : null, title: tab.title || null,
                             active: tab.active ?? null, incognito: tab.incognito ?? null,
-                            ...(same === true ? { same_document: true } : {}) });
+                            ...(same === true ? { same_document: true } : {}), ...(byPage ? { closed_by_page: true } : {}) });
 }
 chrome.tabs.onCreated.addListener((t) => tabEvent("created", t));
 chrome.tabs.onUpdated.addListener((id, info, t) => { if (info.status === "complete") { ensurePort(); tabEvent("updated", t); } });

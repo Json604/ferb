@@ -1357,3 +1357,15 @@ rule = "For HAND-503, extension 0.19.10. browser.scroll takes left and right (th
 why = "Lab: scroll \"right\" scrolled the page down (deltaX always 0, only vertical panes found), a feed of plain text had no id, and row 500 of a virtual list took about 58 calls."
 evidence = "Lab 2026-11-11 scroll.html: the carousel moves 400 px right and back to 0; the feed and carousel have ids; row 500 in 2 calls of 29 screens; the feed's end reached all 200 posts."
 paths = ["extensions/chromium/content.js::allScrollers", "extensions/chromium/content.js::scrollEdge", "extensions/chromium/background.js::scroll", "ferb/act/browser/ext_bridge.py::scroll", "ferb/act/browser/tools.py::BrowserScroll"]
+
+[HAND-511]
+title = "Popup windows are the task's; a tab that closes itself is a fact, never the owner stopping it"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "For HAND-503, extension 0.19.10. Refines HAND-443 and HAND-201. A new tab in a popup window right after a task tab's input is checked against every such task tab by the browser's openerId. The page hook reports the page's own window.close (`closed_by_page`). A task tab whose page closed it, whose only content became a download FERB took, or that a page opened and that went while the owner's keyboard and mouse were idle, is no owner's stop: the worker's next result lists it in `closed_tabs`. A download-only tab is closed by FERB once its file is in; browser.open of a file says so (`closed`)."
+why = "Live: Google's sign-in window never became the task's and, closing itself, ended the task (c301938e); Drive's download tab closed itself and FERB asked the owner \"You closed a tab I was using\" (f68317e9). Only the owner's input can close a tab the owner closes."
+evidence = "Lab 2026-11-12: a sized, named popup is claimed; a sign-in window that closes itself, a page's download tab and an open of a file publish no owner stop, leave no blank tab, and the frontmost app never changed (Chrome). Brave's coming forward live is unverified."
+rejected = ["Proxying the WindowProxy window.open returns, to see an opener close its popup: it breaks pages that compare windows"]
+paths = ["extensions/chromium/protocol.js::ferbPageHook", "extensions/chromium/background.js::openedByInput", "extensions/chromium/background.js::tabEvent", "ferb/act/browser/ext_bridge.py::tab_closed", "ferb/act/browser/ext_bridge.py::download_tab_done", "ferb/daemon/areas/browsers.py::_owner_input_near"]
+live = ["LIVE-920", "LIVE-921"]
