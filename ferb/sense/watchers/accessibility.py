@@ -3,10 +3,11 @@ import asyncio
 import threading
 from typing import Any, Callable
 
+from ferb.device.autorelease import native_loop, pool
 from ferb.sense.capture import password_element
 from ferb.sense.front_window import FERB_APPS
 from ferb.sense.trail import Observation
-from ferb.sense.watchers.base import Emit, run_loop_slice
+from ferb.sense.watchers.base import Emit
 
 APP_EVENTS = ("AXWindowCreated", "AXFocusedWindowChanged", "AXFocusedUIElementChanged",
               "AXApplicationActivated", "AXApplicationDeactivated", "AXMainWindowChanged")
@@ -97,13 +98,14 @@ class AccessibilityWatcher:
                     if done.is_set() or self.excluded(bundle, name):
                         return
                     try:
-                        deliver(bundle, name, pid, str(notification), element)
-                        if str(notification) == "AXUIElementDestroyed":
-                            registered[:] = [old for old in registered if old != element]
-                            return
-                        watch_element(observer, _attr(root, "AXFocusedUIElement"))
-                        for window in _attr(root, "AXWindows") or []:
-                            watch_element(observer, window)
+                        with pool():
+                            deliver(bundle, name, pid, str(notification), element)
+                            if str(notification) == "AXUIElementDestroyed":
+                                registered[:] = [old for old in registered if old != element]
+                                return
+                            watch_element(observer, _attr(root, "AXFocusedUIElement"))
+                            for window in _attr(root, "AXWindows") or []:
+                                watch_element(observer, window)
                     except Exception:
                         # A disappearing element is normal; never log its possibly private exception value.
                         return
@@ -127,18 +129,20 @@ class AccessibilityWatcher:
                 loop.call_soon_threadsafe(emit, Observation("accessibility", self.redact({"bundle_id": bundle, "pid": pid,
                     "subscription": "attached", "unsupported": unsupported}), {"actor": "unknown"}))
 
+            def follow_apps() -> None:
+                """Observers for the apps running now: new apps attached, quit apps' observers removed."""
+                apps = list(NSWorkspace.sharedWorkspace().runningApplications())
+                pids = {int(a.processIdentifier()) for a in apps}
+                for pid in set(observers) - pids:
+                    observer, _, _ = observers.pop(pid)
+                    Quartz.CFRunLoopRemoveSource(runloop, AX.AXObserverGetRunLoopSource(observer), Quartz.kCFRunLoopDefaultMode)
+                failed_pids.intersection_update(pids)
+                for app in apps:
+                    if int(app.processIdentifier()) not in observers and int(app.processIdentifier()) not in failed_pids:
+                        attach(app)
+
             try:
-                while not done.is_set():
-                    apps = list(NSWorkspace.sharedWorkspace().runningApplications())
-                    pids = {int(a.processIdentifier()) for a in apps}
-                    for pid in set(observers) - pids:
-                        observer, _, _ = observers.pop(pid)
-                        Quartz.CFRunLoopRemoveSource(runloop, AX.AXObserverGetRunLoopSource(observer), Quartz.kCFRunLoopDefaultMode)
-                    failed_pids.intersection_update(pids)
-                    for app in apps:
-                        if int(app.processIdentifier()) not in observers and int(app.processIdentifier()) not in failed_pids:
-                            attach(app)
-                    run_loop_slice(done, 1.0)
+                native_loop(done, 1.0, follow_apps)       # the app list read each second drains with its turn
             except Exception as error:
                 failure.append(error)
             finally:

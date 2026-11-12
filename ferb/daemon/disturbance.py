@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable
 
+from ferb.device.autorelease import pool
 from ferb.trace import lines
 
 NO_ON_SCREEN_KEPT = 10   # the newest plain statements an agent's context carries; every change stays in the records
@@ -69,7 +70,8 @@ class DesktopProbe:
         # NSWorkspace notifications require a serviced run loop on the registration thread.
         try:
             import CoreFoundation as CF
-            CF.CFRunLoopRunInMode(CF.kCFRunLoopDefaultMode, 0, True)
+            with pool():                     # the event loop's thread never drains one of its own (device/autorelease.py)
+                CF.CFRunLoopRunInMode(CF.kCFRunLoopDefaultMode, 0, True)
         except Exception as exc:
             self._space_error = f"{type(exc).__name__}: {exc}"
 

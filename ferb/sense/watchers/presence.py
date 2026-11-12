@@ -18,7 +18,7 @@ import threading
 import time
 from typing import Any, Callable
 
-from ferb.sense.watchers.base import run_loop_slice
+from ferb.device.autorelease import native_loop, pool
 
 POLL_S = 5.0
 # what holds the Mac out of use, and the notification that sets or clears each (name, flag, value)
@@ -138,7 +138,10 @@ class MacPresence:
             distributed = NSDistributedNotificationCenter.defaultCenter()
 
             def observer(flag: str, value: bool) -> Callable[[Any], None]:
-                return lambda note: self.changed(flag, value)
+                def told(note: Any) -> None:
+                    with pool():
+                        self.changed(flag, value)
+                return told
             for name, flag, value in WORKSPACE:
                 tokens.append((workspace, workspace.addObserverForName_object_queue_usingBlock_(
                     getattr(AppKit, name), None, None, observer(flag, value))))
@@ -147,14 +150,14 @@ class MacPresence:
                     name, None, None, observer(flag, value))))
         except Exception:
             pass                                           # notifications unavailable: the reads below still tell
+        def catch_up() -> None:
+            try:
+                self.read()
+            except Exception:
+                pass
+
         try:
-            while not done.is_set():
-                run_loop_slice(done, POLL_S)
-                if not done.is_set():
-                    try:
-                        self.read()
-                    except Exception:
-                        pass
+            native_loop(done, POLL_S, catch_up)
         finally:
             for center, token in tokens:
                 center.removeObserver_(token)

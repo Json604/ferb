@@ -866,3 +866,13 @@ rule = "For APP-888, refining DMN-403. A task still captures one surface at a ti
 why = "Two rows polling at once: the row whose frame just came asks again at once and would keep winning; in turn, each step's preview moves and the capture work stays that of one surface at a time."
 paths = ["ferb/daemon/task_preview.py::TaskPreviews"]
 live = ["LIVE-900"]
+
+[DMN-585]
+title = "Each turn of a native thread's loop and each native callback drains its own autorelease pool"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "Refines DMN-26. A thread that services its own run loop does it only through autorelease.native_loop: each turn runs the thread's step (the Accessibility watcher's app listing, presence's read) and the run-loop slice that dispatches its callbacks in one pool. The Accessibility, workspace and presence watchers, the owner-input tap, FSEvents and the self-test tap use it. Each native callback's body runs in a pool too. Elsewhere only one zero-wait turn inside a pool (_macos_events, the disturbance probe's pump)."
+why = "Every daemon run since 2026-11-04 grew ~100-180 MB an awake hour to 2.8-3.5 GB: 8.9 M NSRunningApplication objects and as many locks, from the Accessibility watcher listing ~110 apps a second with only its run-loop slice pooled."
+paths = ["ferb/device/autorelease.py::native_loop"]
+live = ["LIVE-914"]

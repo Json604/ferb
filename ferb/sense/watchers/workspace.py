@@ -3,8 +3,9 @@ import asyncio
 import threading
 from typing import Any, Callable
 
+from ferb.device.autorelease import native_loop, pool
 from ferb.sense.trail import Observation
-from ferb.sense.watchers.base import Emit, run_loop_slice
+from ferb.sense.watchers.base import Emit
 
 
 class WorkspaceWatcher:
@@ -23,13 +24,14 @@ class WorkspaceWatcher:
             tokens = []
 
             def observed(note: Any) -> None:
-                app = (note.userInfo() or {}).get(AppKit.NSWorkspaceApplicationKey)
-                data: dict[str, Any] = {"event": str(note.name())}
-                if app is not None:
-                    bundle, name = str(app.bundleIdentifier() or ""), str(app.localizedName() or "")
-                    if self.excluded(bundle, name):
-                        return
-                    data |= {"bundle_id": bundle, "app": name, "pid": int(app.processIdentifier())}
+                with pool():
+                    app = (note.userInfo() or {}).get(AppKit.NSWorkspaceApplicationKey)
+                    data: dict[str, Any] = {"event": str(note.name())}
+                    if app is not None:
+                        bundle, name = str(app.bundleIdentifier() or ""), str(app.localizedName() or "")
+                        if self.excluded(bundle, name):
+                            return
+                        data |= {"bundle_id": bundle, "app": name, "pid": int(app.processIdentifier())}
                 if not done.is_set():
                     loop.call_soon_threadsafe(emit, Observation(self.source, self.redact(data), {"actor": "unknown"}))
             try:
@@ -38,8 +40,7 @@ class WorkspaceWatcher:
                              "NSWorkspaceWillSleepNotification", "NSWorkspaceDidWakeNotification",
                              "NSWorkspaceDidMountNotification", "NSWorkspaceDidUnmountNotification"):
                     tokens.append(center.addObserverForName_object_queue_usingBlock_(getattr(AppKit, name), None, None, observed))
-                while not done.is_set():
-                    run_loop_slice(done, 0.5)
+                native_loop(done, 0.5)
             except Exception as error:
                 failure.append(error)
             finally:

@@ -4226,4 +4226,12 @@ surface = "FERB.app with this build"
 request = "\"Two things: remember I like short answers, and research three note-taking apps then write a comparison to ~/Desktop/notes-apps.md.\" (when FERB plans the research as its own steps before the writing)"
 pass = "While the comparison row waits, the research steps show under it, each running one with what it is doing and its own small live picture; the row says \"Waiting for <that step's words>\", never \"an earlier step\"."
 decisions = ["APP-895"]
+
+[LIVE-914]
+title = "The daemon's footprint stays flat over a few idle hours"
+area = "daemon"
+surface = "FERB.app with this build and its daemon; resource_samples"
+request = "After installing this build, leave the Mac awake and FERB idle (no task) for three or four hours, using the Mac as usual, then read resource_samples for that stretch (`ferb stats`, or the table)."
+pass = "The daemon's physical footprint stays within a few tens of MB of where it settled after start; it no longer climbs ~100-180 MB an hour (before: 120-230 MB at start, 2.8-3.5 GB by restart)."
+decisions = ["DMN-585"]
 sitting = "after this change is installed"

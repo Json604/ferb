@@ -9,7 +9,7 @@ import threading
 import time
 from typing import Any, Callable
 
-from ferb.device.autorelease import pool
+from ferb.device.autorelease import native_loop, pool
 
 FERB_EVENT_MARK = 0x46455242            # "FERB"
 
@@ -35,6 +35,7 @@ class OwnerInput:
         self.running = False
         self._tap: Any = None
         self._loop: Any = None
+        self._done = threading.Event()
         # F7 capture owns Secure Input/field checks, aggregation and redaction before anything is emitted.
         self.on_text: Callable[[Any, bool], None] | None = None
 
@@ -61,22 +62,8 @@ class OwnerInput:
         ready = threading.Event()
 
         tap: list[Any] = []                                       # this start's tap, for its own callback
-
-        def cb(proxy: Any, etype: int, event: Any, refcon: Any) -> Any:
-            if etype in (Quartz.kCGEventTapDisabledByTimeout, Quartz.kCGEventTapDisabledByUserInput):
-                if tap and self.running:                          # the system turned it off: back on (not if stopping)
-                    Quartz.CGEventTapEnable(tap[0], True)
-                return event
-            marked = Quartz.CGEventGetIntegerValueField(event, Quartz.kCGEventSourceUserData) == FERB_EVENT_MARK
-            if self.on_text is not None and etype == Quartz.kCGEventKeyDown:
-                try:
-                    with pool():                   # CFRunLoopRun below never drains one; capture reads Accessibility
-                        self.on_text(event, marked)
-                except Exception:
-                    pass                           # capture must never disturb input delivery
-            if not marked:
-                self.owner_event()
-            return event
+        cb = self._callback(tap)
+        done = self._done = threading.Event()
 
         def run() -> None:
             self._tap = Quartz.CGEventTapCreate(Quartz.kCGSessionEventTap, Quartz.kCGHeadInsertEventTap,
@@ -90,15 +77,38 @@ class OwnerInput:
                 self.running = True
             ready.set()
             if self._tap is not None:
-                Quartz.CFRunLoopRun()
+                native_loop(done, 1.0)       # each turn drains what the tap's events left (device/autorelease.py)
 
         threading.Thread(target=run, name="ferb-owner-input", daemon=True).start()
         ready.wait(5)
         return self.running
 
+    def _callback(self, tap: list[Any]) -> Callable[[Any, int, Any, Any], Any]:
+        """The tap's callback for one start (`tap` holds that start's tap): records owner activity, hands key presses
+        to capture and returns the event untouched. Its whole body runs in an autorelease pool of its own."""
+        import Quartz
+
+        def cb(proxy: Any, etype: int, event: Any, refcon: Any) -> Any:
+            with pool():
+                if etype in (Quartz.kCGEventTapDisabledByTimeout, Quartz.kCGEventTapDisabledByUserInput):
+                    if tap and self.running:                      # the system turned it off: back on (not if stopping)
+                        Quartz.CGEventTapEnable(tap[0], True)
+                    return event
+                marked = Quartz.CGEventGetIntegerValueField(event, Quartz.kCGEventSourceUserData) == FERB_EVENT_MARK
+                if self.on_text is not None and etype == Quartz.kCGEventKeyDown:
+                    try:
+                        self.on_text(event, marked)
+                    except Exception:
+                        pass                       # capture must never disturb input delivery
+                if not marked:
+                    self.owner_event()
+                return event
+        return cb
+
     def stop(self) -> None:
         import Quartz
         self.running = False                                      # first: the callback must not re-enable it
+        self._done.set()
         if self._tap is not None:
             Quartz.CGEventTapEnable(self._tap, False)
             Quartz.CFMachPortInvalidate(self._tap)

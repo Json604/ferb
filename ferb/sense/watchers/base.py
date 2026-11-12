@@ -8,28 +8,14 @@ has no AppKit run loop, so NSWorkspace's cached app state can go stale)."""
 
 import asyncio
 import threading
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from ferb.device.autorelease import drained, pool
+from ferb.device.autorelease import drained, native_loop
 from ferb.sense.trail import Observation
 
 Emit = Callable[[Observation], None]
-
-
-def run_loop_slice(done: threading.Event, interval_s: float) -> None:
-    """Pump native events, then wait out any unused slice without spinning on empty run loops."""
-    import Quartz
-    started = time.monotonic()
-    with pool():                         # what the slice's callbacks autoreleased goes with it (device/autorelease.py)
-        Quartz.CFRunLoopRunInMode(Quartz.kCFRunLoopDefaultMode, interval_s, False)
-    # With no sources CFRunLoop returns immediately, ignoring its requested duration.
-    # Preserve the watcher's existing cadence; shutdown interrupts this fallback wait.
-    remaining = interval_s - (time.monotonic() - started)
-    if remaining > 0:
-        done.wait(remaining)
 
 
 class Watcher(Protocol):
@@ -99,13 +85,16 @@ class FsStream:
         self.folders, self.on_event, self.latency_s = folders, on_event, latency_s
         self._stream: Any = None
         self._loop: Any = None
+        self._done = threading.Event()
 
     def start(self) -> bool:
         import FSEvents as F
         ready = threading.Event()
         started = False
 
-        @drained                                 # CFRunLoopRun below never drains a pool of its own
+        done = self._done = threading.Event()
+
+        @drained                                 # its run loop's turn drains one too (native_loop)
         def cb(stream: Any, info: Any, n: int, paths: Any, flags: Any, ids: Any) -> None:
             for i in range(n):
                 self.on_event(str(paths[i]), int(flags[i]))
@@ -123,7 +112,7 @@ class FsStream:
                 started = bool(F.FSEventStreamStart(self._stream))
             ready.set()
             if started:
-                Quartz.CFRunLoopRun()
+                native_loop(done, 1.0)
 
         threading.Thread(target=run, name="ferb-fsevents", daemon=True).start()
         ready.wait(5)
@@ -132,6 +121,7 @@ class FsStream:
     def stop(self) -> None:
         import FSEvents as F
         import Quartz
+        self._done.set()
         if self._stream is not None:
             F.FSEventStreamStop(self._stream)
             F.FSEventStreamInvalidate(self._stream)

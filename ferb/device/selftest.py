@@ -8,6 +8,8 @@ from dataclasses import dataclass
 import ApplicationServices as AX
 import Quartz
 
+from ferb.device.autorelease import native_loop
+
 
 @dataclass(frozen=True)
 class Result:
@@ -36,6 +38,7 @@ class _Tap:
     def __init__(self) -> None:
         self.tap = None
         self._loop = None
+        self._done = threading.Event()
         ready = threading.Event()
 
         def cb(proxy, etype, event, refcon):  # noqa: ANN001
@@ -52,12 +55,13 @@ class _Tap:
                 Quartz.CGEventTapEnable(self.tap, True)
             ready.set()
             if self.tap is not None:
-                Quartz.CFRunLoopRun()
+                native_loop(self._done, 1.0)
 
         threading.Thread(target=run, daemon=True).start()
         ready.wait(5)
 
     def close(self) -> None:
+        self._done.set()
         if self.tap is not None:
             Quartz.CGEventTapEnable(self.tap, False)
             Quartz.CFMachPortInvalidate(self.tap)
