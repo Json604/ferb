@@ -15,13 +15,43 @@ struct TaskItem: Identifiable, Equatable {
     /// A running loop's line (L31); its task is standing work while no round is acting.
     var standing: String? = nil
     var isRunning: Bool { Self.isRunning(status) }
-    /// Still going: running, or a loop kept between its rounds. Either can be stopped.
-    var isOngoing: Bool { isRunning || standing != nil }
+    /// Paused in place by the owner (ORCH-308, the daemon's `task.paused`): not running and not ended; it resumes in
+    /// place.
+    var isPaused: Bool { status == "paused" }
+    /// Running or paused in place: its round picture stays by the work row (frozen while paused, APP-404).
+    var isUnderway: Bool { isRunning || isPaused }
+    /// Still going: running, paused, or a loop kept between its rounds. Any of them can be stopped.
+    var isOngoing: Bool { isUnderway || standing != nil }
     /// APP-890: what FERB is doing now, the one line its short view and its own box show (the whole list stays in
     /// Show activity and the Tasks page). APP-893: the daemon's plain live line (`task.progress`), worded as a card
     /// row's, never a tool's name.
     var currentLine: String { activity.last.map { RowDisplay.sentence($0.title) } ?? "Starting task…" }
     static func isRunning(_ status: String) -> Bool { status == "working" || status == "needs_user" }
+}
+
+/// The chat's work row in words (APP-901, owner 2026-11-12: "this paused task shoudl also relfect in these line, loader
+/// adn time"). The timer sits between `lead` and `trail` and counts only running tasks: "1 active task · 2:10 · 1
+/// paused". With nothing running there is no timer: "1 paused task", "2 paused tasks · 1 kept going".
+struct WorkRowWords: Equatable {
+    let lead: String
+    let trail: String
+
+    init(active: Int, paused: Int, kept: Int) {
+        func tasks(_ n: Int) -> String { n == 1 ? "task" : "tasks" }
+        var rest: [String] = []
+        if paused > 0 { rest.append(active > 0 ? "\(paused) paused" : "\(paused) paused \(tasks(paused))") }
+        if kept > 0 { rest.append("\(kept) kept going") }
+        if active > 0 {
+            lead = "\(active) active \(tasks(active))"
+            trail = rest.joined(separator: " · ")
+        } else {
+            lead = rest.joined(separator: " · ")
+            trail = ""
+        }
+    }
+
+    /// The row's words without the timer.
+    var text: String { [lead, trail].filter { !$0.isEmpty }.joined(separator: " · ") }
 }
 
 /// The task list as last built. The notch's size reads it on every pointer move, animation frame and keystroke, so it
@@ -33,6 +63,7 @@ struct TaskListCache {
         /// The rows of loops kept going, whose line is made again at each read.
         let standing: [Int]
         let active: Int
+        let paused: Int
         let kept: Int
     }
 
@@ -58,24 +89,29 @@ extension NotchModel {
 
     var activeTaskCount: Int { builtTaskList.active }
 
+    /// Tasks the owner paused (ORCH-308): counted apart from the active ones, with no spinner and no running time.
+    var pausedTaskCount: Int { builtTaskList.paused }
+
     /// Loops kept between their rounds (L31): standing work, counted apart from the active tasks.
     var keptGoingCount: Int { builtTaskList.kept }
 
-    /// The chat's work row: shown while a task runs or a loop is kept; its spinner turns only for running work.
-    var showsWorkRow: Bool { hasRunningWork || keptGoingCount > 0 }
+    /// The chat's work row: shown while a task runs or is paused, or a loop is kept; its spinner turns only for
+    /// running work.
+    var showsWorkRow: Bool { hasRunningWork || pausedTaskCount > 0 || keptGoingCount > 0 }
 
-    /// When the longest-running active task started: the work row's timer counts from it ("1 active task · 0:42").
+    /// When the longest-running active task started: the work row's timer counts from it ("1 active task · 0:42"). A
+    /// paused task's time isn't counted (APP-901): with every task paused the row shows no time.
     var workSince: Date? {
-        hasRunningWork ? runningSince.values.min() : nil
+        guard hasRunningWork else { return nil }
+        return runningSince.filter { !pausedTasks.contains($0.key) }.values.min()
     }
 
-    var workRowText: String {
-        let active = activeTaskCount, kept = keptGoingCount
-        var parts: [String] = []
-        if active > 0 { parts.append("\(active) active \(active == 1 ? "task" : "tasks")") }
-        if kept > 0 { parts.append("\(kept) kept going") }
-        return parts.joined(separator: " · ")
+    /// The work row's words on either side of its timer (APP-901).
+    var workRowWords: WorkRowWords {
+        WorkRowWords(active: activeTaskCount, paused: pausedTaskCount, kept: keptGoingCount)
     }
+
+    var workRowText: String { workRowWords.text }
 
     private var builtTaskList: TaskListCache.Built {
         if let built = taskListCache.built { return built }
@@ -143,7 +179,9 @@ extension NotchModel {
         let now = Date()
         for (id, title) in runningTasks where !id.isEmpty {
             let old = rows[id]
+            // a question of its own shows first, then the owner's pause (ORCH-308, APP-901)
             let status = pendingApprovals.contains(where: { $0.taskID == id }) ? "needs_user"
+                : pausedTasks.contains(id) ? "paused"
                 : standingWork[id].map { $0.state == "acting" ? "working" : "standing" } ?? "working"
             rows[id] = TaskItem(id: id, backendID: id, localID: old?.localID, title: title, status: status,
                 activity: taskActivities[id] ?? old?.activity ?? [], standing: standingLine(id, now: now))
@@ -156,6 +194,7 @@ extension NotchModel {
         }.map(\.0)
         return TaskListCache.Built(rows: sorted, standing: sorted.indices.filter { sorted[$0].standing != nil },
                                    active: sorted.filter(\.isRunning).count,
+                                   paused: sorted.filter(\.isPaused).count,
                                    kept: sorted.filter { $0.status == "standing" }.count)
     }
 
@@ -264,7 +303,9 @@ struct TaskListView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Tasks").font(.system(size: 13, weight: .semibold))
-                Text("\(model.activeTaskCount) active" + (model.keptGoingCount > 0 ? " · \(model.keptGoingCount) kept going" : ""))
+                Text("\(model.activeTaskCount) active"
+                     + (model.pausedTaskCount > 0 ? " · \(model.pausedTaskCount) paused" : "")
+                     + (model.keptGoingCount > 0 ? " · \(model.keptGoingCount) kept going" : ""))
                     .font(.system(size: 11)).foregroundStyle(Palette.secondary)
                 Spacer()
                 Button("Back", action: model.toggleTasks).buttonStyle(.plain)

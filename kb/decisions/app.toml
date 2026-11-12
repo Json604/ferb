@@ -3573,3 +3573,13 @@ rule = "Refines APP-403, APP-890 and APP-891. By \"N active tasks\" at most two 
 why = "The owner liked the earlier circles and agreed only to the +N chip and its list."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift::TaskActivityBubble"]
 live = ["LIVE-933"]
+
+[APP-901]
+title = "The work row counts a paused task apart: no spinner, no running time"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "Refines APP-891 and APP-900, for ORCH-308. A paused task (task.paused until task.resumed or its end; at a connect, tasks.list's status) is not active: neither \"N active tasks\" nor the timer counts it. All paused: a pause.circle glyph (paused rows' colour) for the spinner, \"1 paused task\", no time. Mixed: \"1 active task · 2:10 · 1 paused\", the running ones' time. Its round picture stays (\"…, paused\"); its short view and box show the glyph and \"Paused\". An open question still reads as waiting. No new daemon field."
+why = "Owner 2026-11-12, after \"ok pause on this task for now\" left a turning spinner and \"1 active task · 10:22\" counting: \"this paused task shoudl also relfect in these line, loader adn time. just a ui thign, fix it\"."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TaskList.swift::WorkRowWords", "ui/mac/FERBNotch/Sources/FERBNotch/ChatBody.swift", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift::refreshPausedTasks"]
+live = ["LIVE-937"]

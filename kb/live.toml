@@ -4433,3 +4433,12 @@ request = "Ask FERB to buy one cheap item on amazon.in with Buy Now."
 pass = "The question before Buy Now's click reads \"Pay ₹<the item's price>?\" (not \"FERB couldn't read the amount\"), with no line saying FERB couldn't find it on the page; the trace shows the Buy Now call sent back once (amount_asked) and called again with effect pay and that amount; Place your order asks with the order's amount; nothing is ordered without a Yes."
 decisions = ["GATE-583", "GATE-584", "PRM-354"]
 sitting = "after this change is installed"
+
+[LIVE-937]
+title = "A paused task shows as paused in the work row: no spinner, no running time"
+area = "app"
+surface = "FERB.app with this build, the notch chat; two disposable tasks (e.g. reading two kartikey.xyz test pages slowly)"
+request = "Start one task and tell FERB to pause it (\"pause this for now\"). Look at the row under the chat. Start a second task, look again. Quit and reopen FERB.app while one is paused, look again. Then tell FERB to carry on with the paused one."
+pass = "One task paused: a pause glyph (no turning spinner), \"1 paused task\", no time counting; its round picture stays. With the second running: the spinner, \"1 active task · <time of the running one> · 1 paused\". After reopening FERB.app the paused task still reads paused. Resumed: back to \"2 active tasks\" with the spinner and time. Its short view says Paused while paused."
+decisions = ["APP-901"]
+sitting = "after this change is installed"

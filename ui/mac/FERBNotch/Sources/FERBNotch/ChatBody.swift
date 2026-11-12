@@ -138,22 +138,7 @@ struct ChatBodyView: View {
                                    typed: $model.introTyped, canSkip: model.introSkippable)
                     .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 13))
             }
-            if model.showsWorkRow {
-                HStack(spacing: 8) {
-                    // Turns only while work runs; a loop kept between its rounds is standing work (L31).
-                    if model.hasRunningWork { ProgressView().controlSize(.mini) }
-                    Text(model.workRowText)
-                        .font(.system(size: 11)).foregroundStyle(Palette.secondary)
-                    if let since = model.workSince {
-                        Text("· \(since, style: .timer)")
-                            .font(.system(size: 11).monospacedDigit()).foregroundStyle(Palette.secondary)
-                    }
-                    if model.hasRunningWork { TaskActivityBubble(model: model) }
-                    Spacer()
-                    Button("View tasks", action: model.toggleTasks)
-                        .buttonStyle(.plain).font(.system(size: 11))
-                }
-            }
+            if model.showsWorkRow { WorkRowView(model: model) }
             if model.viewingToday { composer.disabled(!model.canCompose) }
             else {
                 Button("Continue in Today") { model.selectDay(Date()) }
@@ -272,6 +257,34 @@ struct ChatBodyView: View {
                 Spacer()
                 Text("Files are shared when you submit").font(.system(size: 10)).foregroundStyle(Palette.secondary)
             }
+        }
+    }
+}
+
+/// The work row under the chat: "N active tasks", their time, the round pictures and View tasks. The spinner turns
+/// only while work runs; a loop kept between its rounds is standing work (L31); a paused task is counted apart, with
+/// the pause glyph when nothing runs and no time of its own (APP-901).
+struct WorkRowView: View {
+    @ObservedObject var model: NotchModel
+
+    var body: some View {
+        let words = model.workRowWords
+        HStack(spacing: 8) {
+            if model.hasRunningWork { ProgressView().controlSize(.mini) }
+            else if model.pausedTaskCount > 0 { PausedGlyph(size: 13) }
+            Text(words.lead)
+                .font(.system(size: 11)).foregroundStyle(Palette.secondary)
+            if let since = model.workSince {
+                Text("· \(since, style: .timer)")
+                    .font(.system(size: 11).monospacedDigit()).foregroundStyle(Palette.secondary)
+            }
+            if !words.trail.isEmpty {
+                Text("· " + words.trail).font(.system(size: 11)).foregroundStyle(Palette.secondary)
+            }
+            if model.hasRunningWork || model.pausedTaskCount > 0 { TaskActivityBubble(model: model) }
+            Spacer()
+            Button("View tasks", action: model.toggleTasks)
+                .buttonStyle(.plain).font(.system(size: 11))
         }
     }
 }

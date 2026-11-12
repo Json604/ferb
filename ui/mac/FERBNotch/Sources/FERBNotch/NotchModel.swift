@@ -206,7 +206,15 @@ final class NotchModel: ObservableObject {
             var since = runningSince.filter { runningTasks[$0.key] != nil }
             for id in runningTasks.keys where since[id] == nil { since[id] = Date() }
             if since != runningSince { runningSince = since }
+            // a task that ended is no longer paused
+            let ended = pausedTasks.filter { oldValue[$0] != nil && runningTasks[$0] == nil }
+            if !ended.isEmpty { pausedTasks.subtract(ended) }
         }
+    }
+    /// Running tasks the owner paused in place (ORCH-308): the daemon's `task.paused` until its `task.resumed` or the
+    /// task's end; after a reconnect, read from tasks.list's status (APP-901).
+    @Published var pausedTasks: Set<String> = [] {
+        didSet { if pausedTasks != oldValue { taskListCache.invalidate() } }
     }
     /// Keyed by task, and by step for a card row's watch button (its step task id).
     private var taskPreviews: [String: TaskPreview] = [:]
@@ -220,7 +228,7 @@ final class NotchModel: ObservableObject {
         return created
     }
     func discardFinishedPreviews() {
-        let active = Set(taskItems.filter(\.isRunning).map { $0.backendID ?? $0.id })
+        let active = Set(taskItems.filter(\.isUnderway).map { $0.backendID ?? $0.id })
         for (key, preview) in taskPreviews where !active.contains(preview.taskID) {
             taskPreviews.removeValue(forKey: key)?.stop()
         }

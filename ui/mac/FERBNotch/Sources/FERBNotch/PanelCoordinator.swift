@@ -699,7 +699,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// A running task's own activity window (APP-898): another task's opens beside the ones open; its own, if open,
     /// comes forward.
     private func showTaskActivity(_ taskID: String) {
-        guard model.taskItems.contains(where: { $0.id == taskID && $0.isRunning }) else { return }
+        guard model.taskItems.contains(where: { $0.id == taskID && $0.isUnderway }) else { return }
         activityWindows.open(taskID)
     }
 

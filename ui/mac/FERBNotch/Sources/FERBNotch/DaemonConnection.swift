@@ -16,7 +16,10 @@ extension NotchModel {
                     await self.prepareHistory()         // the chat in hand before the status read places anything
                     await self.refreshDaemonStatus()
                     await self.refreshTimers()
-                    for try await event in self.rpc.stream("logs.subscribe", params: [:]) {
+                    // subscribed first, so a pause or resume after the paused tasks are read comes after it (APP-901)
+                    let events = self.rpc.stream("logs.subscribe", params: [:])
+                    await self.refreshPausedTasks()
+                    for try await event in events {
                         guard !Task.isCancelled else { return }
                         self.receiveBusEvent(event)
                     }
@@ -232,6 +235,19 @@ extension NotchModel {
             }
             reconciledMissingTasks.insert(taskID)
         } catch { connectionStatus = error.localizedDescription }
+    }
+
+    /// At each (re)connect, which tasks the owner had paused while this app wasn't listening (APP-901): tasks.list's
+    /// recorded status, a fact the daemon already gives (its newest 200 tasks). Between connects `task.paused` and
+    /// `task.resumed` keep it (both critical: a missed one ends the stream, and the reconnect reads again); the events
+    /// subscribed before this read are applied after it. A task waiting on a question of its own also reads paused
+    /// there; its question shows first (makeTaskList).
+    func refreshPausedTasks() async {
+        guard let reply = try? await rpc.call("tasks.list", params: ["limit": 200]) else { return }
+        let paused = Set((reply["tasks"] as? [[String: Any]] ?? []).compactMap { row in
+            row["status"] as? String == "paused" ? row["task_id"] as? String : nil
+        })
+        if paused != pausedTasks { pausedTasks = paused }
     }
 
     func selectRunningTask(_ taskID: String) {
@@ -520,7 +536,7 @@ extension NotchModel {
             var result = data
             if let taskID, let name = runningTasks.removeValue(forKey: taskID), result["goal"] == nil,
                result["name"] == nil { result["name"] = name }
-            if let taskID { taskActivities.removeValue(forKey: taskID) }
+            if let taskID { taskActivities.removeValue(forKey: taskID); pausedTasks.remove(taskID) }
             if result["at"] == nil { result["at"] = event["at"] }
             receiveOutcome(result)
             if let taskID { cursor?.end(taskID: taskID) }
@@ -546,6 +562,11 @@ extension NotchModel {
             else if let local = workSessions.first(where: { $0.value.backendTaskID == taskID })?.key {
                 withWorkSession(local) { session.noteBackendActivity(text) }
             }
+        case "task.paused", "task.resumed":
+            // ORCH-308: the owner paused the task in place, or it carries on (APP-901: the work row counts it apart)
+            guard let taskID, !taskID.isEmpty else { return }
+            if event["topic"] as? String == "task.paused" { pausedTasks.insert(taskID) }
+            else { pausedTasks.remove(taskID) }
         case "task.part":
             receivePart(data)
         case "task.step":

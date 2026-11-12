@@ -16,15 +16,15 @@ struct TaskActivityBubble: View {
     /// A task waits for the owner while a question or a Yes of its own is open (`needs_user`, TaskItem).
     static func waits(_ item: TaskItem) -> Bool { item.status == "needs_user" }
 
-    /// "Amazon order, waiting for you" / "Amazon order, working".
+    /// "Amazon order, waiting for you" / "Amazon order, paused" / "Amazon order, working".
     static func label(_ item: TaskItem) -> String {
-        item.title + (waits(item) ? ", waiting for you" : ", working")
+        item.title + (waits(item) ? ", waiting for you" : item.isPaused ? ", paused" : ", working")
     }
 
     /// APP-891: a preview is shown once: a task whose card rows show their live pictures on screen now has no picture
-    /// here (the work row's count and time still count it).
+    /// here (the work row's count and time still count it). A paused task keeps its picture as it was (APP-901).
     private var activeTasks: [TaskItem] {
-        model.taskItems.filter { $0.isRunning && !model.rowsShowPreview(of: $0.backendID ?? $0.id) }
+        model.taskItems.filter { $0.isUnderway && !model.rowsShowPreview(of: $0.backendID ?? $0.id) }
     }
     private var featured: [TaskItem] { Array(activeTasks.prefix(2)) }
     private var remaining: [TaskItem] { Array(activeTasks.dropFirst(2)) }
@@ -156,7 +156,7 @@ struct TaskActivityBubble: View {
                     .clipShape(RoundedRectangle(cornerRadius: 9))
             }
             HStack(alignment: .center, spacing: 9) {
-                ProgressView().controlSize(.small)
+                if item.isPaused { PausedGlyph(size: 16) } else { ProgressView().controlSize(.small) }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
                     Text(item.currentLine)
@@ -266,7 +266,8 @@ struct DetachedTaskActivityView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("FERB is working").font(.system(size: 11, weight: .semibold)).foregroundStyle(Palette.amber)
+                            Text(task.isPaused ? "Paused" : "FERB is working").font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(task.isPaused ? Palette.chatBlue : Palette.amber)
                             Text(task.title).font(.system(size: 13, weight: .medium)).lineLimit(2)
                         }
                         Spacer()
@@ -289,7 +290,7 @@ struct DetachedTaskActivityView: View {
                     // the one line of what FERB is doing now, as the short view says it; the whole list stays in Show
                     // activity and the Tasks page
                     HStack(alignment: .center, spacing: 9) {
-                        ProgressView().controlSize(.small)
+                        if task.isPaused { PausedGlyph(size: 16) } else { ProgressView().controlSize(.small) }
                         Text(task.currentLine).font(.system(size: 11)).foregroundStyle(Palette.secondary).lineLimit(2)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -301,7 +302,18 @@ struct DetachedTaskActivityView: View {
             }
         }
         .onChange(of: model.taskItems) { _, items in
-            if !items.contains(where: { $0.id == taskID && $0.isRunning }) { onClose() }
+            if !items.contains(where: { $0.id == taskID && $0.isUnderway }) { onClose() }
         }
+    }
+}
+
+/// A paused task's mark where a running one has its spinner (APP-901): pause.circle in the colour paused card rows
+/// take (TurnCardView's surface tint for "paused").
+struct PausedGlyph: View {
+    let size: CGFloat
+
+    var body: some View {
+        Image(systemName: "pause.circle").font(.system(size: size)).foregroundStyle(Palette.chatBlue)
+            .accessibilityLabel("Paused")
     }
 }
