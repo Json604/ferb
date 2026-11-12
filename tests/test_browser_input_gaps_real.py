@@ -666,6 +666,10 @@ def test_hover_context_dblclick_modifiers(worker: Worker, site: LabServer) -> No
     if arch:
         w.act(arch[-1].id, "click")
     out["row_action"] = w.truth()["rowAction"]
+    # HAND-508: a hover that brings up something under the pointer (Gmail's row actions over the row) did what it was for
+    out["hover_reveals"] = _point_act(w, "#row3", "hover")
+    _try(w, "Archive 1003", "click")
+    out["row_action_over"] = w.truth()["rowAction"]
     _try(w, "b.txt", "click", role="option")
     _try(w, "d.txt", "click", role="option")       # a person shift-clicks here: FERB's act has no modifier
     out["selected_after_two_clicks"] = w.truth()["selected"]
@@ -676,6 +680,8 @@ def test_hover_context_dblclick_modifiers(worker: Worker, site: LabServer) -> No
     report("pointer", w, out)
     assert out["css_menu"] == "Laptops" and out["js_menu"] == "Sign out" and out["context_menu"] == "Rename"
     assert out["cell"] == "Edited" and out["row_action"] == "archive 1002"
+    assert out["hover_reveals"].get("ok") and "under the pointer" in str(out["hover_reveals"].get("observed")), out
+    assert out["row_action_over"] == "archive 1003"
     assert out["selected_after_two_clicks"] == ["d.txt"]      # GAP: no shift-click, so no range selection
 
 

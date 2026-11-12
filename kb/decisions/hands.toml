@@ -1327,3 +1327,14 @@ why = "The editors are canvas-drawn and the snapshot shows no document text, so 
 evidence = "The CSV import into Sheets worked live (task 9b96e830). Typing and paste into the real signed-in Docs and Sheets are unverified until LIVE-916 and LIVE-917; Slides' txt export is unverified."
 paths = ["ferb/abilities/google_docs/SKILL.md", "ferb/abilities/google_docs/definition.py", "ferb/abilities/catalog.py::builtin_definitions"]
 live = ["LIVE-916", "LIVE-917"]
+
+[HAND-508]
+title = "A hover on a screenshot point that brings up something under the pointer went through"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For HAND-503, extension 0.19.10. Refines HAND-480 for hovers: after the pointer's move, a hover's point is checked again only to say what changed; another element under the point (a row's actions drawn over it, a menu) is the hover's effect: ok, with observed_change true and `observed` naming the change. A click, double-click, right-click or drag keeps the re-check: refused, nothing pressed."
+why = "Live, task 2357c470: four hovers on Gmail rows came back failed (then unknown on an older extension), each having shown the row's own actions, and the retries were blocked."
+evidence = "Lab 2026-11-11, menus.html row3 (actions drawn over the row's middle, as in Gmail): before, visual_target_changed; after, ok with the change observed and the revealed button clickable from a new snapshot."
+paths = ["extensions/chromium/pointer.js::exactPointer"]
+live = ["LIVE-919"]

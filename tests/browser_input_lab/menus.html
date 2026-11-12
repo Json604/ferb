@@ -1,6 +1,7 @@
 <!doctype html>
 <!-- Lab page: pointer-only affordances. (1) a CSS :hover menu whose items exist only while hovered, (2) a JS mouseenter
-     menu, (3) a custom right-click menu, (4) a double-click-to-edit cell, (5) a row whose action buttons show on hover,
+     menu, (3) a custom right-click menu, (4) a double-click-to-edit cell, (5) a row whose action buttons show on hover
+     (one draws them over the row's middle, as Gmail does),
      (6) shift-click range selection and cmd-click multi-selection in a list (Gmail, Drive, Finder-like), (7) a
      tooltip with the only copy of some text. labState() reads each result. -->
 <meta charset="utf-8">
@@ -17,6 +18,7 @@
   .row { width: 360px; padding: 10px; border-bottom: 1px solid #ddd; position: relative; }
   .row .actions { visibility: hidden; position: absolute; right: 8px; top: 6px; }
   .row:hover .actions { visibility: visible; }
+  .row.cover .actions { left: 0; right: 0; top: 0; bottom: 0; background: #fff; text-align: center; }
   #files li { padding: 4px; user-select: none; }
   #files li.sel { background: #cde; }
   #tip { position: relative; border-bottom: 1px dotted; }
@@ -33,6 +35,7 @@
 <table border="1"><tr><td id="cell" style="width:200px;padding:6px">Double-click to edit</td></tr></table>
 <div class="row" id="row1">Invoice 1001<span class="actions"><button type="button" onclick="window.rowAction='archive 1001'">Archive</button></span></div>
 <div class="row" id="row2">Invoice 1002<span class="actions"><button type="button" onclick="window.rowAction='archive 1002'">Archive</button></span></div>
+<div class="row cover" id="row3">Invoice 1003<span class="actions"><button type="button" onclick="window.rowAction='archive 1003'">Archive 1003</button></span></div>
 <ul id="files" role="listbox" aria-multiselectable="true" aria-label="Files">
   <li role="option" aria-selected="false">a.txt</li><li role="option" aria-selected="false">b.txt</li>
   <li role="option" aria-selected="false">c.txt</li><li role="option" aria-selected="false">d.txt</li>

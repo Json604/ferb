@@ -4271,3 +4271,12 @@ request = "Ask FERB to replace the editor's code with a three-line function you 
 pass = "The editor shows exactly your three lines (its own indentation aside); no \"target_occluded\" in the trace."
 decisions = ["HAND-504", "HAND-505"]
 sitting = "after this change is installed and 0.19.10 is loaded"
+
+[LIVE-919]
+title = "FERB archives a Gmail conversation from its row's hover action"
+area = "hands"
+surface = "FERB.app with this build and the FERB extension 0.19.10; FERB's Gmail (or yours) with an old test email you made"
+request = "Ask FERB to archive that test email from the inbox list, using the archive button that shows when the row is hovered."
+pass = "The hover's result says ok with what changed under the pointer (no visual_target_changed, no outcome unknown), the archive click follows on a fresh snapshot or screenshot, and the email is in All Mail, not the inbox."
+decisions = ["HAND-508"]
+sitting = "after this change is installed and 0.19.10 is loaded"

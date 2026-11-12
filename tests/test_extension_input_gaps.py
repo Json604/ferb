@@ -178,3 +178,21 @@ def test_the_google_docs_procedure_is_listed_and_reads_from_the_package() -> Non
     assert [a["id"] for a in catalog.catalog()] == ["browser_verification", "google_docs"]
     read = catalog.read("google_docs")
     assert read["source_kind"] == "builtin" and read["origin"] == "ferb" and read["body"].startswith("# Google Docs")
+
+
+# decision: HAND-508
+def test_a_hover_that_brings_up_something_under_the_pointer_went_through_and_says_so() -> None:
+    """Live (task 2357c470): four hovers on Gmail rows came back as failures; each had shown the row's own actions."""
+    from tests.test_busy_pages import _PAGE
+    out = worker('(async () => {' + _PAGE + r'''
+      await shoot(); let p = await point(50, 30);
+      hover = () => { buy = {id: 12, role: "button", label: "Archive", href: null, rect: [0, 0, 120, 60]}; };
+      const hovered = await commands.pointer({tab_id: 1, point: p.pointer, kind: "hover"}, "h1");
+      buy = {...buy, id: 3, role: "button", label: "Buy", rect: [10, 10, 200, 40]};
+      await shoot(); p = await point(50, 30);
+      const clicked = await commands.pointer({tab_id: 1, point: p.pointer, kind: "click"}, "c1");
+      return {hovered, clicked, presses: events.filter(e => e === "mousePressed").length};
+    })()''')
+    assert out["hovered"]["ok"] is True and "changed under the pointer" in out["hovered"]["observed"]
+    assert out["clicked"]["ok"] is False and out["clicked"]["detail"].startswith("visual_target_changed")
+    assert out["presses"] == 0                                     # a click onto what the hover brought up: refused

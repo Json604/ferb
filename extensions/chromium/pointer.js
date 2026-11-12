@@ -166,9 +166,20 @@ async function exactPointer({tab_id, point, end, kind}, commandId) {
     }
     alive();
     // Hover can expose a different control (a tooltip, a menu over the point). Recheck the actual hit before pressing;
-    // only moves were sent so far, so a refusal here is a known one.
+    // only moves were sent so far, so a refusal here is a known one. HAND-508: for a hover that change is what it was
+    // for (Gmail's row actions drawn over the row): it went through, and the change is its `observed`.
+    let changed = "";
     try { await checkPoint(tab_id, start, visual, true); }
-    catch (e) { return {ok: false, detail: String(e.message || e)}; }
+    catch (e) {
+      if (kind !== "hover") return {ok: false, detail: String(e.message || e)};
+      changed = String(e.message || e).replace(/^\w+: /, "").replace(/; take another screenshot$/, "");
+    }
+    if (kind === "hover") {
+      st.pointer = {x, y, action: kind};
+      return {ok: true, detail: `hover input delivered at (${Math.round(x)}, ${Math.round(y)})`, observed_change: !!changed,
+              observed: changed ? `the page changed under the pointer: ${changed}; take a new snapshot to act on what it shows`
+                                : "the same element is still under the pointer"};
+    }
     if (kind !== "hover") {
       for (let n = 1; n <= (kind === "dblclick" ? 2 : 1); n++) {
         alive();
