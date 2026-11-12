@@ -1105,3 +1105,17 @@ status = "active"
 rule = "Refines D33 for the planner's own chat reply or question (Supervisor._exit, a stop reply's rest, its streamed draft): a line is marked only when it starts in the form of FERB's own checks, \"FERB:\" (CHECK_PREFIX; case, spaces, other punctuation, leading colons and compatibility forms ignored: **FERB:**, F.E.R.B:, ＦＥＲＢ:), and the mark is \"(written by the AI) \" (FROM_AI). Any other line (\"FERB's record says …\") is shown as written. Task-written text (a worker's question, options, why line, answer) and the plan line keep \"(from the task)\" on any line starting with the word FERB, unchanged."
 why = "Live 2026-11-11 13:11: \"(from the task) FERB's schedule record says the last visa check ran today at 12:00 PM and failed.\" No task wrote it. D33 guards against text passing for FERB's own checks, whose text begins \"FERB: \" (confirm.line, the gateway's retry question); that form is still marked."
 paths = ["ferb/policy/confirm.py::reply_lines", "ferb/policy/confirm.py::reads_as_ferbs_check", "ferb/policy/confirm.py::CHECK_PREFIX", "ferb/orchestrator/reply_stream.py::_LineGuard", "ferb/orchestrator/supervisor.py::Supervisor._exit", "ferb/orchestrator/prompts/supervisor.md"]
+
+[GATE-582]
+title = "A form posted to the page's own site from a page showing money asks as a payment, card field or not"
+by = "owner"
+date = 2026-11-12
+status = "active"
+words = "\"we can try your recommneded solution but i hav eot try on a real payment. cause its would really be annoying to get same question twice yk. onl yif there were a better but safe way\"; then, told no safe single-question way exists without reading words or letting the AI's word remove a question: \"anyways build it cause it smore secure\""
+words_source = "Owner 2026-11-12, relayed by the coordinator, answering T-1060's narrowed question: should code itself raise the payment question on \"a form posting to the same site, on a page showing money amounts\"."
+rule = "Refines GATE-214, closes T-1060. A form submit with method POST whose action host is on the page's own site (same registrable domain; no action host: the page's), on a page whose page_amounts hold a money amount, raises the payment need with no card field or declaration, with the amount facts there are (GATE-578). Not for GET forms, pages with no amount, or forms posting to another site (GATE-214/216 there). GATE-204/216/217/580 stand: a Yes at Buy Now is a one-click payment GATE-217 completes, so Place your order asks again. [policy] pay_same_site_forms (default on) turns it off."
+why = "All four live Amazon \"Place your order\" clicks (64a149b8, 3e5c8c55, 6812fdb5, 9b96e830) were POST to the page's own site with no card field; each asked only because the worker declared pay."
+evidence = "The 223 browser acts since page_amounts began (2026-11-11 02:56): 21 form submits (15 GET, 6 POST). 3 would newly ask, all Amazon Buy Now; the 3 Place your order asked already."
+rejected = ["Letting an earlier step's Yes (Buy Now) cover the final order: GATE-217 counts that submit as the payment", "Reading the control's words to pick the final step: rule 4"]
+paths = ["ferb/daemon/gateway.py::Gateway._pays_on_site", "ferb/daemon/gateway.py::GatewayDeps", "ferb/policy/confirm.py::registrable", "ferb/daemon/areas/compose.py"]
+live = ["LIVE-926"]

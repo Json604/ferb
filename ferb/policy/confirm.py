@@ -29,6 +29,7 @@ FERB's question (`line`) comes first and is labelled, in the owner's terms (P27)
 
 import base64
 import binascii
+import ipaddress
 import json
 import re
 import unicodedata
@@ -396,6 +397,21 @@ _TWO_LEVEL = frozenset({"co.uk", "org.uk", "gov.uk", "ac.uk", "me.uk", "com.au",
                         "gov.au", "co.nz", "org.nz", "govt.nz", "co.za", "org.za", "co.in", "net.in", "org.in",
                         "co.jp", "or.jp", "ne.jp", "com.br", "com.cn", "net.cn", "org.cn", "gov.cn", "co.kr",
                         "com.mx", "com.sg", "com.hk", "com.tw", "co.il", "com.tr", "co.id", "com.ua"})
+
+
+def registrable(host: str) -> str:
+    """A host's site: its registrable domain, the label left of its public suffix plus the suffix (a two-level suffix
+    from the table above): `www.amazon.in` and `pay.amazon.in` give `amazon.in`, `www.amazon.co.uk` `amazon.co.uk`.
+    An IP address is its own site. Lowercased, a trailing dot dropped; "" for no host."""
+    host = host.lower().rstrip(".")
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+        return host
+    except ValueError:
+        pass
+    labels = host.split(".")
+    reg = 3 if len(labels) >= 3 and ".".join(labels[-2:]) in _TWO_LEVEL else 2
+    return ".".join(labels[-reg:])
 
 
 def _fine_tokens(text: str) -> set[str]:

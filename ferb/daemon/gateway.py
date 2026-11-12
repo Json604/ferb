@@ -472,6 +472,8 @@ class GatewayDeps:
     # GATE-538 (owner D7): the owner's own email addresses and phone numbers (their paired profiles' accounts, their
     # own stated facts about themselves): typed into a form, they don't ask
     owner_contacts: Callable[[], frozenset[str]]
+    # GATE-582: `[policy] pay_same_site_forms` (on unless the owner turns it off), read at each call
+    pay_same_site_forms: Callable[[], bool]
     on_path: Callable[[str, str], None]                 # trail attribution of a path FERB touched
     route_question: Callable[[str, str, list[str]], Awaitable[dict[str, Any]]] | None   # a worker's question
     shadow_action: Callable[[dict[str, Any], str], Awaitable[None]] | None   # advice only (D23 shadow)
@@ -634,6 +636,7 @@ class Gateway:
         # L36 §6: the memory sources a login record's username may still come from (the daemon's memory; None: any)
         self.username_sources: Callable[[], Container[str] | None] = deps.username_sources
         self.owner_contacts: Callable[[], frozenset[str]] = deps.owner_contacts
+        self.pay_same_site_forms: Callable[[], bool] = deps.pay_same_site_forms   # GATE-582's switch
         self.disturbance: Any = deps.disturbance
         self.allow_until: datetime | None = None          # the owner's "don't ask for 30 min" for routine questions
         self.evidence: Any = deps.evidence                 # the evidence store (ferb/act/evidence/store.py)
@@ -1166,7 +1169,7 @@ class Gateway:
         kinds = set(f.field_kinds)
         out: list[tuple[str, Target]] = []
         if f.submits_form:
-            if kinds & CARD_KINDS:
+            if kinds & CARD_KINDS or self._pays_on_site(f, page):
                 out.append((Kind.PAY, Target(site=page)))
             if {"password", "new_password"} <= kinds:   # an existing account's password changed (a sign-up asks nothing)
                 out.append((Kind.ACCOUNT_SECURITY, Target(site=page)))
@@ -1174,6 +1177,18 @@ class Gateway:
         if c.spec.kind != Kind.TRASH:
             out += [(Kind.DELETE_PERMANENT, Target(path=normalize_path(p, self.roots.workspace))) for p in f.deletes]
         return out
+
+    def _pays_on_site(self, f: ActionFacts, page: str | None) -> bool:
+        """GATE-582 (owner, closing T-1060): a form posted (POST) to the page's own site (the same registrable domain;
+        a form with no action host posts to its page) from a page that shows a money amount (`page_amounts`, a
+        currency beside a number, read by code) is a payment, card field or not: a checkout's "Place your order". A
+        GET form, a page with no amount and a form posting to another site (a payment provider's: its card fields and
+        bank page keep GATE-214/216) add nothing here. Structure only, never the page's or the control's words."""
+        if not page or (f.form_method or "").upper() != "POST" or not self.pay_same_site_forms():
+            return False
+        if confirm.registrable((f.form_action_host or "") or page) != confirm.registrable(page):
+            return False
+        return any(payments.amount_key(a) is not None for a in f.page_amounts)
 
     async def _boundaries(self, c: "Call", reply: Callable[..., dict[str, Any]]) -> dict[str, Any] | None:
         """What refuses a call without asking anyone: a delegated conversation's scope, FERB's own files (never

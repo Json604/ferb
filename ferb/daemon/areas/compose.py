@@ -122,6 +122,8 @@ class Compose:
                                    profile_account=self._profile_account,     # and its signed-in account
                                    disturbance=self.disturbance, username_sources=self._username_sources,
                                    owner_contacts=self._owner_contacts,       # GATE-538
+                                   pay_same_site_forms=lambda: self.config.get(   # GATE-582: the owner's switch
+                                       "policy", "pay_same_site_forms", True) is not False,
                                    on_path=self.attribution.ferb_touched, route_question=questions,
                                    shadow_action=self._destructive_shadow,
                                    standing=StandingPermissions(self.db)))

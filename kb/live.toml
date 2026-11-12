@@ -4334,3 +4334,12 @@ request = "Drop a photo in the chat and ask what's in it. Then drop a 3-page PDF
 pass = "FERB describes the photo and page 2 correctly; `ferb trace` shows fs.look calls (page 2 for the PDF, its result saying 3 pages) and no pdftoppm, Preview or mac.screenshot; no window opened on screen; a card number or code in the photo is painted over in the task's stored image."
 decisions = ["HAND-517"]
 sitting = "after this change is installed"
+
+[LIVE-926]
+title = "One real cheap order: count the payment questions"
+area = "gateway"
+surface = "FERB.app with this build; the owner's own shop account (amazon.in), a cheap item, an order the owner wants"
+request = "Ask FERB to buy one cheap item on amazon.in with Buy Now (pay on delivery or the owner's usual way)."
+pass = "FERB asks \"Pay …?\" before Buy Now's click (FERB couldn't read the amount there) and again before Place your order with the order's amount; nothing is ordered without a Yes; the owner says whether the two questions are acceptable or which one should go."
+decisions = ["GATE-582"]
+sitting = "after this change is installed"

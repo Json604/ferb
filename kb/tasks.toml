@@ -511,15 +511,6 @@ status = "open"
 why = "2026-11-04 inventory of 163 limits: 46 owner, 46 agent rulings, 71 code-only (rule 18 says limits that change behaviour are the owner's). The full list with file:line and kb IDs is the 'FERB Limits' page the owner received."
 ask = "Go through the agent-set and code-only limits (highlighted rows in the FERB Limits page) and say, for each you care about, keep, change (to what) or remove; the rest stay as they are and get recorded as your decision."
 
-[T-1060]
-title = "Payments with no card field in the submitted form ask only on the worker's pay declaration"
-area = "gateway"
-kind = "question"
-status = "open"
-why = "Security run T-1058: GATE-214 needs cc-* fields in the submitted form itself (Gateway._fact_targets, content.js submitInfo). A card frame from another origin, a saved-card Buy now, an amount-only donation form and a wallet button raise no payment fact. Signals and costs: the T-1058 report."
-decisions = ["GATE-202", "GATE-204", "GATE-214", "GATE-216", "GATE-217"]
-ask = "Should a card field filled anywhere in the tab (a payment provider's card frame too), an amount field (autocomplete transaction-amount) in a submitted form, and input on a known payment provider's frame or page each count as a payment that asks you? Cost: an extra question when FERB saves a card in a site's settings or opens a PayPal or Google Pay frame without paying."
-
 [T-1061]
 title = "A typed answer approves every address in it for good, pasted text included"
 area = "gateway"
