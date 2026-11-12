@@ -233,6 +233,8 @@ MAX_RESTARTS = 1
 SILENT = ("I stopped because nothing came back from the AI service for {minutes:g} minutes. Send it again and I'll "
           "try once more.")
 STOP_SETTLING = "I've asked it to stop; it's still finishing what it was doing, so I haven't started anything else."
+# ORCH-638: the same, when the message's new task starts right after it (its plan line follows)
+STOP_SETTLING_THEN = "I've asked it to stop; it's still finishing what it was doing."
 RETRY_SETTLING = "I've stopped the earlier attempt; I'll start again as soon as it has finished."
 ALREADY_ENDED = "That attempt has already ended."
 ALREADY_FINISHED = "That task had already finished its work, so there was nothing to stop."
@@ -551,6 +553,10 @@ class _Turn:
     side_lines: list[str] = field(default_factory=list)
     side_cards: list[dict[str, Any]] = field(default_factory=list)   # step 8e: the cards of those lines
     acknowledged: str = ''           # FERB's word on an answer, said with the planner's reply
+    # ORCH-638: code's word on the turn's answer to a question and on its stop or pause (each recorded as its own
+    # reply), said first in the turn's new task's plan event, with the stopped task's cards
+    said_first: str = ''
+    said_first_cards: list[dict[str, Any]] = field(default_factory=list)
     reopened: set[str] = field(default_factory=set)              # trees whose Noes this turn reopened
     answered_tree: str | None = None  # the task whose question this turn answered
     release: Callable[[], None] = _nothing     # lets the chat's next message in (the turn has replied)
@@ -943,6 +949,8 @@ class _Tree:
     work_done: bool = False              # the checker accepted the task's own work; it is tidying up (stop refused)
     side_lines: list[str] = field(default_factory=list)   # what code did with the turn's reminders/memory (L11)
     side_cards: list[dict[str, Any]] = field(default_factory=list)   # step 8e: their cards
+    said_first: str = ""                 # ORCH-638: the turn's stop or pause, told before this task's plan line
+    said_first_cards: list[dict[str, Any]] = field(default_factory=list)
     finished: asyncio.Event = field(default_factory=asyncio.Event)
     start_block: ContextBlock | None = None          # L12: the owner's front window at send, for this tree's worker
     start_image: ModelImage | None = None            # and its redacted screenshot, the worker's start-of-task image
@@ -1557,9 +1565,10 @@ class Supervisor(WorkerRuns):
                                 "/Volumes or iCloud Drive itself: " + json.dumps(broad))
             # ORCH-319: the owner's separate asks, structurally sound, each quoting the owner's own words; a
             # correction that restates a task without a plan of its own keeps the task's plan and parts (a running
-            # task's steps and parts don't change while it runs), so there is nothing to check against
+            # task's steps and parts don't change while it runs), so there is nothing to check against; a new task
+            # beside a stop or pause is checked as any new task (ORCH-638)
             task_ = candidate.task
-            if candidate.control is None or task_.plan is not None:
+            if candidate.control is None or candidate.new_task is not None or task_.plan is not None:
                 problems.extend(part_problems(task_.parts, task_.plan, len(task_.success_conditions)))
                 # the one source of the owner's words (ORCH-520): a retry ("now??") may quote the earlier request
                 problems.extend(f"part {part.id}: its quote must be the owner's own words from this message or their "
@@ -2693,8 +2702,9 @@ class Supervisor(WorkerRuns):
 
     async def _route(self, turn: _Turn, out: SupervisorOutcome) -> AsyncIterator[dict[str, Any]]:
         """The planner's choice, carried out: an answer to an open question first (L3), then a task control (any chat's
-        or schedule's running task, or this chat's), a new task, or a reply. Every path that answers in chat ends in
-        `_exit`; a task's turn ends when its plan line is out."""
+        or schedule's running task, or this chat's), a new task, or a reply; a stop or pause and a new task in one
+        answer do both (ORCH-638, `_control`). Every path that answers in chat ends in `_exit`; a task's turn ends when
+        its plan line is out."""
         if out.answer_question is not None:
             # The answer is recorded first; the rest of the turn then runs as in any turn (final review M1). When FERB has
             # to ask which question the answer is for, the whole message comes back with the owner's reply, so nothing
@@ -2727,7 +2737,10 @@ class Supervisor(WorkerRuns):
                 turn.acknowledged = said
             else:                          # a stop, correction or task follows: its own line first
                 await self._record_reply(turn, "reply", said, {origins_.FERB})
-                yield {"type": "reply", "text": said}
+                if out.new_task is not None:     # ORCH-638: said first in the new task's plan event, in one event
+                    turn.said_first = said
+                else:
+                    yield {"type": "reply", "text": said}
         if out.control is not None:
             async for event in self._control(turn, out):
                 yield event
@@ -2853,12 +2866,19 @@ class Supervisor(WorkerRuns):
     async def _control(self, turn: _Turn, out: SupervisorOutcome) -> AsyncIterator[dict[str, Any]]:
         """A stop, retry, continue or pause of a task the planner was shown (`_control_conversation`: code checked it
         when the planner chose it). A continue corrects a running task live; a stop of work that has finished never
-        records it as cancelled; a retry waits for the stop it needs to settle, then carries the task on in place."""
+        records it as cancelled; a retry waits for the stop it needs to settle, then carries the task on in place.
+        ORCH-638: a stop or pause whose answer also carries new work (`SupervisorOutcome.new_task`) tells the stop or
+        pause in code's words, then starts that task (`_then_start`); the planner's text is its plan line."""
         control = out.control
         assert control is not None
+        then = out.new_task
         conversation = self._control_conversation(control.task_id, turn.session.id)
         prior = self.continuity.load(control.task_id, conversation) if conversation is not None else None
         if prior is None or conversation is None:       # a task that ended and went between the check and now
+            if then is not None:
+                async for event in self._then_start(turn, out, then, UNKNOWN_TASK, {origins_.FERB}):
+                    yield event
+                return
             async for event in self._exit(turn, out, "reply", UNKNOWN_TASK, by=origins_.FERB):
                 yield event
             return
@@ -2868,6 +2888,11 @@ class Supervisor(WorkerRuns):
             # (a correction of the task, action continue) or stop it
             paused = active is not None and not active.stop and active.accepting_updates and \
                 self.pause_tree(active.id)
+            if then is not None:
+                async for event in self._then_start(turn, out, then, PAUSED_SAID if paused else NOT_RUNNING,
+                                                    {origins_.FERB}):
+                    yield event
+                return
             if paused and out.text.strip():     # ORCH-578: code's own words say it paused, the planner's follow
                 text, by = PAUSED_SAID + "\n\n" + out.text.strip(), origins_.INFERRED
             else:
@@ -2911,6 +2936,14 @@ class Supervisor(WorkerRuns):
                 told = self._stop_told(control.task_id, turn.request_id) if was_running else None
                 if tree is not None and told is None:
                     tree.stop_told_in = ""               # still finishing: its own end, when it comes, tells it
+                if told is not None and then is not None:
+                    # ORCH-638: the stop told as below, then the message's new task; the planner's text is its plan
+                    # line, so nothing of it is said twice
+                    answer, cards, made = told
+                    async for event in self._then_start(turn, out, then, answer, made, cards=cards,
+                                                        told=(control.task_id, answer)):
+                        yield event
+                    return
                 if told is not None:
                     # ORCH-579: the stop is told once, here, under the owner's message: the task's own end as code
                     # recorded it ("Stopped, as you asked." and what it had found), its cards with it; FERB.app files
@@ -2926,8 +2959,12 @@ class Supervisor(WorkerRuns):
                                                   told=(control.task_id, answer)):
                         yield event
                     return
-                text = (STOP_SETTLING if not settled else STOPPED if was_running else
-                        ALREADY_FINISHED if finished else ALREADY_ENDED)
+                text = ((STOP_SETTLING if then is None else STOP_SETTLING_THEN) if not settled else
+                        STOPPED if was_running else ALREADY_FINISHED if finished else ALREADY_ENDED)
+                if then is not None:
+                    async for event in self._then_start(turn, out, then, text, {origins_.FERB}):
+                        yield event
+                    return
                 async for event in self._exit(turn, out, "reply", text, by=origins_.FERB):
                     yield event
                 return
@@ -2937,6 +2974,20 @@ class Supervisor(WorkerRuns):
                 yield {"type": "reply", "text": RETRY_SETTLING}
                 await self._settled(control.task_id, ids, None)
         async for event in self._resume(turn, out, conversation):
+            yield event
+
+    async def _then_start(self, turn: _Turn, out: SupervisorOutcome, spec: TaskSpec, said: str, made: set[str], *,
+                          cards: list[dict[str, Any]] | None = None,
+                          told: tuple[str, str] | None = None) -> AsyncIterator[dict[str, Any]]:
+        """ORCH-638: a stop or pause, then the message's new task, in one turn. Code's word on the stop or pause
+        (`said`: the stopped task's end as code recorded it, ORCH-579, or code's own line) is recorded as this turn's
+        reply, as `_exit` would (`told` kept apart, ORCH-596), and said first in the new task's plan event, with the
+        stopped task's cards; the task then starts on the normal path (`_start`: side entries once, its plan line and
+        card). One event, so the app shows the stop and the start under the owner's message together."""
+        await self._record_reply(turn, "reply", said, made, told=told)
+        turn.said_first = "\n\n".join(p for p in (turn.said_first, said) if p)    # after an answer's word (`_route`)
+        turn.said_first_cards = [*turn.said_first_cards, *(cards or [])]
+        async for event in self._start(turn, out, spec):
             yield event
 
     def _stop_told(self, task_id: str, request_id: str) -> tuple[str, list[dict[str, Any]], set[str]] | None:
@@ -4445,6 +4496,9 @@ class Supervisor(WorkerRuns):
                                                   (turn.screen or {}).get("image_withheld"))[0]
         tree.side_lines = list(turn.side_lines) if turn is not None else []
         tree.side_cards = list(turn.side_cards) if turn is not None else []
+        if turn is not None and turn.said_first and not restored:     # ORCH-638: said once, in this plan event
+            tree.said_first, tree.said_first_cards = turn.said_first, list(turn.said_first_cards)
+            turn.said_first, turn.said_first_cards = "", []
         request = self.state.requests.get(request_id)
         if not request.payload:
             request = dataclasses.replace(request, payload=message or request.words)
@@ -4607,7 +4661,7 @@ class Supervisor(WorkerRuns):
             event["resumed"] = True
         card = tree.card
         if card is None:
-            return event | self._checklist(tree)
+            return self._said_first(tree, event | self._checklist(tree))
         said = [] if restored else card.say_direct()
         direct = [{**d, "text": confirm.from_task_lines(self.gateway.redact(d["text"]))} for d in said]
         receipts = [] if restored else [confirm.from_task_lines(self.gateway.redact(l)) for l in tree.side_lines]
@@ -4617,6 +4671,21 @@ class Supervisor(WorkerRuns):
         event |= {"direct": direct, "receipts": receipts, "card": self._card_payload(tree)}
         if said_cards:                       # step 8e: the receipts' cards (the app draws them in their lines' place)
             event["cards"] = said_cards
+        return self._said_first(tree, event)
+
+    @staticmethod
+    def _said_first(tree: _Tree, event: dict[str, Any]) -> dict[str, Any]:
+        """ORCH-638: the turn's stop or pause, told first in its new task's plan event: at the head of the text and as
+        the first receipt (FERB.app draws receipts above the plan line, as code's own lines), its stopped task's cards
+        first. Once: a later plan event of the tree says nothing again."""
+        first, cards = tree.said_first, tree.said_first_cards
+        if not first:
+            return event
+        tree.said_first, tree.said_first_cards = "", []
+        event["text"] = first + "\n\n" + event["text"] if event["text"].strip() else first
+        event["receipts"] = [first, *event.get("receipts", [])]
+        if cards:
+            event["cards"] = [*cards, *event.get("cards", [])]
         return event
 
     def _said_cards(self, cards: list[dict[str, Any]], marked: bool = True) -> list[dict[str, Any]]:

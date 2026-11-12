@@ -13,7 +13,7 @@ from typing import Any, AsyncIterator
 from ferb.cli.client import Client
 from ferb.core.context import count_tokens
 from ferb.core.types import RunHandle, RuntimeEvent
-from ferb.orchestrator.supervisor import (FOLD_CHUNK_TOKENS, RECENT_CONVERSATION_TOKENS, RECENT_EXCHANGES, SUMMARY_DAYS,
+from ferb.orchestrator.supervisor import (FOLD_CHUNK_TOKENS, PAUSED_SAID, RECENT_CONVERSATION_TOKENS, RECENT_EXCHANGES, SUMMARY_DAYS,
                                           SUMMARY_TOKENS)
 from tests.conftest import STALL, FakeRuntime, RunningDaemon, chat, done, install, outcome, report, sup, task
 
@@ -244,6 +244,78 @@ def test_a_stop_asked_in_chat_is_told_once_by_its_reply(daemon: RunningDaemon) -
     history = _planner_calls(script)[-1].context.split("Layer 5 — owner's", 1)[0].split("\n\nLayer 2 — ", 1)[0]
     assert history.count("Stopped, as you asked.") == 1
     assert f"FERB (reply, model-written, unchecked): {why}" in history
+
+
+def _status(d: RunningDaemon, task_id: str) -> str | None:
+    async def go() -> str | None:
+        found = d.daemon.db.conn.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        return found[0] if found else None
+    return d.run(go())
+
+
+BLENDER_LINE = "I'm creating a cinematic bioluminescent floating-island scene in Blender as your surprise."
+
+
+# decision: ORCH-638
+def test_a_stop_and_a_new_task_in_one_answer_do_both(daemon: RunningDaemon) -> None:
+    """Live 2026-11-12 23:23 ("use my blender and make somethign really astonishign" then "cance; teh claude task",
+    read together): the planner's answer stopped the Claude task and carried the Blender task, but code only stopped,
+    and the reply said the Blender scene was being made. Now the stop is told first (the stopped task's end, ORCH-579)
+    and the new task starts in the same turn, its plan line the planner's words, in one plan event."""
+    script = install(daemon, [sup("task", "On it.", task("Chat with Claude Code in the terminal"))],
+                     {"worker": [STALL, done("Rendered the floating island.")]})
+    first = Stream(daemon, "chat with claude code in my terminal")
+    tree = _running(daemon)
+    script.sup.append(_control(tree, "stop", BLENDER_LINE, task("Make an astonishing scene in Blender",
+                                                                apps=("Blender",))))
+    events = chat(daemon, "use my blender and make something astonishing. cancel the claude task")
+    end = outcome(first.done())
+    [asked] = [m for m in _journal(daemon, "chat.message") if m["text"].startswith("use my blender")]
+    assert end["status"] == "cancelled" and end["told_in"] == asked["request_id"]
+    assert not [e for e in events if e["type"] in ("reply", "clarify")]        # nothing ends the turn before the plan
+    [plan] = [e for e in events if e["type"] == "plan"]
+    assert plan["task_id"] != tree and plan["receipts"] == [end["answer"]]
+    assert plan["text"] == end["answer"] + "\n\n" + BLENDER_LINE and plan["plan_line"] == BLENDER_LINE
+    assert plan["text"].count("Stopped, as you asked.") == 1
+    started = outcome(events)
+    assert started["task_id"] == plan["task_id"] and started["status"] == "done"
+    assert _status(daemon, plan["task_id"]) == "done"
+    [told] = [r for r in _journal(daemon, "chat.reply") if r.get("told_task") == tree]
+    assert told["text"] == told["told_end"] == end["answer"]                  # the stop's reply, in the history once
+
+
+# decision: ORCH-638, ORCH-308
+def test_a_pause_and_a_new_task_in_one_answer_do_both(daemon: RunningDaemon) -> None:
+    """The same with a pause: the running task waits in place, code's pause line comes first, the new task runs."""
+    script = install(daemon, [sup("task", "On it.", task("Chat with Claude Code in the terminal"))],
+                     {"worker": [STALL, done("Rendered the floating island.")]})
+    first = Stream(daemon, "chat with claude code in my terminal")
+    tree = _running(daemon)
+    script.sup.append(_control(tree, "pause", BLENDER_LINE, task("Make an astonishing scene in Blender",
+                                                                 apps=("Blender",))))
+    events = chat(daemon, "hold the claude task, make something astonishing in blender meanwhile")
+    [plan] = [e for e in events if e["type"] == "plan"]
+    assert plan["task_id"] != tree and plan["receipts"] == [PAUSED_SAID]
+    assert plan["text"] == PAUSED_SAID + "\n\n" + BLENDER_LINE
+    assert not [e for e in events if e["type"] in ("reply", "clarify")]
+    assert outcome(events)["status"] == "done" and _status(daemon, plan["task_id"]) == "done"
+    assert _status(daemon, tree) == "paused" and not first.ended.is_set()      # the paused task waits in place
+
+
+# decision: ORCH-638, ORCH-324
+def test_a_continue_with_a_task_stays_that_tasks_correction(daemon: RunningDaemon) -> None:
+    """A continue's task is the controlled task's correction (one continue verb, ORCH-324): no new task starts."""
+    script = install(daemon, [sup("task", "On it.", task("Tidy the notes"))], {"worker": STALL})
+    first = Stream(daemon, "tidy my notes")
+    tree = _running(daemon)
+    script.sup.append(_control(tree, "continue", "Keeping the headings.", task("Tidy the notes, keep the headings")))
+    events = chat(daemon, "keep the headings")
+    assert not [e for e in events if e["type"] == "plan"]
+    assert [e["type"] for e in events if e["type"] in ("reply", "clarify")] == ["reply"]
+    assert [t for t, _ in daemon.run(_trees(daemon))] == [tree]
+    script.sup.append(_control(tree, "stop"))
+    chat(daemon, "stop it")
+    assert outcome(first.done())["status"] == "cancelled"
 
 
 # decision: ORCH-508

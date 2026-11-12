@@ -4442,3 +4442,12 @@ request = "Start one task and tell FERB to pause it (\"pause this for now\"). Lo
 pass = "One task paused: a pause glyph (no turning spinner), \"1 paused task\", no time counting; its round picture stays. With the second running: the spinner, \"1 active task · <time of the running one> · 1 paused\". After reopening FERB.app the paused task still reads paused. Resumed: back to \"2 active tasks\" with the spinner and time. Its short view says Paused while paused."
 decisions = ["APP-901"]
 sitting = "after this change is installed"
+
+[LIVE-938]
+title = "One message that stops a running task and asks for new work does both"
+area = "orchestration"
+surface = "FERB.app with this build, the notch chat; a disposable folder; `ferb trace` of the turn"
+request = "Ask FERB for a long task on a disposable folder of text files (\"count the words in each file in <folder>, one by one\"). Before it finishes, send \"cancel that task and write me a 3-line poem about the sea in a new note\". Then start the same long task again and send \"hold that one, and meanwhile write a 3-line poem about rain in a new note\" (a pause)."
+pass = "Under the second message one FERB bubble reads \"Stopped, as you asked.\" (with what it had found, if any) and then the new task's plan line; the poem task's card runs and ends done; the counting task shows Cancelled once, not posted again below. The pause case reads \"I've paused it; nothing is lost. Tell me how you'd like to go on, or say stop.\" then the new task's plan line, and the first task stays paused. No reply says a task is starting when none started."
+decisions = ["ORCH-638"]
+sitting = "after this change is installed"

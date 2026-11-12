@@ -207,6 +207,8 @@ SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     # ORCH-586: whether the new message answers FERB's open question in this chat (Layer 5 shows it apart); only then
     # does code join the request it asked about to the message. false with no open question
     "answers_question": {"type": "boolean"},
+    # beside a continue: that task's correction; a retry: its fresh attempt; a stop or pause: the message's new work,
+    # started after it (ORCH-638)
     "task": {"anyOf": [{"type": "null"}, TASK_SCHEMA]},
     "control": {"anyOf": [{"type": "null"}, _obj({"task_id": {"type": "string"},
                   "action": {"type": "string", "enum": ["stop", "retry", "continue", "pause"]},
@@ -524,6 +526,16 @@ class SupervisorOutcome(BaseModel):
                 data.get("control") is None and any(data.get(key) for key in (*SIDE_ENTRIES, "schedule")):
             return {**data, "kind": "reply"}
         return data
+
+    @property
+    def new_task(self) -> TaskSpec | None:
+        """The task this answer starts as new work (ORCH-638): kind "task" with a task and either no control, or a
+        control that stops or pauses one (a stopped or paused task takes no correction, so the task beside it is the
+        message's other ask). A continue's task is the controlled task's correction and a retry's its fresh attempt,
+        never new work. Which fields are filled, never what the words say (rule 4)."""
+        if self.kind != "task" or self.task is None:
+            return None
+        return self.task if self.control is None or self.control.action in ("stop", "pause") else None
 
     @model_validator(mode="after")
     def complete_action_plan(self) -> "SupervisorOutcome":

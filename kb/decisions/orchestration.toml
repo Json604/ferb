@@ -1761,3 +1761,17 @@ evidence = "Owner's database: 06918ceb's capture kept 20:58:43.36 (VS Code); 8a3
 rejected = ["Only the newest message's picture: the planner can't tell what the earlier message pointed at", "A second capture when the turn restarts: the owner may have moved on by then"]
 paths = ["ferb/orchestrator/supervisor.py::_by_window", "ferb/orchestrator/supervisor.py::Supervisor._screen_at_send", "ferb/orchestrator/supervisor.py::Supervisor._take_in", "ferb/daemon/areas/chat.py::Chat._chat_send"]
 live = ["LIVE-934"]
+
+[ORCH-638]
+title = "A stop or pause and a new task in one answer: the stop is told, then the new task starts"
+by = "agent"
+date = 2026-11-12
+status = "active"
+words = "it canceled hte prev task but didnt start the new one. FIX THIS, ts too basic err"
+words_source = "Owner 2026-11-12, relayed by the coordinator: request 23855bd7 (\"use my blender and make somethign really astonishign for me\") read with cdbcb948 (\"cance; teh claude task\", ORCH-529)."
+rule = "Refines ORCH-324 and ORCH-579. A task beside a stop or pause control is new work (SupervisorOutcome.new_task); beside a continue it stays the correction, beside a retry the fresh attempt. FERB does both in one turn: the stop or pause as before, its words (the stopped task's end, ORCH-579, or code's line) recorded as the reply (told_task, ORCH-596), then the new task through _start, checked like any new task. Those words, and an answer to a question before a new task, come first in the plan event (text and first receipt); the planner's text is the plan line."
+why = "Live 2026-11-12 23:23: the planner stopped the Claude task and carried a complete Blender task; _control returned after the stop, so nothing started while the reply said the scene was being made. One plan event, since FERB.app ends a turn at its reply event and drops what follows."
+evidence = "Owner's database: model.turn 3f78ee03 output kind task, control stop 6f4532ba, task \"Blender surprise artwork\"; chat.reply 23:24:16 told_task 6f4532ba; no chat.plan or task row after it for request 23855bd7."
+rejected = ["Reading the planner's text to drop \"I'm stopping\" from the plan line: words decide nothing (rule 4); the prompt line asks for it instead", "A reply event, then the plan event: FERB.app's finishBackendWork ends the turn on the reply and drops the plan event"]
+paths = ["ferb/orchestrator/schemas.py::SupervisorOutcome.new_task", "ferb/orchestrator/supervisor.py::Supervisor._control", "ferb/orchestrator/supervisor.py::Supervisor._then_start", "ferb/orchestrator/supervisor.py::Supervisor._said_first", "ferb/orchestrator/supervisor.py::Supervisor._route", "ferb/orchestrator/supervisor.py::Supervisor._problems", "ferb/orchestrator/prompts/supervisor.md"]
+live = ["LIVE-938"]

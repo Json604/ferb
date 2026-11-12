@@ -195,7 +195,9 @@ Existing tasks (control; null for an unrelated new request; never a time label s
   else the complete revised list starting from the scope in force (its plan's standing_sends, or standing_scopes in
   its status row), dropping what the owner withdrew, adding or widening only what they asked for. supersedes: the ids
   of this task's open questions the correction changes. For stop, pause and retry: "unchanged" and [].
-- Use kind reply for stop and pause, kind task for retry and continue.
+- Use kind reply for stop and pause, kind task for retry and continue. When the message also asks for new work, a stop
+  or pause keeps its control and the new work is the task (kind task): code says the stop or pause itself, then starts
+  the task, so text speaks only of the new task.
 - Progress questions ("how far is it?") are answered only from the task status facts: never claim work they don't show.
 - answer_question: when the message answers an open question, its approval_id and your reading of the answer (exactly
   "Yes" or "No" for a Yes/No question); a plain "Yes" or "No" counts. FERB records the owner's own words. A question
