@@ -4200,3 +4200,12 @@ request = "\"Find the newest file in my Downloads, make a one-line summary, show
 pass = "The card asking whether to write it shows, under its question, the step's whole answer (the file's name and the proposed one-line summary), so you can judge it before Yes or No; nothing in it is cut."
 decisions = ["ORCH-623"]
 sitting = "after this change is installed"
+
+[LIVE-912]
+title = "Naming a big folder for a job that doesn't read it whole starts within seconds"
+area = "orchestration"
+surface = "FERB.app with this build; the FERB repository folder on your Desktop"
+request = "\"Gather FERB's story from ~/Desktop/ferb and write me a one-paragraph summary of what it is.\""
+pass = "The plan line appears within seconds of the planner finishing (no minutes of silence). If FERB instead reads the folder file by file, a line \"Looking at the files in ~/Desktop/ferb\" shows under your message meanwhile and FERB says the folder is too big to hand over whole."
+decisions = ["ORCH-625"]
+sitting = "after this change is installed"

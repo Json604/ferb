@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from ferb.orchestrator.plans import Plan, Step
-from tests.conftest import RunningDaemon, chat, done, install, outcome, report, sup, task
+from ferb.cli.client import Client
+from tests.conftest import RunningDaemon, chat, done, install, outcome, report, sup, task, turn_events
 from tests.support.schedules import run
 
 
@@ -23,6 +24,17 @@ def _notes(*paths: str) -> str:
 
 def _repairs(daemon: RunningDaemon) -> list[str]:
     return run(daemon, lambda: [" ".join(e.data["problems"]) for e in daemon.daemon.journal.of_kind("task.repair")])
+
+
+def _raw(daemon: RunningDaemon, text: str) -> list[dict[str, Any]]:
+    """A turn's events with its live lines (`chat` drops them once their contract is checked)."""
+    c = Client(daemon.sock, timeout=30)
+    try:
+        events = list(c.stream("chat.send", {"session_id": "s1", "text": text}))
+    finally:
+        c.close()
+    turn_events(events)
+    return events
 
 
 def _context(script: Any, key: str) -> str:
@@ -97,3 +109,45 @@ def test_only_text_counts_toward_a_workers_window(daemon: RunningDaemon) -> None
     install(daemon, [sup("task", "Reading.", read), sup("reply", "That log is too long to read in one go.")], {})
     chat(daemon, "read this log")
     assert "tokens" in _repairs(daemon)[0]
+
+
+# decision: ORCH-625
+def test_a_plan_whose_steps_list_no_inputs_walks_none_of_its_folders(daemon: RunningDaemon, monkeypatch: Any) -> None:
+    """Live 2026-11-11 14:14: the plan named ~/Desktop/ferb (31 GB) in input_paths while no step listed an input; the
+    walk of every file took 4.5 minutes with nothing on screen, and no check used it. Now nothing is walked."""
+    from ferb.orchestrator import plans
+
+    def tripwire(*_: Any) -> Any:
+        raise AssertionError("walked a folder no step lists")
+    monkeypatch.setattr(plans, "_inventory", tripwire)
+    workspace = daemon.daemon.home / "workspace"
+    (workspace / "huge").mkdir(parents=True, exist_ok=True)
+    spec = _plan([Step(id="gather", kind="do", goal="Gather the story"),
+                  Step(id="write", kind="do", goal="Write it up", depends_on=["gather"])], [str(workspace / "huge")])
+    install(daemon, [sup("task", "Working.", spec)], {"step.gather": done("Gathered."), "step.write": done("Written.")})
+    events = _raw(daemon, "write up the story of my project")
+    assert _repairs(daemon) == [] and outcome(events)["status"] == "done"
+    assert not [e for e in events if e["type"] == "progress" and e.get("planning")]
+
+
+# decision: ORCH-625, ORCH-305, ORCH-581
+def test_a_listed_folder_too_big_for_a_worker_stops_the_walk_and_says_so(daemon: RunningDaemon) -> None:
+    """A listed folder whose text passes a worker's whole context can't be handed over, whatever else it holds: the
+    walk stops there, the turn says what FERB is looking at meanwhile, and the planner is told the folder is too big,
+    with what each subfolder held by then. Subfolders after the stop are never read."""
+    workspace = daemon.daemon.home / "workspace"
+    window = 1_000_000                                  # the scripted runtime's context window
+    big = workspace / "repo"
+    for name in ("a", "b", "c"):
+        (big / name).mkdir(parents=True, exist_ok=True)
+    (big / "a" / "one.txt").write_text("word " * (window // 5 + 1))
+    (big / "b" / "two.txt").write_text("word " * 10)
+    (big / "c" / "three.txt").write_text("word " * 10)
+    spec = _plan([Step(id="read", kind="do", goal="Read the repo", inputs=[str(big)])], [str(big)])
+    install(daemon, [sup("task", "Reading.", spec), sup("reply", "That folder is too big to read in one go.")], {})
+    events = _raw(daemon, "read my repo")
+    said = _repairs(daemon)[0]
+    assert "can't be handed over whole" in said and "a: at least" in said
+    assert "b: at least" not in said and "c: at least" not in said and "Measured inventory" not in said
+    lines = [e["text"] for e in events if e["type"] == "progress" and e.get("planning")]
+    assert lines and lines[0].startswith("Looking at the files in ") and lines[0].endswith("repo")

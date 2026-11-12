@@ -2,10 +2,12 @@
 
 import asyncio
 import codecs
+import os
 from pathlib import Path
 from datetime import datetime
 from collections import Counter, deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -129,7 +131,34 @@ class Plan(BaseModel):
     standing_sends: list[SendScope] = Field(default_factory=list)
 
 
-async def inventory(paths: list[str], denied: Callable[[Path], object] | None = None) -> list[dict[str, Any]]:
+@dataclass
+class Inventory:
+    """What a plan's input checks measured: the files found, and, when the walk stopped early, why. `stopped` names the
+    listed input (or "" for the plan's folders together) whose text passed what its steps' workers could ever take
+    (`bound` tokens: a worker's context, or each listing step's context together), `counted` the text tokens counted
+    by then and `parts` that folder's subfolders with the text counted in each by then, largest first."""
+    files: list[dict[str, Any]] = field(default_factory=list)
+    stopped: str | None = None
+    counted: int = 0
+    bound: int = 0
+    parts: list[tuple[str, int]] = field(default_factory=list)
+    unreached: list[str] = field(default_factory=list)     # its subfolders the walk hadn't reached
+
+
+def walked(plan: Plan, roots: list[str], normal: Callable[[str], str]) -> list[str]:
+    """ORCH-625: the paths a plan's input checks need walked: none when no step lists inputs: then the checks
+    (ORCH-305's cover-each-input-once and fit, ORCH-580's folder-as-its-files) have nothing to check, and the plan's
+    folders are its scope, never walked. Otherwise the plan's folders (each file in them must be in exactly one list)
+    and every listed input (a listed folder is walked for its files)."""
+    listed = [normal(value) for step in plan.steps for value in step.inputs]
+    if not listed:
+        return []
+    return list(dict.fromkeys([*roots, *listed]))
+
+
+async def inventory(paths: list[str], denied: Callable[[Path], object] | None = None, *,
+                    inputs: list[str] | tuple[str, ...] = (), steps: int = 1,
+                    context_tokens: int | None = None) -> Inventory:
     """Stat the declared source files, without following directory symlinks.
 
     A worker is handed its inputs as paths and reads them with its tools; only a text file can reach its context as
@@ -140,31 +169,135 @@ async def inventory(paths: list[str], denied: Callable[[Path], object] | None = 
     under them that `denied` names, or that macOS won't let FERB look at, is left out (a protected entry under
     /private/var/folders once ended the owner's turn). The walk runs in a worker thread: a home-sized tree must not hold
     the daemon's loop (RPCs, proxy callbacks, Stop) while it is stat'ed (L23).
+    ORCH-625: with `context_tokens`, the walk stops as soon as the answer can't change: a listed input (`inputs`, as
+    normalized) holding more text than a worker's context, or all the text found passing the context of every step
+    that lists inputs together (`steps`; each file goes to exactly one of them).
     """
-    return await asyncio.to_thread(_inventory, paths, denied)
+    return await asyncio.to_thread(_inventory, paths, denied, list(inputs), max(1, steps), context_tokens)
 
 
-def _inventory(paths: list[str], denied: Callable[[Path], object] | None) -> list[dict[str, Any]]:
+def _inventory(paths: list[str], denied: Callable[[Path], object] | None, inputs: list[str], steps: int,
+               context_tokens: int | None) -> Inventory:
     found: dict[str, dict[str, Any]] = {}
+    listed: dict[str, str] = {}                  # each listed input's resolved path to its path as written
+    for value in inputs:
+        try:
+            listed.setdefault(str(Path(value).resolve()), value)
+        except (OSError, RuntimeError):
+            continue
+    per_input: Counter[str] = Counter()
+    by_part: dict[str, Counter[str]] = {real: Counter() for real in listed}
+    by_root: dict[str, Counter[str]] = {}
+    total = 0
+
+    def stop(real: str | None, bound: int, parts: Counter[str]) -> Inventory:
+        folders = [real] if real is not None else list(by_root)
+        unreached = [f'{folder}/{name}' if real is None else name for folder in folders
+                     for name in _subfolders(folder) if (name if real is not None else f'{folder}/{name}') not in parts]
+        return Inventory(sorted(found.values(), key=lambda item: item['path']), real, total if real is None
+                         else per_input[real], bound, sorted(parts.items(), key=lambda kv: (-kv[1], kv[0])), unreached)
+
     for value in paths:
         root = Path(value).expanduser()
         try:
-            files = sorted(root.rglob('*')) if root.is_dir() else [root]
-        except OSError:                          # a root macOS won't let FERB look at is left out
+            real_root = root.resolve()
+            folder = root.is_dir()
+        except (OSError, RuntimeError):          # a root macOS won't let FERB look at is left out
             continue
+        # under a folder, entries are found below its real path without following links: their paths are real already
+        files = _files(real_root) if folder else iter([root])
+        parts = by_root.setdefault(str(real_root), Counter())
         for file in files:
             try:
                 if file.is_symlink() or not file.is_file():
                     continue
-                path = str(file.resolve())
-                if denied is not None and denied(Path(path)):
+                path = str(file) if folder else str(file.resolve())
+                if path in found or (denied is not None and denied(Path(path))):
                     continue
                 size = file.stat().st_size
             except OSError:      # macOS won't let FERB look at it (EPERM/EACCES), or it went: left out, as protected
                 continue
             text = _text(file)
-            found[path] = {'path': path, 'bytes': size, 'text': text, 'tokens_upper_bound': size if text else 0}
-    return list(found.values())
+            tokens = size if text else 0
+            found[path] = {'path': path, 'bytes': size, 'text': text, 'tokens_upper_bound': tokens}
+            if not tokens or context_tokens is None:
+                continue
+            total += tokens
+            parts[_part(path, str(real_root))] += tokens
+            for real in listed:
+                if path == real or path.startswith(real.rstrip('/') + '/'):
+                    per_input[real] += tokens
+                    by_part[real][_part(path, real)] += tokens
+                    if per_input[real] > context_tokens:
+                        result = stop(real, context_tokens, by_part[real])
+                        result.stopped = listed[real]
+                        return result
+            if total > steps * context_tokens:
+                return stop(None, steps * context_tokens, Counter(
+                    {f'{root_}/{name}' if name else root_: n for root_, counter in by_root.items()
+                     for name, n in counter.items()}))
+    return Inventory(sorted(found.values(), key=lambda item: item['path']))
+
+
+def _files(root: Path) -> Iterator[Path]:
+    """The entries under a folder, depth first in name order, without following a folder's symlink: each one is
+    yielded as it is found, so a walk that stops early never lists what it didn't reach."""
+    pending = [root]
+    while pending:
+        folder = pending.pop()
+        try:
+            with os.scandir(folder) as listing:
+                entries = sorted(listing, key=lambda entry: entry.name)
+        except OSError:                          # a folder macOS won't let FERB look at is left out
+            continue
+        below = []
+        for entry in entries:
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    below.append(Path(entry.path))
+                    continue
+            except OSError:
+                continue
+            yield Path(entry.path)
+        pending.extend(reversed(below))
+
+
+def _subfolders(folder: str) -> list[str]:
+    """A folder's own subfolders by name (links not followed), for naming what a stopped walk didn't reach."""
+    try:
+        with os.scandir(folder) as listing:
+            return sorted(e.name for e in listing if e.is_dir(follow_symlinks=False))
+    except OSError:
+        return []
+
+
+def _part(path: str, folder: str) -> str:
+    """The subfolder of `folder` that holds `path` (its first name under it); "" for a file directly in it."""
+    rest = path[len(folder.rstrip('/')) + 1:]
+    return rest.split('/', 1)[0] if '/' in rest else ''
+
+
+def looking_at(paths: list[str]) -> str:
+    """ORCH-625: the turn's live line while a plan's inputs are walked, in code's words: "Looking at the files in
+    ~/Desktop/notes" (the home folder as ~)."""
+    home = str(Path.home())
+    shown = ['~' + p[len(home):] if p == home or p.startswith(home + '/') else p for p in paths]
+    names = shown[0] if len(shown) == 1 else ', '.join(shown[:-1]) + ' and ' + shown[-1]
+    return f'Looking at the files in {names}'
+
+
+def too_big(measured: Inventory, shown: Callable[[str], str]) -> str:
+    """ORCH-625: the plan problem for a walk that stopped early (a structural stop at the fit check's own limit)."""
+    where = f'{measured.stopped} holds' if measured.stopped else "The plan's folders hold"
+    whose = "a worker's context" if measured.stopped else "every input step's context together"
+    parts = [f'{shown(name) if not measured.stopped else name or "(files directly in it)"}: at least {n}'
+             for name, n in measured.parts if n]
+    unreached = [shown(name) if not measured.stopped else name for name in measured.unreached]
+    return (f"{where} more text than {whose} ({measured.bound} tokens): FERB stopped counting at {measured.counted} "
+            "tokens, so it can't be handed over whole. Text tokens counted by then, by subfolder: "
+            + ('; '.join(parts) or 'none') + '. ' + (f"Subfolders not reached: {', '.join(unreached)}. "
+                                                     if unreached else '')
+            + 'Hand over a smaller part (a subfolder, the files that matter) or split it across steps.')
 
 
 TEXT_PROBE = 8192           # bytes read from the start of an input to tell whether a worker could read it as text

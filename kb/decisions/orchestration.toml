@@ -1618,3 +1618,14 @@ rule = "For ORCH-576's submitted {site}. A recorded submit is a call at the site
 why = "Live 2026-11-12 00:37 (task aa3cb86a): hack2skill.com's Submit is a script button, not a form. The worker clicked it declaring a send, the owner said Yes, the site recorded the attempt, and the task ended \"No form on hack2skill.com was submitted.\""
 rejected = ["Count any declared send at the site: the worker's declaration alone would prove its own claim", "Count any click with a changed page: a Cancel or a menu changes the page too"]
 paths = ["ferb/orchestrator/verify.py::Checks._submits", "ferb/orchestrator/verify.py::Checks._aimed", "ferb/orchestrator/cards.py::approved", "ferb/orchestrator/cards.py::structural_kinds", "ferb/orchestrator/cards.py::_calls"]
+
+[ORCH-625]
+title = "A plan's folders are walked only when a step lists inputs; a walk stops once the answer is known"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "For ORCH-305, ORCH-580 and ORCH-581. With no step listing inputs nothing is walked: input_paths is then the plan's scope, and the task's working folders stay task.folders (HAND-204). Otherwise the plan's folders and each listed input are walked off the loop, the turn showing \"Looking at the files in <paths>\" (a progress event marked planning) until the plan or its repair. The walk stops when a listed input's text passes a worker's context, or all text passes every listing step's context together; the planner is told it can't be handed over whole, with the subfolders counted and not reached."
+why = "Live 2026-11-11 14:14 (task f67b5efe): the plan named ~/Desktop/ferb while no step listed an input; every file was stat'ed and probed for 4.5 minutes at 87% CPU with nothing on screen, and no check read the result."
+paths = ["ferb/orchestrator/plans.py::walked", "ferb/orchestrator/plans.py::inventory", "ferb/orchestrator/plans.py::Inventory", "ferb/orchestrator/plans.py::too_big", "ferb/orchestrator/plans.py::looking_at", "ferb/orchestrator/supervisor.py::Supervisor._problems", "ferb/orchestrator/supervisor.py::Supervisor._turn_line"]
+untestable = "A folder of many files that aren't text (photos, a build tree) counts no tokens, so no context bound stops its walk; it stays visible on the turn's line. A file-count limit would be a new cap: the owner's decision."
+live = ["LIVE-912"]

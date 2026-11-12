@@ -49,8 +49,8 @@ from ferb.sanitize.formats import hidden_note
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
 from ferb.orchestrator import progress
-from ferb.orchestrator.plans import (DONE, SINGLE, Part, Plan, SendScope, Step, answer_steps, inventory, part_problems,
-                                     problems as plan_problems, resolve_inputs)
+from ferb.orchestrator.plans import (DONE, SINGLE, Part, Plan, SendScope, Step, answer_steps, inventory, looking_at,
+                                     part_problems, problems as plan_problems, resolve_inputs, too_big, walked)
 from ferb.orchestrator.parts import STOPPED as STOPPED_ROW, Card, composed
 from ferb.orchestrator import cards as cards_
 from ferb.orchestrator.attempts import (CHECK_IN_AFTER, KEEP_GOING, STOP_HERE, Attempts, check_in_question,
@@ -1456,7 +1456,7 @@ class Supervisor(WorkerRuns):
         # A side entry the quote check would refuse is told back once too (ORCH-520), so the planner writes its reply
         # knowing it; after that repair applying it still refuses it, said as a safety check (ORCH-519), and it never
         # fails the turn as an invalid task does
-        problems = await self._problems(turn, out) + self._side_quote_problems(turn, out)
+        problems = await self._problems(turn, out, self._turn_line(emit)) + self._side_quote_problems(turn, out)
         if not problems:
             return out
         self.journal.append("task.repair", {"request_id": turn.request_id, "problems": problems})
@@ -1464,17 +1464,27 @@ class Supervisor(WorkerRuns):
             emit({'type': 'plan_abort', 'reason': 'The provisional plan needs correction.'})
         out = await self._supervise(turn, repair=problems, notify=emit)
         self._join_question(turn, out)
-        if remaining := await self._problems(turn, out):
+        if remaining := await self._problems(turn, out, self._turn_line(emit)):
             self.journal.append("chat.failed", {"request_id": turn.request_id, "why": "task still invalid after repair",
                                                 "problems": remaining})
             raise PlanRejected(remaining)               # the owner reads which check failed (owner 2026-10-24)
         return out
 
-    async def _problems(self, turn: "_Turn", candidate: SupervisorOutcome) -> list[str]:
+    def _turn_line(self, emit: Callable[[dict[str, Any]], None] | None) -> Callable[[str], None] | None:
+        """ORCH-625: a plain live line on the turn while FERB works before its first reply (code's words, redacted),
+        as a `progress` event marked `planning` (no task exists yet); the plan event, or the plan sent back for repair,
+        replaces it."""
+        if emit is None:
+            return None
+        return lambda text: emit({'type': 'progress', 'text': self.gateway.redact(text), 'planning': True,
+                                  'started_at': self.clock.now().isoformat()})
+
+    async def _problems(self, turn: "_Turn", candidate: SupervisorOutcome,
+                        say: Callable[[str], None] | None = None) -> list[str]:
         """What code finds wrong with the planner's choice, told back for repair: a control on a task the planner wasn't
         shown (any running task, any chat's or schedule's, or one of this chat's own: cross-chat control), a worker type
         that isn't available, a folder that isn't one specific folder (ORCH-327), a plan whose inventory doesn't
-        fit. Folders are normalized in place."""
+        fit. Folders are normalized in place. `say`: the turn's live line, while the plan's inputs are walked."""
         problems: list[str] = []
         if candidate.control and self._control_conversation(candidate.control.task_id, turn.session.id) is None:
             problems.append("Unknown task_id: it isn't a running task or one of this chat's tasks.")
@@ -1516,21 +1526,31 @@ class Supervisor(WorkerRuns):
             plan = candidate.task.plan
             paths = list(dict.fromkeys(normalize_path(p, self.workspace) for p in [*plan.input_paths, *turn.input_paths]))
             plan.input_paths = paths
+            normal = partial(normalize_path, workspace=self.workspace)
+            # ORCH-625: only what the input checks need is walked; a plan whose steps list no inputs walks nothing
+            walk = walked(plan, paths, normal)
             protection = self.roots.protection
-            closed = [p for p in paths if protection and protection.fs_denied(Path(p), 'read')]
+            closed = [p for p in dict.fromkeys([*paths, *walk]) if protection and protection.fs_denied(Path(p), 'read')]
             if closed:
                 problems.append('Inventory paths are protected: ' + json.dumps(closed))
-            else:
+            elif walk:
                 denied = (lambda file: protection.fs_denied(file, 'read')) if protection else None
-                facts = await inventory(paths, denied)           # walked off the loop (L23)
-                turn.inventory = facts
                 # the worker model's window (L28)
                 available = self._worker_room(turn, candidate.task.identity, candidate.task.worker_type)
+                if say is not None:              # the owner sees what FERB is doing while it walks (ORCH-625)
+                    say(looking_at(walk))
+                measured = await inventory(walk, denied, inputs=[normal(v) for st in plan.steps for v in st.inputs],
+                                           steps=sum(1 for st in plan.steps if st.inputs),
+                                           context_tokens=available)          # walked off the loop (L23)
+                turn.inventory = measured.files
+                if measured.stopped is not None:
+                    problems.append(too_big(measured, lambda path: path))
+                    return problems
                 # each step's inputs in the inventory's form (ORCH-580): checked, stored and handed to its worker so
-                resolve_inputs(plan, facts, lambda path: normalize_path(path, self.workspace))
-                problems.extend(plan_problems(plan, facts, context_tokens=available))
+                resolve_inputs(plan, measured.files, normal)
+                problems.extend(plan_problems(plan, measured.files, context_tokens=available))
                 if problems:
-                    problems.append('Measured inventory: ' + json.dumps(facts))
+                    problems.append('Measured inventory: ' + json.dumps(measured.files))
         return problems
 
     def _folders(self, folders: list[str]) -> tuple[list[str], list[str]]:
