@@ -1638,3 +1638,12 @@ status = "active"
 rule = "For APP-894; narrows ORCH-542's \"plan steps get none\" as the owner's approved checklist mock shows. A plan step has a plain string `label` (ORCH-330: \"\" when unused) that the planner writes in a plan of three or more steps: 2-5 words of what the step does. Its checklist line shows the label, else its goal's first clause cut as an unnamed task's heading is (names.shown_name, ~40 characters at a word), so older plans show the cut goal. supervisor.md says it in one line."
 why = "Plan steps had only ids (\"gather\") and goals of 200+ characters: the 14:14 run's step lines would read \"Read the GitHub FERB repository and…\"."
 paths = ["ferb/orchestrator/plans.py::Step", "ferb/orchestrator/plans.py::step_label", "ferb/orchestrator/schemas.py::STEP_SCHEMA", "ferb/orchestrator/prompts/supervisor.md"]
+
+[ORCH-627]
+title = "A one-ask plan that stops at a step is told as a single task's end is"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "Refines ORCH-600, ORCH-605 and ORCH-609 for plans. When a one-ask plan ends failed at a step that ran in this run, that step's own run is whose answer is told: \"I couldn't finish this task.\" then code's finding (verify.not_done_said) or the step's own one text, by the same rules as a single task. No step goal, no condition text, no \"Done before that\" list of the other steps' reports: the checklist shows which step stopped (APP-894) and the trace keeps the reports. A step that ended before a restart is named by its checklist words only."
+why = "Live 2026-11-12 16:30 (task f68317e9): \"I couldn't finish this task. I stopped at “In Brave “Work,” fill every required …”: Not done: <condition text>. FERB didn't submit it; …\" then two whole step reports."
+paths = ["ferb/orchestrator/supervisor.py::Supervisor._execute_plan", "ferb/orchestrator/supervisor.py::_stopped_plan_summary", "ferb/orchestrator/supervisor.py::_Tree"]

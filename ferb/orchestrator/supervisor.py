@@ -907,6 +907,7 @@ class _Tree:
     part_updates: list[dict[str, Any]] = field(default_factory=list)   # a step's corrections to posted answers
     card: Card | None = None             # the root of a multi-part task: its rows
     answers: dict[str, "_Tree"] = field(default_factory=dict)   # the root: each answer step's tree, as it ran here
+    ran: dict[str, "_Tree"] = field(default_factory=dict)       # the root: each step's tree, as it ran here (ORCH-627)
     answering: "_Tree | None" = None     # the root of a one-ask plan: the step whose checked answer is the answer
     # the step lifecycle (ORCH-531): the root keeps each step's latest state (live, never stored: a restart derives it
     # from plan_steps); a step's tree counts its attempts
@@ -5056,6 +5057,7 @@ class Supervisor(WorkerRuns):
                 if self._suspending:        # as for a single task's step: it runs again after the restart
                     raise asyncio.CancelledError
                 status = self._finish_step(member, out)
+                tree.ran[step.id] = member
                 if step.id in answering:
                     tree.answers[step.id] = member
                 if member.runtime_switch:   # an account fact ended the step: the task's answer offers the switch
@@ -5141,6 +5143,13 @@ class Supervisor(WorkerRuns):
         if result['status'] == 'needs_user':        # a step needs the owner in a run nobody attends (declined)
             tree.owner_question = next((str(states[s.id]['output'].get('question') or '') for s in plan.steps
                                         if states[s.id]['status'] == 'needs_user'), '')
+        else:
+            # ORCH-627: the step that stopped the plan is told as a single task's end is (ORCH-600/605/609), from its
+            # own run: its own one text or code's finding, never its goal, a condition's text or the other steps'
+            # reports (the checklist shows which step stopped, APP-894)
+            stopped = [s.id for s in plan.steps if states.get(s.id, {}).get('status') in ('failed', 'blocked')]
+            if (member := next((tree.ran[key] for key in stopped if key in tree.ran), None)) is not None:
+                tree.answering = member
         return Outcome(tree.worker.id, 'failed' if result['status'] == 'blocked' else result['status'],
                        _stopped_plan_summary(plan.steps, states), artifacts, evidence)
 
@@ -7409,18 +7418,13 @@ class _Changed:
 
 NEEDS_ANSWER = "I need your answer to finish this task."
 def _stopped_plan_summary(steps: list[Any], states: dict[str, dict[str, Any]]) -> str:
-    """Why a plan stopped, in the owner's terms (live 2026-10-27: "The plan needs attention before I can finish." left a
-    friend asking "whats the attention needed for the plan?"): the step that stopped by its goal, with its own report,
-    then what the steps before it did. Clipped; the full reports stay in the trace."""
-    def said(step: Any) -> str:
-        return " ".join(str(states.get(step.id, {}).get("output", {}).get("summary") or "").split())   # whole
+    """Why a plan stopped, for the record and for a plan whose stopped step didn't run here (it ended before a restart):
+    which step stopped, by its checklist words (ORCH-626; ORCH-627: never its goal, a condition's text or the steps'
+    reports, which stay in the trace). The reply of a step that ran here is that step's own (`tree.ran`)."""
     stopped = [s for s in steps if states.get(s.id, {}).get("status") not in ("done", "pending", "running")]
-    done = [s for s in steps if states.get(s.id, {}).get("status") == "done" and said(s)]
-    lines = [f"I stopped at \u201c{shorten(s.goal, 160)}\u201d: {said(s) or 'it did not finish.'}"
-             for s in stopped] or ["The plan stopped before its last step."]
-    if done:
-        lines.append("Done before that:\n" + "\n".join(f"- {said(s)}" for s in done))
-    return "\n\n".join(lines)
+    if not stopped:
+        return "The plan stopped before its last step."
+    return f"The step \u201c{step_label(stopped[0])}\u201d couldn't be done."
 
 
 # ORCH-586: the planner's Layer 5 while FERB's clarifying question in this chat is open, apart from the new message
