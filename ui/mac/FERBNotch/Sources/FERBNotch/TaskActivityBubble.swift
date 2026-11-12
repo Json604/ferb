@@ -1,16 +1,25 @@
 import AppKit
 import SwiftUI
 
-/// The running tasks by "N active tasks" (APP-899, owner 2026-11-12: "for the desing you proposed, lets do A"): at most
-/// two round live pictures whose ring is the task's status (TaskRing), then a "+N" chip that opens the others as a plain
-/// list. A click on a picture shows its short view (the larger picture, its line, Detach activity).
+/// The running tasks by "N active tasks" (APP-900, superseding APP-899's ring: the owner kept the earlier circles, "i
+/// wnat previous with your approached + adn exapn list"): at most two round live pictures with their amber outline and
+/// dot, then a "+N" chip that opens the others as a plain list. A click on a picture shows its short view (the larger
+/// picture, its line, Detach activity).
 struct TaskActivityBubble: View {
     @ObservedObject var model: NotchModel
     @State private var hoveredTaskID: String?
     @State private var listOpen = false
 
-    /// The round picture's size, its ring included.
-    static let size: CGFloat = 32
+    /// The round picture's size.
+    static let size: CGFloat = 27
+
+    /// A task waits for the owner while a question or a Yes of its own is open (`needs_user`, TaskItem).
+    static func waits(_ item: TaskItem) -> Bool { item.status == "needs_user" }
+
+    /// "Amazon order, waiting for you" / "Amazon order, working".
+    static func label(_ item: TaskItem) -> String {
+        item.title + (waits(item) ? ", waiting for you" : ", working")
+    }
 
     /// APP-891: a preview is shown once: a task whose card rows show their live pictures on screen now has no picture
     /// here (the work row's count and time still count it).
@@ -66,12 +75,14 @@ struct TaskActivityBubble: View {
 
     private func taskButton(_ item: TaskItem) -> some View {
         Button { hoveredTaskID = item.id } label: {
-            TaskVideoView(preview: model.preview(for: item), compact: true, active: live, spinsWhileEmpty: false)
-                .frame(width: Self.size - 2 * TaskRing.gap, height: Self.size - 2 * TaskRing.gap)
-                .clipShape(Circle())
+            // Live while visible (APP-403): not while the notch is closed or stepped aside for another window.
+            TaskVideoView(preview: model.preview(for: item), compact: true, active: live)
                 .frame(width: Self.size, height: Self.size)
-                .overlay(TaskRing(waiting: TaskRing.waits(item), moving: live))
-                .contentShape(Circle())
+                .clipShape(Circle())
+                .overlay(Circle().stroke(Palette.amber.opacity(0.65), lineWidth: 1))
+                .overlay(alignment: .bottomTrailing) {
+                    Circle().fill(Palette.amber).frame(width: 6, height: 6).offset(x: 1, y: 1)
+                }
         }
         .buttonStyle(.plain)
         .popover(isPresented: Binding(get: { hoveredTaskID == item.id },
@@ -80,7 +91,7 @@ struct TaskActivityBubble: View {
                 .background(TaskPreviewWindow(model: model, hidesFromCapture: true))
         }
         .help(item.title)
-        .accessibilityLabel(TaskRing.label(item))
+        .accessibilityLabel(Self.label(item))
     }
 
     /// The tasks past the first two, one plain row each: its picture, its name, what it does now (amber while it waits
@@ -88,12 +99,11 @@ struct TaskActivityBubble: View {
     var otherTasks: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(remaining) { item in
-                let waiting = TaskRing.waits(item)
+                let waiting = Self.waits(item)
                 HStack(spacing: 10) {
                     // APP-890: a click shows it larger, closed as every enlarged picture is (APP-889)
                     EnlargeablePicture(model: model, label: "Live preview of " + item.title) {
-                        TaskVideoView(preview: model.preview(for: item), compact: true, active: live,
-                                      spinsWhileEmpty: false)
+                        TaskVideoView(preview: model.preview(for: item), compact: true, active: live)
                             .frame(width: 64, height: 40)
                             .clipShape(RoundedRectangle(cornerRadius: 7))
                     } large: {
@@ -111,7 +121,7 @@ struct TaskActivityBubble: View {
                 }
                 .padding(6)
                 .accessibilityElement(children: .contain)
-                .accessibilityLabel(TaskRing.label(item))
+                .accessibilityLabel(Self.label(item))
             }
         }
         .padding(6)
@@ -151,7 +161,7 @@ struct TaskActivityBubble: View {
                     Text(item.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
                     Text(item.currentLine)
                         .font(.system(size: 10))
-                        .foregroundStyle(TaskRing.waits(item) ? Palette.amber : Palette.secondary).lineLimit(1)
+                        .foregroundStyle(Self.waits(item) ? Palette.amber : Palette.secondary).lineLimit(1)
                 }
                 detachButton(item)
             }
@@ -161,56 +171,6 @@ struct TaskActivityBubble: View {
         .ferbGlass(in: RoundedRectangle(cornerRadius: 13))
         .overlay(RoundedRectangle(cornerRadius: 13).stroke(.white.opacity(0.12), lineWidth: 1))
         .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
-    }
-}
-
-/// The ring around a running task's round picture is its status (APP-899): working, a thin arc turning (a quarter of
-/// the circle bright, the rest faint); waiting for the owner (a question or a Yes open for it), solid amber, gently
-/// pulsing. With Reduce Motion, or while nobody sees it, neither moves: a still arc, a still amber ring.
-struct TaskRing: View {
-    let waiting: Bool
-    /// Whether it may move at all: the notch open and not stepped aside.
-    var moving = true
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    /// The ring's width and the gap between it and the picture inside.
-    static let width: CGFloat = 2
-    static let gap: CGFloat = 3
-    /// One turn of the arc, one pulse of the amber, in seconds.
-    static let turn = 1.4
-    static let pulse = 1.6
-
-    /// A task waits for the owner while a question or a Yes of its own is open (`needs_user`, TaskItem).
-    static func waits(_ item: TaskItem) -> Bool { item.status == "needs_user" }
-
-    /// "Amazon order, waiting for you" / "Amazon order, working".
-    static func label(_ item: TaskItem) -> String {
-        item.title + (waits(item) ? ", waiting for you" : ", working")
-    }
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion || !moving)) { context in
-            let t = reduceMotion || !moving ? 0 : context.date.timeIntervalSinceReferenceDate
-            ring(at: t)
-        }
-        .padding(Self.width / 2)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-
-    @ViewBuilder private func ring(at t: Double) -> some View {
-        if waiting {
-            // 1 → 0.45 → 1 every pulse, eased
-            let phase = (1 - cos(2 * Double.pi * t / Self.pulse)) / 2
-            Circle().stroke(Palette.amber, lineWidth: Self.width).opacity(1 - 0.55 * phase)
-        } else {
-            ZStack {
-                Circle().stroke(.white.opacity(0.12), lineWidth: Self.width)
-                Circle().trim(from: 0, to: 0.22)
-                    .stroke(.white.opacity(0.85), style: StrokeStyle(lineWidth: Self.width, lineCap: .round))
-                    .rotationEffect(.degrees(t.truncatingRemainder(dividingBy: Self.turn) / Self.turn * 360 - 90))
-            }
-        }
     }
 }
 

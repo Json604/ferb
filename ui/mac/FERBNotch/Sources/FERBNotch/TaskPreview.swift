@@ -134,31 +134,24 @@ struct TaskVideoView: View {
     @ObservedObject private var access: PreviewAccess
     var compact = false
     var active = true
-    /// A compact picture with no frame yet turns a small spinner in its soft grey; off where a ring around it already
-    /// says the task is working (APP-899).
-    var spinsWhileEmpty = true
     @State private var subscribed = false
     /// The window showing it isn't covered (kb area app: capture only while someone can see it).
     @State private var windowVisible = true
 
-    /// A compact picture's soft grey before its first frame (APP-899): never a black disc.
-    static let emptyFill = Color(white: 0.24)
-
-    init(preview: TaskPreview, compact: Bool = false, active: Bool = true, spinsWhileEmpty: Bool = true) {
+    init(preview: TaskPreview, compact: Bool = false, active: Bool = true) {
         self.preview = preview
         self.access = preview.access
         self.compact = compact
         self.active = active
-        self.spinsWhileEmpty = spinsWhileEmpty
     }
 
     var body: some View {
         ZStack {
-            if compact && preview.image == nil { Self.emptyFill } else { Color.black }
+            Color.black
             if let image = preview.image {
                 Image(nsImage: image).resizable().aspectRatio(contentMode: compact ? .fill : .fit)
             } else if compact {
-                if spinsWhileEmpty { ProgressView().controlSize(.mini) }
+                ProgressView().controlSize(.mini)
             } else {
                 Text(preview.status).font(.system(size: 12)).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center).padding(.horizontal, 12)
