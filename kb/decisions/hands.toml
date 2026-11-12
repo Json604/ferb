@@ -1271,3 +1271,26 @@ status = "active"
 rule = "A part is at most UPLOAD_PART = 256 KiB (about 350,000 base64 characters): one native message, under the daemon's 500,000-character command split and the host's 1 MB limit towards the extension. No upload size limit is decided (rule 18, T-1093); until then one upload's files may total the task's download budget (browser.download_task_max_gb), refused before a byte is sent."
 why = "The part size is transport framing; the size bound is the owner's, and the per-task byte budget is the nearest limit the owner already set."
 paths = ["ferb/act/browser/ext_protocol.py::UPLOAD_PART", "ferb/act/browser/ext_bridge.py::_upload_limit"]
+
+[HAND-503]
+title = "Find and fix the web's input cases FERB's extension and tools can't handle"
+by = "owner"
+date = 2026-11-11
+status = "active"
+words = "there might be other sites on the web that might behave like this, BUT thy are all on web adn there is a protocol tehre, BUT we have to search for similar cases liek this, all the edgce cases that might hand cause of our inability in extension or toher tools. so find htese if any / if hte fixes you'd proposed in code are good hten make them"
+words_source = "Relayed by the coordinator, 2026-11-11, after task 9e7c14ed spent 8 minutes failing to put text into a Google Doc; the second sentence is standing."
+rule = "Beyond Google Docs, FERB looks for the web's input cases its extension and browser tools can't handle (editors, widgets, frames, scrolling, the browser's own UI) and fixes the ones whose fixes are good, generally and structurally, not per site."
+why = "Every site is built on the same web platform, so a gap seen on one page is a gap on every page built the same way."
+paths = ["extensions/chromium/background.js", "extensions/chromium/content.js", "ferb/act/browser/ext_bridge.py", "ferb/act/browser/tools.py"]
+live = ["LIVE-916"]
+
+[HAND-504]
+title = "A type or press on a field the page covers or keeps outside the page focuses it by script"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For HAND-503, extension 0.19.10. A type into an editable field (input, textarea, contenteditable) or a press on any element that something the page draws covers (a code editor's or Google Docs' hidden input), or that stays outside the page after scrolling (Google Sheets'), is focused by script, never clicked, and takes real keys; the reply says `unpointed` (covered | outside) and `focus`. Refines HAND-482/490 for keys only: a click, hover or drag there is refused as before. The secret rule is unchanged and also checked where the focus lands; an on-screen twin is named (`on_screen`)."
+why = "Monaco, CodeMirror 5, Ace, Google Docs and Sheets take keys through an input drawn under or beside their own view; the refusal was about where a pointer lands, which keys never use."
+evidence = "Lab 2026-11-11 (tests/test_browser_input_gaps_real.py): every type and press on Monaco, CM5, Ace and the Docs-shaped stand-in failed target_occluded; after, each takes the text. Real Docs and Sheets signed in: unverified until LIVE-916/917."
+paths = ["extensions/chromium/background.js::trusted", "extensions/chromium/content.js::rect", "ferb/act/browser/ext_bridge.py::act"]
+live = ["LIVE-916"]

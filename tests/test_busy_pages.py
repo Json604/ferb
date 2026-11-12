@@ -123,7 +123,8 @@ def test_the_pointers_own_hover_may_restyle_the_target_but_a_tooltip_over_the_po
 # decision: HAND-482
 def test_an_element_still_off_the_page_after_scrolling_is_said_so_and_a_covered_one_stays_covered() -> None:
     src = (EXT / "content.js").read_text()
-    fns = [src[src.index("  const reaches = (el, hit) => {"):src.index("  // The first point inside the element's box")]]
+    fns = [src[src.index("  const reaches = (el, hit) => {"):src.index("  // The first point inside the element's box")],
+           src[src.index("  const NOT_TYPED"):src.index("  // For trusted input: the element centre")]]
     for name in ("hitPoint", "hitTest", "coverOf", "rect"):
         start = src.index(f"  function {name}(")
         fns.append(src[start:src.index("\n  }\n", start) + 4])

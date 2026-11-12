@@ -95,11 +95,13 @@ def test_type_multiline_into_editor(worker: Worker, site: LabServer, editor: str
     out["after_enter"] = t4["text"]
     out["results"] = [r1, r2, r3, r4]
     report(f"editor:{editor}", w, out)
-    if editor in HIDDEN_INPUT_EDITORS:      # GAP: the hidden textarea is "covered", so typing is refused
-        assert not r1.get("ok") and "target_occluded" in str(r1.get("detail")), r1
-    else:                                   # works: every contenteditable editor took the three paragraphs
-        assert "Second paragraph after a blank line." in str(out["after_type"]["text"]), out["after_type"]
-        assert "Replaced text." in str(out["after_replace"]) and "First paragraph" not in str(out["after_replace"])
+    # every editor takes the three paragraphs; a code editor's hidden textarea, under its drawn text, is focused by
+    # script and takes the keys there (HAND-504; it was refused as "target_occluded")
+    assert r1.get("ok"), r1
+    assert "Second paragraph after a blank line." in str(out["after_type"]["text"]), out["after_type"]
+    assert "Replaced text." in str(out["after_replace"]) and "First paragraph" not in str(out["after_replace"])
+    if editor in HIDDEN_INPUT_EDITORS:
+        assert r1.get("unpointed") == "covered" and r3 and r3.get("ok") and r4 and r4.get("ok"), (r1, r3, r4)
 
 
 def _summary(events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -129,15 +131,16 @@ def test_hidden_input_editor_workarounds(worker: Worker, site: LabServer, editor
     w.snapshot()
     ta = _editor_target(w)
     out["type_after_click"] = w.act(ta.id, "type", text="print(1)\nprint(2)")
+    out["truth_after_type"] = w.truth()["text"]
     out["press_after_click"] = w.act(ta.id, "press", text="a")
     out["page_mode_type"] = w.act(ta.id, "type", text="print(3)\nprint(4)", page_mode=True)
     out["truth_after_page_mode"] = w.truth()["text"]
     out["page_mode_press"] = w.act(ta.id, "press", text="Enter", page_mode=True)
     out["truth"] = w.truth()["text"]
     report(f"hidden:{editor}", w, out)
-    assert "target_occluded" in str(out["type_after_click"].get("detail"))       # GAP: even after focusing it
-    assert "target_occluded" in str(out["press_after_click"].get("detail"))      # GAP: a key press needs no pointer
-    assert "print(3)" in str(out["truth_after_page_mode"])                       # page_mode is the only way in
+    # HAND-504: real keys reach the covered textarea (focused by script); page_mode still works too
+    assert out["type_after_click"].get("ok") and out["press_after_click"].get("ok"), out
+    assert "print(1)" in str(out["truth_after_type"]) and "print(2)" in str(out["truth_after_type"]), out
 
 
 # ---------- canvas-drawn editors ----------
@@ -159,9 +162,9 @@ def test_canvas_doc_standin(worker: Worker, site: LabServer) -> None:
     out["type_after_canvas_click"] = w.act(doc.id, "type", text="Line one") if doc else None
     out["truth"] = w.truth()
     report("canvas:doc", w, out)
-    assert "target_occluded" in str(out["type_on_textbox"].get("detail"))         # GAP, as in task 9e7c14ed
-    assert "target_occluded" in str(out["press_on_textbox"].get("detail"))
-    assert "target_occluded" in str(out["type_after_canvas_click"].get("detail"))  # even with the focus there
+    # HAND-504: task 9e7c14ed's route now works: the 1-px text-event frame under the canvas takes the keys
+    assert out["type_on_textbox"].get("ok") and out["press_on_textbox"].get("ok"), out
+    assert out["type_after_canvas_click"].get("ok") and "Line one" in str(out["truth"]["text"]), out
 
 
 def test_canvas_grid(worker: Worker, site: LabServer) -> None:

@@ -302,9 +302,10 @@ def test_protocol_and_extension_versions_move_together() -> None:
     # dropped save reported) moves with the minimum at 0.19.0; the shipped bundle is 0.19.6 (HAND-427's `pdf` in 0.19.3,
     # HAND-430's held store updates in 0.19.4, the pairing status pointing at Pair all in 0.19.5, HAND-434's awake
     # tabs and batched reads in 0.19.6, HAND-442..444's dialogs as facts, leave_page, url waits and tabs a task's input
-    # opened in 0.19.7, HAND-480..482's busy-page clicks in 0.19.8, HAND-500..502's uploads through the page in 0.19.9;
-    # no protocol change, so every installed FERB keeps working with it); protocol 18's tabGroups stays
-    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (21, 21, "0.19.0", "0.19.9")
+    # opened in 0.19.7, HAND-480..482's busy-page clicks in 0.19.8, HAND-500..502's uploads through the page in 0.19.9,
+    # HAND-504..513's input gaps (covered editors, paste, sideways scrolling, popups, print, PDFs) in 0.19.10; no
+    # protocol change, so every installed FERB keeps working with it); protocol 18's tabGroups stays
+    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (21, 21, "0.19.0", "0.19.10")
     assert "tabGroups" in manifest["permissions"]
     assert "downloads" not in manifest["permissions"]            # the debugger's Fetch domain needs no new permission
 

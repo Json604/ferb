@@ -1668,9 +1668,10 @@ async function pressKey(tabId, spec) {
 }
 
 // Element centre in top-viewport coordinates: the frame's own rect plus the frame offset from the last snapshot.
-async function topPoint(tabId, frameId, snap, el) {
-  const r = await inFrame(tabId, frameId, (g, i) => window.__ferb.rect(g, i), [snap, el]);
+async function topPoint(tabId, frameId, snap, el, keys = false) {
+  const r = await inFrame(tabId, frameId, (g, i, k) => window.__ferb.rect(g, i, k), [snap, el, keys]);
   if (r.error) return { error: r.error };
+  if (r.keyboard) return r;                        // HAND-504: keys only, no point to reach
   const fx = r.x, fy = r.y;                        // where it is in its own frame, for the landed check (HAND-486)
   const p = await toTopPoint(tabId, frameId, r);
   return p.error ? p : { ...p, fx, fy };
@@ -1792,15 +1793,25 @@ async function trusted(tabId, a) {
   const t = await attach(tabId);
   t.expect = a.expect_dialog ? { accept: a.expect_dialog === "accept", text: a.dialog_text || "" } : null;
   try {
-    const p = await prepared(() => topPoint(tabId, a.frame_id, a.snap, a.el));   // a read: nothing sent yet
+    const keys = a.kind === "type" || a.kind === "press";
+    const p = await prepared(() => topPoint(tabId, a.frame_id, a.snap, a.el, keys));   // a read: nothing sent yet
     if (p.error) return { ok: false, detail: p.error };
     // A secret field (password, login code, card: content.js `fieldKind`) takes no typed text and no key that puts
     // text in (entersText); Return, Tab and the like still go (kb area hands).
     if (p.secret && (a.kind === "type" || (a.kind === "press" && entersText(a.text)))) return {ok: false, detail: "secret_field"};
     if (p.disabled) return {ok: false, detail: "target_disabled"};
-    if (p.occluded) return { ok: false, detail: `target_occluded${p.cover ? `: covered by ${p.cover}` : ""}; take a fresh snapshot`,
-                             ...(p.cover ? { covered_by: p.cover } : {}) };   // HAND-490: what covers it
-    const pointing = a.kind === "hover" || CLICKS[a.kind] || (a.kind === "type" && p.editable);
+    // HAND-504: keys need no pointer. A field the page draws its own view over (a code editor's or Google Docs' hidden
+    // input) or keeps outside the page (Google Sheets') is focused by script and takes the keys there; a press goes to
+    // any element that way. A pointer action on it is refused as before.
+    const unpointed = !!(p.keyboard || p.occluded);
+    const byScript = unpointed && (a.kind === "press" || (a.kind === "type" && p.editable));
+    if (p.keyboard && !byScript) return { ok: false, detail: p.outside_error || `not_visible: ${p.outside}` };
+    if (p.occluded && !byScript) return { ok: false, detail: `target_occluded${p.cover ? `: covered by ${p.cover}` : ""}; take a fresh snapshot`,
+                                          ...(p.cover ? { covered_by: p.cover } : {}) };   // HAND-490: what covers it
+    const focusedBy = byScript ? { unpointed: p.keyboard ? "outside" : "covered",
+      focus: `by script, not a click: the element is ${p.keyboard ? p.outside :
+        `covered by ${p.cover || "what the page draws over it"}`}` } : {};
+    const pointing = !byScript && (a.kind === "hover" || CLICKS[a.kind] || (a.kind === "type" && p.editable));
     if (pointing && !(await reachesAfresh(tabId, a.frame_id, p.x, p.y, p.fx, p.fy))) return NOT_REACHED;
     if (a.kind === "hover") { await mouse(tabId, "mouseMoved", p.x, p.y); return { ok: true, detail: "hovered (trusted)" }; }
     if (CLICKS[a.kind]) {
@@ -1809,19 +1820,21 @@ async function trusted(tabId, a) {
       return { ok: true, detail: `${name} (trusted)${p.occluded ? "; the element looked covered" : ""}` };
     }
     if (a.kind === "type") {
-      if (p.editable) await pointerClick(tabId, p.x, p.y);          // focus by a real click, like a person
+      if (p.editable && !byScript) await pointerClick(tabId, p.x, p.y);   // focus by a real click, like a person
       let active = await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.isActive(g, i), [a.snap, a.el]);
       if (!active) active = await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.focus(g, i), [a.snap, a.el]);
       if (!active) return { ok: false, detail: "focus_failed" };     // never type into whatever else has focus
+      // where the keys go now may be a secret field inside the element (a widget around a password box)
+      if (await inFrame(tabId, a.frame_id, () => window.__ferb.focusedSecret(), [])) return { ok: false, detail: "secret_field" };
       const text = a.text || "";
       if (!a.append) await pressKey(tabId, "cmd+a");                  // replace: select the field's text first
-      if (!text) { await pressKey(tabId, "Backspace"); return { ok: true, detail: "cleared (trusted)" }; }
+      if (!text) { await pressKey(tabId, "Backspace"); return { ok: true, detail: "cleared (trusted)", ...focusedBy }; }
       if (a.per_key) {
         for (const ch of text) if (!(await pressKey(tabId, ch))) await cdp(tabId, "Input.insertText", { text: ch });
-        return { ok: true, detail: "typed key by key (trusted)" };
+        return { ok: true, detail: "typed key by key (trusted)", ...focusedBy };
       }
       await cdp(tabId, "Input.insertText", { text });
-      return { ok: true, detail: "typed (trusted)" };
+      return { ok: true, detail: "typed (trusted)", ...focusedBy };
     }
     if (a.kind === "press") {
       let active = await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.isActive(g, i), [a.snap, a.el]);
@@ -1831,7 +1844,7 @@ async function trusted(tabId, a) {
       if (entersText(a.text) && await inFrame(tabId, a.frame_id, () => window.__ferb.focusedSecret(), []))
         return { ok: false, detail: "secret_field" };
       if (!(await pressKey(tabId, a.text))) return { ok: false, detail: "unsupported_key" };
-      return { ok: true, detail: `pressed ${a.text} (trusted)` };
+      return { ok: true, detail: `pressed ${a.text} (trusted)`, ...focusedBy };
     }
     return { ok: false, detail: "trusted input supports click, dblclick, rightclick, hover, type and press" };
   } finally {

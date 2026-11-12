@@ -1776,12 +1776,16 @@ class _TabDriver:
             raise
         if v.get("detail") == "stale":
             raise StaleRef(f"element {el.element_id} is gone; take a new snapshot")
-        if str(v.get("detail") or "").startswith("outside_page:"):   # HAND-482: a copy parked off the page
+        outside = str(v.get("detail") or "").startswith("outside_page:")
+        if outside or v.get("unpointed") == "outside":   # HAND-482: a copy parked off the page; HAND-504: keys went
             twin = next((eid for eid, (*_, e) in t.elements.items() if eid != el.element_id and e.in_view
                          and e.role == info.role and e.label == info.label), None)
-            if twin:
+            if twin and outside:
                 v = {**v, "detail": f"{v['detail']}. The same {info.role} \"{info.label}\" is on screen as {twin}",
                      "on_screen": twin}
+            elif twin:                                 # to the copy outside the page: the one on screen is named
+                v = {**v, "on_screen": twin, "note": f"the same {info.role} \"{info.label}\" is on screen as {twin}; "
+                                                     "if nothing changed, act on that one"}
         if into:                                       # one Return stays covered after approved text, nothing else
             g = action.terminal
             t.armed = ((el.element_id, g.confirmation_id) if g is not None and action.kind == "type" and g.input.enter

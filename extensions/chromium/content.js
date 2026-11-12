@@ -1045,25 +1045,33 @@
     return { ok: false, detail: "unknown_action" };
   }
 
-  function rect(gen, id) {           // for trusted input: element centre in this frame's viewport, after scrolling it in
+  // A field that takes typed text: a text-like input, a textarea, or anything the page made editable.
+  const NOT_TYPED = ["button", "submit", "reset", "checkbox", "radio", "file", "image", "hidden"];
+  const editableField = (el) => !!el && (el.isContentEditable || el.tagName === "TEXTAREA" ||
+    (el.tagName === "INPUT" && !NOT_TYPED.includes(String(el.type || "text").toLowerCase())));
+  // For trusted input: the element centre in this frame's viewport, after scrolling it in. `keys` (type or press, which
+  // need no pointer, HAND-504): an element that is covered or stays outside the page is still described, with
+  // `keyboard: true`, so the keys can go to it once it is focused by script; a click's refusal stays as it was.
+  function rect(gen, id, keys = false) {
     const { el, error } = element(gen, id);
     if (error) return { error };
     el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
     const r = el.getBoundingClientRect();
-    if (r.width <= 0 || r.height <= 0) return { error: "not_visible" };
+    const facts = { secret: isSecret(el), disabled: !!el.disabled || el.getAttribute("aria-disabled") === "true",
+                    editable: editableField(el), file: el.tagName === "INPUT" && el.type === "file" };
+    if ((r.width <= 0 || r.height <= 0) && !keys) return { error: "not_visible" };
     // HAND-482: a centre still outside this frame's viewport after scrolling is a fact of its own (a control parked off
     // the page, e.g. a hidden keyboard-shortcut entry), never "covered": hitTest would clamp it onto whatever is there.
     const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
     const side = cy < 0 ? "top" : cy >= innerHeight ? "bottom" : cx < 0 ? "left" : cx >= innerWidth ? "right" : null;
-    if (side) return { error: `outside_page: the element is outside the page even after scrolling, off its ${side} ` +
-                              "edge, so it can't be clicked where it is; nothing was sent. Use a control the page shows" };
+    const outside = side ? `outside_page: the element is outside the page even after scrolling, off its ${side} ` +
+                           "edge, so it can't be clicked where it is; nothing was sent. Use a control the page shows" : null;
+    if (r.width <= 0 || r.height <= 0) return { keyboard: true, outside: "it has no size on the page", ...facts };
+    if (outside) return keys ? { keyboard: true, outside: `outside the page (off its ${side} edge)`, outside_error: outside,
+                                 ...facts } : { error: outside };
     const hit = hitPoint(el, r), occluded = !("x" in hit);       // HAND-490: the first point that reaches it
     return { x: occluded ? cx : hit.x, y: occluded ? cy : hit.y, w: r.width, h: r.height, occluded,
-             ...(occluded ? { cover: coverOf(hit.cover) } : {}), secret: isSecret(el),
-             disabled: !!el.disabled || el.getAttribute("aria-disabled") === "true",
-             editable: el.isContentEditable || el.tagName === "TEXTAREA"
-               || (el.tagName === "INPUT" && !["button", "submit", "reset", "checkbox", "radio", "file", "image"].includes(el.type)),
-             file: el.tagName === "INPUT" && el.type === "file" };
+             ...(occluded ? { cover: coverOf(hit.cover) } : {}), ...facts };
   }
 
   function deepActive() {                          // into shadow roots, closed ones too (shadowOf)

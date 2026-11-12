@@ -24,6 +24,8 @@
 // file URLs (`file_access`), and an upload without it hands the file's bytes through the page (`upload_part`, then
 // `upload` with `transfer`), onto a file field or as a drop. An older FERB never sends either and reads `file_access`
 // as nothing.
+// Extension 0.19.10 keeps protocol 21 and the minimum (HAND-504..): a type or press on a field the page covers with its
+// own drawing or keeps outside the page focuses it by script and sends the keys (`focus`, `unpointed` in the reply).
 const FERB_PROTOCOL = 21;
 const FERB_HOST = "com.ferb.native_host";
 

@@ -139,7 +139,11 @@ Extension 0.19.9 keeps protocol 21 and the minimum (HAND-500..502; an older exte
 - `upload_part {tab_id, frame_id, transfer, index, offset, data}` carries one part (at most UPLOAD_PART bytes, base64)
   of a file the daemon read into the target frame's isolated world; `upload {..., transfer, files: [{name, type,
   last_modified, size}]}` then gives the files to the element: a file field's files (`route: "field"`, `files_set`) or a
-  drop (`route: "drop"`, `drop_taken`). An older FERB never sends either."""
+  drop (`route: "drop"`, `drop_taken`). An older FERB never sends either.
+
+Extension 0.19.10 keeps protocol 21 and the minimum (HAND-504..; an older extension keeps today's input):
+- `act` type or press on a field the page covers with its own drawing or keeps outside the page focuses it by script
+  and sends the keys there; the reply says so (`focus`, `unpointed`: covered | outside)."""
 
 import base64
 import hashlib
