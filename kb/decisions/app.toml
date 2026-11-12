@@ -3537,3 +3537,13 @@ rule = "Refines APP-896. A text field in a row of the chat's transcript list (a 
 why = "Owner 2026-11-12: \"the black input box color is still there\" (typing under Pay / Don't pay). Rendered 2026-11-12: NSTableView, on a first-responder change in a row (NSTableRowData setFirstResponderRowView), turns the field editor's drawsBackground on: textBackgroundColor (#1E1E1E) full width."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TranscriptList.swift::ListTable"]
 live = ["LIVE-931"]
+
+[APP-898]
+title = "One detached activity window per running task"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "Refines APP-782 and APP-890. A running task's live preview opened in its own window (Detach activity) gets a window of its own: another task's opens a second one, a little offset, closing none; the same task's again brings its window forward. Each closes on its own, by its ✕ or when its task ends. Every one is a TaskActivityPanel: hidden from capture (APP-406), in FERB's overlay space on the owner's Space (APP-796)."
+why = "Owner 2026-11-12: \"i cant open multiple live preview extracted windows. i shdoul be able to of all the tasks running\". The coordinator held one window and closed it for another task's."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift::TaskActivityWindows"]
+live = ["LIVE-932"]

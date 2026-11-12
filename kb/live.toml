@@ -4388,3 +4388,12 @@ request = "Ask FERB a task that reaches a payment question (e.g. a kartikey.xyz 
 pass = "While you type, the box stays the soft light rounded field: no near-black rectangle behind the text at any point (clicked, typing, after more text arrives in the chat)."
 decisions = ["APP-897"]
 sitting = "after this change is installed"
+
+[LIVE-932]
+title = "Two running tasks' activity windows open side by side"
+area = "app"
+surface = "FERB.app with this build; two tasks running at once (e.g. two kartikey.xyz page reads that wait a minute)"
+request = "Start two tasks. In the notch, open the first task's round preview and press Detach activity; then the second's. Press Detach activity on the first again. Close one window with its ✕; let the other task finish. During it, start a screen recording (Cmd-Shift-5) for a few seconds."
+pass = "Each task gets its own window, the second opening a little offset from the first, both live; detaching the first again only brings its window forward (no third window). The ✕ closes only that window; the other closes by itself when its task ends. Both open on the Space you are on, and neither shows in the recording."
+decisions = ["APP-898", "APP-406"]
+sitting = "after this change is installed"

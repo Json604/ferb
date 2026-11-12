@@ -145,8 +145,18 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// The camera housing's topmost point row while docked, reaching above the screen's top edge (APP-710).
     let edgeRowPanel = FerbIndicatorPanel(contentRect: CGRect(x: 0, y: 0, width: 58, height: 2),
                                           styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-    private var activityPanel: TaskActivityPanel?
-    private var activityTaskID: String?
+    /// The detached task activity windows, one per running task (APP-898).
+    private lazy var activityWindows = TaskActivityWindows(
+        make: { [unowned self] taskID, close in
+            let window = TaskActivityPanel(model: self.model, taskID: taskID, onClose: close)
+            self.overlaySpace.include(window)
+            return window
+        },
+        bringForward: { [weak self] window in self?.orderInOverlay(window) },
+        release: { [weak self] window in
+            self?.overlaySpace.remove(window)
+            window.orderOut(nil)
+        })
     private var geometry: NotchGeometry?
     private var statusItem: NSStatusItem?
     /// The pending hover open or hover-out fold (tests await it).
@@ -686,26 +696,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         edgeRowPanel.contentView = edgeRow
     }
 
+    /// A running task's own activity window (APP-898): another task's opens beside the ones open; its own, if open,
+    /// comes forward.
     private func showTaskActivity(_ taskID: String) {
         guard model.taskItems.contains(where: { $0.id == taskID && $0.isRunning }) else { return }
-        if activityTaskID == taskID, let activityPanel {
-            orderInOverlay(activityPanel)
-            return
-        }
-        closeTaskActivity()
-        let window = TaskActivityPanel(model: model, taskID: taskID) { [weak self] in self?.closeTaskActivity() }
-        activityTaskID = taskID
-        activityPanel = window
-        overlaySpace.include(window)
-        orderInOverlay(window)
-    }
-
-    private func closeTaskActivity() {
-        guard let window = activityPanel else { return }
-        activityPanel = nil
-        activityTaskID = nil
-        overlaySpace.remove(window)
-        window.orderOut(nil)
+        activityWindows.open(taskID)
     }
 
     /// The expanded control is a subview of the chat window: one WindowServer move.
@@ -2274,7 +2269,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         timerActivityPanel.orderOut(nil)
         cancelMagneticInteraction()
         model.acknowledgement.dismiss()
-        closeTaskActivity()
+        activityWindows.closeAll()
         poster?.stop()
         statusRefresh = nil
         model.disconnectDaemon()

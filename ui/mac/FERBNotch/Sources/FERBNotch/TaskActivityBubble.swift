@@ -140,6 +140,56 @@ struct TaskActivityBubble: View {
     }
 }
 
+/// The detached task activity windows (APP-898, owner 2026-11-12: "i shdoul be able to of all the tasks running"): one
+/// per running task. Detaching another task's activity opens its own window beside the ones open; detaching a task
+/// whose window is open brings that window forward. Each closes on its own: its ✕, or its task ending
+/// (DetachedTaskActivityView). Each is a TaskActivityPanel, so each is hidden from screen sharing and recordings
+/// (APP-406) and lives in FERB's overlay space on the Space the owner is on (APP-796).
+@MainActor
+final class TaskActivityWindows {
+    /// How far each further window opens from the last one, so none hides another exactly.
+    static let cascade: CGFloat = 28
+
+    private(set) var windows: [(taskID: String, window: NSWindow)] = []
+    private let make: (_ taskID: String, _ close: @escaping () -> Void) -> NSWindow
+    private let bringForward: (NSWindow) -> Void
+    private let release: (NSWindow) -> Void
+
+    /// `make` builds a task's window (its `close` closes it here); `bringForward` orders one in; `release` orders one
+    /// out for good.
+    init(make: @escaping (_ taskID: String, _ close: @escaping () -> Void) -> NSWindow,
+         bringForward: @escaping (NSWindow) -> Void, release: @escaping (NSWindow) -> Void) {
+        self.make = make
+        self.bringForward = bringForward
+        self.release = release
+    }
+
+    func window(for taskID: String) -> NSWindow? { windows.first { $0.taskID == taskID }?.window }
+
+    func open(_ taskID: String) {
+        if let window = window(for: taskID) {
+            bringForward(window)
+            return
+        }
+        let window = make(taskID) { [weak self] in self?.close(taskID) }
+        if let last = windows.last?.window {
+            window.setFrameOrigin(CGPoint(x: last.frame.minX + Self.cascade, y: last.frame.minY - Self.cascade))
+        }
+        windows.append((taskID, window))
+        bringForward(window)
+    }
+
+    func close(_ taskID: String) {
+        guard let index = windows.firstIndex(where: { $0.taskID == taskID }) else { return }
+        let window = windows.remove(at: index).window
+        release(window)
+    }
+
+    func closeAll() {
+        for taskID in windows.map(\.taskID) { close(taskID) }
+    }
+}
+
 final class TaskActivityPanel: NSPanel {
     init(model: NotchModel, taskID: String, onClose: @escaping () -> Void) {
         let size = CGSize(width: DetachedTaskActivityView.width, height: DetachedTaskActivityView.height)
