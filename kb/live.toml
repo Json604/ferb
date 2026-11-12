@@ -4470,3 +4470,21 @@ request = "\"Run `sleep 3; echo boom >&2; exit 1` in the background, then wait u
 pass = "The first task answers within about 10 seconds that the command ended with exit code 1 and printed boom; the trace shows one wait.for that woke as process_exited after about 3 s, not a 10-minute wait. In the second, the wait.for right after a mac.act that failed (PointerInterrupted) returns at once as action_failed, and the worker checks or retries instead of waiting minutes."
 decisions = ["ORCH-639"]
 sitting = "after this change is installed"
+
+[LIVE-941]
+title = "A notarized DMG from a browser opens with macOS's normal prompt and every nested piece starts"
+area = "release"
+surface = "A Mac or macOS user without FERB; FERB-AppleSilicon.dmg from a SIGN_IDENTITY=devid build, downloaded in a browser"
+request = "Open the DMG, drag FERB to Applications, open FERB and go through the intro to the first task. Then in Terminal: `spctl -a -t open --context context:primary-signature -vv ~/Downloads/FERB-AppleSilicon.dmg` and `spctl -a -t exec -vv /Applications/FERB.app`."
+pass = "macOS shows only its normal \"downloaded from the Internet\" question: no Open Anyway, no \"damaged\" or \"cannot be opened\" for FERB, the agent, ferb-secrets, Codex or Claude Code during setup or the task; the DMG window shows only the drag line; both spctl commands print accepted and source=Notarized Developer ID."
+decisions = ["REL-420", "REL-421"]
+sitting = "first Developer ID release"
+
+[LIVE-942]
+title = "The Developer ID Intel build runs on an Intel Mac with library validation on"
+area = "release"
+surface = "An Intel Mac; FERB-Intel.dmg from a SIGN_IDENTITY=devid build"
+request = "Install it and go through setup; run a task that reads another app's window, one that takes a screenshot, and a push-to-talk dictation. Then look in Console → Crash Reports for FERB, python3.12 or ferb-secrets."
+pass = "The daemon starts and stays up; reading the window, the screenshot and the dictation work; no crash report names a code-signing kill or writable-executable memory. If one does (libffi closures under the hardened runtime, kb/plans/developer-id.md §4), the x86_64 python and daemon entitlements get com.apple.security.cs.allow-unsigned-executable-memory, only then and only for Intel."
+decisions = ["REL-421"]
+sitting = "first Developer ID release"

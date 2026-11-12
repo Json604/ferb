@@ -1,10 +1,15 @@
 #!/bin/zsh -f
-# The Sparkle appcast for one architecture's release DMG (L34 Phase G): reads the version and build from the app in the
-# DMG, checks that app asks for this architecture's feed, signs the DMG with FERB's EdDSA key (Sparkle's sign_update;
-# the private key is in the owner's login Keychain) and writes build/appcast-<arch>.xml. Publishing is the owner's step
-# (README, "Releasing").
+# The Sparkle appcast for one architecture's release DMG (L34 Phase G): checks the DMG and its app are FERB's Developer
+# ID's, notarized and stapled, reads the version and build from the app in the DMG, checks that app asks for this
+# architecture's feed, signs the DMG with FERB's EdDSA key (Sparkle's sign_update; the private key is in the owner's
+# login Keychain) and writes build/appcast-<arch>.xml. The EdDSA signature covers the DMG's final bytes, so it comes
+# after build-dmg.sh stapled the ticket, which this refuses to skip. Publishing is the owner's step (README,
+# "Releasing").
 #
 #   scripts/release-appcast.sh TAG DMG ARCH     e.g. v0.28.0 build/FERB-AppleSilicon.dmg arm64
+#
+# SIGN_IDENTITY=release checks a DMG of the self-made release certificate instead (kept until the first Developer ID
+# release passes its live checks).
 set -euo pipefail
 ROOT="${0:A:h:h}"
 NOTCH="$ROOT/ui/mac/FERBNotch"
@@ -15,13 +20,20 @@ DMG=${${2:?usage: release-appcast.sh TAG DMG ARCH}:A}
 ARCH=${3:?usage: release-appcast.sh TAG DMG ARCH}
 [[ "$ARCH" == (arm64|x86_64) ]] || die "ARCH is arm64 or x86_64"
 [[ -f "$DMG" ]] || die "no DMG at $DMG"
-"$ROOT/tools/kb/run" gate release || die "the repo gate refused the release (above)"   # kb/setup.toml release_gate
-SIGN=$(find "$NOTCH/.build/artifacts" -path '*/Sparkle/bin/sign_update' -type f 2>/dev/null | head -1)
-[[ -n "$SIGN" ]] || die "Sparkle's sign_update isn't here yet: swift package --package-path ui/mac/FERBNotch resolve"
+source "$ROOT/scripts/signing.sh"
 
 MNT=$(mktemp -d)
 trap 'hdiutil detach -quiet "$MNT" 2>/dev/null || true; rmdir "$MNT" 2>/dev/null || true' EXIT
 hdiutil attach -nobrowse -readonly -quiet -mountpoint "$MNT" "$DMG"
+if ferb_release; then
+  codesign --verify --strict -R="$(ferb_requirement com.ferb.FERB)" "$MNT/FERB.app" 2>/dev/null \
+    || die "the app in ${DMG:t} isn't signed with FERB's release certificate"
+else
+  ferb_check_devid_app "$MNT/FERB.app" || die "the app in ${DMG:t} isn't FERB's notarized Developer ID build (above)"
+  xcrun stapler validate "$DMG" >/dev/null 2>&1 \
+    || die "${DMG:t} carries no stapled notarization ticket (scripts/build-dmg.sh staples it)"
+  ferb_check_gatekeeper open "$DMG" "$FERB_TEAM_ID" || die "${DMG:t} isn't FERB's notarized Developer ID image (above)"
+fi
 INFO="$MNT/FERB.app/Contents/Info.plist"
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO")
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$INFO")
@@ -30,6 +42,9 @@ FEED=$(/usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$INFO" 2>/dev/null || true
 FULL_VERSION=$(/usr/libexec/PlistBuddy -c "Print :FERBVersion" "$INFO")
 hdiutil detach -quiet "$MNT"
 [[ "$FEED" == *"/appcast-$ARCH.xml" ]] || die "the app in ${DMG:t} checks '${FEED:-no feed}', not appcast-$ARCH.xml"
+"$ROOT/tools/kb/run" gate release || die "the repo gate refused the release (above)"   # kb/setup.toml release_gate
+SIGN=$(find "$NOTCH/.build/artifacts" -path '*/Sparkle/bin/sign_update' -type f 2>/dev/null | head -1)
+[[ -n "$SIGN" ]] || die "Sparkle's sign_update isn't here yet: swift package --package-path ui/mac/FERBNotch resolve"
 
 # The release checks (scripts/release_checks.py): a bumped, non-development version named by the tag, and the Chrome
 # Web Store already serving an extension this FERB accepts.

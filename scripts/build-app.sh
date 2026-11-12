@@ -13,7 +13,9 @@
 # LaunchAgents: unused while FERB has no Developer ID, kept so FERB.app can unregister a 2026-11 build's SMAppService
 # registration, and for T-27; first launch writes the user LaunchAgent instead, DMN-513). Hearing (an app's sound to text) is the main executable's own
 # modes (ui/mac/FERBNotch/Sources/FERBNotch/Hearing.swift); there is no helper. First launch sets the daemon up from inside the app (ferb/device/install.py).
-# Env: SIGN_IDENTITY (default "-", ad-hoc) and, for a Developer ID, the notary credentials described in signing.sh.
+# Env: SIGN_IDENTITY (default "-", ad-hoc; devid for a published build) and, for a Developer ID, the notary
+# credentials described in signing.sh. Every Mach-O file in the bundle must end up signed (signing.sh
+# ferb_check_signed_code), or the build stops before notarization.
 set -euo pipefail
 ROOT="${0:A:h:h}"
 source "$ROOT/scripts/swiftpm-anonymous.sh"      # SwiftPM fetches anonymously: never the owner's keychain
@@ -109,7 +111,7 @@ if [[ "${FERB_UPDATES:-on}" == off ]]; then
 else
   KEY_FILE="$ROOT/scripts/sparkle-public-key.txt"
   if [[ ! -s "$KEY_FILE" ]]; then
-    [[ "$SIGN_IDENTITY" != release ]] || die "no $KEY_FILE: the owner runs scripts/sparkle-keys.sh once (or build with FERB_UPDATES=off)"
+    [[ "$SIGN_IDENTITY" != (release|devid) ]] || die "no $KEY_FILE: the owner runs scripts/sparkle-keys.sh once (or build with FERB_UPDATES=off)"
     print "    no $KEY_FILE: this non-release build carries no feed and never checks for updates"
     UPDATES_KEY=""
   else

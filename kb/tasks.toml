@@ -367,9 +367,9 @@ decisions = ["DMN-507"]
 title = "Switch to the Apple Developer ID: notarized builds, team-based identity, SMAppService back"
 area = "release"
 kind = "build"
-status = "blocked"
-why = "Owner 2026-11-02: buy the Developer ID (Individual) and adopt it after FERB is ready to try; blocked on the account. Plan: kb/plans/developer-id.md (what changes, what could break, migration)."
-decisions = ["DMN-513", "REL-403"]
+status = "open"
+why = "Owner 2026-11-02: buy the Developer ID, adopt it once FERB is ready. Plan: kb/plans/developer-id.md. 2026-11-13: certificate and notary profile ready; §3-§4 built (REL-421, REL-422). Left: the first notarized build and LIVE-941/942, the migration (§5-§8), README release steps, retiring release mode."
+decisions = ["DMN-513", "REL-420", "REL-421", "REL-422"]
 
 [T-1004]
 title = "Refine the remaining app experience from the whole-app playground review before the site"

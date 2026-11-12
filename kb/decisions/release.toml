@@ -81,7 +81,8 @@ legacy = "CHANGELOG.md 0.27.0.dev1 FERB for everyone, phase A (L34)"
 title = "Distribution: one FERB.app, two DMGs, free signing, self-installing updates"
 by = "owner"
 date = 2026-11-02
-status = "active"
+status = "superseded"
+superseded_by = "REL-420"
 words = "recommeded all"
 why = "Answer to T-512: the owner accepted the recommendation for every open question."
 rule = "One FERB.app shipped as two DMGs (Apple silicon, Intel), signed without a Developer ID or notarization for now; updates install by themselves; the notch is the main interface with detail in a regular window; installing from source stays supported."
@@ -247,3 +248,46 @@ rule = "The version is 0.27.3 (ferb/__init__.py, pyproject.toml, uv.lock), tagge
 supersedes = ["REL-417"]
 paths = ["pyproject.toml", "ferb/__init__.py"]
 untestable = "The release itself; REL-2's tests keep the version strings equal and refuse a .dev release."
+
+[REL-419]
+title = "FERB's public Developer ID Team ID is kept in the repo"
+by = "owner"
+date = 2026-11-13
+status = "active"
+words = "My recommendation is still to store it in the repo - Yes"
+words_source = "Asked whether scripts/developer-team.txt may hold the public Team ID (plan §10.6), the owner asked why and if it was dangerous; told it is public and needed for signing, the owner answered."
+rule = "scripts/developer-team.txt holds FERB's Apple Developer ID Team ID, 8N7RNGH974: public and tracked, the counterpart of scripts/release-cert.sha1."
+paths = ["scripts/developer-team.txt"]
+
+[REL-420]
+title = "Distribution: FERB.app and its DMGs are signed with the Developer ID and notarized"
+by = "owner"
+date = 2026-11-13
+status = "active"
+words = "yeah, as long as it works"
+words_source = "Told that the Developer ID switch (T-27) would be recorded as superseding REL-403's \"no Developer ID or notarization for now\" with their go, the owner answered."
+rule = "One FERB.app shipped as two DMGs (Apple silicon, Intel), the app and each DMG signed with FERB's Apple Developer ID and notarized; updates install by themselves; the notch is the main interface with detail in a regular window; installing from source stays supported. Replaces REL-403's \"signed without a Developer ID or notarization for now\"; the rest of REL-403 holds."
+supersedes = ["REL-403"]
+paths = ["scripts/signing.sh", "scripts/build-dmg.sh"]
+live = ["LIVE-636", "LIVE-637", "LIVE-941"]
+
+[REL-421]
+title = "devid signing: the team's Developer ID by hash; pieces, app and image checked against the team"
+by = "agent"
+date = 2026-11-13
+status = "active"
+rule = "SIGN_IDENTITY=devid signs with the one valid \"Developer ID Application\" identity of scripts/developer-team.txt's team, by its SHA-1 (none or two refuse; its name is never printed). Pieces keep codesign's default requirement and are verified against identifier + anchor apple generic + leaf OU = team; library validation stays on; app and DMG are notarized and stapled. A DMG takes only a stapled, Gatekeeper-notarized team app and is itself checked with spctl; release-appcast.sh refuses any other DMG before EdDSA signing. Release mode stays until the first devid release passes its live checks."
+why = "kb/plans/developer-id.md §3: selecting by name would put a legal name in commands and env files, and a same-team Apple Development or Installer certificate would be refused by notarization; until now a Developer ID app entered a DMG unchecked."
+rejected = ["Select the identity by its name: the legal name in commands and env files", "Default NOTARY_KEYCHAIN_PROFILE to the owner's profile name: a missing profile would show only after a full build; the variable stays explicit and is checked first", "Re-sign the DMG's pieces in release-appcast.sh: it only checks; signing stays in build-app.sh and build-dmg.sh"]
+paths = ["scripts/signing.sh", "scripts/build-dmg.sh", "scripts/release-appcast.sh", "scripts/build-app.sh"]
+live = ["LIVE-941", "LIVE-942"]
+
+[REL-422]
+title = "Every Mach-O file in FERB.app is found by its content, signed and checked"
+by = "agent"
+date = 2026-11-13
+status = "active"
+rule = "signing.sh picks the code it signs by file(1)'s Mach-O type, not by name or execute bit, and after signing verifies every Mach-O file in the bundle with codesign --verify --strict, in every mode; in devid mode each must also meet the team requirement unless it is another team's Developer ID code kept as its vendor signed it (Codex, Claude Code). One failure stops the build before notarization and names the file."
+why = "kb/plans/developer-id.md §4: notarization rejects a bundle holding one unsigned executable or library, and the old selection signed only *.so, *.dylib and files with the execute bit."
+evidence = "The arm64 build in build/app-arm64 (checked 2026-11-13) holds 53 Mach-O files, all named or executable today; the scan verified them all in about 7 s."
+paths = ["scripts/signing.sh"]

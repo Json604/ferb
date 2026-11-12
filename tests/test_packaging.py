@@ -93,7 +93,7 @@ def test_the_sound_family_ships_as_lossless_alac_with_one_banner_copy() -> None:
 
 
 def test_build_scripts_are_executable_zsh_that_parses() -> None:
-    for script in (BUILD_APP, BUILD_DMG, ROOT / "scripts" / "signing.sh", APP_PARTS):
+    for script in (BUILD_APP, BUILD_DMG, ROOT / "scripts" / "signing.sh", APP_PARTS, ROOT / "scripts" / "release-appcast.sh"):
         assert script.is_file(), script
         assert subprocess.run(["/bin/zsh", "-n", str(script)], capture_output=True).returncode == 0, script
     assert os.access(BUILD_APP, os.X_OK) and os.access(BUILD_DMG, os.X_OK)
@@ -206,6 +206,11 @@ STUB_CODESIGN = r"""#!/bin/zsh
 # Logs every call. -dv: a "vendor" path carries another team's Developer ID signature, anything else is ad-hoc.
 print -r -- "codesign|${(j:|:)@}" >> "$STUB_LOG"
 if [[ " $* " == *" --verify "* && -n "${STUB_VERIFY_FAILS:-}" ]]; then exit 1; fi
+# STUB_UNSIGNED: a path that carries no signature; STUB_ADHOC: one signed, but by no team (any -R check fails)
+if [[ " $* " == *" --verify "* && "${@[-1]}" == "${STUB_UNSIGNED:-//}" ]]; then
+  print -u2 "${@[-1]}: code object is not signed at all"; exit 1
+fi
+if [[ " $* " == *" --verify "* && " $* " == *" -R="* && "${@[-1]}" == "${STUB_ADHOC:-//}" ]]; then exit 3; fi
 if [[ " $* " == *" -dv "* ]]; then
   if [[ "${@[-1]}" == *vendor* ]]; then
     print -u2 "Authority=Developer ID Application: Vendor Inc (VENDOR1)"; print -u2 "TeamIdentifier=VENDOR1"
@@ -227,7 +232,17 @@ print "     0 valid identities found"
 STUB_XCRUN = r"""#!/bin/zsh
 print -r -- "xcrun|${(j:|:)@}" >> "$STUB_LOG"
 if [[ "$1" == notarytool && "$2" == submit ]]; then print '{"id":"0f00","status":"Accepted","message":"ok"}'; fi
+if [[ "$1" == stapler && "$2" == validate && -n "${STUB_STAPLE_MISSING:-}" ]]; then exit 65; fi
 exit 0
+"""
+# Gatekeeper's assessment: notarized Developer ID code of TEAM123456 unless the test says otherwise
+STUB_SPCTL = r"""#!/bin/zsh
+print -r -- "spctl|${(j:|:)@}" >> "$STUB_LOG"
+if [[ -n "${STUB_SPCTL_REJECT:-}" ]]; then
+  print -u2 "${@[-1]}: rejected"; print -u2 "source=Unnotarized Developer ID"; exit 3
+fi
+print -u2 "${@[-1]}: accepted"; print -u2 "source=Notarized Developer ID"
+print -u2 "origin=Developer ID Application: Test Owner (${STUB_SPCTL_TEAM:-TEAM123456})"
 """
 STUB_HDIUTIL = r"""#!/bin/zsh
 print -r -- "hdiutil|${(j:|:)@}" >> "$STUB_LOG"
@@ -263,7 +278,7 @@ def _stubs(tmp_path: Path) -> dict[str, str]:
     stubs = tmp_path / "stubs"
     stubs.mkdir()
     for name, body in (("codesign", STUB_CODESIGN), ("xcrun", STUB_XCRUN), ("hdiutil", STUB_HDIUTIL),
-                       ("security", STUB_SECURITY), ("layout-python", STUB_LAYOUT_PYTHON)):
+                       ("security", STUB_SECURITY), ("layout-python", STUB_LAYOUT_PYTHON), ("spctl", STUB_SPCTL)):
         (stubs / name).write_text(body)
         (stubs / name).chmod(0o755)
     return {"PATH": f"{stubs}:/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(tmp_path / "home"),
@@ -457,6 +472,100 @@ def test_release_mode_stays_release_for_the_build_scripts_it_starts(tmp_path: Pa
     assert done.stdout.strip() == f"release {SHA.upper()}", done.stderr
 
 
+# The devid mode (T-27): the stub keychain lists the team's Developer ID Application identity among others of the same
+# team or name that must never be picked
+TEAM = "TEAM123456"
+DEVID_SHA = "FEDCBA9876543210FEDCBA9876543210FEDCBA98"
+DEVID_LISTED = "\n".join((f'  1) {"A" * 40} "Apple Development: Test Owner ({TEAM})"',
+                          f'  2) {DEVID_SHA} "{DEV_ID}"',
+                          f'  3) {"B" * 40} "Developer ID Installer: Test Owner ({TEAM})"',
+                          f'  4) {"C" * 40} "Developer ID Application: Test Owner (OTHER12345)"'))
+
+
+def _team_requirement(ident: str) -> str:
+    return f'identifier "{ident}" and anchor apple generic and certificate leaf[subject.OU] = "{TEAM}"'
+
+
+def _devid_env() -> dict[str, str]:
+    return {"SIGN_IDENTITY": "devid", "FERB_TEST_TEAM_ID": TEAM, "STUB_IDENTITIES": DEVID_LISTED,
+            "NOTARY_KEYCHAIN_PROFILE": "ferb-notary"}
+
+
+# decision: REL-421
+def test_devid_signs_with_the_teams_developer_id_by_its_hash_and_checks_each_piece_against_the_team(
+        tmp_path: Path) -> None:
+    """SIGN_IDENTITY=devid picks the one Developer ID Application identity of scripts/developer-team.txt's team by its
+    SHA-1 (the name, a legal name, is never passed or printed), keeps codesign's own team requirement, verifies every
+    piece macOS grants permissions to against the team, keeps library validation on, then notarizes and staples."""
+    app, calls, done = _sign_only(tmp_path, **_devid_env())
+    assert done.returncode == 0, done.stderr + done.stdout
+    assert "Test Owner" not in done.stdout + done.stderr
+    sign_calls = [c for c in calls if "|--sign|" in c and "--verify" not in c]
+    assert sign_calls and all(f"|--sign|{DEVID_SHA}|" in c and "|--timestamp|" in c for c in sign_calls)
+    assert not any("--requirements" in c for c in sign_calls)          # codesign's default DR names the team
+    assert not any("vendor-tool" in c for c in sign_calls)             # another team's Developer ID is kept
+    for rel, ident in RELEASE_PIECES:
+        piece = app / rel if rel else app
+        assert f"codesign|--verify|--strict|-R={_team_requirement(ident)}|{piece}" in calls, piece
+    for piece in (app, app / "Contents/Helpers/FERB.app", app / "Contents/Resources/python/bin/python3.12"):
+        assert "disable-library-validation" not in _ent(tmp_path, piece), piece   # one team signs everything loaded
+    submit = next(c for c in calls if c.startswith("xcrun|notarytool|submit"))
+    assert calls.index(submit) > max(calls.index(c) for c in sign_calls)
+    assert f"xcrun|stapler|staple|{app}" in calls
+    (tmp_path / "sourced").mkdir()
+    env = {**_stubs(tmp_path / "sourced"), **_devid_env(), "ROOT": str(ROOT)}
+    shown = subprocess.run(["/bin/zsh", "-f", "-c",
+                            'source "$ROOT/scripts/signing.sh" && print -r -- "$SIGN_IDENTITY $FERB_SIGN_ID"'],
+                           capture_output=True, text=True, env=env)
+    assert shown.stdout.strip() == f"devid {DEVID_SHA}", shown.stderr   # build-dmg.sh -> build-app.sh stays devid
+
+
+# decision: REL-421
+def test_devid_refuses_a_missing_ambiguous_or_other_identity_before_signing_anything(tmp_path: Path) -> None:
+    other_kinds = "\n".join(line for line in DEVID_LISTED.splitlines() if DEV_ID not in line)
+    cases = ({**_devid_env(), "STUB_IDENTITIES": ""},                                    # not in the keychain
+             {**_devid_env(), "STUB_IDENTITIES": other_kinds},                           # Apple Development etc.
+             {**_devid_env(), "STUB_IDENTITIES": f'{DEVID_LISTED}\n  5) {"D" * 40} "{DEV_ID}"'},   # two of the team
+             {**_devid_env(), "FERB_TEST_TEAM_ID": ""},                                  # no recorded team
+             {**_devid_env(), "FERB_TEST_TEAM_ID": "TEAM-12345"})                        # malformed
+    for i, env in enumerate(cases):
+        (tmp_path / str(i)).mkdir()
+        _, calls, done = _sign_only(tmp_path / str(i), **env)
+        assert done.returncode != 0 and ("Developer ID" in done.stderr or "Team ID" in done.stderr), (i, done.stderr)
+        assert "Test Owner" not in done.stderr, i
+        assert not _signed(calls), i
+
+
+# decision: REL-422
+def test_every_mach_o_file_is_signed_whatever_its_name_and_an_unsigned_one_stops_the_build(tmp_path: Path) -> None:
+    """Notarization refuses a bundle holding one unsigned executable or library (kb/plans/developer-id.md §4): a Mach-O
+    file is found by its content, so one without a code name or the execute bit is signed too, and after signing every
+    Mach-O file is checked, in every mode; in devid mode an ad-hoc leftover is refused as well."""
+    app = _fake_app(tmp_path / "out")
+    blob = app / "Contents/Resources/python/lib/python3.12/site-packages/pkg/_native.bin"
+    shutil.copy("/usr/bin/true", blob)
+    blob.chmod(0o644)
+    env = _stubs(tmp_path)
+    done = subprocess.run([str(BUILD_APP), "--sign-only", str(app)], capture_output=True, text=True, env=env)
+    assert done.returncode == 0, done.stderr + done.stdout
+    calls = (tmp_path / "calls.log").read_text().splitlines()
+    assert str(blob) in _signed(calls)
+    for checked in (blob, app / "Contents/MacOS/FERBNotch", app / "Contents/Helpers/FERB.app/Contents/MacOS/FERB"):
+        assert f"codesign|--verify|--strict|{checked}" in calls, checked
+    assert not any(c.endswith("/pkg/mod.py") for c in calls)            # not code: never signed or checked
+
+    for i, (mode, stub) in enumerate(((env, {"STUB_UNSIGNED": str(blob)}),
+                                      ({**env, **_devid_env()}, {"STUB_UNSIGNED": str(blob)}),
+                                      ({**env, **_devid_env()}, {"STUB_ADHOC": str(blob)}))):
+        (tmp_path / "calls.log").unlink()
+        refused = subprocess.run([str(BUILD_APP), "--sign-only", str(app)], capture_output=True, text=True,
+                                 env={**mode, **stub})
+        assert refused.returncode != 0, i
+        assert "pkg/_native.bin" in refused.stderr, (i, refused.stderr)
+        calls = (tmp_path / "calls.log").read_text().splitlines()
+        assert not any(c.startswith("xcrun|notarytool") for c in calls), i   # stopped before notarization
+
+
 def test_build_app_refuses_an_unknown_architecture_and_intel_without_rosetta(tmp_path: Path) -> None:
     env = _stubs(tmp_path)
     out = tmp_path / "out"
@@ -620,6 +729,103 @@ def test_a_disk_image_holds_only_a_release_signed_app(tmp_path: Path) -> None:
     other = subprocess.run([str(BUILD_DMG), str(app)], capture_output=True, text=True, env=env)
     assert other.returncode != 0 and "isn't signed with FERB's release certificate" in other.stderr
     assert not dmg.exists()
+
+
+# decision: REL-420, REL-421
+def test_a_devid_disk_image_holds_only_a_notarized_team_app_and_is_itself_signed_notarized_and_checked(
+        tmp_path: Path) -> None:
+    """With SIGN_IDENTITY=devid the image takes only an app of FERB's Developer ID team that carries its stapled ticket
+    and that Gatekeeper accepts as notarized; the image is then signed by the same identity (its hash), notarized,
+    stapled and assessed the way a browser download is. Its window has only the drag line (REL-408)."""
+    app = _fake_app(tmp_path / "out")
+    compile_macho(app / "Contents/MacOS/FERBNotch", "arm64")
+    dist = tmp_path / "dist"
+    dmg = dist / "FERB-AppleSilicon.dmg"
+    env = {**_stubs(tmp_path), **_devid_env(), "FERB_DMG_DIR": str(dist)}
+    del env["FERB_DEV_DMG"]
+    ok = subprocess.run([str(BUILD_DMG), str(app)], capture_output=True, text=True, env=env)
+    assert ok.returncode == 0, ok.stderr + ok.stdout
+    assert "window: after-devid" in ok.stdout and "Test Owner" not in ok.stdout + ok.stderr
+    calls = (tmp_path / "calls.log").read_text().splitlines()
+    checks = [f"codesign|--verify|--strict|-R={_team_requirement('com.ferb.FERB')}|{app}",
+              f"xcrun|stapler|validate|{app}", f"spctl|-a|-t|exec|-vv|{app}",
+              f"codesign|--force|--sign|{DEVID_SHA}|--timestamp|{dmg}",
+              f"xcrun|stapler|staple|{dmg}",
+              f"spctl|-a|-t|open|--context|context:primary-signature|-vv|{dmg}"]
+    for check in checks:
+        assert check in calls, check
+    assert [calls.index(c) for c in checks] == sorted(calls.index(c) for c in checks)   # the app first, then the image
+    assert any(c.startswith(f"xcrun|notarytool|submit|{dmg}|") for c in calls)
+
+    refusals = ({"STUB_VERIFY_FAILS": "1"}, {"STUB_STAPLE_MISSING": "1"}, {"STUB_SPCTL_REJECT": "1"},
+                {"STUB_SPCTL_TEAM": "OTHER12345"})
+    for stub in refusals:
+        dmg.unlink(missing_ok=True)
+        refused = subprocess.run([str(BUILD_DMG), str(app)], capture_output=True, text=True, env={**env, **stub})
+        assert refused.returncode != 0 and not dmg.exists(), (stub, refused.stderr)
+        assert "Test Owner" not in refused.stderr, stub
+    raw = {**env, "SIGN_IDENTITY": DEV_ID}                     # a Developer ID named directly: development images only
+    refused = subprocess.run([str(BUILD_DMG), str(app)], capture_output=True, text=True, env=raw)
+    assert refused.returncode != 0 and "SIGN_IDENTITY=devid" in refused.stderr
+
+
+APPCAST_HDIUTIL = r"""#!/bin/zsh
+print -r -- "hdiutil|${(j:|:)@}" >> "$STUB_LOG"
+if [[ "$1" == attach ]]; then ditto "$STUB_APP" "${@[-2]}/FERB.app"; fi
+if [[ "$1" == detach ]]; then rm -rf "${@[-1]}/FERB.app"; fi
+exit 0
+"""
+
+
+# decision: REL-421
+def test_the_appcast_refuses_a_dmg_that_isnt_notarized_developer_id_before_signing_it(tmp_path: Path) -> None:
+    """release-appcast.sh EdDSA-signs a DMG's final bytes, so it refuses one whose app isn't FERB's team's, notarized
+    and stapled, or which isn't itself stapled and accepted by Gatekeeper, before the release gate and sign_update.
+    Run from a copy of the scripts whose `tools/kb/run` only records the gate, so nothing reaches the Keychain."""
+    root = tmp_path / "repo"
+    (root / "scripts").mkdir(parents=True)
+    for name in ("release-appcast.sh", "signing.sh"):
+        shutil.copy(ROOT / "scripts" / name, root / "scripts" / name)
+    (root / "tools/kb").mkdir(parents=True)
+    (root / "tools/kb/run").write_text('#!/bin/zsh\nprint -r -- "gate|$*" >> "$STUB_LOG"\nexit 1\n')
+    (root / "tools/kb/run").chmod(0o755)
+    app = _fake_app(tmp_path / "out")
+    info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
+    info.update(LSMinimumSystemVersion="14.2", FERBVersion="0.28.0",
+                SUFeedURL="https://github.com/Json604/ferb/releases/latest/download/appcast-arm64.xml")
+    (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
+    dmg = tmp_path / "FERB-AppleSilicon.dmg"
+    dmg.write_bytes(b"fake dmg")
+    (tmp_path / "tmp").mkdir()
+    env = {**_stubs(tmp_path), "FERB_TEST_TEAM_ID": TEAM, "STUB_APP": str(app), "TMPDIR": str(tmp_path / "tmp")}
+    (tmp_path / "stubs/hdiutil").write_text(APPCAST_HDIUTIL)
+    script = str(root / "scripts" / "release-appcast.sh")
+
+    def run(**stub: str) -> subprocess.CompletedProcess[str]:
+        log = tmp_path / "calls.log"
+        log.unlink(missing_ok=True)
+        return subprocess.run([script, "v0.28.0", str(dmg), "arm64"], capture_output=True, text=True,
+                              env={**env, **stub})
+
+    for stub in ({"STUB_VERIFY_FAILS": "1"}, {"STUB_STAPLE_MISSING": "1"}, {"STUB_SPCTL_REJECT": "1"},
+                 {"STUB_SPCTL_TEAM": "OTHER12345"}):
+        refused = run(**stub)
+        assert refused.returncode != 0, stub
+        assert "gate|" not in (tmp_path / "calls.log").read_text(), (stub, refused.stderr)   # refused first
+    passed = run()
+    calls = (tmp_path / "calls.log").read_text().splitlines()
+    assert "the repo gate refused" in passed.stderr and "gate|gate release" in calls, passed.stderr
+    assert f"xcrun|stapler|validate|{dmg}" in calls
+    assert f"spctl|-a|-t|open|--context|context:primary-signature|-vv|{dmg}" in calls
+
+
+# decision: REL-419
+def test_the_developer_id_team_is_recorded() -> None:
+    """scripts/developer-team.txt names FERB's Developer ID team (owner, 2026-11-13): public, the 10-character Team ID
+    every signed binary shows, one line. It is the counterpart of release-cert.sha1; the certificate's name is never
+    recorded."""
+    text = (ROOT / "scripts" / "developer-team.txt").read_text()
+    assert len(text) == 11 and text.endswith("\n") and text[:10].isalnum() and text[:10] == text[:10].upper()
 
 
 def test_the_release_certificates_sha1_is_recorded() -> None:
@@ -988,3 +1194,32 @@ def test_real_release_bundle_pins_ferbs_certificate_in_every_piece_macos_grants_
     shutil.copyfile(real_bundle / "Contents/Helpers/ferb-secrets", copy)       # what setup copies into ~/.ferb/bin
     pinned = Installer(tmp_path / ".ferb", bundle=real_bundle).sealed_requirement(copy, "Helpers/ferb-secrets")
     assert certificate_leaf(pinned) == sha
+
+
+# decision: REL-420, REL-421
+def test_real_devid_bundle_is_team_signed_notarized_and_stapled_in_every_piece_macos_grants_to(real_bundle: Path,
+                                                                                              tmp_path: Path) -> None:
+    if os.environ.get("FERB_DEVID_BUNDLE") != "1":
+        pytest.skip("set FERB_DEVID_BUNDLE=1 with FERB_APP_BUNDLE pointing at a SIGN_IDENTITY=devid build")
+    from ferb.device.install import Installer, designated_requirement
+    team = (ROOT / "scripts" / "developer-team.txt").read_text().strip()
+    for rel, ident in RELEASE_PIECES:
+        piece = real_bundle / rel if rel else real_bundle
+        shown = subprocess.run(["codesign", "-d", "-r-", str(piece)], capture_output=True, text=True)
+        requirement = designated_requirement(shown.stdout + shown.stderr)
+        assert requirement.startswith(f'identifier "{ident}" and anchor apple generic'), requirement
+        assert f"certificate leaf[subject.OU] = {team}" in requirement.replace('"', ""), requirement
+        details = subprocess.run(["codesign", "-dv", "--verbose=2", str(piece)], capture_output=True, text=True).stderr
+        assert "Authority=Developer ID Application: " in details and f"TeamIdentifier={team}" in details
+        assert "Timestamp=" in details and "flags=0x10000(runtime)" in details, details
+        entitlements = subprocess.run(["codesign", "-d", "--entitlements", "-", "--xml", str(piece)],
+                                      capture_output=True, text=True).stdout
+        assert "disable-library-validation" not in entitlements and "get-task-allow" not in entitlements, piece
+    stapled = subprocess.run(["xcrun", "stapler", "validate", str(real_bundle)], capture_output=True, text=True)
+    assert stapled.returncode == 0, stapled.stdout + stapled.stderr
+    assessed = subprocess.run(["spctl", "-a", "-t", "exec", "-vv", str(real_bundle)], capture_output=True, text=True)
+    assert assessed.returncode == 0 and "source=Notarized Developer ID" in assessed.stderr
+    copy = tmp_path / "ferb-secrets"
+    shutil.copyfile(real_bundle / "Contents/Helpers/ferb-secrets", copy)       # what setup copies into ~/.ferb/bin
+    pinned = Installer(tmp_path / ".ferb", bundle=real_bundle).sealed_requirement(copy, "Helpers/ferb-secrets")
+    assert "anchor apple generic" in pinned and team in pinned, pinned          # the team branch, not a cdhash

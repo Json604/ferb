@@ -1,7 +1,8 @@
 #!/bin/zsh -f
 # Package FERB.app into disk images with an Applications link (L27, L34): one per architecture. An image holds only a
-# release-signed FERB.app (SIGN_IDENTITY=release) or a Developer ID one, which is also signed, notarized and stapled
-# (scripts/signing.sh); FERB_DEV_DMG=1 makes a test image of any app.
+# FERB.app signed by FERB's Developer ID team, notarized and stapled (SIGN_IDENTITY=devid; the image itself is then
+# signed, notarized, stapled and checked with Gatekeeper too) or, until that release passes its live checks, a
+# release-signed one (SIGN_IDENTITY=release); scripts/signing.sh. FERB_DEV_DMG=1 makes a test image of any app.
 #
 # The image opens as a designed window (REL-408, REL-409; scripts/dmg_layout.py): FERB on the left, the Applications
 # link on the right, over a still of FERB's startup field (assets/dmg, from scripts/make_dmg_background.py). The words
@@ -81,9 +82,14 @@ make_dmg() {                          # $1: an assembled FERB.app, $2: the image
   hdiutil convert "$RW" -format ULMO -ov -o "$dmg" >/dev/null
   rm -f "${RW:?}"
   RW=""
-  if ferb_developer_id; then
-    codesign --force --sign "$SIGN_IDENTITY" --timestamp "$dmg"
+  if ferb_developer_id; then             # signed by the resolved identity (devid: its SHA-1, never the name)
+    codesign --force --sign "$FERB_SIGN_ID" --timestamp ${FERB_SIGN_KEYCHAIN:+--keychain} ${FERB_SIGN_KEYCHAIN:+"$FERB_SIGN_KEYCHAIN"} "$dmg"
     ferb_notarize "$dmg" "$dmg"
+    if ferb_devid; then                   # what a browser download meets: the image's own notarized team signature
+      ferb_check_gatekeeper open "$dmg" "$FERB_TEAM_ID" || exit 1
+    else
+      ferb_check_gatekeeper open "$dmg" || exit 1
+    fi
   fi
   print "Built: $dmg ($(du -h "$dmg" | cut -f1), window: $variant)"
 }
