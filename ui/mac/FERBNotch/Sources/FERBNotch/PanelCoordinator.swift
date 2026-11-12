@@ -257,6 +257,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     var hasWindow = false                        // Phase E: the FERB window exists ("Open FERB Window")
     var onOpenWindow: (() -> Void)?              // Phase E
     var updateOffer: String?                     // L34 Phase G: an update waiting for the owner's click
+    var updateAsks = false                       // that update is the Developer ID switch, which asks first (APP-903)
     var onInstallUpdate: (() -> Void)?
     var onOpenSettings: (() -> Void)?            // the FERB window at Settings (L34 Phase E): ⌘, and Settings…
     var service: DaemonServicing = DaemonService()
@@ -2010,7 +2011,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         menu.removeAllItems()
         for entry in StatusMenu.entries(state: model.menuBarState, paused: model.daemonPaused,
                                         stopped: model.daemonStopped, appName: AppName.current,
-                                        canSetUp: onSetUp != nil, hasWindow: hasWindow, updateOffer: updateOffer) {
+                                        canSetUp: onSetUp != nil, hasWindow: hasWindow, updateOffer: updateOffer,
+                                        updateAsks: updateAsks) {
             switch entry {
             case .status(let text):
                 let line = NSMenuItem(title: text, action: nil, keyEquivalent: "")

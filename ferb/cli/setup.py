@@ -224,13 +224,16 @@ def service_setup(env: Env, update: bool = False) -> int:
         ProfileStore(inst.home).save(scan(device_id(Config(inst.home))), "setup scan")
     if inst.bundle is not None or (inst.home / "FERB.app").exists():
         _voice_helper(env)                        # pins FERB.app for hearing; never a prompt
-    # DMN-513: the LaunchAgent is loaded by the install, so the command waits for the daemon itself (no launch
-    # constraint from another build can stop it, as SMAppService's did)
-    _started(env).close()
+    # DMN-513: the LaunchAgent is loaded by the install, so the command waits for the daemon itself. FERB.app's own
+    # registration (DMN-589) is turned on by the app right after this command, which then waits for the daemon itself.
+    started = not inst.in_app or inst.loaded()
+    if started:
+        _started(env).close()
     extension_setup(env)
     if not update:
         _filevault_line(env)                      # DMN-502
-    env.say("FERB's background service is running.")
+    env.say("FERB's background service is running." if started else
+            "FERB's background service is ready for FERB.app to turn on.")
     return 0
 
 
@@ -754,13 +757,19 @@ def add_hearing_check(add: Callable[[Check], None], hearing: dict[str, Any] | No
 
 def service_check(inst: Installer) -> Check:
     """The background service's LaunchAgent (DMN-513), exactly as setup writes it from this FERB.app or checkout, and
-    for FERB.app the build setup last installed."""
+    for FERB.app the build setup last installed; or FERB.app's own registration (DMN-589), which leaves no LaunchAgent."""
     fix = "open FERB.app: it sets its background service up again" if inst.bundle else "run `ferb setup --update`"
+    built = str(inst.bundle_info().get("CFBundleVersion", ""))
+    if inst.in_app:
+        if inst.labelled_plist():
+            return Check("service definition", "fail", f"an old {inst.plist_path} is still there", fix)
+        if inst.recorded().get("build") != built:
+            return Check("service definition", "warn", f"FERB.app build {built} isn't the one set up", fix)
+        return Check("service definition", "ok", "registered by FERB.app (System Settings → General → Login Items)")
     if not inst.plist_path.exists():
         return Check("LaunchAgent", "fail", f"{inst.plist_path} is missing", fix)
     if not inst.definition_current():
         return Check("LaunchAgent", "fail", f"{inst.plist_path} differs from what setup writes", fix)
-    built = str(inst.bundle_info().get("CFBundleVersion", ""))
     if inst.bundle and inst.recorded().get("build") != built:
         return Check("LaunchAgent", "warn", f"FERB.app build {built} isn't the one set up", fix)
     return Check("LaunchAgent", "ok", str(inst.plist_path))

@@ -340,7 +340,8 @@ paths = ["ferb/daemon/auth.py::APP_ONLY"]
 title = "The FERB.app-only check accepts only apps signed with FERB's release certificate"
 by = "owner"
 date = 2026-11-02
-status = "active"
+status = "superseded"
+superseded_by = "DMN-588"
 words = "your recommeded is fine with me"
 why = "Answer to T-8: in installed mode the check trusted whatever FERB.app sat in /Applications, so a look-alike could pass. Accepted recommendation: pin the release certificate, which every release keeps; ad-hoc builds stay unpinned."
 rule = "When the installed FERB.app is release-signed, the APP_ONLY check accepts only a peer signed with FERB's release certificate (its leaf in scripts/release-cert.sha1). Ad-hoc development builds stay unpinned."
@@ -887,3 +888,45 @@ why = "The choice is the moment the picture stands for. Before, a thread call to
 evidence = "210 captures in the owner's database: arrival to kept evidence median 0.58 s, p90 1.64 s, max 5.05 s; in the 12 where the owner switched apps meanwhile, the captured app was always the one in front at send. No late choice seen; the change removes the possibility."
 paths = ["ferb/sense/front_window.py::_topmost", "ferb/daemon/areas/desktop.py::FRONT_WINDOW_CHOOSER"]
 live = ["LIVE-934"]
+
+[DMN-587]
+title = "A Developer ID FERB.app registers its own background service; the LaunchAgent is the fallback"
+by = "owner"
+date = 2026-11-13
+status = "active"
+words = "Back inside the app (Recommended) / yeah, as long as it works"
+words_source = "The owner's answer to the coordinator's T-27 question, 2026-11-13: the option \"SMAppService as DMN-513 planned, today's LaunchAgent stays as an automatic fallback\", then the second phrase."
+rule = "Refines DMN-513 (\"SMAppService returns with the Developer ID\"). A FERB.app signed with the Developer ID registers the daemon's definition inside the app with SMAppService. Today's user LaunchAgent stays as an automatic fallback, so FERB keeps running when the registration doesn't work. A self-signed or ad-hoc FERB.app keeps the LaunchAgent (DMN-513)."
+why = "With a Team ID the registration's launch constraint names the team, not one build, so DMN-2's reasons hold again: the definition is inside the signed app, nothing can edit it (rule 6), deleting the app removes it."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::runService", "ferb/device/install.py::Installer._install_from_bundle"]
+live = ["LIVE-943", "LIVE-945"]
+
+[DMN-588]
+title = "The FERB.app-only check accepts the release leaf and the team during the switch, then the team"
+by = "owner"
+date = 2026-11-13
+status = "active"
+words = "yeah, as long as it works"
+words_source = "The owner, 2026-11-13, to the coordinator's proposal for T-9 under the Developer ID: accept both the release leaf and the team during the switch, then the team only."
+rule = "When the installed FERB.app is signed with a certificate, the APP_ONLY check accepts only a peer signed with FERB's release certificate (its leaf in scripts/release-cert.sha1) or FERB's Developer ID team (scripts/developer-team.txt) while the switch release ships, then only the team. Ad-hoc development builds stay unpinned."
+supersedes = ["DMN-34"]
+paths = ["ferb/daemon/app_peer.py::AppPeers"]
+untestable = "Not built yet: T-9 builds the pin as a set of accepted signers (plan developer-id.md §10.1); its tests come with it."
+
+[DMN-589]
+title = "Setup leaves the service to FERB.app's registration and records who signed the app"
+by = "agent"
+date = 2026-11-13
+status = "active"
+rule = "For DMN-587. service.json records `signer` (team:<ID>, leaf:<SHA-1> or adhoc, from codesign) and `service` (app or launch_agent; a LaunchAgent's sha256 only for launch_agent). `setup --service [--update] --app-service` installs as before, then boots out a running LaunchAgent, waits for its process, deletes the plist and loads nothing (a registration launchd already runs is kickstarted -k). With service = app the clean-up stops the daemon with launchctl kill SIGTERM and starts it with kickstart, never unregistering it; the daemon puts back no plist."
+why = "One label can't be loaded twice, and only FERB.app can call SMAppService; the app needs the old signer to tell the switch from an update."
+paths = ["ferb/device/install.py::Installer.write_record", "ferb/device/install.py::Installer.retire_launch_agent", "ferb/device/install.py::Installer.while_stopped", "ferb/cli/setup.py::service_setup"]
+
+[DMN-590]
+title = "The secret helper and its pin are written beside the ones in use, then swapped together"
+by = "agent"
+date = 2026-11-13
+status = "active"
+rule = "Setup writes the new ferb-secrets and its .requirement whole as staged files first; only then are both renamed into place, one right after the other. A failure while writing either (a full disk, a quit) leaves the helper in use with its own pin and removes the staged files."
+why = "Plan developer-id.md §5: the helper was swapped before its pin was written, so a failure in between left the new helper checked against the old pin, and every secret was refused until the next setup."
+paths = ["ferb/device/install.py::Installer._swap_helper"]

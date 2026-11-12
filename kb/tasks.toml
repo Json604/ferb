@@ -64,12 +64,12 @@ why = "Linking tests (batch L2): no test checks that the shell's egress proxy an
 decisions = ["HAND-228"]
 
 [T-9]
-title = "Pin FERB's release certificate in the FERB.app-only check (DMN-34)"
+title = "Pin FERB's signers in the FERB.app-only check: release leaf and team, then the team (DMN-588)"
 area = "daemon"
 kind = "build"
 status = "open"
-why = "app_peer.py AppPeers re-derives the requirement from whatever bundle sits at /Applications/FERB.app in installed mode; the owner chose the release-certificate pin on 2026-11-02."
-decisions = ["DMN-34"]
+why = "app_peer.py AppPeers re-derives the requirement from whatever bundle sits at /Applications/FERB.app in installed mode. Build it as a set of accepted signers (plan developer-id.md §10.1), so after the switch only the set changes."
+decisions = ["DMN-588"]
 
 [T-400]
 title = "Test the upgrade on a copy of a real older build's database and config (STORE-403)"
@@ -368,8 +368,8 @@ title = "Switch to the Apple Developer ID: notarized builds, team-based identity
 area = "release"
 kind = "build"
 status = "open"
-why = "Owner 2026-11-02: buy the Developer ID, adopt it once FERB is ready. Plan: kb/plans/developer-id.md. 2026-11-13: certificate and notary profile ready; §3-§4 built (REL-421, REL-422). Left: the first notarized build and LIVE-941/942, the migration (§5-§8), README release steps, retiring release mode."
-decisions = ["DMN-513", "REL-420", "REL-421", "REL-422"]
+why = "Owner 2026-11-02: buy the Developer ID, adopt it once FERB is ready. Plan: kb/plans/developer-id.md. 2026-11-13: certificate and notary profile ready; §3-§4 built (REL-421, REL-422); §5-§8 migration built (APP-904). Left: the first notarized build, LIVE-941..946, README steps, retiring release mode."
+decisions = ["DMN-513", "REL-420", "REL-421", "REL-422", "DMN-587", "APP-902", "APP-903", "DMN-588"]
 
 [T-1004]
 title = "Refine the remaining app experience from the whole-app playground review before the site"
@@ -669,3 +669,11 @@ kind = "build"
 status = "open"
 why = "ORCH-631: a plan wait step may name wait.for's conditions with its own limit. Open: a wait step has no worker, and a command or tab belongs to the step that started it. Shape (ORCH-330): wait_for, conditions with plain fields (\"\"/0 unused), and limit_minutes; the executor runs WaitFor's loop."
 decisions = ["ORCH-631", "ORCH-330"]
+
+[T-1096]
+title = "With FERB.app's own registration, FERB_APP_BUILD stays the registered build's across updates"
+area = "daemon"
+kind = "bug"
+status = "open"
+why = "DMN-589 kickstarts the registration launchd already runs on a Developer ID update; launchd keeps the definition it loaded, so FERB_APP_BUILD (salvage.this_build's once-per-build check) may stay the older build's (inferred). Read it from the bundle, or re-register."
+decisions = ["DMN-589", "STORE-4"]

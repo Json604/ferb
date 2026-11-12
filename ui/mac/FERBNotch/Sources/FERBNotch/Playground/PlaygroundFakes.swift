@@ -106,6 +106,8 @@ final class PlaygroundBackground: BackgroundServiceManaging {
     }
 
     var registration: ServiceStatus { .notRegistered }
+    var status: ServiceStatus { .notRegistered }
+    func register() throws {}                    // the playground's FERB is never a Developer ID build
     func unregister() async throws {}
     func switchedOff() async -> Bool { state.saved.loginItemsNeedOK && !state.saved.loginItemsAllowed }
     func openLoginItems() { opener.showLoginItems() }

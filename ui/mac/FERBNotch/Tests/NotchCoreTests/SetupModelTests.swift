@@ -33,7 +33,7 @@ final class SetupModelTests: XCTestCase {
     /// DMN-513 (live 2026-11-02: a 2026-11 build's SMAppService registration carried that build's launch constraint, so
     /// macOS killed every later build's daemon). Setup unregisters a registration macOS still lists, once, before
     /// `ferb setup --service` writes and loads the LaunchAgent; nothing is registered.
-    // decision: DMN-513, APP-602
+    // decision: DMN-513, APP-904
     func testARegistrationLeftByA2026_11BuildIsUnregisteredOnceBeforeSetup() async {
         for listed in [ServiceStatus.enabled, .requiresApproval] {
             let rig = SetupRig()
@@ -66,7 +66,7 @@ final class SetupModelTests: XCTestCase {
 
     /// FERB switched off under Login Items → Allow in the Background: the command says so (its exit status), and the
     /// tour shows where to switch it on, never a crash loop.
-    // decision: DMN-513, APP-602
+    // decision: DMN-513, APP-904
     func testAServiceSwitchedOffInLoginItemsSaysWhere() async {
         let rig = SetupRig()
         let background = FakeBackgroundService()

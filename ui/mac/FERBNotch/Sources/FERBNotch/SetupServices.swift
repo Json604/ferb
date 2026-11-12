@@ -1,7 +1,9 @@
 import AppKit
 import AVFoundation
+import CryptoKit
 import Foundation
 import NotchCore
+import Security
 import ServiceManagement
 @preconcurrency import Speech
 import UserNotifications
@@ -50,10 +52,18 @@ protocol DaemonServicing: AnyObject {
 /// loads, listed under Login Items → Allow in the Background, where the owner can switch it off; plus any SMAppService
 /// registration a 2026-11 build left, which FERB.app unregisters once before setup (macOS would keep starting that
 /// build's job, and without a Team ID its launch constraint kills every later build's daemon).
+/// A Developer ID FERB.app registers the service itself instead (SMAppService, DMN-587), with the LaunchAgent as its
+/// fallback.
 @MainActor
 protocol BackgroundServiceManaging: AnyObject {
-    /// A 2026-11 build's SMAppService registration of FERB's plist, as macOS lists it.
+    /// An SMAppService registration of FERB's plist, as macOS lists it, unless launchd runs FERB's LaunchAgent under
+    /// the label (APP-683): a 2026-11 build's, or a Developer ID build's own.
     var registration: ServiceStatus { get }
+    /// macOS's status for FERB.app's own registration, as reported (DMN-587).
+    var status: ServiceStatus { get }
+    /// FERB.app's bundled definition registered (already registered counts as done); the owner's Login Items switch
+    /// throws AppServicePlan.DeniedByUser, anything else its error.
+    func register() throws
     /// That registration removed, waited for; nothing when macOS lists none.
     func unregister() async throws
     /// The owner switched FERB's LaunchAgent off (launchd lists com.ferb.daemon as disabled).
@@ -61,25 +71,38 @@ protocol BackgroundServiceManaging: AnyObject {
     func openLoginItems()
 }
 
-/// SMAppService.agent for Contents/Library/LaunchAgents/com.ferb.daemon.plist (only to unregister it: SMAppService
-/// returns with the Developer ID, T-27) and launchd's list of switched-off services.
+/// SMAppService.agent for Contents/Library/LaunchAgents/com.ferb.daemon.plist (a Developer ID build registers it,
+/// DMN-587; any build unregisters a 2026-11 self-signed build's) and launchd's list of switched-off services.
 @MainActor
 final class LaunchAgentService: BackgroundServiceManaging {
     private let service = SMAppService.agent(plistName: ServicePlan.plistName)
     private let launchAgent = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/LaunchAgents/\(ServicePlan.plistName)").path
 
-    /// A 2026-11 build's registration only (APP-683): SMAppService also reports FERB's own LaunchAgent job as
-    /// enabled, and unregistering that boots the running daemon out.
-    var registration: ServiceStatus {
-        let reported: ServiceStatus
+    var status: ServiceStatus {
         switch service.status {
-        case .enabled: reported = .enabled
-        case .requiresApproval: reported = .requiresApproval
-        case .notFound: reported = .notFound
-        case .notRegistered: reported = .notRegistered
-        @unknown default: reported = .notRegistered
+        case .enabled: return .enabled
+        case .requiresApproval: return .requiresApproval
+        case .notFound: return .notFound
+        case .notRegistered: return .notRegistered
+        @unknown default: return .notRegistered
         }
+    }
+
+    func register() throws {
+        do {
+            try service.register()
+        } catch let error as NSError where error.code == kSMErrorAlreadyRegistered {
+            return
+        } catch let error as NSError where error.code == kSMErrorLaunchDeniedByUser {
+            throw AppServicePlan.DeniedByUser()
+        }
+    }
+
+    /// An SMAppService registration only (APP-683): SMAppService also reports FERB's own LaunchAgent job as enabled,
+    /// and unregistering that boots the running daemon out.
+    var registration: ServiceStatus {
+        let reported = status
         guard reported.listed else { return reported }
         let printed = Self.launchdJob()
         let agentNamesLabel = (try? Data(contentsOf: URL(fileURLWithPath: launchAgent))).flatMap {
@@ -142,6 +165,39 @@ extension BackgroundServiceManaging {
         return "macOS still lists FERB's background service as on, so nothing was uninstalled. Try again, or turn " +
             "FERB off in System Settings → General → Login Items first."
     }
+}
+
+/// Who signed this FERB.app (T-27), read from its own signature as Security reports it: the Developer ID team, else
+/// the SHA-1 of its signing certificate (FERB's self-made release certificate), else ad-hoc. The same words as the
+/// setup record's `signer` (ferb/device/install.py `Installer.signer`).
+enum OwnSignature {
+    static func signer(of bundle: URL = Bundle.main.bundleURL) -> String {
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(bundle as CFURL, [], &code) == errSecSuccess, let code else { return "adhoc" }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let facts = info as? [String: Any] else { return "adhoc" }
+        let team = facts[kSecCodeInfoTeamIdentifier as String] as? String
+        let leaf = (facts[kSecCodeInfoCertificates as String] as? [SecCertificate])?.first.map { certificate in
+            Insecure.SHA1.hash(data: SecCertificateCopyData(certificate) as Data)
+                .map { String(format: "%02x", $0) }.joined()
+        }
+        return Signer.words(team: team, leafSHA1: leaf)
+    }
+}
+
+/// `/usr/bin/tccutil` with these arguments, off the main thread: its exit status (-1 when it couldn't start).
+func runTCCUtil(_ arguments: [String]) async -> Int32 {
+    await Task.detached {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        process.arguments = arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return -1 }
+        process.waitUntilExit()
+        return process.terminationStatus
+    }.value
 }
 
 enum AppBundle {

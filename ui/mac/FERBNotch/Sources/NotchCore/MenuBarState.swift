@@ -97,7 +97,7 @@ public enum StatusMenu {
     /// state needs. `hasWindow`: Phase E's FERB window exists. `canSetUp`: the packaged FERB.app (Set Up FERB…,
     /// which replays the first-run intro: kb area app).
     public static func entries(state: MenuBarState, paused: Bool, stopped: Bool, appName: String, canSetUp: Bool,
-                               hasWindow: Bool, updateOffer: String? = nil) -> [MenuEntry] {
+                               hasWindow: Bool, updateOffer: String? = nil, updateAsks: Bool = false) -> [MenuEntry] {
         var entries: [MenuEntry] = [.status(state.statusLine), .separator, .item("Open FERB", .openFERB, key: "")]
         if hasWindow { entries.append(.item("Open FERB Window", .openWindow, key: "")) }
         if state == .notRunning {
@@ -107,7 +107,10 @@ public enum StatusMenu {
             entries.append(paused ? .item("Resume FERB", .resume, key: "") : .item("Pause FERB", .pause, key: ""))
         }
         entries.append(.item("Settings…", .settings, key: ","))
-        if let updateOffer {                  // automatic updates off: an update waits for the owner's click (L34 G)
+        if let updateOffer, updateAsks {      // the switch to the Developer ID asks first (APP-903)
+            entries.append(.item("Update to FERB \(updateOffer)… (you'll grant FERB's permissions once more)",
+                                 .installUpdate, key: ""))
+        } else if let updateOffer {           // automatic updates off: an update waits for the owner's click (L34 G)
             entries.append(.item("Update available (FERB \(updateOffer)) — Install", .installUpdate, key: ""))
         }
         if canSetUp { entries.append(.item("Set Up FERB…", .setUp, key: "")) }

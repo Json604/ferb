@@ -291,3 +291,12 @@ rule = "signing.sh picks the code it signs by file(1)'s Mach-O type, not by name
 why = "kb/plans/developer-id.md §4: notarization rejects a bundle holding one unsigned executable or library, and the old selection signed only *.so, *.dylib and files with the execute bit."
 evidence = "The arm64 build in build/app-arm64 (checked 2026-11-13) holds 53 Mach-O files, all named or executable today; the scan verified them all in about 7 s."
 paths = ["scripts/signing.sh"]
+
+[REL-423]
+title = "Every appcast from the first Developer ID build on names it as minimumAutoupdateVersion"
+by = "agent"
+date = 2026-11-13
+status = "active"
+rule = "For APP-903. release-appcast.sh reads the DMG app's TeamIdentifier; the first team-signed release writes its build (the earlier of the two architectures') to scripts/developer-id-first-build.txt, to be committed, and make_appcast.py puts it in every later item as sparkle:minimumAutoupdateVersion. A minimum above the build being published is refused."
+why = "Sparkle shows an item whose minimum is above the installed build as a major upgrade, never installed in the background, so self-signed builds ask and Developer ID builds update silently. The installed build can't be changed."
+paths = ["scripts/make_appcast.py::appcast", "scripts/release-appcast.sh"]

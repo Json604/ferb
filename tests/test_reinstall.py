@@ -313,7 +313,8 @@ def test_reinstall_over_an_older_builds_leftovers_rewrites_every_program_file(tm
     assert (home / "bin" / "ferb-secrets").read_bytes() == (app / "Contents/Helpers/ferb-secrets").read_bytes()
     assert (home / "bin" / "ferb-secrets.requirement").read_text().strip() == PINNED
     assert {k: v for k, v in inst.recorded().items() if k != "definition"} == {
-        "build": "202611010900", "app": str(app), "label": "com.ferb.test"}
+        "build": "202611010900", "app": str(app), "label": "com.ferb.test", "signer": "adhoc",
+        "service": "launch_agent"}
     assert (tmp_path / "bin" / "ferb").resolve() == (app / "Contents/Resources/bin/ferb").resolve()
     assert (home / "node").resolve() == (app / "Contents/Resources/node").resolve()
     assert inst.definition_current()                                             # this build's LaunchAgent

@@ -47,7 +47,7 @@ final class AppSetupTests: XCTestCase {
 
     /// A friend's Mac: the LaunchAgent an older FERB wrote (an older build's agent at another path, or ~/.ferb/venv's
     /// python without -P) is replaced by a quiet update, never by a question.
-    // decision: DMN-513, APP-602
+    // decision: DMN-513, APP-904
     func testAnOlderInstallsLaunchAgentIsReplacedByAQuietUpdate() {
         let olderApp = agent(["/Users/o/Downloads/FERB.app/Contents/Helpers/FERB.app/Contents/MacOS/FERB", "-m",
                               "ferb.daemon"])
@@ -59,7 +59,7 @@ final class AppSetupTests: XCTestCase {
     }
 
     /// The owner's Mac: a 2026-11 build left an SMAppService registration (and a record, but no LaunchAgent).
-    // decision: DMN-513, APP-602
+    // decision: DMN-513, APP-904
     func testA2026_11BuildsRegistrationIsMovedByAQuietUpdate() {
         XCTAssertEqual(decide(nil, .enabled, record: ["build": "202611020100", "app": app, "label": "com.ferb.daemon"]),
                        .update)
@@ -73,7 +73,7 @@ final class AppSetupTests: XCTestCase {
         XCTAssertEqual(decide(ours, digest: "tampered", record: record()), .update)
     }
 
-    // decision: APP-602
+    // decision: APP-904
     func testACheckoutsLaunchAgentIsReplacedOnlyAfterTheOwnerSaysSo() {
         let checkout = agent(["/Users/o/.ferb/venv/bin/python", "-P", "-m", "ferb.daemon"])
         let action = decide(checkout, record: record())

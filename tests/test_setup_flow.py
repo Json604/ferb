@@ -477,6 +477,24 @@ def test_the_apps_setup_command_waits_for_its_daemon_or_says_where_to_switch_it_
     assert SWITCHED_OFF_HOW in out.getvalue() and app_world["runner"].ran("launchctl", "bootstrap") == bootstraps
 
 
+# decision: DMN-589
+def test_with_the_apps_own_registration_the_command_loads_nothing_and_leaves_the_wait_to_the_app(
+        app_world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    """`setup --service --app-service` (a Developer ID FERB.app): the LaunchAgent goes, nothing is loaded and the
+    command doesn't wait, since FERB.app registers the service right after it and waits for the daemon itself."""
+    waited: list[bool] = []
+    monkeypatch.setattr(S, "wait_for_daemon", lambda env, timeout=30: waited.append(True))
+    app_world["inst"].install()                                  # T-29's LaunchAgent, running
+    app_world["inst"].app_service = True
+    bootstraps = app_world["runner"].ran("launchctl", "bootstrap")
+    env, out = make_env(app_world, [], daemon_up=False)
+    assert S.service_setup(env, update=True) == 0, out.getvalue()
+    assert not waited and not app_world["runner"].loaded and not app_world["inst"].plist_path.exists()
+    assert app_world["runner"].ran("launchctl", "bootstrap") == bootstraps
+    assert "ready for FERB.app to turn on" in out.getvalue()
+    assert S.service_check(app_world["inst"]).status == "ok"
+
+
 # decision: DMN-400
 def test_setup_from_the_app_refuses_an_app_signature_that_names_no_code(app_world: dict[str, Any]) -> None:
     runner = app_world["runner"]

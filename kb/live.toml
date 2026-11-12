@@ -4488,3 +4488,39 @@ request = "Install it and go through setup; run a task that reads another app's 
 pass = "The daemon starts and stays up; reading the window, the screenshot and the dictation work; no crash report names a code-signing kill or writable-executable memory. If one does (libffi closures under the hardened runtime, kb/plans/developer-id.md §4), the x86_64 python and daemon entitlements get com.apple.security.cs.allow-unsigned-executable-memory, only then and only for Intel."
 decisions = ["REL-421"]
 sitting = "first Developer ID release"
+
+[LIVE-943]
+title = "A self-signed FERB.app updated to the Developer ID moves its service, login item and permissions"
+area = "app"
+surface = "The owner's Mac with a self-signed release in /Applications (LaunchAgent running); the first Developer ID build through Sparkle; System Settings; `launchctl print gui/$UID/com.ferb.daemon`"
+request = "Install the update (after LIVE-944's ask), let FERB open, go through the permission beats, then run one task that uses the screen and one that types."
+pass = "No error. launchctl prints the job with its path inside FERB.app (or, if macOS refused it, the LaunchAgent with the service line saying why); ~/Library/LaunchAgents has no com.ferb.daemon.plist after a successful move. The beats read \"macOS asks for FERB's permissions once more.\"; Privacy & Security shows no inert old FERB rows; every grant works after one re-grant. Nothing of another app changed."
+decisions = ["DMN-587", "APP-902", "APP-904"]
+sitting = "the first Developer ID release"
+
+[LIVE-944]
+title = "The update that switches to the Developer ID asks first; the next one installs by itself"
+area = "app"
+surface = "A Mac with a FERB.app carrying APP-906 (self-signed), Install updates automatically on; the Developer ID release's appcast with minimumAutoupdateVersion"
+request = "Leave FERB running until it checks for updates (or press Check for Updates…), away from the Mac for a while; then answer the ask. Later publish a second Developer ID release."
+pass = "Nothing installs while away. The chat says \"FERB <v> is ready. Update now? You'll grant FERB's permissions once more. Install it from FERB's menu or Settings → General → Updates.\"; the menu shows \"Update to FERB <v>… (you'll grant FERB's permissions once more)\"; Update Now opens Sparkle's window and Install installs once FERB is idle. The second Developer ID release installs silently."
+decisions = ["APP-903", "APP-906", "REL-423"]
+sitting = "the first Developer ID release"
+
+[LIVE-945]
+title = "Two Developer ID builds in a row: the daemon keeps running and permissions stay"
+area = "daemon"
+surface = "The owner's Mac on a Developer ID build; a second Developer ID build installed over it; `launchctl print gui/$UID/com.ferb.daemon`; `ferb doctor`"
+request = "Install the second Developer ID build over the first and use FERB for a screen task and a typed task."
+pass = "The daemon runs on the new build with no launch-constraint kill (no SIGKILL in `log show --predicate 'process == \"launchd\"'`), no permission asked again, doctor's service definition reads registered by FERB.app."
+decisions = ["DMN-587", "DMN-589"]
+sitting = "the second Developer ID release"
+
+[LIVE-946]
+title = "Login Items lists one FERB with its service under it, and no com.ferb.FERB.login"
+area = "app"
+surface = "The owner's Mac after LIVE-943; System Settings → General → Login Items; ~/Library/LaunchAgents"
+request = "Open Login Items after the move (with Open FERB at login on), then log out and in."
+pass = "Open at Login lists FERB once; Allow in the Background lists FERB with its background service grouped under it; ~/Library/LaunchAgents holds neither com.ferb.FERB.login.plist nor com.ferb.daemon.plist; FERB opens after the login."
+decisions = ["APP-904"]
+sitting = "the first Developer ID release"

@@ -41,9 +41,12 @@ final class SparkleUpdater: NSObject, UpdaterDriving, SPUUpdaterDelegate, SPUSta
     /// FERB's own feed only: Sparkle would read a `SUFeedURL` preference before Info.plist; this answer comes first.
     nonisolated func feedURLString(for updater: SPUUpdater) -> String? { feed }
 
+    /// A major upgrade (the appcast's minimumAutoupdateVersion is newer than this build: the switch to the Developer
+    /// ID, REL-423) is one Sparkle never installs in the background; FERB asks the owner first (APP-903).
     nonisolated func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
         let version = item.displayVersionString
-        MainActor.assumeIsolated { coordinator?.found(version: version) }
+        let major = item.isMajorUpgrade
+        MainActor.assumeIsolated { coordinator?.found(version: version, asksFirst: major) }
     }
 
     nonisolated func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
@@ -88,6 +91,7 @@ final class SparkleUpdater: NSObject, UpdaterDriving, SPUUpdaterDelegate, SPUSta
                                                                state: SPUUserUpdateState) {
         guard !handleShowingUpdate else { return }
         let version = update.displayVersionString
-        MainActor.assumeIsolated { coordinator?.found(version: version) }
+        let major = update.isMajorUpgrade
+        MainActor.assumeIsolated { coordinator?.found(version: version, asksFirst: major) }
     }
 }

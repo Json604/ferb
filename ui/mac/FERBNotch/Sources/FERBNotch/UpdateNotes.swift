@@ -26,6 +26,16 @@ extension NotchModel {
             onBackgroundChange?(true)
         }
     }
+
+    /// The switch to the Developer ID waits for the owner (APP-903): FERB asks once per version in the chat; the
+    /// menu's entry and Settings → General → Updates install it.
+    func noteUpdateAsk(version: String) {
+        if conversation.addNotice(id: "update-ask-" + version, text: UpdatePlan.askLine(version: version) +
+                                  " Install it from FERB's menu or Settings → General → Updates.", tag: "FERB") {
+            saveConversation()
+            onBackgroundChange?(true)
+        }
+    }
 }
 
 /// Settings → General → Updates.
@@ -39,8 +49,8 @@ struct UpdatesSection: View {
             Text("Last update check, \(last.at.formatted(date: .abbreviated, time: .shortened)): \(last.text)")
                 .font(.caption).foregroundStyle(last.failed ? .red : .secondary).textSelection(.enabled)
         }
-        if case .available = updates.status {
-            Button("Install") { updates.checkNow() }
+        if let offer = updates.offer {
+            Button(offer.asks ? "Update Now" : "Install") { updates.checkNow() }
         } else {
             Button("Check for Updates…") { updates.checkNow() }
         }

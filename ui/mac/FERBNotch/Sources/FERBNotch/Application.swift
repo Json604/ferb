@@ -91,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 loginItems.removeForUninstall()
                 return await appSetup.unregisterService()  // macOS stops listing FERB's background service
             }
+            appSetup.onSignerMove = { [loginItems] in loginItems.moveAfterSignerChange() }   // APP-904
             appSetup.onSettled = { [loginItems, weak coordinator] in
                 loginItems.applyDefaultAfterSetup()
                 coordinator?.model.noteUpdate()               // "Updated to <version>", once per new build
@@ -105,8 +106,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             self.updates = updates
             coordinator.onInstallUpdate = { [updates] in updates.checkNow() }
             updateOffer = updates.$status.sink { [weak coordinator] status in
-                if case .available(let version) = status { coordinator?.updateOffer = version }
-                else { coordinator?.updateOffer = nil }
+                guard let coordinator else { return }
+                switch status {
+                case .available(let version): (coordinator.updateOffer, coordinator.updateAsks) = (version, false)
+                case .asking(let version):                     // the Developer ID switch asks first (APP-903)
+                    (coordinator.updateOffer, coordinator.updateAsks) = (version, true)
+                    coordinator.model.noteUpdateAsk(version: version)
+                default: (coordinator.updateOffer, coordinator.updateAsks) = (nil, false)
+                }
             }
             if appSetup.isPackaged {
                 let setup = appSetup.model

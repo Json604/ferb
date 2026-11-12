@@ -2,10 +2,11 @@ import CryptoKit
 import Foundation
 
 /// What the packaged FERB.app does at launch or from its menu (L27, L34 C). FERB's background service is a user
-/// LaunchAgent (~/Library/LaunchAgents/com.ferb.daemon.plist, DMN-513) that `ferb setup --service` writes and loads;
+/// LaunchAgent (~/Library/LaunchAgents/com.ferb.daemon.plist, DMN-513) that `ferb setup --service` writes and loads, or,
+/// for a Developer ID build, FERB.app's own SMAppService registration (DMN-587) with that LaunchAgent as its fallback;
 /// the command also enforces where FERB may be installed from. This only reads facts: that LaunchAgent (this app's, an
-/// older install's or a checkout's) and its digest, any SMAppService registration a 2026-11 build left, what setup last
-/// recorded (~/.ferb/service.json) and whether launchd has FERB running.
+/// older install's or a checkout's) and its digest, any SMAppService registration, what setup last recorded
+/// (~/.ferb/service.json) and whether launchd has FERB running.
 public enum AppSetupAction: Equatable {
     case none                               // this app's own build is set up, unchanged and running
     case install                            // nothing set up yet: `ferb setup --service`
@@ -21,8 +22,8 @@ public enum SetupLaunch: Equatable {
     // There is no setup window (APP-685): setup and its errors live in the notch tour only.
 }
 
-/// An SMAppService registration's status as macOS reports it (SMAppService.Status): only a 2026-11 build's, which
-/// FERB.app unregisters (DMN-513; SMAppService returns with the Developer ID, T-27).
+/// An SMAppService registration's status as macOS reports it (SMAppService.Status): a 2026-11 self-signed build's,
+/// which FERB.app unregisters (DMN-513), or a Developer ID build's own (DMN-587).
 public enum ServiceStatus: Equatable {
     case notRegistered, enabled, requiresApproval, notFound
 
@@ -60,15 +61,25 @@ public enum AppSetupPlan {
     /// its SHA-256; `registration`: a 2026-11 build's SMAppService registration; `record`: what `ferb setup --service`
     /// last recorded ("build", "app", "definition": the SHA-256 of the LaunchAgent it wrote). Only a checkout's
     /// LaunchAgent asks first; any other (an older build's agent, ~/.ferb/venv's python, a definition someone changed)
-    /// and a listed registration are updated quietly (DMN-513, DMN-514).
+    /// and a listed registration are updated quietly (DMN-513, DMN-514). `appService`: this Developer ID build registers
+    /// the service itself (DMN-587); once the record says it did ("service": "app"), it is set up while this build's
+    /// registration is listed, no LaunchAgent is left and FERB runs. A record from the LaunchAgent (an older build, or
+    /// the fallback) is judged as before until the next build tries the registration again. `signerMoving`: the switch
+    /// to the Developer ID (APP-904) always sets up.
     public static func decide(launchAgent: [String: Any]?, launchAgentDigest: String?, registration: ServiceStatus,
                               record: [String: Any]?, agentExecutable: String, appPath: String, build: String,
-                              daemonRunning: Bool = true) -> AppSetupAction {
+                              daemonRunning: Bool = true, appService: Bool = false,
+                              signerMoving: Bool = false) -> AppSetupAction {
         if let arguments = launchAgent?["ProgramArguments"] as? [String], let program = arguments.first,
            program != agentExecutable, isCheckout(arguments) {
             return .confirmReplace(current: program)
         }
         guard let record else { return launchAgent != nil || registration.listed ? .update : .install }
+        if signerMoving { return .update }
+        if appService && record["service"] as? String == "app" {
+            let ours = record["build"] as? String == build && record["app"] as? String == appPath
+            return ours && launchAgent == nil && registration.listed && daemonRunning ? .none : .update
+        }
         let ours = record["build"] as? String == build && record["app"] as? String == appPath
             && launchAgentDigest != nil && record["definition"] as? String == launchAgentDigest
         return ours && !registration.listed && daemonRunning ? .none : .update
@@ -87,12 +98,14 @@ public enum AppSetupPlan {
     }
 
     /// The bundled command that installs or updates the background service with no questions; nil when this app's own
-    /// build already runs it.
-    public static func serviceArguments(for action: AppSetupAction) -> [String]? {
+    /// build already runs it. `appService`: FERB.app registers the service itself afterwards (DMN-587), so the command
+    /// leaves no LaunchAgent and loads nothing.
+    public static func serviceArguments(for action: AppSetupAction, appService: Bool = false) -> [String]? {
+        let own = appService ? ["--app-service"] : []
         switch action {
         case .none: return nil
-        case .install, .confirmReplace: return ["setup", "--service"]
-        case .update: return ["setup", "--service", "--update"]
+        case .install, .confirmReplace: return ["setup", "--service"] + own
+        case .update: return ["setup", "--service", "--update"] + own
         }
     }
 

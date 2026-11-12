@@ -125,6 +125,16 @@ final class LoginItemController: ObservableObject {
         setEnabled(true)
     }
 
+    /// The switch to the Developer ID (APP-904, plan §8): a login item set up under the old signer moves to macOS's own
+    /// one. A login item macOS kept for the old signer is registered again (it carries that signer's launch
+    /// constraint, inferred); the fallback LaunchAgent gives way once macOS accepts it (`turnOn`), and stays when macOS
+    /// still refuses. An owner who turned it off keeps it off.
+    func moveAfterSignerChange() {
+        guard available, appService.enabled || appService.needsApproval || launchAgent.enabled else { return }
+        if appService.enabled || appService.needsApproval { try? appService.disable() }
+        setEnabled(true)
+    }
+
     /// Settings → Advanced → Uninstall: the login item goes with the background service.
     func removeForUninstall() {
         turnOff()

@@ -84,11 +84,47 @@ final class AppSetupController: NSObject {
             && FileManager.default.isExecutableFile(atPath: agentExecutable.path)
     }
 
+    /// Who signed this app (T-27): read once from its own signature.
+    lazy var ownSigner: String = OwnSignature.signer(of: bundle)
+    /// The login item's move at the switch to the Developer ID (AppDelegate: LoginItemController's).
+    var onSignerMove: (() -> Void)?
+    /// `tccutil` (tests fake it): its exit status.
+    var tccutil: @MainActor ([String]) async -> Int32 = { await runTCCUtil($0) }
+
     func startAtLaunch() {
         guard isPackaged else { return }
-        let action = currentAction()
-        watchServiceSetup(pending: action != .none)
-        Task { @MainActor in await self.decideAtLaunch(action) }
+        Task { @MainActor in
+            await self.signerAtLaunch(record: self.readRecord())
+            let action = self.currentAction()
+            self.watchServiceSetup(pending: action != .none)
+            await self.decideAtLaunch(action)
+        }
+    }
+
+    /// This build's signer against the one setup last ran under (APP-904). A Developer ID build registers its own
+    /// service (DMN-587). The first launch of one over a self-signed install (or a move a quit cut short) clears macOS's
+    /// permission entries for FERB's own two app IDs, once (APP-902: so macOS asks cleanly instead of keeping inert
+    /// switches for the old signer), moves the login item, and marks the move so the service moves too and the
+    /// permission beats say why macOS asks again. Nothing happens on a self-signed or ad-hoc build, or a new install.
+    func signerAtLaunch(record: [String: Any]?) async {
+        let own = ownSigner
+        model.appService = Signer.isTeam(own)
+        if SignerMove.starts(record: record, own: own) { defaults.set(own, forKey: SignerMove.pendingKey) }
+        guard Signer.isTeam(own), defaults.string(forKey: SignerMove.pendingKey) == own else { return }
+        model.signerChanged = true
+        if defaults.string(forKey: SignerMove.permissionsResetKey) != own {
+            for arguments in SignerMove.permissionResets() {
+                let status = await tccutil(arguments)
+                if status != 0 { NSLog("FERB: tccutil %@ exited %d", arguments.joined(separator: " "), status) }
+            }
+            defaults.set(own, forKey: SignerMove.permissionsResetKey)
+        }
+        onSignerMove?()
+    }
+
+    /// The service runs under the new signer: the move is done (its copy stays for this launch's beats).
+    private func finishSignerMove() {
+        if model.signerChanged { defaults.removeObject(forKey: SignerMove.pendingKey) }
     }
 
     private var serviceSetupWatch: AnyCancellable?
@@ -149,7 +185,10 @@ final class AppSetupController: NSObject {
             self.intro = nil
             self.orb = nil
             self.sound = nil
-            if repaired { Task { @MainActor in await self.afterQuietUpdate(update: update) } }
+            if repaired {
+                self.finishSignerMove()
+                Task { @MainActor in await self.afterQuietUpdate(update: update) }
+            }
         }
         self.orb = orb
         self.sound = sound
@@ -266,14 +305,17 @@ final class AppSetupController: NSObject {
         let agent = data.flatMap {
             try? PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any]
         }.flatMap { $0["Label"] as? String == LaunchctlPlan.label ? $0 : nil }
-        let record = (try? Data(contentsOf: serviceRecord)).flatMap {
-            try? JSONSerialization.jsonObject(with: $0) as? [String: Any]
-        }
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
         return AppSetupPlan.decide(launchAgent: agent, launchAgentDigest: agent == nil ? nil : data.map(AppSetupPlan.digest),
-                                   registration: background.registration, record: record,
+                                   registration: background.registration, record: readRecord(),
                                    agentExecutable: agentExecutable.path, appPath: bundle.path, build: build,
-                                   daemonRunning: daemonRunning())
+                                   daemonRunning: daemonRunning(), appService: model.appService,
+                                   signerMoving: defaults.string(forKey: SignerMove.pendingKey) == ownSigner)
+    }
+
+    /// What `ferb setup --service` last recorded (~/.ferb/service.json), nil when there is none.
+    private func readRecord() -> [String: Any]? {
+        (try? Data(contentsOf: serviceRecord)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
     }
 
     /// Uninstall: a 2026-11 build's SMAppService registration unregistered from macOS, before `ferb uninstall` boots
@@ -291,6 +333,7 @@ final class AppSetupController: NSObject {
         model.runService { [weak self] ok in
             guard let self else { return }
             guard ok else { self.startRepair(update: true); return }
+            self.finishSignerMove()
             Task { @MainActor in await self.afterQuietUpdate(update: true) }
         }
     }

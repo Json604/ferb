@@ -21,10 +21,19 @@ CHECKS = (("version", re.compile(r"\d+\.\d+\.\d+")), ("build", re.compile(r"\d{1
           ("minimum macOS", re.compile(r"\d+(\.\d+){0,2}")))
 
 
-def appcast(version: str, build: str, tag: str, dmg: str, signature: str, min_macos: str, now: datetime) -> str:
+def appcast(version: str, build: str, tag: str, dmg: str, signature: str, min_macos: str, now: datetime,
+            minimum_autoupdate: str = "") -> str:
+    """`minimum_autoupdate`: the first build signed with FERB's Developer ID (scripts/developer-id-first-build.txt).
+    An installed FERB older than it gets this release as Sparkle's major upgrade: never installed in the background,
+    the owner is asked first (FERB.app's UpdateCoordinator), since macOS asks for every permission once more after the
+    signer changes (APP-903). Builds from it on update silently as before."""
     for (what, pattern), value in zip(CHECKS, (version, build, tag, dmg, min_macos)):
         if not pattern.fullmatch(value):
             raise ValueError(f"{what} {value!r} isn't valid")
+    if minimum_autoupdate and not (re.fullmatch(r"\d{12}", minimum_autoupdate) and minimum_autoupdate <= build):
+        raise ValueError(f"the first Developer ID build {minimum_autoupdate!r} isn't a build at or before {build}")
+    major = (f'      <sparkle:minimumAutoupdateVersion>{minimum_autoupdate}</sparkle:minimumAutoupdateVersion>\n'
+             if minimum_autoupdate else '')
     signed = SIGNED.search(signature)
     if signed is None:
         raise ValueError('the signature must be sign_update\'s output: sparkle:edSignature="…" length="…"')
@@ -40,6 +49,7 @@ def appcast(version: str, build: str, tag: str, dmg: str, signature: str, min_ma
             f'      <sparkle:version>{build}</sparkle:version>\n'
             f'      <sparkle:shortVersionString>{version}</sparkle:shortVersionString>\n'
             f'      <sparkle:minimumSystemVersion>{min_macos}</sparkle:minimumSystemVersion>\n'
+            f'{major}'
             f'      <link>{REPO}/releases/tag/{tag}</link>\n'
             f'      <enclosure url={quoteattr(url)} length="{length}" type="application/octet-stream" '
             f'sparkle:edSignature="{ed}"/>\n'
@@ -52,10 +62,11 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="FERB's Sparkle appcast for one architecture")
     for name in ("version", "build", "tag", "dmg", "signature", "min-macos", "out"):
         parser.add_argument("--" + name, required=True)
+    parser.add_argument("--minimum-autoupdate", default="", help="the first Developer ID build (empty: none yet)")
     args = parser.parse_args(argv)
     try:
         text = appcast(args.version, args.build, args.tag, args.dmg, args.signature, args.min_macos,
-                       datetime.now(timezone.utc))
+                       datetime.now(timezone.utc), args.minimum_autoupdate)
     except ValueError as e:
         print(f"make_appcast.py: {e}", file=sys.stderr)
         return 1

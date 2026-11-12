@@ -200,6 +200,27 @@ def test_cli_reports_its_version() -> None:
     assert out.returncode == 0 and out.stdout.strip() == f"ferb {ferb.__version__}"
 
 
+# decision: APP-903, REL-423
+def test_the_appcast_marks_the_signer_switch_as_an_update_the_owner_is_asked_about() -> None:
+    """Every appcast from the first Developer ID build on names that build as Sparkle's minimumAutoupdateVersion: an
+    installed FERB from before it (self-signed) never installs it in the background but asks first, while Developer ID
+    builds keep updating silently. A minimum after the build being published is refused (it would ask every time)."""
+    import importlib.util
+    from datetime import datetime, timezone
+    spec = importlib.util.spec_from_file_location("make_appcast", ROOT / "scripts" / "make_appcast.py")
+    assert spec is not None and spec.loader is not None
+    make = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(make)
+    now = datetime(2026, 11, 13, tzinfo=timezone.utc)
+    signed = 'sparkle:edSignature="QUJD" length="42"'
+    args = ("0.28.0", "202611200900", "v0.28.0", "FERB-AppleSilicon.dmg", signed, "14.2", now)
+    assert "minimumAutoupdateVersion" not in make.appcast(*args)                     # before the Developer ID
+    assert ("<sparkle:minimumAutoupdateVersion>202611200900</sparkle:minimumAutoupdateVersion>"
+            in make.appcast(*args, "202611200900"))
+    with pytest.raises(ValueError, match="first Developer ID build"):
+        make.appcast(*args, "202612010900")
+
+
 # ---------- the signing step, against stub tools ----------
 
 STUB_CODESIGN = r"""#!/bin/zsh

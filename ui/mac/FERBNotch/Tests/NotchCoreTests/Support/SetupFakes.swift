@@ -108,13 +108,30 @@ final class FakeBackgroundService: BackgroundServiceManaging {
     var afterUnregister: ServiceStatus = .notRegistered
     var unregisterError: Error?
     var off = false
+    /// FERB.app's own registration (DMN-587): what macOS reports, what a register() turns it into, or its error.
+    var status: ServiceStatus = .notRegistered
+    var afterRegister: ServiceStatus = .enabled
+    var registerError: Error?
     private(set) var unregistrations = 0
+    private(set) var registrations = 0
     private(set) var openedSettings = 0
+    /// Everything done to macOS's side, in order ("unregister", "register").
+    private(set) var steps: [String] = []
+
+    func register() throws {
+        registrations += 1
+        steps.append("register")
+        if let registerError { throw registerError }
+        status = afterRegister
+        registration = afterRegister
+    }
 
     func unregister() async throws {
         unregistrations += 1
+        steps.append("unregister")
         if let unregisterError { throw unregisterError }
         registration = afterUnregister
+        status = afterUnregister
     }
     func switchedOff() async -> Bool { off }
     func openLoginItems() { openedSettings += 1 }

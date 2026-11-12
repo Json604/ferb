@@ -40,7 +40,20 @@ BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$INFO")
 MINOS=$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$INFO")
 FEED=$(/usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$INFO" 2>/dev/null || true)
 FULL_VERSION=$(/usr/libexec/PlistBuddy -c "Print :FERBVersion" "$INFO")
+TEAM=$(codesign -dv "$MNT/FERB.app" 2>&1 | sed -n 's/^TeamIdentifier=//p')
 hdiutil detach -quiet "$MNT"
+# The first build signed with the Developer ID: every appcast from then on names it as Sparkle's
+# minimumAutoupdateVersion, so an installed self-signed FERB asks the owner before that update (macOS asks for every
+# permission once more after the signer changes, APP-903) and Developer ID builds update silently among themselves.
+FIRST_DEVID="$ROOT/scripts/developer-id-first-build.txt"
+MIN_AUTO=""
+if [[ -s "$FIRST_DEVID" ]]; then MIN_AUTO=$(<"$FIRST_DEVID"); fi
+if [[ -n "$TEAM" && "$TEAM" != "not set" ]] && [[ -z "$MIN_AUTO" || "$BUILD" < "$MIN_AUTO" ]]; then
+  # the earliest Developer ID build of either architecture (each DMG's app has its own build number)
+  print "$BUILD" > "$FIRST_DEVID"
+  MIN_AUTO=$BUILD
+  print "Recorded $BUILD as FERB's first Developer ID build in scripts/developer-id-first-build.txt: commit it."
+fi
 [[ "$FEED" == *"/appcast-$ARCH.xml" ]] || die "the app in ${DMG:t} checks '${FEED:-no feed}', not appcast-$ARCH.xml"
 "$ROOT/tools/kb/run" gate release || die "the repo gate refused the release (above)"   # kb/setup.toml release_gate
 SIGN=$(find "$NOTCH/.build/artifacts" -path '*/Sparkle/bin/sign_update' -type f 2>/dev/null | head -1)
@@ -59,5 +72,6 @@ STORE_EXT=$(curl -fsS --max-time 20 "https://clients2.google.com/service/update2
 SIGNATURE=$("$SIGN" "$DMG")
 mkdir -p "$ROOT/build"
 /usr/bin/python3 -I "$ROOT/scripts/make_appcast.py" --version "$VERSION" --build "$BUILD" --tag "$TAG" \
-  --dmg "${DMG:t}" --signature "$SIGNATURE" --min-macos "$MINOS" --out "$ROOT/build/appcast-$ARCH.xml"
+  --dmg "${DMG:t}" --signature "$SIGNATURE" --min-macos "$MINOS" --minimum-autoupdate "$MIN_AUTO" \
+  --out "$ROOT/build/appcast-$ARCH.xml"
 print "Wrote build/appcast-$ARCH.xml for FERB $VERSION ($BUILD, $ARCH)."

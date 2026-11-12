@@ -1,9 +1,17 @@
 import Foundation
 
 /// FERB's automatic updates (L34 Phase G): what the app reads from its own Info.plist and the daemon. Sparkle checks
-/// the public feed and verifies FERB's EdDSA key and certificate; the daemon says whether a restart would cut work.
+/// the public feed and accepts an update whose EdDSA signature matches FERB's key (Sparkle 2 accepts either the same
+/// EdDSA key or the same code-signing identity, so the Developer ID switch passes on the key alone; plan §1); the
+/// daemon says whether a restart would cut work.
 public enum UpdatePlan {
     public static let feedPrefix = "https://github.com/Json604/ferb/releases/latest/download/appcast-"
+
+    /// An update Sparkle marks as a major upgrade (the appcast's minimumAutoupdateVersion is newer than this build:
+    /// the switch to the Developer ID, REL-423) never installs in the background: FERB asks first (APP-903).
+    public static func askLine(version: String) -> String {
+        "FERB \(version) is ready. Update now? You'll grant FERB's permissions once more."
+    }
 
     /// The feed a release build checks: FERB's own, with FERB's public key beside it; nil for any other build.
     public static func feedURL(_ info: [String: Any]) -> String? {

@@ -211,29 +211,91 @@ final class SetupModel: ObservableObject {
             && allRows.contains { $0.id == "full_disk_access" && $0.status != .granted }
     }
 
+    /// This Developer ID build registers its background service itself (DMN-587); otherwise the LaunchAgent (DMN-513).
+    var appService = false
+    /// This launch is the switch to the Developer ID (APP-904): a registration macOS lists then was left by a
+    /// self-signed build, so it is unregistered before this build registers (APP-599's rule, now for this one move),
+    /// and the permission beats say why macOS asks again.
+    @Published var signerChanged = false
+    /// How long FERB.app waits for the daemon after macOS turned its registration on, before the fallback.
+    var serviceStartWait: Duration = .seconds(30)
+    /// Why this run's registration fell back to the LaunchAgent (nil: it didn't).
+    @Published private(set) var serviceFallback: String?
+
     /// `ferb setup --service [--update]`: the background service's LaunchAgent from this app, loaded and answering, no
     /// questions (DMN-513). A registration a 2026-11 build left is unregistered first, once (it would keep starting
-    /// that build's constrained job under the same label). Switched off in Login Items, the command says so and the
-    /// tour guides that one visit (`serviceNeedsApproval`); any other failure leaves its last lines (the reason and
-    /// its fix) in `serviceError`, which the tour's service line shows with Try again (APP-685).
+    /// that build's constrained job under the same label). A Developer ID build (`appService`, DMN-587) runs the
+    /// command with `--app-service` (any LaunchAgent retired, nothing loaded), then registers its own service and
+    /// waits for FERB; a refusal or no answer falls back to the LaunchAgent, saying why. Switched off in Login Items,
+    /// the command (or macOS) says so and the tour guides that one visit (`serviceNeedsApproval`); any other failure
+    /// leaves its last lines (the reason and its fix) in `serviceError`, which the tour's service line shows with Try
+    /// again (APP-685).
     func runService(completion: @escaping (Bool) -> Void) {
-        guard let arguments = AppSetupPlan.serviceArguments(for: serviceAction) else { completion(true); return }
+        let inApp = appService && background != nil
+        guard let arguments = AppSetupPlan.serviceArguments(for: serviceAction, appService: inApp) else {
+            completion(true)
+            return
+        }
         serviceError = nil
         serviceNeedsApproval = false
+        serviceFallback = nil
         serviceLine = "Starting…"
         serviceRunning = true
-        guard let background, background.registration.listed else {
-            startServiceCommand(arguments, completion: completion)
+        guard let background, background.registration.listed, !inApp || signerChanged else {
+            startServiceCommand(arguments, inApp: inApp, completion: completion)
             return
         }
         Task { @MainActor in
             self.serviceLine = "Turning off the background service an earlier FERB registered…"
             try? await background.unregister()          // `ferb setup` boots out whatever still runs under the label
-            self.startServiceCommand(arguments, completion: completion)
+            self.startServiceCommand(arguments, inApp: inApp, completion: completion)
         }
     }
 
-    private func startServiceCommand(_ arguments: [String], completion: @escaping (Bool) -> Void) {
+    /// FERB.app's own registration turned on (DMN-587), then a wait until FERB answers: the owner's Login Items switch
+    /// is guided; a refusal, a status that stays off or no answer within `serviceStartWait` falls back.
+    private func turnOnAppService(completion: @escaping (Bool) -> Void) async {
+        guard let background else { return completion(true) }
+        serviceRunning = true
+        serviceLine = "Turning on FERB's background service…"
+        var failure: String?
+        var denied = false
+        do { try background.register() } catch is AppServicePlan.DeniedByUser { denied = true } catch {
+            failure = error.localizedDescription
+        }
+        switch AppServicePlan.afterRegister(error: failure, deniedByUser: denied, status: background.status) {
+        case .approval:
+            serviceRunning = false
+            serviceNeedsApproval = true
+            serviceError = ServicePlan.approval
+            completion(false)
+        case .waitForFERB:
+            let end = ContinuousClock.now + serviceStartWait
+            while ContinuousClock.now < end {
+                if await serviceAnswers() {
+                    serviceRunning = false
+                    serviceAction = .none
+                    return completion(true)
+                }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            await fallBack(AppServicePlan.notStarted, completion: completion)
+        case .fallback(let why):
+            await fallBack(why, completion: completion)
+        }
+    }
+
+    /// The LaunchAgent instead (T-29's path, DMN-513): whatever macOS registered goes first, since one label can't
+    /// run twice; the record then says launch_agent, and the next build tries the registration again.
+    private func fallBack(_ why: String, completion: @escaping (Bool) -> Void) async {
+        try? await background?.unregister()
+        serviceFallback = why
+        serviceLine = AppServicePlan.fallbackLine(why)
+        NSLog("FERB service: %@", serviceLine)
+        startServiceCommand(["setup", "--service", "--update"], inApp: false, completion: completion)
+    }
+
+    private func startServiceCommand(_ arguments: [String], inApp: Bool, completion: @escaping (Bool) -> Void) {
         var tail: [String] = []
         let started = runner.run(arguments, line: { [weak self] text in
             self?.serviceLine = text
@@ -242,6 +304,8 @@ final class SetupModel: ObservableObject {
             guard let self else { return }
             self.serviceRunning = false
             switch status {
+            case 0 where inApp:
+                Task { @MainActor in await self.turnOnAppService(completion: completion) }
             case 0:
                 self.serviceAction = .none
                 completion(true)

@@ -18,6 +18,8 @@ final class UpdateCoordinator: ObservableObject {
         case quiet
         case upToDate
         case available(String)
+        /// The switch to the Developer ID (APP-903): never installed in the background, whatever the switch says.
+        case asking(String)
         case waiting(version: String, work: [String])
         case installing(String)
         case failed(String)
@@ -27,6 +29,7 @@ final class UpdateCoordinator: ObservableObject {
             case .quiet: return nil
             case .upToDate: return "FERB is up to date."
             case .available(let version): return "Update available: FERB \(version)"
+            case .asking(let version): return UpdatePlan.askLine(version: version)
             case .waiting(let version, let work): return UpdatePlan.waitingLine(version: version, work: work)
             case .installing(let version): return "Installing FERB \(version)…"
             case .failed(let message): return "The update didn't install: \(message)"
@@ -84,10 +87,22 @@ final class UpdateCoordinator: ObservableObject {
     /// Sparkle downloaded an update and will install it when FERB.app quits.
     var installArmed: Bool { pendingInstall != nil }
 
-    func found(version: String) {
+    /// `asksFirst`: Sparkle's major upgrade (the appcast's minimumAutoupdateVersion, REL-423): the switch to the
+    /// Developer ID, after which macOS asks for every permission again, so FERB asks before it even with automatic
+    /// updates on (APP-903); Sparkle never installs a major upgrade in the background either.
+    func found(version: String, asksFirst: Bool = false) {
         record("Found FERB \(version).", failed: false)
         guard pendingInstall == nil, !prepared else { return }
-        status = automatic ? .quiet : .available(version)
+        status = asksFirst ? .asking(version) : automatic ? .quiet : .available(version)
+    }
+
+    /// The version FERB offers for the owner's click (the menu's entry, Settings' button), and whether it asks first.
+    var offer: (version: String, asks: Bool)? {
+        switch status {
+        case .available(let version): return (version, false)
+        case .asking(let version): return (version, true)
+        default: return nil
+        }
     }
 
     func notFound() {

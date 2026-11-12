@@ -359,10 +359,10 @@ def test_the_apps_service_runs_the_daemon_as_the_nested_ferb_agent_app(tmp_path:
     assert inst.grant_target() == inst.bundle / "Contents" / "Helpers" / "FERB.app"  # type: ignore[operator]
 
 
-def _record(inst: Installer, build: str = "202610140201") -> dict[str, str]:
+def _record(inst: Installer, build: str = "202610140201", signer: str = "adhoc") -> dict[str, str]:
     import hashlib
-    return {"build": build, "app": str(inst.bundle), "label": "com.ferb.test",
-            "definition": hashlib.sha256(inst.plist_path.read_bytes()).hexdigest()}
+    return {"build": build, "app": str(inst.bundle), "label": "com.ferb.test", "signer": signer,
+            "service": "launch_agent", "definition": hashlib.sha256(inst.plist_path.read_bytes()).hexdigest()}
 
 
 # decision: DMN-513, DMN-515
@@ -453,7 +453,7 @@ def test_a_2026_11_builds_registered_job_is_booted_out_and_the_launch_agent_load
     assert not r.ran("launchctl", "kickstart")
 
 
-# decision: DMN-517, DMN-513, APP-602
+# decision: DMN-517, DMN-513, APP-904
 def test_a_registered_job_macos_submits_again_after_the_bootout_is_retried_until_the_launch_agent_loads(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Live 2026-11-02 (the owner's Mac): FERB.app asked macOS to unregister a 2026-11 build's SMAppService job, but
@@ -643,6 +643,93 @@ def test_an_update_signed_with_the_same_certificate_keeps_the_pinned_requirement
     inst.run.cdhash = newer  # type: ignore[attr-defined]
     inst.install(update_only=True)
     assert (inst.home / "bin" / "ferb-secrets.requirement").read_text() == pinned
+
+
+DEV_ID = ('identifier "{}" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and '
+          'certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = TEAM123456')
+
+
+def developer_id(tmp_path: Path) -> Installer:
+    """FERB.app signed with a Developer ID (T-27): every piece carries the team's designated requirement."""
+    return bundled(tmp_path, team="TEAM123456", requirement=DEV_ID.format("com.ferb.secrets"),
+                   app_requirement=DEV_ID.format("com.ferb.FERB"))
+
+
+# decision: DMN-589, STORE-403
+def test_the_setup_record_names_who_signed_the_app_it_set_up(tmp_path: Path) -> None:
+    """FERB.app tells the Developer ID switch from an ordinary update by the signer setup last recorded (T-27): an
+    ad-hoc build, FERB's self-made release certificate (its leaf) or a Developer ID team, in the words the app reads
+    its own signature with."""
+    inst = bundled(tmp_path)
+    inst.install()
+    assert inst.recorded()["signer"] == "adhoc"
+    inst = bundled(tmp_path / "release", requirement=_release("com.ferb.secrets"),
+                   app_requirement=_release("com.ferb.FERB", LEAF.upper()))
+    inst.install()
+    assert inst.recorded()["signer"] == f"leaf:{LEAF}" and inst.recorded()["service"] == "launch_agent"
+    inst = developer_id(tmp_path / "devid")
+    inst.install()
+    assert inst.recorded()["signer"] == "team:TEAM123456"
+
+
+# decision: DMN-589, DMN-587, STORE-403
+def test_the_switch_to_the_apps_own_registration_retires_the_launch_agent_and_loads_nothing(tmp_path: Path) -> None:
+    """The first Developer ID launch over T-29's LaunchAgent: setup boots the running agent out, waits for its
+    process, deletes the plist (one label can't be loaded twice) and records the service as the app's; FERB.app then
+    registers it. A later Developer ID update restarts the registration launchd runs, and the clean-up stops and starts
+    it without unregistering it."""
+    from ferb.device.install import BUNDLE_SERVICE
+    inst = developer_id(tmp_path)
+    r: BundleRunner = inst.run  # type: ignore[assignment]
+    inst.install()                                                # a self-signed build's LaunchAgent, running
+    assert inst.plist_path.exists() and r.loaded and r.loaded_from == str(inst.plist_path)
+    inst.app_service = True                                       # `setup --service --update --app-service`
+    bootouts = r.ran("launchctl", "bootout")
+    inst.install(update_only=True)
+    assert not inst.plist_path.exists() and not r.loaded and r.ran("launchctl", "bootout") == bootouts + 1
+    assert inst.recorded()["service"] == "app" and "definition" not in inst.recorded()
+    assert r.ran("launchctl", "bootstrap") == 1                   # T-29's load only; the app registers now
+    assert not inst.restore_definition()                          # the daemon's start has no LaunchAgent to put back
+    r.loaded, r.loaded_from = True, str(inst.bundle / BUNDLE_SERVICE)  # type: ignore[operator]   # macOS runs it
+    inst.app_service = None                                       # any other command reads the record
+    assert inst.in_app
+    inst.install(update_only=True)                                # the next Developer ID build
+    assert r.ran("launchctl", "kickstart", "-k") == 1 and r.ran("launchctl", "bootout") == bootouts + 1
+    before = len(r.cmds)
+    inst.while_stopped(lambda: None)
+    assert ["launchctl", "kill", "SIGTERM", f"gui/{__import__('os').getuid()}/com.ferb.test"] in r.cmds[before:]
+    assert r.ran("launchctl", "bootout") == bootouts + 1          # the registration is never booted out
+    assert r.cmds[-1][:2] == ["launchctl", "kickstart"] and inst.running() and r.loaded
+
+
+# decision: DMN-590
+def test_a_helper_whose_new_pin_cant_be_written_leaves_the_old_helper_and_pin_in_place(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The secret helper and its requirement go in together: a failure writing the new pin (a full disk, a quit) leaves
+    the helper in use checked against its own pin, never the new helper against the old one (every secret refused)."""
+    inst = bundled(tmp_path)
+    inst.install_secret_helper()
+    helper = inst.home / "bin" / "ferb-secrets"
+    pin = helper.with_suffix(".requirement")
+    old = (helper.read_bytes(), pin.read_text())
+    newer = make_ferb_app(tmp_path / "Newer", sealed="9" * 40)
+    (newer / "Contents" / "Helpers" / "ferb-secrets").write_bytes(b"the next helper")
+    inst.bundle, inst.run.cdhash = newer, "9" * 40  # type: ignore[attr-defined]
+    inst.run.requirement = 'cdhash H"' + "9" * 40 + '"'  # type: ignore[attr-defined]
+    real_write = Path.write_text
+
+    def full_disk(self: Path, *args: Any, **kwargs: Any) -> int:
+        if self.name.endswith(".requirement.new"):
+            raise OSError(28, "No space left on device")
+        return real_write(self, *args, **kwargs)
+    monkeypatch.setattr(Path, "write_text", full_disk)
+    with pytest.raises(OSError):
+        inst.install_secret_helper()
+    assert (helper.read_bytes(), pin.read_text()) == old
+    assert sorted(p.name for p in helper.parent.iterdir()) == ["ferb-secrets", "ferb-secrets.requirement"]
+    monkeypatch.setattr(Path, "write_text", real_write)
+    inst.install_secret_helper()
+    assert helper.read_bytes() == b"the next helper" and pin.read_text().strip() == 'cdhash H"' + "9" * 40 + '"'
 
 
 def test_existing_pinned_codex_is_kept_and_a_stale_one_is_replaced_by_the_apps(tmp_path: Path) -> None:

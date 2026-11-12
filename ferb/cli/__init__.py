@@ -18,7 +18,8 @@ from ferb.paths import ferb_home, socket_path
 LOG_FLAGS = ("tasks", "trail", "tools", "browsers", "policy", "actions", "timers")
 # What FERB.app runs (ui/mac/FERBNotch: AppSetup.swift, SetupModel.swift, SettingsPages.swift; `--cleanup` is for its
 # clean-up screen, STORE-402); tests keep them working
-APP_COMMANDS = (("setup", "--service"), ("setup", "--service", "--update"), ("setup", "--codex-login"),
+APP_COMMANDS = (("setup", "--service"), ("setup", "--service", "--update"), ("setup", "--service", "--app-service"),
+                ("setup", "--service", "--update", "--app-service"), ("setup", "--codex-login"),
                 ("setup", "--codex-logout"), ("setup", "--claude-logout"), ("setup", "--cli"), ("setup", "--cleanup"),
                 ("uninstall",), ("uninstall", "--purge", "--yes"), ("mcp",))
 
@@ -151,6 +152,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--service", action="store_true",
                     help="FERB.app's setup window: install (with --update, update) the background service with no "
                          "questions and wait until it answers")
+    sp.add_argument("--app-service", action="store_true",
+                    help="with --service: FERB.app registers the service itself (a Developer ID build): retire any "
+                         "LaunchAgent and load nothing")
     sub.add_parser("doctor", help="check the installation, permissions (from inside the daemon) and self-test")
     stp = sub.add_parser("stats", help="how FERB is doing: task outcomes, tool errors, model runs, and its own CPU and "
                                        "memory per day (from the database)")
@@ -234,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.cmd == "setup" and args.cleanup:
                 return setup_cmd.cleanup_apply(env, args.ok) if args.ok else setup_cmd.cleanup_preview(env)
             if args.cmd == "setup" and args.service:
+                inst.app_service = args.app_service       # else the LaunchAgent (DMN-513; the fallback, DMN-589)
                 return setup_cmd.service_setup(env, update=args.update)
             if args.cmd == "setup" and args.codex_logout:
                 return setup_cmd.codex_logout(env)

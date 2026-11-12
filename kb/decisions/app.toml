@@ -1120,7 +1120,8 @@ paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift"]
 title = "FERB.app moves any older service to its LaunchAgent at launch, asking only about a checkout's"
 by = "agent"
 date = 2026-11-02
-status = "active"
+status = "superseded"
+superseded_by = "APP-904"
 supersedes = ["APP-599"]
 rule = "FERB.app never registers with SMAppService (DMN-513). Launch reads the LaunchAgent (if it names FERB's label) and its SHA-256, any 2026-11 SMAppService registration, service.json and whether launchd runs FERB: only a checkout's exact definition (a venv python with -P -m ferb.daemon) asks first; any other plist, a listed registration, another build, a definition unlike the record or a stopped daemon gets the quiet update. Before setup a listed registration is unregistered once (awaited). Exit 3 (switched off) shows the Login Items guidance and runs setup again once FERB is on."
 why = "The owner's Mac (a 2026-11 registration) and friends' Macs (older LaunchAgents) must move with no error and no step (DMN-513); a checkout is another installation the owner chose."
@@ -3583,3 +3584,55 @@ rule = "Refines APP-891 and APP-900, for ORCH-308. A paused task (task.paused un
 why = "Owner 2026-11-12, after \"ok pause on this task for now\" left a turning spinner and \"1 active task · 10:22\" counting: \"this paused task shoudl also relfect in these line, loader adn time. just a ui thign, fix it\"."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TaskList.swift::WorkRowWords", "ui/mac/FERBNotch/Sources/FERBNotch/ChatBody.swift", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift::refreshPausedTasks"]
 live = ["LIVE-937"]
+
+[APP-902]
+title = "On the switch to the Developer ID, FERB clears its own old permission entries once"
+by = "owner"
+date = 2026-11-13
+status = "active"
+words = "FERB resets its own (Recommended)"
+words_source = "The owner's answer to the coordinator's T-27 question about the old permission entries, 2026-11-13."
+rule = "On the switch build only (the first Developer ID launch over a self-signed install), FERB clears macOS's permission entries for its own app IDs once (tccutil reset <service> com.ferb.FERB and com.ferb.daemon, for the services FERB uses), so macOS asks cleanly; nothing of other apps is touched."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift::signerAtLaunch", "ui/mac/FERBNotch/Sources/NotchCore/SignerMove.swift::SignerMove"]
+live = ["LIVE-943"]
+
+[APP-903]
+title = "The update that switches FERB to the Developer ID asks first"
+by = "owner"
+date = 2026-11-13
+status = "active"
+words = "Ask first (Recommended)"
+words_source = "The owner's answer to the coordinator's T-27 question about the silent switch update, 2026-11-13."
+rule = "For the one update that changes FERB's signer (self-signed to Developer ID), FERB asks \"Update now? You'll grant FERB's permissions once more\" instead of installing silently while the owner is away; later updates install silently again."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/UpdateCoordinator.swift::found", "scripts/make_appcast.py"]
+live = ["LIVE-944"]
+
+[APP-904]
+title = "FERB.app notices the switch to the Developer ID and moves its service and login item"
+by = "agent"
+date = 2026-11-13
+status = "active"
+supersedes = ["APP-602"]
+rule = "Keeps APP-602 for the LaunchAgent. A team-signed build over a record whose signer differs (or has none) marks a move (signerMove.pending) until the service runs: APP-902 once, the login item moves to SMAppService.mainApp (re-registered; the fallback goes once macOS takes it, an off stays off), a listed registration is unregistered before setup (APP-599's rule, this move only), setup runs with --app-service, then register(); the permission beats say FERB is now signed by its developer. With service = app, set up means listed and no LaunchAgent left."
+why = "Plan developer-id.md §6-8: grants, the launch constraint and the login item all name the old signer; a quit mid-move must resume, and nothing moves on a self-signed build or a new install."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/SignerMove.swift", "ui/mac/FERBNotch/Sources/NotchCore/AppSetup.swift::AppSetupPlan", "ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/LoginItemController.swift::moveAfterSignerChange", "ui/mac/FERBNotch/Sources/FERBNotch/SetupServices.swift"]
+live = ["LIVE-943", "LIVE-946"]
+
+[APP-905]
+title = "macOS's refusal or silence falls back to the LaunchAgent; the owner's Login Items switch is guided"
+by = "agent"
+date = 2026-11-13
+status = "active"
+rule = "For DMN-587. After --app-service, FERB.app calls register() (already registered counts as done) and waits up to 30 s for ping. A throw, a status that stays not registered or not found, or no answer: the registration is unregistered (awaited) and `setup --service --update` writes and loads the LaunchAgent, the service line saying why; the next build tries again. LaunchDeniedByUser or requiresApproval is the owner's Login Items switch: the Login Items guidance (APP-506), never the LaunchAgent around it."
+why = "\"As long as it works\" (DMN-587): FERB must never be left without a daemon by a refusal, yet a switch the owner turned off is theirs to turn on."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::turnOnAppService", "ui/mac/FERBNotch/Sources/NotchCore/SignerMove.swift::AppServicePlan"]
+
+[APP-906]
+title = "The switch update is Sparkle's major upgrade, asked in the chat, the menu and Settings"
+by = "agent"
+date = 2026-11-13
+status = "active"
+rule = "For APP-903. An update Sparkle reports as a major upgrade (the appcast's minimumAutoupdateVersion is above this build, REL-423) sets the update status to asking whatever the automatic switch says: one chat notice per version, the menu's \"Update to FERB <v>… (you'll grant FERB's permissions once more)\", and Settings' Update Now, each opening Sparkle's window; its Install then waits for an idle FERB as any update does."
+why = "Only the already installed build can ask, and Sparkle never installs a major upgrade in the background, so the appcast alone keeps older builds from updating silently."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SparkleUpdater.swift", "ui/mac/FERBNotch/Sources/FERBNotch/UpdateCoordinator.swift", "ui/mac/FERBNotch/Sources/NotchCore/MenuBarState.swift::StatusMenu", "ui/mac/FERBNotch/Sources/FERBNotch/UpdateNotes.swift::noteUpdateAsk"]
+live = ["LIVE-944"]

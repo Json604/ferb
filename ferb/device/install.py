@@ -5,15 +5,18 @@ Dedicated interpreter + venv + the background service, `ferb setup --update`, an
 - The daemon never imports code from a checkout or from its working folder (kb area daemon): a checkout's
   launch definition runs `python -P -m ferb.daemon` (no working folder on sys.path) with FERB's home as its working
   folder; FERB.app's agent always runs isolated.
-- From a packaged FERB.app (L27) nothing is built or downloaded. The background service is a user LaunchAgent
+- From a packaged FERB.app (L27) nothing is built or downloaded. A FERB.app signed with a Developer ID registers the
+  background service itself (SMAppService, the definition inside the app, `BUNDLE_SERVICE`; DMN-589): setup then only
+  retires any user LaunchAgent (`retire_launch_agent`) and records that the service is the app's (`in_app`). Any
+  other FERB.app, and a Developer ID one whose registration macOS refused (the fallback), runs it as a user LaunchAgent
   (~/Library/LaunchAgents/com.ferb.daemon.plist, DMN-513) that setup writes and loads with launchctl, running the app's
   nested agent app (FERB, a native stub embedding the app's own Python) with exactly `-m ferb.daemon`, so macOS names
-  FERB in permission prompts and Privacy & Security and lists it under "Allow in the Background". SMAppService waits
-  for the Developer ID (T-27): without a Team ID its launch constraint names one exact build, so macOS killed every
-  later build's daemon. FERB.app unregisters a registration a 2026-11 build left before it runs setup; setup
-  replaces whatever plist an older install left (another build's agent, ~/.ferb/venv's python) and records which build
-  and which definition it set up (`SERVICE_RECORD`), which the app reads. The plist is user-writable, so FERB.app's
-  launch and the daemon's start put back a definition that isn't exactly what setup writes (`restore_definition`).
+  FERB in permission prompts and Privacy & Security and lists it under "Allow in the Background": without a Team ID an
+  SMAppService registration's launch constraint names one exact build, so macOS killed every later build's daemon.
+  FERB.app unregisters a registration a 2026-11 build left before it runs setup; setup replaces whatever plist an older
+  install left (another build's agent, ~/.ferb/venv's python) and records which build, which signer and which
+  definition it set up (`SERVICE_RECORD`), which the app reads. The plist is user-writable, so FERB.app's launch and the
+  daemon's start put back a definition that isn't exactly what setup writes (`restore_definition`).
   The secret helper, the pinned Codex and the embedding model come from the app, exactly as its signature seals them;
   `ferb` is a link to the app's launcher.
 - A checkout (no app bundle) uses the same LaunchAgent code path under the same label, running ~/.ferb/venv's python
@@ -57,14 +60,17 @@ NATIVE_HOST_MANIFEST = NATIVE_HOST_NAME + ".json"
 # The packaged app's layout (scripts/build-app.sh builds it; ui/mac/FERBNotch/Info.plist names it).
 APP_BUNDLE_ID = "com.ferb.FERB"
 # The background service's definition inside FERB.app, for SMAppService.agent(plistName:) (ui/mac/FERBAgent/
-# com.ferb.daemon.plist, copied there by scripts/build-app.sh). Unused while FERB has no Developer ID (DMN-513, T-27),
-# but kept in the app: FERB.app unregisters a registration a 2026-11 build left by this name, and T-27 brings it back.
+# com.ferb.daemon.plist, copied there by scripts/build-app.sh): what a Developer ID FERB.app registers (DMN-589), and the
+# name FERB.app unregisters a registration a 2026-11 self-signed build left by (DMN-513).
 BUNDLE_SERVICE = Path("Contents/Library/LaunchAgents") / f"{LABEL}.plist"
 # The local embedding model shipped in FERB.app (MEM-6; scripts/build-app.sh fetches it once)
 BUNDLE_MODELS = Path("Contents/Resources/models")
-# What FERB.app's setup last installed (build, app, label and the sha256 of the LaunchAgent it wrote), for the app to
-# tell a new build, or a definition someone changed, from the one set up
+# What FERB.app's setup last installed (build, app, label, signer, where the service's definition lives and, for a
+# LaunchAgent, the sha256 of the one it wrote), for the app to tell a new build, a new signer or a definition someone
+# changed from the one set up
 SERVICE_RECORD = "service.json"
+# The record's `service`: FERB.app registered the service itself (SMAppService), or setup wrote a user LaunchAgent
+SERVICE_IN_APP, SERVICE_LAUNCH_AGENT = "app", "launch_agent"
 # Every Keychain service FERB writes: its own items (API keys, the Jev key, [secrets]) and the owner's saved
 # secrets and cards (ferb/identity/owner_secrets.py). FERB's Claude sign-in adds Claude Code's own item for FERB's
 # Claude home (`claude_login.keychain_service`).
@@ -236,6 +242,9 @@ class Installer:
     native_hosts_dirs: tuple[Path, ...] = ()      # where the native-host manifest goes (the CLI passes the real ones)
     extension_ids: tuple[str, ...] = ()
     bundle: Path | None = None                    # the FERB.app to install from; None: from a checkout
+    # FERB.app registers the service itself (SMAppService, DMN-589: `setup --service --app-service`); None: as setup
+    # last recorded (every other command)
+    app_service: bool | None = None
     cli_dir: Path | None = None                   # where `ferb` is linked from FERB.app (the CLI passes ~/.local/bin)
     read_only: Callable[[Path], bool] = read_only_volume
     # A checkout's copy of the embedding model at install (the CLI passes `embeddings.download`); None: not fetched
@@ -269,6 +278,15 @@ class Installer:
     @property
     def record_path(self) -> Path:
         return self.home / SERVICE_RECORD
+
+    @property
+    def in_app(self) -> bool:
+        """The background service is FERB.app's own registration (SMAppService, DMN-589), not a user LaunchAgent."""
+        if self.bundle is None:
+            return False
+        if self.app_service is not None:
+            return self.app_service
+        return self.recorded().get("service") == SERVICE_IN_APP
 
     @property
     def plist_path(self) -> Path:
@@ -328,14 +346,33 @@ class Installer:
         return data if isinstance(data, dict) else {}
 
     def write_record(self) -> None:
-        """Which build of which FERB.app was set up (FERB.app compares it with its own build at launch)."""
+        """Which build of which FERB.app, signed by whom, was set up, and where the service's definition lives
+        (FERB.app compares it with its own build and signer at launch; a new signer is the Developer ID switch, T-27).
+        A LaunchAgent's record keeps its sha256 (DMN-514); FERB.app's own registration has no file to compare."""
         assert self.bundle is not None
-        data = json.dumps({"build": str(self.bundle_info().get("CFBundleVersion", "")), "app": str(self.bundle),
-                           "label": self.label, "definition": hashlib.sha256(self.plist_bytes()).hexdigest()},
-                          indent=2)
+        record: dict[str, object] = {"build": str(self.bundle_info().get("CFBundleVersion", "")),
+                                     "app": str(self.bundle), "label": self.label, "signer": self.signer()}
+        if self.in_app:
+            record["service"] = SERVICE_IN_APP
+        else:
+            record["service"] = SERVICE_LAUNCH_AGENT
+            record["definition"] = hashlib.sha256(self.plist_bytes()).hexdigest()
+        data = json.dumps(record, indent=2)
         staged = self.record_path.with_name("." + SERVICE_RECORD + ".new")
         staged.write_text(data + "\n")
         os.replace(staged, self.record_path)
+
+    def signer(self) -> str:
+        """Who signed FERB.app (T-27), in the words FERB.app uses for its own signature at launch (NotchCore Signer):
+        "team:<TEAMID>" for a Developer ID, "leaf:<SHA-1>" for FERB's self-made release certificate, else "adhoc"."""
+        assert self.bundle is not None
+        shown = self.run(['/usr/bin/codesign', '-dv', str(self.bundle)])
+        team = codesign_field((shown.stdout or '') + (shown.stderr or ''), 'TeamIdentifier')
+        if team and team != 'not set':
+            return f"team:{team}"
+        own = self.run(['/usr/bin/codesign', '-d', '-r-', str(self.bundle)])
+        leaf = certificate_leaf(designated_requirement((own.stdout or '') + (own.stderr or '')))
+        return f"leaf:{leaf}" if leaf else "adhoc"
 
     def bundle_info(self) -> dict[str, object]:
         if self.bundle is None:
@@ -526,8 +563,9 @@ class Installer:
     def restore_definition(self) -> bool:
         """Rule 6 (DMN-514): the LaunchAgent is user-writable, so at each daemon start an existing plist that isn't
         exactly what setup writes is written again; launchd reads it at its next load. A missing one is left to
-        FERB.app's launch, which sets the service up again. True when it was rewritten (the daemon journals it)."""
-        if not self.plist_path.exists() or self.definition_current():
+        FERB.app's launch, which sets the service up again; FERB.app's own registration (DMN-589) has none to put back.
+        True when it was rewritten (the daemon journals it)."""
+        if self.in_app or not self.plist_path.exists() or self.definition_current():
             return False
         return self.write_plist()
 
@@ -620,6 +658,37 @@ class Installer:
         while (self.loaded() or self.exiting() is not None) and time.monotonic() < end:
             time.sleep(0.1)
 
+    def stop(self) -> None:
+        """FERB.app's registered service (DMN-589) stopped but kept registered: the daemon is asked to end (SIGTERM
+        through launchd) and exits cleanly, so launchd doesn't start it again (KeepAlive SuccessfulExit false) until
+        `start`. Waits, up to 10 s, for its process to exit (`exiting` names one that outlived the wait)."""
+        self._stopped = self.agent_pid()
+        if self._stopped is None:
+            return
+        self.run(["launchctl", "kill", "SIGTERM", f"{self.domain}/{self.label}"])
+        end = time.monotonic() + 10
+        while (self.agent_pid() is not None or self.exiting() is not None) and time.monotonic() < end:
+            time.sleep(0.1)
+
+    def start(self) -> None:
+        """FERB.app's registered service started again after `stop` (nothing when macOS hasn't loaded it)."""
+        if self.loaded():
+            r = self.run(["launchctl", "kickstart", f"{self.domain}/{self.label}"])
+            if r.returncode != 0:
+                raise InstallError(f"starting the daemon failed: {launchctl_words(r)}")
+
+    def retire_launch_agent(self) -> bool:
+        """The move to FERB.app's own registration (DMN-589): a user LaunchAgent naming FERB's label (T-29's, an older
+        install's) is booted out when launchd runs it from that file, its process waited for (it may still be writing
+        the store), and deleted, since the same label can't be loaded twice. True when there was one."""
+        if not self.labelled_plist():
+            return False
+        if self.loaded() and self._loaded_from(self.plist_path):
+            self.unload()
+            self._check_exited()
+        self.plist_path.unlink(missing_ok=True)
+        return True
+
     def running(self) -> bool:
         """launchd runs FERB's daemon now (a loaded job with a process)."""
         return self.agent_pid() is not None
@@ -698,13 +767,25 @@ class Installer:
     def _install_from_bundle(self, while_stopped: Callable[[], None] | None = None) -> None:
         """Nothing is built or downloaded: everything comes from the checked, signed FERB.app. The LaunchAgent is
         written (replacing an older install's, DMN-513) and loaded, or, unchanged and loaded from that file, the daemon
-        is restarted on this build."""
+        is restarted on this build. For FERB.app's own registration (DMN-589) any LaunchAgent is retired instead and
+        nothing is loaded: FERB.app registers the service right after this command and waits for it; a registration
+        launchd already runs (an earlier Developer ID build's) is restarted on this build."""
         self.install_files()
         self.install_secret_helper()
         if self.codex_wanted():
             self.ensure_codex()
         self.write_native_host()
         self.link_cli()
+        if self.in_app:
+            self.retire_launch_agent()
+            self.write_record()
+            if while_stopped is not None:
+                self.while_stopped(while_stopped)
+            elif self.loaded():
+                r = self.run(["launchctl", "kickstart", "-k", f"{self.domain}/{self.label}"])
+                if r.returncode != 0:            # FERB.app's wait for the daemon decides; this says why it may fail
+                    self.notes.append(f"restarting the daemon failed: {launchctl_words(r)}")
+            return
         changed = self.write_plist()
         self.write_record()
         if while_stopped is not None:
@@ -717,9 +798,18 @@ class Installer:
     def while_stopped(self, work: Callable[[], None]) -> None:
         """Run `work` with the daemon stopped, then start it again whatever `work` does (an error or a stop included):
         the LaunchAgent is unloaded (launchd dropped it and, within its wait, its process exited) and loaded again
-        (DMN-515). `work` doesn't run while the stopped process is still exiting (`exiting`, past the stop's 10 s wait):
+        (DMN-515); FERB.app's own registration (DMN-589) stays registered: its daemon is stopped and started (`stop`,
+        `start`). `work` doesn't run while the stopped process is still exiting (`exiting`, past the stop's 10 s wait):
         it may still be writing the store, and a checkout's venv swap would delete the code it runs; that raises
         InstallError, and the daemon is started again."""
+        if self.in_app:
+            self.stop()
+            try:
+                self._check_exited()
+                work()
+            finally:
+                self.start()
+            return
         self.unload()
         try:
             self._check_exited()
@@ -773,8 +863,7 @@ class Installer:
             except InstallError:
                 staged.unlink(missing_ok=True)
                 raise
-            os.replace(staged, binary)
-            self._record_requirement(binary, requirement)
+            self._swap_helper(staged, binary, requirement)
             return
         source = Path(ferb.__file__).parent / 'identity' / 'secret_helper.swift'
         staged = binary.with_name('.ferb-secrets.new')     # the helper in use stays until this one is signed
@@ -790,8 +879,7 @@ class Installer:
         except BaseException:
             staged.unlink(missing_ok=True)
             raise
-        os.replace(staged, binary)
-        self._record_requirement(binary, requirement)
+        self._swap_helper(staged, binary, requirement)
 
     def sealed_requirement(self, code: Path, nested: str) -> str:
         """The requirement to pin for `code`, a copy of FERB.app's nested `nested` (check_bundle verified the app's own
@@ -820,11 +908,24 @@ class Installer:
         raise InstallError(f"{code.name} is pinned by neither its exact code hash nor FERB.app's own certificate "
                            "or Developer ID team")
 
-    def _record_requirement(self, binary: Path, requirement: str) -> None:
-        binary.chmod(0o700)
-        dest = binary.with_suffix('.requirement')
-        dest.write_text(requirement + '\n')
-        dest.chmod(0o600)
+    @staticmethod
+    def _swap_helper(staged: Path, binary: Path, requirement: str) -> None:
+        """The new helper and its requirement go in together: both are written whole beside the ones in use first,
+        then renamed one right after the other, so a failure while writing (a full disk, a quit) never leaves the new
+        helper checked against the old pin, which ferb/identity/helper.py would refuse for every secret until the next
+        setup."""
+        pin = binary.with_suffix('.requirement')
+        staged_pin = binary.with_name('.ferb-secrets.requirement.new')
+        try:
+            staged.chmod(0o700)
+            staged_pin.write_text(requirement + '\n')
+            staged_pin.chmod(0o600)
+        except BaseException:
+            staged.unlink(missing_ok=True)
+            staged_pin.unlink(missing_ok=True)
+            raise
+        os.replace(staged, binary)
+        os.replace(staged_pin, pin)
 
     # ---------- native host ----------
 
