@@ -135,7 +135,7 @@ def test_revoked_token_cannot_call_tools_through_the_real_shim(daemon: RunningDa
             c.close()
 
     anyio.run(scenario)
-    assert out["tools"] == ["abilities_list", "abilities_read", "about_read", "actions_search", "fs_copy", "fs_disk_usage", "fs_edit", "fs_list", "fs_move", "fs_read", "fs_trash",
+    assert out["tools"] == ["abilities_list", "abilities_read", "about_read", "actions_search", "fs_copy", "fs_disk_usage", "fs_edit", "fs_list", "fs_look", "fs_move", "fs_read", "fs_trash",
                             "fs_write", "owner_ask",
                             "recording_inspect", "recording_stop", "recovery_snapshot"]
     assert out["before"][0] is False and "[now " in out["before"][1], out           # result + time footer

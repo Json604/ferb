@@ -4325,3 +4325,12 @@ request = "Ask FERB to check whether a product you name delivers to your pincode
 pass = "FERB types the pincode into the site's pincode box (no \"that's a secret field\" refusal) and reports the delivery answer the page shows; nothing is bought."
 decisions = ["HAND-515", "HAND-516"]
 sitting = "after this change is installed and 0.19.10 is loaded"
+
+[LIVE-925]
+title = "A photo and a PDF page dropped in chat are looked at with fs.look, nothing opening on screen"
+area = "hands"
+surface = "FERB.app with this build; a photo and a 3-page PDF of the owner's own"
+request = "Drop a photo in the chat and ask what's in it. Then drop a 3-page PDF and ask \"what's on page 2?\"."
+pass = "FERB describes the photo and page 2 correctly; `ferb trace` shows fs.look calls (page 2 for the PDF, its result saying 3 pages) and no pdftoppm, Preview or mac.screenshot; no window opened on screen; a card number or code in the photo is painted over in the task's stored image."
+decisions = ["HAND-517"]
+sitting = "after this change is installed"

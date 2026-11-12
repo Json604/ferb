@@ -32,6 +32,7 @@ TOOLS: dict[str, tuple[str, str]] = {
     "mac.snapshot": ("looking at {}", "looking at an app"), "mac.screenshot": ("looking at {}", "looking at an app"),
     "mac.open": ("opening {}", "opening an app"),
     "fs.read": ("reading {}", "reading a file"), "fs.list": ("looking in {}", "looking in a folder"),
+    "fs.look": ("looking at {}", "looking at a file"),
     "fs.write": ("writing {}", "writing a file"), "fs.edit": ("editing {}", "editing a file"),
     "fs.trash": ("moving {} to the Trash", "moving a file to the Trash"),
     "shell.run": ("running a command", "running a command"),

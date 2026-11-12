@@ -23,7 +23,7 @@ from tests.conftest import FakeCap, RunningDaemon, gateway_request, gateway_setu
 OBSERVATION = {
     "abilities.list", "abilities.read", "about.read",
     "actions.search", "chat.history", "memory.read", "task.evidence", "trail.days", "trail.query", "secrets.list",
-    "fs.list", "fs.read", "fs.disk_usage", "recording.inspect", "shell.list", "shell.read", "shell.rules", "shell.wait",
+    "fs.list", "fs.read", "fs.look", "fs.disk_usage", "recording.inspect", "shell.list", "shell.read", "shell.rules", "shell.wait",
     "mac.apps", "mac.screenshot", "mac.snapshot",
     "browser.downloads", "browser.find", "browser.html", "browser.point", "browser.profiles", "browser.read", "browser.screenshot",
     "browser.scroll", "browser.snapshot", "browser.tabs", "browser.wait",

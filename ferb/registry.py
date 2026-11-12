@@ -43,6 +43,8 @@ def build() -> Registry:
     # capabilities — one line each
     r.add(FsList())
     r.add(FsRead())
+    from ferb.act.fs.look import FsLook
+    r.add(FsLook())                   # HAND-517: a picture or a PDF page on disk, seen as an image
     from ferb.act.fs.usage import FsDiskUsage
     r.add(FsDiskUsage())
     r.add(FsWrite())

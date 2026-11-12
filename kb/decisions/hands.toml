@@ -1425,3 +1425,15 @@ evidence = "Lab 2026-11-12 secrets.html: pincode, voucher code, a PIN-named sear
 rejected = ["Treating an OTP box marked only by its name (autocomplete new-password, name otp) as a code field: a name is words; the owner fills it with browser.secret"]
 paths = ["extensions/chromium/content.js::fieldKind", "extensions/chromium/content.js::codeFill", "extensions/chromium/content.js::passwordField"]
 live = ["LIVE-924"]
+
+[HAND-517]
+title = "fs.look lets the AI see a picture or a PDF page on disk, through the screenshot's image path"
+by = "owner"
+date = 2026-11-12
+status = "active"
+words = "\"yesyesyes\"; on its size: \"isnt there already a limit???\""
+words_source = "Owner 2026-11-12 via the coordinator: \"yesyesyes\" on why the tool is needed; the limit question answered by the screenshot scaling. Attachments only when FERB needs to look: a paraphrase."
+rule = "fs.look {path, page?} decodes a picture (ImageIO: PNG, JPEG, HEIC, TIFF, first frame of GIF/WebP) or renders one PDF page (PDFKit; page 1 by default; the result gives the page count and the page's text), scaled as screenshots are (MAX_EDGE, no new cap), as the call's image: OCR masking, evidence store, model, as every tool image. Checked as fs.read (protection lists by path and opened file; FERB's own refused); off the loop; nothing on screen; an undecodable file is a plain error. Chat attachments aren't sent: the description says an attached path can be looked at."
+why = "Live 2026-11-12 (task f68317e9): to see two PDF pages the worker rendered them with pdftoppm, then opened Preview twice and took three screenshots (one failed): 6 calls and windows on the owner's screen. fs.read is UTF-8 only; Codex's view_image is off and Claude Code runs with no tools of its own."
+paths = ["ferb/act/fs/look.py::FsLook", "ferb/registry.py::build", "ferb/orchestrator/progress.py::TOOLS"]
+live = ["LIVE-925"]
