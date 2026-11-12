@@ -60,6 +60,8 @@ class Info:
     running: bool = True
     exit_code: int | None = None
     stopped: str | None = None
+    id: str = ""
+    owner_task: str = "t1"
 
 
 class FakeShells:
@@ -67,9 +69,10 @@ class FakeShells:
         self.procs: dict[str, Info] = {}
         self.out: dict[str, str] = {}
         self.exits: dict[str, asyncio.Event] = {}
+        self.told_ids: set[str] = set()
 
-    def add(self, pid: str, command: str) -> None:
-        self.procs[pid], self.out[pid], self.exits[pid] = Info(command), "", asyncio.Event()
+    def add(self, pid: str, command: str, task: str = "t1") -> None:
+        self.procs[pid], self.out[pid], self.exits[pid] = Info(command, id=pid, owner_task=task), "", asyncio.Event()
 
     def finish(self, pid: str, code: int) -> None:
         self.procs[pid].running, self.procs[pid].exit_code = False, code
@@ -79,9 +82,18 @@ class FakeShells:
         return ProcHandle(pid, task)
 
     def info(self, h: ProcHandle) -> Info:
-        if h.id not in self.procs or h.owner_task != "t1":
+        if h.id not in self.procs or h.owner_task != self.procs[h.id].owner_task:
             raise Refused(f"no process {h.id} for this task")
         return self.procs[h.id]
+
+    def list(self) -> list[Info]:
+        return list(self.procs.values())
+
+    def exit_told(self, h: ProcHandle) -> None:
+        self.told_ids.add(h.id)
+
+    def told(self, pid: str) -> bool:
+        return pid in self.told_ids
 
     async def read(self, h: ProcHandle, since: int = 0, limit: int | None = None) -> tuple[str, int, int]:
         text = self.out[h.id]
@@ -142,6 +154,7 @@ class Rig:
     ended: list[dict[str, Any]]
     limit: datetime | None
     tool: WaitFor
+    failed: dict[str, dict[str, Any]] = field(default_factory=dict)    # by worker: its last acting call's failure
 
 
 def rig(shells: Any = None, limit: datetime | None = T0 + timedelta(hours=4)) -> Rig:
@@ -152,7 +165,8 @@ def rig(shells: Any = None, limit: datetime | None = T0 + timedelta(hours=4)) ->
                               status=lambda w, t, until, line: lines.append(line),
                               steered=lambda t: steer[0], ending=lambda: ending[0],
                               ended=lambda t, data: ended.append(data),
-                              monotonic=steps.monotonic, pause=steps.pause))
+                              monotonic=steps.monotonic, pause=steps.pause,
+                              failed_act=lambda worker: r.failed.pop(worker, None)))
     return r
 
 
@@ -310,6 +324,69 @@ def test_any_one_condition_wakes_and_a_correction_wakes_too(tmp_path: Path) -> N
     assert out["woke"] == "correction" and r.lines[-1] is None
 
 
+# ---------- what the worker didn't name: its task's commands ending, a failed action (ORCH-639) ----------
+
+# decision: ORCH-639
+def test_a_task_command_that_ends_wakes_a_wait_on_a_file_and_another_tasks_doesnt(tmp_path: Path) -> None:
+    """Live 2026-11-12, tree 7da1d919: a worker waited minutes for a file its failed command could never write."""
+    r = rig()
+    r.shells.add("p-1", "blender -b scene.blend --python render.py")
+    r.shells.add("p-9", "make all", task="t2")                   # another task's command
+    r.shells.out["p-1"] = "Read blend: scene.blend\nError: render.py: No such file or directory\n"
+
+    def ends(s: Steps) -> None:
+        if s.mono >= 1 and r.shells.procs["p-9"].running:
+            r.shells.finish("p-9", 0)
+        if s.mono >= 3 and r.shells.procs["p-1"].running:
+            r.shells.finish("p-1", 1)
+    r.steps.on_rest.append(ends)
+    out = wait(r, tmp_path, {"kind": "file", "path": "report2.txt", "state": "exists"}, limit_minutes=2)
+    assert out["woke"] == "process_exited" and 3 <= out["after_s"] <= 4 and "_error" not in out
+    ev = out["evidence"]
+    assert ev["id"] == "p-1" and ev["exit_code"] == 1 and "No such file" in ev["output_tail"]
+    assert ev["command"] == "blender -b scene.blend --python render.py" and "condition" not in ev
+    assert r.lines == [f"Waiting for report2.txt to appear (up to {hm(2)})", None]   # the line names only the file
+    # its end is told now: the next wait waits on the file alone, as does a wait with only another task's command
+    out = wait(r, tmp_path, {"kind": "file", "path": "report2.txt", "state": "exists"}, limit_minutes=1)
+    assert out["woke"] == "time_limit" and out["evidence"]["last_seen"] == [
+        {"condition": 0, "kind": "file", "path": str(tmp_path / "report2.txt"), "exists": False}]
+
+
+# decision: ORCH-639
+def test_a_command_that_ended_before_the_wait_unseen_wakes_it_at_once_and_a_named_one_is_as_before(
+        tmp_path: Path) -> None:
+    r = rig()
+    r.shells.add("p-1", "python3 build.py")
+    r.shells.out["p-1"] = "Traceback (most recent call last):\nModuleNotFoundError: No module named 'bpy'\n"
+    r.shells.finish("p-1", 1)                                   # right away, before any result showed it
+    out = wait(r, tmp_path, {"kind": "time", "in_minutes": 5})
+    assert out["woke"] == "process_exited" and out["after_s"] == 0 and out["evidence"]["exit_code"] == 1
+    r = rig()
+    r.shells.add("p-1", "python3 build.py")
+    r.shells.told_ids.add("p-1")                                # shell.run or shell.wait already showed its end
+    r.shells.finish("p-1", 1)
+    assert wait(r, tmp_path, {"kind": "time", "in_minutes": 5})["woke"] == "time"
+    r = rig()                                                   # named, it wakes as its own condition
+    r.shells.add("p-1", "npm run build")
+    r.steps.on_rest.append(lambda s: r.shells.finish("p-1", 2) if s.mono >= 5 and r.shells.procs["p-1"].running
+                           else 0)
+    out = wait(r, tmp_path, {"kind": "file", "path": "dist/x", "state": "exists"}, {"kind": "process", "id": "p-1"})
+    assert out["woke"] == "process" and out["evidence"]["condition"] == 1 and out["evidence"]["exit_code"] == 2
+
+
+# decision: ORCH-639
+def test_a_wait_right_after_a_failed_action_returns_at_once_and_a_second_one_waits(tmp_path: Path) -> None:
+    r = rig()
+    r.failed["w1"] = {"tool": "mac.act", "error": "mac.act failed: PointerInterrupted: foreground target changed; "
+                                                  "outcome unknown"}
+    out = wait(r, tmp_path, {"kind": "file", "path": "report2.txt", "state": "exists"}, limit_minutes=2)
+    assert out["woke"] == "action_failed" and out["after_s"] == 0 and r.steps.rests == 0 and r.lines == []
+    assert out["evidence"]["action"]["tool"] == "mac.act" and "PointerInterrupted" in out["evidence"]["action"]["error"]
+    assert "may never come" in out["evidence"]["note"]
+    out = wait(r, tmp_path, {"kind": "file", "path": "report2.txt", "state": "exists"}, limit_minutes=2)
+    assert out["woke"] == "time_limit"                          # taken once: told, the worker may wait anyway
+
+
 # decision: ORCH-633
 def test_stop_cancels_the_wait_and_a_restart_leaves_a_fact(tmp_path: Path) -> None:
     async def go(r: Rig, ending: str | None) -> None:
@@ -410,6 +487,35 @@ def test_a_worker_waits_on_its_command_with_one_call_and_one_wake(daemon: Runnin
     assert len(script.calls("worker")) == 1 and calls == ["shell.start", "wait.for"]
     model_turns = len(calls) + 1                   # each tool call is one model turn in a real runtime, then the report
     assert model_turns == 3, json.dumps(tools)
+
+
+# decision: ORCH-639
+def test_a_worker_is_told_at_once_when_its_action_failed_or_its_command_ended(daemon: RunningDaemon) -> None:
+    """The 7da1d919 shape through the real daemon, gateway and shell: a failed action, then a wait on a file it would
+    have made, ends at once; after a successful start the wait waits until the task's command ends, unnamed."""
+    seen: dict[str, Any] = {}
+
+    def act(token: str) -> str:
+        failed = tool(daemon.sock, token, "shell.run", command="echo nope; exit 3")
+        assert failed["is_error"], failed
+        seen["first"] = tool(daemon.sock, token, "wait.for", any_of=[{"kind": "file", "path": "never.txt",
+                                                                       "state": "exists"}], limit_minutes=1)
+        started_ = tool(daemon.sock, token, "shell.start", command="sleep 1; echo 'render failed'; exit 2")
+        assert not started_["is_error"], started_
+        seen["second"] = tool(daemon.sock, token, "wait.for", any_of=[{"kind": "file", "path": "report2.txt",
+                                                                        "state": "exists"}], limit_minutes=1)
+        return done("Told.")
+    install(daemon, [sup("task", "Rendering.", task("Render the scene"))], {"worker": act})
+    c = Client(daemon.sock, timeout=60)
+    try:
+        turn_events(list(c.stream("chat.send", {"session_id": "s1", "text": "render the scene"})))
+    finally:
+        c.close()
+    first, second = seen["first"]["content"], seen["second"]["content"]
+    assert first["woke"] == "action_failed" and first["after_s"] == 0, first
+    assert first["evidence"]["action"] == {"tool": "shell.run", "exit_code": 3}
+    assert second["woke"] == "process_exited" and second["evidence"]["exit_code"] == 2, second
+    assert "render failed" in second["evidence"]["output_tail"] and second["after_s"] <= 5
 
 
 # decision: ORCH-633

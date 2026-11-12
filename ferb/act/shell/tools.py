@@ -128,12 +128,17 @@ class ShellStart(_Base):
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         h = await self._start(args, ctx)
-        return ToolResult({"id": h.id, "running": self.shells.info(h).running, "exit_code": None})
+        running = self.shells.info(h).running
+        if not running:
+            self.shells.exit_told(h)
+        return ToolResult({"id": h.id, "running": running, "exit_code": None})
 
 
 async def _output(shells: ShellManager, h: ProcHandle, *, since: int = 0) -> ToolResult:
     text, offset, total = await shells.read(h, since, TAIL)
     info = shells.info(h)
+    if not info.running:
+        shells.exit_told(h)                              # its end is in this result (ORCH-639)
     network = shells.network(h)
     out = {"id": h.id, "output": text, "offset": offset, "total": total, "more": offset < total,
            "running": info.running, "exit_code": info.exit_code, "capture_error": info.capture_error,
@@ -163,6 +168,8 @@ class ShellRun(ShellStart):
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         h = await self._start(args, ctx)
         code = await self.shells.wait(h, float(getattr(args, "timeout_s")))
+        if code is not None:
+            self.shells.exit_told(h)                     # its end is in this result (ORCH-639)
         text, offset, total = await self.shells.tail(h, TAIL)
         out = {"id": h.id, "running": code is None, "exit_code": code, "output": text, "offset": offset,
                "total": total}
@@ -263,7 +270,9 @@ class ShellKill(_Base):
         return ActionSpec(Kind.STOP_PROCESS)               # ending a process loses its state: not reversible
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        await self.shells.kill(self.shells.handle(str(getattr(args, "id")), ctx.task_id))
+        h = self.shells.handle(str(getattr(args, "id")), ctx.task_id)
+        await self.shells.kill(h)
+        self.shells.exit_told(h)                         # the worker ended it: its end wakes no wait (ORCH-639)
         return ToolResult({"killed": True})
 
 
@@ -281,9 +290,12 @@ class ShellList(_Base):
         return ActionSpec(Kind.READ)
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        mine = [p for p in self.shells.list() if p.owner_task == ctx.task_id]
+        for p in mine:
+            if not p.running:
+                self.shells.exit_told(self.shells.handle(p.id, ctx.task_id))
         return ToolResult({"processes": [{"id": p.id, "command": p.command, "running": p.running,
-                                          "exit_code": p.exit_code, "background": p.long_lived}
-                                         for p in self.shells.list() if p.owner_task == ctx.task_id]})
+                                          "exit_code": p.exit_code, "background": p.long_lived} for p in mine]})
 
 
 class ShellRules(_Base):

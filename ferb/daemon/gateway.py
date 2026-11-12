@@ -174,6 +174,7 @@ TERMINAL_SECRET = ("{field} holds a secret (one of FERB's keys or a credential's
                    "input (D31)")
 NEEDS_OWNER_NEXT = "This step needs the owner; don't do it another way. Report that it is waiting for the owner."
 REASON_CHARS = 200                        # the task's own words in FERB's question, clipped like a call excerpt
+FAILED_CHARS = 500                        # ORCH-639: a failed action's error as wait.for repeats it
 # ORCH-321: the owner-secret fills (ferb/daemon/hidden_input.py), whose `secret` argument names a saved entry
 SEALED_FILLS = ("browser.secret", "ferb_browser.secret", "mac.secret")
 SINK_VALUES_SHOWN = 3            # a form sink's card names at most this many values, then counts the rest (display)
@@ -393,6 +394,17 @@ def ledger_identity(cap: Any, name: str, action: ActionRequest, args: Any,
             raise Refused("that path can't name a file (it contains a NUL character); nothing ran") from e
         target = dataclasses.replace(target, path=path)
     return key, payload_hash(dataclasses.replace(action, capability=key, target=target), hashed_args(cap, args))
+
+
+def failed_act(name: str, reply: dict[str, Any]) -> dict[str, Any]:
+    """ORCH-639: what wait.for says of an acting call that ended with an error: the tool, its error text as the worker
+    got it (redacted, one line, cut) and a command's exit code. Structure only: no word of it is read."""
+    raw = reply.get("content")
+    content: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    error = content.get("error")
+    return {"tool": name} | ({"error": lines.clip(" ".join(printable(error).split()), FAILED_CHARS)}
+                             if isinstance(error, str) and error else {}) \
+        | ({"exit_code": content["exit_code"]} if isinstance(content.get("exit_code"), int) else {})
 
 
 def call_excerpt(span: dict[str, Any]) -> str:
@@ -642,6 +654,8 @@ class Gateway:
         self._calls_made: dict[str, int] = {}             # by worker: calls of a grant with max_calls (ORCH-516)
         self._refused_over: dict[str, int] = {}           # by worker: calls refused past max_calls (RUN-445)
         self._lookup_answers: dict[tuple[str, str, str], dict[str, Any]] = {}   # ORCH-557: (worker, tool, args) -> reply
+        # ORCH-639: by worker run, its latest acting call: (task, what failed) or (task, None) when it didn't fail
+        self._last_act: dict[str, tuple[str, dict[str, Any] | None]] = {}
         # The orchestrator's two seams, given once by `attach` (it is built after the gateway, on top of it)
         self.observer: Observer = Observer()
         self.conversation_guard: Callable[[Any, str, Any, Any], str | None] = lambda grant, name, cap, spec: None
@@ -735,6 +749,9 @@ class Gateway:
         finally:
             if job is not None:
                 self._in_flight.pop(job, None)
+        cap = self.caps.get(name)
+        if cap is not None and self._acts(cap):          # ORCH-639: how this run's latest acting call ended
+            self._last_act[grant.worker_id] = (grant.task_id, failed_act(name, r) if r.get("is_error") else None)
         if same is not None and not r.get("is_error"):
             self._lookup_answers[same] = r
         return r
@@ -879,6 +896,8 @@ class Gateway:
             del self._terminal_arms[armed]
         for kept in [k for k in self._undelivered if k[0] in task_ids]:
             del self._undelivered[kept]
+        for worker in [w for w, (task, _) in self._last_act.items() if task in task_ids]:
+            del self._last_act[worker]
 
     def _arg_sources(self, spec: Any, rec: Any, grant: RunGrant) -> dict[str, list[str]]:
         """The owner's typed words for this request, the owner's answers in this task (apart: a chosen option is
@@ -1076,6 +1095,12 @@ class Gateway:
             self._calls_made[grant.worker_id] = made + 1
         return cap
 
+    def failed_act(self, worker_id: str) -> dict[str, Any] | None:
+        """ORCH-639, for wait.for: this worker run's latest acting call (`_acts`), when it ended with an error (refused,
+        failed or its outcome unknown) and no acting call ran since; taken once, so a second wait waits."""
+        hit = self._last_act.pop(worker_id, None)
+        return hit[1] if hit is not None else None
+
     def lookups_made(self, worker_id: str) -> int:
         """How many calls a grant with max_calls has made (ORCH-557)."""
         return self._calls_made.get(worker_id, 0)
@@ -1086,9 +1111,11 @@ class Gateway:
         return self._refused_over.get(worker_id, 0)
 
     def forget_calls(self, worker_id: str) -> None:
-        """A grant with max_calls ended (its run token revoked): its counts and its answers go."""
+        """A run ended (its token revoked): a grant with max_calls's counts and answers go, and any run's last acting
+        call (ORCH-639)."""
         self._calls_made.pop(worker_id, None)
         self._refused_over.pop(worker_id, None)
+        self._last_act.pop(worker_id, None)
         for key in [k for k in self._lookup_answers if k[0] == worker_id]:
             del self._lookup_answers[key]
 

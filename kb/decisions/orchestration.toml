@@ -1775,3 +1775,17 @@ evidence = "Owner's database: model.turn 3f78ee03 output kind task, control stop
 rejected = ["Reading the planner's text to drop \"I'm stopping\" from the plan line: words decide nothing (rule 4); the prompt line asks for it instead", "A reply event, then the plan event: FERB.app's finishBackendWork ends the turn on the reply and drops the plan event"]
 paths = ["ferb/orchestrator/schemas.py::SupervisorOutcome.new_task", "ferb/orchestrator/supervisor.py::Supervisor._control", "ferb/orchestrator/supervisor.py::Supervisor._then_start", "ferb/orchestrator/supervisor.py::Supervisor._said_first", "ferb/orchestrator/supervisor.py::Supervisor._route", "ferb/orchestrator/supervisor.py::Supervisor._problems", "ferb/orchestrator/prompts/supervisor.md"]
 live = ["LIVE-938"]
+
+[ORCH-639]
+title = "A wait also wakes when the task's own commands end, and returns at once after a failed action"
+by = "agent"
+date = 2026-11-13
+status = "active"
+words = "when teh agent waits for somethign BUT the command failes aafte a few seconds or right away, ti doesnt know, it keeps waiting. shouldnt the wait and our eveyr toher notiuce.wait command hanlde this and notice ferb??? sma eon early outpu too."
+words_source = "Owner 2026-11-12, relayed by the coordinator after the Blender task (tree 7da1d919); the coordinator agreed the three parts below with the owner, including no change for output."
+rule = "Refines ORCH-631/632. (1) Every wait.for also watches each of its task's own shell commands (never another task's or FERB's processes) running when it starts or ended unshown by any result; one ending wakes it at once: woke process_exited {id, command, exit_code, output_tail, note}. A named command wakes as before. (2) If this worker run's latest acting call (Gateway._acts) returned an error (refused, failed, outcome unknown), wait.for returns at once, once: woke action_failed {action: {tool, error, exit_code}, note}. Success or unconfirmed changes nothing. (3) Output wakes only on a match."
+why = "Live 2026-11-13 (tree 7da1d919): after mac.act failed with PointerInterrupted the worker waited 2 minutes for a file that couldn't come, then 1 more after a refused retry, and again at 00:30 until the owner stopped it."
+evidence = "Owner's database, tool.call spans of tree 7da1d919: mac.act 00:11:44 error PointerInterrupted, then wait.for 00:11:44-00:13:44 on report2.txt; mac.act 00:13:48 refused, wait.for 00:13:48-00:14:48; mac.act 00:30:04 and 00:30:05 PointerInterrupted, wait.for 00:30:05-00:32:14 cancelled."
+rejected = ["Waking on any new output: a running command prints all the time, and code can't tell an error line from progress without reading its words (rule 4); the worker names the text it waits for", "Waking on an unconfirmed action: the action may have worked, and the wait is how the worker learns whether it did", "Watching only commands running when the wait starts: a command that failed right away, before the worker's next call, would never wake it"]
+paths = ["ferb/clock/wait.py::WaitFor._commands", "ferb/clock/wait.py::WaitFor._ended", "ferb/clock/wait.py::WaitFor.run", "ferb/clock/wait.py::COMMAND_ENDED", "ferb/clock/wait.py::ACTION_FAILED", "ferb/daemon/gateway.py::failed_act", "ferb/daemon/gateway.py::Gateway.failed_act", "ferb/daemon/gateway.py::Gateway.call", "ferb/act/shell/manager.py::ShellManager.exit_told", "ferb/act/shell/manager.py::ShellManager.told", "ferb/orchestrator/worker.py"]
+live = ["LIVE-940"]

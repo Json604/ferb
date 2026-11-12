@@ -19,7 +19,13 @@ workers/planner can set them too". Each condition is a structural fact code can 
   exit 0 means met; its last output is the evidence.
 Any one met wakes the worker. A correction from the owner wakes it too ("correction"), and the time limit
 ("time_limit"): DEFAULT_LIMIT_MIN unless the worker sets one, never past the task's own limit. A stop or pause ends the
-call as any call ends (cancelled); a restart ends it and the next run of the task is told (`wait.ended`)."""
+call as any call ends (cancelled); a restart ends it and the next run of the task is told (`wait.ended`).
+
+Owner, 2026-11-12 (ORCH-639): "when teh agent waits for somethign BUT the command failes aafte a few seconds or right
+away, ti doesnt know, it keeps waiting". So every wait also watches, unnamed, each of the task's own commands that is
+running when it starts, or that ended without a result showing it ("process_exited": its exit code and the end of its
+output); and a wait called when this worker run's last acting call ended with an error returns at once
+("action_failed"), without sleeping. Output alone wakes only on the worker's named match."""
 
 import asyncio
 import os
@@ -71,7 +77,15 @@ DESCRIPTION = (
     "\"HH:MM\"}; script {command, cwd?, every_s >= 5: runs in FERB's shell sandbox as shell.run does; exit 0 wakes "
     "you}. match is plain text, case aside (regex: true for a regular expression). limit_minutes: how long at most "
     "(default 30, longer or shorter as the work needs, up to the task's own limit). A message from the owner wakes "
-    "you too. While you wait, the task's status shows what you wait for.")
+    "you too, and so does any of this task's commands ending; right after an action of yours failed it returns at "
+    "once. While you wait, the task's status shows what you wait for.")
+
+# ORCH-639: the facts a wait gives when it wakes on what the worker didn't name
+COMMAND_ENDED = ("This task's command {id} ended (you didn't name it in this wait): what you wait for may depend on "
+                 "it. Wait again if it still applies.")
+COMMAND_CHARS = 120               # a command's text in that fact, one line
+ACTION_FAILED = ("Nothing was waited for: your last action ({tool}) ended with an error, so what you wait for may never "
+                 "come. Check what happened, then act again, or call wait.for again to wait anyway.")
 
 
 class Condition(BaseModel):
@@ -130,7 +144,8 @@ class WaitDeps:
     """What the daemon hands the tool. `status(worker, task, until, line)`: the task's live line while it waits
     (line None clears it); `steered(task)`: how many corrections its tree has had; `ending()`: "restart" while FERB
     shuts down; `ended(task, data)`: journals a wait a restart cut; `monotonic` and `pause(seconds, wake)`: the
-    loop's clock and rest (a test steps them, TEST-508)."""
+    loop's clock and rest (a test steps them, TEST-508); `failed_act(worker)`: this worker run's last acting call when
+    it ended with an error and nothing acted since ({tool, error?, exit_code?}), taken once (ORCH-639)."""
     now: Callable[[], datetime]
     limit: Callable[[str], datetime | None]
     shells: Callable[[], Any]
@@ -141,6 +156,7 @@ class WaitDeps:
     ended: Callable[[str, dict[str, Any]], None]
     monotonic: Callable[[], float] = _time.monotonic
     pause: Callable[[float, asyncio.Event], Awaitable[None]] = field(default=None)  # type: ignore[assignment]
+    failed_act: Callable[[str], dict[str, Any] | None] = lambda worker: None
 
     def __post_init__(self) -> None:
         if self.pause is None:
@@ -198,6 +214,7 @@ class _Watch:
         self.exited: asyncio.Task[Any] | None = None
         self.settled_since: float | None = None
         self.at: datetime | None = None      # time: when
+        self.implicit = False                # process: one of the task's commands the worker didn't name (ORCH-639)
 
 
 class WaitFor:
@@ -238,7 +255,12 @@ class WaitFor:
             watches, until = self._prepare(a, ctx)
         except (Refused, WhenError, FerbError) as e:
             return _err(str(e))
+        failed = self.deps.failed_act(ctx.worker_id)
+        if failed is not None:                           # ORCH-639: what it waits for may never come
+            return ToolResult({"woke": "action_failed", "after_s": 0, "evidence": {
+                "action": failed, "note": ACTION_FAILED.format(tool=failed.get("tool") or "your last action")}})
         line = self._line(watches, until, ctx)
+        watches += self._commands(watches, ctx)
         started, began = self.deps.monotonic(), self.deps.now()
         steered = self.deps.steered(ctx.task_id)
         wake = asyncio.Event()
@@ -255,6 +277,10 @@ class WaitFor:
                         continue
                     hit = await self._look(w, ctx, sources)
                     if hit is not None:
+                        if hit.get("exited"):                # its end is in this result: no later wait wakes on it
+                            self.deps.shells().exit_told(w.handle)
+                        if w.implicit:
+                            return self._woke("process_exited", started, self._ended(w) | hit, sources)
                         return self._woke(w.c.kind, started, {"condition": w.index} | hit, sources)
                 if self.deps.steered(ctx.task_id) > steered:
                     return self._woke("correction", started, {"note": "the owner sent a message to this task; read "
@@ -262,7 +288,8 @@ class WaitFor:
                 if self.deps.now() >= until:
                     return self._woke("time_limit", started, {
                         "limit": f"{until.astimezone():%H:%M}", "began": f"{began.astimezone():%H:%M}",
-                        "last_seen": [{"condition": w.index, "kind": w.c.kind, **w.seen} for w in watches]},
+                        "last_seen": [{"condition": w.index, "kind": w.c.kind, **w.seen} for w in watches
+                                      if not w.implicit]},
                         sources)
                 nxt = min([w.due for w in watches] + [self.deps.monotonic() + TICK_S])
                 left = max(0.0, (until - self.deps.now()).total_seconds())
@@ -286,6 +313,27 @@ class WaitFor:
         after = round(self.deps.monotonic() - started)
         return ToolResult({"woke": kind, "after_s": after, "evidence": evidence}, is_error="error" in evidence,
                           read_sources=tuple(sorted(sources)))
+
+    def _commands(self, named: list[_Watch], ctx: ToolContext) -> list[_Watch]:
+        """ORCH-639: the task's own commands the worker didn't name, each watched for its end: those running now and
+        those that ended without a tool result showing it. Only this task's (the shell manager's owner); a script
+        condition's runs start later and are never among them."""
+        shells = self.deps.shells()
+        if shells is None or "shell" not in ctx.scopes:
+            return []
+        ids = {w.c.id for w in named if w.c.kind == "process"}
+        out = []
+        for info in shells.list():
+            if info.owner_task != ctx.task_id or info.id in ids or (not info.running and shells.told(info.id)):
+                continue
+            w = _Watch(-1, Condition(kind="process", id=info.id))
+            w.handle, w.implicit = shells.handle(info.id, ctx.task_id), True
+            out.append(w)
+        return out
+
+    def _ended(self, w: _Watch) -> dict[str, Any]:
+        command = _clip(self.deps.shells().info(w.handle).command, COMMAND_CHARS)
+        return {"id": w.c.id, "command": command, "note": COMMAND_ENDED.format(id=w.c.id)}
 
     # ---------- before the wait: every condition checked, its first look due now ----------
 
@@ -500,6 +548,7 @@ class WaitFor:
                 sources.add(("origin", ORIGIN_OUTPUT))
             info = shells.info(h)
         finally:
+            shells.exit_told(h)                          # its end is this wait's, never another wait's (ORCH-639)
             w.due = self.deps.monotonic() + self._interval(c)          # the next run counts from this one's end
             try:
                 if shells.info(h).running:                  # the wait was stopped mid-run: the run goes with it

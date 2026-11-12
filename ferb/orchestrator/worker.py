@@ -491,6 +491,7 @@ class WorkerRuns:
             self._retrying.pop(worker_id, None)
             self.activity.end(worker_id)
             self.tokens.revoke_worker(worker_id)
+            self.gateway.forget_calls(worker_id)
         self.spans.finish(wspan, output={"result": (result.summary if isinstance(result, Outcome)
                                                     else json.dumps(result)),
                                          "status": result.status if isinstance(result, Outcome)

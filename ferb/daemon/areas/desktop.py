@@ -356,7 +356,8 @@ class Desktop:
             status=self._wait_status,
             steered=lambda task_id: self.supervisor.corrections(task_id) if self.supervisor is not None else 0,
             ending=lambda: "restart" if self._shutting_down else None,
-            ended=self._wait_ended))
+            ended=self._wait_ended,
+            failed_act=lambda worker_id: self.gateway.failed_act(worker_id)))
 
     def _automation_granted(self, bundle_id: str) -> bool:
         """Already granted by the owner; never asks (the prompt would appear out of nowhere)."""

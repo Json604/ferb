@@ -4461,3 +4461,12 @@ request = "Ask FERB to start Claude Code in your VS Code terminal; answer Yes to
 pass = "One question (bringing VS Code forward and typing `claude` into its terminal, the whole command shown) before anything is typed; after the Yes, `claude` goes in with one mac.act type call and its Return with no further question; no question per key; the trace shows the later inputs with terminal covers: app."
 decisions = ["HAND-519", "GATE-585", "GATE-586"]
 sitting = "after this change is installed"
+
+[LIVE-940]
+title = "A wait ends at once when its action failed or the task's command ended"
+area = "orchestration"
+surface = "FERB.app with this build; a disposable folder; `ferb trace TASK --full`"
+request = "\"Run `sleep 3; echo boom >&2; exit 1` in the background, then wait up to 10 minutes for ~/Desktop/ferb-test/out.txt to appear, and tell me what happened.\" Then, with a Blender or TextEdit window FERB types into, click another app while FERB presses Return in it."
+pass = "The first task answers within about 10 seconds that the command ended with exit code 1 and printed boom; the trace shows one wait.for that woke as process_exited after about 3 s, not a 10-minute wait. In the second, the wait.for right after a mac.act that failed (PointerInterrupted) returns at once as action_failed, and the worker checks or retries instead of waiting minutes."
+decisions = ["ORCH-639"]
+sitting = "after this change is installed"

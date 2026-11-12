@@ -115,6 +115,7 @@ class ShellManager:
         self.on_received: Callable[[str, int], str | None] | None = None
         self._received: dict[str, int] = {}      # process -> bytes received through the proxy, as last counted
         self._stopped: dict[str, str] = {}       # process -> why FERB stopped it
+        self._exit_told: set[str] = set()        # ended processes whose end a tool result already showed (ORCH-639)
         self._watcher: asyncio.Task[None] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         if proxy is not None:
@@ -219,6 +220,16 @@ class ShellManager:
             return self.on_received(task, new)
         except Exception:
             return None
+
+    def exit_told(self, h: ProcHandle) -> None:
+        """A tool result showed its task that this command ended (or the worker stopped it), so wait.for doesn't wake
+        on that end again (ORCH-639)."""
+        if h.id in self._procs and self._procs[h.id][1].owner_task == h.owner_task:
+            self._exit_told.add(h.id)
+
+    def told(self, proc_id: str) -> bool:
+        """Whether a tool result already showed this command's end (`exit_told`)."""
+        return proc_id in self._exit_told
 
     def stopped(self, proc_id: str) -> str | None:
         """Why FERB stopped this command (the download budget or the free-disk floor); None: it didn't."""
@@ -435,6 +446,7 @@ class ShellManager:
         self._retiring.discard(proc_id)
         self._received.pop(proc_id, None)
         self._stopped.pop(proc_id, None)
+        self._exit_told.discard(proc_id)
         self._owner_input.pop(proc_id, None)
         self._procs.pop(proc_id, None)
 
