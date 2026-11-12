@@ -32,7 +32,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from ferb.act.shell.agents import AgentCheck
 from ferb.act.shell.listeners import contained
 from ferb.act.shell.local import DirectReports, report_tag
 from ferb.act.shell.proxy import EgressProxy
@@ -118,9 +117,6 @@ class ShellManager:
         self._stopped: dict[str, str] = {}       # process -> why FERB stopped it
         self._watcher: asyncio.Task[None] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
-        # ORCH-635 (daemon supplied): a command, or text typed into one, that starts a coding agent's CLI the task's
-        # owner words don't name is refused before it runs (agents.py); None in unit tests of the plumbing
-        self.agents: AgentCheck | None = None
         if proxy is not None:
             proxy.on_report = self._report
 
@@ -135,8 +131,6 @@ class ShellManager:
                     folders: tuple[str, ...] = ()) -> ProcHandle:
         """Run the command text through /bin/sh, under the sandbox profile (with `lift`'s one rule lifted, and the
         task's `folders` the only visible folders it may change)."""
-        if self.agents is not None and (why := self.agents.refusal(command, owner_task)) is not None:
-            raise Refused(why)
         pid = "p-" + secrets.token_hex(4)
         direct: tuple[LocalPort, ...] = ()
         if escape is not None:
@@ -251,8 +245,6 @@ class ShellManager:
         if h.id in self._owner_input:
             raise Refused('You have taken over this process. Worker input is paused until you detach.')
         p = self._get(h)
-        if self.agents is not None and (why := self.agents.refusal(data, h.owner_task)) is not None:
-            raise Refused(why)                    # ORCH-635: typed into a shell it starts the same program
         lifted = self._procs[h.id][1].lifted
         if lifted is not None:
             raise Refused(f"This command runs with the owner's one-time lift of {lifted}; FERB doesn't type into it, "

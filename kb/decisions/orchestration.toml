@@ -1719,16 +1719,31 @@ words = "here it tookn another agent line too literally, i jsut meant its anothe
 words_source = "Owner 2026-11-12, two messages relayed by the coordinator about task f68317e9, where a worker started `codex exec` itself because the request said to use another agent."
 rule = "\"Another agent\", \"a separate agent\" or \"in parallel\" in the owner's words means another FERB worker, never a coding agent's program. A coding agent's CLI (Codex, Claude Code, ...) is started only when the owner's own words name it or one of its models; then PRM-322 applies as written."
 why = "Task f68317e9 started `codex exec` through shell.start: the nested CLI used the owner's ~/.codex and its actions bypassed FERB's gateway (no questions, no redaction of what it sent to its provider)."
-paths = ["ferb/act/shell/agents.py::AgentCheck", "ferb/orchestrator/prompts/supervisor.md", "ferb/orchestrator/prompts/worker.md"]
+paths = ["ferb/orchestrator/prompts/supervisor.md", "ferb/orchestrator/prompts/worker.md"]
 live = ["LIVE-929", "LIVE-930"]
 
 [ORCH-635]
 title = "A command that starts a coding agent's CLI the owner didn't name is refused"
 by = "agent"
 date = 2026-11-12
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-636"
 rule = "For ORCH-634. Before FERB's shell starts a command or types into one, code reads which programs it starts (simple commands past assignments and wrappers, sh -c text, npx/bunx/pnpm dlx/npm exec packages, a node_modules script). One on AGENT_CLIS is refused unless the task's owner words (request, corrections, answers) name it or one of its models (known_models; quoted, whole words); \"agent\" alone never does. Allowed, it runs on the owner's own setup (their login and settings) unless their words say otherwise. Residual: a name built at run time, a script file, a renamed copy."
 why = "Which program a command starts is a fact about it, as HAND-429's app programs are; the owner's words decide. The coordinator relayed the owner's direction that an allowed agent uses the owner's own setup by default."
 rejected = ["A kernel rule denying the CLIs' executables: needs each install's paths and a per-task profile; the text check covers the observed failure and its refusal tells the worker what to do"]
-paths = ["ferb/act/shell/agents.py::AGENT_CLIS", "ferb/act/shell/agents.py::started", "ferb/act/shell/agents.py::model_phrases", "ferb/act/shell/agents.py::AgentCheck", "ferb/act/shell/manager.py::ShellManager.start", "ferb/act/shell/manager.py::ShellManager.send", "ferb/act/shell/sandbox.py::NESTED_SANDBOX", "ferb/daemon/areas/desktop.py::Desktop._task_owner_words", "ferb/daemon/areas/desktop.py::Desktop._agent_models"]
+live = ["LIVE-929", "LIVE-930"]
+
+[ORCH-636]
+title = "Which coding agent may run is the AI's judgment from the owner's words; no code gate"
+by = "agent"
+date = 2026-11-12
+status = "active"
+supersedes = ["ORCH-635"]
+words = "allow even normal model names like claude, opus, fable codex, astra etcetc. and in future more models can come, or any other user can use nay other provider, like opencode's model ro anythgin, how is that tackled??? i dont think so this current is a good aproach / yeah i agree. cause i would wnat it tonctrol sessions outside its sandboxes so i can see the too, like open vs code an run codex/claude there adn keep chatting and observing etcetc"
+words_source = "Owner 2026-11-12, relayed by the coordinator: on ORCH-635's gate, then agreeing to remove the code check and keep the rule in the prompts."
+rule = "For ORCH-634, replacing ORCH-635. No code decides whether a command starts a coding agent's program: FERB's shell runs it as any other command, within its sandbox and other boundaries; there is no list of agent programs or model names. The rule is in worker.md and supervisor.md: a coding agent's program, any provider's, runs only when the owner asked for it by its name or one of its models' names. An agent the owner asked for runs on their own setup (login, settings) unless their words say otherwise."
+why = "A fixed list of programs and model names can't know new tools, new models or other providers, and code matching the owner's words to decide what they meant breaks AGENTS.md rule 4."
+rejected = ["Keeping ORCH-635's AGENT_CLIS list and model-name matching current: always behind new tools, models and providers, and it judges the owner's words in code (rule 4)"]
+untestable = "The rule is prompt text (TEST-500 keeps no wording tests) and the absence of a code check; LIVE-929 and LIVE-930 judge it."
+paths = ["ferb/orchestrator/prompts/worker.md", "ferb/orchestrator/prompts/supervisor.md"]
 live = ["LIVE-929", "LIVE-930"]

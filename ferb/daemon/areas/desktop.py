@@ -12,7 +12,6 @@ from ferb.act.mac.driver import MacComputerDriver, profiles_dir, same_title
 from ferb.act.mac.input import PAUSED, UNMONITORED, RealInput
 from ferb.act.mac.launched import LaunchedApps, brought_forward
 from ferb.act.mac.profile import Profiles
-from ferb.act.shell.agents import AgentCheck
 from ferb.act.shell.local import DirectReports, LocalAccess
 from ferb.act.shell.manager import ShellManager
 from ferb.act.shell.proxy import EgressProxy
@@ -334,7 +333,6 @@ class Desktop:
                                        "cwd": grant.cwd, "confirmation": grant.confirmation_id}),
                                    reports=self.direct_reports, local_refused=self._local_refused)
         self.shells.on_received = self._shell_received   # HAND-210: the tree's download budget and the floor
-        self.shells.agents = AgentCheck(self._task_owner_words, self._agent_models)   # ORCH-635
         if contained is not None:
             add_shell(self.registry, self.shells, self.protection)
         else:
@@ -418,21 +416,6 @@ class Desktop:
         """(bundle id, name) of the Mac's apps, for matching the names the owner uses."""
         p = self._device_profile()
         return [(a.bundle_id, a.name) for a in p.apps] if p is not None else []
-
-    def _task_owner_words(self, task_id: str) -> str:
-        """ORCH-635: the owner's own words for this task's tree: its request with every correction steered into it, and
-        the owner's answers to its questions; "" for a command no task owns."""
-        rec = self.tasks.get(task_id)
-        root = (rec.tree_id if rec is not None else None) or task_id.split(".", 1)[0]
-        top = self.tasks.get(root) or rec
-        request = self.state.requests.get(top.task.request_id) if top is not None else None
-        answers = self.spans.owner_answers(root) if top is not None else []
-        return "\n\n".join([request.words if request is not None else "", *answers])
-
-    def _agent_models(self, kind: str) -> list[str]:
-        """ORCH-635: the model ids FERB knows for Codex or Claude (runtimes.models.known_models, files only)."""
-        from ferb.runtimes.models import known_models
-        return known_models(kind, self.home)
 
     def _shell_process(self, proc_id: str) -> dict[str, Any] | None:
         """ORCH-628: one of FERB's shell commands by its id, for the live line of a task waiting on it."""

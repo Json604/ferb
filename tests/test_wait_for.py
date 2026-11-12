@@ -1,8 +1,7 @@
-"""ORCH-631..635: wait.for waits in code until one of its conditions holds, with one result per wake, and a coding
-agent's CLI starts only when the owner's words name it or one of its models.
+"""ORCH-631..633: wait.for waits in code until one of its conditions holds, with one result per wake.
 
 Live 2026-11-12 16:06-16:26 (task f68317e9): a worker polled shell.wait on a long `codex exec` 38 times at 30 s each,
-about 40 model calls only to watch, and had started that `codex exec` itself because the owner said "another agent".
+about 40 model calls only to watch.
 The waits here run on a stepped clock (TEST-508): each rest moves the clock at once; only the sandboxed script and the
 end-to-end run start real commands."""
 import asyncio
@@ -15,7 +14,6 @@ from typing import Any
 
 import pytest
 
-from ferb.act.shell.agents import REFUSED, AgentCheck, started
 from ferb.act.shell.manager import ProcHandle, ShellManager
 from ferb.clock.wait import WaitDeps, WaitFor, WaitInput
 from ferb.cli.client import Client
@@ -373,53 +371,6 @@ def test_a_script_runs_in_the_sandbox_and_cant_escape_it(tmp_path: Path) -> None
     assert not shells.list()                       # each finished run's record went (a long wait leaves no pile)
     gone = wait(rig(shells), work, {"kind": "script", "command": "no-such-tool --check"}, c=ctx(work))
     assert gone["_error"] and "couldn't run" in gone["evidence"]["error"]
-
-
-# ---------- another agent is another FERB worker (ORCH-634, ORCH-635) ----------
-
-CODEX_MODELS = ["gpt-5.1-codex", "gpt-6-astra"]
-CLAUDE_MODELS = ["claude-opus-5-5", "claude-sonnet-5-5"]
-
-
-def check(words: str) -> AgentCheck:
-    return AgentCheck(lambda task: words, lambda kind: CODEX_MODELS if kind == "codex" else CLAUDE_MODELS)
-
-
-# decision: ORCH-634, ORCH-635
-def test_an_agent_cli_starts_only_when_the_owners_words_name_it_or_its_model() -> None:
-    live = "codex exec -s danger-full-access -C ~/.ferb/workspace --skip-git-repo-check 'fix the tests'"
-    for command, agent in ((live, "Codex"), ("npx -y @openai/codex@latest exec x", "Codex"),
-                           ("cd app && nice -n 10 claude -p 'review'", "Claude Code"),
-                           ("bash -c 'gemini -p x'", "Gemini CLI"),
-                           ("node /opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js -p x",
-                            "Claude Code")):
-        assert [a.label for a in started(command)] == [agent], command
-    assert started("echo codex && ls ~/.codex") == []
-    for words in ("fix the failing tests using another agent", "have a separate agent do it in parallel",
-                  "use an agent for this", ""):
-        assert check(words).refusal(live, "t1") == REFUSED.format(agent="Codex"), words
-    for words in ("have codex fix the tests", "Use Codex Astra for this", "run it on gpt-5.1", "use GPT 6 astra"):
-        assert check(words).refusal(live, "t1") is None, words
-    for words in ("ask Claude Code to review it", "let opus review it", "use Sonnet 5.5"):
-        assert check(words).refusal("claude -p 'review'", "t1") is None, words
-    assert check("let opus review it").refusal(live, "t1") == REFUSED.format(agent="Codex")
-
-
-# decision: ORCH-635
-def test_the_shell_refuses_an_unnamed_agent_cli_before_anything_runs(tmp_path: Path) -> None:
-    shells = ShellManager(tmp_path / "logs", lambda s: s)
-    shells.agents = check("fix the tests with another agent")
-
-    async def go() -> None:
-        with pytest.raises(Refused) as e:
-            await shells.start("codex exec 'fix the tests'", tmp_path, "t1")
-        assert "\"Another agent\" means another FERB worker" in str(e.value)
-        h = await shells.start("cat", tmp_path, "t1")
-        with pytest.raises(Refused):
-            await shells.send(h, "claude -p 'fix the tests'\n")
-        await shells.kill(h)
-    asyncio.run(go())
-    assert not any(p.command.startswith("codex") for p in shells.list())
 
 
 # ---------- end to end: one wake instead of polling ----------
