@@ -230,13 +230,23 @@ def test_browser_ui(worker: Worker, site: LabServer, lab: Any) -> None:
     time.sleep(2)
     try:
         v = w.snapshot()
-        out["pdf_snapshot"] = {"url": v.get("url"), "elements": len(w.snap.elements), "text": (w.snap.text or "")[:200]}
+        out["pdf_snapshot"] = {"url": v.get("url"), "elements": len(w.snap.elements), "text": (w.snap.text or "")[:200],
+                               "pdf": v.get("pdf")}
     except Exception as e:                                      # noqa: BLE001 - the failure is the finding
         out["pdf_snapshot"] = repr(e)[:300]
     try:
         out["pdf_find"] = w.find("4242")
     except Exception as e:                                      # noqa: BLE001
         out["pdf_find"] = repr(e)[:300]
+    # HAND-513: the routes the fact names: a screenshot of the viewer, and the PDF tool on that tab
+    try:
+        out["pdf_screenshot"] = {k: v for k, v in w.screenshot().items() if k in ("width", "height", "masking", "error")}
+    except Exception as e:                                      # noqa: BLE001
+        out["pdf_screenshot"] = repr(e)[:300]
+    from ferb.act.browser.tools import BrowserPdf
+    out["pdf_tool"] = w.tool(BrowserPdf, path=str(w.workspace) + "/lab-invoice.pdf")
+    saved = __import__("pathlib").Path(w.workspace) / "lab-invoice.pdf"
+    out["pdf_tool_bytes"] = saved.stat().st_size if saved.exists() else None
     out["front_changes"] = front.changes[before:]
     report("browser-ui", w, out)
     # a window.open popup window (sign-in style, a named target and a size) becomes the task's (HAND-511; the lab's
@@ -244,7 +254,9 @@ def test_browser_ui(worker: Worker, site: LabServer, lab: Any) -> None:
     assert "opened" in out["popup"] and len(out["task_tabs"]) == 2, (out["popup"], out["task_tabs"])
     assert any("name=popup" in u for u in out["lab_pages"])
     assert out["permission_state"].get("notify") == "asked"                    # GAP: a prompt waits; no fact says so
-    assert isinstance(out["pdf_snapshot"], dict) and out["pdf_snapshot"]["elements"] == 0   # GAP: PDF viewer unreadable
+    # HAND-513: the PDF viewer still shows no text to the snapshot, but the snapshot says so and names what works
+    assert out["pdf_snapshot"]["elements"] == 0 and out["pdf_snapshot"]["pdf"]["next"].startswith("Look at it")
+    assert out["pdf_screenshot"].get("width") and out["pdf_tool"].get("is_error")
     assert out["front_changes"] == []
 
 

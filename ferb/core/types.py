@@ -489,6 +489,7 @@ class PageSnapshot:
     # masked): structural facts such as a bot-check widget's challenge frame (HAND-208)
     frame_urls: list[str] = field(default_factory=list)
     loading: bool = False                    # the tab was still loading when it was read (extension 0.19.6)
+    content_type: str | None = None          # the top document's type when it isn't a page (application/pdf, HAND-513)
 
 
 # ---------- Mac / computer ----------

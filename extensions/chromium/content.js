@@ -760,7 +760,10 @@
     const vv = window.visualViewport, d = document.scrollingElement || document.documentElement;
     let commerce = null;
     try { commerce = pageCommerce(); } catch (_) { commerce = null; }   // best effort: never fails a snapshot
+    // HAND-513: a document that isn't a page (the browser's PDF viewer shows application/pdf) says what it is
+    const type = String(document.contentType || "");
     return { gen, document_binding: bind(document.documentElement), url: maskUrl(location.href), title: document.title, name: window.name || "", top: window === top,
+             ...(type && !/^(text\/html|application\/xhtml\+xml)$/i.test(type) ? { content_type: type.slice(0, 100) } : {}),
              ...(commerce ? { commerce } : {}),
              viewport: [innerWidth, innerHeight], scroll: {...scrollState(null), x: Math.round(d.scrollLeft), width: d.scrollWidth},
              scrollers, iframes, elements: out, text,

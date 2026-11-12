@@ -4307,3 +4307,12 @@ request = "Ask FERB to open the page, press its Print button, and save the page 
 pass = "The click's result says the page asked to print (no print dialog on your screen, no outcome unknown), FERB saves the PDF with browser.pdf, and the tab keeps answering."
 decisions = ["HAND-512"]
 sitting = "after this change is installed and 0.19.10 is loaded"
+
+[LIVE-923]
+title = "FERB reads a PDF a link opens in the browser"
+area = "hands"
+surface = "FERB.app with this build and the FERB extension 0.19.10; a public PDF link (a published report or menu)"
+request = "Ask FERB to open that link and tell you one fact from the PDF's first page."
+pass = "The snapshot after the click says the tab shows a PDF; FERB reads it from a screenshot or fetches the file and reads it, and gives the fact with where it came from; no loop of empty snapshots."
+decisions = ["HAND-513"]
+sitting = "after this change is installed and 0.19.10 is loaded"

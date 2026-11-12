@@ -158,7 +158,8 @@ Extension 0.19.10 keeps protocol 21 and the minimum (HAND-504..; an older extens
   A `removed` tab event carries `closed_by_page` when the page hook saw the page close its own window; a `download`
   event carries `blank_tab` when the tab shows nothing but that download.
 - The page hook answers window.print() while FERB drives the tab (no print preview); the act's reply carries
-  `print: "asked"` and says so in `observed` (HAND-512)."""
+  `print: "asked"` and says so in `observed` (HAND-512).
+- A snapshot frame carries `content_type` when its document isn't a page (application/pdf in the browser's viewer)."""
 
 import base64
 import hashlib

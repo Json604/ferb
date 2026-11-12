@@ -24,6 +24,16 @@ BOT_CHECK_FACT = ("A bot-check widget's frame is on this page. It may be only a 
                   "the page's own words say whether a check is asked.")
 
 
+# HAND-513: a tab showing a PDF in the browser's own viewer (its document's type, a structural fact). What works there
+# (lab 2026-11-12): a screenshot shows the page in view; the snapshot, find, read and html see none of its text, and
+# the PDF tool withholds it (its fields can't be read, so nothing could be painted over them).
+PDF_FACT = ("This tab shows a PDF in the browser's own PDF viewer: the snapshot, find, read and html see none of its "
+            "text, and nothing in it can be acted on by id.")
+PDF_NEXT = ("Look at it with browser_screenshot (the page in view). For its text, take the file itself: when its "
+            "address needs no sign-in, fetch it with the shell (curl -L -o name.pdf 'address') into your workspace and "
+            "read it there; otherwise say what the screenshot shows.")
+
+
 def bot_check(frame_urls: list[str]) -> dict[str, Any] | None:
     """The bot-check widgets a page's frames show (by CHALLENGE_FRAMES), stated with the ability that covers them."""
     from urllib.parse import urlsplit
@@ -196,6 +206,8 @@ def for_model(snap: PageSnapshot, *, full: bool = False, probe: bool = False) ->
     out: dict[str, Any] = {"tab": snap.tab.tab_id, "url": snap.url, "title": snap.title}
     if snap.loading:                               # read at once, not after every frame loaded (HAND-434): a fact
         out["loading"] = "the page was still loading when it was read; parts of it may be missing"
+    if snap.content_type == "application/pdf":     # HAND-513: the browser's own viewer, stated first with the way on
+        out["pdf"] = {"fact": PDF_FACT, "next": PDF_NEXT}
     check = bot_check(snap.frame_urls)
     if check is not None:                          # HAND-208: stated first, with the ability that covers it
         out["bot_check"] = check

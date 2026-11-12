@@ -1380,3 +1380,14 @@ why = "Lab: the print preview stopped the page: the click came back \"outcome un
 evidence = "Lab 2026-11-12 chrome-ui.html Print: before, OutcomeUnknown after 30.1 s and the next snapshot hung; after, ok with print asked, print() returned and the next snapshot read 9 elements."
 paths = ["extensions/chromium/protocol.js::ferbPageHook", "extensions/chromium/background.js::observeAct", "extensions/chromium/content.js::listenHook"]
 live = ["LIVE-922"]
+
+[HAND-513]
+title = "A snapshot of a PDF in the browser's viewer says so first, with what works there"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "For HAND-503, extension 0.19.10. content.js reports a top document whose type isn't a page (`content_type`); for application/pdf the snapshot result starts with `pdf` {fact, next}: the snapshot, find, read and html see none of its text and nothing in it can be acted on by id; browser_screenshot shows the page in view; for its text the worker takes the file itself (the shell fetches an address that needs no sign-in), else says what the screenshot shows. Nothing new is built for signed-in PDFs."
+why = "Lab: a PDF in the viewer gave 0 elements and \"tab never became ready for input\", and nothing said why or what to do."
+evidence = "Lab 2026-11-12: the snapshot names it; a screenshot of the viewer works; browser.pdf of that tab is withheld (its fields can't be read); find sees nothing. Whether the viewer scrolls with browser.scroll isn't measured."
+paths = ["extensions/chromium/content.js::snapshot", "ferb/act/browser/snapshot.py::PDF_FACT", "ferb/act/browser/ext_bridge.py::snapshot"]
+live = ["LIVE-923"]

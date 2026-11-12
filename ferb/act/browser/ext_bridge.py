@@ -1738,8 +1738,10 @@ class _TabDriver:
         t.amounts = page_amounts([text, *(e.label or "" for *_, e in elements.values())])
         t.containers, t.media, t.media_ids = containers, media_refs, media_ids
         t.page, t.motion, t.moved = _Page.of(v.get("window"), top), motion, False
+        kind = top.get("content_type")                  # HAND-513: the browser's PDF viewer, an image, plain text
         result = PageSnapshot(tab, gen, url, title, [e for *_, e in elements.values()], text, truncated, dialogs,
-                              scroll, scrollers, media, frame_urls(v["frames"]), loading=v.get("loading") is True)
+                              scroll, scrollers, media, frame_urls(v["frames"]), loading=v.get("loading") is True,
+                              content_type=kind[:100] if isinstance(kind, str) and kind else None)
         from ferb.act.browser.snapshot import for_model
         full = for_model(result, full=True)
         full["frames"] = [{k: f[k] for k in ("frame_id", "url", "text", "truncated") if k in f} for f in v["frames"]]

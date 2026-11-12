@@ -357,3 +357,15 @@ def test_the_page_hook_answers_print_while_ferb_drives_the_tab_and_tells_of_a_wi
     assert ran.returncode == 0, ran.stderr
     assert json.loads(ran.stdout) == {"returned": True, "whileDriven": 0, "printed": 1, "closed": 1,
                                       "told": ["print", "closing"]}
+
+
+# decision: HAND-513
+def test_a_snapshot_of_a_pdf_in_the_browsers_viewer_says_so_first_with_the_way_on() -> None:
+    """Lab: a PDF in the viewer gave a snapshot with no elements and no text, and nothing said why."""
+    from ferb.act.browser.snapshot import for_model
+    from ferb.core.types import PageSnapshot, TabRef
+    tab = TabRef("dev", "chrome", "Default", 1, "t1")
+    pdf = for_model(PageSnapshot(tab, 1, "https://shop.example/invoice.pdf", "invoice.pdf", content_type="application/pdf"))
+    page = for_model(PageSnapshot(tab, 1, "https://shop.example/", "Shop"))
+    assert list(pdf)[3] == "pdf" and pdf["pdf"]["next"].startswith("Look at it with browser_screenshot")
+    assert "pdf" not in page
