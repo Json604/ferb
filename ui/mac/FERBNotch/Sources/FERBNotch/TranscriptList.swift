@@ -776,7 +776,29 @@ final class ListTable: NSTableView {
         placing += 1
         super.layout()
         placing -= 1
+        clearEditorBackground()
     }
+
+    /// APP-897: a field in a row (a question's answer or "Or tell the task something else", a guess's words) keeps FERB's
+    /// field look while it is edited. When a view in a row becomes the window's first responder, AppKit's table turns on
+    /// the field editor's own background (-[NSTableRowData setFirstResponderRowView:atRow:], reached from this KVO
+    /// observation of the window's first responder): a near-black textBackgroundColor rectangle the field's full width
+    /// (owner 2026-11-12: "the black input box color is still there"). The editor draws nothing of its own here, so
+    /// the field's soft fill (FerbField) shows; its color is clear too, so a later pass of the table turning the
+    /// background on again draws nothing.
+    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?,
+                               context: UnsafeMutableRawPointer?) {
+        super.observeValue(forKeyPath: keyPath, of: object, change: change, context: context)
+        clearEditorBackground()
+    }
+
+    private func clearEditorBackground() {
+        guard let editor = window?.firstResponder as? NSTextView, editor.isFieldEditor, editor.isDescendant(of: self)
+        else { return }
+        if editor.drawsBackground { editor.drawsBackground = false }
+        if editor.backgroundColor != .clear { editor.backgroundColor = .clear }
+    }
+
     override var acceptsFirstResponder: Bool { false }
     /// A click goes straight to what it lands on (a text to select, a field to type in): rows are never selected first.
     override func validateProposedFirstResponder(_ responder: NSResponder, for event: NSEvent?) -> Bool { true }

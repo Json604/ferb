@@ -4379,3 +4379,12 @@ request = "\"Use Codex to fix the failing test in ~/Desktop/scratch-repo.\" Then
 pass = "Both times FERB starts `codex exec …` in the repo (the owner's own Codex login and settings), waits on it with one wait.for (\"Waiting for `codex exec …` to finish (up to HH:MM)\"), checks the result and says Codex did the fix."
 decisions = ["ORCH-634", "ORCH-636", "ORCH-633"]
 sitting = "after this change is installed"
+
+[LIVE-931]
+title = "Typing in a question card's box in the chat shows no black box"
+area = "app"
+surface = "FERB.app with this build, the notch chat and the chat window; a task that asks a Yes (a payment's Pay / Don't pay) and a task question with a typed answer"
+request = "Ask FERB a task that reaches a payment question (e.g. a kartikey.xyz test checkout). In the question card click \"Or tell FERB what to do instead…\" and type a few words; do the same in a task question's \"Or type your answer…\" box, then again with the chat in its own window."
+pass = "While you type, the box stays the soft light rounded field: no near-black rectangle behind the text at any point (clicked, typing, after more text arrives in the chat)."
+decisions = ["APP-897"]
+sitting = "after this change is installed"

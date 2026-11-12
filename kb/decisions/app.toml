@@ -3527,3 +3527,13 @@ rule = "A TextField or SecureField FERB.app shows has the question cards' look: 
 why = "Owner 2026-11-09: \"what is this black box UI when i click pon text box???\". A default-style or .roundedBorder field draws a near-black bezel on FERB's dark glass (rendered 2026-11-12); the intro's entry used .roundedBorder and Settings' fields only a window-wide style."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/FieldLook.swift::FerbField"]
 live = ["LIVE-915"]
+
+[APP-897]
+title = "A field in a chat row keeps FERB's field look while typed in; the table's editing background is off"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "Refines APP-896. A text field in a row of the chat's transcript list (a question's answer, a safety check's \"Or tell the task something else\" box, a guess's words, the own-words field, in the notch and in the chat window) draws no background of its own while it is edited: when the window's first responder changes, and after each layout, the list's table turns the field editor's background off and makes its colour clear, so only the field's FerbField fill shows. Fields outside the list never had that background."
+why = "Owner 2026-11-12: \"the black input box color is still there\" (typing under Pay / Don't pay). Rendered 2026-11-12: NSTableView, on a first-responder change in a row (NSTableRowData setFirstResponderRowView), turns the field editor's drawsBackground on: textBackgroundColor (#1E1E1E) full width."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TranscriptList.swift::ListTable"]
+live = ["LIVE-931"]
