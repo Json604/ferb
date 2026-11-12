@@ -1847,7 +1847,10 @@ async function trusted(tabId, a) {
     if (pointing && !(await reachesAfresh(tabId, a.frame_id, p.x, p.y, p.fx, p.fy))) return NOT_REACHED;
     if (a.kind === "hover") { await mouse(tabId, "mouseMoved", p.x, p.y); return { ok: true, detail: "hovered (trusted)" }; }
     if (CLICKS[a.kind]) {
-      await pointerClick(tabId, p.x, p.y, CLICKS[a.kind]);
+      // HAND-514: held keys with the click (shift for a range, cmd for one more item), CDP's bits: alt 1, ctrl 2, cmd 4,
+      // shift 8
+      const modifiers = Number.isInteger(a.modifiers) && a.modifiers > 0 && a.modifiers <= 15 ? a.modifiers : 0;
+      await pointerClick(tabId, p.x, p.y, { ...CLICKS[a.kind], modifiers });
       const name = a.kind === "dblclick" ? "double-clicked" : a.kind === "rightclick" ? "right-clicked" : "clicked";
       return { ok: true, detail: `${name} (trusted)${p.occluded ? "; the element looked covered" : ""}` };
     }
@@ -2428,7 +2431,8 @@ const commands = {
         "text only from a real paste); type the text instead"};
     return r;
   },
-  async actOnce({ tab_id, frame_id, snap, el, kind, text, page_mode, expect_dialog, dialog_text, append, per_key, mode, html }) {
+  async actOnce({ tab_id, frame_id, snap, el, kind, text, page_mode, expect_dialog, dialog_text, append, per_key, mode, html,
+                  modifiers }) {
     if (["type","select","press","paste"].includes(kind) && typeof text !== "string")
       return {ok:false,reason:"explicit_input_required",detail:"No default key or replacement text is supplied"};
     const page = page_mode === true || kind === "select" || kind === "scroll" || kind === "paste";
@@ -2464,7 +2468,7 @@ const commands = {
     }
     const before = state.fileChoosers.length;
     const result = page ? await pageAct()
-      : await trusted(tab_id, { frame_id, snap, el, kind, text, expect_dialog, dialog_text, append, per_key, mode });
+      : await trusted(tab_id, { frame_id, snap, el, kind, text, expect_dialog, dialog_text, append, per_key, mode, modifiers });
     const choosers = state.fileChoosers.slice(before);
     const submitted = submits ? await formSubmits(tab_id) : [];
     return {...result, ...(choosers.length ? {file_choosers: choosers} : {}), ...(submitted.length ? {submitted} : {})};

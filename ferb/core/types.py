@@ -415,6 +415,7 @@ class BrowserAction:
     mode: Literal["replace", "insert"] | None = None   # type (HAND-505): replace the field's text, or insert at the
                                                        # caret; None: by the field's structure
     html: str | None = None                  # paste (HAND-506): the same content as text/html
+    modifiers: tuple[Literal["shift", "cmd", "ctrl", "alt"], ...] = ()   # click (HAND-514): keys held with it
 
 
 @dataclass(frozen=True)

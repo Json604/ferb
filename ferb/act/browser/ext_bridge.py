@@ -1849,6 +1849,11 @@ class _TabDriver:
             args |= {"mode": action.mode, "append": action.mode == "insert"}
         if action.kind == "paste" and action.html:
             args["html"] = action.html
+        if action.modifiers:                           # HAND-514: CDP's bits, alt 1, ctrl 2, cmd 4, shift 8
+            if not version_ok(version, INPUT_EXTENSION_VERSION):
+                raise Refused(f"the FERB extension in this profile is {version or 'an older version'}; a click with "
+                              f"held keys needs {INPUT_EXTENSION_VERSION} or later: click the items one by one")
+            args["modifiers"] = sum({"alt": 1, "ctrl": 2, "cmd": 4, "shift": 8}[m] for m in set(action.modifiers))
         if action.expect_dialog:
             args["expect_dialog"] = action.expect_dialog
             if action.dialog_text is not None:

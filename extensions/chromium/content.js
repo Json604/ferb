@@ -558,6 +558,12 @@
     if (exp !== null) e.expanded = exp === "true";
     if (sel !== null) e.selected = sel === "true";
     if (chk !== null && value === null) e.value = chk === "true" ? "checked" : "";
+    // HAND-514: a slider, spin button, progress bar or meter the page built states its value through ARIA
+    if (e.value === null && ["slider", "spinbutton", "progressbar", "meter", "scrollbar"].includes(role)) {
+      const text = el.getAttribute("aria-valuetext"), now = el.getAttribute("aria-valuenow");
+      const min = el.getAttribute("aria-valuemin"), max = el.getAttribute("aria-valuemax");
+      if (text || now) e.value = labelText(text || now).slice(0, 200) + (min !== null && max !== null ? ` (${min}–${max})` : "");
+    }
     if (el.tagName === "DETAILS" || (el.tagName === "SUMMARY" && el.parentElement && el.parentElement.tagName === "DETAILS"))
       e.expanded = !!(el.parentElement && el.parentElement.open);
     if (role === "heading") e.level = HEADING.has(el.tagName) ? Number(el.tagName[1]) : Number(el.getAttribute("aria-level") || 2);
@@ -1037,7 +1043,9 @@
       return { ok: true, detail: "typed (page events)" };
     }
     if (kind === "select") {
-      if (!(el instanceof HTMLSelectElement)) return { ok: false, detail: "not_a_select" };
+      if (!(el instanceof HTMLSelectElement)) return { ok: false, reason: "not_a_select", detail: "not_a_select: " +
+        "select works only on a native list (a <select>); this is a control the page built: click it, take a new " +
+        "snapshot, then click the option it shows (or type into it, if it is a search box, and click the match)" };
       const matches = Array.from(el.options).filter(o => o.value === text || o.text.trim() === text);
       if (matches.length !== 1) return {ok:false,reason:matches.length ? "ambiguous_option" : "no_such_option",
         detail:"Choose an unambiguous option from its evidence",candidates:matches.map(o=>({value:o.value,label:o.text}))};

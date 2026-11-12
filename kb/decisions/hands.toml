@@ -1391,3 +1391,13 @@ why = "Lab: a PDF in the viewer gave 0 elements and \"tab never became ready for
 evidence = "Lab 2026-11-12: the snapshot names it; a screenshot of the viewer works; browser.pdf of that tab is withheld (its fields can't be read); find sees nothing. Whether the viewer scrolls with browser.scroll isn't measured."
 paths = ["extensions/chromium/content.js::snapshot", "ferb/act/browser/snapshot.py::PDF_FACT", "ferb/act/browser/ext_bridge.py::snapshot"]
 live = ["LIVE-923"]
+
+[HAND-514]
+title = "Clicks with held keys, a plain word for a non-native select, ARIA slider values in the snapshot"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "For HAND-503, extension 0.19.10. browser.act click, dblclick and rightclick take `modifiers` (shift, cmd, ctrl, alt), sent with the real click (CDP bits; never with page_mode; an older extension is refused). select on anything that isn't a <select> fails `not_a_select` saying to click the control, take a snapshot and click its option. A slider, spin button, progress bar, meter or scrollbar the page built shows aria-valuetext or aria-valuenow (with its min and max) as its snapshot value."
+why = "Lab: a shift-click range in a list couldn't be made; not_a_select said nothing about what works; a noUiSlider's handles had no value, so the worker couldn't tell where they were."
+evidence = "Lab 2026-11-12: shift-click selects b..d (was d only); the handles read 20.00 (0.0-80.0) and 80.00 (20.0-100.0); a custom combobox's select says how."
+paths = ["extensions/chromium/background.js::trusted", "extensions/chromium/content.js::describe", "extensions/chromium/content.js::act", "ferb/act/browser/tools.py::BrowserAct"]

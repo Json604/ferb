@@ -891,6 +891,10 @@ class BrowserAct(_Base):
                                       "(or End) first")
         html: str | None = Field(default=None, description="paste only: the same content as HTML (h1-h3, p, ul/ol/li, b, "
                                                            "i, a), so an editor keeps its structure; text stays required")
+        modifiers: list[Literal["shift", "cmd", "ctrl", "alt"]] | None = Field(
+            default=None, max_length=4, description="click, dblclick, rightclick: keys held during the click, as real "
+                                                    "input (shift: select a range from the last clicked item; cmd: add "
+                                                    "one more item; on a link cmd opens it in a new task tab)")
         end_element: str | None = Field(default=None, description="drag only: destination id from a second browser_point on the same screenshot")
         trusted: bool = False
         page_mode: bool = Field(default=False, description="scripted page events instead of real input (only when "
@@ -909,6 +913,8 @@ class BrowserAct(_Base):
                 raise ValueError("mode is for type only")
             if self.html is not None and self.action != "paste":
                 raise ValueError("html is for paste only")
+            if self.modifiers and (self.action not in {"click", "dblclick", "rightclick"} or self.page_mode):
+                raise ValueError("modifiers go with a real click, dblclick or rightclick only (not page_mode)")
             if self.action == "press" and not self.text:
                 raise ValueError("press requires explicit text naming a key")
             return self
@@ -1001,7 +1007,8 @@ class BrowserAct(_Base):
                                                                 for f in getattr(args, "files", None) or ()),
                                                     end_element=getattr(args, "end_element", None),
                                                     files_closed=ctx.path_closed, terminal=ctx.terminal,
-                                                    mode=getattr(args, "mode", None), html=getattr(args, "html", None)),
+                                                    mode=getattr(args, "mode", None), html=getattr(args, "html", None),
+                                                    modifiers=tuple(getattr(args, "modifiers", None) or ())),
                                   ctx.intent_id or "")
         # facts come back from the page (option candidates, scroll state, dialogs): label them with the tab's page
         # HAND-493: the hint follows what happened

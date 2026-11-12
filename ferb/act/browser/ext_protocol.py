@@ -159,7 +159,9 @@ Extension 0.19.10 keeps protocol 21 and the minimum (HAND-504..; an older extens
   event carries `blank_tab` when the tab shows nothing but that download.
 - The page hook answers window.print() while FERB drives the tab (no print preview); the act's reply carries
   `print: "asked"` and says so in `observed` (HAND-512).
-- A snapshot frame carries `content_type` when its document isn't a page (application/pdf in the browser's viewer)."""
+- A snapshot frame carries `content_type` when its document isn't a page (application/pdf in the browser's viewer).
+- `act` click, dblclick and rightclick take `modifiers` (CDP's bits: alt 1, ctrl 2, cmd 4, shift 8); select on a
+  control that isn't a <select> says how to pick its option; ARIA sliders and spin buttons carry their value."""
 
 import base64
 import hashlib

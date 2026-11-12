@@ -369,3 +369,27 @@ def test_a_snapshot_of_a_pdf_in_the_browsers_viewer_says_so_first_with_the_way_o
     page = for_model(PageSnapshot(tab, 1, "https://shop.example/", "Shop"))
     assert list(pdf)[3] == "pdf" and pdf["pdf"]["next"].startswith("Look at it with browser_screenshot")
     assert "pdf" not in page
+
+
+# decision: HAND-514
+def test_a_click_holds_the_keys_asked_for_as_real_input() -> None:
+    """Lab: a list's shift-click range (Gmail, Drive) couldn't be made: the act had no held keys."""
+    out = run('''
+      await act({kind: "click"});
+      const from = cmds.length;
+      await act({kind: "click", modifiers: 8});
+      await act({kind: "click", modifiers: 99});                  // out of range: no held key
+      return cmds.slice(from).filter(([m, p]) => p.type === "mousePressed").map(([m, p]) => p.modifiers);
+    ''')
+    assert out == [8, 0]
+
+
+# decision: HAND-514
+def test_the_daemon_sends_held_keys_only_with_a_real_click(bd: Any) -> None:  # noqa: F811
+    d, launched = bd
+    ext, g = _ready(d, launched)
+    tab, ids = _form(d, g)
+    call(d, g, "browser.act", tab=tab, element=ids["Submit"], action="click", modifiers=["shift", "cmd"])
+    assert ext.acts[-1]["modifiers"] == 12
+    bad = call(d, g, "browser.act", tab=tab, element=ids["Name"], action="type", text="x", modifiers=["shift"])
+    assert bad["is_error"] and ext.acts[-1].get("kind") == "click"     # refused before anything was sent

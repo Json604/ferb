@@ -542,6 +542,7 @@ def test_widgets(worker: Worker, site: LabServer) -> None:
     out["choices_after_click"] = w.truth()["choices"]
     tom_input = w.evaluate("() => document.querySelector('#tom-ts-control') ? 'present' : 'absent'")
     out["tom_input"] = tom_input
+    out["custom_select"] = _try(w, "Assignee", "select", text="Arjun Mehta")   # HAND-514: not a <select>: says how
     _try(w, "Language", "type", text="Tam", contains=True)
     w.snapshot()
     out["tom_options_after_type"] = [(e.role, e.label) for e in w.snap.elements if e.role == "option"]
@@ -584,7 +585,8 @@ def test_widgets(worker: Worker, site: LabServer) -> None:
     assert out["switch_type"].get("ok") is False and out["switch_type"].get("reason") == "not_editable", out["switch_type"]
     assert out["phone_type"].get("field_value") == out["phone"][1] != "9876543210", out["phone_type"]
     assert f["date"] == "2026-12-25" and f["dtl"] == "2026-12-25T14:30"   # page_mode sets them
-    assert all(v is None for _, _, v in out["slider_handles"])             # GAP: an ARIA slider's value isn't shown
+    assert out["slider_handles"] and all(v for _, _, v in out["slider_handles"])   # HAND-514: its ARIA value shown
+    assert out["custom_select"]["reason"] == "not_a_select" and "click the option" in out["custom_select"]["detail"]
     assert f["native"] == "Japan" and f["choices"] == "bom" and f["flat"] == "2026-11-20" and f["stars"] == 4
     assert f["switch"] == "true" and f["fruit"] == "Banana" and f["picked"] == "Arjun Mehta" and f["terms"] is True
 
@@ -739,7 +741,7 @@ def test_hover_context_dblclick_modifiers(worker: Worker, site: LabServer) -> No
     _try(w, "Archive 1003", "click")
     out["row_action_over"] = w.truth()["rowAction"]
     _try(w, "b.txt", "click", role="option")
-    _try(w, "d.txt", "click", role="option")       # a person shift-clicks here: FERB's act has no modifier
+    _try(w, "d.txt", "click", role="option", modifiers=["shift"])   # HAND-514: a shift-click, as a person does
     out["selected_after_two_clicks"] = w.truth()["selected"]
     w.snapshot()
     out["tooltip_in_snapshot_text"] = "Locker 12" in (w.snap.text or "")
@@ -750,7 +752,7 @@ def test_hover_context_dblclick_modifiers(worker: Worker, site: LabServer) -> No
     assert out["cell"] == "Edited" and out["row_action"] == "archive 1002"
     assert out["hover_reveals"].get("ok") and "under the pointer" in str(out["hover_reveals"].get("observed")), out
     assert out["row_action_over"] == "archive 1003"
-    assert out["selected_after_two_clicks"] == ["d.txt"]      # GAP: no shift-click, so no range selection
+    assert out["selected_after_two_clicks"] == ["b.txt", "c.txt", "d.txt"]   # a range
 
 
 # ---------- shadow DOM and web components ----------
