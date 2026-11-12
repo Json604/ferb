@@ -661,3 +661,12 @@ status = "open"
 why = "HAND-502: rule 18 makes a size limit the owner's; the task's download budget (32 GB) stands in meanwhile. The file travels in 256 KiB parts and lives in the page's memory (Blobs) until the site takes it, so very large files cost the browser memory and time."
 decisions = ["HAND-502"]
 ask = "When FERB uploads files in your browser, should one upload have a size limit? Today it may be as large as a task's download budget (32 GB). A number like 2 GB, or no limit beyond that budget?"
+
+[T-1094]
+title = "Publish extension 0.19.10 to the Chrome Web Store"
+area = "hands"
+kind = "live"
+status = "open"
+why = "HAND-504..516 reach the owner's browsers only through the store. Package: build/store/ferb-extension-0.19.10.zip; no new permission, so no listing change (HAND-404); 0.19.4's self-update (HAND-430) installs it. Then LIVE-916..914."
+decisions = ["HAND-504", "HAND-516", "HAND-404", "HAND-430"]
+after = ["T-1092"]
