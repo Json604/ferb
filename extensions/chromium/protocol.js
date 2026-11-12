@@ -27,7 +27,9 @@
 // Extension 0.19.10 keeps protocol 21 and the minimum (HAND-504..): a type or press on a field the page covers with its
 // own drawing or keeps outside the page focuses it by script and sends the keys (`focus`, `unpointed` in the reply);
 // type takes `mode` (replace | insert); `act` kind `paste` dispatches the page's own paste event (text and html), never
-// touching the system clipboard.
+// touching the system clipboard. Also optional only (ext_protocol.py lists each): picker fields set by value, scroll
+// left/right/screens/to, popup windows claimed, `closed_by_page` and `blank_tab`, print answered by the hook, a
+// snapshot's `content_type`, click `modifiers`, and secret fields by structure only (HAND-516).
 const FERB_PROTOCOL = 21;
 const FERB_HOST = "com.ferb.native_host";
 
