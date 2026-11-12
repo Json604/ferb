@@ -17,6 +17,7 @@ from ferb.daemon.areas.shared import TASK_PAGE, TASK_PAGE_MAX
 from ferb.daemon.server import Session
 from ferb.orchestrator import episodes
 from ferb.orchestrator.names import shown_name
+from ferb.orchestrator.plans import steps_done
 from ferb.store import retention
 from ferb.trace import compose
 
@@ -64,10 +65,14 @@ class Rpc:
         for r in rows[:limit]:
             outcome = json.loads(r["outcome_json"] or "{}")
             answer = r["answer"] or outcome.get("answer") or outcome.get("summary") or ""
+            # APP-894: a single ask's checklist count, live while it runs, else as its end recorded it
+            checklist = (self.supervisor.checklist_state(r["id"]) if self.supervisor is not None else None) \
+                or outcome.get("checklist")
             out.append({"task_id": r["id"], "goal": self._redact_text(str(r["goal"])),
                         "name": self._redact_text(shown_name(r["name"], str(r["goal"]))), "status": r["status"],
                         "created_at": r["created_at"], "updated_at": r["updated_at"],
-                        "answer": self._redact_text(str(answer)), "verdict": r["verdict"]})
+                        "answer": self._redact_text(str(answer)), "verdict": r["verdict"]}
+                       | ({"steps": steps_done(checklist)} if checklist else {}))
         return {"tasks": out, "more": len(rows) > limit}
 
     async def _reports_diagnostic(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:

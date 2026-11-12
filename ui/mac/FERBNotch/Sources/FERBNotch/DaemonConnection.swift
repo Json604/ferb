@@ -130,6 +130,12 @@ extension NotchModel {
                 guard let id = row["task_id"] as? String, let card = TurnCard(row["card"], taskID: id) else { continue }
                 if changeConversation({ $0.showCard(card, goal: Self.heading(row, empty: "")) }) { cardsChanged = true }
             }
+            // A single ask's checklist as it stands (APP-894): its steps' live states after a reconnect.
+            for row in running {
+                guard let id = row["task_id"] as? String, let checklist = StepChecklist(row["checklist"], taskID: id)
+                else { continue }
+                if changeConversation({ $0.showChecklist(checklist) }) { cardsChanged = true }
+            }
             if cardsChanged { saveConversation() }
             // Standing work only for a task still running (L31).
             let loops = status["loops"] as? [[String: Any]] ?? []
@@ -369,12 +375,13 @@ extension NotchModel {
             // Live state only, so it is not saved. The chat shows only the AI service connection's lines (marked
             // `connection`: offline, reconnected); ordinary steps ("opening …") stay out of it (owner, 2026-10-24:
             // only the "N active tasks" row) and remain in the task's Inspect view.
-            if event["connection"] != nil {
+            // ORCH-625: a line from before the task exists (`planning`: FERB looking at the plan's files) shows too
+            if event["connection"] != nil || event["planning"] as? Bool == true {
                 conversation.showProgress(id: localID, text: event["text"] as? String ?? "",
                     startedAt: LiveProgress.time(event["started_at"]) ?? LiveProgress.time(event["at"]) ?? Date())
-            } else if let step = event["step_task_id"] as? String, !step.isEmpty,
-                      conversation.turns.contains(where: { $0.card?.rows.contains { $0.stepTaskID == step } == true }) {
-                // A card row's own live line (APP-718): what that step is doing now, shown in its row only.
+            } else if let step = event["step_task_id"] as? String, !step.isEmpty, conversation.showsStep(step) {
+                // A card row's own live line (APP-718): what that step is doing now, shown in its row only (or its
+                // checklist line, APP-894, APP-895).
                 stepLive[step] = LiveProgress(text: event["text"] as? String ?? "",
                     startedAt: LiveProgress.time(event["started_at"]) ?? Date())
             }
@@ -531,8 +538,7 @@ extension NotchModel {
             // view and its own box show; a tool's name (tool.called) is never shown
             guard let taskID, let text = data["text"] as? String, !text.isEmpty else { return }
             noteTaskActivity(taskID: taskID, title: text, symbol: "globe")
-            if let step = data["step_task_id"] as? String, !step.isEmpty,
-               conversation.turns.contains(where: { $0.card?.rows.contains { $0.stepTaskID == step } == true }) {
+            if let step = data["step_task_id"] as? String, !step.isEmpty, conversation.showsStep(step) {
                 stepLive[step] = LiveProgress(text: text,
                                               startedAt: LiveProgress.time(data["started_at"]) ?? Date())
             }

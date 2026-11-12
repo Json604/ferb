@@ -4209,3 +4209,21 @@ request = "\"Gather FERB's story from ~/Desktop/ferb and write me a one-paragrap
 pass = "The plan line appears within seconds of the planner finishing (no minutes of silence). If FERB instead reads the folder file by file, a line \"Looking at the files in ~/Desktop/ferb\" shows under your message meanwhile and FERB says the folder is too big to hand over whole."
 decisions = ["ORCH-625"]
 sitting = "after this change is installed"
+
+[LIVE-911]
+title = "A single ask of four steps shows its steps while it runs and one line when done"
+area = "app"
+surface = "FERB.app with this build, in the notch and in the chat window"
+request = "\"Look up today's top Hacker News story, find two other sources on it, write a short summary to ~/Desktop/hn-summary.md, then open it in TextEdit.\""
+pass = "One card shows the task's name and \"0 of 4\" … \"4 of 4\" on top and a line per step: done steps ticked and greyed, the running step highlighted with what it is doing and its small live picture (not also by \"1 active task\"), later steps an empty circle. The answer comes once under it. At the end the steps fold to \"4 steps done\"; a click opens them. After quitting and reopening FERB.app the chat still shows \"4 steps done\". Tasks shows \"done · 4 of 4\"."
+decisions = ["APP-894", "ORCH-626"]
+sitting = "after this change is installed"
+
+[LIVE-913]
+title = "A card row waiting on other work shows that work's steps under it"
+area = "app"
+surface = "FERB.app with this build"
+request = "\"Two things: remember I like short answers, and research three note-taking apps then write a comparison to ~/Desktop/notes-apps.md.\" (when FERB plans the research as its own steps before the writing)"
+pass = "While the comparison row waits, the research steps show under it, each running one with what it is doing and its own small live picture; the row says \"Waiting for <that step's words>\", never \"an earlier step\"."
+decisions = ["APP-895"]
+sitting = "after this change is installed"

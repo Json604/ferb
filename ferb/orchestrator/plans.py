@@ -37,6 +37,8 @@ class Step(BaseModel):
     input list (each input is covered by one note, exactly once across the plan) and a repeat rule (a loop)."""
     id: str
     kind: Literal['do', 'wait', 'ask', 'converse']
+    # ORCH-626: a few words for its checklist line (a plan of CHECKLIST_STEPS or more); "" when unused or saved before
+    label: str = ''
     goal: str = ''
     depends_on: list[str] = Field(default_factory=list)
     inputs: list[str] = Field(default_factory=list)
@@ -349,6 +351,26 @@ def single(goal: str) -> Plan:
     """A single task as the plan it runs as: one `do` step (the task's own worker, checked against the task's own
     conditions)."""
     return Plan(steps=[Step(id=SINGLE, kind='do', goal=goal)])
+
+
+# APP-894 (owner 2026-11-11: "lets say there are 3 or more than three steops in a single ask"): a single ask whose plan
+# has this many steps or more shows them on its card as a checklist
+CHECKLIST_STEPS = 3
+
+
+def step_label(step: Step) -> str:
+    """ORCH-626: a step's checklist line: the planner's label, else its goal's first clause cut as an unnamed task's
+    heading is (ORCH-542, ~40 characters at a word)."""
+    from ferb.orchestrator.names import shown_name
+    return shown_name(step.label, step.goal) or step.id
+
+
+def steps_done(checklist: dict[str, Any]) -> dict[str, int]:
+    """APP-894: a checklist's count, "2 of 4" (its steps that ended done, of all)."""
+    states = checklist.get('states') or {}
+    steps = checklist.get('steps') or []
+    return {'done': sum(1 for s in steps if (states.get(s.get('id')) or {}).get('status') == 'done'),
+            'total': len(steps)}
 
 
 SINGLE = 'worker'          # the one step of a single task's plan (its worker's task id is "<tree>.worker")

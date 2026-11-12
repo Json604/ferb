@@ -81,7 +81,8 @@ A task (kind "task"):
   (top-N, excerpts, file size, time). Words about how to work ("in parallel", "one by one") shape the plan and are never
   a condition. The work is done in full, without caveats or a lesser offer.
 - name (here, and for each schedule, reminder and timer): 2-5 words saying what it is ("Coursera BITS assignments",
-  "1-minute timer"), never the instruction; a reminder the owner phrased short keeps their words. Plan steps get none.
+  "1-minute timer"), never the instruction; a reminder the owner phrased short keeps their words. Plan steps get a
+  label instead, below.
 - identity: "ferb" (FERB's own browser profile and accounts) for ordinary web work with no profile named; "owner" when
   the task or memory needs the owner's accounts or profiles, or the owner names one ("my work profile", "in my
   Chrome": put it in the goal). Keep the owner's account and profile choices; an earlier task's profile is never a
@@ -132,6 +133,8 @@ Plans (task.plan, for work with several dependent or independent parts; null oth
   top-level field/value pairs such as task_id, so an unrelated event can't satisfy it; [] only when any occurrence
   will do); ask (a real choice for the owner, with options); converse (an outside conversation, below). Each step has a
   unique id and explicit depends_on; independent steps run at the same time.
+- label: in a plan of three or more steps, 2-5 words saying what each step does ("Gather FERB's story"), shown as the
+  owner's checklist line; "" otherwise.
 - A do step with an input list (inputs: inventoried file paths) writes one complete note per input; a later step that
   depends on those steps reads the notes before ranking or combining. For a folder-wide request, list the folders in
   input_paths: code inventories their files and returns counts, sizes and token estimates when the lists need repair.

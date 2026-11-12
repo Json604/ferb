@@ -1629,3 +1629,12 @@ why = "Live 2026-11-11 14:14 (task f67b5efe): the plan named ~/Desktop/ferb whil
 paths = ["ferb/orchestrator/plans.py::walked", "ferb/orchestrator/plans.py::inventory", "ferb/orchestrator/plans.py::Inventory", "ferb/orchestrator/plans.py::too_big", "ferb/orchestrator/plans.py::looking_at", "ferb/orchestrator/supervisor.py::Supervisor._problems", "ferb/orchestrator/supervisor.py::Supervisor._turn_line"]
 untestable = "A folder of many files that aren't text (photos, a build tree) counts no tokens, so no context bound stops its walk; it stays visible on the turn's line. A file-count limit would be a new cap: the owner's decision."
 live = ["LIVE-912"]
+
+[ORCH-626]
+title = "Plan steps of a checklist get a short label"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "For APP-894; narrows ORCH-542's \"plan steps get none\" as the owner's approved checklist mock shows. A plan step has a plain string `label` (ORCH-330: \"\" when unused) that the planner writes in a plan of three or more steps: 2-5 words of what the step does. Its checklist line shows the label, else its goal's first clause cut as an unnamed task's heading is (names.shown_name, ~40 characters at a word), so older plans show the cut goal. supervisor.md says it in one line."
+why = "Plan steps had only ids (\"gather\") and goals of 200+ characters: the 14:14 run's step lines would read \"Read the GitHub FERB repository and…\"."
+paths = ["ferb/orchestrator/plans.py::Step", "ferb/orchestrator/plans.py::step_label", "ferb/orchestrator/schemas.py::STEP_SCHEMA", "ferb/orchestrator/prompts/supervisor.md"]

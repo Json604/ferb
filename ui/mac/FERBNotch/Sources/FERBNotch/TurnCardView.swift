@@ -105,12 +105,23 @@ struct TurnCardView: View {
         // A row still working in a turn that ended without its footer (interrupted, or read from history) isn't moving.
         let live = running || ["working", "needs_user", "previewRunning"].contains(turn.status)
         let displays = rows.map { display($0, rows: rows, live: live, questions: questions) }
+        let feeders = feederLines(rows, displays, live: live)
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 if index > 0 { Rectangle().fill(.white.opacity(0.07)).frame(height: 1) }
                 CardRowView(row: row, display: displays[index], questions: questions[row.part] ?? [], turnID: turn.id,
                             model: model, watch: running && !turn.preview ? RowPreview.watch(row, displays[index]) : nil)
                     .transcriptAnchor(TranscriptTarget.row(turn: turn.id, part: row.part))
+                if let lines = feeders[row.part], !lines.isEmpty {
+                    // APP-895: the steps this row waits on that answer no row, each with its own line and preview
+                    VStack(alignment: .leading, spacing: 5) {
+                        ForEach(lines, id: \.line.id) { item in
+                            ChecklistLineView(line: item.line, task: card.taskID, model: model,
+                                              preview: running && !turn.preview && item.preview)
+                        }
+                    }
+                    .padding(.leading, 11).padding(.trailing, 11).padding(.bottom, 9).padding(.top, -3)
+                }
             }
             if card.finished {
                 footer.transcriptAnchor(TranscriptTarget.footer(turn: turn.id))
@@ -127,6 +138,26 @@ struct TurnCardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// APP-895 (owner 2026-11-12: "did you not fix the one row each having its own preview circle???"): under a row
+    /// still waiting, the steps it waits on that answer no row, as checklist lines; a step shared by two rows shows its
+    /// preview under the first only (APP-891: a preview shows once).
+    private func feederLines(_ rows: [CardRow], _ displays: [RowDisplay], live: Bool)
+        -> [String: [(line: ChecklistLine, preview: Bool)]] {
+        guard live else { return [:] }
+        var shown = Set<String>(), out: [String: [(line: ChecklistLine, preview: Bool)]] = [:]
+        for (index, row) in rows.enumerated() where displays[index].kind == .waiting {
+            out[row.part] = card.feeders(of: row).map { step in
+                let line = ChecklistLine.make(step: step, state: card.steps[step.id], ended: nil, live: true,
+                                              liveLine: model.stepLive[step.stepTaskID],
+                                              asking: StepChecklistView.asks(model.pendingApprovals, step.stepTaskID),
+                                              loop: StepChecklistView.round(card.steps[step.id],
+                                                                            model.standingWork[card.taskID]))
+                return (line, line.isRunning && shown.insert(step.id).inserted)
+            }
+        }
+        return out
+    }
+
     private func display(_ row: CardRow, rows: [CardRow], live: Bool, questions: [String: [DaemonApproval]]) -> RowDisplay {
         let step = row.step.flatMap { card.steps[$0] }
         let loop: LoopRound? = step?.loop == true ? model.standingWork[card.taskID].map { work in
@@ -134,7 +165,7 @@ struct TurnCardView: View {
         } : nil
         return RowDisplay.make(row: row, steps: card.steps, rows: rows, live: live,
                                hasQuestion: !(questions[row.part] ?? []).isEmpty,
-                               liveLine: row.stepTaskID.flatMap { model.stepLive[$0] }, loop: loop)
+                               liveLine: row.stepTaskID.flatMap { model.stepLive[$0] }, loop: loop, plan: card.plan)
     }
 
     // One colour belongs to the complete card, including its footer; the row's words carry its state.

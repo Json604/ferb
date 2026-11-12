@@ -32,6 +32,21 @@ public struct TaskHistoryRow: Identifiable, Equatable {
     public let createdAtText: String
     public let answer: String
     public let verdict: String?
+    /// APP-894: a single ask's checklist count ("2 of 4"), as its card shows it; nil without a checklist.
+    public let steps: (done: Int, total: Int)?
+
+    public static func == (a: TaskHistoryRow, b: TaskHistoryRow) -> Bool {
+        a.id == b.id && a.goal == b.goal && a.name == b.name && a.status == b.status && a.createdAt == b.createdAt
+            && a.createdAtText == b.createdAtText && a.answer == b.answer && a.verdict == b.verdict
+            && a.steps?.done == b.steps?.done && a.steps?.total == b.steps?.total
+    }
+
+    /// The status as the row says it: "working · 2 of 4", "done · 4 of 4".
+    public var statusLine: String {
+        let words = status.replacingOccurrences(of: "_", with: " ")
+        guard let steps, steps.total > 0 else { return words }
+        return words + " · " + ChecklistSummary.count(done: steps.done, total: steps.total)
+    }
 
     public init?(_ row: [String: Any]) {
         guard let id = row["task_id"] as? String, !id.isEmpty else { return nil }
@@ -43,6 +58,12 @@ public struct TaskHistoryRow: Identifiable, Equatable {
         createdAt = WindowTime.parse(row["created_at"])
         answer = text(row["answer"])
         verdict = row["verdict"] as? String
+        if let counted = row["steps"] as? [String: Any], let done = (counted["done"] as? NSNumber)?.intValue,
+           let total = (counted["total"] as? NSNumber)?.intValue {
+            steps = (done, total)
+        } else {
+            steps = nil
+        }
     }
 
     /// Still running: the owner can stop it; a verdict is for a task that ended.

@@ -92,6 +92,9 @@ class Chat:
             card = self.supervisor.card_state(r["task_id"]) if self.supervisor else None
             if card is not None:          # ORCH-319: a multi-part task's rows, rebuilt from the record
                 r["card"] = self.redact(card)
+            checklist = self.supervisor.checklist_state(r["task_id"]) if self.supervisor else None
+            if checklist is not None:     # APP-894: a single ask's steps, live states as they are
+                r["checklist"] = self.redact(checklist)
         results = []
         for row in rows:
             recorded = json.loads(row['outcome_json'] or '{}')
@@ -101,7 +104,7 @@ class Chat:
                            {'artifacts': recorded.get('artifacts', []), 'verified': recorded.get('verified'),
                             'verification': recorded.get('verification', [])} |
                            # the answer's own fields (a multi-part task's card and footer; its lines; ORCH-319)
-                           {key: recorded[key] for key in ('card', 'note', 'lines', 'runtime_switch')
+                           {key: recorded[key] for key in ('card', 'note', 'lines', 'runtime_switch', 'checklist')
                             if recorded.get(key)} |
                            # its typed cards as told (step 8e)
                            ({'cards': json.loads(row['cards_json'])} if row['cards_json'] else {}))

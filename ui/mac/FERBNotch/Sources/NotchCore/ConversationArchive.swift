@@ -52,6 +52,8 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     public var receipts: [String]?
     /// A multi-part request's card (ORCH-319): a row per ask, filled in place, and the footer once the task ended.
     public var card: TurnCard?
+    /// A single ask's checklist (APP-894): its plan's steps when it has three or more, collapsed once the task ended.
+    public var checklist: StepChecklist?
     /// A one-ask answer's structured lines (ORCH-319): "Couldn't confirm: …" and code's lines. A turn saved with the
     /// "Correction: …" field older daemons sent decodes without it (ORCH-540: no answer carries one).
     public var note: String?
@@ -150,7 +152,7 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
         case id, createdAt, request, sources, backendTaskID, answer, displayText, status, artifacts, responseNotice
         case requestID, ack, plan, parts, verified, question, taskGoal, taskName, statusInferred
         case planLine, planLines, direct, receipts, card, note, codeLines, runtimeSwitch, mergedInto
-        case cards, receiptCards, hiddenKinds
+        case cards, receiptCards, hiddenKinds, checklist
     }
 }
 
@@ -184,6 +186,7 @@ extension ConversationTurn {
         direct = try c.decodeIfPresent([String].self, forKey: .direct)
         receipts = try c.decodeIfPresent([String].self, forKey: .receipts)
         card = try c.lossy(TurnCard.self, .card)
+        checklist = try c.lossy(StepChecklist.self, .checklist)
         note = try c.decodeIfPresent(String.self, forKey: .note)
         codeLines = try c.decodeIfPresent([String].self, forKey: .codeLines)
         runtimeSwitch = try c.lossy(RuntimeSwitch.self, .runtimeSwitch)
@@ -672,6 +675,40 @@ public struct ConversationArchive: Codable, Equatable {
         if let taskID = details["task_id"] as? String, let card = TurnCard(details["card"], taskID: taskID) {
             place(card, at: index)
         }
+        if let taskID = details["task_id"] as? String,
+           let checklist = StepChecklist(details["checklist"], taskID: taskID) {
+            place(checklist, at: index)
+        }
+        turns[index].liveLine = nil            // a line from before the plan (ORCH-625's walk) is over
+    }
+
+    /// A newer picture of a turn's checklist merges into the one shown; another task's replaces it.
+    private mutating func place(_ checklist: StepChecklist, at index: Int) {
+        if var shown = turns[index].checklist, shown.taskID == checklist.taskID, !shown.finished {
+            shown.merge(checklist)
+            turns[index].checklist = shown
+        } else if turns[index].checklist?.finished != true || turns[index].checklist?.taskID != checklist.taskID {
+            turns[index].checklist = checklist
+        }
+    }
+
+    /// Whether a step task's live line has a place to show: a card row, a step a card row waits on (APP-895) or a
+    /// checklist line (APP-894).
+    public func showsStep(_ stepTaskID: String) -> Bool {
+        turns.contains { turn in
+            turn.card?.rows.contains { $0.stepTaskID == stepTaskID } == true
+                || turn.card?.plan.contains { $0.stepTaskID == stepTaskID } == true
+                || turn.checklist?.steps.contains { $0.stepTaskID == stepTaskID } == true
+        }
+    }
+
+    /// A running single ask's checklist as `chat.status` reports it (a reconnect): merged into the task's turn.
+    @discardableResult
+    public mutating func showChecklist(_ checklist: StepChecklist) -> Bool {
+        guard let index = turns.lastIndex(where: { $0.backendTaskID == checklist.taskID }) else { return false }
+        let before = turns[index]
+        place(checklist, at: index)
+        return turns[index] != before
     }
 
     /// The plan line as it streams (`plan_delta`); the plan event replaces it.
@@ -684,6 +721,7 @@ public struct ConversationArchive: Codable, Equatable {
     public mutating func abortPlanStream(id: UUID) {
         guard let index = turns.firstIndex(where: { $0.id == id }) else { return }
         turns[index].streamingPlan = nil
+        turns[index].liveLine = nil            // the plan goes back for repair: its walk's line is over (ORCH-625)
         // APP-786: the streamed reply was withdrawn (the planner is repairing its plan): until the real one comes, the
         // turn shows FERB still replying (the typing dots), never nothing under the owner's message
         if turns[index].plan == nil, turns[index].status == "working" { turns[index].awaitingReply = true }
@@ -724,6 +762,9 @@ public struct ConversationArchive: Codable, Equatable {
     public mutating func applyStep(_ event: [String: Any]) -> UUID? {
         guard let taskID = event["task_id"] as? String else { return nil }
         let request = event["request_id"] as? String
+        if let index = turns.lastIndex(where: { $0.checklist?.taskID == taskID }) {   // a single ask (APP-894)
+            return turns[index].checklist?.apply(step: event) == true ? turns[index].id : nil
+        }
         guard let index = turns.lastIndex(where: { $0.card?.taskID == taskID && $0.card?.requestID == request })
                 ?? turns.lastIndex(where: { $0.card?.taskID == taskID }),
               turns[index].card?.apply(step: event) == true else { return nil }
@@ -766,6 +807,12 @@ public struct ConversationArchive: Codable, Equatable {
         turns[index].codeLines = (event["lines"] as? [String]).flatMap { $0.isEmpty ? nil : $0 }
         turns[index].runtimeSwitch = RuntimeSwitch(event["runtime_switch"])
         if let card = TurnCard(event["card"], taskID: taskID) { place(card, at: index) }
+        // APP-894: what each step ended as, from the outcome's record; the checklist collapses to its one line
+        if let ended = StepChecklist(event["checklist"], taskID: taskID) {
+            var checklist = turns[index].checklist?.taskID == taskID ? turns[index].checklist ?? ended : ended
+            checklist.end(ended)
+            turns[index].checklist = checklist
+        }
         if let cards = ResultCard.list(event["cards"]) { turns[index].cards = keepingSettled(cards, turns[index].cards) }
         // ORCH-579: the reply to the owner's stop tells this task's end (`told_in`: that message's request)
         // (only while the turn awaits its answer: this runs again once the answer is filed)

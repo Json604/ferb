@@ -16,6 +16,9 @@ public struct StepState: Equatable {
     /// The daemon's order of this step's changes; a payload's state recorded before a restart has none.
     public let seq: String?
     public let loop: Bool
+    /// A wait step's own time or event (its plan's `until`, `event`).
+    public let until: Date?
+    public let event: String?
 
     public init?(_ value: Any?) {
         guard let value = value as? [String: Any], let status = value["status"] as? String, !status.isEmpty else { return nil }
@@ -26,6 +29,8 @@ public struct StepState: Equatable {
         endedAt = LiveProgress.time(value["ended_at"])
         seq = (value["seq"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         loop = value["loop"] as? Bool ?? false
+        until = LiveProgress.time(value["until"])
+        event = (value["event"] as? String).flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// `new` replaces `current`: a state with a later seq, or any state over none; a state without a seq (from the
@@ -77,10 +82,12 @@ public struct RowDisplay: Equatable {
     public var collapses: Bool { [.done, .updated, .failed, .wontRun, .stopped].contains(kind) }
 
     /// A row's display from its own state, its step's (`steps`, by step id), the card's rows (to name a step it waits
-    /// for by its row's label), whether its turn is still running (`live`: history and a dead task never show live
-    /// states), an open question for it, its step's live line and its loop's round.
+    /// for by its row's label; APP-895: a step no row answers by its plan line's words, `plan`), whether its turn is
+    /// still running (`live`: history and a dead task never show live states), an open question for it, its step's live
+    /// line and its loop's round.
     public static func make(row: CardRow, steps: [String: StepState], rows: [CardRow], live: Bool,
-                            hasQuestion: Bool = false, liveLine: LiveProgress? = nil, loop: LoopRound? = nil) -> RowDisplay {
+                            hasQuestion: Bool = false, liveLine: LiveProgress? = nil, loop: LoopRound? = nil,
+                            plan: [PlanStep] = []) -> RowDisplay {
         if row.state == "preview" { return RowDisplay(kind: live ? .previewRunning : .preview) }
         if hasQuestion || row.state == "asks" { return RowDisplay(kind: .needsYou) }
         if row.state == "paused" { return RowDisplay(kind: .paused) }
@@ -98,6 +105,17 @@ public struct RowDisplay: Equatable {
             return steps.isEmpty ? RowDisplay(kind: .working, words: "Working", spinner: true)
                 : RowDisplay(kind: .starting, words: "Starting…", spinner: true)
         }
+        var seen = Set<String>()
+        let names = step.waitsOn.compactMap { dep in
+            rows.first { $0.step == dep && !$0.direct && $0.part != row.part }?.label
+                ?? plan.first { $0.id == dep }?.label
+        }.filter { !$0.isEmpty && seen.insert($0).inserted }
+        return forStep(step, waitingFor: names, liveLine: liveLine, loop: loop)
+    }
+
+    /// What a step's live state says (a card row's, a checklist line's): `waitingFor` names what it waits on.
+    public static func forStep(_ step: StepState, waitingFor names: [String], liveLine: LiveProgress?,
+                               loop: LoopRound?) -> RowDisplay {
         if step.loop, let loop, ["starting", "running", "checking", "retrying"].contains(step.status) {
             var words = "Round \(max(1, loop.rounds))"
             if let next = loop.nextCheck { words += " · next check " + Self.clock(next) }
@@ -105,9 +123,6 @@ public struct RowDisplay: Equatable {
         }
         switch step.status {
         case "waiting":
-            var seen = Set<String>()
-            let names = step.waitsOn.compactMap { dep in rows.first { $0.step == dep && !$0.direct && $0.part != row.part }?.label }
-                .filter { !$0.isEmpty && seen.insert($0).inserted }
             return RowDisplay(kind: .waiting, words: names.isEmpty ? "Waiting for an earlier step"
                               : "Waiting for " + Self.list(names))
         case "starting": return RowDisplay(kind: .starting, words: "Starting…", spinner: true)
@@ -126,7 +141,7 @@ public struct RowDisplay: Equatable {
         }
     }
 
-    static func clock(_ date: Date) -> String {
+    public static func clock(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = DateFormatter.dateFormat(fromTemplate: "jmm", options: 0, locale: .current)
         return formatter.string(from: date)

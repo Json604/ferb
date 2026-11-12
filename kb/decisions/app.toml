@@ -3496,3 +3496,24 @@ rule = "Refines APP-890. The daemon puts each task's plain live line (code's wor
 why = "Live 2026-11-11: the row said \"Clicking in www.amazon.in\" while the short view and the detached box said \"browser.act\" and \"owner.ask\"."
 paths = ["ferb/orchestrator/worker.py::WorkerRuns._progress_line", "ferb/bus.py", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift", "ui/mac/FERBNotch/Sources/FERBNotch/TaskList.swift::TaskItem.currentLine", "ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::RowDisplay.sentence"]
 live = ["LIVE-909"]
+
+[APP-894]
+title = "A single ask of three or more steps shows its steps as a checklist on its card"
+by = "owner"
+date = 2026-11-11
+status = "active"
+words = "yes i think we can have that UI improvemnt on a switch where lets say there are 3 or more than three steops in a single ask. tehn show it liek teh row maybe or somethign  better UI representation you can think od"
+words_source = "Owner 2026-11-11 on the 14:14 run (f67b5efe: one ask, four steps, \"BUT why no rows??\"); to the mock (name, \"2 of 4\", a line per step): \"ok works do it\"."
+rule = "A single ask (no parts, or one) whose plan has CHECKLIST_STEPS (3) or more steps shows them on its card: its name and \"2 of 4\" on top; a tick, greyed, for a done step; the running step highlighted with its live line and its own small live preview (APP-888, shown once: APP-891); an empty circle for a step not started; waiting, asking, failed, won't-run and stopped steps in the rows' words and colours. State only: the answer arrives once under it. At the end it collapses to \"4 steps done\" or \"2 of 4 steps done\", opened by a click, also in a restored chat; the Tasks page row says its count."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/StepChecklist.swift", "ui/mac/FERBNotch/Sources/FERBNotch/StepChecklistView.swift", "ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift", "ui/mac/FERBNotch/Sources/NotchCore/WindowRows.swift::TaskHistoryRow", "ferb/orchestrator/supervisor.py::Supervisor._checklist", "ferb/orchestrator/plans.py::CHECKLIST_STEPS", "ferb/daemon/areas/rpc.py"]
+live = ["LIVE-911"]
+
+[APP-895]
+title = "A card row waiting on steps no row answers shows those steps under it"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "For APP-894 and APP-888. A multi-part card carries its plan's steps (`plan`: id, label, depends_on, step task). While a row still waits, the steps its answer step waits on, and theirs, that answer no row show under it as checklist lines in APP-894's looks, each running one with its live line and its own preview (a step under two rows shows its preview under the first only, APP-891). \"Waiting for …\" names such a step by its line's words, never \"an earlier step\" when the plan names it."
+why = "Live 2026-11-11 14:41 (task f67b5efe): \"Improved pitch deck: Waiting for an earlier step\" while three feeder steps did the work and their preview showed only by \"1 active task\". Owner: \"did you not fix the one row each having its own preview circle???\""
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::TurnCardView", "ui/mac/FERBNotch/Sources/NotchCore/TurnCard.swift::TurnCard.feeders", "ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::RowDisplay.make", "ferb/orchestrator/supervisor.py::Supervisor._plan_lines"]
+live = ["LIVE-913"]

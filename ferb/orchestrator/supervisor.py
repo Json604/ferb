@@ -49,8 +49,9 @@ from ferb.sanitize.formats import hidden_note
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
 from ferb.orchestrator import progress
-from ferb.orchestrator.plans import (DONE, SINGLE, Part, Plan, SendScope, Step, answer_steps, inventory, looking_at,
-                                     part_problems, problems as plan_problems, resolve_inputs, too_big, walked)
+from ferb.orchestrator.plans import (CHECKLIST_STEPS, DONE, SINGLE, Part, Plan, SendScope, Step, answer_steps, inventory,
+                                     looking_at, part_problems, problems as plan_problems, resolve_inputs, step_label,
+                                     too_big, walked)
 from ferb.orchestrator.parts import STOPPED as STOPPED_ROW, Card, composed
 from ferb.orchestrator import cards as cards_
 from ferb.orchestrator.attempts import (CHECK_IN_AFTER, KEEP_GOING, STOP_HERE, Attempts, check_in_question,
@@ -4519,7 +4520,7 @@ class Supervisor(WorkerRuns):
             event["resumed"] = True
         card = tree.card
         if card is None:
-            return event
+            return event | self._checklist(tree)
         said = [] if restored else card.say_direct()
         direct = [{**d, "text": confirm.from_task_lines(self.gateway.redact(d["text"]))} for d in said]
         receipts = [] if restored else [confirm.from_task_lines(self.gateway.redact(l)) for l in tree.side_lines]
@@ -4561,7 +4562,45 @@ class Supervisor(WorkerRuns):
         rows = [row | {"step_task_id": self._step_task(tree.id, str(row["step"]))} if row.get("step") else row
                 for row in tree.card.rows()]
         return {"request_id": tree.card.request_id, "rows": rows, "done": done, "total": total,
-                **({"stopped": stopped} if (stopped := tree.card.stopped()) else {}), "steps": self._step_payload(tree)}
+                **({"stopped": stopped} if (stopped := tree.card.stopped()) else {}), "steps": self._step_payload(tree),
+                "plan": self._plan_lines(tree)}
+
+    def _plan_lines(self, tree: _Tree) -> list[dict[str, Any]]:
+        """Each plan step as a checklist line shows it (APP-894, APP-895): its id, its words (ORCH-626: the planner's
+        label, else its goal's first clause, cut), its kind, what it waits on, its step task id (its live line and
+        preview) and whether it repeats (a loop). [] for a task without a stored plan."""
+        try:
+            steps = self.plans.load(tree.id)['plan'].steps
+        except KeyError:
+            return []
+        return [{"id": step.id, "label": self.gateway.redact(step_label(step)), "kind": step.kind,
+                 "depends_on": list(step.depends_on), "step_task_id": self._step_task(tree.id, step.id),
+                 **({"loop": True} if step.loops else {})} for step in steps]
+
+    def _checklist(self, tree: _Tree, ended: str | None = None) -> dict[str, Any]:
+        """APP-894: a single ask (no card) whose plan has CHECKLIST_STEPS steps or more carries its steps and their
+        states for its card's checklist; {} otherwise. Steps are progress toward the one answer: no step answers here.
+        `ended`: the task's end status; at a stop or a No that was the owner's (cancelled, ORCH-613), each step that
+        didn't finish ended as theirs ("stopped")."""
+        if tree.card is not None:
+            return {}
+        lines = self._plan_lines(tree)
+        if len(lines) < CHECKLIST_STEPS:
+            return {}
+        states = self._step_payload(tree)
+        if ended == "cancelled":
+            states = {key: state if state.get("status") == "done" else {**state, "status": "stopped"}
+                      for key, state in states.items()}
+            states |= {line["id"]: {"status": "stopped", "waits_on": [], "attempt": 0}
+                       for line in lines if line["id"] not in states}
+        return {"checklist": {"steps": lines, "states": states}}
+
+    def checklist_state(self, tree_id: str) -> dict[str, Any] | None:
+        """A running single ask's checklist now (chat.status), as the card payload is for several asks."""
+        tree = self._tree_of.get(tree_id)
+        if tree is None or tree.id != tree_id:
+            return None
+        return self._checklist(tree).get("checklist")
 
     @staticmethod
     def _step_task(tree_id: str, step_id: str) -> str:
@@ -7249,7 +7288,7 @@ class Supervisor(WorkerRuns):
                 {"how": src.how} if status in ("done", "done_unverified") and src.how.strip() else {}) | (
                 {"runtime_switch": switch} if switch and status == "failed" else {}) | (
                 {"watch_met": tree.watch_met} if tree.watch and tree.watch_met is not None else {}) | (
-                {"cards": cards} if cards else {}) | self._told_in(tree)
+                {"cards": cards} if cards else {}) | self._told_in(tree) | self._checklist(tree, status)
 
     def _declined(self, src: _Tree, out: Outcome) -> bool:
         """ORCH-613: whether the work ended without its action only because the owner declined that action on its own

@@ -162,10 +162,12 @@ public struct TurnCard: Codable, Equatable {
     public var headline: String?
     /// Each plan step's state, by step id (ORCH-531): live state only, never saved (history shows no live states).
     public var steps: [String: StepState] = [:]
+    /// The plan's steps as checklist lines name them (APP-895): a row shows the steps it waits on that answer no row.
+    public var plan: [PlanStep] = []
 
     public var finished: Bool { line != nil }
 
-    private enum CodingKeys: String, CodingKey { case taskID, requestID, rows, done, total, line, lines, headline }
+    private enum CodingKeys: String, CodingKey { case taskID, requestID, rows, done, total, line, lines, headline, plan }
 
     public init?(_ payload: Any?, taskID: String) {
         guard let payload = payload as? [String: Any], let rows = payload["rows"] as? [[String: Any]] else { return nil }
@@ -180,6 +182,7 @@ public struct TurnCard: Codable, Equatable {
         for (key, value) in payload["steps"] as? [String: Any] ?? [:] {
             if let state = StepState(value) { steps[key] = state }
         }
+        plan = PlanStep.list(payload["plan"])
     }
 
     /// Read tolerantly (APP-801): only its task is required; a row that can't be read is left out, not the card.
@@ -193,6 +196,12 @@ public struct TurnCard: Codable, Equatable {
         line = try c.decodeIfPresent(String.self, forKey: .line)
         lines = try c.value(.lines, or: [])
         headline = try c.decodeIfPresent(String.self, forKey: .headline)
+        plan = try c.lossyList(PlanStep.self, .plan) ?? []
+    }
+
+    /// The steps the row's answer step waits on that answer no row (APP-895), in plan order.
+    public func feeders(of row: CardRow) -> [PlanStep] {
+        ChecklistSummary.feeders(of: row.step, plan: plan, rowSteps: Set(rows.filter { !$0.direct }.compactMap(\.step)))
     }
 
     /// Applies a `step` event (ORCH-531) when it is newer than the step's state shown. Returns whether it applied.
@@ -257,6 +266,7 @@ public struct TurnCard: Codable, Equatable {
         merged += rows.filter { shown in !snapshot.rows.contains { $0.part == shown.part } }
         rows = merged
         for (key, state) in snapshot.steps where StepState.replaces(state, steps[key]) { steps[key] = state }
+        if !snapshot.plan.isEmpty { plan = snapshot.plan }
         done = snapshot.done
         total = max(snapshot.total, rows.count)
         if snapshot.line != nil {

@@ -333,6 +333,9 @@ private struct TurnView: View {
             if let cards = turn.receiptCards {
                 ResultCardsView(cards: CardBoxes.shown(cards, hiding: hidden), turnID: turn.id, model: model)
             }
+            if let checklist = turn.checklist, turn.card == nil {
+                StepChecklistView(checklist: checklist, turn: turn, model: model)      // APP-894
+            }
             if let card = turn.card {
                 TurnCardView(card: card, turn: turn, model: model)
                 // Step 8e: the task's cards (payments, sends, links, files) under its card's footer.

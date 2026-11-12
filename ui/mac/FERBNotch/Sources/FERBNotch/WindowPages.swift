@@ -42,7 +42,7 @@ struct TaskHistoryRowView: View {
                 OpenableHeading(text: row.name.isEmpty ? row.id : row.name, open: $open,
                                 canOpen: !row.goal.isEmpty && row.goal != row.name) { $0.bold().lineLimit(2) }
                 Spacer()
-                Text(words(row.status)).foregroundStyle(.secondary)
+                Text(row.statusLine).foregroundStyle(.secondary)           // APP-894: "working · 2 of 4"
             }
             if open { FullInstruction(text: row.goal) }
             Text(when(row.createdAt)).font(.caption).foregroundStyle(.secondary)

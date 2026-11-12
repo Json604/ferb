@@ -61,6 +61,8 @@ EVENT_MATCH_SCHEMA = {"type": "array", "items": _obj({"field": {"type": "string"
 # A step: do (optional input list; optional repeat rule = a loop, L31), wait, ask or converse (plans.Step)
 STEP_SCHEMA = _obj({
     "id": {"type": "string"}, "kind": {"type": "string", "enum": list(STEP_KINDS)},
+    # ORCH-626: 2-5 words for the step's checklist line in a plan of CHECKLIST_STEPS or more; "" when unused (ORCH-330)
+    "label": {"type": "string"},
     "goal": {"type": "string"}, "depends_on": _strings(), "inputs": _strings(), "worker_type": {"type": "string"},
     "conditions": _strings(), "until": _nullable("string"), "event": _nullable("string"),
     "event_match": EVENT_MATCH_SCHEMA,
