@@ -82,3 +82,15 @@ words_source = "Answer to T-1049 after v0.27.0 shipped from ui/ux."
 rule = "main is fast-forwarded to ui/ux (no merge, no rewrite) and is the branch agents commit and push to from now on (AGENTS.md \"Branch\"). ui/ux stays as it is; nothing is deleted."
 paths = ["AGENTS.md"]
 untestable = "A branch choice; git shows it."
+
+[PROJ-508]
+title = "The Rust rewrite is built on branch rust, with the agent deciding how"
+by = "owner"
+date = 2026-11-13
+status = "active"
+words = "you start fresh in a new branch rust. This is your branch and repo now too, whatever you decide i agree, whatever system mamangemtn you do is ok, i just want the rust rewrite working with mac,ios and android apps. You have full autonomy, jsut make a good logging system as you keep doing things os its easy to track what was done adn why."
+words_source = "Answer on 2026-11-13 to the agent's questions after it checked the migration research (toolchain, kb changes, order of work)."
+rule = "The conversion to Rust is built on branch rust (main stays as it is until the rewrite is merged). The goal is the Rust engine working with the Mac, iPhone and Android apps. Method, order, toolchain and machine set-up for the rewrite are the agent's to decide without asking. The agent keeps a journal (rust/JOURNAL.md) of what was done and why."
+why = "The owner wants the outcome and an easy way to follow the work, not questions about method."
+paths = ["rust/JOURNAL.md"]
+untestable = "A choice of branch, scope and working method; git and the journal show it."

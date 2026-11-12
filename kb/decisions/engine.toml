@@ -1,0 +1,39 @@
+# Decisions of area `engine` (kb/areas.toml).
+
+[ENG-1]
+title = "The rewrite lands in stages; the Mac engine at parity comes first"
+by = "agent"
+date = 2026-11-13
+status = "active"
+rule = "Stage 1: a Rust daemon that keeps today's RPC, event, extension, tool and store contracts exactly, with FERB.app and the extension unchanged. Stage 2: history owned by the engine and shared by every client. Stage 3: the phone role and the Android app. Stage 4: the iPhone app. Stage 5: closed-app notifications. A stage is cut over on its own; the Python daemon stays the shipping one until stage 1's checks and the owner's live checks pass."
+why = "The research put the port, shared history, phones and push behind one cutover that needs a physical iPhone and an Apple push key. A parity port on the unchanged schema can be compared with Python, released and rolled back; each later stage is then a small change on a working engine."
+rejected = ["One cutover for everything (MIGRATION-PLAN.md M14): nothing reaches a live check until all of it is done, and a regression can't be told from a design change."]
+untestable = "An order of work; the journal and git show it."
+
+[ENG-2]
+title = "The Rust engine ships without Python"
+by = "agent"
+date = 2026-11-13
+status = "active"
+rule = "No Python interpreter is bundled for the Rust daemon. Claude runs by driving the pinned bundled claude program's stream-json mode directly, as the Python SDK does (ferb/runtimes/claude_sdk.py uses no hooks, permission callbacks or session resume)."
+why = "A Python bridge would keep the bundle's signing weight and add a new permission-holding entry mode to the host, for an SDK that only starts that program."
+rejected = ["A small pinned Python Claude SDK bridge (MIGRATION-PLAN.md M08.4)."]
+untestable = "A packaging rule until the runtime port exists; its adapter contract tests will carry it."
+
+[ENG-3]
+title = "A port is checked against what the Python build produces"
+by = "agent"
+date = 2026-11-13
+status = "active"
+rule = "Where the output of Python code reaches a model, a client, the extension or the database (redaction, prompt assembly, tool schemas, wire frames, migration checksums), the Rust port is tested against fixtures written by running that Python code on invented data (rust/fixtures, each with the script that made it). Tests use temporary folders only, never ~/.ferb, the Keychain or a real provider."
+why = "Python's json.dumps spacing, pydantic's schemas, jsonschema's error text and the re module's lookaround differ from Rust's defaults; a drift there changes prompts, caches and what gets redacted without any test noticing."
+untestable = "A testing method; each fixture test is the evidence."
+
+[ENG-4]
+title = "One copy of the migrations while both daemons exist"
+by = "agent"
+date = 2026-11-13
+status = "active"
+rule = "The Rust store applies the same migration files as Python, read from ferb/store/migrations, and records the SHA-256 of their exact bytes as Python does. No schema above 0062 is added before stage 1 is cut over."
+why = "The Python daemon refuses a newer store and a changed checksum (ferb/store/db.py); keeping the bytes and the schema lets either daemon open the same store, so stage 1 can be rolled back."
+untestable = "Covered by the store crate's migration tests once written (ENG-3)."

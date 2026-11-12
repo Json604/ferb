@@ -84,3 +84,9 @@ title = "Project knowledge and tooling"
 prefix = "PROJ"
 paths = ["README.md", "CLAUDE.md", "AGENTS.md", "HANDOFF.md", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", ".gitignore", "kb", "tools", "spikes"]
 purpose = "Docs, licences, agent instructions, this kb registry and gate, and historical spikes."
+
+[engine]
+title = "Rust engine (the rewrite)"
+prefix = "ENG"
+paths = ["rust"]
+purpose = "The Rust replacement of the Python daemon, built beside it on branch rust: workspace, crates, fixtures taken from the Python build, and the work journal (rust/JOURNAL.md). A ported behavior keeps its original decision IDs; ENG decisions cover the rewrite itself."

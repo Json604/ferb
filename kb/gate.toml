@@ -82,6 +82,27 @@ run = "scripts/swift-test-gate.sh"   # names the failing tests last, where the g
 when = ["ui/mac/FERBNotch/**"]
 timeout = 1800
 
+# --- Rust engine (area `engine`, ENG-1): only when rust/** changes; the Python and Swift checks stay as they are ---
+[[check]]
+name = "Rust format"                         # under 1 s
+level = "commit"
+run = "rust/gate.sh fmt"
+when = ["rust/**"]
+
+[[check]]
+name = "Rust lint (clippy, warnings refused)"
+level = "push"
+run = "rust/gate.sh lint"
+when = ["rust/**"]
+timeout = 1800
+
+[[check]]
+name = "Rust tests"
+level = "push"
+run = "rust/gate.sh test"
+when = ["rust/**", "ferb/store/migrations/**"]
+timeout = 1800
+
 [[check]]
 name = "live checks recorded"
 level = "release"
