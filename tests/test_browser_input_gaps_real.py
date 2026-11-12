@@ -84,7 +84,7 @@ def test_type_multiline_into_editor(worker: Worker, site: LabServer, editor: str
     out["after_type"] = {"text": t1["text"], "events": _summary(t1["events"])}
     w.snapshot()
     target2 = _editor_target(w)
-    r2 = w.act(target2.id, "type", text="Replaced text.")
+    r2 = w.act(target2.id, "type", text="Replaced text.", mode="replace")
     t2 = w.truth()
     out["after_replace"] = t2["text"]
     w.snapshot()
@@ -93,7 +93,11 @@ def test_type_multiline_into_editor(worker: Worker, site: LabServer, editor: str
     r4 = w.act(target3.id, "press", text="Enter") if target3 else None
     t4 = w.truth()
     out["after_enter"] = t4["text"]
-    out["results"] = [r1, r2, r3, r4]
+    w.snapshot()
+    target5 = _editor_target(w)
+    r5 = w.act(target5.id, "type", text="Added line.") if target5 else None   # HAND-505: an editor's default: insert
+    out["after_insert"] = w.truth()["text"]
+    out["results"] = [r1, r2, r3, r4, r5]
     report(f"editor:{editor}", w, out)
     # every editor takes the three paragraphs; a code editor's hidden textarea, under its drawn text, is focused by
     # script and takes the keys there (HAND-504; it was refused as "target_occluded")
@@ -102,6 +106,8 @@ def test_type_multiline_into_editor(worker: Worker, site: LabServer, editor: str
     assert "Replaced text." in str(out["after_replace"]) and "First paragraph" not in str(out["after_replace"])
     if editor in HIDDEN_INPUT_EDITORS:
         assert r1.get("unpointed") == "covered" and r3 and r3.get("ok") and r4 and r4.get("ok"), (r1, r3, r4)
+    assert r5 and r5.get("mode") == "insert", r5          # typing into an editor keeps what is there
+    assert "Replaced text." in str(out["after_insert"]) and "Added line." in str(out["after_insert"]), out["after_insert"]
 
 
 def _summary(events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -280,79 +286,48 @@ def test_basic_auth_and_print(worker: Worker, site: LabServer, lab: Any) -> None
     assert out["front_changes"] == []
 
 
-# ---------- candidate fixes: does the browser mechanism work? (lab pipe, never FERB's code path) ----------
-
-def _page_session(w: Worker) -> str:
-    """A CDP session on the tab's page through the lab's own pipe (as FERB's debugger would have one)."""
-    url = w.router.tab_url(w.tab)
-    target = next(t for t in w.chrome.targets() if t["type"] == "page" and t["url"] == url)
-    return str(w.chrome.send("Target.attachToTarget", {"targetId": target["targetId"], "flatten": True})["sessionId"])
-
-
-PASTE_JS = """(sel, html, text) => {
-  const find = (doc) => doc.querySelector(sel);
-  let el = find(document);
-  if (!el) for (const f of document.querySelectorAll('iframe')) { try { el = find(f.contentDocument); if (el) break; } catch (_) {} }
-  if (!el) return 'no target';
-  el.focus();
-  const dt = new DataTransfer();
-  dt.setData('text/html', html); dt.setData('text/plain', text);
-  const ev = new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true, composed: true});
-  return {dispatched: el.dispatchEvent(ev), handled: ev.defaultPrevented};
-}"""
-TARGETS = {"plain": "[contenteditable]", "quill": ".ql-editor", "prosemirror": ".ProseMirror", "tiptap": ".ProseMirror",
-           "lexical": "[contenteditable]", "slate": "[contenteditable]", "draft": "[contenteditable]",
-           "ckeditor": ".ck-editor__editable", "tinymce": "body#tinymce", "monaco": "textarea", "cm6": ".cm-content",
-           "cm5": "textarea", "ace": "textarea"}
-
+# ---------- writing structured text: paste with html, lines into a covered input ----------
 
 @pytest.mark.parametrize("editor", EDITORS)
-def test_candidate_synthetic_paste(worker: Worker, site: LabServer, editor: str) -> None:
-    """Candidate route: a paste event carrying text/html and text/plain, dispatched from the extension's isolated world
-    (where content.js runs), with no system clipboard. Which editors take it, keeping headings and lists?"""
+def test_paste_with_html(worker: Worker, site: LabServer, editor: str) -> None:
+    """HAND-506: browser.act paste, the page's own paste event with text/plain and text/html from the extension, never
+    the system clipboard. The editors that handle paste keep the heading and the list; the browser's own editing and
+    Slate (beforeinput) ignore a scripted paste, and the result says nothing was taken."""
     w = worker
     w.open(f"{site.a}/editors.html?e={editor}", wait_ready=25)
     html = "<h2>Lab heading</h2><p>First para with <b>bold</b>.</p><ul><li>one</li><li>two</li></ul><p>Last para.</p>"
     text = "Lab heading\nFirst para with bold.\none\ntwo\nLast para."
-    import json as _j
-    expr = (f"chrome.scripting.executeScript({{target: {{tabId: {w.chrome_id()}, allFrames: true}}, world: 'ISOLATED', "
-            f"func: {PASTE_JS}, args: [{_j.dumps(TARGETS[editor])}, {_j.dumps(html)}, {_j.dumps(text)}]}})"
-            ".then(r => r.map(x => x.result))")
-    res = w.chrome.evaluate(w.chrome.sw, expr)
+    w.snapshot()
+    target = _editor_target(w)
+    r = w.act(target.id, "paste", text=text, html=html)
     time.sleep(0.5)
     st = w.truth()
-    report(f"paste:{editor}", w, {"dispatch": res, "text": st and st["text"], "html": st and (st.get("html") or "")[:300]})
-    if editor in ("plain", "slate"):     # the browser's own editing and Slate (beforeinput) ignore a scripted paste
+    report(f"paste:{editor}", w, {"result": r, "text": st and st["text"], "html": st and (st.get("html") or "")[:300]})
+    if editor in ("plain", "slate"):
         assert "Lab heading" not in str(st["text"])
+        assert r.get("ok") is False and r.get("reason") == "paste_not_taken", r
     else:
+        assert r.get("ok"), r
         assert "Lab heading" in str(st["text"]) and "two" in str(st["text"]), st["text"]
 
 
 @pytest.mark.parametrize("editor", HIDDEN_INPUT_EDITORS + ["doc"])
-def test_candidate_focus_then_trusted_keys(worker: Worker, site: LabServer, editor: str) -> None:
-    """Candidate route for a covered text input: focus it by script (no pointer), then real key events and
-    Input.insertText line by line with Enter as a key between lines, through a CDP session like FERB's debugger."""
+def test_lines_into_a_field_under_the_pages_own_view(worker: Worker, site: LabServer, editor: str) -> None:
+    """HAND-505: FERB's own type into a covered input (code editors, the Docs-shaped stand-in): focused by script, each
+    line break pressed as Enter, at the caret by default. (The lab's earlier candidate run through its own pipe showed
+    the browser mechanism; this is FERB's code path.)"""
     w = worker
     url = f"{site.a}/canvas.html?k=doc" if editor == "doc" else f"{site.a}/editors.html?e={editor}"
     w.open(url, wait_ready=25)
-    focus = ("() => { const f = document.querySelector('iframe'); const el = f && f.contentDocument.querySelector('[contenteditable]')"
-             " || document.querySelector('textarea'); el.focus(); return !!el; }")
-    out: dict[str, Any] = {"focused": w.evaluate(focus)}
-    s = _page_session(w)
-    enter = {"key": "Enter", "code": "Enter", "windowsVirtualKeyCode": 13, "nativeVirtualKeyCode": 13}
-    for i, line in enumerate(["def f():", "    return 1"]):
-        if i:
-            w.chrome.send("Input.dispatchKeyEvent", {"type": "keyDown", "text": "\r", **enter}, s)
-            w.chrome.send("Input.dispatchKeyEvent", {"type": "keyUp", **enter}, s)
-        w.chrome.send("Input.insertText", {"text": line}, s)
-    time.sleep(0.4)
-    out["line_by_line"] = w.truth()["text"]
-    w.chrome.send("Input.insertText", {"text": "\nx = 2\ny = 3"}, s)
-    time.sleep(0.4)
-    out["after_one_insertText_with_newlines"] = w.truth()["text"]
-    w.chrome.send("Target.detachFromTarget", {"sessionId": s})
-    report(f"focus-keys:{editor}", w, out)
-    assert out["focused"] and "return 1" in str(out["line_by_line"])     # the candidate route reaches the hidden input
+    w.snapshot()
+    target = w.el("Document content") if editor == "doc" else _editor_target(w)
+    out: dict[str, Any] = {"type": w.act(target.id, "type", text="def f():\n    return 1")}
+    time.sleep(0.3)
+    out["text"] = w.truth()["text"]
+    report(f"lines:{editor}", w, out)
+    assert out["type"].get("ok") and out["type"].get("mode") == "insert", out["type"]
+    lines = str(out["text"]).split("\n")
+    assert lines[0].endswith("def f():") and any(x.strip() == "return 1" for x in lines[1:]), out["text"]
 
 
 # ---------- real public pages, as an anonymous visitor (nothing typed is sent anywhere: client-side playgrounds) ----

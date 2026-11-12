@@ -983,8 +983,8 @@
   // Page-mode actions (untrusted events). Trusted input goes through the debugger (background.js). A press comes with
   // its key from the one key table (protocol.js keyEvent, via background.js): key, code, keyCode, modifier bits
   // (Alt 1, Ctrl 2, Meta 4, Shift 8) and whether it puts text in (`enters`).
-  function act(gen, id, kind, text, key = null) {
-    if (["type","select","press"].includes(kind) && typeof text !== "string")
+  function act(gen, id, kind, text, key = null, extra = null) {
+    if (["type","select","press","paste"].includes(kind) && typeof text !== "string")
       return {ok:false,reason:"explicit_input_required"};
     const { el, error } = element(gen, id);
     if (error) return { ok: false, detail: error };
@@ -1035,6 +1035,22 @@
       for (const type of ["keydown", "keypress", "keyup"]) el.dispatchEvent(new KeyboardEvent(type, init));
       return { ok: true, detail: `pressed ${init.key} (page events)` };
     }
+    // HAND-506: a paste as the page's own paste event, carrying text/plain (and text/html when given), into the field
+    // the element is or holds; never the system clipboard. The browser inserts nothing for a scripted paste, so text
+    // lands only where the page's own handler takes it (`paste_taken`: it cancelled the event, as editors do).
+    if (kind === "paste") {
+      if (isSecret(el)) return { ok: false, detail: "secret_field" };
+      const inside = () => { const a = deepActive(); return a && (a === el || el.contains(a)) ? a : null; };
+      if (!inside()) el.focus();
+      const into = inside() || el;
+      if (isSecret(into)) return { ok: false, detail: "secret_field" };
+      const data = new DataTransfer();
+      data.setData("text/plain", text || "");
+      if (extra && typeof extra.html === "string" && extra.html) data.setData("text/html", extra.html);
+      const ev = new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true, composed: true });
+      into.dispatchEvent(ev);
+      return { ok: true, detail: "pasted (the page's paste event; the system clipboard untouched)", paste_taken: ev.defaultPrevented };
+    }
     if (kind === "scroll") {                       // element-relative: its own box if it scrolls, else its container
       const sc = isScroller(el) ? el : scrollerOf(el);
       const step = Math.round((sc ? sc.clientHeight : innerHeight) * 0.85) * (text === "up" ? -1 : 1);
@@ -1049,6 +1065,13 @@
   const NOT_TYPED = ["button", "submit", "reset", "checkbox", "radio", "file", "image", "hidden"];
   const editableField = (el) => !!el && (el.isContentEditable || el.tagName === "TEXTAREA" ||
     (el.tagName === "INPUT" && !NOT_TYPED.includes(String(el.type || "text").toLowerCase())));
+  // What kind of field it is (HAND-505): "input" or "textarea" hold one value; "rich" is a document editor the page
+  // made editable (contenteditable), where typing goes at the caret by default. null: no field.
+  const fieldOf = (el) => !editableField(el) ? null : el.isContentEditable ? "rich" : el.tagName === "TEXTAREA" ? "textarea" : "input";
+  function focusedField() {                        // where typed text goes now, as fieldOf says (into shadow roots)
+    const a = deepActive();
+    return a && a !== document.body ? fieldOf(a) : (document.body && document.body.isContentEditable ? "rich" : null);
+  }
   // For trusted input: the element centre in this frame's viewport, after scrolling it in. `keys` (type or press, which
   // need no pointer, HAND-504): an element that is covered or stays outside the page is still described, with
   // `keyboard: true`, so the keys can go to it once it is focused by script; a click's refusal stays as it was.
@@ -1058,7 +1081,7 @@
     el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
     const r = el.getBoundingClientRect();
     const facts = { secret: isSecret(el), disabled: !!el.disabled || el.getAttribute("aria-disabled") === "true",
-                    editable: editableField(el), file: el.tagName === "INPUT" && el.type === "file" };
+                    editable: editableField(el), field: fieldOf(el), file: el.tagName === "INPUT" && el.type === "file" };
     if ((r.width <= 0 || r.height <= 0) && !keys) return { error: "not_visible" };
     // HAND-482: a centre still outside this frame's viewport after scrolling is a fact of its own (a control parked off
     // the page, e.g. a hidden keyboard-shortcut entry), never "covered": hitTest would clamp it onto whatever is there.
@@ -1087,6 +1110,9 @@
     const { el, error } = element(gen, id);
     if (error) return false;
     const a = deepActive();
+    // a frame's document without the focus still names its body active (an editor whose body is the field, TinyMCE's):
+    // keys go there only once its frame has the focus (HAND-505)
+    if (a === document.body && typeof document.hasFocus === "function" && !document.hasFocus()) return false;
     return !!a && (a === el || el.contains(a));
   }
   function focus(gen, id) {
@@ -1474,7 +1500,7 @@
     supportsSplitSecretFill: true,
     pointerArm: () => { pointerSeen = null; }, pointerSeen: () => pointerSeen || [],
     viewport: () => [innerWidth, innerHeight], act, fill, origin: () => location.origin, rect, focus, isActive,
-    focusedSecret, takeSubmits, stamp, unstamp, scroller, scrolled, probeArm, probeSeen: () => probeSeen,
+    focusedSecret, focusedField, takeSubmits, stamp, unstamp, scroller, scrolled, probeArm, probeSeen: () => probeSeen,
     downloadPart, armDownloads, releaseDownload, dropDownload: (id) => { heldDownloads.delete(id); },
     watchNear, nearChange, documentKey: () => documentId, markup };
 })();

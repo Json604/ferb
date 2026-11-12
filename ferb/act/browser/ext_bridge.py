@@ -29,8 +29,8 @@ from stat import S_ISREG
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlsplit
 
-from ferb.act.browser.ext_protocol import (MIN_EXTENSION_VERSION, PROTOCOL_VERSION, READS, UPLOAD_BYTES_EXTENSION_VERSION,
-                                           UPLOAD_PART, Event, Hello, Op, Result, TabEvent, command, daemon_envelope,
+from ferb.act.browser.ext_protocol import (INPUT_EXTENSION_VERSION, MIN_EXTENSION_VERSION, PROTOCOL_VERSION, READS,
+                                           UPLOAD_BYTES_EXTENSION_VERSION, UPLOAD_PART, Event, Hello, Op, Result, TabEvent, command, daemon_envelope,
                                            parse, version_ok)
 from ferb.act.browser.downloads import Downloads, TaskTab
 from ferb.act.browser.uploads import StagingFailed, Uploads, source_path, tab_key
@@ -885,7 +885,7 @@ CENTRING_REAL = frozenset({"type", "press"})
 POINTER_KINDS = frozenset({"click", "dblclick", "rightclick", "hover", "drag"})   # what a screenshot point takes
 STILL = frozenset({"select", "upload"})          # acts that never scroll the page (no focus, no scroll into view)
 # HAND-447: acts that put input into the page (what it may hold unsaved): leaving the tab after one needs leave_page
-WRITES = frozenset({"type", "select", "press", "upload"})
+WRITES = frozenset({"type", "paste", "select", "press", "upload"})
 
 
 def _numbers(v: Any, n: int) -> tuple[float, ...] | None:
@@ -1747,10 +1747,15 @@ class _TabDriver:
         if el.element_id in t.points or action.kind == "drag":
             return await self._pointer(t, el, action, intent_id)
         t.visual = None
-        if info.secret and (action.kind == "type" or (action.kind == "press" and enters_text(action.text))):
+        if info.secret and (action.kind in ("type", "paste") or (action.kind == "press" and enters_text(action.text))):
             raise Refused(f"that's a secret field ({info.field_kind or 'password or code'}); FERB never types into it "
                           "or presses a key that puts text there: fill it through browser.secret or a saved card")
-        into = action.kind in ("type", "press") and info.terminal                # D31: a web terminal
+        into = action.kind in ("type", "press", "paste") and info.terminal       # D31: a web terminal
+        version = str(getattr(t.bridge, "version", "") or "")
+        if action.kind == "paste" and not version_ok(version, INPUT_EXTENSION_VERSION):   # HAND-506
+            raise Refused(f"the FERB extension in this profile is {version or 'an older version'}; paste needs "
+                          f"{INPUT_EXTENSION_VERSION} or later: type the text instead. Their browser updates the "
+                          "extension by itself from the Chrome Web Store")
         if into and (refusal := self._terminal_refusal(t, el.element_id, action)):
             raise Refused(refusal)
         if action.kind in WRITES:
@@ -1762,6 +1767,10 @@ class _TabDriver:
                                 "kind": action.kind, "text": action.text,
                                 # real (debugger-dispatched) input is the default; page events on request
                                 "page_mode": bool(action.page_mode and not action.trusted and action.kind in TRUSTED_KINDS)}
+        if action.kind == "type" and action.mode is not None:     # HAND-505; an older extension knows `append`
+            args |= {"mode": action.mode, "append": action.mode == "insert"}
+        if action.kind == "paste" and action.html:
+            args["html"] = action.html
         if action.expect_dialog:
             args["expect_dialog"] = action.expect_dialog
             if action.dialog_text is not None:
@@ -2747,9 +2756,9 @@ class _TabDriver:
             end = self.element_info(tab_id, end_element or "")
             return TerminalInput(app, bid, why, drag=True) if end is not None and end.terminal else None
         info = self.element_info(tab_id, element_id)
-        if info is None or not info.terminal or kind not in ("type", "press") or text is None:
+        if info is None or not info.terminal or kind not in ("type", "press", "paste") or text is None:
             return None
-        if kind == "type":
+        if kind in ("type", "paste"):                  # a paste puts its text in as typing does
             return TerminalInput(app, bid, why, text=text, enter=not terminals.newline(text))
         if self._pastes(text):
             count, pasted, concealed = self.clipboard()
@@ -2766,7 +2775,7 @@ class _TabDriver:
         g = action.terminal
         if g is not None and action.kind == "drag" and g.input.drag:
             return None
-        if g is not None and action.kind == "type" and g.input.text == action.text and not g.input.keys:
+        if g is not None and action.kind in ("type", "paste") and g.input.text == action.text and not g.input.keys:
             return None
         if action.kind == "press" and self._pastes(action.text):
             if g is not None and g.input.paste and self.clipboard()[0] == g.input.clipboard:

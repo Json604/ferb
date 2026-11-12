@@ -4251,7 +4251,7 @@ area = "hands"
 surface = "FERB.app with this build and the FERB extension 0.19.10 (store, or the unpacked copy in build/unpacked); your own Google account in your browser profile; a new, empty Google Doc"
 request = "Ask FERB to write a short note into that Doc: a title, two headings, a paragraph under each and a three-item bulleted list."
 pass = "The Doc shows the title, both headings as headings, both paragraphs and the three bullets, nothing else changed; the trace shows the text going in through browser.act (paste with html, or type) without \"target_occluded\" and without the system clipboard; FERB reads it back (the export address or a snapshot) before it says done."
-decisions = ["HAND-503", "HAND-504"]
+decisions = ["HAND-503", "HAND-504", "HAND-505", "HAND-506"]
 sitting = "after this change is installed and 0.19.10 is loaded"
 
 [LIVE-917]
@@ -4260,7 +4260,7 @@ area = "hands"
 surface = "FERB.app with this build and the FERB extension 0.19.10; your own Google account; a new, empty Google Sheet"
 request = "Ask FERB to put a header row (Name, City, Score) and three rows of invented data into the Sheet."
 pass = "Cells A1:C4 hold exactly the header and the three rows, one value per cell; the trace shows how they went in (typing into the sheet's input with Tab and Enter, a paste, or an import) with no \"outside_page\" refusal; FERB reads them back (the csv export or a snapshot) before it says done."
-decisions = ["HAND-503", "HAND-504"]
+decisions = ["HAND-503", "HAND-504", "HAND-505"]
 sitting = "after this change is installed and 0.19.10 is loaded"
 
 [LIVE-918]
@@ -4269,5 +4269,5 @@ area = "hands"
 surface = "FERB.app with this build and the FERB extension 0.19.10; a public web code editor that needs no sign-in (for example the CodeMirror or Monaco playground)"
 request = "Ask FERB to replace the editor's code with a three-line function you give it."
 pass = "The editor shows exactly your three lines (its own indentation aside); no \"target_occluded\" in the trace."
-decisions = ["HAND-504"]
+decisions = ["HAND-504", "HAND-505"]
 sitting = "after this change is installed and 0.19.10 is loaded"

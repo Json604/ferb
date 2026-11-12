@@ -107,7 +107,7 @@ def _download_sources(found: list[dict[str, Any]]) -> tuple[tuple[str, str], ...
 PointKind = Literal["click", "type", "scroll", "press", "drag"]
 # L33: the cursor's kind for each act; an upload's file field (often hidden) has nothing to point at
 POINT_KINDS: dict[str, PointKind] = {"click": "click", "dblclick": "click", "rightclick": "click", "hover": "click",
-                                     "type": "type", "select": "type", "press": "press", "scroll": "scroll",
+                                     "type": "type", "paste": "type", "select": "type", "press": "press", "scroll": "scroll",
                                      "drag": "drag"}
 
 
@@ -852,19 +852,33 @@ class BrowserAct(_Base):
     verb = "act"
     generic_input = True                               # W2: its declared effect says what it does (rules.declare)
     blurb = ("Act on one element from the latest snapshot ({whose}): click, dblclick, rightclick, hover, type "
-             "(replaces the field's text), select (an option's label or value), press (a key like Enter, Tab, "
+             "(the text; `mode` replace selects the field's text first, insert puts it at the caret and keeps the "
+             "rest; unsaid: replace in an input or textarea, insert in a document editor and in a field the page draws "
+             "its own view over, e.g. Google Docs or a code editor), paste (text, and `html` for headings, lists and "
+             "bold, into an editor at its caret as the page's own paste: never the system clipboard; a page that "
+             "doesn't take it says so, then type), select (an option's label or value), press (a key like Enter, Tab, "
              "Escape, Backspace, ArrowDown, or a shortcut like cmd+a, shift+Tab), scroll (up/down, within the "
              "element's own scroll area), upload (files: onto a file field, type 'file' in the snapshot, hidden ones too, or "
              "dropped onto a drop zone that has none), drag (between two screenshot points). Input is real (as from a mouse and "
              "keyboard) by default; page_mode=true sends scripted events instead. An element that isn't in_view "
-             "is scrolled into view first. Never type passwords or codes.")
+             "is scrolled into view first; a field the page covers or keeps off the page still takes typing and keys. "
+             "Typed line breaks go in as text; in a field under the page's own view (Docs, Sheets, code editors) each "
+             "is pressed as Enter and each tab as Tab. Never type passwords or codes.")
     risk, reversible = RiskLevel.MEDIUM, False
     method_args = ("page_mode", "trusted")             # how input is delivered, not what it does (P19 hash)
 
     class Input(_El):
-        action: Literal["click", "dblclick", "rightclick", "hover", "type", "select", "press", "scroll", "upload", "drag"]
-        text: str | None = Field(default=None, description="type: the text; select: option; press: key; "
+        action: Literal["click", "dblclick", "rightclick", "hover", "type", "paste", "select", "press", "scroll", "upload",
+                        "drag"]
+        text: str | None = Field(default=None, description="type and paste: the text; select: option; press: key; "
                                                            "scroll: up or down")
+        mode: Literal["replace", "insert"] | None = Field(
+            default=None, description="type only: replace (select the field's text first) or insert (at the caret, "
+                                      "keeping the rest). Unsaid: replace in an input or textarea, insert in a document "
+                                      "editor or a field under the page's own view. To add at the end, press cmd+End "
+                                      "(or End) first")
+        html: str | None = Field(default=None, description="paste only: the same content as HTML (h1-h3, p, ul/ol/li, b, "
+                                                           "i, a), so an editor keeps its structure; text stays required")
         end_element: str | None = Field(default=None, description="drag only: destination id from a second browser_point on the same screenshot")
         trusted: bool = False
         page_mode: bool = Field(default=False, description="scripted page events instead of real input (only when "
@@ -877,8 +891,12 @@ class BrowserAct(_Base):
 
         @model_validator(mode="after")
         def explicit_input(self) -> "BrowserAct.Input":
-            if self.action in {"type", "select", "press"} and self.text is None:
+            if self.action in {"type", "select", "press", "paste"} and self.text is None:
                 raise ValueError(f"{self.action} requires explicit text; no default key or replacement value")
+            if self.mode is not None and self.action != "type":
+                raise ValueError("mode is for type only")
+            if self.html is not None and self.action != "paste":
+                raise ValueError("html is for paste only")
             if self.action == "press" and not self.text:
                 raise ValueError("press requires explicit text naming a key")
             return self
@@ -896,11 +914,14 @@ class BrowserAct(_Base):
         punctuation around it aside) is recorded as the call's recipient, so where it came from is checked (S4 b)."""
         action, text = str(getattr(args, "action")), getattr(args, "text")
         kind = act_kind(action, text, self._element(args))
-        content = text if action in ("type", "select") else None
+        html = getattr(args, "html", None)
+        content = (text if action in ("type", "select", "paste") else None)
+        if action == "paste" and html:                 # HAND-506: what a paste puts in is its text and its HTML
+            content = f"{text}\n{html}"
         if action in {"click", "dblclick", "rightclick", "hover", "drag"}:   # where, as P19 knows it (ledger_args)
             content = f"{action}:{self._where(args, 'element')}:{self._where(args, 'end_element')}"
         spec = self._spec(kind, args, content=content)
-        typed = typed_destination(text) if action == "type" and isinstance(text, str) else None
+        typed = typed_destination(text) if action in ("type", "paste") and isinstance(text, str) else None
         if typed:
             spec = dataclasses.replace(spec, target=dataclasses.replace(spec.target, recipients=(typed,)))
         facts = getattr(self.driver, "act_facts", None)
@@ -967,7 +988,8 @@ class BrowserAct(_Base):
                                                     files=tuple(str(owner_path(f, ctx.workspace))
                                                                 for f in getattr(args, "files", None) or ()),
                                                     end_element=getattr(args, "end_element", None),
-                                                    files_closed=ctx.path_closed, terminal=ctx.terminal),
+                                                    files_closed=ctx.path_closed, terminal=ctx.terminal,
+                                                    mode=getattr(args, "mode", None), html=getattr(args, "html", None)),
                                   ctx.intent_id or "")
         # facts come back from the page (option candidates, scroll state, dialogs): label them with the tab's page
         # HAND-493: the hint follows what happened
@@ -1056,7 +1078,7 @@ def act_kind(action: str, text: str | None, el: PageElement | None) -> str:
     """Physical operation only. The agent's declared effect supplies purpose; page labels never do."""
     if action in {"scroll", "hover"}:
         return Kind.READ
-    if action in {"type", "select", "upload", "press"}:
+    if action in {"type", "paste", "select", "upload", "press"}:
         return Kind.FILL_FORM
     return Kind.CLICK
 

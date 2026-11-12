@@ -143,7 +143,11 @@ Extension 0.19.9 keeps protocol 21 and the minimum (HAND-500..502; an older exte
 
 Extension 0.19.10 keeps protocol 21 and the minimum (HAND-504..; an older extension keeps today's input):
 - `act` type or press on a field the page covers with its own drawing or keeps outside the page focuses it by script
-  and sends the keys there; the reply says so (`focus`, `unpointed`: covered | outside)."""
+  and sends the keys there; the reply says so (`focus`, `unpointed`: covered | outside).
+- `act` type takes `mode` (replace | insert; unsaid: by the field's structure) and says the one used (`mode`); in a field
+  under the page's own view each line break is pressed as Enter and each tab as Tab. An older extension reads `append`.
+- `act` kind `paste` {text, html}: the page's own paste event with text/plain (and text/html), never the system
+  clipboard; `paste_taken`, or `reason: "paste_not_taken"` when no handler took it and nothing changed."""
 
 import base64
 import hashlib
@@ -189,6 +193,9 @@ OWNER_VIEW_EXTENSION_VERSION = "0.19.8"
 # HAND-500: from this version an upload without file access hands the file's bytes through the page (upload_part); an
 # older extension gets today's debugger route only
 UPLOAD_BYTES_EXTENSION_VERSION = "0.19.9"
+# HAND-505..: paste, sideways and screen-sized scrolls, click modifiers and the rest of the input gaps need this version;
+# an older extension keeps working without them
+INPUT_EXTENSION_VERSION = "0.19.10"
 UPLOAD_PART = 256 * 1024                       # raw bytes per upload_part (protocol.js UPLOAD_PART): one native message
 
 

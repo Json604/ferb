@@ -1820,21 +1820,45 @@ async function trusted(tabId, a) {
       return { ok: true, detail: `${name} (trusted)${p.occluded ? "; the element looked covered" : ""}` };
     }
     if (a.kind === "type") {
-      if (p.editable && !byScript) await pointerClick(tabId, p.x, p.y);   // focus by a real click, like a person
-      let active = await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.isActive(g, i), [a.snap, a.el]);
+      // HAND-505: `mode` replace (the field's text is selected first) or insert (at the caret, the rest kept). Unsaid:
+      // insert into a document editor (contenteditable) or a field the page draws its own view over (byScript),
+      // replace in an input or a textarea, which hold one value. An insert never clicks a field that has the focus,
+      // and focuses one that hasn't by script first, so FERB doesn't move the page's caret; replace clicks like a person.
+      const isActive = () => inFrame(tabId, a.frame_id, (g, i) => window.__ferb.isActive(g, i), [a.snap, a.el]);
+      let mode = a.mode === "replace" || a.mode === "insert" ? a.mode : a.append ? "insert" : null;
+      if (!mode && p.field) mode = byScript || p.field === "rich" ? "insert" : "replace";
+      let active = await isActive();
+      if (p.editable && !byScript && !(mode === "insert" && active)) {
+        if (mode === "insert") active = await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.focus(g, i), [a.snap, a.el]);
+        if (mode !== "insert" || !active) { await pointerClick(tabId, p.x, p.y); active = await isActive(); }   // like a person
+      }
       if (!active) active = await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.focus(g, i), [a.snap, a.el]);
       if (!active) return { ok: false, detail: "focus_failed" };     // never type into whatever else has focus
       // where the keys go now may be a secret field inside the element (a widget around a password box)
       if (await inFrame(tabId, a.frame_id, () => window.__ferb.focusedSecret(), [])) return { ok: false, detail: "secret_field" };
-      const text = a.text || "";
-      if (!a.append) await pressKey(tabId, "cmd+a");                  // replace: select the field's text first
-      if (!text) { await pressKey(tabId, "Backspace"); return { ok: true, detail: "cleared (trusted)", ...focusedBy }; }
+      if (!mode) mode = (await inFrame(tabId, a.frame_id, () => window.__ferb.focusedField(), [])) === "rich" ? "insert" : "replace";
+      const text = String(a.text || "").replace(/\r\n?/g, "\n");
+      const how = { mode, ...focusedBy };
+      if (mode === "replace") await pressKey(tabId, "cmd+a");         // replace: select the field's text first
+      if (!text) {
+        if (mode === "insert") return { ok: true, detail: "nothing typed (the text is empty)", ...how };
+        await pressKey(tabId, "Backspace"); return { ok: true, detail: "cleared (trusted)", ...how };
+      }
       if (a.per_key) {
         for (const ch of text) if (!(await pressKey(tabId, ch))) await cdp(tabId, "Input.insertText", { text: ch });
-        return { ok: true, detail: "typed key by key (trusted)", ...focusedBy };
+        return { ok: true, detail: "typed key by key (trusted)", ...how };
       }
-      await cdp(tabId, "Input.insertText", { text });
-      return { ok: true, detail: "typed (trusted)", ...focusedBy };
+      // A field under the page's own view takes keys, not the field's text (a code editor, Google Docs, a Sheets cell):
+      // there each line break is pressed as Enter and each tab as Tab. Elsewhere the text goes in as typed text, line
+      // breaks too, and no Enter is pressed (a chat box sends on Enter).
+      if (byScript && /[\n\t]/.test(text)) {
+        for (const part of text.split(/(\n|\t)/)) {
+          if (part === "\n") await pressKey(tabId, "Enter");
+          else if (part === "\t") await pressKey(tabId, "Tab");
+          else if (part) await cdp(tabId, "Input.insertText", { text: part });
+        }
+      } else await cdp(tabId, "Input.insertText", { text });
+      return { ok: true, detail: mode === "insert" ? "typed at the caret (trusted)" : "typed, replacing the field's text (trusted)", ...how };
     }
     if (a.kind === "press") {
       let active = await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.isActive(g, i), [a.snap, a.el]);
@@ -2330,16 +2354,26 @@ const commands = {
   pointer: exactPointer,
   async pointer_cancel({tab_id, command_id}) { return cancelPointer(tab_id, command_id); },
   // HAND-487: the act, with what changed around it (observeAct). actOnce is no op of its own (OPS lists none).
-  async act(args) { return observeAct(args, () => commands.actOnce(args)); },
-  async actOnce({ tab_id, frame_id, snap, el, kind, text, page_mode, expect_dialog, dialog_text, append, per_key }) {
-    if (["type","select","press"].includes(kind) && typeof text !== "string")
+  async act(args) {
+    const r = await observeAct(args, () => commands.actOnce(args));
+    // HAND-506: a scripted paste lands only where the page's own handler takes it; one nobody took, with nothing seen
+    // changing, put nothing in: a known failure that says so, so the worker types instead
+    if (args.kind === "paste" && r && r.ok === true && r.paste_taken !== true && r.observed_change === false)
+      return {...r, ok: false, reason: "paste_not_taken", detail: "the page didn't take the paste: no handler of its " +
+        "own took the paste event and nothing changed, so nothing was inserted (a plain editable field takes pasted " +
+        "text only from a real paste); type the text instead"};
+    return r;
+  },
+  async actOnce({ tab_id, frame_id, snap, el, kind, text, page_mode, expect_dialog, dialog_text, append, per_key, mode, html }) {
+    if (["type","select","press","paste"].includes(kind) && typeof text !== "string")
       return {ok:false,reason:"explicit_input_required",detail:"No default key or replacement text is supplied"};
-    const page = page_mode === true || kind === "select" || kind === "scroll";
+    const page = page_mode === true || kind === "select" || kind === "scroll" || kind === "paste";
     // a page-mode press uses the one key table (protocol.js keyEvent), with whether it puts text in (entersText)
     const key = kind === "press" ? (() => { const k = keyEvent(text);
       return k ? { key: k.key, code: k.code, keyCode: k.keyCode, modifiers: k.modifiers, enters: entersText(text) } : null; })() : null;
-    const pageAct = () => inFrame(tab_id, frame_id, (g, i, k, t, y) => window.__ferb.act(g, i, k, t, y),
-                                  [snap, el, kind, text ?? null, key]);
+    const extra = kind === "paste" ? { html: typeof html === "string" ? html : null } : null;
+    const pageAct = () => inFrame(tab_id, frame_id, (g, i, k, t, y, x) => window.__ferb.act(g, i, k, t, y, x),
+                                  [snap, el, kind, text ?? null, key, extra]);
     const submits = SUBMITTING.has(kind);
     if (submits) await formSubmits(tab_id);          // what the page submitted before this act isn't this act's
     let state;
@@ -2366,7 +2400,7 @@ const commands = {
     }
     const before = state.fileChoosers.length;
     const result = page ? await pageAct()
-      : await trusted(tab_id, { frame_id, snap, el, kind, text, expect_dialog, dialog_text, append, per_key });
+      : await trusted(tab_id, { frame_id, snap, el, kind, text, expect_dialog, dialog_text, append, per_key, mode });
     const choosers = state.fileChoosers.slice(before);
     const submitted = submits ? await formSubmits(tab_id) : [];
     return {...result, ...(choosers.length ? {file_choosers: choosers} : {}), ...(submitted.length ? {submitted} : {})};

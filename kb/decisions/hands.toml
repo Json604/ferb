@@ -1294,3 +1294,25 @@ why = "Monaco, CodeMirror 5, Ace, Google Docs and Sheets take keys through an in
 evidence = "Lab 2026-11-11 (tests/test_browser_input_gaps_real.py): every type and press on Monaco, CM5, Ace and the Docs-shaped stand-in failed target_occluded; after, each takes the text. Real Docs and Sheets signed in: unverified until LIVE-916/917."
 paths = ["extensions/chromium/background.js::trusted", "extensions/chromium/content.js::rect", "ferb/act/browser/ext_bridge.py::act"]
 live = ["LIVE-916"]
+
+[HAND-505]
+title = "Typing replaces an input's text, goes at an editor's caret; Enter keys only under a drawn view"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For HAND-503, extension 0.19.10. browser.act type takes `mode`: replace (select the field's text first) or insert (at the caret, the rest kept); unsaid, replace in an input or textarea and insert in a contenteditable editor or a field under the page's own view (HAND-504). Insert never clicks a focused field and focuses an unfocused one by script, so the caret isn't moved. Typed text goes in as text, line breaks too; only under a page's own view is each line break pressed as Enter and each tab as Tab. The reply names the mode used. An older extension gets `append`."
+why = "Select-all before typing wipes a whole document; an input holds one value. A chat composer sends on Enter, so Enter is pressed only where the page reads keys instead of the field (Docs, Sheets, code editors)."
+evidence = "Lab 2026-11-11: Input.insertText with line breaks landed paragraphs in all eleven contenteditable editors; FERB's type puts lines into Monaco, CM5, Ace and the Docs stand-in; insert kept an editor's text in all 13."
+paths = ["extensions/chromium/background.js::trusted", "extensions/chromium/content.js::focusedField", "ferb/act/browser/tools.py::BrowserAct", "ferb/act/browser/ext_bridge.py::act"]
+live = ["LIVE-916", "LIVE-917", "LIVE-918"]
+
+[HAND-506]
+title = "browser.act paste: the page's own paste event with text and html, never the system clipboard"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "For HAND-503, extension 0.19.10. `paste` {text, html} focuses the element (or keeps the focus inside it) and dispatches a ClipboardEvent paste whose DataTransfer carries text/plain and text/html, from the extension's isolated world; no key is pressed and the system clipboard is never read or written. Taken (`paste_taken`: the page cancelled it) or a seen change: ok; neither: `paste_not_taken`, a known failure telling the worker to type. As type: the secret rule, the terminal question, HAND-447, and the gateway records its text and html as content. Older extensions: refused, nothing sent."
+why = "Rich editors keep headings and lists only from a paste; a trusted cmd+v would paste whatever the owner last copied, and the clipboard is theirs."
+evidence = "Lab 2026-11-11: Quill, ProseMirror, TipTap, Lexical, Draft, CKEditor, TinyMCE, Monaco, CM6, CM5 and Ace kept the heading and list; a plain contenteditable and Slate took nothing and the result said so."
+paths = ["extensions/chromium/content.js::act", "extensions/chromium/background.js::act", "ferb/act/browser/ext_bridge.py::act", "ferb/act/browser/tools.py::BrowserAct"]
+live = ["LIVE-916"]

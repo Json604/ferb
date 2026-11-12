@@ -399,9 +399,10 @@ class DriverFeatures:
 
 @dataclass(frozen=True)
 class BrowserAction:
-    kind: Literal["click", "dblclick", "rightclick", "hover", "type", "select", "press", "scroll", "upload", "drag"]
+    kind: Literal["click", "dblclick", "rightclick", "hover", "type", "select", "press", "scroll", "upload", "drag",
+                  "paste"]
     text: str | None = None                  # for type: the text; select: option label or value; press: key ("cmd+a");
-                                             # scroll: up|down
+                                             # scroll: up|down; paste: the text (text/plain)
     trusted: bool = False                    # kept for callers that insist; real input is the default for click/type/press
     page_mode: bool = False                  # scripted (untrusted) page events instead of real input
     expect_dialog: Literal["accept", "dismiss"] | None = None   # a JS dialog this action is expected to open
@@ -411,6 +412,9 @@ class BrowserAction:
     # upload: the protection lists' check of each file as the driver really opened it (ToolContext.path_closed)
     files_closed: Callable[[Path, str], str | None] | None = field(default=None, compare=False, repr=False)
     terminal: TerminalGrant | None = field(default=None, compare=False)   # the owner's Yes to this input (D31)
+    mode: Literal["replace", "insert"] | None = None   # type (HAND-505): replace the field's text, or insert at the
+                                                       # caret; None: by the field's structure
+    html: str | None = None                  # paste (HAND-506): the same content as text/html
 
 
 @dataclass(frozen=True)
