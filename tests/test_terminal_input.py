@@ -1,5 +1,6 @@
-"""Typing into any terminal is enforced by code (D31, AGENTS.md rule 10): FERB always asks the owner first, showing the
-exact command, every time, with no standing permission; a No types nothing.
+"""Typing into any terminal is enforced by code (D31, AGENTS.md rules 5 and 6): FERB asks the owner first, showing the
+exact command, with no standing permission; a No types nothing. GATE-585 (owner, 2026-11-12): that Yes covers the
+terminal app for the rest of the task; another terminal app or another task asks again.
 
 Live evidence, task 6f5b85894b3140e0b434910301e088a6 (2026-10-25): FERB's sandbox blocked `ps` and the Codex control
 socket, and the worker turned to the owner's VS Code terminal: at 07:04 `mac.act type "codex app-server daemon restart"`
@@ -9,7 +10,7 @@ The terminal-app floor knew Terminal, iTerm2… by bundle id, not a terminal ins
 
 Here: which elements code counts as terminals (policy/terminal.py), the driver's refusal of every input path without
 the owner's Yes (pid, ax_keyboard, set_value / ax_value, edit, foreground, keys, ⌘V and menu paste), and the gateway's
-question, asked before every input, with the exact text."""
+question, asked before the first input into a terminal app in a task, with the exact text."""
 
 import asyncio
 import json
@@ -305,63 +306,100 @@ def _questions(d: RunningDaemon) -> list[dict[str, Any]]:
     return d.run(go())                                                            # type: ignore[no-any-return]
 
 
-def test_the_live_sequence_asks_first_and_a_yes_types_once_and_sends_its_return(daemon: RunningDaemon,
-                                                                                monkeypatch: Any) -> None:
+# decision: GATE-585, GATE-586
+def test_the_live_sequence_asks_once_and_that_yes_covers_codes_terminal_for_the_task(daemon: RunningDaemon,
+                                                                                      monkeypatch: Any) -> None:
+    """Tree 6f4532ba (2026-11-12): after the owner's Yes to VS Code's Terminal > New Terminal, every key the worker
+    pressed asked again ("its takign permission for eveyr keystroke"). The first terminal input asks, showing it, and
+    says its Yes covers Code's terminal for the rest of the task; the text and its Return then go unasked."""
     grant, ax = _live(daemon, monkeypatch)
-    owner = Owner(daemon, [True, True])
+    owner = Owner(daemon, [True])
     try:
         menu = gateway_tool_call(daemon, grant, "mac.menu", app="Code", path="Terminal > New Terminal")
         assert not menu["is_error"] and ax.focused == "term108"      # the Terminal menu operates it: asked (round 1)
-        assert len(_questions(daemon)) == 1
         typed = gateway_tool_call(daemon, grant, "mac.act", app="Code", element=_snap(daemon, grant)[TERMINAL_LABEL],
                                   action="type", mechanism="pid", text="codex",
                                   why="Enter plain `codex` in the clean FERB terminal for the final startup check.")
         assert not typed["is_error"], typed
-        enter = gateway_tool_call(daemon, grant, "mac.act", app="Code", element=_snap(daemon, grant)[TERMINAL_LABEL],
-                                  action="key", mechanism="pid", text="ENTER", why="Run plain Codex.")
+        enter = gateway_tool_call(daemon, grant, "mac.act", app="Code", action="key", mechanism="pid", text="ENTER",
+                                  why="Run plain Codex.")
         assert not enter["is_error"], enter
+        other = gateway_tool_call(daemon, grant, "mac.act", app="Code", action="key", mechanism="pid", text="ctrl+c")
+        assert not other["is_error"], other
     finally:
         owner.stop()
-    assert ax.landed == [("term108", "type codex"), ("term108", "key ENTER")]     # once each, in FERB's terminal
-    asked = _questions(daemon)[1:]                                                # after the menu's question
+    assert ax.landed == [("term108", "type codex"), ("term108", "key ENTER"), ("term108", "key ctrl+c")]
+    asked = _questions(daemon)
     assert len(asked) == 1 and asked[0]["confirm"][0]["rule"] == confirm.TERMINAL_INPUT and asked[0]["answer"] == YES
-    assert owner.summaries[1:] == ["Run this command in Code?"]
-    assert 'terminal "Terminal 108, zsh Use ⌥F1 for…", window "FERB"' in owner.details[1]    # which terminal
-    assert owner.exacts[1:] == ['codex']                                          # the exact input, in its box
-    assert '"codex"' in asked[0]["question"] and "xterm" in asked[0]["question"]
-    assert "this Yes covers this one input only" in asked[0]["question"]
+    assert "for the rest of this task" in owner.details[0] and "Code's terminal" in owner.details[0]
 
 
-def test_a_second_identical_command_asks_again_and_a_no_types_nothing(daemon: RunningDaemon, monkeypatch: Any) -> None:
+def test_a_no_refuses_that_input_and_a_different_one_asks_again(daemon: RunningDaemon, monkeypatch: Any) -> None:
+    """A No stays a No for that input (the same input again is refused unasked); another input asks, and its Yes then
+    covers the app's terminal input for the task."""
     grant, ax = _live(daemon, monkeypatch, focus="term108")
-    owner = Owner(daemon, [True, False])
+    owner = Owner(daemon, [False, True])
     try:
         box = _snap(daemon, grant)[TERMINAL_LABEL]
-        assert not gateway_tool_call(daemon, grant, "mac.act", app="Code", element=box, action="type", mechanism="pid",
-                                     text="codex")["is_error"]
-        box = _snap(daemon, grant)[TERMINAL_LABEL]
         no = gateway_tool_call(daemon, grant, "mac.act", app="Code", element=box, action="type", mechanism="pid",
-                               text="codex", why="once more")
+                               text="rm -rf build")
+        again = gateway_tool_call(daemon, grant, "mac.act", app="Code", element=box, action="type", mechanism="pid",
+                                  text="rm -rf build")
+        yes = gateway_tool_call(daemon, grant, "mac.act", app="Code", element=box, action="type", mechanism="pid",
+                                text="ls")
+        covered = gateway_tool_call(daemon, grant, "mac.act", app="Code", element=box, action="type", mechanism="pid",
+                                    text="pwd")
+        still_no = gateway_tool_call(daemon, grant, "mac.act", app="Code", element=box, action="type", mechanism="pid",
+                                     text="rm -rf build")
     finally:
         owner.stop()
-    assert [q["answer"] for q in _questions(daemon)] == [YES, NO]                  # asked again, the same text
     assert no["is_error"] and "the owner said no" in no["content"]["error"]
-    assert no["content"]["next"].startswith("The owner decided")
-    assert ax.landed == [("term108", "type codex")]                               # the No typed nothing
-    box = _snap(daemon, grant)[TERMINAL_LABEL]
-    again = gateway_tool_call(daemon, grant, "mac.act", app="Code", element=box, action="type", mechanism="pid",
-                              text="codex")
-    assert again["is_error"] and "already said no" in again["content"]["error"]    # the No stands for it
-    assert len(_questions(daemon)) == 2 and ax.landed == [("term108", "type codex")]
+    assert again["is_error"] and "already said no" in again["content"]["error"]
+    assert not yes["is_error"] and not covered["is_error"], (yes, covered)
+    assert still_no["is_error"] and "already said no" in still_no["content"]["error"]   # the app's Yes never lifts it
+    assert [q["answer"] for q in _questions(daemon)] == [NO, YES]
+    assert ax.landed == [("term108", "type ls"), ("term108", "type pwd")]
 
 
-def test_a_retry_asks_again(daemon: RunningDaemon, monkeypatch: Any) -> None:
-    """The owner said Yes, but the keyboard focus was elsewhere, so nothing was typed; the worker's retry of the very
-    same call is asked again: a Yes covers one input, never a later attempt."""
+def test_another_terminal_app_and_another_task_ask_again_and_the_window_never_answers(daemon: RunningDaemon,
+                                                                                    monkeypatch: Any) -> None:
+    """The Yes is keyed by the app (its bundle id, GATE-201's key) and the task tree: Terminal asks after VS Code's
+    Yes, and a new task asks for VS Code again, even inside the owner's 30-minute window (GATE-207)."""
+    from datetime import timedelta
+    ax = vscode_ax(focus="term108")
+    driver = terminal_mac(monkeypatch, ax, TerminalApps(RunningApp(CODE, "Code", 41154, False),
+                                                        RunningApp("com.apple.Terminal", "Terminal", 702, False)))
+    caps = [MacSnapshot(driver), MacMenu(driver), MacAct(driver)]
+    grant, _ = gateway_setup(daemon, {"mac:read", "mac:act"}, gateway_request("start codex"), caps)
+    owner = Owner(daemon, [True, True, True])
+    try:
+        assert not gateway_tool_call(daemon, grant, "mac.act", app="Code", action="key", mechanism="pid",
+                                     text="ctrl+c")["is_error"]
+        assert not gateway_tool_call(daemon, grant, "mac.act", app="Terminal", action="key", mechanism="pid",
+                                     text="ctrl+c")["is_error"]
+        assert len(_questions(daemon)) == 2                                       # another terminal app: asked
+        assert not gateway_tool_call(daemon, grant, "mac.act", app="Terminal", action="key", mechanism="pid",
+                                     text="ctrl+d")["is_error"]
+        assert len(_questions(daemon)) == 2                                       # its own Yes covers it
+        daemon.daemon.gateway.allow_until = daemon.daemon.clock.now() + timedelta(minutes=30)   # GATE-207
+        later, _ = gateway_setup(daemon, {"mac:read", "mac:act"}, gateway_request("start codex again"), caps,
+                                 task_id="task-2")
+        assert not gateway_tool_call(daemon, later, "mac.act", app="Code", action="key", mechanism="pid",
+                                     text="ctrl+c")["is_error"]
+    finally:
+        owner.stop()
+    asked = _questions(daemon)
+    assert [q["answer"] for q in asked] == [YES, YES, YES]                        # the new task asked the owner
+    assert asked[-1]["options"] == [YES, NO]                                      # no 30-minute answer for it
+
+
+def test_a_retry_after_nothing_was_typed_is_covered_by_the_apps_yes(daemon: RunningDaemon, monkeypatch: Any) -> None:
+    """The owner said Yes, but the keyboard focus was elsewhere, so nothing was typed; the worker's retry is covered
+    by that Yes to Code's terminal for the task (GATE-586) and typed once."""
     grant, ax = _live(daemon, monkeypatch, focus="term108")
     ax.keeps_focus = False
     ax.focused = "editor"
-    owner = Owner(daemon, [True, True])
+    owner = Owner(daemon, [True])
     try:
         box = _snap(daemon, grant)[TERMINAL_LABEL]
         first = gateway_tool_call(daemon, grant, "mac.act", app="Code", element=box, action="type", mechanism="pid",
@@ -373,8 +411,50 @@ def test_a_retry_asks_again(daemon: RunningDaemon, monkeypatch: Any) -> None:
         assert not retry["is_error"], retry
     finally:
         owner.stop()
-    assert [q["answer"] for q in _questions(daemon)] == [YES, YES]
+    assert [q["answer"] for q in _questions(daemon)] == [YES]
     assert ax.landed == [("term108", "type codex app-server daemon restart")]
+
+
+def test_a_secret_still_asks_after_the_apps_yes(daemon: RunningDaemon, monkeypatch: Any) -> None:
+    """GATE-586: the app's Yes covers typing, keys, pastes, menus and run controls, never a secret filled in: that
+    asks every time, as before."""
+    from ferb.act.mac.tools import MacSecret
+    ax = vscode_ax(focus="term108")
+    driver = terminal_mac(monkeypatch, ax)
+    asked: list[str] = []
+
+    async def ask_secret(ctx: Any, target: str, **kw: Any) -> str:
+        asked.append(target)
+        return "Hunter2-Typed!"
+    driver.ask_secret = ask_secret                                                # type: ignore[attr-defined]
+    grant, _ = gateway_setup(daemon, {"mac:read", "mac:act"}, gateway_request("sudo in my terminal"),
+                             [MacSnapshot(driver), MacAct(driver), MacSecret(driver)])
+    owner = Owner(daemon, [True, False])
+    try:
+        box = _snap(daemon, grant)[TERMINAL_LABEL]
+        assert not gateway_tool_call(daemon, grant, "mac.act", app="Code", element=box, action="type",
+                                     mechanism="pid", text="sudo -v")["is_error"]
+        out = gateway_tool_call(daemon, grant, "mac.secret", app="Code", element=_snap(daemon, grant)[TERMINAL_LABEL],
+                                remember="sudo password")
+    finally:
+        owner.stop()
+    assert out["is_error"] and asked == [] and [q["answer"] for q in _questions(daemon)] == [YES, NO]
+    assert "Yes covers only this" in owner.details[1]
+
+
+def test_only_secrets_runnable_files_and_code_runner_scripts_stay_one_input() -> None:
+    """GATE-586's split, from the input's own facts: which Yes covers the app for the task (its key) and which one
+    input."""
+    wide = [TerminalInput("Code", CODE, "t", text="ls"), TerminalInput("Code", CODE, "t", keys="c"),
+            TerminalInput("Code", CODE, "t", text="ls", paste=True), TerminalInput("Code", CODE, "t", menu="Paste"),
+            TerminalInput("Code", CODE, "t", runs=True, control="Run Python File"),
+            TerminalInput("Terminal", "com.apple.Terminal", "t", script='do script "ls"')]
+    one = [TerminalInput("Code", CODE, "t", secret="sudo password"),
+           TerminalInput("Code", CODE, "t", paste=True, concealed=True),
+           TerminalInput("Finder", "com.apple.finder", "t", files=(("/x.command", "h", "ls"),)),
+           TerminalInput("System Events", "com.apple.systemevents", "t", script='keystroke "ls"')]
+    assert all(terminal.need(i).grants == terminal.app_key(i.bundle_id) for i in wide)
+    assert all(terminal.need(i).grants == "" for i in one)
 
 
 def test_a_return_ferb_did_not_type_for_asks_and_says_what_it_runs(daemon: RunningDaemon, monkeypatch: Any) -> None:
@@ -415,14 +495,14 @@ def test_a_menu_paste_into_the_focused_terminal_asks_with_the_clipboards_text(da
 # ---------- a web terminal in a browser page (xterm.js): browser.act asks the same way ----------
 
 
-def test_typing_into_a_web_terminal_asks_and_a_yes_covers_its_return(bd: Any) -> None:
+def test_typing_into_a_web_terminal_asks_and_a_yes_covers_the_browsers_terminal_input(bd: Any) -> None:
     d, launched = bd
     ext, g = _ready(d, launched)
     tab = call(d, g, "browser.open", url=f"{SHOP}/terminal")["content"]["tab"]
     snap = call(d, g, "browser.snapshot", tab=tab)["content"]
     term, docs = (next(e["id"] for e in snap["elements"] if e["label"] == label)
                   for label in ("Terminal input", "Search docs"))
-    owner = Owner(d, [True, False])
+    owner = Owner(d, [True])
     try:
         assert not call(d, g, "browser.act", tab=tab, element=docs, action="type", text="xterm")["is_error"]
         assert _questions(d) == []                                                # an ordinary box: no question
@@ -431,14 +511,14 @@ def test_typing_into_a_web_terminal_asks_and_a_yes_covers_its_return(bd: Any) ->
         enter = call(d, g, "browser.act", tab=tab, element=term, action="press", text="Enter")
         assert not enter["is_error"], enter                                       # covered by that Yes
         again = call(d, g, "browser.act", tab=tab, element=term, action="press", text="Enter")
+        assert not again["is_error"], again                                       # GATE-586: the browser's, for the task
     finally:
         owner.stop()
-    assert [q["answer"] for q in _questions(d)] == [YES, NO]                      # the second Return asked: No
+    assert [q["answer"] for q in _questions(d)] == [YES]
     assert owner.summaries[0] == 'Run this command in the page on shop.example?'
     assert owner.exacts[0] == 'gcloud config list'
-    assert again["is_error"] and "the owner said no" in again["content"]["error"]
     sent = [(a["kind"], a["text"]) for a in ext.acts]
-    assert sent == [("type", "xterm"), ("type", "gcloud config list"), ("press", "Enter")]   # the No sent nothing
+    assert sent == [("type", "xterm"), ("type", "gcloud config list"), ("press", "Enter"), ("press", "Enter")]
 
 
 def test_the_extension_marks_an_element_inside_xtermjs() -> None:
@@ -531,13 +611,14 @@ def test_a_paste_whose_clipboard_holds_a_secret_is_refused_naming_the_field(daem
     dict(tool="mac.act", action="focus", element="Editor content"),                      # a focus change
     dict(tool="mac.menu", path="View > Explorer"),                                       # a menu press
 ])
-def test_any_other_action_between_the_text_and_its_return_makes_the_return_ask(daemon: RunningDaemon,
-                                                                               monkeypatch: Any,
-                                                                               between: dict[str, Any]) -> None:
+def test_a_return_after_any_other_action_goes_under_the_apps_yes_not_the_texts(daemon: RunningDaemon,
+                                                                                  monkeypatch: Any,
+                                                                                  between: dict[str, Any]) -> None:
     """Any acting call of the task between the approved text and its Return (a press, a focus change, a menu, a
-    pointer input) cancels the covered Return: it could change what the Return runs. A look (a snapshot) doesn't."""
+    pointer input) cancels the Return the text's Yes covered (the driver's own test above); GATE-586: the owner's Yes
+    to Code's terminal for the task still covers it, so nothing more is asked and the span says so."""
     grant, ax = _live(daemon, monkeypatch, focus="term108")
-    owner = Owner(daemon, [True, False])
+    owner = Owner(daemon, [True])
     try:
         assert not gateway_tool_call(daemon, grant, "mac.act", app="Code", element=_snap(daemon, grant)[TERMINAL_LABEL],
                                      action="type", mechanism="pid", text="codex")["is_error"]
@@ -550,8 +631,15 @@ def test_any_other_action_between_the_text_and_its_return_makes_the_return_ask(d
         enter = gateway_tool_call(daemon, grant, "mac.act", app="Code", action="key", mechanism="pid", text="ENTER")
     finally:
         owner.stop()
-    assert [q["answer"] for q in _questions(daemon)] == [YES, NO]                  # the Return was asked: No
-    assert enter["is_error"] and ("term108", "key ENTER") not in ax.landed
+    assert [q["answer"] for q in _questions(daemon)] == [YES]
+    assert not enter["is_error"] and ax.landed[-1] == ("term108", "key ENTER")
+
+    async def last_act() -> dict[str, Any]:
+        row = daemon.daemon.db.conn.execute(
+            "SELECT input_json FROM spans WHERE kind = 'tool.call' AND json_extract(input_json, '$.tool') = 'mac.act' "
+            "ORDER BY rowid DESC LIMIT 1").fetchone()
+        return json.loads(row["input_json"])                                       # type: ignore[no-any-return]
+    assert daemon.run(last_act())["terminal"]["covers"] == "app"                   # the trace says which Yes
 
 
 # ---------- review round 1, finding 11: which terminal, and the focus held while typing ----------
@@ -566,6 +654,82 @@ def test_the_question_names_the_terminal_and_its_window(monkeypatch: Any) -> Non
     assert confirm.summary([terminal.need(inp)]) == (
         'FERB wants to type "codex" into the terminal "Terminal 108, zsh Use ⌥F1 for…" in Code (window "FERB"), then '
         "press Return there (it runs as you, outside FERB's sandbox).")
+
+
+# ---------- HAND-519: foreground typing with no element goes to the app's keyboard focus ----------
+
+def _with_password_field(ax: TerminalAx) -> TerminalAx:
+    """A sign-in sheet's password field in the same window: secure by its own facts (never its value)."""
+    ax.chains["pw"] = [{"role": "AXTextField", "subrole": "AXSecureTextField"}, {"role": "AXWindow", "title": "FERB"}]
+    ax.labels["pw"] = "Password"
+    ax.secure_element = lambda el: el == "pw"                                      # type: ignore[attr-defined]
+    return ax
+
+
+# decision: HAND-519
+def test_typing_with_no_element_in_the_foreground_goes_to_the_focus_with_every_check(monkeypatch: Any) -> None:
+    """Tree 6f4532ba (2026-11-12 23:15:56): VS Code's terminal gave the worker no element, so `type` was refused and
+    it pressed keys one by one. Foreground typing without an element types the whole text into the app's keyboard
+    focus; a terminal there needs the Yes to that text, a password field is refused, and other routes still need an
+    element."""
+    ax = _with_password_field(vscode_ax(focus="term108"))
+    d = terminal_mac(monkeypatch, ax)
+    with pytest.raises(Refused, match="needs an element id"):
+        _act(d, "type", None, "claude", "pid")                                     # background: an element, as before
+    assert not _act(d, "type", None, "claude", "foreground").ok                    # no foreground permission
+    with pytest.raises(Refused, match=UNASKED):
+        _act(d, "type", None, "claude", "foreground", allow_foreground=True)       # a terminal, without the Yes
+    assert ax.landed == []
+    inp = d.terminal_input("Code", ComputerAction("type", None, "claude", mechanism="foreground"), "t1")
+    assert inp is not None and inp.text == "claude" and inp.enter and inp.label == TERMINAL_LABEL
+    r = _act(d, "type", None, "claude", "foreground", grant=_grant(inp), allow_foreground=True)
+    assert r.ok and ax.landed == [("term108", "type claude")]                      # one call, the whole text
+    assert r.observed is not None and r.observed.received_by is not None
+    assert r.observed.received_by.role == "AXTextField" and r.observed.terminal_target
+    ax.focused = "pw"
+    with pytest.raises(Refused, match="password field"):
+        _act(d, "type", None, "hunter2", "foreground", allow_foreground=True)
+    assert d.terminal_input("Code", ComputerAction("type", None, "hunter2", mechanism="foreground"), "t1") is None
+    ax.focused = "editor"
+    assert _act(d, "type", None, "print(1)", "foreground", allow_foreground=True).ok   # not a terminal: no Yes needed
+    assert ax.landed == [("term108", "type claude"), ("editor", "type print(1)")]
+
+
+# decision: HAND-519, GATE-585
+def test_a_foreground_type_with_no_element_asks_once_showing_the_whole_text(daemon: RunningDaemon,
+                                                                            monkeypatch: Any) -> None:
+    """Through the gateway: one question (the foreground Yes for Code and the terminal Yes together) shows the whole
+    command; the Yes types it once, and its Return then goes unasked."""
+    grant, ax = _live(daemon, monkeypatch, focus="term108")
+    owner = Owner(daemon, [True])
+    try:
+        typed = gateway_tool_call(daemon, grant, "mac.act", app="Code", action="type", mechanism="foreground",
+                                  allow_foreground=True, text="claude", why="Start Claude Code in the terminal.")
+        enter = gateway_tool_call(daemon, grant, "mac.act", app="Code", action="key", mechanism="foreground",
+                                  allow_foreground=True, text="return")
+    finally:
+        owner.stop()
+    assert not typed["is_error"] and not enter["is_error"], (typed, enter)
+    asked = _questions(daemon)
+    assert len(asked) == 1 and {c["rule"] for c in asked[0]["confirm"]} == {confirm.FOREGROUND, confirm.TERMINAL_INPUT}
+    assert '"claude"' in asked[0]["question"] and owner.exacts == ["claude"]
+    assert ax.landed == [("term108", "type claude"), ("term108", "key return")]
+
+
+@pytest.mark.parametrize("focus,answers,error", [("pw", [True], "password field"), ("term108", [False], "said no")])
+def test_a_foreground_type_with_no_element_into_a_password_field_or_without_the_yes_types_nothing(
+        daemon: RunningDaemon, monkeypatch: Any, focus: str, answers: list[bool], error: str) -> None:
+    ax = _with_password_field(vscode_ax(focus=focus))
+    driver = terminal_mac(monkeypatch, ax)
+    grant, _ = gateway_setup(daemon, {"mac:read", "mac:act"}, gateway_request("start claude"),
+                             [MacSnapshot(driver), MacAct(driver)])
+    owner = Owner(daemon, answers)
+    try:
+        out = gateway_tool_call(daemon, grant, "mac.act", app="Code", action="type", mechanism="foreground",
+                                allow_foreground=True, text="hunter2")
+    finally:
+        owner.stop()
+    assert out["is_error"] and error in out["content"]["error"] and ax.landed == []
 
 
 @pytest.mark.parametrize("mechanism", ["pid"])

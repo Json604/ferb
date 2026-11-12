@@ -1449,3 +1449,14 @@ evidence = "2026-11-12, read-only: the owner's VS Code window, whole walk 0.61-0
 rejected = ["Reading the look before from the worker's cached walk: a field may have moved since (L13 wants a fresh look)", "A whole walk for a worker's screenshot's look before: its tree is used only for masks"]
 paths = ["ferb/act/mac/accessibility.py::read_tree", "ferb/act/mac/accessibility.py::_inventory_walk", "ferb/act/mac/driver.py::MacComputerDriver._between_looks", "ferb/act/mac/driver.py::MacComputerDriver._look", "ferb/act/mac/driver.py::MacComputerDriver.page_secrets", "ferb/act/mac/tools.py::app_window"]
 live = ["LIVE-935"]
+
+[HAND-519]
+title = "Foreground typing with no element types the whole text into the app's keyboard focus"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "mac.act type with mechanism foreground and no element types the whole text in one call into whatever has the app's keyboard focus once it is in front. With the app in front: a password field is refused (HAND-218); no readable focus is refused, except in an app that can host a terminal, where it counts as one; a terminal takes the terminal question with the whole text and the driver types only the granted text. The focus is checked between chunks; received_by is reported. Other actions without an element are still refused."
+why = "Owner 2026-11-12 (\"yes build it\"). Live, tree 6f4532ba 23:15:56: VS Code's terminal gave the worker no element, `type` was refused (\"this action needs an element id from a snapshot\"), and it pressed one key per character, each asking."
+rejected = ["Background (pid) typing with no element: process-directed keystrokes go to the app's focus unseen, with no foreground Yes covering it"]
+paths = ["ferb/act/mac/driver.py::focused_typing", "ferb/act/mac/driver.py::MacComputerDriver._type_focused", "ferb/act/mac/driver.py::MacComputerDriver.act", "ferb/act/mac/driver.py::MacComputerDriver.terminal_input", "ferb/act/mac/tools.py::MacAct"]
+live = ["LIVE-939"]

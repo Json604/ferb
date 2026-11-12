@@ -56,7 +56,10 @@ SINK_DESTINATION = "sink:destination"     # the shared rule/key for a host: one 
 BULK = "sink:irreversible_bulk"
 TLS_OFF = "floor:tls_off"                 # L39: a shell command that turns off certificate checks (policy/tls.py)
 TLS_QUESTION = ("Run this with certificate checks turned off? `{command}` — this skips the check that {site}")
-TERMINAL_INPUT = "floor:terminal_input"   # D31, rule 10: any input into a terminal, asked every time (policy/terminal.py)
+TERMINAL_INPUT = "floor:terminal_input"   # D31, rule 10: input into a terminal asks first (policy/terminal.py)
+# GATE-585 (owner), GATE-586: the owner's Yes to terminal input covers that terminal app (its bundle id) for the rest of
+# the task tree: the key this Yes also records, and what a later terminal input there finds
+TERMINAL_APP = "floor:terminal_app"
 FOREGROUND = "floor:foreground"           # rule 17: input that brings an app to the front, once per task per app
 FOREGROUND_TOOLS = frozenset({"mac.act", "mac.click", "mac.pointer"})
 # A browser's own pages (its settings, extensions, flags): input there asks every time, naming the page (live
@@ -145,6 +148,8 @@ class Need:
                                               # protected folder's change, terminal input)
     reaches: Target | None = None             # the target this need was decided for (the call's, or a fact's: the
                                               # host a form posts to): what a standing scope must cover (D30)
+    grants: str = ""                          # GATE-586: a wider key a Yes to this need also answers Yes for the rest
+                                              # of the task tree (a terminal app); an earlier Yes to it covers this need
 
 
 def foreground_need(tool: str, args: dict[str, Any]) -> "Need | None":
@@ -1326,9 +1331,13 @@ def _part(n: Need, alongside: frozenset[str] = frozenset()) -> str:
     if n.rule == PAIR:
         return (f"this pairs your {v['browser']} profile “{v['name']}”{_account(v)} with FERB, so FERB can open tabs "
                 "and work in that profile's signed-in accounts; its pairing page opens there and closes itself")
+    if n.rule == TERMINAL_INPUT and v.get("wide"):    # GATE-585, GATE-586
+        return (f"this would {_terminal(v)}; FERB counts it a terminal because it is {v['surface']}. FERB asks "
+                f"before it first types into a terminal app in a task, and this Yes lets FERB type in {v['app']}'s "
+                "terminal for the rest of this task")
     if n.rule == TERMINAL_INPUT:
         return (f"this would {_terminal(v)}; FERB counts it a terminal because it is {v['surface']}. FERB asks "
-                "before every input into a terminal, and this Yes covers this one input only")
+                "before every input like this, and this Yes covers this one input only")
     if n.rule == "floor:pay":
         return _pays("this pays", v)
     if n.rule == "floor:account_security":
@@ -1542,10 +1551,17 @@ def _which(v: dict[str, str]) -> str:
     return f" It's {v.get('app') or 'the app'}'s {said}." if said else ""
 
 
+def _covers(v: dict[str, str], only: str = "Yes covers only this.") -> str:
+    """What a terminal card's Yes covers (GATE-585, GATE-586): the app's terminal for the rest of the task when the
+    input is `wide`, else `only` (a secret, a file that runs when opened, a script for an app that runs code)."""
+    return f"Yes lets FERB type in {_in_terminal(v)} for the rest of this task." if v.get("wide") else only
+
+
 def _terminal_card(v: dict[str, str]) -> Card | None:
-    """GATE-566: every terminal input as one question naming the app, the exact input in the box, and that a Yes
-    covers this one input (D31: asked every time). A code editor's run control, an AppleScript, a file that runs when
-    opened, a terminal app's menu, a dragged text and a saved secret have their own words."""
+    """GATE-566: every terminal input as one question naming the app, the exact input in the box, and what a Yes
+    covers (`_covers`: GATE-585/586, the app's terminal for the rest of the task). A code editor's run control, an
+    AppleScript, a file that runs when opened, a terminal app's menu, a dragged text and a saved secret have their own
+    words."""
     app = v.get("app") or "the app"
     where, which = _in_terminal(v), _which(v)
     if v.get("runs"):                                  # a code editor's run control or menu item
@@ -1558,7 +1574,7 @@ def _terminal_card(v: dict[str, str]) -> Card | None:
                 "the selection or current line"
             unread = "; FERB can't read what it runs"
         return Card(f"Press {pressed} in {app}? It runs code", f"It runs {what} in {v.get('runs_where') or app} with "
-                    f"your full access{unread}. Yes covers only this.", _unquoted(v.get("selection", "")),
+                    f"your full access{unread}. {_covers(v)}", _unquoted(v.get("selection", "")),
                     "Do it", "Don't")
     if v.get("script"):                                # an AppleScript to a terminal-like app (Finder, System Events)
         named = "; ".join(f for f in (v.get("names", ""),) if f)
@@ -1566,7 +1582,8 @@ def _terminal_card(v: dict[str, str]) -> Card | None:
                  + ".") if named else (" FERB can't see which file this opens, if it opens one." if v.get("opens")
                                        else "")
         return Card(f"Let {app} run this script?", f"{app} acts with its own access, outside FERB's safety limits."
-                    f"{files} Yes covers only this script.", _unquoted(v["script"]), "Run script", "Don't run")
+                    f"{files} {_covers(v, 'Yes covers only this script.')}", _unquoted(v["script"]), "Run script",
+                    "Don't run")
     if v.get("files"):                                 # a file that runs when it is opened
         path = _unquoted(v.get("open_path", "")) or "this file"
         name = path.rstrip("/").rsplit("/", 1)[-1] or path
@@ -1575,33 +1592,35 @@ def _terminal_card(v: dict[str, str]) -> Card | None:
                     "\n".join(p for p in (path, _unquoted(v.get("open_text", ""))) if p), "Open it", "Don't open")
     if v.get("menu"):
         return Card(f"Press {_unquoted(v['menu'])} in {app}? It can type into its terminal",
-                    "A terminal app's menu command can type into its terminal, which runs with your full access. Yes "
-                    "covers only this.", yes="Do it", no="Don't")
+                    "A terminal app's menu command can type into its terminal, which runs with your full access. "
+                    + _covers(v), yes="Do it", no="Don't")
     if v.get("secret"):
         return Card(f"Fill your secret {_word(v['secret'])} into {where}?", "FERB never shows it. Text in a terminal "
                     "can run with your full access. Yes covers only this." + which, yes="Fill it in", no="Don't")
     if v.get("drag"):
         return Card(f"Drag this onto {where}?", "Dropped text goes into the terminal, where it can run with your full "
-                    "access. Yes covers only this." + which, _unquoted(v.get("text", "")), "Drag it", "Don't")
+                    "access. " + _covers(v) + which, _unquoted(v.get("text", "")), "Drag it", "Don't")
     if v.get("paste"):
         then = " and run it" if v.get("enter") else ""
         if v.get("concealed"):
             return Card(f"Paste a secret item into {where}{then}?", "An app marked it secret, so FERB doesn't show it "
                         "here. Pasted text can run with your full access. Yes covers only this paste." + which,
                         yes="Paste it", no="Don't paste")
-        return Card(f"Paste this into {where}{then}?", "Pasted text can run with your full access. Yes covers only this "
-                    "paste." + which, _bare(v.get("text", "")), "Paste it", "Don't paste")
+        return Card(f"Paste this into {where}{then}?", "Pasted text can run with your full access. "
+                    + _covers(v, "Yes covers only this paste.") + which, _bare(v.get("text", "")), "Paste it", "Don't paste")
     if v.get("text"):
         if v.get("enter"):
             return Card(f"Run this command in {app}?", "It runs with full access to your Mac and files",
-                        _bare(v["text"]), "Run it", "Don't run", tail=". Yes covers only this command." + which)
+                        _bare(v["text"]), "Run it", "Don't run",
+                        tail=". " + _covers(v, "Yes covers only this command.") + which)
         return Card(f"Type this into {where}?", "FERB won't press Return. If Return gets pressed, it runs with your full "
-                    "access. Yes covers only this typing." + which, _bare(v["text"]), "Type it", "Don't type")
+                    "access. " + _covers(v, "Yes covers only this typing.") + which, _bare(v["text"]), "Type it", "Don't type")
     if v.get("keys") in ("return", "enter"):
         return Card(f"Press Return in {where}?", "That runs whatever is on its command line now. FERB didn't type it and "
-                    "can't show it to you." + which, yes="Press Return", no="Don't")
+                    "can't show it to you." + (" " + _covers(v) if v.get("wide") else "") + which,
+                    yes="Press Return", no="Don't")
     if v.get("keys"):
-        return Card(f"Press {v['keys']} in {where}?", "Yes covers only this key press." + which,
+        return Card(f"Press {v['keys']} in {where}?", _covers(v, "Yes covers only this key press.") + which,
                     yes=f"Press {v['keys']}", no="Don't")
     return None
 

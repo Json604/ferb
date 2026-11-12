@@ -1350,11 +1350,12 @@ sitting = "step 13, sitting 6"
 waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-582]
-title = "Typing into a terminal asks every time with the exact command"
+title = "Typing into a terminal asks first with the exact command; the Yes covers that app for the task"
 area = "gateway"
 surface = "A disposable VS Code window (Codex runtime, owner-run)"
-request = "\"run `echo ferb-terminal` in its terminal\"; answer No; ask again and answer Yes; ask once more."
-pass = "A question naming the exact command before anything appears; No leaves it untouched; Yes types and runs it once; asking again asks again (`floor:terminal_input`)."
+request = "\"run `echo ferb-terminal` in its terminal\"; answer No; ask again and answer Yes; in the same task, have it also run `echo second`; then, in a new task, ask once more."
+pass = "A question naming the exact command before anything appears; No leaves it untouched; Yes types and runs it once and its card says the Yes covers Code's terminal for the rest of the task; `echo second` in that task runs with no question; the new task asks again (`floor:terminal_input`, GATE-585)."
+decisions = ["GATE-585", "GATE-586"]
 sitting = "step 13, sitting 6"
 
 [LIVE-583]
@@ -4450,4 +4451,13 @@ surface = "FERB.app with this build, the notch chat; a disposable folder; `ferb 
 request = "Ask FERB for a long task on a disposable folder of text files (\"count the words in each file in <folder>, one by one\"). Before it finishes, send \"cancel that task and write me a 3-line poem about the sea in a new note\". Then start the same long task again and send \"hold that one, and meanwhile write a 3-line poem about rain in a new note\" (a pause)."
 pass = "Under the second message one FERB bubble reads \"Stopped, as you asked.\" (with what it had found, if any) and then the new task's plan line; the poem task's card runs and ends done; the counting task shows Cancelled once, not posted again below. The pause case reads \"I've paused it; nothing is lost. Tell me how you'd like to go on, or say stop.\" then the new task's plan line, and the first task stays paused. No reply says a task is starting when none started."
 decisions = ["ORCH-638"]
+sitting = "after this change is installed"
+
+[LIVE-939]
+title = "Starting Claude Code in VS Code's terminal asks once and types the whole command"
+area = "hands"
+surface = "FERB.app with this build; a VS Code window with a terminal open (owner-run); `ferb trace TASK --full`"
+request = "Ask FERB to start Claude Code in your VS Code terminal; answer Yes to its question."
+pass = "One question (bringing VS Code forward and typing `claude` into its terminal, the whole command shown) before anything is typed; after the Yes, `claude` goes in with one mac.act type call and its Return with no further question; no question per key; the trace shows the later inputs with terminal covers: app."
+decisions = ["HAND-519", "GATE-585", "GATE-586"]
 sitting = "after this change is installed"

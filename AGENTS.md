@@ -34,10 +34,11 @@ patches. Judge designs by quality, the owner's goals and security, never by buil
    covers it, certificate checks turned off, input on a browser's own pages, terminal typing, the sink rule, foreground
    input, protected folders, profile pairing, files that run when opened). Tools report facts; the worker's declaration
    can only add a question, never remove one. FERB prepares the action before asking and asks once per action as the
-   kb/ defines it (a payment, an app, a protected folder per task; terminal typing every time); the answer carries
+   kb/ defines it (a payment, an app, a protected folder, a terminal app per task); the answer carries
    across retries. The owner's "don't ask for 30 minutes" covers only the routine questions (GATE-207).
 6. Nothing lets FERB change its own audit records, protection rules, sandbox profile, config, service definition or
-   secrets helper, or bypass its network proxy. Typing into any terminal always asks first, showing the exact command.
+   secrets helper, or bypass its network proxy. Typing into any terminal asks first, showing the exact command; the
+   owner's Yes covers that terminal app for the rest of the task (GATE-585).
 7. Secrets, OTPs and card details never reach a model provider, a trace, a log or the database; code redacts at
    capture and fills secrets only through the sealed path; models see handles. Only FERB's own API keys and tokens
    are also looked for by their value: a saved secret or a value typed into the hidden input that shows up in other

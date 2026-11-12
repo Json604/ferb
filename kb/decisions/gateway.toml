@@ -1142,3 +1142,27 @@ why = "Asking first and again with an amount is one more question; picking the p
 rejected = ["Picking the price from the page's words or layout: rule 4", "Showing the card unread and asking again once an amount is stated: one more question for the owner", "Bouncing until an amount comes: a worker that can't find it would loop"]
 paths = ["ferb/daemon/gateway.py::Gateway._amount_unstated", "ferb/daemon/gateway.py::Gateway._payment", "ferb/daemon/gateway.py::PAY_AMOUNT_UNSTATED", "ferb/daemon/gateway.py::PAY_AMOUNT_NEXT", "ferb/policy/payments.py::stated"]
 live = ["LIVE-936"]
+
+[GATE-585]
+title = "One terminal Yes per app per task covers all terminal input there for the rest of the task"
+by = "owner"
+date = 2026-11-12
+status = "active"
+words = "see anyways we have so many checks in code, plan, teh completion, outside content etcetc adn its in worker/planner instruction to not trust outside content much n all. so lets just add the only rule that Yes for thsi terminal task fully. ok???"
+words_source = "Owner 2026-11-12, answering the coordinator's explanation that code can't judge typed commands in the owner's own terminal; live on build 202611121733."
+rule = "Refines AGENTS.md rules 5 and 6. The terminal question still asks the first time, showing the exact input. Its Yes covers all terminal input into that same terminal app (typing, pasting, keys, a menu item or script that types into it) for the rest of the task, unasked. Another terminal app or another task asks again. The 30-minute \"don't ask\" never covers it (GATE-207). A No stays a No for that call. Every other question asks as always. The card says what the Yes covers."
+why = "Code can't judge a typed command (rule 4); the plan, the completion check, outside-content provenance and the workers' instructions already guard what a task types, and a question per keystroke made terminal work unusable."
+paths = ["ferb/policy/terminal.py::need", "ferb/daemon/gateway.py::Gateway._authorize", "ferb/daemon/gateway.py::Gateway.ask_confirmation"]
+live = ["LIVE-582", "LIVE-939"]
+evidence = "Tree 6f4532bad3c7422bbff394fe940b7cac: after the Yes to VS Code's Terminal > New Terminal, each key press asked (23:16:08 \"c\", 23:16:21 \"l\"); owner: \"its takign permission for eveyr keystroke\"."
+
+[GATE-586]
+title = "The terminal Yes is keyed by bundle id per task tree; secrets and runnable files stay one input"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "For GATE-585, refining GATE-514's terminal cards. terminal.need sets `grants` = key(floor:terminal_app, bundle id casefolded), GATE-201's key. A Yes records it for the task tree; Gateway._authorize covers a later terminal need with no No on its own key by that row (span terminal.covers: app). No `grants` (asked each time): a secret filled in, a clipboard item marked secret, a file that runs when opened, a script for a CODE_RUNNERS app. Covered cards say \"Yes lets FERB type in <App>'s terminal for the rest of this task.\""
+why = "One shared path (the Need and _authorize) serves every Mac route and web terminals; a stored row survives a restart. The exceptions aren't typing into a terminal: a secret's question guards it (rule 7), runnable files are bound to their bytes, System Events isn't a terminal."
+rejected = ["Keying the No by app too: the owner said a No stays a No for that call", "An in-memory set per tree: lost on restart and outside the confirmations record"]
+paths = ["ferb/policy/terminal.py::app_wide", "ferb/policy/terminal.py::app_key", "ferb/policy/terminal.py::need", "ferb/policy/confirm.py::TERMINAL_APP", "ferb/policy/confirm.py::_covers", "ferb/policy/confirm.py::_terminal_card", "ferb/daemon/gateway.py::Gateway._authorize", "ferb/daemon/gateway.py::Gateway._grants"]
+live = ["LIVE-582", "LIVE-939"]

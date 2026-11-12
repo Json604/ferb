@@ -291,9 +291,9 @@ class EscapeGrant:
 
 @dataclass(frozen=True)
 class TerminalInput:
-    """Input about to reach a terminal (D31, rule 10: code asks the owner first, every time), as code found it: the
-    app, why it is a terminal (ferb/policy/terminal.py), and exactly what goes in. Facts only; never a judgement of
-    what the text does."""
+    """Input about to reach a terminal (D31, rule 10: code asks the owner first; GATE-585: once per terminal app per
+    task), as code found it: the app, why it is a terminal (ferb/policy/terminal.py), and exactly what goes in. Facts
+    only; never a judgement of what the text does."""
     app: str                                 # the app's name as the owner knows it
     bundle_id: str
     surface: str                             # why code counts it a terminal, for the question and the trace
@@ -324,8 +324,9 @@ class TerminalInput:
 
 @dataclass(frozen=True)
 class TerminalGrant:
-    """The owner's Yes to one TerminalInput (one run: the next input asks again). The driver delivers only the input
-    the grant names and refuses any other input that would reach a terminal."""
+    """The owner's Yes covering one TerminalInput for this call (the Yes to it, or GATE-586's earlier Yes to its app
+    in the task tree). The driver delivers only the input the grant names and refuses any other input that would
+    reach a terminal."""
     input: TerminalInput
     confirmation_id: str
 

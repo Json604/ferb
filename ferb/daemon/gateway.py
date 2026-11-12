@@ -242,6 +242,8 @@ class Covered:
     standing: list[str] = field(default_factory=list)  # the rules a standing permission covered (D30): its `standing`
     started: bool = False                             # the attempt started: claimed Yeses stay spent
     declined: str = ""                                # ORCH-613: refused because the owner declined it (Answer)
+    wide: list[str] = field(default_factory=list)     # GATE-586: earlier Yeses to a wider key (a terminal app) that
+                                                      # covered a need of this call
 
 
 class Destination(BaseModel):
@@ -1293,7 +1295,7 @@ class Gateway:
                 needs.append(pair)
         if c.escape is not None:                         # D31: the escape hatch
             needs.append(self._escape_need(c))
-        terminal = await self._terminal_need(c)          # D31, rule 10: every input into a terminal asks first
+        terminal = await self._terminal_need(c)          # D31, rule 10: input into a terminal asks first
         if isinstance(terminal, dict):
             return self._refuse_call(c, reply, terminal)
         if terminal is not None:
@@ -1659,12 +1661,13 @@ class Gateway:
         return c.escape_need
 
     async def _terminal_need(self, c: "Call") -> confirm.Need | dict[str, Any] | None:
-        """D31, AGENTS.md rule 10: typing into any terminal (terminal apps and terminals inside other apps, e.g. VS
-        Code's) asks the owner first, showing the exact input, every time, with no standing permission; a No types
-        nothing. The capability says what would go in, from the driver's facts now (`terminal_input`). A Yes covers that
-        one input (and the one Return after its text, as the task's very next acting call: `armed`) and is spent when
-        given. A secret (one of FERB's keys, a credential's format) is never shown in a question nor typed into a
-        terminal (the refusal)."""
+        """D31, AGENTS.md rules 5 and 6: typing into any terminal (terminal apps and terminals inside other apps, e.g.
+        VS Code's) asks the owner first, showing the exact input, with no standing permission; a No types nothing. The
+        capability says what would go in, from the driver's facts now (`terminal_input`). A Yes covers that input (and
+        the one Return after its text, as the task's very next acting call: `armed`) and, GATE-585/586, all terminal
+        input into that app for the rest of the task tree (the need's `grants`: `_authorize` finds it); a secret, a
+        file that runs when opened and a script for an app that runs code still ask each time. A secret (one of FERB's
+        keys, a credential's format) is never shown in a question nor typed into a terminal (the refusal)."""
         if not hasattr(c.cap, "terminal_input"):
             return None
         inp = await c.cap.terminal_input(c.args, c.grant.task_id)
@@ -1717,6 +1720,12 @@ class Gateway:
                         out.standing.append(need.rule)   # D30: covered; the call's record says so (`standing`)
                         continue
                     if row is None or need.fresh:
+                        wide = confirmations.find(root, need.grants) if need.grants else None
+                        if wide is not None and wide["granted"]:     # GATE-586: the owner's Yes for this app
+                            out.ids.append(wide["id"])               # in this tree covers it (never a No's key)
+                            out.rows[need.key] = wide["id"]
+                            out.wide.append(wide["id"])
+                            continue
                         ask.append(need)
                         continue
                     if row["used"] and need.always:
@@ -1783,7 +1792,7 @@ class Gateway:
                 terminal = TerminalGrant(c.terminal, c.terminal.covered_by)
             elif c.terminal_need is not None and (cid := covered.rows.get(c.terminal_need.key)):
                 terminal = TerminalGrant(c.terminal, cid)
-                c.extra["terminal"] = {"confirmation": cid}
+                c.extra["terminal"] = {"confirmation": cid} | ({"covers": "app"} if cid in covered.wide else {})
         if lifted:
             c.extra["lifted"] = sorted(f"{how}:{rule}" for rule, how in lifted)
         return lifted, escape, terminal
@@ -2282,6 +2291,8 @@ class Gateway:
         ids = [self.confirmations.record(root, n.rule, n.key, yes, q_span.id) for n in needs]
         if yes:
             self._known_from(needs, rec, q_span.id)
+            for wider in dict.fromkeys(n.grants for n in needs if n.grants):   # GATE-586: the app, for the tree
+                self.confirmations.record(root, confirm.TERMINAL_APP, wider, True, q_span.id)
         given: dict[str, Any] = {"answer": YES if yes else NO, "confirmed" if yes else "refused": ids}
         if state == "denied":
             given["skipped"] = True

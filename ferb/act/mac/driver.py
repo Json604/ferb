@@ -329,6 +329,12 @@ KEY_ROUTES = frozenset({"pid", "ax", "foreground"})
 SECURE_KEYS = ("that's a password field, and this key would put text into it; FERB never types passwords for the "
                "owner (the owner fills it, or mac.secret does from the Keychain)")
 WINDOW_GONE = "the window moved or closed since the screenshot; take a new one"
+SECURE_TYPED = "that's a password field; FERB never types passwords for the owner"
+# HAND-519: an action without an element; only foreground typing goes to the app's keyboard focus
+NEEDS_ELEMENT = ("this action needs an element id from a snapshot (only type with mechanism foreground and "
+                 "allow_foreground true goes to whatever has the app's keyboard focus without one)")
+NO_FOCUS = ("FERB couldn't read what has the keyboard focus in {app}, so it can't tell whether it is a password field "
+            "and typed nothing; take a snapshot and type into an element")
 SHOT_AGE_S = 30.0             # a screenshot's points are trusted this long (mac.click / mac.pointer)
 # DMN-406: a live preview frame's walks share the time its capture has left, keeping this much for the capture, the
 # paint and text recognition (each measured at 0.1-0.2 s, lab 2026-11-08); a walk never gets less than WALK_FLOOR_S
@@ -359,6 +365,13 @@ class _Armed:
     el: Any
     confirmation_id: str
     task: str | None
+
+
+def focused_typing(action: ComputerAction) -> bool:
+    """HAND-519: `type` with no element on the foreground route (the owner's foreground Yes covers that app): the text
+    goes to whatever has the app's keyboard focus, as a key press does."""
+    return action.kind == "type" and not action.element and action.text is not None and \
+        action.mechanism == "foreground"
 
 
 def acts_on(action: ComputerAction, n: axm.AxNode) -> bool:
@@ -1423,6 +1436,11 @@ class MacComputerDriver:
         keyboard focus (⌘V: the clipboard's text goes in); pressing a menu item whose key equivalent is ⌘V: the focus.
         A Return into the terminal element FERB just typed approved text into is covered by that Yes (`covered_by`)."""
         a = self.app(app)
+        if focused_typing(action):                           # HAND-519: the app's keyboard focus, as a key's
+            focus = self._focus(a)
+            why = self._terminal_why(a, focus)               # unread in an app that can host one: a terminal
+            return None if why is None else self._placed(TerminalInput(
+                a.name, a.bundle_id, why, text=action.text, enter=not terminals.newline(action.text or "")), focus)
         if action.kind in ("type", "set_value", "edit") and action.text is not None and action.element:
             ref = self.node(a.bundle_id, action.element).ref
             why = self._terminal_why(a, ref)
@@ -1922,7 +1940,10 @@ class MacComputerDriver:
             r = await self._scroll(a, action, holder, task, mechanism)
             return self._with(r, await self._facts(a, n.ref if n else None))
         if action.element is None:
-            raise Refused("this action needs an element id from a snapshot")
+            if focused_typing(action):                   # HAND-519: the whole text into the app's keyboard focus
+                r, into, landed = await self._type_focused(a, action.text or "", holder, task, terminal)
+                return self._with(r, await self._facts(a, landed, terminal=into, after=True))
+            raise Refused(NEEDS_ELEMENT)
         n = self.node(a.bundle_id, action.element)
         if action.kind not in ("type", "set_value", "edit"):
             self._armed.pop(a.pid, None)                 # D31: a press, focus or pick ends a covered Return
@@ -1934,7 +1955,7 @@ class MacComputerDriver:
                     (handled := await self._guarded_combo(a, combo, task)) is not None:
                 return handled                           # ⌘Q / ⌘H's item: FERB's safe quit/hide (HAND-200)
         if n.secret and action.kind in ("set_value", "type", "edit"):
-            raise Refused("that's a password field; FERB never types passwords for the owner")
+            raise Refused(SECURE_TYPED)
         r, into, received, after = await self._act_element(a, n, action, holder, task, terminal, mechanism)
         return self._with(r, await self._facts(a, n.ref, received, into, after))
 
@@ -2045,6 +2066,39 @@ class MacComputerDriver:
         if len(landed) > 1:
             self._terminal_typed(a, landed[0], terminal, task, r.ok)
         return r, len(landed) > 1
+
+    async def _type_focused(self, a: Any, text: str, holder: str, task: str | None,
+                            terminal: TerminalGrant | None) -> tuple[ActionResult, bool, Any]:
+        """HAND-519: foreground typing with no element: the whole text as real keystrokes into whatever has the app's
+        keyboard focus once it is in front, in one call: (result, whether it reached a terminal, the focused element).
+        The focus is read with the app in front: a password field is refused (HAND-218); no readable focus is refused,
+        except in an app that can host a terminal, where it counts as one (D31, fails closed); a terminal takes the
+        Yes the gateway's grant names for this text. The keyboard focus is checked between chunks, as typing into an
+        element in the foreground is (HAND-238's rules and the own-app refusal are `_real`'s and `act`'s)."""
+        landed: list[Any] = []
+
+        async def focus_it() -> None:
+            focus = await asyncio.to_thread(self._focus, a)
+            if focus is None and not await asyncio.to_thread(self._hosts, a):
+                raise Refused(NO_FOCUS.format(app=a.name))
+            if await asyncio.to_thread(self._secure, focus):
+                raise Refused(SECURE_TYPED)
+            landed.append(focus)
+            if await self._terminal_check(a, focus, terminal, task, text=text):
+                landed.append(True)
+        steps = type_steps(text)
+
+        def chunk_check(i: int, step: Step) -> Step:
+            def post() -> None:
+                if i and i % TYPE_CHUNK == 0 and landed:
+                    self._focus_moved(a, landed[0], i, len(steps), len(landed) > 1)
+                step.post()
+            return Step(step.what, post)
+        r = await self._real(a, [chunk_check(i, step) for i, step in enumerate(steps)], holder, "typing", task,
+                             focus_it)
+        if len(landed) > 1:
+            self._terminal_typed(a, landed[0], terminal, task, r.ok)
+        return r, len(landed) > 1, landed[0] if landed else None
 
     async def _press(self, a: Any, n: axm.AxNode, holder: str, task: str | None, fg: bool) -> ActionResult:
         ok = await asyncio.to_thread(self.ax.press, n.ref)

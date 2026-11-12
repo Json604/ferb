@@ -4,8 +4,11 @@ its ancestors' (rule 5). Must not read what an element shows, judge what is type
 into a terminal asks, whatever it is.
 
 Typing into any terminal (terminal apps and terminals inside other apps, e.g. VS Code's) is enforced by code: FERB
-always asks the owner first, showing the exact command, every time, with no standing permission; a No types nothing.
-The gateway asks (`need`); the driver delivers only the input the owner's Yes names.
+asks the owner first, showing the exact command, with no standing permission; a No types nothing. GATE-585 (owner),
+GATE-586: the owner's Yes covers all terminal input into that terminal app (its bundle id) for the rest of the task
+tree (`app_wide`); another terminal app or another task asks again. A secret, a clipboard item marked secret, a file
+that runs when opened and a script for an app that runs code (CODE_RUNNERS) still ask every time. The gateway asks
+(`need`); the driver delivers only the input the gateway's grant names (the input computed for this call).
 
 A terminal is recognized, strongest fact first (`surface`):
 1. The app is a terminal: a bundle id in TERMINAL_APPS (protection's DEFAULT_TERMINAL_APPS) or in the owner's
@@ -36,8 +39,8 @@ from ferb.policy import confirm
 from ferb.policy.protection import DEFAULT_TERMINAL_APPS
 
 RULE = confirm.TERMINAL_INPUT
-# What a driver says when input would reach a terminal without the owner's Yes to exactly it (nothing was typed).
-UNASKED = ("FERB types into a terminal only after the owner's Yes to that exact input, every time (D31): this input "
+# What a driver says when input would reach a terminal without the owner's Yes to it (nothing was typed).
+UNASKED = ("FERB types into a terminal only after the owner's Yes to that exact input (D31): this input "
            "would reach {why} in {app}, and the call carries no Yes for it, so nothing was typed. Run commands with "
            "FERB's shell tool; if FERB's sandbox blocks a command you need, request the escape hatch (shell.rules "
            "lists what it lifts), which asks the owner once")
@@ -226,10 +229,26 @@ def newline(text: str) -> bool:
     return "\n" in text or "\r" in text
 
 
+def app_wide(inp: TerminalInput) -> bool:
+    """GATE-586: whether the owner's Yes to this input covers the app's terminal input for the rest of the task tree:
+    typing, pasting shown text, keys, a terminal menu, a drag, a run control and a script for the terminal app itself.
+    Not a secret filled in, a clipboard item marked secret, a file that runs when opened, nor a script for an app that
+    runs code (System Events, Finder…): each of those asks every time, as before."""
+    return not (inp.secret or inp.concealed or inp.files or inp.bundle_id.casefold() in CODE_RUNNERS)
+
+
+def app_key(bundle_id: str) -> str:
+    """GATE-586: the key one terminal Yes records for its app in the task tree, like the foreground question's (GATE-201:
+    by bundle id, casefolded; a terminal inside VS Code is VS Code's)."""
+    return confirm.key(confirm.TERMINAL_APP, bundle_id.casefold())
+
+
 def need(inp: TerminalInput) -> confirm.Need:
-    """The owner's question for one terminal input: always asked (a Yes covers this one run, `always`). The key names
-    the exact input, so a No is final for it in this task tree (until the owner's own follow-up reopens it); a Yes is
-    spent by the call it covers and never covers another."""
+    """The owner's question for one terminal input (a Yes covers this run, `always`). The key names the exact input, so
+    a No is final for it in this task tree (until the owner's own follow-up reopens it). GATE-585/586: a Yes to an
+    `app_wide` input also answers its app's key (`grants`), which covers every later terminal input there in the tree
+    whose own key the owner hasn't said No to; the card says so (`wide`)."""
+    wide = app_wide(inp)
     shown = visible(inp.text) if inp.text is not None else ""
     label = " ".join(inp.label.split())
     label = label if len(label) <= LABEL_SHOWN else label[:LABEL_SHOWN - 1].rstrip() + "…"
@@ -251,8 +270,8 @@ def need(inp: TerminalInput) -> confirm.Need:
               "open_path": visible(inp.files[0][0]) if inp.files else "",
               "open_text": visible(inp.files[0][2]) if inp.files else "",
               "paste": "yes" if inp.paste else "", "concealed": "yes" if inp.concealed else "",
-              "enter": "yes" if inp.enter else "", "opens": "yes" if inp.opens else ""}
+              "enter": "yes" if inp.enter else "", "opens": "yes" if inp.opens else "", "wide": "yes" if wide else ""}
     return confirm.Need(RULE, confirm.key(RULE, inp.bundle_id.casefold(), inp.text, inp.keys, inp.paste, inp.menu,
                                                   inp.secret, inp.script, inp.drag, inp.control, inp.selection,
                                                   inp.file, [(p, h) for p, h, _ in inp.files]),
-                        values, always=True)
+                        values, always=True, grants=app_key(inp.bundle_id) if wide else "")

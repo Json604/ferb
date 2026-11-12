@@ -126,7 +126,7 @@ class _Base:
         raise NotImplementedError
 
     def precheck(self, args: BaseModel) -> str | None:
-        # D31: typing, a secret or a script into any terminal asks the owner first, every time (`terminal_input`, the
+        # D31: typing, a secret or a script into any terminal asks the owner first (GATE-585) (`terminal_input`, the
         # gateway's question, the driver's check), by policy/terminal.py's facts (the built-in list and the owner's)
         if self.name == "mac.applescript" and runs_shell(str(getattr(args, "script", ""))):
             return SHELL_REFUSED
@@ -489,7 +489,9 @@ class MacAct(_Base):
                    "are refused; cmd+q / cmd+h quit or hide only an app FERB opened for this task. No automatic retry, "
                    "ancestor press, source substitution or input replay. Delivered input is not verified success. "
                    "Foreground input (allow_foreground=true) asks the owner Yes/No once per task for that app; "
-                   "nothing is restored afterwards. After an uncertain effect, check what happened before trying "
+                   "nothing is restored afterwards. type with mechanism foreground and no element types the whole "
+                   "text into what has the app's keyboard focus (a terminal without an element too): one call, never "
+                   "a key per character. After an uncertain effect, check what happened before trying "
                    "again; a repeat of any action but focus needs the owner. scroll: target an element inside the list or "
                    "pane (AXScrollToVisible only reveals an element); batches stop on unconfirmed progress, so read "
                    "the returned count and reason, and remember unchanged content can mean failed input, not the end. "
@@ -544,7 +546,8 @@ class MacAct(_Base):
 
     async def terminal_input(self, args: BaseModel, task: str) -> TerminalInput | None:
         """D31: the input this call would put into a terminal, by the driver's facts now (the gateway asks the owner
-        about it, every time, before the call runs), else None. Off the event loop."""
+        before the call runs unless the owner's Yes already covers that terminal app in this task: GATE-586), else
+        None. Off the event loop."""
         return await _terminal_input(getattr(self.driver, "terminal_input", None), str(getattr(args, "app")),
                                      self._action(args), task)
 

@@ -128,7 +128,7 @@ recorded.
 - permanent deletion;
 - sending as you to someone new, unless a standing permission you gave covers it;
 - a command that turns off certificate checks;
-- typing into any terminal (it shows the exact command, every time);
+- typing into any terminal (it shows the exact command; your Yes covers that terminal app for the rest of the task);
 - input on a browser's own pages;
 - sending your private data to a site or person you haven't approved, once the task has read outside content
   (a page, an email, a message);

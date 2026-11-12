@@ -860,10 +860,10 @@ def gateway_request(words: str = "", **targets: object) -> Request:
 
 
 def gateway_setup(d: RunningDaemon, scopes: set[str], req: Request | None, caps: list[GatewayCap],
-          identity: Identity = Identity.OWNER):
+          identity: Identity = Identity.OWNER, task_id: str = "task-1"):
     for c in caps:
         d.daemon.registry.capabilities[c.name] = c
-    task = Task("task-1", None, "g", "dev", identity, scopes, "worker", "req-1", [],
+    task = Task(task_id, None, "g", "dev", identity, scopes, "worker", "req-1", [],
                 d.daemon.clock.now() + timedelta(minutes=10))
 
     async def go():
