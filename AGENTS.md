@@ -8,6 +8,7 @@ patches. Judge designs by quality, the owner's goals and security, never by buil
 
 ## Source of truth
 
+- `HANDOFF.md`: the end state on 2026-11-13 and what to keep, for the conversion of this repo to mainly Rust.
 - `kb/`: the owner's decisions and agents' rulings, the work list, live checks and terms (overview `kb/MAP.md`;
   `tools/kb/run kb show <file>` before editing). Owner decisions are authoritative; a later decision supersedes an
   earlier one. If code, a prompt or this file disagrees with a decision, name both and ask the owner.
