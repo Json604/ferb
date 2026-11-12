@@ -76,7 +76,7 @@ def test_a_node_list_cut_at_depth_still_masks_the_secret_fields_found(monkeypatc
     shots.jpeg = solid_jpeg(*IMG)
     ax.tree = AxTree(nodes=[AxNode(None, 'textbox', '', 'filled', (150.0, 100.0, 100.0, 50.0), True, True)],
                      secure=True, truncated=True, truncated_by='depth')
-    monkeypatch.setattr(ax, 'read_tree', lambda *args: ax.tree)
+    monkeypatch.setattr(ax, 'read_tree', lambda *args, **kw: ax.tree)
     _, _, jpeg = asyncio.run(d.screenshot('Notes'))
     assert shots.captured == [110] and black(pixel(jpeg, 200, 150))
 

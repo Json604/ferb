@@ -471,7 +471,7 @@ async def app_window(driver: MacComputerDriver, app: str, scopes: Collection[str
     a, shot, jpeg = await driver.window_image(f"pid:{a.pid}")
     facts = {"app": a.name, "bundle_id": a.bundle_id, "window_id": shot.window, "width": shot.size[0],
              "height": shot.size[1]} | ({"masking": shot.masking} if shot.masking else {})
-    return AppWindow(jpeg, to_image_boxes(driver.secret_fields(a.bundle_id), shot.bounds, shot.size), facts,
+    return AppWindow(jpeg, to_image_boxes(list(shot.masks), shot.bounds, shot.size), facts,
                      _sources(a.bundle_id))
 
 

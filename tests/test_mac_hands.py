@@ -334,7 +334,7 @@ def test_the_quit_menu_item_goes_through_the_same_guard(monkeypatch: pytest.Monk
 # decision: HAND-219
 def test_a_press_on_a_quit_menu_item_is_guarded(monkeypatch: pytest.MonkeyPatch) -> None:
     ax = Ax(focused="button")
-    ax.read_tree = lambda *a: AxTree([AxNode("quit", "menuitem", "Quit WhatsApp", None, (0, 0, 9, 9), False,  # type: ignore[method-assign]
+    ax.read_tree = lambda *a, **k: AxTree([AxNode("quit", "menuitem", "Quit WhatsApp", None, (0, 0, 9, 9), False,  # type: ignore[method-assign]
                                              True, "AXMenuItem")], "", "Chat")
     ax.role_of = lambda el: "AXMenuItem"                                 # type: ignore[attr-defined]
     ax.item_shortcut = lambda el: ("Q", 0)                               # type: ignore[attr-defined]
@@ -358,7 +358,7 @@ class TwoWindowAx:
                              path=("AXWindow", "AXGroup"), index=3)
 
     def read_tree(self, pid: int, browser: bool = False, window: Any = None, offset: int = 0,
-                  budget_s: Any = None) -> AxTree:
+                  budget_s: Any = None, masks_only: bool = False) -> AxTree:
         if window is None:
             return AxTree(title="")                                       # no window to read without one named
         return AxTree([self.button], f"clicks={self.clicks}", "Chat A", secure=False, secret_rects=[], window=window)

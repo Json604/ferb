@@ -12,7 +12,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 
 import pytest
 
@@ -848,7 +848,7 @@ def test_a_failed_walk_stops_the_extension_ask_it_ran_beside(monkeypatch: pytest
             raise
     d.web_secrets = secrets
 
-    def broken(*a: Any) -> Any:
+    def broken(*a: Any, **k: Any) -> Any:
         raise RuntimeError("the AX walk failed")
     ax.read_tree = broken                                                  # type: ignore[method-assign]
 
@@ -918,7 +918,7 @@ def test_a_page_that_moved_keeps_the_fields_of_the_look_that_can_be_placed(monke
     import dataclasses
     d, ax, _, _ = _brave(monkeypatch, _page((20, 40, 100, 20)), _page((20, 100, 100, 20)))
     trees = [dataclasses.replace(ax.tree), dataclasses.replace(ax.tree, web_areas=[])]
-    ax.read_tree = lambda *a: trees.pop(0)                                 # type: ignore[method-assign]
+    ax.read_tree = lambda *a, **k: trees.pop(0)                                 # type: ignore[method-assign]
     _, shot, jpeg = asyncio.run(d.screenshot("Brave"))
     assert black(pixel(jpeg, 100, 255)) and white(pixel(jpeg, 100, 375))
     assert "changed during the capture" in shot.masking and "couldn't be placed" in shot.masking
@@ -1055,6 +1055,19 @@ def test_a_browser_page_area_that_hasnt_appeared_yet_is_read_again(monkeypatch: 
     assert clock[0] == 0.0                                                # another app: one walk
 
 
+def _between_the_looks(ax: Any, change: Callable[[], None]) -> None:
+    """The window changes after the look before the capture read it and before the look after (HAND-518: the look
+    before walks alongside the shot, so the shot itself is no fixed point between them)."""
+    read, walks = ax.read_tree, []
+
+    def walk(*a: Any, **k: Any) -> AxTree:
+        walks.append(1)
+        if len(walks) == 2:
+            change()
+        return read(*a, **k)                                                # type: ignore[no-any-return]
+    ax.read_tree = walk
+
+
 def test_a_secret_field_appearing_during_capture_is_painted_where_it_appeared_and_says_so(
         monkeypatch: pytest.MonkeyPatch) -> None:
     """Owner: no screenshot is refused. A field whose place during the capture isn't certain is painted wherever a
@@ -1064,7 +1077,7 @@ def test_a_secret_field_appearing_during_capture_is_painted_where_it_appeared_an
 
     def appears() -> None:
         ax.tree.secret_rects = [(150.0, 200.0, 100.0, 20.0)]
-    shots.on_capture = appears
+    _between_the_looks(ax, appears)
     _, shot, jpeg = asyncio.run(d.screenshot("Brave"))
     assert black(pixel(jpeg, 150, 310)) and white(pixel(jpeg, 150, 360)) and white(pixel(jpeg, 20, 20))
     assert "appeared or went during the capture" in shot.masking and "text recognition" in shot.masking
@@ -1078,7 +1091,7 @@ def test_a_field_moving_during_capture_is_painted_where_it_was_before_and_after(
 
     def moves() -> None:
         ax.tree.secret_rects = [(150.0, 230.0, 100.0, 20.0)]
-    shots.on_capture = moves
+    _between_the_looks(ax, moves)
     _, shot, jpeg = asyncio.run(d.screenshot("Notes"))
     assert black(pixel(jpeg, 150, 310)) and black(pixel(jpeg, 150, 370))         # (100..300, 300..340) and 360..400
     assert white(pixel(jpeg, 150, 350)) and white(pixel(jpeg, 150, 420))
@@ -1108,9 +1121,9 @@ def test_the_ax_inventory_is_walked_fresh_and_exposed_before_each_capture(monkey
     walks: list[int] = []
     read = ax.read_tree
 
-    def counted(*args: Any) -> AxTree:
+    def counted(*args: Any, **kw: Any) -> AxTree:
         walks.append(1)
-        return read(*args)
+        return read(*args, **kw)
     ax.read_tree = counted
     asyncio.run(d.screenshot("Notes"))
     assert ax.calls == ["ax.expose"]                             # Electron builds its tree before the first look

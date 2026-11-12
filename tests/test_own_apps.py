@@ -72,7 +72,7 @@ class Ax:
         self.frames: dict[int, tuple[float, float, float, float]] = {}          # the window frame `hit` names, per pid
 
     def read_tree(self, pid: int, browser: bool = False, window: Any = None, offset: int = 0,
-                  budget_s: Any = None) -> AxTree:
+                  budget_s: Any = None, masks_only: bool = False) -> AxTree:
         if pid == NOTCH.pid:
             node = AxNode("approve", "button", "Approve", None, (0, 0, 10, 10), False, True, "AXButton", ("press",))
         else:

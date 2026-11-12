@@ -188,7 +188,7 @@ def test_a_worker_starting_on_a_mac_app_keeps_one_picture_of_its_window(daemon: 
     assert rows[0]["data"]["bundle_id"] == "com.apple.Notes"
     span = daemon.run(_q(daemon, "SELECT output_json FROM spans WHERE id = ?", rows[0]["span_id"]))
     assert json.loads(span)["evidence"] == rows[0]["id"]
-    assert daemon.daemon.mac._state["com.apple.Notes"].shot is None        # not a shot anyone can click on
+    assert "com.apple.Notes" not in daemon.daemon.mac._state   # no shot anyone can click on, no walk kept (HAND-518)
     g2 = grant_task(daemon, "b", Identity.OWNER, {"mac:read", "screen"}, "look at my notes")
     gateway_call(daemon, g2, "mac.menu", app="Notes")
     assert len(shots.captured) == 2                                 # another worker: its own first look

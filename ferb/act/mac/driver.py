@@ -284,6 +284,7 @@ class Shot:
     tab: tuple[str, str] | None = None             # a browser window's active tab (URL, title) from the extension
     nodes: tuple[axm.AxNode, ...] = ()             # what the window's own walk at the capture found (staleness, P19)
     title: str = ""                                # the window server's title for it at the capture
+    masks: tuple[Rect, ...] = ()                   # the secret-field boxes painted over on it, screen points (L13)
 
 
 @dataclass
@@ -595,14 +596,17 @@ class MacComputerDriver:
     # ---------- the one walk ----------
 
     async def _walk(self, a: Any, window: Any = None, offset: int = 0, *, keep: bool = True,
-                    budget_s: float | None = None) -> axm.AxTree:
+                    budget_s: float | None = None, masks_only: bool = False) -> axm.AxTree:
         """One Accessibility walk of the app's window, cached per app: the snapshot, the signature before / after an
         action and the password-field scan all read from it. `keep=False` (a live preview's or a recording's frame,
         DMN-406): the walk isn't cached, so it never replaces the tree the worker's own calls read. `budget_s`: a walk
         shorter than HAND-221's (the time a preview capture has left); cut short, it can't tell about password fields
-        and the frame falls back to text recognition, as any walk out of budget."""
+        and the frame falls back to text recognition, as any walk out of budget. `masks_only` (HAND-518): the masking
+        inventory alone, never cached (a worker's next call still reads a whole walk)."""
         browser = self.is_browser(a.bundle_id)
-        more = {"budget_s": budget_s} if budget_s is not None else {}
+        more: dict[str, Any] = {"budget_s": budget_s} if budget_s is not None else {}
+        if masks_only:
+            more["masks_only"], keep = True, False
         if offset:
             tree = await asyncio.to_thread(self.ax.read_tree, a.pid, browser, window, offset, **more)
         elif window is None:
@@ -748,10 +752,12 @@ class MacComputerDriver:
     # ---------- screenshots ----------
 
     async def _look(self, a: Any, w: Any, before: Look | None = None, *, keep: bool = True,
-                    budget_s: float | None = None) -> Look:
+                    budget_s: float | None = None, masks_only: bool = True) -> Look:
         """One look at the captured window `w` now, for its capture masks (`window_masks`): a fresh Accessibility walk
         (never an earlier one: a field may have moved since) and, for a browser, the extension's page, asked while the
         walk runs (review M6: one after the other, two looks could outlast the planner's wait for the front window).
+        The walk reads only the masking inventory (HAND-518), never cached; `masks_only=False` (a worker's
+        mac.screenshot, its look after the shot) walks whole, cached unless `keep` is False.
         After a look `before` whose ask nobody answered, the extension isn't asked again. The AX window is the one at
         the window's bounds (with its title, when several are there, confirmed against the window server's title now).
         None there (it moved, or can't be read): no walk (`window_masks` then uses no page from this look)."""
@@ -760,7 +766,8 @@ class MacComputerDriver:
 
         async def walk() -> axm.AxTree | None:
             win = await asyncio.to_thread(self.ax.window_with_frame, a.pid, w.bounds, w.title or None, now_titled)
-            return await self._walk(a, win, keep=keep, budget_s=budget_s) if win is not None else None
+            return await self._walk(a, win, keep=keep, budget_s=budget_s, masks_only=masks_only) \
+                if win is not None else None
         browser = browsers.pair_key(a.bundle_id) if self.is_browser(a.bundle_id) else None
         earlier = before[1] if before is not None else None
         if not (browser and self.web_secrets) or (earlier is not None and earlier.late):
@@ -785,6 +792,29 @@ class MacComputerDriver:
         # and its page is placed on the readable look's page area (round 3, m1)
         return tree, web
 
+    async def _between_looks(self, a: Any, w: Any, grab: Callable[[], Awaitable[Any]], *,
+                             whole_after: bool = False) -> tuple[Look, Any, Look]:
+        """HAND-518: one capture of window `w` between its two looks, the one shared path (mac.screenshot, FERB's own
+        window_image, preview and recording frames). The look before starts, the shot is taken while it walks (the
+        shot no longer waits for it), then the look after. Both read the masking inventory alone, except a worker's
+        mac.screenshot's look after (`whole_after`): the whole walk, cached, that its clicks and staleness check read.
+        In a live preview each walk gets its share of the time left (DMN-406), each timed (walk1, walk2)."""
+        async def look(before: Look | None, phase: str, walks: int, whole: bool) -> Look:
+            with preview_phase(phase):
+                return await self._look(a, w, before, keep=whole, masks_only=not whole,
+                                        budget_s=_walk_budget(preview_left(), walks))
+        first = asyncio.ensure_future(look(None, "walk1", 2, False))
+        try:
+            await asyncio.sleep(0)                   # the look before is under way before the shot is asked for
+            shot = await grab()
+            before = await first
+        except BaseException:                        # the shot failed (or the look did): the look beside it goes too
+            first.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await first
+            raise
+        return before, shot, await look(before, "walk2", 1, whole_after)
+
     async def screenshot(self, name_or_bundle: str, window: str | None = None, native_resolution: bool = False
                          ) -> tuple[Any, Shot, bytes]:
         """The app's front window only, in memory, with every secret field painted over (L13): the password fields
@@ -793,23 +823,25 @@ class MacComputerDriver:
         to text recognition, never refused). Withheld only when the boxes can't be painted on it. The capture becomes
         the app's latest shot (mac.click / pointer / record); its `masking` says how a browser page's fields were found
         (Accessibility alone, or not at all) and when the rest is left to text recognition."""
-        a, w, jpeg, size, note, tab, tree = await self._capture(name_or_bundle, window, native_resolution)
+        a, w, jpeg, size, note, tab, tree, masks = await self._capture(name_or_bundle, window, native_resolution, True)
         st = self._state.setdefault(a.bundle_id, _AppState())
         st.shots += 1
-        # The captured window's own walk (never another window's, nor an earlier walk): what the staleness check and
-        # P19's identity compare a later click with
+        # The captured window's own walk after the shot (never another window's, nor an earlier walk): what the
+        # staleness check and P19's identity compare a later click with; none, when it couldn't be read (take another)
         st.shot = Shot(f"shot{st.shots}", w.id, w.bounds, size, pid=a.pid,
                        signature=tree.signature() if tree is not None else None, masking=note, tab=tab,
-                       nodes=tuple(tree.nodes) if tree is not None else (), title=w.title)
+                       nodes=tuple(tree.nodes) if tree is not None else (), title=w.title, masks=tuple(masks))
         return a, st.shot, jpeg
 
     async def window_image(self, name_or_bundle: str, window: str | None = None) -> tuple[Any, Shot, bytes]:
         """FERB's own picture of the app's front window for the evidence store (D26, D29), or of the exact window id
         `window` (L12: the owner's front window at send): the same capture and masking as `screenshot`, but it
         never becomes the app's latest shot, so a worker's pending mac.click / pointer / record keeps its own. Its
-        `tab` is the browser window's active tab as the extension named it, when its title is the window's (B5)."""
-        a, w, jpeg, size, note, tab, _ = await self._capture(name_or_bundle, window, False)
-        return a, Shot("evidence", w.id, w.bounds, size, pid=a.pid, masking=note, tab=tab, title=w.title), jpeg
+        `tab` is the browser window's active tab as the extension named it, when its title is the window's (B5). Its
+        looks read the masking inventory alone (HAND-518), so the app's cached walk stays the worker's own."""
+        a, w, jpeg, size, note, tab, _, masks = await self._capture(name_or_bundle, window, False, False)
+        return a, Shot("evidence", w.id, w.bounds, size, pid=a.pid, masking=note, tab=tab, title=w.title,
+                       masks=tuple(masks)), jpeg
 
     async def page_secrets(self, pid: int, bounds: Rect, title: str = "") -> tuple[list[Rect], Rect, bool] | None:
         """For a browser tab capture whose page the extension couldn't read (B6): the secret fields the Accessibility
@@ -822,7 +854,7 @@ class MacComputerDriver:
         win = await asyncio.to_thread(self.ax.window_with_frame, pid, bounds, title or None)
         if win is None or (title and not same_title(await asyncio.to_thread(self.ax.window_title, win), title)):
             return None
-        tree = await self._walk(a, win)
+        tree = await self._walk(a, win, masks_only=True)        # masks only (HAND-518), never cached
         areas = axm.outermost(tree.web_areas)
         if tree.secure is None or len(areas) != 1 or areas[0][2] <= 0 or areas[0][3] <= 0:
             return None
@@ -855,18 +887,11 @@ class MacComputerDriver:
                 else None
         return await asyncio.to_thread(place)
 
-    def secret_fields(self, bundle_id: str) -> list[tuple[float, float, float, float]]:
-        """Screen-point boxes of the password fields in the latest walk of this app (after a capture: of the captured
-        window), for masking a stored picture."""
-        st = self._state.get(bundle_id)
-        if st is None or st.tree is None:
-            return []
-        if st.tree.secret_rects is not None:
-            return list(st.tree.secret_rects)
-        return [n.rect for n in st.tree.nodes if n.secret]
-
-    async def _capture(self, name_or_bundle: str, window: str | None, native_resolution: bool
-                       ) -> tuple[Any, Any, bytes, tuple[int, int], str, tuple[str, str] | None, axm.AxTree | None]:
+    async def _capture(self, name_or_bundle: str, window: str | None, native_resolution: bool, worker: bool
+                       ) -> tuple[Any, Any, bytes, tuple[int, int], str, tuple[str, str] | None, axm.AxTree | None,
+                                  list[Rect]]:
+        """A masked capture of the app's window (L13): with the boxes painted on it and, for a worker's mac.screenshot
+        (`worker`), the whole walk of the window after the shot (None when it couldn't be read there)."""
         a = await self._resolve(name_or_bundle)
         await self._expose(a)                         # an Electron app builds its full tree only when asked
         browser = await asyncio.to_thread(self.browser_now, a.bundle_id)
@@ -895,13 +920,12 @@ class MacComputerDriver:
             except (RuntimeError, TimeoutError) as e:
                 raise Refused(f"couldn't capture {a.name}'s window: {e}") from None
         w = await asyncio.to_thread(find)
-        first = await self._look(a, w)
-        jpeg, width, height = await asyncio.to_thread(grab, w)
-        second = await self._look(a, w, first)
+        first, (jpeg, width, height), second = await self._between_looks(
+            a, w, lambda: asyncio.to_thread(grab, w), whole_after=worker)
         masks, note = window_masks(first, second, browser)
         return (a, w, await painted(jpeg, masks, w.bounds, (width, height)), (width, height), note,
                 page_tab((w.title, await asyncio.to_thread(self._title_now, w)) if browser else (), first, second),
-                second[0] if second[0] is not None else first[0])
+                second[0] if worker else None, masks)
 
     def _title_now(self, w: Any) -> str:
         """The window server's title for this captured window id now ("" when it is gone)."""
@@ -942,9 +966,9 @@ class MacComputerDriver:
         return self._window_source(a, w.id)
 
     def _window_source(self, a: Any, window_id: int) -> tuple[dict[str, Any], Any]:
-        """A live preview's or a recording's frames of one window (DMN-406): its walks are never cached (the worker's
-        own tree stays its own), and within a live preview each walk gets a share of the time the capture has left
-        (`_walk_budget`), each phase timed (resolve, walk1, capture, walk2, paint)."""
+        """A live preview's or a recording's frames of one window (DMN-406): its looks read the masking inventory alone
+        and are never cached (HAND-518: the worker's own tree stays its own), and within a live preview each walk gets
+        a share of the time the capture has left (`_walk_budget`), each phase timed (resolve, walk1, walk2, paint)."""
         async def current() -> Any:
             w = await asyncio.to_thread(self.shots.window, window_id)
             if w is None or w.pid != a.pid or (await self._resolve(a.bundle_id)).pid != a.pid:
@@ -956,12 +980,12 @@ class MacComputerDriver:
                 w = await current()
                 await self._expose(a)
             browser = self.is_browser(a.bundle_id)
-            with preview_phase("walk1"):
-                first = await self._look(a, w, keep=False, budget_s=_walk_budget(preview_left(), 2))
-            image, width, height = await asyncio.to_thread(self.shots.capture, w)
-            await current()
-            with preview_phase("walk2"):
-                second = await self._look(a, w, first, keep=False, budget_s=_walk_budget(preview_left(), 1))
+
+            async def grab() -> Any:
+                shot = await asyncio.to_thread(self.shots.capture, w)
+                await current()
+                return shot
+            first, (image, width, height), second = await self._between_looks(a, w, grab)
             masks, note = window_masks(first, second, browser)   # moved: OCR only
             with preview_phase("paint"):
                 frame = await painted(image, masks, w.bounds, (width, height))

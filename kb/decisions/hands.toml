@@ -1437,3 +1437,15 @@ rule = "fs.look {path, page?} decodes a picture (ImageIO: PNG, JPEG, HEIC, TIFF,
 why = "Live 2026-11-12 (task f68317e9): to see two PDF pages the worker rendered them with pdftoppm, then opened Preview twice and took three screenshots (one failed): 6 calls and windows on the owner's screen. fs.read is UTF-8 only; Codex's view_image is off and Claude Code runs with no tools of its own."
 paths = ["ferb/act/fs/look.py::FsLook", "ferb/registry.py::build", "ferb/orchestrator/progress.py::TOOLS"]
 live = ["LIVE-925"]
+
+[HAND-518]
+title = "A capture's looks read only what masking needs; the look before walks alongside the shot"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "Refines DMN-406; both looks stay. Every window capture (one path, _between_looks) starts the look before, grabs while it walks, then looks after. Both walk read_tree(masks_only): the same elements, order and HAND-221 budget, reading only role, subrole, children, a text field's own metadata and a secret field's or web area's frame; never cached. Only a worker's mac.screenshot's look after is a whole walk, cached, for its clicks and staleness check. FERB's own captures leave the app's tree; window_image returns the boxes it painted. Masks, notes and the text-recognition fallback are unchanged."
+why = "Owner 2026-11-12 (\"ok lets try this\"): the look before runs alongside the grab; both looks ask only what masking needs. A VS Code capture took 1.6-1.85 s from message to kept evidence; read_tree of its window took 0.62-0.74 s (2,389 elements), twice."
+evidence = "2026-11-12, read-only: the owner's VS Code window, whole walk 0.61-0.65 s, masks_only 0.13 s, same masks. An off-screen probe with an NSSecureTextField and a \"Password\"-placeholder field: 0.03-0.08 s vs 0.006 s, both fields found by both. One multi-attribute read per element: 0.09 s, not worth it."
+rejected = ["Reading the look before from the worker's cached walk: a field may have moved since (L13 wants a fresh look)", "A whole walk for a worker's screenshot's look before: its tree is used only for masks"]
+paths = ["ferb/act/mac/accessibility.py::read_tree", "ferb/act/mac/accessibility.py::_inventory_walk", "ferb/act/mac/driver.py::MacComputerDriver._between_looks", "ferb/act/mac/driver.py::MacComputerDriver._look", "ferb/act/mac/driver.py::MacComputerDriver.page_secrets", "ferb/act/mac/tools.py::app_window"]
+live = ["LIVE-935"]

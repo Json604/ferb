@@ -131,7 +131,7 @@ class TerminalAx:
         return self.windows.get(el, "FERB"), self.labels.get(el, str(chain[0].get("description") or ""))
 
     def read_tree(self, pid: int, browser: bool = False, window: Any = None, offset: int = 0,
-                  budget_s: Any = None) -> AxTree:
+                  budget_s: Any = None, masks_only: bool = False) -> AxTree:
         nodes = [AxNode(el, "menuitem" if chain[0]["role"] == "AXMenuItem" else "textbox",
                         self.labels.get(el, str(chain[0].get("description") or chain[0].get("title") or el)),
                         self.values.get(el, ""), (0, 10 * i, 100, 10), False, True, chain[0]["role"])

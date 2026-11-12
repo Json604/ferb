@@ -108,6 +108,7 @@ class AxTree:
     containers: list[str] = field(default_factory=list)     # what else was included: sheet / menu / dialog / popover
     web_empty: bool = False
     window: Any = None                 # the AX window walked
+    masks_only: bool = False           # HAND-518: only the masking inventory was read (no nodes, text or title)
 
     offset: int = 0
     next_offset: int | None = None
@@ -429,10 +430,12 @@ def hit_element(pid: int, x: float, y: float) -> Any:
 # ---------- the walk ----------
 
 def read_tree(pid: int, browser: bool = False, window: Any = None, offset: int = 0,
-              budget_s: float | None = None) -> AxTree:
+              budget_s: float | None = None, *, masks_only: bool = False) -> AxTree:
     """One walk of the exact window (or sole reachable window), its sheet, the app's open menus,
     popovers and dialogs. For a browser whose window shows no web area yet, or an empty one, re-read for ~2 s.
-    `budget_s`: a shorter walk than WALK_BUDGET_S (a live preview frame's share of its time, DMN-406); never longer."""
+    `budget_s`: a shorter walk than WALK_BUDGET_S (a live preview frame's share of its time, DMN-406); never longer.
+    `masks_only` (HAND-518, a capture's looks): the same elements in the same order under the same budget, reading
+    only what the masking inventory needs (`_inventory_walk`); no nodes, text, title or window list."""
     walk_s = WALK_BUDGET_S if budget_s is None else max(0.0, min(WALK_BUDGET_S, budget_s))
     started = time.monotonic()
     deadline = started + (min(2.0, walk_s) if browser else 0.0)
@@ -440,11 +443,14 @@ def read_tree(pid: int, browser: bool = False, window: Any = None, offset: int =
         app = _app(pid)
         win = window if window is not None else app_window(pid)
         now = time.monotonic()                    # a shorter budget holds for the whole call, re-reads included
-        tree = AxTree(title=_text(_attr(win, "AXTitle")) if win is not None else "", window=win, offset=offset,
+        tree = AxTree(title=_text(_attr(win, "AXTitle")) if win is not None and not masks_only else "", window=win,
+                      offset=offset, masks_only=masks_only,
                       _deadline=now + walk_s if budget_s is None else max(now, started + walk_s) + 1e-6)
         texts: list[str] = []
         seen = [0]
-        if win is not None:
+        if win is not None and masks_only:
+            _inventory_walk(win, tree, 0)
+        elif win is not None:
             _walk(win, tree, texts, 0, "dialog" if is_dialog(win) else None, seen)
         for child in _attr(app, "AXChildren") or []:          # menus, popovers, dialogs live beside the window
             if win is not None and _same(child, win):
@@ -456,12 +462,15 @@ def read_tree(pid: int, browser: bool = False, window: Any = None, offset: int =
             if kind is None:
                 continue
             tree.containers.append(kind)
-            _walk(child, tree, texts, 1, kind, seen)
+            if masks_only:
+                _inventory_walk(child, tree, 1)
+            else:
+                _walk(child, tree, texts, 1, kind, seen)
         if tree.truncated_by and "budget" in tree.truncated_by:
             tree.secure = None                                 # the rest wasn't read: a password field could be there
         tree.text = _text(" ".join(texts))
         tree.truncated = bool(tree.truncated_by)
-        tree.windows = windows(pid, win)
+        tree.windows = windows(pid, win) if not masks_only else []
         if not browser or (tree.has_web and not tree.web_empty) or time.monotonic() >= deadline:
             return tree
         time.sleep(0.25)                                       # the web AX tree is built on demand: ask again
@@ -527,6 +536,28 @@ def _inventory_below(children: list[Any], tree: AxTree) -> None:
         kids = _attr(el, "AXChildren") or []
         _inventory(el, role, subrole, kids, tree)
         stack.extend(reversed(kids))
+
+
+def _inventory_walk(root: Any, tree: AxTree, depth: int) -> None:
+    """HAND-518: `_walk`'s masking part alone, for a capture's looks. Every element `_walk` (and `_inventory_below`)
+    would visit, once each, in the same order and under the same budget; each read for its role, subrole and children
+    only, plus what `_inventory` reads (a text field's own metadata, a secret field's or web area's frame). A web area
+    sets `has_web` / `web_empty` at the depths `_walk` itself reaches (MAX_DEPTH + 1), as there. Never an element's
+    label, value, actions or state: the walk is ~5x quicker (VS Code, 2,389 elements: 0.13 s against 0.61-0.65 s)."""
+    stack = [(root, depth)]
+    while stack:
+        el, d = stack.pop()
+        if _over_budget(tree):
+            return
+        if _repeated(el, tree):
+            continue
+        role, subrole = role_of(el), str(_attr(el, "AXSubrole") or "")
+        kids = _attr(el, "AXChildren") or []
+        _inventory(el, role, subrole, kids, tree)
+        if role == "AXWebArea" and d <= MAX_DEPTH + 1:
+            tree.has_web = True
+            tree.web_empty = tree.web_empty or not kids
+        stack.extend((k, d + 1) for k in reversed(kids))
 
 
 def _walk(el: Any, tree: AxTree, texts: list[str], depth: int, container: str | None, seen: list[int],
