@@ -330,7 +330,11 @@ def test_basic_auth_and_print(worker: Worker, site: LabServer, lab: Any) -> None
     out["front_changes"] = front.changes[before:]
     report("auth-print", w, out)
     assert "error page" in out["auth_open"]                        # GAP: HTTP basic auth reads as an error page
-    assert "OutcomeUnknown" in str(out["print_click"])             # GAP: window.print() hangs the act and the tab
+    # HAND-512: window.print() is answered by FERB's page hook: the act says the page asked to print, the page went on
+    # (its print() returned) and the tab still answers reads (before: the act timed out unknown and the tab hung)
+    assert out["print_click"].get("ok") and out["print_click"].get("print") == "asked", out["print_click"]
+    assert "asked to print" in str(out["print_click"].get("observed"))
+    assert out["print_state"].get("print") == "returned" and out["after_print_snapshot"] > 0, out
     assert out["front_changes"] == []
 
 

@@ -1369,3 +1369,14 @@ evidence = "Lab 2026-11-12: a sized, named popup is claimed; a sign-in window th
 rejected = ["Proxying the WindowProxy window.open returns, to see an opener close its popup: it breaks pages that compare windows"]
 paths = ["extensions/chromium/protocol.js::ferbPageHook", "extensions/chromium/background.js::openedByInput", "extensions/chromium/background.js::tabEvent", "ferb/act/browser/ext_bridge.py::tab_closed", "ferb/act/browser/ext_bridge.py::download_tab_done", "ferb/daemon/areas/browsers.py::_owner_input_near"]
 live = ["LIVE-920", "LIVE-921"]
+
+[HAND-512]
+title = "window.print() in a tab FERB drives is answered by the page hook; the act says the page asked"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "For HAND-503, extension 0.19.10. While FERB drives a tab (the hook's armed check), the page hook's window.print opens no print preview and returns at once, as a cancelled print does; content.js tells the service worker, and the act around it returns `print: \"asked\"` and an `observed` line saying the page asked to print and that browser.pdf saves the page as a PDF. A tab FERB doesn't drive prints as the page asks."
+why = "Lab: the print preview stopped the page: the click came back \"outcome unknown\" after 30 s and the tab stopped answering reads. FERB's PDF tool already prints a tab without any dialog."
+evidence = "Lab 2026-11-12 chrome-ui.html Print: before, OutcomeUnknown after 30.1 s and the next snapshot hung; after, ok with print asked, print() returned and the next snapshot read 9 elements."
+paths = ["extensions/chromium/protocol.js::ferbPageHook", "extensions/chromium/background.js::observeAct", "extensions/chromium/content.js::listenHook"]
+live = ["LIVE-922"]

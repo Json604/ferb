@@ -4298,3 +4298,12 @@ request = "Ask FERB to download that Drive file with Drive's Download button, th
 pass = "Both times the file is in FERB's downloads (browser_downloads), no blank tab is left in the task's group, FERB asks no \"You closed a tab\" question, and the trace shows the download tab in closed_tabs or `closed`. Note whether the browser came to the front."
 decisions = ["HAND-511"]
 sitting = "after this change is installed and 0.19.10 is loaded"
+
+[LIVE-922]
+title = "A page's Print button doesn't stop FERB"
+area = "hands"
+surface = "FERB.app with this build and the FERB extension 0.19.10; a public page with a Print button that calls the browser's print (a recipe or an order-summary page)"
+request = "Ask FERB to open the page, press its Print button, and save the page as a PDF on your Desktop."
+pass = "The click's result says the page asked to print (no print dialog on your screen, no outcome unknown), FERB saves the PDF with browser.pdf, and the tab keeps answering."
+decisions = ["HAND-512"]
+sitting = "after this change is installed and 0.19.10 is loaded"

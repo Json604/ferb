@@ -525,6 +525,9 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
     return true;
   }
   else if (m && m.ferbPopup && sender && sender.tab) reply(pageHookPopup(sender.tab.id, sender.frameId || 0, m.ferbPopup));
+  // HAND-512: a page in a tab FERB drives asked to print; the hook answered it without the browser's preview
+  else if (m && m.ferbPrint && sender && sender.tab && (TABS.get(sender.tab.id) || {}).armed)
+    tabState(sender.tab.id).prints = (tabState(sender.tab.id).prints || 0) + 1;
   // HAND-511: the top page of a tab FERB drives closes its own window (the hook's window.close)
   else if (m && m.ferbClosing && sender && sender.tab && !sender.frameId && (TABS.get(sender.tab.id) || {}).armed) {
     if (selfClosing.size > 200) selfClosing.delete(selfClosing.keys().next().value);
@@ -1745,7 +1748,7 @@ async function observeAct(a, run) {
     try { watching = (await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.watchNear(g, i), [a.snap, a.el])) === true; }
     catch (_) { watching = false; }
   }
-  const st = tabState(tabId), opened = st.openedTabs || 0, dialogs = st.dialogs.length;
+  const st = tabState(tabId), opened = st.openedTabs || 0, dialogs = st.dialogs.length, prints = st.prints || 0;
   const result = await run();
   if (!t0 || !result || result.ok !== true) return result;
   const started = Date.now();
@@ -1755,6 +1758,11 @@ async function observeAct(a, run) {
     else if (t0.url && now.url && now.url !== t0.url) said.push("the address changed");
     if (st.pendingDialog || st.dialogs.length > dialogs) said.push("a dialog opened");
     if ((st.openedTabs || 0) > opened) said.push("it opened a new tab");
+    if ((st.prints || 0) > prints) {                  // HAND-512: answered by the page hook, so the page went on
+      said.push("the page asked to print; FERB didn't open the print dialog and the page went on (browser.pdf saves " +
+                "the page as a PDF)");
+      result.print = "asked";
+    }
     let near = null;
     if (watching && !(t0.top && now.top && now.top !== t0.top)) {
       try { near = await inFrame(tabId, a.frame_id, () => window.__ferb.nearChange(), []); } catch (_) { near = null; }

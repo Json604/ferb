@@ -327,3 +327,33 @@ def test_a_tab_that_closed_itself_is_a_fact_for_the_worker_never_the_owner_stopp
     removed(own)                                                   # FERB's own tab, closed with no page's word
     time.sleep(0.2)
     assert stops() == [c, own]                                     # HAND-201 as before
+
+
+# decision: HAND-511, HAND-512
+def test_the_page_hook_answers_print_while_ferb_drives_the_tab_and_tells_of_a_window_closing_itself() -> None:
+    """Lab: window.print() in a task tab opened the print preview; the act waited 30 s, came back unknown, and the tab
+    stopped answering reads."""
+    import subprocess
+    from tests.chromelab import EXT, _node
+    script = f'''
+      const vm = require("vm"), p = require({json.dumps(str(EXT / "protocol.js"))});
+      class HTMLElement {{ click() {{}} }}
+      const win = new EventTarget(), doc = new EventTarget(), told = [];
+      let printed = 0, closed = 0, armed = true;
+      win.open = () => null; win.print = () => {{ printed++; }}; win.close = () => {{ closed++; }};
+      doc.baseURI = "https://shop.example/";
+      doc.addEventListener(p.FERB_TOKEN + ":armed", (e) => {{ if (armed) e.preventDefault(); }});
+      for (const k of ["print", "closing"]) doc.addEventListener(p.FERB_TOKEN + ":" + k, () => told.push(k));
+      const ctx = vm.createContext({{window: win, document: doc, HTMLElement, HTMLAnchorElement: class extends HTMLElement {{}},
+        HTMLAreaElement: class extends HTMLElement {{}}, EventTarget, CustomEvent, Event, URL, crypto, Date, setTimeout}});
+      vm.runInContext(p.PAGE_HOOK, ctx);
+      const returned = win.print() === undefined;
+      const whileDriven = printed;
+      armed = false; win.print();
+      win.close();
+      console.log(JSON.stringify({{returned, whileDriven, printed, closed, told}}));
+    '''
+    ran = subprocess.run([_node(), "-e", script], capture_output=True, text=True, timeout=20)
+    assert ran.returncode == 0, ran.stderr
+    assert json.loads(ran.stdout) == {"returned": True, "whileDriven": 0, "printed": 1, "closed": 1,
+                                      "told": ["print", "closing"]}

@@ -104,6 +104,14 @@ function ferbPageHook(token) {
   const dispatch = EventTarget.prototype.dispatchEvent, click = HTMLElement.prototype.click, open = window.open;
   // Extension 0.19.10 (HAND-511): the page closing its own window (a sign-in window once it is done) is told to
   // content.js first ("<token>:closing"), so FERB never reads that close as the owner's. The close itself is the page's.
+  // Extension 0.19.10 (HAND-512): window.print() in a tab FERB drives would open the browser's print preview, which
+  // stops the page (and FERB's act on it) until someone answers it. FERB answers it here: no preview, and the page goes
+  // on as after a cancelled print; content.js is told ("<token>:print"), so the act's result says the page asked.
+  const print = window.print;
+  if (typeof print === "function") window.print = function () {
+    if (!armed()) return print.apply(this, arguments);
+    dispatch.call(document, new CustomEvent(token + ":print"));
+  };
   const close = window.close;
   if (typeof close === "function") window.close = function () {
     try { dispatch.call(document, new CustomEvent(token + ":closing")); } catch (_) { /* told or not, it closes */ }

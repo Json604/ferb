@@ -1485,6 +1485,11 @@
     if (!downloadsArmed || window !== top) return;
     try { chrome.runtime.sendMessage({ ferbClosing: true }); } catch (_) { downloadsArmed = false; }
   };
+  // HAND-512: the page called window.print(), which the hook answered without the browser's preview
+  const onPrint = () => {
+    if (!downloadsArmed) return;
+    try { chrome.runtime.sendMessage({ ferbPrint: true }); } catch (_) { downloadsArmed = false; }
+  };
   function listenHook(token) {
     if (typeof token !== "string" || !/^[0-9a-f]{12}$/.test(token) || token === hookToken ||
         typeof document.addEventListener !== "function") return;
@@ -1492,11 +1497,13 @@
       document.removeEventListener(hookToken + ":armed", onArmed);
       document.removeEventListener(hookToken + ":popup", onPopup);
       document.removeEventListener(hookToken + ":closing", onClosing);
+      document.removeEventListener(hookToken + ":print", onPrint);
     }
     hookToken = token;
     document.addEventListener(token + ":armed", onArmed);
     document.addEventListener(token + ":popup", onPopup);
     document.addEventListener(token + ":closing", onClosing);
+    document.addEventListener(token + ":print", onPrint);
   }
   // whether FERB drives this tab now, and the hook's event names (asked once the listeners above exist)
   try {

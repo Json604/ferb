@@ -156,7 +156,9 @@ Extension 0.19.10 keeps protocol 21 and the minimum (HAND-504..; an older extens
   draws (also one holding only text, or scrolling sideways) with its `axis` (x, y, both).
 - A new tab in a popup window right after a task tab's input is checked as a popup of every such task tab (HAND-511).
   A `removed` tab event carries `closed_by_page` when the page hook saw the page close its own window; a `download`
-  event carries `blank_tab` when the tab shows nothing but that download."""
+  event carries `blank_tab` when the tab shows nothing but that download.
+- The page hook answers window.print() while FERB drives the tab (no print preview); the act's reply carries
+  `print: "asked"` and says so in `observed` (HAND-512)."""
 
 import base64
 import hashlib
