@@ -501,8 +501,9 @@ def test_widgets(worker: Worker, site: LabServer) -> None:
     out["stars_in_snapshot"] = [(e.id, e.role) for e in stars]
     if len(stars) >= 4:
         w.act(stars[3].id, "click")
+    out["switch_type"] = _try(w, "Notifications", "type", text="on")   # HAND-509: a button isn't a field
     _try(w, "Notifications", "click")
-    _try(w, "Phone", "type", text="9876543210")
+    out["phone_type"] = _try(w, "Phone", "type", text="9876543210")
     out["phone"] = (w.truth()["phone"], w.truth()["phoneShown"])
     _try(w, "Gift card number", "type", text="4111111111111111")
     out["card"] = w.truth()["card"]
@@ -513,7 +514,11 @@ def test_widgets(worker: Worker, site: LabServer) -> None:
     out["final"] = w.truth()
     report("widgets", w, out)
     f = out["final"]
-    assert out["date_trusted"] == "" and out["time_trusted"] == ""        # GAP: real typing into date/time: ok, no value
+    # HAND-509: a date or time field is set through its value (real keys set nothing); a button refuses typing; a mask
+    # that reformats what was typed says what the field reads now
+    assert out["date_trusted"] == "2026-12-25" and out["time_trusted"] == "14:30"
+    assert out["switch_type"].get("ok") is False and out["switch_type"].get("reason") == "not_editable", out["switch_type"]
+    assert out["phone_type"].get("field_value") == out["phone"][1] != "9876543210", out["phone_type"]
     assert f["date"] == "2026-12-25" and f["dtl"] == "2026-12-25T14:30"   # page_mode sets them
     assert all(v is None for _, _, v in out["slider_handles"])             # GAP: an ARIA slider's value isn't shown
     assert f["native"] == "Japan" and f["choices"] == "bom" and f["flat"] == "2026-11-20" and f["stars"] == 4

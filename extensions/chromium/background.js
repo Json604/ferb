@@ -1811,7 +1811,7 @@ async function trusted(tabId, a) {
     const focusedBy = byScript ? { unpointed: p.keyboard ? "outside" : "covered",
       focus: `by script, not a click: the element is ${p.keyboard ? p.outside :
         `covered by ${p.cover || "what the page draws over it"}`}` } : {};
-    const pointing = !byScript && (a.kind === "hover" || CLICKS[a.kind] || (a.kind === "type" && p.editable));
+    const pointing = !byScript && (a.kind === "hover" || CLICKS[a.kind] || (a.kind === "type" && p.editable && !p.picked));
     if (pointing && !(await reachesAfresh(tabId, a.frame_id, p.x, p.y, p.fx, p.fy))) return NOT_REACHED;
     if (a.kind === "hover") { await mouse(tabId, "mouseMoved", p.x, p.y); return { ok: true, detail: "hovered (trusted)" }; }
     if (CLICKS[a.kind]) {
@@ -1819,6 +1819,10 @@ async function trusted(tabId, a) {
       const name = a.kind === "dblclick" ? "double-clicked" : a.kind === "rightclick" ? "right-clicked" : "clicked";
       return { ok: true, detail: `${name} (trusted)${p.occluded ? "; the element looked covered" : ""}` };
     }
+    // HAND-509: a date, time, month, week, colour or range input takes no typed text (keys go to its picker's segments
+    // and set nothing): its value is set through its setter with input and change events, or the type fails saying so
+    if (a.kind === "type" && p.picked)
+      return inFrame(tabId, a.frame_id, (g, i, t) => window.__ferb.setPicked(g, i, t), [a.snap, a.el, String(a.text || "")]);
     if (a.kind === "type") {
       // HAND-505: `mode` replace (the field's text is selected first) or insert (at the caret, the rest kept). Unsaid:
       // insert into a document editor (contenteditable) or a field the page draws its own view over (byScript),
@@ -1836,7 +1840,12 @@ async function trusted(tabId, a) {
       if (!active) return { ok: false, detail: "focus_failed" };     // never type into whatever else has focus
       // where the keys go now may be a secret field inside the element (a widget around a password box)
       if (await inFrame(tabId, a.frame_id, () => window.__ferb.focusedSecret(), [])) return { ok: false, detail: "secret_field" };
-      if (!mode) mode = (await inFrame(tabId, a.frame_id, () => window.__ferb.focusedField(), [])) === "rich" ? "insert" : "replace";
+      // HAND-509: the keys must go into a field: typed text sent to a button or a plain element lands nowhere
+      const where = await inFrame(tabId, a.frame_id, () => window.__ferb.focusedField(), []);
+      if (!where) return { ok: false, reason: "not_editable", detail: "not an editable field: typed text goes only into " +
+        "a text field or an editor, and the focus isn't in one; nothing was typed. For keys a page reads itself (a game, " +
+        "a canvas grid, a slider) use press" };
+      if (!mode) mode = where === "rich" ? "insert" : "replace";
       const text = String(a.text || "").replace(/\r\n?/g, "\n");
       const how = { mode, ...focusedBy };
       if (mode === "replace") await pressKey(tabId, "cmd+a");         // replace: select the field's text first
@@ -1858,7 +1867,12 @@ async function trusted(tabId, a) {
           else if (part) await cdp(tabId, "Input.insertText", { text: part });
         }
       } else await cdp(tabId, "Input.insertText", { text });
-      return { ok: true, detail: mode === "insert" ? "typed at the caret (trusted)" : "typed, replacing the field's text (trusted)", ...how };
+      // HAND-509: a field that reformats what was typed (a phone or card mask) says what it holds now; never a secret's
+      const now = mode === "replace" && where !== "rich"
+        ? await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.fieldValue(g, i), [a.snap, a.el]) : null;
+      const shown = typeof now === "string" && now !== text ? { field_value: now.slice(0, 2000) } : {};
+      return { ok: true, detail: mode === "insert" ? "typed at the caret (trusted)" : "typed, replacing the field's text (trusted)",
+               ...how, ...shown };
     }
     if (a.kind === "press") {
       let active = await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.isActive(g, i), [a.snap, a.el]);
@@ -2358,6 +2372,8 @@ const commands = {
     const r = await observeAct(args, () => commands.actOnce(args));
     // HAND-506: a scripted paste lands only where the page's own handler takes it; one nobody took, with nothing seen
     // changing, put nothing in: a known failure that says so, so the worker types instead
+    if (r && r.ok === true && typeof r.field_value === "string")      // HAND-509: what the field reads now
+      r.observed = `${r.observed_change ? `${r.observed}; ` : ""}the field now reads "${r.field_value.slice(0, 200)}"`;
     if (args.kind === "paste" && r && r.ok === true && r.paste_taken !== true && r.observed_change === false)
       return {...r, ok: false, reason: "paste_not_taken", detail: "the page didn't take the paste: no handler of its " +
         "own took the paste event and nothing changed, so nothing was inserted (a plain editable field takes pasted " +

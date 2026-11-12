@@ -147,7 +147,10 @@ Extension 0.19.10 keeps protocol 21 and the minimum (HAND-504..; an older extens
 - `act` type takes `mode` (replace | insert; unsaid: by the field's structure) and says the one used (`mode`); in a field
   under the page's own view each line break is pressed as Enter and each tab as Tab. An older extension reads `append`.
 - `act` kind `paste` {text, html}: the page's own paste event with text/plain (and text/html), never the system
-  clipboard; `paste_taken`, or `reason: "paste_not_taken"` when no handler took it and nothing changed."""
+  clipboard; `paste_taken`, or `reason: "paste_not_taken"` when no handler took it and nothing changed.
+- `act` type on a date, time, month, week, colour or range input sets its value (setter, input, change) or fails with
+  `value_not_taken`; on something that isn't an editable field it fails `not_editable`; a field that reformats what was
+  typed returns `field_value` (never a secret field's)."""
 
 import base64
 import hashlib

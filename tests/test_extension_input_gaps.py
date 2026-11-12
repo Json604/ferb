@@ -196,3 +196,27 @@ def test_a_hover_that_brings_up_something_under_the_pointer_went_through_and_say
     assert out["hovered"]["ok"] is True and "changed under the pointer" in out["hovered"]["observed"]
     assert out["clicked"]["ok"] is False and out["clicked"]["detail"].startswith("visual_target_changed")
     assert out["presses"] == 0                                     # a click onto what the hover brought up: refused
+
+
+# decision: HAND-509
+def test_a_date_field_is_set_by_its_value_a_button_takes_no_typing_and_a_mask_says_what_it_reads() -> None:
+    """Lab: real typing into a native date or time input answered "typed (trusted)" and set nothing."""
+    out = run('''
+      await act({kind: "click"});
+      rect = {x: 50, y: 60, editable: true, field: "input", picked: "date"};
+      page.setPicked = (g, i, t) => ({ok: true, detail: "set the date field to " + t, field_value: t});
+      const date = await act({kind: "type", text: "2026-12-25"});
+      rect = {x: 50, y: 60, editable: false, field: null};
+      page.focusedField = "";
+      const button = await act({kind: "type", text: "on"});
+      rect = {x: 50, y: 60, editable: true, field: "input"};
+      page.focusedField = "input"; page.fieldValue = "+91 87654 3210";
+      const phone = await act({kind: "type", text: "9876543210"});
+      return {date, button, phone};
+    ''')
+    assert out["date"]["value"]["ok"] and out["date"]["keys"] == [] and out["date"]["texts"] == []
+    assert "setPicked" in out["date"]["page"] and out["date"]["pressed"] == 0
+    assert out["button"]["value"]["reason"] == "not_editable" and out["button"]["texts"] == []
+    assert out["button"]["outcome"] == "failed"
+    assert out["phone"]["value"]["field_value"] == "+91 87654 3210"
+    assert out["phone"]["value"]["observed"].endswith('the field now reads "+91 87654 3210"')

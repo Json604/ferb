@@ -1068,9 +1068,45 @@
   // What kind of field it is (HAND-505): "input" or "textarea" hold one value; "rich" is a document editor the page
   // made editable (contenteditable), where typing goes at the caret by default. null: no field.
   const fieldOf = (el) => !editableField(el) ? null : el.isContentEditable ? "rich" : el.tagName === "TEXTAREA" ? "textarea" : "input";
-  function focusedField() {                        // where typed text goes now, as fieldOf says (into shadow roots)
+  // HAND-509: inputs whose value the browser's own picker sets: typed keys go to its segments and usually set nothing,
+  // so a type sets the value through its setter, with the events a person's choice fires. The form each one takes.
+  const PICKED = {date: "YYYY-MM-DD", time: "HH:MM (24-hour)", "datetime-local": "YYYY-MM-DDTHH:MM", month: "YYYY-MM",
+                  week: "YYYY-Www", color: "#rrggbb", range: "a number within its min and max"};
+  const pickedType = (el) => el && el.tagName === "INPUT" && Object.hasOwn(PICKED, String(el.type).toLowerCase())
+    ? String(el.type).toLowerCase() : null;
+  function setPicked(gen, id, text) {
+    const { el, error } = element(gen, id);
+    if (error) return { ok: false, detail: error };
+    const type = pickedType(el);
+    if (!type) return { ok: false, detail: "not_a_picker_field" };
+    if (isSecret(el) || el.disabled || el.readOnly) return { ok: false, detail: isSecret(el) ? "secret_field" : "target_disabled" };
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set, before = el.value;
+    setter.call(el, text);
+    const same = type === "range" ? Number(el.value) === Number(text) && String(text).trim() !== ""
+      : type === "color" ? el.value.toLowerCase() === String(text).trim().toLowerCase() : el.value === text;
+    if (!same) {
+      setter.call(el, before);                     // the browser rejected or changed it: put it back, no events
+      return { ok: false, reason: "value_not_taken", detail: `the ${type} field didn't take "${String(text).slice(0, 60)}": ` +
+               `it takes ${PICKED[type]}; its value is unchanged` };
+    }
+    el.focus();
+    el.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+    return { ok: true, detail: `set the ${type} field to ${el.value} (its value and input/change events: a ${type} ` +
+             "field takes no typed text)", field_value: el.value };
+  }
+  // What a field shows after typing, when it isn't secret (a mask reformats what was typed); false otherwise (a page
+  // script's null reads as a failure, background.js inFrame).
+  function fieldValue(gen, id) {
+    const { el, error } = element(gen, id);
+    if (error) return false;
+    const a = deepActive(), f = a && (a === el || el.contains(a)) ? a : el;
+    if (!["INPUT", "TEXTAREA"].includes(f.tagName) || isSecret(f) || maskedEditable(f)) return false;
+    return String(f.value);
+  }
+  function focusedField() {                        // where typed text goes now, as fieldOf says (into shadow roots); "" none
     const a = deepActive();
-    return a && a !== document.body ? fieldOf(a) : (document.body && document.body.isContentEditable ? "rich" : null);
+    return (a && a !== document.body ? fieldOf(a) : (document.body && document.body.isContentEditable ? "rich" : null)) || "";
   }
   // For trusted input: the element centre in this frame's viewport, after scrolling it in. `keys` (type or press, which
   // need no pointer, HAND-504): an element that is covered or stays outside the page is still described, with
@@ -1081,7 +1117,8 @@
     el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
     const r = el.getBoundingClientRect();
     const facts = { secret: isSecret(el), disabled: !!el.disabled || el.getAttribute("aria-disabled") === "true",
-                    editable: editableField(el), field: fieldOf(el), file: el.tagName === "INPUT" && el.type === "file" };
+                    editable: editableField(el), field: fieldOf(el), picked: pickedType(el),
+                    file: el.tagName === "INPUT" && el.type === "file" };
     if ((r.width <= 0 || r.height <= 0) && !keys) return { error: "not_visible" };
     // HAND-482: a centre still outside this frame's viewport after scrolling is a fact of its own (a control parked off
     // the page, e.g. a hidden keyboard-shortcut entry), never "covered": hitTest would clamp it onto whatever is there.
@@ -1500,7 +1537,7 @@
     supportsSplitSecretFill: true,
     pointerArm: () => { pointerSeen = null; }, pointerSeen: () => pointerSeen || [],
     viewport: () => [innerWidth, innerHeight], act, fill, origin: () => location.origin, rect, focus, isActive,
-    focusedSecret, focusedField, takeSubmits, stamp, unstamp, scroller, scrolled, probeArm, probeSeen: () => probeSeen,
+    focusedSecret, focusedField, setPicked, fieldValue, takeSubmits, stamp, unstamp, scroller, scrolled, probeArm, probeSeen: () => probeSeen,
     downloadPart, armDownloads, releaseDownload, dropDownload: (id) => { heldDownloads.delete(id); },
     watchNear, nearChange, documentKey: () => documentId, markup };
 })();
