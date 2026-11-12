@@ -86,8 +86,9 @@ class _Base:
 class ShellStart(_Base):
     name = "shell.start"
     on_screen = True                  # a command FERB runs can open an app or bring a window forward
-    description = ("Start a tracked shell command immediately and return its id. Use for coding agents and other "
-                   "long commands, then shell.wait/read for actual progress and exit status. Run the command "
+    description = ("Start a tracked shell command immediately and return its id. Use for long commands, then "
+                   "wait.for (one wake when it exits or prints what you name) or shell.read for actual progress and "
+                   "exit status. Run the command "
                    "directly, without nohup or trailing &: the id tracks this command, not detached children. "
                    "background=true keeps it alive after task completion (servers); it is not needed to work "
                    "asynchronously during a task. Starting a process does not prove it is ready or successful. "
@@ -150,7 +151,7 @@ async def _output(shells: ShellManager, h: ProcHandle, *, since: int = 0) -> Too
 class ShellRun(ShellStart):
     name = "shell.run"
     description = ("Run a shell command (/bin/sh), waiting up to timeout_s. A live process returns its id; use "
-                   "shell.wait to await its exit or shell.read for output. For immediate asynchronous start use "
+                   "wait.for to await its exit or shell.read for output. For immediate asynchronous start use "
                    "shell.start, without nohup or trailing &. background=true survives task completion (servers). "
                    "Commands run inside FERB's sandbox (shell.rules lists what it keeps out). " + SCOPE_FACT + " "
                    + NO_APPS + " " + NETWORK_FACT + " " + NESTED_SANDBOX)
@@ -183,9 +184,11 @@ class ShellRun(ShellStart):
 
 
 class ShellWait(_Base):
-    name, description = ("shell.wait", "Wait for a tracked command to exit, returning early when it finishes. "
-                         "A timeout leaves it running; inspect output or wait again. Returns exit_code and output "
-                         "from since, so failures are visible without sleeping blindly. Does not launch a retry.")
+    name, description = ("shell.wait", "Wait up to 120 s for a tracked command to exit, returning early when it "
+                         "finishes. A timeout leaves it running. Returns exit_code and output from since, so failures "
+                         "are visible without sleeping blindly. Does not launch a retry. For a longer command, call "
+                         "wait.for once (it waits in code until the command exits or prints what you name) instead of "
+                         "calling this again and again.")
     risk, reversible = RiskLevel.LOW, True
     observation = True                                 # only reads: the final checker may use it (V3, W4)
     origin = OUTPUT_ORIGIN

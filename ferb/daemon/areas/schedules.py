@@ -222,6 +222,19 @@ class Schedules:
                 self.supervisor.task_sleeping(task_id, None, "")
             self.timers.cancel(t.id)
 
+    def _wait_status(self, worker_id: str, task_id: str, until: datetime | None, line: str | None) -> None:
+        """wait.for (ORCH-633): while a worker waits in code, it counts as waiting, not stalled (as a sleep does), and
+        its task's live line, preview and planner row show the wait's own line; `line` None: it woke."""
+        if self.supervisor is None:
+            return
+        self.supervisor.activity.waiting(worker_id, line is not None)
+        self.supervisor.task_sleeping(task_id, until if line is not None else None, "", line or "")
+
+    def _wait_ended(self, task_id: str, data: dict[str, Any]) -> None:
+        """wait.for cut by FERB's restart: journaled with its tree, so the step's next run is told (ORCH-633)."""
+        tree = self.tasks.tree_of(task_id)
+        self._journal().append("wait.ended", {"task_id": task_id, "tree": tree or task_id.split(".", 1)[0], **data})
+
     def _schedule_create(self, spec: Any, own_words: str, request_id: str, origins: set[str],
                          request_origins: set[str] | None = None) -> tuple[str, dict[str, Any] | None]:
         """From chat: the owner's words (quote-checked), the targets recorded now, the first run in the future.

@@ -661,3 +661,11 @@ status = "open"
 why = "HAND-504..516 reach the owner's browsers only through the store. Package: build/store/ferb-extension-0.19.10.zip; no new permission, so no listing change (HAND-404); 0.19.4's self-update (HAND-430) installs it. Then LIVE-916..924."
 decisions = ["HAND-504", "HAND-516", "HAND-404", "HAND-430"]
 after = ["T-1092"]
+
+[T-1095]
+title = "A plan's wait step can wait on wait.for's conditions"
+area = "orchestration"
+kind = "build"
+status = "open"
+why = "ORCH-631: a plan wait step may name wait.for's conditions with its own limit. Open: a wait step has no worker, and a command or tab belongs to the step that started it. Shape (ORCH-330): wait_for, conditions with plain fields (\"\"/0 unused), and limit_minutes; the executor runs WaitFor's loop."
+decisions = ["ORCH-631", "ORCH-330"]

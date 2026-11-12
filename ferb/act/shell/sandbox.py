@@ -81,8 +81,10 @@ SANDBOX_EXEC = "/usr/bin/sandbox-exec"
 SECURITY_SERVER = "com.apple.SecurityServer"
 CERT_BUNDLE = "/etc/ssl/cert.pem"            # Apple's root certificates as a file (macOS ships it)
 # What a program that starts its own macOS sandbox meets inside FERB's (E5); shown to agents, never enforced on them
-NESTED_SANDBOX = ("A program can't start its own macOS sandbox inside FERB's shell (FERB's sandbox applies to it). "
-                  "Codex CLI needs its sandbox off: --sandbox danger-full-access (measured working), or "
+NESTED_SANDBOX = ("A program can't start its own macOS sandbox inside FERB's shell (FERB's sandbox applies to it). A "
+                  "coding agent's CLI (Codex, Claude Code, ...) starts only when the owner's words in this task name it "
+                  "or one of its models (\"another agent\" means another FERB worker); then Codex CLI needs its "
+                  "sandbox off: --sandbox danger-full-access (measured working), or "
                   "--dangerously-bypass-approvals-and-sandbox only when the owner asked for no approvals.")
 # What the shell profile keeps out beyond files and network (measured, F5a Task 2 fix round 1); shown to agents
 # HAND-429: an installed app's own program (/Applications/X.app/Contents/MacOS/X, one folder deep at most, as

@@ -570,3 +570,13 @@ status = "active"
 rule = "For ORCH-630. supervisor.md says, before \"Remember and forget\": side_entries is null when the message needs none of remember, forget, answer_question, schedules, schedule_changes, show_schedules, timers, reminder_cancels and conversation_changes, otherwise an object holding all nine, each one not needed [], null or false. The check line says \"else null\" where it said \"else kind \\\"none\\\"\". Each entry's own description is unchanged."
 untestable = "Prompt text: TEST-500 keeps no wording tests; the real Codex comparison recorded in ORCH-630's why judged it."
 paths = ["ferb/orchestrator/prompts/supervisor.md"]
+
+[PRM-353]
+title = "Workers wait with wait_for; another agent is another FERB worker"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "For ORCH-631 and ORCH-634. worker.md: watching what the task started names wait_for; waiting for something the work depends on is one wait_for call with every condition and a fitting limit, never repeated waits, reads or sleeps; \"another agent\", \"a separate agent\" or \"in parallel\" means another FERB worker, and a coding agent's CLI starts only when the owner's words name it or one of its models. supervisor.md says the same for planning in its own bullet. shell.start, shell.run and shell.wait point to wait.for for long commands."
+untestable = "Prompt and description text: TEST-500 keeps no wording tests; LIVE-927 and LIVE-929 judge it."
+paths = ["ferb/orchestrator/prompts/worker.md", "ferb/orchestrator/prompts/supervisor.md", "ferb/act/shell/tools.py::ShellStart", "ferb/act/shell/tools.py::ShellRun", "ferb/act/shell/tools.py::ShellWait"]
+live = ["LIVE-927", "LIVE-929"]

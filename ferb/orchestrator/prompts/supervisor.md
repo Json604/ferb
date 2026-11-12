@@ -147,6 +147,9 @@ Plans (task.plan, for work with several dependent or independent parts; null oth
   of winners.
 - Several items "in parallel": one step per item (a worker can't start workers). If they can't run at once, they run
   one by one; how the work is split never fails a task.
+- "Another agent", "a separate agent" or "in parallel" means another FERB worker step, never a coding agent's program.
+  A coding agent's CLI (Codex, Claude Code, ...) runs only when the owner's own words name it or one of its models; then
+  the named-doer rule applies as written.
 - A loop is a do step with a repeat rule, for work FERB must keep doing or keep true while the request runs ("keep this
   tab playing", "every time a reply comes, answer it"): goal is what to keep true or repeat; repeat.end_when is the
   owner's own end condition, empty when their only end is their stop ("until I say stop", "keep it running"); an

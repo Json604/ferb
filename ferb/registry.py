@@ -174,6 +174,12 @@ def add_time(r: Registry, timers: Callable[[], Any], now: Callable[[], Any], sle
     r.add(TimeSleepUntil(timers, now, sleep, limit))
 
 
+def add_wait(r: Registry, deps: Any) -> None:
+    """ORCH-633: a worker's wait in code, with no model calls, until one of its conditions holds (ferb/clock/wait.py)."""
+    from ferb.clock.wait import WaitFor
+    r.add(WaitFor(deps))
+
+
 def add_shell(r: Registry, shells: ShellManager, protection: Any) -> None:
     """Task-owned shell processes, under FERB's sandbox; shell.rules lists its boundaries."""
     r.add(ShellRun(shells))

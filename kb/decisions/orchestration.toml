@@ -1677,3 +1677,58 @@ rule = "Refines ORCH-330 for two fields (owner approved fewer empty fields, same
 why = "2026-11-12: 122 recorded Codex planner answers re-encoded: 46 fewer tokens on average (13.5%), a reply's text starts after 23 tokens, not 58. Real Codex, 11 prompts twice per form: every moved field used right in both; replies 67 -> 32 tokens, tasks 7.4-8.4 s vs 8.6-14 s."
 rejected = ["Move `text` first so the reply streams at once: the draft could no longer know a reply carries no action before showing it, which keeps actions and receipts final-only (reply_stream, GATE-581)", "Make side entries optional: OpenAI's and Codex's strict form requires every property", "Group plan steps' rarely used fields too: plans are in 1 answer in 8; a measured follow-up"]
 paths = ["ferb/orchestrator/schemas.py::SIDE_ENTRIES_SCHEMA", "ferb/orchestrator/schemas.py::SUPERVISOR_SCHEMA", "ferb/orchestrator/schemas.py::CONDITION_SCHEMA", "ferb/orchestrator/schemas.py::ungrouped", "ferb/orchestrator/schemas.py::grouped", "ferb/orchestrator/schemas.py::Condition", "ferb/orchestrator/schemas.py::SupervisorOutcome", "ferb/orchestrator/reply_stream.py::ReplyDraft._eligible"]
+
+[ORCH-631]
+title = "Workers wait in code with a general wait tool, not with AI calls"
+by = "owner"
+date = 2026-11-12
+status = "active"
+words = "i think we need to have our own tools for watch tmimers, notifiers, wwakeups, scriptwriting etcetc. so that we levearege smart codebased computer techniqiexs and not waste AI calls too. wortha  discussiona dnthen build coverign edgce cases adn safety / eys lets have all, adn any other useful ones. lets not restrict to certain caess, lets just mkae tools the ai can use. and set an adequetate time lmits, maybe workers/planner can set them too, they are good in this anyways"
+words_source = "Owner 2026-11-12, two messages relayed by the coordinator: after task f68317e9 polled shell.wait 38 times, and answering which kinds, a default limit and watcher scripts."
+rule = "Workers have one tool, wait.for, that sleeps the worker in code until any one of its conditions holds or its time limit passes, then returns once with which fired and what code saw. Conditions are structural facts: a task's command exits or prints a text; a file appears, goes or stops changing; a task tab's text or address holds a text or changes; a mailbox tab shows a new line naming a sender or subject; a task tab downloads a file; a time; a check script run as shell.run runs it (exit 0). Every wait has a time limit the worker may set. Nothing is acted on while waiting."
+why = "Live 2026-11-12 16:06-16:26 (task f68317e9): a worker called shell.wait 38 times at 30 s on a long `codex exec`, about 40 model calls only to watch."
+rejected = ["One tool per kind (watch, notify, wake): more tools for the model to choose between, one loop in code serves all", "Only a process condition: the owner asked not to restrict it to certain cases"]
+paths = ["ferb/clock/wait.py::WaitFor", "ferb/clock/wait.py::Condition", "ferb/registry.py::add_wait", "ferb/daemon/areas/desktop.py::Desktop._build_mac_and_shell"]
+live = ["LIVE-927", "LIVE-928"]
+
+[ORCH-632]
+title = "wait.for's default time limit, intervals and how much a wake carries"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "For ORCH-631. A wait's limit is 30 minutes (DEFAULT_LIMIT_MIN) unless the worker sets limit_minutes, shorter or longer, up to the task's own limit (as time.sleep_until); past it is refused, the default is cut to it. A page or mailbox tab is read at most every 30 s (PAGE_FLOOR_S, ORCH-506; 60 s default); a script at most every 5 s (30 s default), each run stopped after 60 s; files, addresses and downloads every 2 s; a command's exit wakes at once. Three failed page reads, or a script exiting 126/127 on its first run, end the wait."
+why = "The owner left the limit to FERB and the workers. 30 minutes covers a typical build, download or agent run with one wake; the worker sets more when the work needs it. ORCH-506's floor keeps a site's pages from being hammered."
+paths = ["ferb/clock/wait.py::DEFAULT_LIMIT_MIN", "ferb/clock/wait.py::PAGE_FLOOR_S", "ferb/clock/wait.py::SCRIPT_FLOOR_S", "ferb/clock/wait.py::SCRIPT_RUN_S", "ferb/clock/wait.py::WaitFor._prepare"]
+
+[ORCH-633]
+title = "How wait.for waits: its live line, a correction, stop and restart"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "For ORCH-631. A wait with a script is a run_shell call for the gateway (as shell.run); else a read. Watched files go through the protection lists as fs reads. While waiting the worker isn't stalled and the task's line, preview and planner row show code's line (\"Waiting for `<command>` to finish (up to HH:MM)\"). A correction wakes it; stop or pause cancel it; a script's finished runs are retired. A restart journals wait.ended and the step's next run is told. A wake returns {woke, after_s, evidence}: the condition's kind, correction or time_limit."
+why = "The worker must get one result per wake and the owner must see what it waits for (presentation, ORCH-598/628); a correction mustn't wait behind a 30-minute call."
+paths = ["ferb/clock/wait.py::WaitFor.run", "ferb/clock/wait.py::WaitFor._line", "ferb/clock/wait.py::WaitFor.describe", "ferb/clock/wait.py::WaitFor.file_paths", "ferb/act/shell/manager.py::ShellManager.release", "ferb/orchestrator/supervisor.py::Supervisor.task_sleeping", "ferb/orchestrator/supervisor.py::Supervisor.corrections", "ferb/orchestrator/supervisor.py::Supervisor._wait_cut", "ferb/orchestrator/supervisor.py::sleeping_line", "ferb/daemon/areas/schedules.py::Schedules._wait_status", "ferb/daemon/areas/schedules.py::Schedules._wait_ended", "ferb/orchestrator/progress.py::command_said"]
+live = ["LIVE-927", "LIVE-928"]
+
+[ORCH-634]
+title = "\"Another agent\" means another FERB worker"
+by = "owner"
+date = 2026-11-12
+status = "active"
+words = "here it tookn another agent line too literally, i jsut meant its another wroker. when i want it to use calsuecode or codex, i'll say to it to do that / i'll tell it, its just that it shodlbnt fire an codex/claduecode coding agent when i say agent. for them specifially i can either say them by hteir naem or hteir models, can be anythgin"
+words_source = "Owner 2026-11-12, two messages relayed by the coordinator about task f68317e9, where a worker started `codex exec` itself because the request said to use another agent."
+rule = "\"Another agent\", \"a separate agent\" or \"in parallel\" in the owner's words means another FERB worker, never a coding agent's program. A coding agent's CLI (Codex, Claude Code, ...) is started only when the owner's own words name it or one of its models; then PRM-322 applies as written."
+why = "Task f68317e9 started `codex exec` through shell.start: the nested CLI used the owner's ~/.codex and its actions bypassed FERB's gateway (no questions, no redaction of what it sent to its provider)."
+paths = ["ferb/act/shell/agents.py::AgentCheck", "ferb/orchestrator/prompts/supervisor.md", "ferb/orchestrator/prompts/worker.md"]
+live = ["LIVE-929", "LIVE-930"]
+
+[ORCH-635]
+title = "A command that starts a coding agent's CLI the owner didn't name is refused"
+by = "agent"
+date = 2026-11-12
+status = "active"
+rule = "For ORCH-634. Before FERB's shell starts a command or types into one, code reads which programs it starts (simple commands past assignments and wrappers, sh -c text, npx/bunx/pnpm dlx/npm exec packages, a node_modules script). One on AGENT_CLIS is refused unless the task's owner words (request, corrections, answers) name it or one of its models (known_models; quoted, whole words); \"agent\" alone never does. Allowed, it runs on the owner's own setup (their login and settings) unless their words say otherwise. Residual: a name built at run time, a script file, a renamed copy."
+why = "Which program a command starts is a fact about it, as HAND-429's app programs are; the owner's words decide. The coordinator relayed the owner's direction that an allowed agent uses the owner's own setup by default."
+rejected = ["A kernel rule denying the CLIs' executables: needs each install's paths and a per-task profile; the text check covers the observed failure and its refusal tells the worker what to do"]
+paths = ["ferb/act/shell/agents.py::AGENT_CLIS", "ferb/act/shell/agents.py::started", "ferb/act/shell/agents.py::model_phrases", "ferb/act/shell/agents.py::AgentCheck", "ferb/act/shell/manager.py::ShellManager.start", "ferb/act/shell/manager.py::ShellManager.send", "ferb/act/shell/sandbox.py::NESTED_SANDBOX", "ferb/daemon/areas/desktop.py::Desktop._task_owner_words", "ferb/daemon/areas/desktop.py::Desktop._agent_models"]
+live = ["LIVE-929", "LIVE-930"]

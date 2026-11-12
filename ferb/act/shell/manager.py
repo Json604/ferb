@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from ferb.act.shell.agents import AgentCheck
 from ferb.act.shell.listeners import contained
 from ferb.act.shell.local import DirectReports, report_tag
 from ferb.act.shell.proxy import EgressProxy
@@ -117,6 +118,9 @@ class ShellManager:
         self._stopped: dict[str, str] = {}       # process -> why FERB stopped it
         self._watcher: asyncio.Task[None] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        # ORCH-635 (daemon supplied): a command, or text typed into one, that starts a coding agent's CLI the task's
+        # owner words don't name is refused before it runs (agents.py); None in unit tests of the plumbing
+        self.agents: AgentCheck | None = None
         if proxy is not None:
             proxy.on_report = self._report
 
@@ -131,6 +135,8 @@ class ShellManager:
                     folders: tuple[str, ...] = ()) -> ProcHandle:
         """Run the command text through /bin/sh, under the sandbox profile (with `lift`'s one rule lifted, and the
         task's `folders` the only visible folders it may change)."""
+        if self.agents is not None and (why := self.agents.refusal(command, owner_task)) is not None:
+            raise Refused(why)
         pid = "p-" + secrets.token_hex(4)
         direct: tuple[LocalPort, ...] = ()
         if escape is not None:
@@ -245,6 +251,8 @@ class ShellManager:
         if h.id in self._owner_input:
             raise Refused('You have taken over this process. Worker input is paused until you detach.')
         p = self._get(h)
+        if self.agents is not None and (why := self.agents.refusal(data, h.owner_task)) is not None:
+            raise Refused(why)                    # ORCH-635: typed into a shell it starts the same program
         lifted = self._procs[h.id][1].lifted
         if lifted is not None:
             raise Refused(f"This command runs with the owner's one-time lift of {lifted}; FERB doesn't type into it, "
@@ -379,6 +387,16 @@ class ShellManager:
                 await p.kill(self._ours(pid))
         self._settle(lambda info: info.owner_task == task_id)
         return n
+
+    async def release(self, h: ProcHandle) -> None:
+        """A finished command whose record its task no longer needs (wait.for's check script, run again and again): its
+        group is ended as its task's end would end it (children it left), then it is retired (its network record still
+        goes out). A command still running, or another task's, is left alone."""
+        hit = self._procs.get(h.id)
+        if hit is None or hit[1].owner_task != h.owner_task or hit[0].exit_code is None or hit[1].long_lived:
+            return
+        await hit[0].kill(self._ours(h.id))
+        self._retire(h.id)
 
     async def stop_running(self, owned: Callable[[str], bool]) -> int:
         """A task paused (ORCH-312): the still-running commands of the tasks `owned` names stop, their

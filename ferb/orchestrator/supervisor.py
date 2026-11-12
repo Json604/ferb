@@ -218,7 +218,10 @@ WAIT_REASON_CHARS = 160                 # ORCH-598: a sleeping worker's reason i
 
 
 def sleeping_line(asleep: dict[str, str]) -> str:
-    """ORCH-598: a sleeping task's status line: the time it wakes, then the worker's reason quoted as its own words."""
+    """ORCH-598: a sleeping task's status line: the time it wakes, then the worker's reason quoted as its own words; a
+    wait.for's own line, built by code (ORCH-633), when it has one."""
+    if asleep.get("line"):
+        return asleep["line"]
     return f"waiting until {asleep['until']}" + (f": “{asleep['reason']}”" if asleep.get("reason") else "")
 # ORCH-595: the hidden inputs (a code, a secret, the Mac's password): a card names its kind, never a value
 SECRET_CARDS = frozenset({"owner_login_code", "owner_admin_password", "owner_secret"})
@@ -2083,7 +2086,9 @@ class Supervisor(WorkerRuns):
                 row["last_tool_step"] = step_at
             # ORCH-598: asleep in time.sleep_until (until when; the worker's reason, model-written), or a plan wait or
             # a loop resting between rounds, as its preview says it
-            if (asleep := self._sleeping.get(key)) is not None:
+            if (asleep := self._sleeping.get(key)) is not None and asleep.get("line"):
+                row["waiting"] = asleep["line"]                  # ORCH-633: wait.for's line, code's words
+            elif asleep is not None:
                 row["waiting"] = {"until": asleep["until"], "reason (the worker's words, model-written)":
                                   asleep["reason"]}
             elif (status := self.preview_status(key, "")) is not None and status[0] == "waiting":
@@ -4699,11 +4704,13 @@ class Supervisor(WorkerRuns):
         tree = self._tree_of.get(tree_id)
         return self._card_payload(tree) if getattr(tree, "card", None) is not None else None
 
-    def task_sleeping(self, task_id: str, until: datetime | None, why: str) -> None:
+    def task_sleeping(self, task_id: str, until: datetime | None, why: str, line: str = "") -> None:
         """ORCH-598: a worker of this task went to sleep (time.sleep_until) until `until`, for `why` (its call's
         reason, model-written), or woke (`until` None). The task's live line says "waiting until HH:MM: “why”" for the
         whole sleep and "working" when it wakes (one line each, never a chat message); its preview and the planner's
-        task state read the same record. The reason is one line, printable, clipped and redacted, quoted as the task's."""
+        task state read the same record. The reason is one line, printable, clipped and redacted, quoted as the task's.
+        ORCH-633: a wait.for gives its own `line` (code's words: "Waiting for `codex exec …` to finish (up to 16:40)"),
+        shown in place of that line."""
         root = self.tasks.tree_of(task_id) or task_id.split(".", 1)[0]
         if self._tree_of.get(root) is None:
             return
@@ -4714,7 +4721,8 @@ class Supervisor(WorkerRuns):
         else:
             reason = shorten(printable(why), WAIT_REASON_CHARS)
             self._sleeping[root] = self.gateway.redact({"until": f"{until.astimezone():%H:%M}",
-                                                        "until_at": until.isoformat(), "reason": reason})
+                                                        "until_at": until.isoformat(), "reason": reason}
+                                                       | ({"line": printable(line)} if line else {}))
             text = sleeping_line(self._sleeping[root])
         self._progress_line(root, task_id, self.gateway.redact(text))
 
@@ -5496,6 +5504,26 @@ class Supervisor(WorkerRuns):
         """A loop's task between its rounds (L31): the owner's tab it holds is theirs again for downloads and new tabs
         (owner, 2026-10-25: "give them back between rounds"); during a round, its check included, it is FERB's."""
         return task_id in self._resting
+
+    def _wait_cut(self, tree_id: str) -> str | None:
+        """ORCH-633: the latest wait.for of this tree that FERB's restart ended before it woke (`wait.ended`, journaled
+        by the daemon), as a plain fact for the step's next run; None when there is none."""
+        try:
+            rows = self.journal.of_kind("wait.ended", "tree", tree_id)
+        except Exception:
+            return None
+        if not rows:
+            return None
+        data = rows[-1].data
+        return (f"FERB restarted at {rows[-1].at.astimezone():%H:%M} while this task was waiting (wait.for): "
+                f"{printable(str(data.get('line') or 'a wait'))}. That wait ended without waking: look at what it "
+                "waited for again, or wait again.")
+
+    def corrections(self, task_id: str) -> int:
+        """How many corrections the owner has steered into this task's tree so far (wait.for wakes on a new one)."""
+        root = self.tasks.tree_of(task_id) or task_id.split(".", 1)[0]
+        tree = self._tree_of.get(root)
+        return len(tree.steering.messages) if tree is not None else 0
 
     def wake_loops(self, tree_id: str) -> None:
         """A steer, a plan event or a stop for this tree: its loops look now (L31)."""
@@ -6728,6 +6756,8 @@ class Supervisor(WorkerRuns):
         if uncertain:
             parts.append(ContextBlock("Uncertain prior actions; inspect before deciding whether to retry (data): " +
                          wrap_untrusted(json.dumps(uncertain)), "task.evidence", protected=True))
+        if (cut := self._wait_cut(tree.id)) is not None:            # ORCH-633: a wait a restart ended
+            parts.append(ContextBlock(cut, "task.evidence", protected=True))
         if spec.success_conditions:
             parts.append(ContextBlock("Success conditions:\n" + "\n".join(f"- {c.text}" for c in spec.success_conditions),
                                       "task specification", protected=True))

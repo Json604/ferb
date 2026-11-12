@@ -39,6 +39,7 @@ TOOLS: dict[str, tuple[str, str]] = {
     "shell.start": ("starting a command", "starting a command"),
     "shell.wait": ("waiting for a command", "waiting for a command"),
     "time.sleep_until": ("waiting", "waiting"),
+    "wait.for": ("waiting", "waiting"),          # its own line follows at once (wait.py, Supervisor.task_sleeping)
     "owner.ask": ("asking you", "asking you"),
 }
 
@@ -84,11 +85,18 @@ def waiting_for(tool: str, command: str, minutes: int) -> str:
     """ORCH-628: the line of a call that waits on or reads one of the task's commands: the command's first line,
     printable, cut at a word, in backticks as the task's own words, and how long it has run ("waiting for `codex exec
     -s danger-full-access …` (14 min)"). The caller redacts it as every live line."""
+    said = command_said(command)
+    said = f"{WAITS_ON_COMMAND[tool]} {said}" if said else f"{WAITS_ON_COMMAND[tool]} a command"
+    return said + (f" ({minutes} min)" if minutes >= 1 else "")
+
+
+def command_said(command: str) -> str:
+    """A command as a live line quotes it (ORCH-628): its first line, printable, cut at a word to COMMAND_CHARS, in
+    backticks as the task's own words; "" when it has none."""
     first = " ".join(printable(next((line for line in command.splitlines() if line.strip()), "")).split())
     if len(first) > COMMAND_CHARS:
         first = first[:COMMAND_CHARS - 1].rsplit(" ", 1)[0].rstrip() + " …"
-    said = f"{WAITS_ON_COMMAND[tool]} `{first.replace('`', '')}`" if first else f"{WAITS_ON_COMMAND[tool]} a command"
-    return said + (f" ({minutes} min)" if minutes >= 1 else "")
+    return f"`{first.replace('`', '')}`" if first else ""
 
 
 def app_name(args: Mapping[str, Any], site: str | None, installed: Iterable[tuple[str, str]],
