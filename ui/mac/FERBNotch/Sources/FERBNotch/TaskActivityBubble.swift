@@ -1,10 +1,16 @@
 import AppKit
 import SwiftUI
 
+/// The running tasks by "N active tasks" (APP-899, owner 2026-11-12: "for the desing you proposed, lets do A"): at most
+/// two round live pictures whose ring is the task's status (TaskRing), then a "+N" chip that opens the others as a plain
+/// list. A click on a picture shows its short view (the larger picture, its line, Detach activity).
 struct TaskActivityBubble: View {
     @ObservedObject var model: NotchModel
     @State private var hoveredTaskID: String?
-    @State private var ringOpen = false
+    @State private var listOpen = false
+
+    /// The round picture's size, its ring included.
+    static let size: CGFloat = 32
 
     /// APP-891: a preview is shown once: a task whose card rows show their live pictures on screen now has no picture
     /// here (the work row's count and time still count it).
@@ -13,43 +19,46 @@ struct TaskActivityBubble: View {
     }
     private var featured: [TaskItem] { Array(activeTasks.prefix(2)) }
     private var remaining: [TaskItem] { Array(activeTasks.dropFirst(2)) }
+    /// Live only while someone can see it (APP-403, APP-407): the notch open and not stepped aside.
+    private var live: Bool { model.expanded && !model.isYielded }
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             ForEach(featured) { item in
                 taskButton(item)
                     .onHover { inside in if inside { hoveredTaskID = item.id } }
             }
             if !remaining.isEmpty {
                 Button {
-                    withAnimation(.easeOut(duration: 0.16)) { ringOpen.toggle() }
+                    withAnimation(.easeOut(duration: 0.16)) { listOpen.toggle() }
                 } label: {
-                    Text("+")
-                        .font(.system(size: 9, weight: .semibold).monospacedDigit())
-                        .frame(width: 27, height: 27)
-                        .background(.white.opacity(0.10), in: Circle())
-                        .overlay(Circle().stroke(.white.opacity(0.16), lineWidth: 1))
+                    Text("+\(remaining.count)")
+                        .font(.system(size: 12, weight: .medium).monospacedDigit())
+                        .padding(.horizontal, 9)
+                        .frame(minWidth: Self.size, minHeight: Self.size)
+                        .background(.white.opacity(listOpen ? 0.16 : 0.08), in: Capsule())
+                        .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .help("Show other running tasks")
-                .popover(isPresented: $ringOpen, arrowEdge: .bottom) {
-                    taskRing.padding(12)
-                        .background(TaskPreviewWindow(model: model, hidesFromCapture: true))
+                .help("Show the other running tasks")
+                .accessibilityLabel("\(remaining.count) more running \(remaining.count == 1 ? "task" : "tasks")")
+                .popover(isPresented: $listOpen, arrowEdge: .bottom) {
+                    otherTasks
+                        .background(TaskPreviewWindow(model: model, hidesFromCapture: true))   // APP-406
                 }
-                .zIndex(ringOpen ? 2 : 0)
             }
         }
         .onChange(of: activeTasks.map(\.id)) { _, ids in
             model.discardFinishedPreviews()
             if let hoveredTaskID, !ids.contains(hoveredTaskID) { self.hoveredTaskID = nil }
-            if remaining.isEmpty { ringOpen = false }
+            if remaining.isEmpty { listOpen = false }
         }
         .onChange(of: model.previewDismissalRevision) { _, _ in
             hoveredTaskID = nil
-            ringOpen = false
+            listOpen = false
         }
         .onChange(of: model.expanded) { _, expanded in
-            if !expanded { hoveredTaskID = nil; ringOpen = false }
+            if !expanded { hoveredTaskID = nil; listOpen = false }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Task activity")
@@ -57,14 +66,12 @@ struct TaskActivityBubble: View {
 
     private func taskButton(_ item: TaskItem) -> some View {
         Button { hoveredTaskID = item.id } label: {
-            // Live while visible (APP-403): not while the notch is closed or stepped aside for another window.
-            TaskVideoView(preview: model.preview(for: item), compact: true, active: model.expanded && !model.isYielded)
-                .frame(width: 27, height: 27)
+            TaskVideoView(preview: model.preview(for: item), compact: true, active: live, spinsWhileEmpty: false)
+                .frame(width: Self.size - 2 * TaskRing.gap, height: Self.size - 2 * TaskRing.gap)
                 .clipShape(Circle())
-                .overlay(Circle().stroke(Palette.amber.opacity(0.65), lineWidth: 1))
-                .overlay(alignment: .bottomTrailing) {
-                    Circle().fill(Palette.amber).frame(width: 6, height: 6).offset(x: 1, y: 1)
-                }
+                .frame(width: Self.size, height: Self.size)
+                .overlay(TaskRing(waiting: TaskRing.waits(item), moving: live))
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .popover(isPresented: Binding(get: { hoveredTaskID == item.id },
@@ -73,31 +80,57 @@ struct TaskActivityBubble: View {
                 .background(TaskPreviewWindow(model: model, hidesFromCapture: true))
         }
         .help(item.title)
-        .accessibilityLabel("Activity for \(item.title)")
+        .accessibilityLabel(TaskRing.label(item))
     }
 
-    private var taskRing: some View {
-        let radius = max(CGFloat(48), CGFloat(remaining.count) * 12)
-        let diameter = radius * 2 + 44
-        return ZStack {
-            FerbGlass().clipShape(Circle()).overlay(Circle().stroke(.white.opacity(0.16), lineWidth: 1))
-                .frame(width: diameter, height: diameter)
-            Circle().stroke(.white.opacity(0.13), lineWidth: 1)
-                .frame(width: radius * 2 - 4, height: radius * 2 - 4)
-            ForEach(Array(remaining.enumerated()), id: \.element.id) { index, item in
-                let angle = Double(index) * 2 * Double.pi / Double(max(remaining.count, 1)) - Double.pi / 2
-                taskButton(item)
-                    .onHover { inside in hoveredTaskID = inside ? item.id : hoveredTaskID }
-                    .position(x: diameter / 2 + radius * CGFloat(cos(angle)),
-                              y: diameter / 2 + radius * CGFloat(sin(angle)))
+    /// The tasks past the first two, one plain row each: its picture, its name, what it does now (amber while it waits
+    /// for the owner) and its own window.
+    var otherTasks: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(remaining) { item in
+                let waiting = TaskRing.waits(item)
+                HStack(spacing: 10) {
+                    // APP-890: a click shows it larger, closed as every enlarged picture is (APP-889)
+                    EnlargeablePicture(model: model, label: "Live preview of " + item.title) {
+                        TaskVideoView(preview: model.preview(for: item), compact: true, active: live,
+                                      spinsWhileEmpty: false)
+                            .frame(width: 64, height: 40)
+                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                    } large: {
+                        TaskVideoView(preview: model.preview(for: item))
+                            .frame(width: EnlargedPreview.size.width, height: EnlargedPreview.size.height)
+                            .clipShape(RoundedRectangle(cornerRadius: 9))
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(item.title).font(.system(size: 12.5, weight: .medium)).lineLimit(1)
+                        Text(item.currentLine).font(.system(size: 11.5))
+                            .foregroundStyle(waiting ? Palette.amber : Palette.secondary).lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    detachButton(item)
+                }
+                .padding(6)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(TaskRing.label(item))
             }
-            Image(systemName: "plus")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Palette.secondary)
-                .position(x: diameter / 2, y: diameter / 2)
         }
-        .frame(width: diameter, height: diameter)
+        .padding(6)
+        .frame(width: 320, alignment: .leading)
+    }
 
+    private func detachButton(_ item: TaskItem) -> some View {
+        Button {
+            hoveredTaskID = nil
+            listOpen = false
+            model.onDetachTaskActivity?(item.id)
+        } label: {
+            Image(systemName: "arrow.up.forward.square")
+                .font(.system(size: 12)).frame(width: 23, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Open in its own window")
+        .accessibilityLabel("Open \(item.title) in its own window")
     }
 
     private func expandedBubble(for item: TaskItem) -> some View {
@@ -113,30 +146,71 @@ struct TaskActivityBubble: View {
                     .clipShape(RoundedRectangle(cornerRadius: 9))
             }
             HStack(alignment: .center, spacing: 9) {
-            ProgressView().controlSize(.small)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
-                Text(item.currentLine)
-                    .font(.system(size: 10)).foregroundStyle(Palette.secondary).lineLimit(1)
+                ProgressView().controlSize(.small)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                    Text(item.currentLine)
+                        .font(.system(size: 10))
+                        .foregroundStyle(TaskRing.waits(item) ? Palette.amber : Palette.secondary).lineLimit(1)
+                }
+                detachButton(item)
             }
-            Button {
-                hoveredTaskID = nil
-                ringOpen = false
-                model.onDetachTaskActivity?(item.id)
-            } label: {
-                Image(systemName: "arrow.up.forward.square")
-                    .font(.system(size: 12)).frame(width: 23, height: 24)
-            }
-            .buttonStyle(.plain)
-            .help("Detach activity")
-            .accessibilityLabel("Detach task activity")
-        }
         }
         .padding(.horizontal, 11).padding(.vertical, 8)
         .frame(width: 322, alignment: .leading)
         .ferbGlass(in: RoundedRectangle(cornerRadius: 13))
         .overlay(RoundedRectangle(cornerRadius: 13).stroke(.white.opacity(0.12), lineWidth: 1))
         .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+    }
+}
+
+/// The ring around a running task's round picture is its status (APP-899): working, a thin arc turning (a quarter of
+/// the circle bright, the rest faint); waiting for the owner (a question or a Yes open for it), solid amber, gently
+/// pulsing. With Reduce Motion, or while nobody sees it, neither moves: a still arc, a still amber ring.
+struct TaskRing: View {
+    let waiting: Bool
+    /// Whether it may move at all: the notch open and not stepped aside.
+    var moving = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The ring's width and the gap between it and the picture inside.
+    static let width: CGFloat = 2
+    static let gap: CGFloat = 3
+    /// One turn of the arc, one pulse of the amber, in seconds.
+    static let turn = 1.4
+    static let pulse = 1.6
+
+    /// A task waits for the owner while a question or a Yes of its own is open (`needs_user`, TaskItem).
+    static func waits(_ item: TaskItem) -> Bool { item.status == "needs_user" }
+
+    /// "Amazon order, waiting for you" / "Amazon order, working".
+    static func label(_ item: TaskItem) -> String {
+        item.title + (waits(item) ? ", waiting for you" : ", working")
+    }
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion || !moving)) { context in
+            let t = reduceMotion || !moving ? 0 : context.date.timeIntervalSinceReferenceDate
+            ring(at: t)
+        }
+        .padding(Self.width / 2)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder private func ring(at t: Double) -> some View {
+        if waiting {
+            // 1 → 0.45 → 1 every pulse, eased
+            let phase = (1 - cos(2 * Double.pi * t / Self.pulse)) / 2
+            Circle().stroke(Palette.amber, lineWidth: Self.width).opacity(1 - 0.55 * phase)
+        } else {
+            ZStack {
+                Circle().stroke(.white.opacity(0.12), lineWidth: Self.width)
+                Circle().trim(from: 0, to: 0.22)
+                    .stroke(.white.opacity(0.85), style: StrokeStyle(lineWidth: Self.width, lineCap: .round))
+                    .rotationEffect(.degrees(t.truncatingRemainder(dividingBy: Self.turn) / Self.turn * 360 - 90))
+            }
+        }
     }
 }
 

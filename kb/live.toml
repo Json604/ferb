@@ -4397,3 +4397,12 @@ request = "Start two tasks. In the notch, open the first task's round preview an
 pass = "Each task gets its own window, the second opening a little offset from the first, both live; detaching the first again only brings its window forward (no third window). The ✕ closes only that window; the other closes by itself when its task ends. Both open on the Space you are on, and neither shows in the recording."
 decisions = ["APP-898", "APP-406"]
 sitting = "after this change is installed"
+
+[LIVE-933]
+title = "The running tasks' rings: working turns, waiting is amber, extra tasks in a +N list"
+area = "app"
+surface = "FERB.app with this build, the notch chat; three or four tasks running at once, one reaching a question (e.g. a kartikey.xyz test checkout's Pay / Don't pay)"
+request = "Start four tasks. Look at the pictures by \"4 active tasks\" before any frame arrives and while they work; wait until one asks you. Click \"+2\", click a row's picture, then its open-in-window button. Turn on Reduce Motion (System Settings → Accessibility → Display) and look again. Read the row with VoiceOver."
+pass = "Two round pictures, a bit larger; before a frame each is a soft grey disc, not black. A working task's ring is a turning white arc with no amber; the asking task's ring is solid amber and gently pulses. \"+2\" opens a plain list (picture, name, current line, amber if it waits), not a circle; a picture there enlarges, the button opens its own window. With Reduce Motion nothing turns or pulses. VoiceOver says e.g. \"Amazon order, waiting for you\". No popover shows in a screen recording."
+decisions = ["APP-899"]
+sitting = "after this change is installed"

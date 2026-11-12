@@ -3547,3 +3547,15 @@ rule = "Refines APP-782 and APP-890. A running task's live preview opened in its
 why = "Owner 2026-11-12: \"i cant open multiple live preview extracted windows. i shdoul be able to of all the tasks running\". The coordinator held one window and closed it for another task's."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift::TaskActivityWindows"]
 live = ["LIVE-932"]
+
+[APP-899]
+title = "The running tasks' round pictures: the ring is the status, extra tasks as a +N list"
+by = "owner"
+date = 2026-11-12
+status = "active"
+words = "for the desing you proposed, lets do A"
+words_source = "Owner 2026-11-12, choosing A (\"The ring is the status\") of three mocked directions for the row of running tasks by \"N active tasks\"."
+rule = "Refines APP-403, APP-890 and APP-891. By \"N active tasks\" at most two running tasks show as round live pictures (32 pt) whose ring is the status: a thin arc turning while the task works; solid amber, gently pulsing, while it waits for the owner (a question or a Yes open for it). No amber outline or dot otherwise. No frame yet: a soft grey disc. Further tasks are a \"+N\" chip opening a plain list: picture (enlarges, APP-890), name, current line (amber while waiting), Open in its own window. Reduce Motion: still arc, still amber."
+why = "The amber ring and dot on every circle made a working task look like it was asking; the \"+\" read as a new task and opened a radial ring; 27 pt was too small to read and an empty preview was a black disc."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift::TaskActivityBubble", "ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift::TaskRing", "ui/mac/FERBNotch/Sources/FERBNotch/TaskPreview.swift::TaskVideoView"]
+live = ["LIVE-933"]
