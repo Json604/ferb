@@ -21,15 +21,22 @@
 //! the checker's runtime trouble and the findings round on a not-done reason; in [`turn`] the planner's last call and
 //! `_unbacked_parts`; in [`scheduled`] `mention_paused`; in [`steps`] `preview_status`.
 //!
-//! Not ported here (each answers [`crate::NotPorted`] by its Python name): plans that state a big job or standing
-//! sends and a revised standing scope in a correction, delegated conversations (and conversation changes), the
-//! image-refused rerun, the front window at send and `_by_window`, the start-of-task screenshot, `_browse_as`,
-//! inventory walks, the intro preview.
+//! Also: delegated conversations and their changes ([`conversations`]), a big job's plan statement and its standing
+//! scope, restated by a correction ([`standing`]), a task given to FERB browsing as the owner ([`browse`]), the intro's
+//! preview ([`preview`]), the attention check ([`attention`]); in [`turn`] the front window at send, `_by_window`,
+//! the image-refused rerun and the plan's inventory; in [`tree`] the start-of-task screenshot.
+//!
+//! Answering [`crate::NotPorted`] still: the memory and schedules side entries where the daemon gives no port (intended
+//! guards), and `Supervisor::preview` / `Supervisor::route_question`, kept with their earlier signatures (the ported
+//! paths are [`Supervisor::preview_events`] and `route_worker_question`).
 
 pub mod answer;
 pub mod attempt;
+pub mod attention;
+pub mod browse;
 pub mod card;
 pub mod chat;
+pub mod conversations;
 pub mod fold;
 pub mod host;
 pub mod loops;
@@ -41,6 +48,7 @@ pub mod turn;
 // check-in and service-down; restart recovery; scheduled runs
 pub mod control;
 pub mod owner_wait;
+pub mod preview;
 pub mod restart;
 pub mod results;
 pub mod scheduled;
@@ -50,6 +58,7 @@ pub mod chat_rpc;
 pub mod daemon_seams;
 pub mod schedules_chat;
 pub mod side;
+pub mod standing;
 pub mod steps;
 pub mod watch;
 
@@ -233,6 +242,35 @@ pub trait Daemon: Send + Sync {
     fn write_notes(&self, path: &str, text: &str) -> Result<(), String>;
     /// The front window captured at send (L12), once awaited.
     fn front_window<'a>(&'a self, request_id: &'a str) -> BoxFuture<'a, Option<FrontSeen>>;
+    /// The front window captured at send (L12), awaited (the planner waits at most FRONT_WINDOW_WAIT_S for it,
+    /// DMN-520): the window with its redacted screenshot, None when nothing was captured, Err(the exception's class)
+    /// when the capture failed. By default the earlier [`Daemon::front_window`]'s answer.
+    fn front_window_capture<'a>(
+        &'a self,
+        request_id: &'a str,
+    ) -> BoxFuture<'a, Result<Option<FrontCapture>, String>> {
+        Box::pin(async move {
+            Ok(self.front_window(request_id).await.map(|f| FrontCapture {
+                window: crate::planner::FrontWindow {
+                    facts: f.facts,
+                    image_ref: f
+                        .image
+                        .as_ref()
+                        .map(|i| i.reference.clone())
+                        .unwrap_or_default(),
+                    withheld: String::new(),
+                    masking: String::new(),
+                    origin: f.origin,
+                },
+                image: f.image,
+            }))
+        })
+    }
+    /// areas/chat.py:355: `chat.send` captures the owner's front window as each message arrives (`self.front_window
+    /// is not None`). False: no capture here (the planner never waits for one).
+    fn captures_at_send(&self) -> bool {
+        false
+    }
 
     // --- the runtime factory ---
     /// `make_runtime(role, mode=..., tool_names=..., schema=..., effort=...)`.
@@ -431,6 +469,57 @@ pub trait Daemon: Send + Sync {
     fn changes_reset(&self, _task_id: &str) -> Vec<String> {
         Vec::new()
     }
+
+    // --- the attention check (attention.rs, L10) ---
+    /// supervisor.py:3808 `_memory_blocks(message, focus)`: `ranked_memory_blocks(memory_candidates(message,
+    /// focus))`, each block with its origins. None: no memory port (`memory_candidates is None`).
+    fn memory_blocks<'a>(
+        &'a self,
+        _message: &'a str,
+        _focus: &'a str,
+    ) -> BoxFuture<'a, Option<Vec<crate::history::Sourced>>> {
+        Box::pin(async { None })
+    }
+
+    // --- the plan's inventory (turn.rs `problems`, ORCH-305, ORCH-625) ---
+    /// `roots.protection.fs_denied(path, 'read')`: FERB's protection lists keep this path from being read (a plan's
+    /// inputs are walked only where it may read). False: not protected (or no protection here).
+    fn read_denied(&self, _path: &str) -> bool {
+        false
+    }
+
+    // --- where a task FERB runs as itself browses (browse.rs, APP-777) ---
+    /// areas/browsers.py `_browsing(attended, request_id)`: `{}` (FERB has its own profile, or nothing to offer),
+    /// `{"as_owner": true, "label"}` (the owner's pick), `{"declined": true}`, `{"ask": approval id}` (FERB's one
+    /// question, asked now with the owner here) or `{"note"}` (nobody here: it goes on without a browser).
+    fn browsing(&self, _attended: bool, _request_id: &str) -> Map<String, Value> {
+        Map::new()
+    }
+
+    // --- a stated plan's standing scope (standing.rs) ---
+    /// The memory port's `typed_behind_memory(request_id)` (areas/schedules.py `_typed_behind_memory`): what the
+    /// owner typed behind each active owner-stated memory item, the current request's turn left out: the words a
+    /// stated scope's destinations may come from besides the request's own (final review I1). Empty: none here.
+    fn typed_behind_memory(&self, _request_id: &str) -> Vec<String> {
+        Vec::new()
+    }
+
+    // --- delegated conversations (conversations.rs) ---
+    /// `gateway.call(RunGrant(task_id, worker_id, scopes, identity, inf, observe_only=True), tool, args)`: a call
+    /// FERB itself makes for a task (a conversation turn's read of its thread, `conversation.read`), through the
+    /// gateway's whole pipeline: the reply `{content, is_error, ...}`; Err: the call raised (`"<class>: <words>"`).
+    #[allow(clippy::too_many_arguments)]
+    fn observe_call<'a>(
+        &'a self,
+        _task_id: &'a str,
+        _worker_id: &'a str,
+        _scopes: &'a BTreeSet<String>,
+        _identity: &'a str,
+        _tool: &'a str,
+        _args: &'a Map<String, Value>,
+    ) -> BoxFuture<'a, Result<Value, String>> {
+        Box::pin(async { Err("RuntimeError: no gateway calls here".to_string()) })
+    }
 }
 
 /// Where a subscribed bus event goes: (topic, data).
@@ -459,6 +548,57 @@ pub struct FrontSeen {
     pub facts: Map<String, Value>,
     pub image: Option<ModelImage>,
     pub origin: String,
+}
+
+/// A capture at send as the supervisor reads it: ferb/sense/front_window.py's `FrontWindow` (its facts, evidence row,
+/// why it has no screenshot, its masking note, its origin) and its redacted screenshot.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FrontCapture {
+    pub window: crate::planner::FrontWindow,
+    pub image: Option<ModelImage>,
+}
+
+/// `_screen_at_send`'s answer for one message (supervisor.py:2671): its front window (None: nothing was captured,
+/// `missing` says why when known), the screenshot given to the planner, and why it no longer is (`image_withheld`,
+/// the image-refused rerun). `said`: the messages a window was sent with, when several were read together
+/// (`_by_window`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Seen {
+    pub front: Option<crate::planner::FrontWindow>,
+    pub image: Option<ModelImage>,
+    pub missing: Option<String>,
+    pub withheld: Option<String>,
+    pub said: Vec<String>,
+}
+
+impl Seen {
+    /// `_window_of`: what makes two captures the same window (its app, title and page; a missing capture: why).
+    pub fn window_key(&self) -> Vec<String> {
+        match &self.front {
+            None => vec!["missing".into(), self.missing.clone().unwrap_or_default()],
+            Some(f) => {
+                let fact = |k: &str| match f.facts.get(k) {
+                    None | Some(Value::Null) => String::new(),
+                    Some(v) => ferb_py::value::py_str(v),
+                };
+                vec![
+                    fact("bundle_id"),
+                    fact("app"),
+                    fact("window_title"),
+                    fact("url"),
+                ]
+            }
+        }
+    }
+
+    /// The capture as the earlier seam carried it.
+    pub fn front_seen(&self) -> Option<FrontSeen> {
+        self.front.as_ref().map(|f| FrontSeen {
+            facts: f.facts.clone(),
+            image: self.image.clone(),
+            origin: f.origin.clone(),
+        })
+    }
 }
 
 /// tree.py / state.py `Request`: what the gateway knows of a request.
@@ -517,6 +657,10 @@ pub struct Turn {
     pub message_origin: BTreeSet<String>,
     pub environment: Environment,
     pub screen: Option<FrontSeen>,
+    /// `turn.screen`: the lead's (the last captured) message's capture at send, a missing one included.
+    pub seen: Option<Seen>,
+    /// `turn.screens`: with several messages read together, each window once (`_by_window`).
+    pub screens: Vec<Seen>,
     pub turn_origins: BTreeSet<String>,
     /// (labels, text, values) it saw (GATE-519).
     pub shown: Vec<(BTreeSet<String>, String, Option<Value>)>,
@@ -650,6 +794,13 @@ pub struct TreeState {
     pub calls_since: i64,
     /// A loop round that only looked (`_look_only`): why its model check was skipped (L31).
     pub unchecked: String,
+    /// A correction's goal for the tree's own worker (steering.py: `tree.worker.goal = tree.spec.goal`): the Rust
+    /// `Task` is fixed, so the corrected goal rides here and [`Tree::worker_task`] reads it.
+    pub worker_goal: Option<String>,
+    /// A correction's conditions for the tree's own worker (`tree.worker.success_conditions`).
+    pub worker_conditions: Option<Vec<String>>,
+    /// APP-777: the task browses as the owner (`tree.as_owner`): its worker's identity is the owner's.
+    pub as_owner: bool,
 }
 
 /// A tree (or a plan step's member tree): its ids, its state and the corrections it shares with its root.
@@ -670,6 +821,23 @@ impl Tree {
 
     pub fn spec(&self) -> TaskSpec {
         self.lock().spec.clone().expect("a tree's spec")
+    }
+
+    /// The tree's worker as Python's mutable `tree.worker` reads now: its goal and conditions after a correction
+    /// (steering.py), its identity the owner's once the task browses as the owner (`_browse_as`).
+    pub fn worker_task(&self) -> Task {
+        let mut task = self.worker.clone();
+        let st = self.lock();
+        if let Some(goal) = &st.worker_goal {
+            task.goal = goal.clone();
+        }
+        if let Some(conditions) = &st.worker_conditions {
+            task.success_conditions = conditions.clone();
+        }
+        if st.as_owner {
+            task.identity = ferb_core::types::Identity::Owner;
+        }
+        task
     }
 }
 
@@ -735,12 +903,16 @@ pub struct Inner {
     pub(crate) jobs: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     /// L34 Phase G (`hold_new_work`): false while an update holds new work.
     pub(crate) work_open: tokio::sync::watch::Sender<bool>,
+    /// `self.conversations`: the delegated conversations' one store (conversations.rs).
+    pub(crate) conversations: ferb_orchestrator::conversations::ConversationStoreShared,
 }
 
 impl Supervisor {
     pub fn new(deps: Deps) -> Supervisor {
         let clock = deps.clock.clone();
+        let conversations = conversations::store_of(&deps);
         let inner = Arc::new_cyclic(|me| Inner {
+            conversations,
             activity: Arc::new(ferb_orchestrator::guards::Activity::new(move || {
                 clock.monotonic()
             })),
@@ -775,7 +947,8 @@ impl Supervisor {
         &self.inner
     }
 
-    /// supervisor.py:2422 `preview`: the intro's plan-only turn (ORCH-500).
+    /// supervisor.py:2422 `preview`: kept for its earlier callers (its signature carries no request); the intro's
+    /// plan-only turn is [`Supervisor::preview_events`] (preview.rs).
     pub fn preview(&self) -> Result<(), NotPorted> {
         Err(NotPorted("Supervisor.preview"))
     }

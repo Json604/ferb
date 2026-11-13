@@ -201,6 +201,32 @@ fn the_chat_methods_on_the_real_server() {
             ));
         }
     }
+    // ENG-6: `conversations.change` on a conversation that doesn't exist raised ValueError inside
+    // `change_conversation`, an internal error on the wire in Python (-32603 "ValueError"); refused in its words here
+    {
+        let st = UnixStream::connect(&socket).unwrap();
+        let mut w = st.try_clone().unwrap();
+        let mut r = BufReader::new(st);
+        let mut line = String::new();
+        w.write_all(
+            b"{\"jsonrpc\": \"2.0\", \"id\": 0, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}\n",
+        )
+        .unwrap();
+        r.read_line(&mut line).unwrap();
+        line.clear();
+        w.write_all(
+            b"{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"conversations.change\", \"params\": {\"id\": \"t9:chat\", \"action\": \"pause\", \"owner_words\": \"pause it\"}}\n",
+        )
+        .unwrap();
+        r.read_line(&mut line).unwrap();
+        let want = "{\"jsonrpc\": \"2.0\", \"id\": 1, \"error\": {\"code\": -32004, \"message\": \"No such delegated conversation\"}}";
+        if line.trim_end() != want {
+            differ.push(format!(
+                "conversations.change (unknown id)\n    want: {want}\n    rust: {}",
+                line.trim_end()
+            ));
+        }
+    }
     drop(conns);
     rt.block_on(server.close());
     eprintln!("{} lines through the real server", LINES.len());

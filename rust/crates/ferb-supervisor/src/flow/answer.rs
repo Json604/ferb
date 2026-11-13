@@ -419,7 +419,7 @@ impl Inner {
             parent_id: Some(task_id.to_string()),
             goal: "resolve worker question".into(),
             device_id: self.deps.device_id.clone(),
-            identity: tree.worker.identity,
+            identity: tree.worker_task().identity,
             scopes: BTreeSet::new(),
             role: ferb_core::types::TaskRole::Mixed,
             request_id: tree.worker.request_id.clone(),

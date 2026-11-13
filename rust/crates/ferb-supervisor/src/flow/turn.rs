@@ -73,8 +73,8 @@ pub struct Arrival {
     pub entry: Option<Entry>,
     pub marked: Option<Marked>,
     pub paths: Vec<String>,
-    /// Its front window, once awaited: None while not awaited, Some(None) when none was taken.
-    pub seen: Option<Option<super::FrontSeen>>,
+    /// Its capture at send, once awaited (`_screen_at_send`); None while not awaited.
+    pub seen: Option<super::Seen>,
     pub screen: bool,
 }
 
@@ -107,13 +107,13 @@ struct Decided {
 
 /// supervisor.py:437 `_Side`: what `_side_entries` did.
 #[derive(Default)]
-struct Side {
-    events: Vec<Value>,
-    lines: Vec<String>,
+pub(crate) struct Side {
+    pub(crate) events: Vec<Value>,
+    pub(crate) lines: Vec<String>,
     /// The places in `lines` of lines FERB wrote whole (see [`own_tagged`]).
-    own: Vec<usize>,
-    refused: Vec<(String, String)>,
-    cards: Vec<Value>,
+    pub(crate) own: Vec<usize>,
+    pub(crate) refused: Vec<(String, String)>,
+    pub(crate) cards: Vec<Value>,
 }
 
 /// Code's lines under a reply as the owner reads them: a line that reads like FERB's own check is marked as the
@@ -123,7 +123,7 @@ struct Side {
 ///
 /// Fixed against Python (GATE-581's kind): supervisor.py `_exit` tagged every code line, so the forget question said
 /// "(from the task) FERB deletes:", marking FERB's own words as the task's.
-fn own_tagged(redacted: &str, lines: &[String], own: &[usize]) -> String {
+pub(crate) fn own_tagged(redacted: &str, lines: &[String], own: &[usize]) -> String {
     let shown: Vec<&str> = redacted.split('\n').collect();
     let counts: Vec<usize> = lines.iter().map(|l| l.split('\n').count()).collect();
     if counts.iter().sum::<usize>() != shown.len() {
@@ -643,11 +643,12 @@ impl Inner {
             .map(|a| a.request_id.clone())
             .collect();
         if !waiting.is_empty() {
-            for rid in &waiting {
-                let seen = tokio::select! {
-                    s = self.deps.daemon.front_window(rid) => s,
-                    _ = cancel.wait() => return Err(Failure::Cancelled),
-                };
+            // each message's own capture, waited for together (DMN-520)
+            let seens = tokio::select! {
+                s = futures_util::future::join_all(waiting.iter().map(|rid| self.screen_at_send(rid))) => s,
+                _ = cancel.wait() => return Err(Failure::Cancelled),
+            };
+            for (rid, seen) in waiting.iter().zip(seens) {
                 if let Some(line) = self.live().lines.get_mut(session_id) {
                     if let Some(a) = line.arrivals.get_mut(rid) {
                         a.seen = Some(seen);
@@ -656,17 +657,22 @@ impl Inner {
             }
             prep.mark(self, "front_window");
         }
-        let captured: Vec<super::FrontSeen> = {
+        // (each arrival with its capture, in the order the messages came)
+        let captured: Vec<(Arrival, super::Seen)> = {
             let live = self.live();
             let line = &live.lines[session_id];
             arrivals
                 .iter()
-                .filter_map(|r| line.arrivals.get(r).and_then(|a| a.seen.clone()).flatten())
+                .filter_map(|r| line.arrivals.get(r))
+                .filter_map(|a| a.seen.clone().map(|s| (a.clone(), s)))
                 .collect()
         };
-        if captured.len() > 1 {
-            return Err(NotPorted("Supervisor._by_window").into());
-        }
+        let screens = if captured.len() > 1 {
+            by_window(&captured)
+        } else {
+            Vec::new()
+        };
+        let seen = captured.last().map(|(_, s)| s.clone());
         let turn = Turn {
             request_id: lead.to_string(),
             session: session_id.to_string(),
@@ -694,7 +700,9 @@ impl Inner {
             attached: text.attached,
             message_origin: made,
             environment,
-            screen: captured.last().cloned(),
+            screen: seen.as_ref().and_then(super::Seen::front_seen),
+            seen,
+            screens,
             ..Turn::default()
         };
         Ok(Arc::new(Mutex::new(turn)))
@@ -923,7 +931,7 @@ impl Inner {
             }
         };
         self.join_question(turn, &out);
-        let mut problems = self.problems(turn, &mut out)?;
+        let mut problems = self.problems(turn, &mut out, Some(emit))?;
         problems.extend(self.side_quote_problems(turn, &out).await?);
         if problems.is_empty() {
             return Ok(out);
@@ -943,7 +951,7 @@ impl Inner {
             .await
             .map_err(Repairable::failure)?;
         self.join_question(turn, &out);
-        let remaining = self.problems(turn, &mut out)?;
+        let remaining = self.problems(turn, &mut out, Some(emit))?;
         if !remaining.is_empty() {
             self.journal(
                 "chat.failed",
@@ -955,11 +963,13 @@ impl Inner {
         Ok(out)
     }
 
-    /// supervisor.py:1545 `_problems`: what code finds wrong with the planner's choice.
+    /// supervisor.py:1545 `_problems`: what code finds wrong with the planner's choice. `say`: the turn's live line
+    /// (`_turn_line`) while the plan's inputs are walked.
     fn problems(
         &self,
         turn: &Arc<Mutex<Turn>>,
         candidate: &mut SupervisorOutcome,
+        say: Option<&Emit>,
     ) -> Flow<Vec<String>> {
         let mut problems = Vec::new();
         let session = turn.lock().unwrap().session.clone();
@@ -1059,9 +1069,70 @@ impl Inner {
                     .map(|p| self.normalize(p)),
             );
             plan.input_paths = paths.clone();
-            let walk = ferb_orchestrator::plans::walked(plan, &paths, &|p| self.normalize(p));
-            if !walk.is_empty() {
-                return Err(NotPorted("Supervisor._problems (the plan's inventory)").into());
+            let normal = |p: &str| self.normalize(p);
+            // ORCH-625: only what the input checks need is walked; a plan whose steps list no inputs walks nothing
+            let walk = ferb_orchestrator::plans::walked(plan, &paths, &normal);
+            let closed: Vec<String> = unique(paths.iter().chain(walk.iter()).cloned())
+                .into_iter()
+                .filter(|p| self.deps.daemon.read_denied(p))
+                .collect();
+            if !closed.is_empty() {
+                problems.push(format!(
+                    "Inventory paths are protected: {}",
+                    ferb_py::json::dumps(&closed)
+                ));
+            } else if !walk.is_empty() {
+                let task = candidate.task.as_ref().expect("a task");
+                // the worker model's window (L28)
+                let available = self.worker_room(turn, &task.identity, &task.worker_type);
+                let plan = candidate
+                    .task
+                    .as_mut()
+                    .and_then(|t| t.plan.as_mut())
+                    .expect("a plan");
+                let inputs: Vec<String> = plan
+                    .steps
+                    .iter()
+                    .flat_map(|s| s.inputs.iter().map(|v| self.normalize(v)))
+                    .collect();
+                let steps = plan.steps.iter().filter(|s| !s.inputs.is_empty()).count();
+                if let Some(emit) = say {
+                    // ORCH-625 (`_turn_line`): the owner sees what FERB is doing while it walks, a `progress` line
+                    // marked `planning` (no task exists yet)
+                    let text = ferb_orchestrator::plans::looking_at(&walk, &self.deps.home);
+                    let _ = emit.send(json!({"type": "progress", "text": self.redact_text(&text),
+                        "planning": true, "started_at": self.now_iso()}));
+                }
+                let denied = |file: &str| self.deps.daemon.read_denied(file);
+                let measured = ferb_orchestrator::plans::inventory(
+                    &walk,
+                    Some(&denied),
+                    &inputs,
+                    steps,
+                    Some(available.max(0) as u64),
+                    &self.deps.home,
+                );
+                // (Python walks it off the loop, L23; the turn's own line said so above)
+                if measured.stopped.is_some() {
+                    problems.push(ferb_orchestrator::plans::too_big(&measured, &|p| {
+                        p.to_string()
+                    }));
+                    return Ok(problems);
+                }
+                // each step's inputs in the inventory's form (ORCH-580): checked, stored and handed to its worker
+                ferb_orchestrator::plans::resolve_inputs(plan, &measured.files, &normal);
+                problems.extend(ferb_orchestrator::plans::problems(
+                    plan,
+                    &measured.files,
+                    available.max(0) as u64,
+                ));
+                if !problems.is_empty() {
+                    let files: Vec<Value> = measured.files.iter().map(|f| f.to_json()).collect();
+                    problems.push(format!(
+                        "Measured inventory: {}",
+                        ferb_py::json::dumps(&Value::Array(files))
+                    ));
+                }
             }
         }
         Ok(problems)
@@ -1259,6 +1330,16 @@ impl Inner {
     }
 
     /// supervisor.py:3475 `_supervise`: one planner call.
+    /// `_supervise(turn, repair)` with no reply stream (the intro's preview).
+    pub(crate) async fn supervise_turn(
+        &self,
+        turn: &Arc<Mutex<Turn>>,
+        repair: Option<&[String]>,
+        cancel: &Cancel,
+    ) -> Result<SupervisorOutcome, Repairable> {
+        self.supervise(turn, repair, None, "", cancel).await
+    }
+
     async fn supervise(
         &self,
         turn: &Arc<Mutex<Turn>>,
@@ -1319,14 +1400,7 @@ impl Inner {
             success_conditions: Vec::new(),
             deadline: None,
         };
-        let images: Vec<ferb_core::types::ModelImage> = turn
-            .lock()
-            .unwrap()
-            .screen
-            .as_ref()
-            .and_then(|s| s.image.clone())
-            .into_iter()
-            .collect();
+        let images = turn.lock().unwrap().planner_images();
         let hooks = CallHooks {
             on_delta: draft.clone().map(|d| {
                 Arc::new(move |t: &str| d.lock().unwrap().feed(t)) as ferb_worker::worker::OnText
@@ -1485,19 +1559,93 @@ impl Inner {
                 return Box::pin(self.supervise(turn, repair, emit, why, cancel)).await;
             }
             if matches!(we, ferb_worker::Error::Service(s) if matches!(s.kind, ferb_worker::errors::ServiceKind::Image))
-                && turn
-                    .lock()
-                    .unwrap()
-                    .screen
-                    .as_ref()
-                    .is_some_and(|s| s.image.is_some())
+                && !turn.lock().unwrap().planner_images().is_empty()
             {
-                return Err(Repairable::Not(
-                    NotPorted("Supervisor._supervise (image refused)").into(),
-                ));
+                // ORCH-524, L12: a model that won't take the screenshot must not fail the message: once more without
+                // it, saying so, with the provider's own words (the journal redacts what it stores)
+                self.journal(
+                    "screen.image_refused",
+                    json!({"request_id": rid, "error": we.to_string()}),
+                    None,
+                );
+                {
+                    let mut t = turn.lock().unwrap();
+                    let withhold = |s: &mut super::Seen| {
+                        s.image = None;
+                        s.withheld = Some(IMAGE_REFUSED.to_string());
+                    };
+                    if let Some(seen) = t.seen.as_mut() {
+                        withhold(seen);
+                    }
+                    for seen in t.screens.iter_mut() {
+                        withhold(seen);
+                    }
+                    if let Some(screen) = t.screen.as_mut() {
+                        screen.image = None;
+                    }
+                }
+                return Box::pin(self.supervise(turn, repair, emit, last_call, cancel)).await;
             }
         }
         Err(Repairable::Not(e))
+    }
+
+    /// supervisor.py:3778 `_conversation_blocks`: the conversation as context blocks with their origins, the entries'
+    /// ages, and the newest shown result's id. `since_last_notice` (the attention check, I2): only the entries after
+    /// the conversation's last notice.
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn conversation_view(
+        &self,
+        current: &BTreeSet<String>,
+        session: &str,
+        since_last_notice: bool,
+    ) -> Flow<(Vec<Sourced>, Vec<(String, ferb_clock::py::Time)>, String)> {
+        let summary = self
+            .of_kind(SUMMARY_KIND, "session_id", session, None)
+            .last()
+            .cloned();
+        let covered: BTreeSet<String> = match &summary {
+            None => BTreeSet::new(),
+            Some(s) => self
+                .of_kind(SUMMARY_KIND, "session_id", &s.text("session_id"), None)
+                .iter()
+                .flat_map(|r| {
+                    r.get("covered")
+                        .and_then(Value::as_array)
+                        .map(|a| a.iter().map(ferb_py::value::py_str).collect::<Vec<_>>())
+                        .unwrap_or_default()
+                })
+                .collect(),
+        };
+        let mut kinds_read: Vec<&str> = CONVERSATION_KINDS.to_vec();
+        kinds_read.extend(SELF_POSTS);
+        let rows: Vec<JournalRow> = self
+            .entries_of(&kinds_read)
+            .iter()
+            .map(Entry::row)
+            .collect();
+        let task_ids = self
+            .continuity(|c| c.task_ids(session))
+            .map_err(Failure::from)?;
+        let zone = self.deps.clock.zone();
+        let (entries, ages) = timeline(&Timeline {
+            current,
+            conversation: Some(session),
+            rows: &rows,
+            task_ids: Some(&task_ids),
+            covered: &covered,
+            reads: &Reads(self),
+            zone: &zone,
+        });
+        let latest = latest_result(&entries);
+        let summary_row = summary.as_ref().map(Entry::row);
+        let conversation = conversation_blocks(
+            entries,
+            summary_row.as_ref(),
+            since_last_notice,
+            self.deps.tokenizer,
+        );
+        Ok((conversation, ages, latest))
     }
 
     /// `_supervise`'s blocks (supervisor.py:3497-3601): the runtime, the context and the blocks with their origins.
@@ -1518,6 +1666,7 @@ impl Inner {
             let t = turn.lock().unwrap();
             (t.session.clone(), t.request_ids(), t.preview)
         };
+        // `_lookup_tools`: the planner's read-only lookups that are installed; none for the intro's preview
         let lookups = if !last_call.is_empty() || preview {
             Vec::new()
         } else {
@@ -1543,47 +1692,8 @@ impl Inner {
             .map_err(Failure::Worker)?;
         prep.mark(self, "runtime");
         // the conversation (`_conversation_blocks`)
-        let summary = self
-            .of_kind(SUMMARY_KIND, "session_id", &session, None)
-            .last()
-            .cloned();
-        let covered: BTreeSet<String> = match &summary {
-            None => BTreeSet::new(),
-            Some(s) => self
-                .of_kind(SUMMARY_KIND, "session_id", &s.text("session_id"), None)
-                .iter()
-                .flat_map(|r| {
-                    r.get("covered")
-                        .and_then(Value::as_array)
-                        .map(|a| a.iter().map(ferb_py::value::py_str).collect::<Vec<_>>())
-                        .unwrap_or_default()
-                })
-                .collect(),
-        };
-        let mut kinds_read: Vec<&str> = CONVERSATION_KINDS.to_vec();
-        kinds_read.extend(SELF_POSTS);
-        let rows: Vec<JournalRow> = self
-            .entries_of(&kinds_read)
-            .iter()
-            .map(Entry::row)
-            .collect();
-        let task_ids = self
-            .continuity(|c| c.task_ids(&session))
-            .map_err(Failure::from)?;
+        let (conversation, ages, latest) = self.conversation_view(&current, &session, false)?;
         let zone = self.deps.clock.zone();
-        let (entries, ages) = timeline(&Timeline {
-            current: &current,
-            conversation: Some(&session),
-            rows: &rows,
-            task_ids: Some(&task_ids),
-            covered: &covered,
-            reads: &Reads(self),
-            zone: &zone,
-        });
-        let latest = latest_result(&entries);
-        let summary_row = summary.as_ref().map(Entry::row);
-        let conversation =
-            conversation_blocks(entries, summary_row.as_ref(), false, self.deps.tokenizer);
         prep.mark(self, "conversation");
         let env = turn.lock().unwrap().environment.clone();
         let live_facts = if preview {
@@ -1609,10 +1719,46 @@ impl Inner {
         } else {
             self.latest(&latest)
         };
-        let screen = turn.lock().unwrap().screen.clone();
-        if screen.is_some() {
-            return Err(NotPorted("Supervisor._supervise (the front window at send)").into());
-        }
+        // L12: the window each message read together was sent from, or what the owner saw as they sent this one
+        let windows = {
+            let t = turn.lock().unwrap();
+            let wrap = |text: &str| self.wrap(text);
+            if !t.screens.is_empty() {
+                let attached = t.planner_images();
+                t.screens
+                    .iter()
+                    .map(|seen| {
+                        let nth = seen.image.as_ref().map(|image| {
+                            (
+                                attached.iter().position(|a| a == image).unwrap_or(0) + 1,
+                                attached.len(),
+                            )
+                        });
+                        crate::planner::front_window_block(
+                            seen.front.as_ref(),
+                            seen.image.is_some(),
+                            &crate::lines::sent_from(&seen.said),
+                            seen.withheld.as_deref(),
+                            seen.missing.as_deref(),
+                            nth,
+                            &wrap,
+                        )
+                    })
+                    .collect()
+            } else if let Some(seen) = &t.seen {
+                vec![crate::planner::front_window_block(
+                    seen.front.as_ref(),
+                    seen.image.is_some(),
+                    FRONT_WINDOW,
+                    seen.withheld.as_deref(),
+                    seen.missing.as_deref(),
+                    None,
+                    &wrap,
+                )]
+            } else {
+                Vec::new()
+            }
+        };
         let questions = if preview {
             None
         } else {
@@ -1695,7 +1841,7 @@ impl Inner {
             tasks,
             since,
             latest: latest_blocks,
-            windows: Vec::new(),
+            windows,
             previous_run,
             questions,
             repair: repair.map(|r| (repair_prompt.as_str(), r)),
@@ -2068,15 +2214,7 @@ impl Inner {
         let pending = self.deps.daemon.pending_questions();
         let mine = self.continuity(|c| c.task_ids(session)).unwrap_or_default();
         let conversations: Vec<Value> = {
-            let db = self.db();
-            let redactor = self.deps.redactor.clone();
-            let store = ferb_orchestrator::conversations::ConversationStore::new(
-                &db,
-                Arc::new(String::new),
-                Arc::new(move |v: &Value| redactor.value(v)),
-                Arc::new(|_: &str, _: Value| {}),
-            );
-            store
+            self.conversations()
                 .list(None)
                 .unwrap_or_default()
                 .into_iter()
@@ -2178,23 +2316,20 @@ impl Inner {
         self.start(turn, &out, spec, emit).await
     }
 
-    /// supervisor.py:3344 `_side_entries`: the reminder cancels, the reminders and timers (side.rs), the schedules and
-    /// their changes and the schedules card (schedules_chat.rs, through the daemon's schedules port), each with the one
-    /// quote check. Memory, forgets and conversation changes are not ported: refused by name.
+    /// supervisor.py:3344 `_side_entries`: the conversation changes (conversations.rs), memory and forgets
+    /// (memory_side.rs), the reminder cancels, the reminders and timers (side.rs), the schedules and their changes and
+    /// the schedules card (schedules_chat.rs, through the daemon's schedules port), each with the one quote check.
     async fn side_entries(&self, turn: &Arc<Mutex<Turn>>, out: &SupervisorOutcome) -> Flow<Side> {
         self.side_entries_named(turn, out, &BTreeSet::new()).await
     }
 
     /// `_side_entries(turn, out, named)`: `named`, the sites a steered task named before the steer restated it.
-    async fn side_entries_named(
+    pub(crate) async fn side_entries_named(
         &self,
         turn: &Arc<Mutex<Turn>>,
         out: &SupervisorOutcome,
         named: &BTreeSet<String>,
     ) -> Flow<Side> {
-        if !out.conversation_changes.is_empty() {
-            return Err(NotPorted("Supervisor._side_entries (conversation changes)").into());
-        }
         let mut out = out.clone();
         let rid = turn.lock().unwrap().request_id.clone();
         if (!out.remember.is_empty() || !out.forget.is_empty())
@@ -2212,6 +2347,42 @@ impl Inner {
             out.forget.clear();
         }
         let out = &out;
+        // the conversation changes first, each with the one quote check (ORCH-520), then only this chat's own
+        let mut events: Vec<Value> = Vec::new();
+        for change in &out.conversation_changes {
+            if self.owner_said(turn, &change.quote).is_none() {
+                events.push(json!({"type": "reply", "text": blocked::blocked(
+                    blocked::CONVERSATION,
+                    blocked::NOT_IN_RECENT,
+                    "that conversation didn't change",
+                    "say what should change in it",
+                )}));
+                continue;
+            }
+            let session = turn.lock().unwrap().session.clone();
+            let permitted = self
+                .continuity(|c| c.task_ids(&session))
+                .unwrap_or_default();
+            let changed = match self.conversations().get(&change.id) {
+                Err(e) => Err(e.to_string()),
+                Ok(row) => {
+                    let tree = row
+                        .get("tree_id")
+                        .map(ferb_py::value::py_str)
+                        .unwrap_or_default();
+                    if !permitted.contains(&tree) {
+                        Err("That conversation belongs to another chat; use its chat or ferb conversations.".to_string())
+                    } else {
+                        self.change_conversation(&change.id, &change.action, &change.quote)
+                    }
+                }
+            };
+            let text = match changed {
+                Ok(()) => format!("Conversation {}: {}", change.action, change.id),
+                Err(words) => words,
+            };
+            events.push(json!({"type": "reply", "text": text}));
+        }
         let memory = self.memory_side(turn, out, named).await?;
         let scheduled = !out.schedules.is_empty()
             || !out.schedule_changes.is_empty()
@@ -2222,7 +2393,7 @@ impl Inner {
             return Err(NotPorted("Supervisor._side_entries (no schedules port)").into());
         }
         let recent = blocked::NOT_IN_RECENT;
-        let mut events: Vec<Value> = memory.events;
+        events.extend(memory.events);
         let mut changed: Vec<String> = Vec::new();
         let mut cards: Vec<Value> = memory.cards;
         if let Some(port) = &port {
@@ -2726,6 +2897,10 @@ pub enum Repairable {
 }
 
 impl Repairable {
+    pub(crate) fn into_failure(self) -> Failure {
+        self.failure()
+    }
+
     fn failure(self) -> Failure {
         match self {
             Repairable::Problems(p, class) => Failure::raised(&class, p.join("\n")),
@@ -2767,4 +2942,108 @@ pub fn has_side_entries(out: &SupervisorOutcome) -> bool {
         || out.show_schedules
         || !out.reminder_cancels.is_empty()
         || !out.conversation_changes.is_empty()
+}
+
+/// supervisor.py:759 `_by_window` (L12): the front window of each message read together, newest last; a window two
+/// messages show is given once, as the newer message captured it, with both messages in `said`.
+fn by_window(arrivals: &[(Arrival, super::Seen)]) -> Vec<super::Seen> {
+    let mut windows: Vec<(Vec<String>, super::Seen)> = Vec::new();
+    for (arrival, seen) in arrivals {
+        let key = seen.window_key();
+        let earlier = match windows.iter().position(|(k, _)| *k == key) {
+            Some(i) => windows.remove(i).1.said,
+            None => Vec::new(),
+        };
+        let text = match &arrival.marked {
+            Some(m) => m.for_model.clone(),
+            None => arrival.text.clone(),
+        };
+        let mut seen = seen.clone();
+        seen.said = earlier;
+        seen.said.push(crate::lines::said(&text));
+        windows.push((key, seen));
+    }
+    windows.into_iter().map(|(_, s)| s).collect()
+}
+
+impl Turn {
+    /// The images the planner is given: each window's screenshot (messages read together) or this message's.
+    pub fn planner_images(&self) -> Vec<ferb_core::types::ModelImage> {
+        if !self.screens.is_empty() {
+            self.screens
+                .iter()
+                .filter_map(|s| s.image.clone())
+                .collect()
+        } else {
+            self.front_image().cloned().into_iter().collect()
+        }
+    }
+
+    /// `turn.front_window`.
+    pub fn front(&self) -> Option<&crate::planner::FrontWindow> {
+        self.seen.as_ref().and_then(|s| s.front.as_ref())
+    }
+
+    /// `turn.front_image`.
+    pub fn front_image(&self) -> Option<&ferb_core::types::ModelImage> {
+        self.seen.as_ref().and_then(|s| s.image.as_ref())
+    }
+
+    /// `turn.fronts`: every front window this turn's planner was given (one per message's window).
+    pub fn fronts(&self) -> Vec<&crate::planner::FrontWindow> {
+        if self.screens.is_empty() {
+            self.front().into_iter().collect()
+        } else {
+            self.screens
+                .iter()
+                .filter_map(|s| s.front.as_ref())
+                .collect()
+        }
+    }
+}
+
+impl Inner {
+    /// supervisor.py:2671 `_screen_at_send` (L12): the front window the daemon captured as the owner sent this message,
+    /// and its redacted screenshot. A failed capture is journaled by type and gives "not available"; a capture that
+    /// takes longer than FRONT_WINDOW_WAIT_S (DMN-520) is given up on and journaled: it never blocks the message.
+    async fn screen_at_send(&self, request_id: &str) -> super::Seen {
+        let wait = std::time::Duration::from_secs_f64(FRONT_WINDOW_WAIT_S);
+        let got =
+            tokio::time::timeout(wait, self.deps.daemon.front_window_capture(request_id)).await;
+        let capture = match got {
+            Err(_) => {
+                self.journal(
+                    "screen.capture_timeout",
+                    json!({"request_id": request_id, "timeout_s": FRONT_WINDOW_WAIT_S}),
+                    None,
+                );
+                return super::Seen {
+                    missing: Some(CAPTURE_LATE.to_string()),
+                    ..super::Seen::default()
+                };
+            }
+            Ok(Err(class)) => {
+                self.journal(
+                    "screen.capture_failed",
+                    json!({"request_id": request_id, "error": class}),
+                    None,
+                );
+                None
+            }
+            Ok(Ok(capture)) => capture,
+        };
+        match capture {
+            None => super::Seen::default(),
+            Some(c) => {
+                let image = c
+                    .image
+                    .filter(|i| !i.data.is_empty() && !c.window.image_ref.is_empty());
+                super::Seen {
+                    front: Some(c.window),
+                    image,
+                    ..super::Seen::default()
+                }
+            }
+        }
+    }
 }

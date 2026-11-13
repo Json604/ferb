@@ -472,7 +472,8 @@ impl Inner {
     }
 
     /// supervisor.py:6814 `_look_only`: a loop round that reported `continue` with a probe and only looked: why its
-    /// model check may be skipped; "" when the check runs.
+    /// model check may be skipped; "" when the check runs. `_look_only_note` (supervisor.py:6825) is inlined: a
+    /// probe that won't arm keeps the check; the round's calls since its cursor are read with their outputs.
     pub(crate) fn look_only(&self, tree: &Tree) -> String {
         let (since, action, probe) = {
             let st = tree.lock();
@@ -805,7 +806,7 @@ impl Inner {
         } else {
             step.conditions.iter().map(|t| plain_condition(t)).collect()
         };
-        let mut child = tree.worker.clone();
+        let mut child = tree.worker_task();
         child.id = format!("{}.loop.{}", tree.id, step.id);
         child.goal = step.goal.clone();
         child.success_conditions = conditions.iter().map(|c| c.text.clone()).collect();

@@ -298,6 +298,8 @@ pub struct TestDaemon {
     ports: Mutex<Vec<Value>>,
     /// The recorded journal rows (a port's own rows are written back from here).
     journal_rows: Vec<Value>,
+    /// The front windows the recorder's daemon captured at send (make_more.py `capture_at_send`), by request.
+    captures: HashMap<String, Value>,
     tool_calls: AtomicUsize,
     redactor: Arc<ferb_sanitize::Redactor>,
     clock: Arc<FakeClock>,
@@ -775,10 +777,45 @@ impl Daemon for TestDaemon {
         self.gw()
             .set_task_folders(tree_id, folders.map(<[String]>::to_vec).unwrap_or_default())
     }
-    fn record_named(&self, _words: &str, _request_id: &str) {}
-    fn standing_revoke(&self, _tree_id: &str) {}
-    fn standing_scopes(&self, _tree_id: &str) -> Vec<Value> {
-        Vec::new()
+    fn record_named(&self, words: &str, request_id: &str) {
+        // gateway.destinations: every destination in the owner's words, recorded as named (SQ6)
+        let db = self.db.lock().unwrap();
+        let known = ferb_policy::stores::KnownDestinations {
+            db: &db,
+            clock: self.clock.as_ref(),
+            ids: self.ids.as_ref(),
+            redact: self.redactor.as_ref(),
+        };
+        for (kind, value) in ferb_policy::destinations::from_words(words) {
+            known
+                .record(&kind, &value, "named", Some(request_id), None)
+                .unwrap();
+        }
+    }
+    fn standing_revoke(&self, tree_id: &str) {
+        let db = self.db.lock().unwrap();
+        ferb_policy::stores::StandingPermissions { db: &db }
+            .revoke(tree_id)
+            .unwrap();
+    }
+    fn standing_scopes(&self, tree_id: &str) -> Vec<Value> {
+        let db = self.db.lock().unwrap();
+        ferb_policy::stores::StandingPermissions { db: &db }
+            .scopes(tree_id)
+            .unwrap()
+            .iter()
+            .map(|s| serde_json::from_str(&s.dump_json()).unwrap())
+            .collect()
+    }
+    fn standing_grant(&self, tree_id: &str, scopes: &[Value], approval_id: &str) {
+        let db = self.db.lock().unwrap();
+        let scopes: Vec<ferb_policy::standing::SendScope> = scopes
+            .iter()
+            .map(|s| serde_json::from_value(s.clone()).unwrap())
+            .collect();
+        ferb_policy::stores::StandingPermissions { db: &db }
+            .grant(tree_id, &scopes, approval_id)
+            .unwrap();
     }
     fn record_request(&self, request: &Request) {
         let set = |v: &Vec<String>| v.iter().cloned().collect::<BTreeSet<String>>();
@@ -857,9 +894,10 @@ impl Daemon for TestDaemon {
             }
         })
     }
-    fn live_facts(&self, last_runs: bool, _owner_state: bool) -> String {
+    fn live_facts(&self, last_runs: bool, owner_state: bool) -> String {
+        // a chat turn's with their last runs; the intro's preview's without the owner's state (ORCH-500)
         assert!(
-            last_runs,
+            last_runs || !owner_state,
             "the planner reads its live facts with their last runs"
         );
         let rec = pop(&self.supervise, "the planner's live facts");
@@ -1068,6 +1106,59 @@ impl Daemon for TestDaemon {
     fn front_window<'a>(&'a self, _request_id: &'a str) -> BoxFuture<'a, Option<FrontSeen>> {
         Box::pin(async { None })
     }
+    fn memory_blocks<'a>(
+        &'a self,
+        message: &'a str,
+        focus: &'a str,
+    ) -> BoxFuture<'a, Option<Vec<ferb_supervisor::history::Sourced>>> {
+        // the memory port's candidates, as recorded (`memory_candidates`); ranked blocks of recorded candidates are
+        // not rebuilt here: a recording that found some is reported as a difference
+        let answer = self.port(
+            "memory_candidates",
+            json!({"args": [message, focus], "kwargs": {}}),
+        );
+        if answer.as_array().is_some_and(|a| !a.is_empty()) {
+            self.tool_diffs
+                .lock()
+                .unwrap()
+                .push("port memory_candidates: recorded candidates aren't replayed".into());
+        }
+        Box::pin(async { Some(Vec::new()) })
+    }
+    fn browsing(&self, attended: bool, request_id: &str) -> Map<String, Value> {
+        self.port(
+            "browsing",
+            json!({"args": [attended, request_id], "kwargs": {}}),
+        )
+        .as_object()
+        .cloned()
+        .unwrap_or_default()
+    }
+    fn captures_at_send(&self) -> bool {
+        !self.captures.is_empty()
+    }
+    fn front_window_capture<'a>(
+        &'a self,
+        request_id: &'a str,
+    ) -> BoxFuture<'a, Result<Option<ferb_supervisor::flow::FrontCapture>, String>> {
+        let got = self.captures.get(request_id).map(|c| {
+            let image_ref = s(&c["image_ref"]);
+            ferb_supervisor::flow::FrontCapture {
+                window: ferb_supervisor::planner::FrontWindow {
+                    facts: c["facts"].as_object().cloned().unwrap_or_default(),
+                    image_ref: image_ref.clone(),
+                    withheld: String::new(),
+                    masking: String::new(),
+                    origin: s(&c["origin"]),
+                },
+                image: Some(ferb_core::types::ModelImage::new(
+                    s(&c["image"]).into_bytes(),
+                    &image_ref,
+                )),
+            }
+        });
+        Box::pin(async move { Ok(got) })
+    }
     fn make_runtime(
         &self,
         role: &str,
@@ -1076,13 +1167,21 @@ impl Daemon for TestDaemon {
         schema: &Value,
         effort: Option<&str>,
     ) -> Result<Arc<dyn ModelRuntime>, ferb_worker::Error> {
+        // the recorder names a schema only from ferb/context/schemas.py; the attention check's (supervisor.py:5509)
+        // is the catalog's ATTENTION_SCHEMA, which the recorder names by its hash
         let name = self
             .schemas
             .iter()
-            .find(|(_, v)| *v == schema)
+            .find(|(k, v)| *v == schema && k.as_str() != "ATTENTION_SCHEMA")
             .map(|(k, _)| k.clone())
-            .or_else(|| schema_by_sha(schema))
-            .unwrap_or_else(|| "(unknown schema)".into());
+            .or_else(|| schema_by_sha(schema).filter(|n| n != "ATTENTION_SCHEMA"))
+            .unwrap_or_else(|| {
+                use sha2::Digest;
+                let sha = hex::encode(sha2::Sha256::digest(
+                    ferb_py::json::dumps(schema).as_bytes(),
+                ));
+                format!("sha256:{sha}")
+            });
         let mut calls = self.calls.lock().unwrap();
         let n = calls.made.len();
         calls.made.push(
@@ -1108,6 +1207,38 @@ impl Daemon for TestDaemon {
     }
     fn publish(&self, topic: &str, data: Value) {
         self.events(topic, ferb_sanitize::Py::from(&data));
+    }
+    fn observe_call<'a>(
+        &'a self,
+        task_id: &'a str,
+        worker_id: &'a str,
+        scopes: &'a BTreeSet<String>,
+        identity: &'a str,
+        tool: &'a str,
+        args: &'a Map<String, Value>,
+    ) -> BoxFuture<'a, Result<Value, String>> {
+        // gateway.call(RunGrant(task_id, worker_id, scopes, identity, inf, observe_only=True), tool, args)
+        Box::pin(OneThread(async move {
+            let grant = ferb_rpc::auth::RunGrant {
+                task_id: task_id.into(),
+                worker_id: worker_id.into(),
+                scopes: scopes.clone(),
+                identity: if identity == "ferb" {
+                    ferb_rpc::auth::Identity::Ferb
+                } else {
+                    ferb_rpc::auth::Identity::Owner
+                },
+                expires_at: f64::INFINITY,
+                observe_only: true,
+                tools: BTreeSet::new(),
+                max_calls: 0,
+            };
+            self.gw()
+                .call(&grant, tool, args)
+                .await
+                .map(|r| r.to_json())
+                .map_err(|e| format!("{e:?}"))
+        }))
     }
     fn loop_notice<'a>(
         &'a self,
@@ -1850,6 +1981,10 @@ pub fn run_scenario(
         tool_diffs: Mutex::default(),
         refusals: Mutex::default(),
         ports: Mutex::new(of("port")),
+        captures: sc["captures"]
+            .as_array()
+            .map(|a| a.iter().map(|c| (s(&c["request_id"]), c.clone())).collect())
+            .unwrap_or_default(),
         journal_rows: tables["journal"]["rows"]
             .as_array()
             .cloned()
@@ -2245,6 +2380,12 @@ pub fn run_scenario(
                         .map(|l| fixed(&name, &s(&resolve(&l["recv"]))))
                         .collect();
                     report.checked += want.len();
+                    if std::env::var("DEBUG_FRAMES").is_ok() {
+                        for i in 0..want.len().max(lines.len()) {
+                            eprintln!("P{i}: {}", want.get(i).map(|x| &x[..x.len().min(300)]).unwrap_or("-"));
+                            eprintln!("R{i}: {}", lines.get(i).map(|x| &x[..x.len().min(300)]).unwrap_or("-"));
+                        }
+                    }
                     for i in 0..want.len().max(lines.len()) {
                         let (w, g) = (want.get(i), lines.get(i));
                         if w != g {
@@ -2276,6 +2417,35 @@ pub fn run_scenario(
                     }
                     if !watching() {
                         report.stopped = Some("a wait for the loop watches (never true here)".into());
+                        break;
+                    }
+                    settle(&db).await;
+                }
+                "wait" if st["until"] == "the conversation waits" => {
+                    // make_more.py `conv_status`: a delegated conversation waits for a reply
+                    let waiting = || -> bool {
+                        db.lock()
+                            .unwrap()
+                            .conn()
+                            .query_row(
+                                "SELECT 1 FROM delegated_conversations WHERE status='waiting'",
+                                [],
+                                |_| Ok(()),
+                            )
+                            .is_ok()
+                    };
+                    for i in 0..10_000 {
+                        if waiting() {
+                            break;
+                        }
+                        if i % 100 == 99 {
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        } else {
+                            tokio::task::yield_now().await;
+                        }
+                    }
+                    if !waiting() {
+                        report.stopped = Some("a wait for the conversation waits (never true here)".into());
                         break;
                     }
                     settle(&db).await;
@@ -2387,6 +2557,35 @@ pub fn run_scenario(
                     }
                 }
                 // make_more.py: an event reaches the supervisor (`notify_plan_event`, on the daemon's loop)
+                "preview" => {
+                    // make_more.py: `Supervisor.preview` called on the daemon's loop, its events collected
+                    let got = match sup.preview_events(&s(&st["session_id"]), &s(&st["text"])).await {
+                        Ok(events) => Value::Array(events),
+                        Err(e) => json!({"raised": e.class()}),
+                    };
+                    report.checked += 1;
+                    let want = resolve(&st["events"]);
+                    let got: Value = serde_json::from_str(&run.mask(&got.to_string())).unwrap();
+                    if got != want {
+                        report.frames.push(format!("preview\n    python: {want}\n    rust:   {got}"));
+                    }
+                    settle(&db).await;
+                }
+                "attention" => {
+                    let refs = strs(&st["source_refs"]);
+                    let observations = st["observations"].as_array().cloned().unwrap_or_default();
+                    let told = st["already_told"].as_array().cloned().unwrap_or_default();
+                    let got = match sup.attention(&refs, &observations, &told).await {
+                        Ok(v) => v,
+                        Err(e) => json!({"raised": e.class()}),
+                    };
+                    report.checked += 1;
+                    let want = resolve(&st["result"]);
+                    if got != want {
+                        report.frames.push(format!("attention\n    python: {want}\n    rust:   {got}"));
+                    }
+                    settle(&db).await;
+                }
                 "plan_event" => {
                     sup.inner().notify_plan_event(&s(&st["topic"]), &st["data"]);
                     for _ in 0..100 {

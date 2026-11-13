@@ -140,11 +140,20 @@ on the real Python daemon through the daemon recorder's harness (its stand-ins, 
 | reason_findings | ORCH-562: findings on a not-done report's reason, settled by code after the fix turn |
 | runtime_switch_tap | ORCH-315: the worker's usage limit, `runtime_offer`, `answer_runtime_switch` (the app's one tap) |
 | event_wait | a plan's wait step on an event: `notify_plan_event`, the plan's wake, the next step |
+| conversation_handover | F9: `_conversation_steps`, `_conversation_step` on ConversationRunner: the scope's approval (its card), one turn reading the thread through the gateway (`conversation.read`), a hand-over with evidence, `conversations.list {id}`'s digest |
+| conversation_change | a waiting conversation paused by a chat turn's `conversation_changes` (one applied by `change_conversation`, one whose quote the owner never wrote refused after the planner's one repair, one naming no conversation told back), then closed by `conversations.change` |
+| stated_scope | D24/D30: `_plan_statement` of a big job with standing sends (one scope granted under `plan.stated`, one not typed), a correction widening the scope (`restate_scope`), granted once said (`grant_stated`) |
+| front_window | L12: `_screen_at_send` and `front_window_block` in the planner's turn, the image refused once (ORCH-524: run again without it), two messages read together (`_by_window`, two images), the start-of-task screenshot |
+| preview_attention | ORCH-500: `Supervisor.preview` of a two-step plan; L10: `Supervisor.attention` twice on one invented moment (one answer citing its source, one dropped) |
+| browse_as_corrected | APP-777: `_browse_as` (the owner's picked profile, the worker's identity, `task.browses_as_owner`); a correction giving the running worker a new goal and condition, read by its check |
 
 Steps these add: `mention_paused`, `plan_event` (the supervisor's call on the daemon's loop), `runtime_switch` (with
-the offer and the answer recorded), and waits `the loop watches` and `the plan waits`. `uuid.uuid4` is a counter (a
-loop notice's id).
+the offer and the answer recorded), `preview` and `attention` (the supervisor's calls on the daemon's loop, with what
+they answered), and waits `the loop watches`, `the plan waits` and `the conversation waits`. `uuid.uuid4` is a counter (a
+loop notice's id). `port` records also hold memory's `memory_candidates` (the attention check) and the browsers' area
+`browsing` (a task given to FERB). A scenario's `captures` are the front windows the daemon captured at send
+(`capture_at_send`, invented: two windows in turn, a few invented bytes as the screenshot).
 
-`tests/replay_more.rs` replays all 21 fully with tests/replay.rs's harness (moved to `tests/replay/harness.rs`). One
+`tests/replay_more.rs` replays all 27 fully with tests/replay.rs's harness (moved to `tests/replay/harness.rs`). One
 deliberate difference is applied to `remember_then_forget`'s recording before it is compared (`FIXES`): Python's reply
 tags the forget question's "FERB deletes:" line, FERB's own words, as "(from the task)"; the port does not.

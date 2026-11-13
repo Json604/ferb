@@ -309,7 +309,12 @@ impl Inner {
 
     /// supervisor.py:3981 `_worker_room`: tokens a worker of this type has for what the task hands it, after its
     /// instructions, the request, its report schema and its tools.
-    fn worker_room(&self, turn: &Arc<Mutex<Turn>>, identity: &str, worker_type: &str) -> i64 {
+    pub(crate) fn worker_room(
+        &self,
+        turn: &Arc<Mutex<Turn>>,
+        identity: &str,
+        worker_type: &str,
+    ) -> i64 {
         let (rid, payload) = {
             let t = turn.lock().unwrap();
             (t.request_id.clone(), t.payload.clone())

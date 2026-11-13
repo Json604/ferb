@@ -162,7 +162,7 @@ def _plain(v: Any) -> Any:
                                  else sorted(o) if isinstance(o, (set, frozenset)) else str(o)))
 
 
-PORTS = ("remember", "forget_request")
+PORTS = ("remember", "forget_request", "memory_candidates", "browsing")
 
 
 def patch_ports(d: Any) -> None:
@@ -761,6 +761,265 @@ def mm_event_wait() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# 11. Delegated conversations (F9, ORCH-301)
+# ---------------------------------------------------------------------------------------------------------------
+
+def conv_scope(**k: Any) -> dict[str, Any]:
+    return {"identity": "owner", "account": "gardener.invented", "site": "chat.example", "app": "com.example.chat",
+            "thread": "Seed swap", "recipients": ["Robin"], "topic": "the invented seed swap",
+            "handover_when": "Robin names a day for the swap", "window_id": None} | k
+
+
+def conv_status(scn: Any, ident: str) -> str:
+    def read() -> str:
+        row = scn.host.daemon.db.conn.execute("SELECT status FROM delegated_conversations WHERE id=?",
+                                              (ident,)).fetchone()
+        return str(row[0]) if row else ""
+    return on_loop(scn.host, read)
+
+
+def converse(goal: str) -> dict[str, Any]:
+    s1 = step("chat", goal, kind="converse", label="Chat with Robin")
+    s1["conversation"] = conv_scope()
+    return s1
+
+
+def mm_conversation_handover() -> dict[str, Any]:
+    """A converse step (`_conversation_steps`, `_conversation_step` on ConversationRunner): the owner approves the
+    scope once (its card, CONVERSATION_ASK); one turn reads the thread through the gateway (`conversation.read`), its
+    worker hands over with evidence, its check accepts; FERB says it handed over, the step and the task end done.
+    Then the app reads the conversation's digest (`conversations.list {id}`)."""
+    spec = plan_task("Arrange the invented seed swap with Robin", name="Seed swap",
+                     plan=plan(converse("Arrange the seed swap with Robin")))
+    m = Model([planner("task", "I'll chat with Robin once you say yes.", spec)],
+              {"conversation.chat.1": worker("done", "Robin can swap seeds on Saturday.",
+                                             conversation_action="handover"),
+               "conversation.chat.1.verify": checker(True)})
+    scn = Scenario("conversation_handover", "A delegated conversation: the owner approves its scope, one turn reads "
+                   "the thread and hands over, the task ends done; the app reads its digest.",
+                   CHAT + [f"{SUP}:5546 _conversation_steps", f"{SUP}:5567 _conversation_step",
+                           "ferb/orchestrator/conversations.py:299 ConversationRunner.run"], m)
+    turn = scn.stream(scn.conn("chat"), "chat.send", {"session_id": "s1",
+                                                      "text": "chat with Robin about the seed swap until she names a day"})
+    scn.wait("an approval is pending", lambda: bool(pending_approvals(scn)))
+    scn.settle()
+    app = scn.conn("app")
+    ap = scn.call(app, "chat.status", {})["result"]["approvals"][0]["approval_id"]
+    scn.call(app, "chat.approve", {"approval_id": ap, "granted": True, "choice": 1})
+    scn.end(turn)
+    tree = tree_of(scn, "conversation.chat.1")
+    scn.call(app, "conversations.list", {"id": f"{tree}:chat"})
+    scn.close(app)
+    return scn.finish()
+
+
+def mm_conversation_change() -> dict[str, Any]:
+    """A conversation that waits for a reply (its turn said `wait`): the owner's chat message pauses it through the
+    planner's conversation_changes side entry (`_side_entries`: one change quoted from their words is applied by
+    `change_conversation`, one whose quote they never wrote is refused with the safety check's line, one naming no
+    conversation is told back); then the app closes it (`conversations.change`), the runner ends and the task ends."""
+    spec = plan_task("Arrange the invented seed swap with Robin", name="Seed swap",
+                     plan=plan(converse("Arrange the seed swap with Robin")))
+    m = Model([planner("task", "I'll chat with Robin once you say yes.", spec)],
+              {"conversation.chat.1": worker("done", "Asked Robin which day suits her.", conversation_action="wait"),
+               "conversation.chat.1.verify": checker(True)})
+    scn = Scenario("conversation_change", "A waiting conversation paused from chat (a conversation change side "
+                   "entry, quote-checked), then closed by the app; its task ends.",
+                   CHAT + [f"{SUP}:3344 _side_entries", f"{SUP}:5476 change_conversation",
+                           "ferb/daemon/areas/chat.py:140 _conversations_change"], m)
+    turn = scn.stream(scn.conn("chat"), "chat.send", {"session_id": "s1",
+                                                      "text": "chat with Robin about the seed swap until she names a day"})
+    scn.wait("an approval is pending", lambda: bool(pending_approvals(scn)))
+    scn.settle()
+    app = scn.conn("app")
+    ap = scn.call(app, "chat.status", {})["result"]["approvals"][0]["approval_id"]
+    scn.call(app, "chat.approve", {"approval_id": ap, "granted": True, "choice": 1})
+    scn.wait_model("conversation.chat.1.verify")
+    tree = tree_of(scn, "conversation.chat.1")
+    ident = f"{tree}:chat"
+    scn.wait("the conversation waits", lambda: conv_status(scn, ident) == "waiting")
+    scn.settle()
+    changes = side(conversation_changes=[
+        {"id": ident, "action": "pause", "quote": "pause the chat with Robin"},
+        {"id": ident, "action": "close", "quote": "close every chat"},
+        {"id": "t-none:chat", "action": "pause", "quote": "pause the chat with Robin"}])
+    # the quote the owner never wrote goes back to the planner once (ORCH-522); its repaired answer keeps it
+    m.script.sup += [planner("reply", "Pausing the chat with Robin.", side_entries=changes)] * 2
+    chat_turn(scn, "pause the chat with Robin")
+    scn.call(app, "conversations.change", {"id": ident, "action": "close", "owner_words": "close it, I'll talk to her"})
+    scn.end(turn)
+    scn.close(app)
+    return scn.finish()
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# 12. A big job's stated plan and its standing scope (D24/D30, ORCH-503, ORCH-306)
+# ---------------------------------------------------------------------------------------------------------------
+
+def send_scope(to: str) -> dict[str, Any]:
+    return {"capability": "mail.send", "identity": "owner", "account": "gardener@example.com", "site": None,
+            "recipients": [to], "content": "the invented seed list"}
+
+
+def mm_stated_scope() -> dict[str, Any]:
+    """A big job with standing sends (`_plan_statement`): the plan line states the steps, the estimates and the
+    scopes; the one whose destinations the owner typed is granted under the statement (`owner_typed_scopes`,
+    `_allowed_scopes`, `_execute_plan`'s `plan.stated`), the other said not covered. A correction while the worker
+    runs widens the scope (`steering.restate_scope`): the restatement is journaled and said in the reply, and the new
+    scope is granted once the reply is out (`grant_stated`)."""
+    p = plan(step("send", "Email the invented seed list"))
+    p.update({"big_job": True, "time_estimate": "about an hour", "cost_estimate": "about 2 dollars",
+              "standing_sends": [send_scope("robin@example.com"), send_scope("sam@example.com")]})
+    spec = plan_task("Email the invented seed list to the swap group", name="Seed list", plan=p)
+    m = Model([planner("task", "Here's how I'll do it.", spec)])
+    scn = Scenario("stated_scope", "A big job's plan and standing sends stated at once; one scope granted, one not "
+                   "covered; a correction widens the scope and it is granted once said.",
+                   CHAT + [f"{SUP}:5092 _plan_statement", f"{SUP}:5072 owner_typed_scopes",
+                           "ferb/orchestrator/steering.py:145 restate_scope",
+                           "ferb/orchestrator/steering.py:198 grant_stated"], m)
+    gate = Gate(scn, "step.send", worker("done", "Sent the seed list to Robin and Sam."))
+    m.script.workers["step.send"] = gate.answer
+    m.script.workers["step.send.verify"] = checker(True)
+    turn, tree = dm.stalled_task(scn, "from gardener@example.com email the seed list to robin@example.com",
+                                 "step.send")
+    c = control(tree, "continue")
+    c["standing_sends"] = [send_scope("robin@example.com"), send_scope("sam@example.com"),
+                           send_scope("lee@example.com")]
+    m.script.sup.append(planner("reply", "Sam gets it too.", control=c))
+    chat_turn(scn, "also send it to sam@example.com")
+    gate.open(scn)
+    scn.end(turn)
+    return scn.finish()
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# 13. The owner's front window at send (L12, DMN-520, ORCH-524)
+# ---------------------------------------------------------------------------------------------------------------
+
+WINDOWS = [("Notes", "com.example.notes", "Seed list", None),
+           ("Browser", "com.example.browser", "Seed prices", "https://seeds.example.com/prices")]
+
+
+def capture_at_send(scn: Any, captures: list[dict[str, Any]]) -> None:
+    """The daemon's capture at send (areas/chat.py:355 `self.front_window`), invented: each message gets the next of
+    WINDOWS in turn, with a few invented bytes as its redacted screenshot; each capture is recorded for the replay."""
+    from ferb.sense.front_window import FrontWindow
+
+    async def front(request_id: str, pid: Any) -> Any:
+        app, bundle, title, url = WINDOWS[len(captures) % len(WINDOWS)]
+        ref = f"ev-{len(captures) + 1}"
+        window = FrontWindow(app=app, bundle_id=bundle, title=title, url=url, tab_title=title if url else None,
+                             image_ref=ref, origin="external:screen", image=b"invented-png-" + ref.encode(),
+                             tab_source="extension" if url else None)
+        captures.append({"request_id": request_id, "facts": window.facts(), "image_ref": ref,
+                         "origin": window.origin, "image": window.image.decode()})
+        return window
+    on_loop(scn.host, lambda: setattr(scn.host.daemon, "front_window", front))
+
+
+def image_refused() -> Any:
+    from ferb.core.types import RuntimeEvent
+    return RuntimeEvent("error", {"message": "the invented model can't read images", "image": True})
+
+
+def mm_front_window() -> dict[str, Any]:
+    """L12: each message's front window captured at send (`_screen_at_send`) is in the planner's turn as data with its
+    screenshot attached (`front_window_block`). The first planner call refuses the image (ImageRefused, ORCH-524): the
+    turn runs once more without it, saying it is withheld. Then two messages read together (the first planner call
+    held until the second arrives, ORCH-529): each window once with the messages sent from it (`_by_window`), both
+    screenshots attached; the task's worker starts from the start-of-task screenshot (`run_tree`)."""
+    spec = plan_task("Compare the invented seed list with the prices page", name="Seed prices")
+    m = Model([image_refused(), planner("reply", "It's your seed list."), STALL,
+               planner("task", "Comparing them now.", spec)],
+              {"worker": worker("done", "Beans cost 2 and squash 3."), "worker.verify": checker(True)})
+    scn = Scenario("front_window", "The front window at send in the planner's turn, an image the model refused, two "
+                   "messages' windows read together and the worker's start-of-task screenshot.",
+                   CHAT + [f"{SUP}:2671 _screen_at_send", f"{SUP}:759 _by_window", f"{SUP}:772 front_window_block",
+                           f"{SUP}:3681 _supervise (image refused)", f"{SUP}:4492 run_tree (start-of-task screenshot)"],
+                   m)
+    captures: list[dict[str, Any]] = []
+    capture_at_send(scn, captures)
+    chat_turn(scn, "what's in this list?")
+    first = scn.stream(scn.conn("chat"), "chat.send", {"session_id": "s1", "text": "compare these seed prices"})
+    scn.wait_model("supervisor", 3)
+    second = scn.stream(scn.conn("chat2"), "chat.send", {"session_id": "s1", "text": "with this page"})
+    scn.end(second)
+    scn.end(first)
+    out = scn.finish()
+    out["captures"] = captures
+    return out
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# 14. The intro's preview (ORCH-500) and the attention check (L10)
+# ---------------------------------------------------------------------------------------------------------------
+
+def mm_preview_attention() -> dict[str, Any]:
+    """`Supervisor.preview` (the intro's plan-only turn, ORCH-500): the real planner turn alone, its plan as rows,
+    nothing run and nothing kept but `intro.preview`. Then `Supervisor.attention` (L10) on one invented moment: the
+    model's answer kept only when it cites the moment's own source refs (one that cites none is dropped to "don't
+    tell")."""
+    spec = plan_task("Find the invented seed catalogue and list its beans", name="Seed catalogue",
+                     plan=plan(step("find", "Find the invented seed catalogue"),
+                               step("list", "List its beans", depends_on=["find"])))
+    told = json.dumps({"tell": True, "text": "A seed sale started in your mail.", "source_refs": ["trail:t1"],
+                       "quotes": [{"text": "Seed sale", "origin": "external:observation"}]})
+    unbacked = json.dumps({"tell": True, "text": "Something happened.", "source_refs": ["trail:other"],
+                           "quotes": []})
+    m = Model([planner("task", "I'd find the catalogue, then list its beans.", spec), told, unbacked])
+    scn = Scenario("preview_attention", "The intro's preview of a two-step plan; two attention checks on one invented "
+                   "moment, one citing its source and one not.",
+                   [f"{SUP}:2422 Supervisor.preview", f"{SUP}:5493 Supervisor.attention"], m)
+    sup = scn.host.daemon.supervisor
+    session, text = "preview:intro", "find the invented seed catalogue and list its beans"
+
+    async def preview() -> list[Any]:
+        return [ev async for ev in sup.preview(session, text)]
+    events = scn.host.run(preview())
+    scn.steps.append({"do": "preview", "session_id": session, "text": text, "events": events})
+    scn.settle()
+    refs = ["trail:t1"]
+    observations = [{"id": "t1", "source": "notification",
+                     "data": {"app": "Mail", "title": "Seed sale", "body": "Invented beans half price"}}]
+    for _ in range(2):
+        async def consider() -> Any:
+            return await sup.attention(refs, observations, [])
+        got = scn.host.run(consider())
+        scn.steps.append({"do": "attention", "source_refs": refs, "observations": observations, "already_told": [],
+                          "result": got})
+        scn.settle()
+    return scn.finish()
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# 15. A task given to FERB browses as the owner (APP-777); a correction changes the running worker's goal
+# ---------------------------------------------------------------------------------------------------------------
+
+def mm_browse_as_corrected() -> dict[str, Any]:
+    """APP-777 (`_browse_as`): FERB has no profile of its own and the owner picked theirs, so a task the planner gave to
+    FERB works as the owner (its worker's identity, its row, `task.browses_as_owner`). A correction while it runs gives
+    it a new goal and condition (steering.py: `tree.worker.goal`, `tree.worker.success_conditions`): the worker's check
+    reads them, and a restated identity of "ferb" is no change for a task browsing as the owner (`_kept_unchanged`)."""
+    first = plan_task("Find the invented seed catalogue", name="Catalogue", identity="ferb")
+    second = plan_task("Find the invented bulb catalogue", name="Catalogue", identity="ferb",
+                       conds=[dm.condition("The invented bulb catalogue is found")])
+    m = Model([planner("task", "Looking for it.", first)])
+    scn = Scenario("browse_as_corrected", "A task given to FERB browses as the owner in their picked profile; a "
+                   "correction changes its goal while it runs; its check reads the new goal.",
+                   CHAT + [f"{SUP}:3004 _browse_as", "ferb/orchestrator/steering.py:221 apply (tree.worker.goal)"], m)
+    on_loop(scn.host, lambda: scn.host.daemon.config.set("browsing", "owner_profile", "chrome/Default"))
+    gate = Gate(scn, "worker", worker("done", "Found the invented bulb catalogue."))
+    m.script.workers["worker"] = gate.answer
+    m.script.workers["worker.verify"] = checker(True)
+    turn, tree = dm.stalled_task(scn, "find the seed catalogue")
+    m.script.sup.append(planner("task", "Bulbs instead.", second, control=control(tree, "continue")))
+    chat_turn(scn, "actually the bulb catalogue")
+    gate.open(scn)
+    scn.end(turn)
+    return scn.finish()
+
+
+# ---------------------------------------------------------------------------------------------------------------
 # Output, as make_control.py writes it
 # ---------------------------------------------------------------------------------------------------------------
 
@@ -801,7 +1060,8 @@ SCENARIOS = [mm_summary_fold, mm_several_asks, mm_plan_parts_checklist, mm_remem
              mm_checklist_single, mm_ask_step, mm_wait_step, mm_route_question, mm_checker_runtime_down,
              mm_last_call_empty, mm_unbacked_part, mm_correct_pending_check, mm_earlier_result,
              mm_loop_steer_finish, mm_loop_pause_stop, mm_mention_paused, mm_owner_closed_tab, mm_reason_findings,
-             mm_runtime_switch_tap, mm_event_wait]
+             mm_runtime_switch_tap, mm_event_wait, mm_conversation_handover, mm_conversation_change,
+             mm_stated_scope, mm_front_window, mm_preview_attention, mm_browse_as_corrected]
 
 
 def main() -> None:

@@ -17,6 +17,7 @@ use ferb_orchestrator::steering::{MEMORY_ASKS, OPTION_ONLY};
 use ferb_rpc::auth::RunGrant;
 use ferb_rpc::server::{EventStream, HandlerError, HandlerResult, Server, Session};
 use ferb_rpc::wire::Params;
+use ferb_sanitize::origin;
 use serde_json::{json, Map, Value};
 
 use super::Supervisor;
@@ -65,7 +66,8 @@ pub struct ChatDeps {
     pub prepare_persona: Arc<dyn Fn() + Send + Sync>,
     /// `attention_notices.unseen()`; None: no notices.
     pub notices: Option<Arc<dyn Fn() -> Vec<Value> + Send + Sync>>,
-    /// `supervisor.conversations.list()`: the delegated conversations.
+    /// `supervisor.conversations.list()`: no longer read (chat.status and conversations.list read the supervisor's
+    /// own store, as Python does); kept so the daemon's wiring compiles unchanged.
     pub conversations: Arc<dyn Fn() -> Vec<Value> + Send + Sync>,
     /// `sense.paused` (L34 D: the menu bar's state).
     pub sensing_paused: Arc<dyn Fn() -> bool + Send + Sync>,
@@ -146,16 +148,7 @@ impl ChatRpc {
                 "tools.list" => self.tools_list(session),
                 "tools.call" => self.tools_call(session, &params).await,
                 "conversations.list" => self.conversations_list(&params),
-                "conversations.change" => {
-                    // `str(params['id'])`, `str(params['action'])`, `str(params['owner_words'])` come first
-                    for key in ["id", "action", "owner_words"] {
-                        required(&params, key)?;
-                    }
-                    Err(HandlerError::fault(
-                        "NotImplementedError",
-                        "not ported yet: supervisor.py Supervisor.change_conversation",
-                    ))
-                }
+                "conversations.change" => self.conversations_change(&params),
                 "ui.click_through" => self.click_through(session, &params),
                 other => Err(HandlerError::fault("KeyError", format!("'{other}'"))),
             }
@@ -267,9 +260,16 @@ impl ChatRpc {
             "notices".into(),
             Value::Array(self.deps.notices.as_ref().map(|f| f()).unwrap_or_default()),
         );
+        let conversations = inner
+            .conversations()
+            .list(None)
+            .unwrap_or_default()
+            .into_iter()
+            .map(Value::Object)
+            .collect();
         out.insert(
             "delegated_conversations".into(),
-            Value::Array((self.deps.conversations)()),
+            Value::Array(conversations),
         );
         out.insert(
             "loops".into(),
@@ -650,30 +650,48 @@ impl ChatRpc {
         }
     }
 
-    /// areas/chat.py:135 `_conversations_list`: the delegated conversations, or one's digest by `id`.
+    /// areas/chat.py:135 `_conversations_list`: the delegated conversations (the supervisor's store), or one's digest
+    /// by `id`.
     ///
     /// Fixed against Python (ENG-6): an id no conversation has raised ValueError inside `digest`, an internal error
-    /// on the wire (-32603 "ValueError"); here it is refused in plain words. A known conversation's digest belongs to
-    /// the delegated conversations, which are not ported (NotPorted by name).
+    /// on the wire (-32603 "ValueError"); here it is refused in plain words.
     pub fn conversations_list(&self, params: &Params) -> HandlerResult {
-        let all = (self.deps.conversations)();
+        let store = self.sup().inner().conversations();
         match params.get("id").filter(|v| ferb_py::value::truthy(v)) {
-            None => Ok(obj(json!({"conversations": all}))),
-            Some(id) => {
-                let id = ferb_py::value::py_str(id);
-                if all
-                    .iter()
-                    .any(|c| c.get("id").map(ferb_py::value::py_str) == Some(id.clone()))
-                {
-                    Err(HandlerError::fault(
-                        "NotImplementedError",
-                        "not ported yet: ConversationStore.digest",
-                    ))
-                } else {
-                    Err(refusal(NO_CONVERSATION))
-                }
+            None => {
+                let rows = store.list(None).map_err(|e| refusal(e.to_string()))?;
+                Ok(obj(
+                    json!({"conversations": rows.into_iter().map(Value::Object).collect::<Vec<_>>()}),
+                ))
             }
+            Some(id) => match store.digest(&ferb_py::value::py_str(id)) {
+                Ok(digest) => Ok(obj(digest)),
+                Err(ferb_orchestrator::sql::Error::Value(_)) => Err(refusal(NO_CONVERSATION)),
+                Err(e) => Err(refusal(e.to_string())),
+            },
         }
+    }
+
+    /// areas/chat.py:140 `_conversations_change`: the owner pauses, resumes, takes over or closes a delegated
+    /// conversation (`change_conversation`), journaled with the owner as its origin; the conversation as it is now.
+    ///
+    /// Fixed against Python (ENG-6), as `conversations.list`: a ValueError (an unknown id, an unsupported action, a
+    /// resume while FERB is stopped) left the handler as an internal error; here it is refused in its own words.
+    pub fn conversations_change(&self, params: &Params) -> HandlerResult {
+        let id = required(params, "id")?;
+        let action = required(params, "action")?;
+        let words = required(params, "owner_words")?;
+        let inner = self.sup().inner();
+        inner
+            .change_conversation(&id, &action, &words)
+            .map_err(refusal)?;
+        let redacted = inner.deps.redactor.value(&Value::Object(params.clone()));
+        inner.journal("conversation.owner_change", redacted, Some(origin::OWNER));
+        let row = inner
+            .conversations()
+            .get(&id)
+            .map_err(|e| refusal(e.to_string()))?;
+        Ok(obj(json!({"conversation": row})))
     }
 
     /// areas/chat.py:146 `_ui_click_through` (D31): the notch's click-through windows, from FERB's own app only.

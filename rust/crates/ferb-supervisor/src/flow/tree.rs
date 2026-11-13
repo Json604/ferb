@@ -22,7 +22,6 @@ use serde_json::{json, Map, Value};
 
 use super::{Emit, Failure, Flow, Inner, Tree, TreeState};
 use crate::words::*;
-use crate::NotPorted;
 
 /// supervisor.py `RESTORED_WAITS`: the waits a restart asks again as themselves.
 pub const RESTORED_WAITS: [&str; 2] = ["check_in", "runtime_switch"];
@@ -265,15 +264,28 @@ impl Inner {
                 st.intake_receipts = t.intake_receipts.clone();
                 st.side_lines = t.side_lines.clone();
                 st.side_cards = t.side_cards.clone();
-                if t.screen.is_some() {
-                    return Err(
-                        NotPorted("Supervisor.run_tree (the start-of-task screenshot)").into(),
+                if let Some(front) = t.front() {
+                    // L12: the worker starts from the planner's picture (D26 clarified)
+                    st.start_image = t.front_image().cloned();
+                    let wrap = |text: &str| self.wrap(text);
+                    let withheld = t.seen.as_ref().and_then(|s| s.withheld.clone());
+                    st.start_block = Some(
+                        crate::planner::front_window_block(
+                            Some(front),
+                            st.start_image.is_some(),
+                            START_SCREENSHOT,
+                            withheld.as_deref(),
+                            None,
+                            None,
+                            &wrap,
+                        )
+                        .block,
                     );
                 }
                 (
-                    t.screen
+                    t.fronts()
                         .iter()
-                        .map(|s| s.origin.clone())
+                        .map(|f| f.origin.clone())
                         .collect::<Vec<_>>(),
                     // a scheduled run's request carries what the message that made it carried (L4)
                     if t.request_origins.is_empty() {
@@ -437,8 +449,9 @@ impl Inner {
                 .map(|l| l.row.get("approved").is_some_and(ferb_py::value::truthy))
                 .unwrap_or(false);
             if (plan.big_job || !plan.standing_sends.is_empty()) && !approved {
-                self.forget_tree_now(&tree, request_id);
-                return Err(NotPorted("Supervisor._plan_statement").into());
+                // D24/D30 (L3): a big job's plan and any standing scope are stated here, never asked; work starts
+                // and a reply corrects it (a steer)
+                stated.push_str(&self.stated_line(&tree, plan));
             }
             if plan.steps.iter().any(Step::loops) {
                 // how each loop ends (L31)
@@ -467,10 +480,7 @@ impl Inner {
         release();
         let _ = emit.send(Value::Object(plan_event));
         self.record_planner_reads(&tree, &root_span, request_id);
-        if spec.identity == "ferb" {
-            self.forget_tree_now(&tree, request_id);
-            return Err(NotPorted("Supervisor._browse_as").into());
-        }
+        self.browse_as(&tree).await; // APP-777: before any worker of the tree starts
         self.deps.daemon.on_task_start(&tree_id).await;
         let mut rx = self.runs.open_live(&tree_id);
         self.live().live_lines.insert(tree_id.clone());
@@ -568,24 +578,6 @@ impl Inner {
             return Err(Failure::Cancelled);
         }
         Ok(())
-    }
-
-    /// A tree registered by `run_tree` that ends before it runs (a path not ported): its live records go again.
-    fn forget_tree_now(&self, tree: &Arc<Tree>, request_id: &str) {
-        let _ = request_id;
-        let members: Vec<String> = {
-            let live = self.live();
-            live.tree_of
-                .iter()
-                .filter(|(_, t)| t.id == tree.id)
-                .map(|(k, _)| k.clone())
-                .collect()
-        };
-        for tid in members {
-            self.live().tree_of.remove(&tid);
-            self.runs.forget_tree(&tid);
-            self.task_remove(&tid);
-        }
     }
 
     /// supervisor.py:4637 `_plan_event`.
@@ -1307,7 +1299,8 @@ impl Inner {
             let answering = answer_steps(spec.plan.as_ref(), &spec.parts);
             let answers = self.answer_conditions(&spec, &step.id, &answering);
             let result = if step.kind == "converse" {
-                return Err(NotPorted("Supervisor._conversation_steps").into());
+                self.conversation_steps(tree, step, span, &prior, answers)
+                    .await?
             } else {
                 self.loop_step(tree, step, span, prior, answers).await?
             };
@@ -1432,7 +1425,7 @@ impl Inner {
             });
         }
         child_spec.success_conditions = conditions;
-        let mut child = tree.worker.clone();
+        let mut child = tree.worker_task();
         child.id = format!("{}.step.{}", tree.id, step.id);
         child.goal = step.goal.clone();
         child.success_conditions = child_spec
@@ -1764,7 +1757,7 @@ impl Inner {
         step_id: &str,
         card: Map<String, Value>,
     ) -> Map<String, Value> {
-        let task = tree.worker.clone();
+        let task = tree.worker_task();
         let (reply, wait) = loop {
             let mut wait = super::owner_wait::Wait::new(
                 &tree.id,
@@ -2002,9 +1995,9 @@ impl Inner {
             .get("approved")
             .is_some_and(ferb_py::value::truthy);
         if (plan.big_job || !plan.standing_sends.is_empty()) && !approved {
-            return Err(
-                NotPorted("Supervisor._execute_plan (a stated plan's standing scope)").into(),
-            );
+            // D24/D30 (L3): the plan line stated the plan and its standing scope; work starts at once and the owner
+            // corrects by replying (a steer). Nothing waits for a Yes. The grant names the recorded statement.
+            self.state_plan(tree, &plan)?;
         }
         let spec = tree.spec();
         let single = spec.plan.is_none();

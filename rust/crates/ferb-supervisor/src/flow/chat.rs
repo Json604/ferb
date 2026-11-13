@@ -65,7 +65,8 @@ impl Supervisor {
             session_id: text("session_id", "default"),
             text: text("text", ""),
             input_paths: paths,
-            screen: false,
+            // L12: captured as it arrives, when the daemon captures at send
+            screen: self.inner.deps.daemon.captures_at_send(),
         })
     }
 }

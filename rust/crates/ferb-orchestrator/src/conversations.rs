@@ -5,6 +5,7 @@
 //! decision: ORCH-301, GATE-566
 
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Map, Value};
@@ -70,14 +71,42 @@ pub struct GuardCall {
     pub declared: Vec<String>,
 }
 
+/// The store a [`ConversationStore`] reads and writes: a borrowed connection (`&Db`, the default), or one shared
+/// between threads behind a lock (`Arc<Mutex<Db>>`, [`ConversationStoreShared`]). Each read or write takes it once and
+/// never across an await.
+pub trait ConversationDb {
+    fn with_db<T>(&self, f: impl FnOnce(&ferb_store::Db) -> T) -> T;
+}
+
+impl ConversationDb for &ferb_store::Db {
+    fn with_db<T>(&self, f: impl FnOnce(&ferb_store::Db) -> T) -> T {
+        f(self)
+    }
+}
+
+impl ConversationDb for Arc<Mutex<ferb_store::Db>> {
+    fn with_db<T>(&self, f: impl FnOnce(&ferb_store::Db) -> T) -> T {
+        f(&self.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+}
+
 /// conversations.py:54 `ConversationStore`.
-pub struct ConversationStore<'a> {
-    pub db: &'a ferb_store::Db,
+///
+/// `ConversationStore<'a>` borrows its connection (`&'a Db`). Over a shared one ([`ConversationStoreShared`], made by
+/// [`ConversationStore::shared`]) the store is `Sync` and lives as long as its owner, so [`run_conversation_with`] on it
+/// is a `Send` future: a conversation can run inside a task that moves between threads (the supervisor's), and the
+/// one store keeps its waits across the owner's changes, as Python's one store per supervisor does.
+pub struct ConversationStore<'a, D: ConversationDb = &'a ferb_store::Db> {
+    pub db: D,
     pub now: Arc<dyn Fn() -> String + Send + Sync>,
     pub redact: Redact,
     pub publish: crate::ports::Publish,
     wake: Mutex<HashMap<String, Arc<Wake>>>,
+    life: PhantomData<&'a ()>,
 }
+
+/// A conversation store on a connection shared between threads.
+pub type ConversationStoreShared = ConversationStore<'static, Arc<Mutex<ferb_store::Db>>>;
 
 fn shift_take(row: &mut Map<String, Value>, key: &str) -> Value {
     row.shift_remove(key).unwrap_or(Value::Null)
@@ -96,7 +125,34 @@ impl<'a> ConversationStore<'a> {
             redact,
             publish,
             wake: Mutex::new(HashMap::new()),
+            life: PhantomData,
         }
+    }
+}
+
+impl ConversationStoreShared {
+    /// The store on a connection shared between threads.
+    pub fn shared(
+        db: Arc<Mutex<ferb_store::Db>>,
+        now: Arc<dyn Fn() -> String + Send + Sync>,
+        redact: Redact,
+        publish: crate::ports::Publish,
+    ) -> ConversationStoreShared {
+        ConversationStore {
+            db,
+            now,
+            redact,
+            publish,
+            wake: Mutex::new(HashMap::new()),
+            life: PhantomData,
+        }
+    }
+}
+
+impl<'a, D: ConversationDb> ConversationStore<'a, D> {
+    /// One read or write on the store's connection.
+    fn conn<T>(&self, f: impl FnOnce(&rusqlite::Connection) -> T) -> T {
+        self.db.with_db(|db| f(db.conn()))
     }
 
     fn waker(&self, ident: &str) -> Arc<Wake> {
@@ -110,11 +166,13 @@ impl<'a> ConversationStore<'a> {
 
     /// conversations.py:60 `get`.
     pub fn get(&self, ident: &str) -> Result<Map<String, Value>> {
-        let Some(mut row) = sql::row(
-            self.db.conn(),
-            "SELECT * FROM delegated_conversations WHERE id=?",
-            &[text(ident)],
-        )?
+        let Some(mut row) = self.conn(|c| {
+            sql::row(
+                c,
+                "SELECT * FROM delegated_conversations WHERE id=?",
+                &[text(ident)],
+            )
+        })?
         else {
             return Err(Error::Value("No such delegated conversation".into()));
         };
@@ -135,16 +193,20 @@ impl<'a> ConversationStore<'a> {
     /// conversations.py:69 `list`.
     pub fn list(&self, tree_id: Option<&str>) -> Result<Vec<Map<String, Value>>> {
         let rows = match tree_id {
-            Some(t) => sql::rows(
-                self.db.conn(),
-                "SELECT id FROM delegated_conversations WHERE tree_id=? ORDER BY created_at",
-                &[text(t)],
-            )?,
-            None => sql::rows(
-                self.db.conn(),
-                "SELECT id FROM delegated_conversations ORDER BY created_at",
-                &[],
-            )?,
+            Some(t) => self.conn(|c| {
+                sql::rows(
+                    c,
+                    "SELECT id FROM delegated_conversations WHERE tree_id=? ORDER BY created_at",
+                    &[text(t)],
+                )
+            })?,
+            None => self.conn(|c| {
+                sql::rows(
+                    c,
+                    "SELECT id FROM delegated_conversations ORDER BY created_at",
+                    &[],
+                )
+            })?,
         };
         rows.iter().map(|r| self.get(&sql::col(r, "id"))).collect()
     }
@@ -165,11 +227,13 @@ impl<'a> ConversationStore<'a> {
                 indent: None,
             },
         );
-        if let Some(existing) = sql::row(
-            self.db.conn(),
-            "SELECT tree_id,scope_json FROM delegated_conversations WHERE id=?",
-            &[text(ident)],
-        )? {
+        if let Some(existing) = self.conn(|c| {
+            sql::row(
+                c,
+                "SELECT tree_id,scope_json FROM delegated_conversations WHERE id=?",
+                &[text(ident)],
+            )
+        })? {
             if sql::col(&existing, "tree_id") != tree_id
                 || sql::col(&existing, "scope_json") != encoded
             {
@@ -179,22 +243,23 @@ impl<'a> ConversationStore<'a> {
             }
             return self.get(ident);
         }
-        if let Some(prior) = sql::row(
-            self.db.conn(),
-            "SELECT id,status FROM delegated_conversations WHERE tree_id=? AND scope_json=?",
-            &[text(tree_id), text(&encoded)],
-        )? {
+        if let Some(prior) = self.conn(|c| {
+            sql::row(
+                c,
+                "SELECT id,status FROM delegated_conversations WHERE tree_id=? AND scope_json=?",
+                &[text(tree_id), text(&encoded)],
+            )
+        })? {
             return Err(Error::Value(format!(
                 "This task already has that conversation scope ({}); a new ID cannot repeat its approval or sends",
                 sql::col(&prior, "id")
             )));
         }
         let at = (self.now)();
-        sql::exec(
-            self.db.conn(),
+        self.conn(|c| sql::exec(c,
             "INSERT INTO delegated_conversations(id,tree_id,scope_json,status,created_at,updated_at) VALUES(?,?,?,'proposed',?,?)",
             &[text(ident), text(tree_id), text(&encoded), text(&at), text(&at)],
-        )?;
+        ))?;
         self.get(ident)
     }
 
@@ -205,20 +270,22 @@ impl<'a> ConversationStore<'a> {
                 "Only a pending conversation can receive its one owner approval".into(),
             ));
         }
-        sql::exec(
-            self.db.conn(),
-            "UPDATE delegated_conversations SET status=?,approval_id=?,updated_at=? WHERE id=?",
-            &[
-                text(if answer == "Yes" {
-                    "active"
-                } else {
-                    "declined"
-                }),
-                text(approval_id),
-                text(&(self.now)()),
-                text(ident),
-            ],
-        )?;
+        self.conn(|c| {
+            sql::exec(
+                c,
+                "UPDATE delegated_conversations SET status=?,approval_id=?,updated_at=? WHERE id=?",
+                &[
+                    text(if answer == "Yes" {
+                        "active"
+                    } else {
+                        "declined"
+                    }),
+                    text(approval_id),
+                    text(&(self.now)()),
+                    text(ident),
+                ],
+            )
+        })?;
         self.signal(ident);
         Ok(())
     }
@@ -231,11 +298,13 @@ impl<'a> ConversationStore<'a> {
                 "Conversation worker belongs to another task tree".into(),
             ));
         }
-        sql::exec(
-            self.db.conn(),
-            "INSERT OR REPLACE INTO conversation_workers VALUES(?,?)",
-            &[text(task_id), text(ident)],
-        )?;
+        self.conn(|c| {
+            sql::exec(
+                c,
+                "INSERT OR REPLACE INTO conversation_workers VALUES(?,?)",
+                &[text(task_id), text(ident)],
+            )
+        })?;
         Ok(())
     }
 
@@ -244,11 +313,13 @@ impl<'a> ConversationStore<'a> {
         if call.observation {
             return Ok(None);
         }
-        let bound = sql::row(
-            self.db.conn(),
-            "SELECT conversation_id FROM conversation_workers WHERE task_id=?",
-            &[text(&call.task_id)],
-        )?;
+        let bound = self.conn(|c| {
+            sql::row(
+                c,
+                "SELECT conversation_id FROM conversation_workers WHERE task_id=?",
+                &[text(&call.task_id)],
+            )
+        })?;
         let Some(bound) = bound else {
             let root = call.task_id.split('.').next().unwrap_or("").to_string();
             for row in self.list(Some(&root))? {
@@ -337,11 +408,13 @@ impl<'a> ConversationStore<'a> {
     /// conversations.py:139 `events`.
     pub fn events(&self, ident: &str, after: i64) -> Result<Vec<Value>> {
         self.get(ident)?;
-        sql::rows(
-            self.db.conn(),
-            "SELECT * FROM conversation_events WHERE conversation_id=? AND seq>? ORDER BY seq",
-            &[text(ident), rusqlite::types::Value::Integer(after)],
-        )?
+        self.conn(|c| {
+            sql::rows(
+                c,
+                "SELECT * FROM conversation_events WHERE conversation_id=? AND seq>? ORDER BY seq",
+                &[text(ident), rusqlite::types::Value::Integer(after)],
+            )
+        })?
         .iter()
         .map(|r| {
             Ok(
@@ -358,12 +431,15 @@ impl<'a> ConversationStore<'a> {
             return Ok(());
         };
         let id = crate::py::str_of(id);
-        if sql::row(
-            self.db.conn(),
-            "SELECT 1 FROM forgotten_refs WHERE ref=?",
-            &[text(&format!("trail:{id}"))],
-        )?
-        .is_some()
+        if self
+            .conn(|c| {
+                sql::row(
+                    c,
+                    "SELECT 1 FROM forgotten_refs WHERE ref=?",
+                    &[text(&format!("trail:{id}"))],
+                )
+            })?
+            .is_some()
         {
             return Ok(());
         }
@@ -421,12 +497,11 @@ impl<'a> ConversationStore<'a> {
             }
             let clean = (self.redact)(data);
             let ident = sql::col(&row, "id");
-            sql::exec(
-                self.db.conn(),
+            self.conn(|c| sql::exec(c,
                 "INSERT OR IGNORE INTO conversation_events(conversation_id,source_id,origin,data_json,at) \
                  VALUES(?,?,'external:conversation',?,?)",
                 &[text(&ident), text(&format!("trail:{id}")), text(&ferb_py::json::dumps(&clean)), text(&(self.now)())],
-            )?;
+            ))?;
             self.signal(&ident);
         }
         Ok(())
@@ -435,12 +510,15 @@ impl<'a> ConversationStore<'a> {
     /// conversations.py:175 `pending`.
     pub fn pending(&self, ident: &str) -> Result<bool> {
         let row = self.get(ident)?;
-        Ok(sql::row(
-            self.db.conn(),
-            "SELECT 1 FROM conversation_events WHERE conversation_id=? AND seq>?",
-            &[text(ident), sql::to_sql(&row["cursor"])],
-        )?
-        .is_some())
+        Ok(self
+            .conn(|c| {
+                sql::row(
+                    c,
+                    "SELECT 1 FROM conversation_events WHERE conversation_id=? AND seq>?",
+                    &[text(ident), sql::to_sql(&row["cursor"])],
+                )
+            })?
+            .is_some())
     }
 
     /// conversations.py:180 `begin_turn`.
@@ -454,21 +532,24 @@ impl<'a> ConversationStore<'a> {
                 "The owner has not authorized an active conversation".into(),
             ));
         }
-        let cursor = sql::row(
-            self.db.conn(),
+        let cursor = self
+            .conn(|c| {
+                sql::row(c,
             "SELECT COALESCE(MAX(seq),0) AS m FROM conversation_events WHERE conversation_id=?",
             &[text(ident)],
-        )?
-        .and_then(|r| r.get("m").and_then(|v| v.as_i64()))
-        .unwrap_or(0);
+        )
+            })?
+            .and_then(|r| r.get("m").and_then(|v| v.as_i64()))
+            .unwrap_or(0);
         let number = row.get("turn").and_then(|v| v.as_i64()).unwrap_or(0) + 1;
-        let c = self.db.conn();
+        let now = (self.now)();
+        self.conn(|c| -> Result<()> {
         c.execute_batch("BEGIN IMMEDIATE")?;
         let run = || -> Result<()> {
             sql::exec(
                 c,
                 "UPDATE delegated_conversations SET turn=?,turn_cursor=?,status='active',updated_at=? WHERE id=?",
-                &[rusqlite::types::Value::Integer(number), rusqlite::types::Value::Integer(cursor), text(&(self.now)()), text(ident)],
+                &[rusqlite::types::Value::Integer(number), rusqlite::types::Value::Integer(cursor), text(&now), text(ident)],
             )?;
             sql::exec(
                 c,
@@ -484,17 +565,21 @@ impl<'a> ConversationStore<'a> {
                 return Err(e);
             }
         }
+        Ok(())
+        })?;
         Ok(number)
     }
 
     /// conversations.py:198 `finish_turn`.
     pub fn finish_turn(&self, ident: &str, number: i64, output: &Value) -> Result<()> {
         let row = self.get(ident)?;
-        let previous = sql::row(
-            self.db.conn(),
-            "SELECT status FROM conversation_turns WHERE conversation_id=? AND number=?",
-            &[text(ident), rusqlite::types::Value::Integer(number)],
-        )?;
+        let previous = self.conn(|c| {
+            sql::row(
+                c,
+                "SELECT status FROM conversation_turns WHERE conversation_id=? AND number=?",
+                &[text(ident), rusqlite::types::Value::Integer(number)],
+            )
+        })?;
         let mut output = output.clone();
         if previous.is_some_and(|p| sql::col(&p, "status") == "evidence_forgotten") {
             output = json!({"status": "blocked", "summary": "Source evidence was forgotten; inspect afresh after owner resume.",
@@ -538,7 +623,8 @@ impl<'a> ConversationStore<'a> {
             .get("status")
             .cloned()
             .unwrap_or(Value::String("blocked".into()));
-        let c = self.db.conn();
+        let now = (self.now)();
+        self.conn(|c| -> Result<()> {
         c.execute_batch("BEGIN IMMEDIATE")?;
         let run = || -> Result<()> {
             sql::exec(
@@ -549,7 +635,7 @@ impl<'a> ConversationStore<'a> {
             sql::exec(
                 c,
                 "UPDATE delegated_conversations SET status=?,cursor=turn_cursor,handover_json=COALESCE(?,handover_json),updated_at=? WHERE id=?",
-                &[text(&status), sql::opt(handover.as_deref()), text(&(self.now)()), text(ident)],
+                &[text(&status), sql::opt(handover.as_deref()), text(&now), text(ident)],
             )?;
             Ok(())
         };
@@ -560,6 +646,8 @@ impl<'a> ConversationStore<'a> {
                 return Err(e);
             }
         }
+        Ok(())
+        })?;
         self.signal(ident);
         Ok(())
     }
@@ -588,16 +676,24 @@ impl<'a> ConversationStore<'a> {
             ));
         }
         let words = (self.redact)(&Value::String(owner_words.into()));
-        sql::exec(
-            self.db.conn(),
+        self.conn(|c| sql::exec(c,
             "INSERT INTO conversation_owner_changes(conversation_id,action,owner_words,at) VALUES(?,?,?,?)",
             &[text(ident), text(action), sql::to_sql(&words), text(&(self.now)())],
-        )?;
+        ))?;
         self.set_status(ident, status)
     }
 
     /// conversations.py:237 `wait`: whether a turn may run now; false when it ended or was stopped.
     pub async fn wait(&self, ident: &str, stopped: &dyn Fn() -> bool) -> Result<bool> {
+        self.wait_until(ident, stopped).await
+    }
+
+    /// `wait` with any stop check: over a `Sync` one (and a shared store) its future is `Send`.
+    pub async fn wait_until<F: ?Sized + Fn() -> bool>(
+        &self,
+        ident: &str,
+        stopped: &F,
+    ) -> Result<bool> {
         let wake = self.waker(ident);
         while !stopped() {
             wake.clear();
@@ -624,11 +720,13 @@ impl<'a> ConversationStore<'a> {
     }
 
     fn set_status(&self, ident: &str, status: &str) -> Result<()> {
-        sql::exec(
-            self.db.conn(),
-            "UPDATE delegated_conversations SET status=?,updated_at=? WHERE id=?",
-            &[text(status), text(&(self.now)()), text(ident)],
-        )?;
+        self.conn(|c| {
+            sql::exec(
+                c,
+                "UPDATE delegated_conversations SET status=?,updated_at=? WHERE id=?",
+                &[text(status), text(&(self.now)()), text(ident)],
+            )
+        })?;
         self.signal(ident);
         Ok(())
     }
@@ -639,9 +737,10 @@ impl<'a> ConversationStore<'a> {
 
     /// conversations.py:261 `forget_sources`: an explicit owner forget only.
     pub fn forget_sources(&self, refs: &[String]) -> Result<Value> {
-        let c = self.db.conn();
         let mut affected: Vec<String> = Vec::new();
         let mut events = 0usize;
+        let notices = self.db.with_db(|db| -> Result<usize> {
+        let c = db.conn();
         c.execute_batch("BEGIN IMMEDIATE")?;
         let run = |affected: &mut Vec<String>, events: &mut usize| -> Result<usize> {
             let now = (self.now)();
@@ -668,7 +767,7 @@ impl<'a> ConversationStore<'a> {
                 )?;
             }
             let notices = crate::attention::expire_derived(
-                self.db,
+                db,
                 refs,
                 "Source evidence was forgotten.",
                 &(self.now)(),
@@ -683,16 +782,17 @@ impl<'a> ConversationStore<'a> {
             }
             Ok(notices)
         };
-        let notices = match run(&mut affected, &mut events) {
+        match run(&mut affected, &mut events) {
             Ok(n) => {
                 c.execute_batch("COMMIT")?;
-                n
+                Ok(n)
             }
             Err(e) => {
                 let _ = c.execute_batch("ROLLBACK");
-                return Err(e);
+                Err(e)
             }
-        };
+        }
+        })?;
         for ident in &affected {
             self.signal(ident);
         }
@@ -705,11 +805,10 @@ impl<'a> ConversationStore<'a> {
     pub fn digest(&self, ident: &str) -> Result<Value> {
         let row = self.get(ident)?;
         let mut turns = Vec::new();
-        for mut t in sql::rows(
-            self.db.conn(),
+        for mut t in self.conn(|c| sql::rows(c,
             "SELECT number,status,output_json FROM conversation_turns WHERE conversation_id=? ORDER BY number",
             &[text(ident)],
-        )? {
+        ))? {
             let raw = shift_take(&mut t, "output_json");
             let text_ = match raw.as_str() {
                 Some(s) if !s.is_empty() => s.to_string(),
@@ -718,12 +817,11 @@ impl<'a> ConversationStore<'a> {
             t.insert("output".into(), sql::loads(&text_)?);
             turns.push(Value::Object(t));
         }
-        let sends = sql::rows(
-            self.db.conn(),
+        let sends = self.conn(|c| sql::rows(c,
             "SELECT l.id,l.task_id,l.capability,l.target_json,l.state,l.evidence_json FROM action_ledger l JOIN \
              conversation_workers w ON w.task_id=l.task_id WHERE w.conversation_id=? ORDER BY l.rowid",
             &[text(ident)],
-        )?;
+        ))?;
         Ok(json!({"conversation": Value::Object(row), "turns": turns,
                   "actions": sends.into_iter().map(Value::Object).collect::<Vec<_>>(),
                   "warning": "Ledger done means tool returned; use turn evidence for delivery. Unknown actions must not be repeated automatically."}))
@@ -755,6 +853,18 @@ pub trait ConversationTurns {
 pub async fn run_conversation(
     store: &ConversationStore<'_>,
     host: &dyn ConversationTurns,
+    ident: &str,
+    tree_id: &str,
+    scope: &ConversationScope,
+) -> Result<Value> {
+    run_conversation_with(store, host, ident, tree_id, scope).await
+}
+
+/// [`run_conversation`] on any store and host. On a [`ConversationStoreShared`] with a host that is `Sync` (e.g.
+/// `&(dyn ConversationTurns + Send + Sync)`) its future is `Send`.
+pub async fn run_conversation_with<D: ConversationDb, H: ?Sized + ConversationTurns>(
+    store: &ConversationStore<'_, D>,
+    host: &H,
     ident: &str,
     tree_id: &str,
     scope: &ConversationScope,
@@ -807,8 +917,7 @@ pub async fn run_conversation(
                 json!({"status": "blocked", "summary": "The conversation needs your attention.", "conversation_id": ident}),
             );
         }
-        let quiet = &stopped as &dyn Fn() -> bool;
-        if !store.wait(ident, quiet).await? {
+        if !store.wait_until(ident, &stopped).await? {
             continue;
         }
         let number = store.begin_turn(ident)?;

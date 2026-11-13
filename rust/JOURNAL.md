@@ -1286,3 +1286,34 @@ daemon untouched. Left in place: `build/rust-app-arm64/FERB.app` and `build/rust
 - On a development home the tool bridge refuses, because model programs pass `FERB_HOME` but not `FERB_DEV_HOME`.
 - Claude Code's start-time version check has not run inside `ferbd` against the real program.
 - `release-appcast.sh` has not run on a Rust disk image.
+
+## 2026-11-13 · 52 · The supervisor's last gaps
+
+**What.** Delegated conversations, on a shared-store form of `ferb-orchestrator`'s conversation runner (added
+beside the old one, a Send future); a big job's plan statement and standing scope, restated by a correction; the
+front window captured at send, the image-refused rerun, the start-of-task screenshot; inventory walks;
+`_browse_as`; the intro's preview; attention; a correction's new goal and conditions reaching the worker and the
+checker (they ride on the tree, since a Rust `Task` does not change).
+
+**Evidence.** 6 new recordings from the Python daemon (conversation_handover, conversation_change, stated_scope,
+front_window, preview_attention, browse_as_corrected): **65 recorded scenarios replay fully** in all (28 + 10 +
+27). A script comparing the Python class's methods (read with `ast`: 258, not the 282 counted by grep earlier)
+with citations in the Rust: 246 ported, 2 kept as `NotPorted` only under their old signatures (`preview`,
+`route_question`: the working versions are `preview_events` and `route_worker_question`), 10 not cited anywhere
+and probably inlined (`_targets`, `_waits_for`, `finish_episodes`, `stop_episodes`, `_fixing_step`,
+`_told_not_done` and four more), not verified. Format, clippy and the iOS check pass for both crates (run by the
+porting agent).
+
+**Fixed against Python.** `conversations.change` with an unknown id answered an internal error; it is refused in
+plain words.
+
+**Open.**
+- No recording behind: probes (arming, reads, `_look_only`), sites named elsewhere, `asked_only_about`,
+  `displaced_question`, inventory walks, resuming a conversation whose task no longer runs, a capture that times
+  out. A probe recording needs the recorder to record the gateway's probe reads.
+- The ten uncited methods need checking one by one.
+- `turn::Arrival.seen` changed type (one breaking change for `ferbd`). `ferbd`'s standing-scope and
+  named-destination seams are no-ops and must write the tables.
+- If the store fails while forgetting a conversation's trail copies, Rust journals `conversation.forget_failed`
+  where Python would raise.
+- The fixture folder is about 6.3 MB.

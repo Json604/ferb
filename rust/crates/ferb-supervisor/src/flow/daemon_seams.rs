@@ -92,7 +92,6 @@ impl Tasks for SupervisorTasks {
     fn mention_paused(&self) -> LocalFuture<()> {
         let sup = self.supervisor.clone();
         let job = self.runtime.spawn(async move {
-            // (not ported: the day's mentions are not made; NotPorted names it)
             let _ = sup.inner().mention_paused().await;
         });
         Box::pin(async move {
@@ -120,7 +119,7 @@ impl Tasks for SupervisorTasks {
     }
 
     fn forget_trail_copies(&self, trail: &std::collections::BTreeSet<String>) {
-        // (not ported: delegated conversations' copies; NotPorted names it)
+        // copied conversation evidence goes and its delegations pause (conversations.py `forget_sources`)
         let _ = self.supervisor.inner().forget_trail_copies(trail);
     }
 }

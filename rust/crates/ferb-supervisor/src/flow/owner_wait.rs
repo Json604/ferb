@@ -238,7 +238,7 @@ impl Inner {
         !tree.lock().stop.is_empty() && !self.live().suspending
     }
 
-    /// `request_id in state.approvals.unattended`.
+    /// supervisor.py:1788 `_unattended`: `request_id in state.approvals.unattended`.
     pub fn unattended_task(&self, task: &Task) -> bool {
         self.deps.daemon.unattended(&task.request_id)
     }

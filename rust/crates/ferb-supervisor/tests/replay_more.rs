@@ -256,3 +256,45 @@ fn runtime_switch_tap() {
 fn event_wait() {
     full("event_wait");
 }
+
+// decision: ORCH-301
+// decision: ORCH-322
+#[test]
+fn conversation_handover() {
+    full("conversation_handover");
+}
+
+// decision: ORCH-301
+// decision: ORCH-520
+#[test]
+fn conversation_change() {
+    full("conversation_change");
+}
+
+// decision: ORCH-503
+// decision: ORCH-306
+#[test]
+fn stated_scope() {
+    full("stated_scope");
+}
+
+// decision: ORCH-524
+// decision: DMN-520
+// decision: ORCH-529
+#[test]
+fn front_window() {
+    full("front_window");
+}
+
+// decision: ORCH-500
+// decision: SENSE-2
+#[test]
+fn preview_attention() {
+    full("preview_attention");
+}
+
+// decision: APP-777
+#[test]
+fn browse_as_corrected() {
+    full("browse_as_corrected");
+}

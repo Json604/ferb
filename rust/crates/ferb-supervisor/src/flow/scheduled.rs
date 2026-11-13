@@ -725,10 +725,28 @@ impl Inner {
         cleared
     }
 
-    /// The daemon's forget of trail rows' copies outside memory (`conversations.forget_sources`): delegated
-    /// conversations are not ported.
-    pub fn forget_trail_copies(&self, _trail: &BTreeSet<String>) -> Result<(), NotPorted> {
-        Err(NotPorted("ConversationStore.forget_sources"))
+    /// The daemon's forget of trail rows' copies outside memory (areas/memory.py:475
+    /// `conversations.forget_sources({"trail:" + t ...})`): copied conversation evidence goes and its delegations
+    /// pause. A store failure is the daemon's to report (Python's exception left the forget there); here it is
+    /// journaled, as the seam carries no error.
+    pub fn forget_trail_copies(&self, trail: &BTreeSet<String>) -> Result<(), NotPorted> {
+        let refs: Vec<String> = trail.iter().map(|t| format!("trail:{t}")).collect();
+        if let Err(e) = self.forget_conversation_sources(&refs) {
+            self.journal(
+                "conversation.forget_failed",
+                json!({"refs": refs.len(), "error": e}),
+                None,
+            );
+        }
+        Ok(())
+    }
+
+    /// conversations.py:261 `ConversationStore.forget_sources` on the supervisor's store: `{conversation_events,
+    /// conversation_evidence, attention_notices}`; Err: the store's words.
+    pub fn forget_conversation_sources(&self, refs: &[String]) -> Result<Value, String> {
+        self.conversations()
+            .forget_sources(refs)
+            .map_err(|e| e.to_string())
     }
 }
 

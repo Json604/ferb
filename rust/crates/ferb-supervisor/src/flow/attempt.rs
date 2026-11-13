@@ -399,7 +399,7 @@ impl Inner {
 
     /// supervisor.py:6135 `_worker`: the attempt loop.
     pub async fn worker_loop(&self, tree: &Arc<Tree>, span: &str) -> Flow<Outcome> {
-        let task = tree.worker.clone();
+        let mut task = tree.worker_task();
         let mut instructions = String::new();
         let mut attempts = Attempts::default();
         tree.lock().confirmed.clear();
@@ -426,6 +426,8 @@ impl Inner {
                 }
             }
             self.new_attempt(tree);
+            // Python's `tree.worker` is the one object a correction changes: each attempt reads it as it is now
+            task = tree.worker_task();
             self.set_status(&task.id, "running", None);
             let mut ctx = self.context(tree, true).await?;
             ctx.push(protected(instructions.clone(), "current continuation"));
@@ -1037,7 +1039,7 @@ impl Inner {
         tree: &Arc<Tree>,
         span: &str,
     ) -> Flow<(Vec<ConditionResult>, Option<CheckerOutcome>)> {
-        let task = tree.worker.clone();
+        let task = tree.worker_task();
         let (conditions, watch, watch_met) = {
             let st = tree.lock();
             (

@@ -777,13 +777,19 @@ fn conversations_case(w: &World, c: &mut Check, sc: &Value) {
     }
 }
 
-struct RunnerHost {
-    db: &'static Db,
+struct RunnerHost<D: LoopDb = &'static Db> {
+    db: D,
     emitted: Mutex<Vec<Value>>,
     turns: Mutex<Vec<Value>>,
 }
 
-impl conversations::ConversationTurns for RunnerHost {
+impl LoopDb for Arc<Mutex<Db>> {
+    fn with<T>(&self, f: impl FnOnce(&rusqlite::Connection) -> T) -> T {
+        f(self.lock().unwrap().conn())
+    }
+}
+
+impl<D: LoopDb> conversations::ConversationTurns for RunnerHost<D> {
     fn approve<'a>(
         &'a self,
         text: &'a str,
@@ -808,13 +814,13 @@ impl conversations::ConversationTurns for RunnerHost {
             .unwrap()
             .push(json!(["turn", ident, number, events, digest]));
         if number == 1 {
-            self.db
-                .conn()
-                .execute_batch(
+            self.db.with(|conn| {
+                conn.execute_batch(
                     "INSERT INTO conversation_events(conversation_id,source_id,origin,data_json,at) \
                      VALUES('c9','trail:e9','external:conversation','{\"text\": \"hi\"}','x')",
                 )
-                .unwrap();
+                .unwrap()
+            });
         }
         let next = self.turns.lock().unwrap().remove(0);
         Box::pin(async move { next })
@@ -828,7 +834,14 @@ impl conversations::ConversationTurns for RunnerHost {
     }
 }
 
-fn runner_case(w: &World, c: &mut Check, sc: &Value) {
+fn runner_turns() -> Mutex<Vec<Value>> {
+    Mutex::new(vec![
+        json!({"status": "done", "conversation_action": "wait", "summary": "asked"}),
+        json!({"status": "done", "conversation_action": "handover", "summary": "she said hi", "evidence": ["trail:e9"]}),
+    ])
+}
+
+fn runner_case(w: &World, c: &mut Check, sc: &Value, shared: bool) {
     let store = conversations::ConversationStore::new(
         w.db,
         w.now_fn(),
@@ -838,10 +851,20 @@ fn runner_case(w: &World, c: &mut Check, sc: &Value) {
     let host = RunnerHost {
         db: w.db,
         emitted: Mutex::new(vec![]),
-        turns: Mutex::new(vec![
-            json!({"status": "done", "conversation_action": "wait", "summary": "asked"}),
-            json!({"status": "done", "conversation_action": "handover", "summary": "she said hi", "evidence": ["trail:e9"]}),
-        ]),
+        turns: runner_turns(),
+    };
+    // the shared form: a second connection to the same file, behind a lock, for the store and the host alike
+    let second = Arc::new(Mutex::new(Db::open(w.db.path()).unwrap()));
+    let shared_store = conversations::ConversationStoreShared::shared(
+        second.clone(),
+        w.now_fn(),
+        w.redact(),
+        Arc::new(|_: &str, _: Value| {}),
+    );
+    let shared_host = RunnerHost {
+        db: second,
+        emitted: Mutex::new(vec![]),
+        turns: runner_turns(),
     };
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -850,6 +873,13 @@ fn runner_case(w: &World, c: &mut Check, sc: &Value) {
     for step in steps(sc) {
         let a = &step["args"];
         let got = match step["op"].as_str().unwrap() {
+            "run" if shared => out(rt.block_on(sendable(conversations::run_conversation_with(
+                &shared_store,
+                &shared_host as &(dyn conversations::ConversationTurns + Send + Sync),
+                &s(&a[0]),
+                &s(&a[1]),
+                &scope(&a[2]),
+            )))),
             "run" => out(rt.block_on(conversations::run_conversation(
                 &store,
                 &host,
@@ -857,6 +887,7 @@ fn runner_case(w: &World, c: &mut Check, sc: &Value) {
                 &s(&a[1]),
                 &scope(&a[2]),
             ))),
+            "emitted" if shared => Value::Array(shared_host.emitted.lock().unwrap().clone()),
             "emitted" => Value::Array(host.emitted.lock().unwrap().clone()),
             other => panic!("runner: no op {other}"),
         };
@@ -2253,6 +2284,29 @@ fn chat_history_case(w: &World, c: &mut Check, sc: &Value) {
     }
 }
 
+/// The conversation runner's scenario again on `ConversationStoreShared` (its connection shared between threads, its
+/// run a `Send` future): the same approval, turns, emits and rows.
+#[test]
+fn conversation_runner_matches_python_on_the_shared_store() {
+    let all = fixture("stores.json");
+    let scenario = all
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["name"] == "conversation_runner")
+        .unwrap();
+    let (_dir, w) = open_world(scenario);
+    let mut c = Check {
+        name: "conversation_runner (shared)".into(),
+        differ: vec![],
+        count: 0,
+    };
+    runner_case(&w, &mut c, scenario, true);
+    c.tables(scenario, w.db, &w.root);
+    assert!(c.count > 0);
+    assert!(c.differ.is_empty(), "{}", c.differ.join("\n"));
+}
+
 /// The loop scenario again through `LoopRunnerShared` (its rows and host shared between threads, its run a `Send`
 /// future): the same rounds, reads, notices and rows.
 #[test]
@@ -2295,7 +2349,7 @@ fn stores_match_python() {
             "tree" => tree_case(&w, &mut c, scenario),
             "continuity" => continuity_case(&w, &mut c, scenario),
             "conversations" => conversations_case(&w, &mut c, scenario),
-            "conversation_runner" => runner_case(&w, &mut c, scenario),
+            "conversation_runner" => runner_case(&w, &mut c, scenario, false),
             "parts" => parts_case(&w, &mut c, scenario),
             "loops" => loops_case(&w, &mut c, scenario, false),
             "plan_executor" => executor_case(&w, &mut c, scenario),

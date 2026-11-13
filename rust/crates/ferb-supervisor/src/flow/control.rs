@@ -29,7 +29,6 @@ use super::owner_wait::Wait;
 use super::turn::origin_set;
 use super::{Emit, Failure, Flow, Inner, Request, Supervisor, Tree, Turn};
 use crate::words::*;
-use crate::NotPorted;
 
 fn obj(v: Value) -> Map<String, Value> {
     match v {
@@ -229,7 +228,7 @@ impl Inner {
             )
             .await
             .map_err(|e| e.message())?;
-        let Some(text) = steered else {
+        let Some((text, _)) = steered else {
             return Err(CARD_TASK_ENDED.into());
         };
         self.journal(
@@ -319,6 +318,7 @@ impl Inner {
 
     /// supervisor.py:6125 `cancel_tree`.
     pub fn cancel_tree(&self, tree: &Arc<Tree>) {
+        self.conversations().wake_all();
         let stop = {
             let s = tree.lock().stop.clone();
             if s.is_empty() {
@@ -364,6 +364,7 @@ impl Inner {
     /// supervisor.py:2279 `cancel_all`: every running run is cancelled and every tree stops ("FERB was stopped"; a
     /// shutdown's stop is SHUT_DOWN and the tree resumes after the restart).
     pub fn cancel_all(&self) {
+        self.conversations().wake_all();
         for run in self.runs.active() {
             tokio::spawn(async move { run.control.cancel().await });
         }
@@ -626,7 +627,7 @@ impl Inner {
                 let kept = self.kept_unchanged(&active, out.task.as_ref());
                 self.steered_extras(&active, out.task.as_ref());
                 let said = self.redact_text(&out.text);
-                if let Some(text) = self
+                if let Some((text, restated)) = self
                     .apply_steering(
                         &active,
                         &conversation,
@@ -655,7 +656,12 @@ impl Inner {
                     opts.ready = true;
                     opts.named = named;
                     opts.extra = Some(obj(json!({"task_id": active.id})));
-                    return self.exit_as(turn, &out, "reply", &text, opts, emit).await;
+                    self.exit_as(turn, &out, "reply", &text, opts, emit).await?;
+                    if let Some(restated) = restated.filter(|r| r.widened) {
+                        // a new or wider scope covers sends only once stated
+                        self.grant_restated(&active, &restated);
+                    }
+                    return Ok(());
                 }
             }
             if let Some(active) = active.clone().filter(|a| !a.lock().accepting_updates) {
@@ -997,8 +1003,9 @@ impl Inner {
         let Some(spec) = spec else { return Vec::new() };
         let current = tree.spec();
         let mut lines = Vec::new();
-        // (APP-777's "ferb" for a task that browses as the owner: `_browse_as` is not ported, so none does)
-        if spec.identity != current.identity {
+        // APP-777: the planner's "ferb" for a task that browses as the owner (FERB has no profile) is no change
+        let as_owner = tree.lock().as_owner;
+        if spec.identity != current.identity && !(as_owner && spec.identity == "ferb") {
             let who = if current.identity == "owner" {
                 "you"
             } else {
@@ -1064,7 +1071,7 @@ impl Inner {
         standing: &StandingSends,
         supersedes: &[String],
         said: &str,
-    ) -> Flow<Option<String>> {
+    ) -> Flow<Option<(String, Option<ferb_orchestrator::steering::Restated>)>> {
         let mut state = tree.steering.lock().await;
         if !tree.lock().accepting_updates {
             return Ok(None);
@@ -1075,17 +1082,14 @@ impl Inner {
             .get(&tree.id)
             .is_some_and(|t| Arc::ptr_eq(t, tree));
         if !tree.lock().stop.is_empty() || !current {
-            return Ok(Some(JUST_ENDED.to_string()));
-        }
-        if !matches!(standing, StandingSends::Unchanged) {
-            return Err(NotPorted("steering.restate_scope (a revised standing scope)").into());
+            return Ok(Some((JUST_ENDED.to_string(), None)));
         }
         let (request_id, words, payload, made, shown, turn_kinds, source_ref) = {
             let t = turn.lock().unwrap();
             let shown: BTreeSet<String> = t
-                .screen
+                .fronts()
                 .iter()
-                .flat_map(|s| origin::split(Some(&s.origin)))
+                .flat_map(|f| origin::split(Some(&f.origin)))
                 .filter(|o| origin::is_external(o))
                 .collect();
             (
@@ -1119,7 +1123,19 @@ impl Inner {
                 ferb_orchestrator::steering::apply_spec(current, &corrected);
             }
         }
-        // (the worker Task's goal and conditions are read from the tree's spec by each attempt's context)
+        // `tree.worker.goal = tree.spec.goal`, `tree.worker.success_conditions = [...]`: the next attempt's worker,
+        // its checker and every member made after this read them (`Tree::worker_task`)
+        {
+            let mut st = tree.lock();
+            let spec = st.spec.clone().expect("a tree's spec");
+            st.worker_goal = Some(spec.goal.clone());
+            st.worker_conditions = Some(
+                spec.success_conditions
+                    .iter()
+                    .map(|c| c.text.clone())
+                    .collect(),
+            );
+        }
         let tree_spec = tree.spec();
         let (new_words, new_payload) = ferb_orchestrator::steering::corrected_request(
             &prior.words,
@@ -1150,6 +1166,12 @@ impl Inner {
             asked_origins: asked,
         };
         self.deps.daemon.record_request(&updated);
+        // D30: the planner's decision about the tree's stated standing scope, made for every correction
+        let restated = match standing {
+            StandingSends::Unchanged => None,
+            StandingSends::Scopes(revised) => self.restate(tree, revised),
+        };
+        let tree_spec = tree.spec();
         let prior_task = tree.lock().prior_task.clone();
         self.continuity(|c| {
             c.save(
@@ -1270,11 +1292,14 @@ impl Inner {
             tokio::task::yield_now().await;
         }
         let delivered = !active.is_empty() && accepted.iter().all(|a| *a);
-        Ok(Some(acknowledgement(
-            self.deps.policy.as_ref(),
-            said,
-            delivered,
-            None,
+        Ok(Some((
+            acknowledgement(
+                self.deps.policy.as_ref(),
+                said,
+                delivered,
+                restated.as_ref().map(|r| r.text.as_str()),
+            ),
+            restated,
         )))
     }
 
@@ -1339,9 +1364,13 @@ impl Inner {
         opts: ExitAs,
         emit: &Emit,
     ) -> Flow<()> {
-        if opts.side && super::turn::has_side_entries(out) {
-            // the side entries are the forward path's (`_side_entries`): applied there once it is ported
-            return Err(NotPorted("Supervisor._side_entries").into());
+        let effects = if opts.side {
+            self.side_entries_named(turn, out, &opts.named).await?
+        } else {
+            super::turn::Side::default()
+        };
+        for ev in &effects.events {
+            let _ = emit.send(ev.clone());
         }
         let mut said = if opts.ready || opts.by == origin::FERB {
             text.to_string()
@@ -1361,10 +1390,32 @@ impl Inner {
                 t.acknowledged.clear();
             }
         }
+        let mut code_lines = String::new();
+        if !effects.lines.is_empty() {
+            code_lines = super::turn::own_tagged(
+                &self.redact_text(&effects.lines.join("\n")),
+                &effects.lines,
+                &effects.own,
+            );
+            said = format!("{}\n{code_lines}", said.trim_end());
+        }
+        let mut extra = opts.extra.clone();
+        if !effects.cards.is_empty() {
+            // step 8e: the app draws these in place of their lines
+            let mut e = extra.unwrap_or_default();
+            let mut cards: Vec<Value> = e
+                .get("cards")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            cards.extend(self.said_cards(&effects.cards, true));
+            e.insert("cards".into(), Value::Array(cards));
+            extra = Some(e);
+        }
         let written = match opts.made {
             Some(m) if !m.is_empty() => m,
             _ => {
-                if opts.by == origin::FERB {
+                if opts.by == origin::FERB && effects.lines.is_empty() {
                     origin_set(&[origin::FERB])
                 } else {
                     let mut w = turn.lock().unwrap().turn_origins.clone();
@@ -1374,7 +1425,7 @@ impl Inner {
             }
         };
         let told = opts.told.as_ref().map(|(a, b)| (a.as_str(), b.as_str()));
-        self.record_reply(turn, kind, &said, &written, "", told)
+        self.record_reply(turn, kind, &said, &written, &code_lines, told)
             .await;
         let (session, rid, typed, payload) = {
             let t = turn.lock().unwrap();
@@ -1391,7 +1442,7 @@ impl Inner {
         }
         self.release(&session, &rid);
         let mut event = obj(json!({"type": kind, "text": said}));
-        if let Some(extra) = opts.extra {
+        if let Some(extra) = extra {
             event.extend(extra);
         }
         let _ = emit.send(Value::Object(event));

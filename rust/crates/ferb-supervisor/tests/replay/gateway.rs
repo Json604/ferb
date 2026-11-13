@@ -150,7 +150,8 @@ impl Tool for Scripted {
             ) {
                 _ if is_error => vec![],
                 ("fs.read", Some(p)) => vec![("file".to_string(), p.to_string())],
-                ("task.evidence", _) => origins
+                // conversation_tools.py: the reads it names (`origin` pairs), as the recorded footer says them
+                ("task.evidence", _) | ("conversation.read", _) => origins
                     .iter()
                     .map(|o| ("origin".to_string(), o.clone()))
                     .collect(),

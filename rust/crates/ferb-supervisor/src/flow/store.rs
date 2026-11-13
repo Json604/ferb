@@ -366,7 +366,7 @@ impl Inner {
 
     // --- tasks (tree.py `TaskTree`) ---
 
-    fn tasks<T>(&self, f: impl FnOnce(&TaskTree<'_>) -> T) -> T {
+    pub(crate) fn tasks<T>(&self, f: impl FnOnce(&TaskTree<'_>) -> T) -> T {
         let db = self.db();
         let now = self.now_iso();
         let tree = TaskTree::new(Some(&db), Box::new(move || now.clone()));
