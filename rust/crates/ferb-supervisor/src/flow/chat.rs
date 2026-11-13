@@ -138,10 +138,11 @@ impl Inner {
         }
         let _ = tx.send(Value::Object(ack));
         let me = self.me();
-        tokio::spawn(async move {
+        let job = tokio::spawn(async move {
             me.turn_stream(session, text, paths, request_id, hidden, params.screen, tx)
                 .await;
         });
+        self.track(job);
         Ok(rx)
     }
 
@@ -242,9 +243,15 @@ impl Inner {
             }
             let _ = out.send(ev);
         };
+        // the daemon's shutdown cancels the turn where it is (main.py's drain): nothing more is sent, a running tree
+        // finishes its own clean-up (run_tree), and the stream ends
         let result = loop {
+            if self.shutting_down_now() {
+                break None;
+            }
             tokio::select! {
                 biased;
+                _ = self.shutting_down() => break None,
                 Some(ev) = rx.recv() => {
                     let mut batch = vec![ev];
                     while let Ok(ev) = rx.try_recv() {
@@ -254,8 +261,17 @@ impl Inner {
                         take(ev, &mut my_tasks);
                     }
                 }
-                r = &mut run => break r,
+                r = &mut run => break Some(r),
             }
+        };
+        let Some(result) = result else {
+            if self.runs_tree_for(&request_id) {
+                let _ = run.await;
+            }
+            if let Some(leave) = unsubscribe {
+                leave();
+            }
+            return;
         };
         let mut rest = Vec::new();
         while let Ok(ev) = rx.try_recv() {
@@ -303,6 +319,14 @@ impl Inner {
                 ));
             }
         }
+    }
+
+    /// A tree of this request is running (its run takes the shutdown's path itself).
+    fn runs_tree_for(&self, request_id: &str) -> bool {
+        self.live()
+            .tree_of
+            .values()
+            .any(|t| t.worker.request_id == request_id)
     }
 
     /// `tid in my_tasks or self.tasks.tree_of(str(tid)) in my_tasks`.
@@ -360,7 +384,7 @@ impl Inner {
     }
 
     /// notify.py:33 `_task_result`: what FERB told the owner about a task, recorded.
-    fn task_result(&self, ev: &Value, shown: bool) {
+    pub fn task_result(&self, ev: &Value, shown: bool) {
         let ev = self.redact(ev);
         let s = |k: &str| match ev.get(k) {
             None | Some(Value::Null) => String::new(),

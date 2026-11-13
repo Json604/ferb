@@ -14,6 +14,8 @@ unsafe_op_in_unsafe_fn = "deny"
 default = ["store"]
 # The flows (intake to result): they read and write the Mac's SQLite store through ferb-orchestrator's stores, as the
 # Python supervisor does. Without it the crate is the composition alone (prompts, history, planner blocks, lines).
+# The supervisor plugged into the daemon's areas (flow/daemon_seams.rs): ferb-daemon's group A seams. Mac-side.
+daemon = ["store", "dep:ferb-daemon", "ferb-gateway/store"]
 store = ["dep:ferb-store", "dep:rusqlite", "dep:ferb-worker", "dep:ferb-trace", "dep:ferb-policy", "dep:ferb-fs", "dep:ferb-learning", "dep:ferb-memory", "dep:futures-util", "ferb-orchestrator/store", "ferb-clock/store"]
 
 [dependencies]
@@ -25,6 +27,7 @@ ferb-context = { path = "../ferb-context" }
 ferb-gateway = { path = "../ferb-gateway", default-features = false }
 ferb-rpc = { path = "../ferb-rpc" }
 ferb-core = { path = "../ferb-core" }
+ferb-daemon = { path = "../ferb-daemon", optional = true }
 ferb-fs = { path = "../ferb-fs", optional = true }
 ferb-learning = { path = "../ferb-learning", default-features = false, optional = true }
 ferb-memory = { path = "../ferb-memory", default-features = false, optional = true }
@@ -45,6 +48,9 @@ hex = "0.4"
 tokio = { version = "1.54.1", features = ["sync", "time", "rt", "macros"] }
 
 [dev-dependencies]
+# the tests run with the daemon's seams (the replay drives ferb-daemon's real handlers and timer loop)
+ferb-supervisor = { path = ".", features = ["daemon"] }
+ferb-daemon = { path = "../ferb-daemon" }
 tempfile = "3.20.0"
 tokio = { version = "1.54.1", features = ["sync", "time", "rt", "macros", "test-util"] }
 # the replay's real gateway (its call pipeline on the store), its file tools, change records and timers

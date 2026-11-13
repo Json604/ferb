@@ -73,13 +73,25 @@ part owns (`learning_*`; `perception_floor`, `recall_state`, `trail_changes`, wr
   stream takes the events that became ready together as Python's loop hands them over (grouped by queue, the queue
   that got the first event first: `chat.rs` `as_python_wakes`).
 - **The daemon's own plumbing** a chat scenario reaches is emulated in the harness: compose.py's `_publish` (a task's
-  question names its request) and `_question_record` (`question.asked` / `question.answered`). The daemon's other RPC
-  areas (`reminders.*`, `timers.*`, `schedules.*`, `stop.engage`, `notifications.subscribe`) and the timer loop's
-  delivery are passed over and named in the report.
+  question names its request) and `_question_record` (`question.asked` / `question.answered`), the global stop's
+  `stop.engage` / `stop.lift` (ferb-gateway's `StopControl` order: block, revoke the run tokens, the hooks), and
+  group B's notifier (each banner becomes the `notifications.subscribe.event` line a connected FERB.app gets).
+- **The daemon's group A is real** where a scenario reaches it (`tests/replay/daemon_side.rs`): ferb-daemon's
+  `areas_a` on its own loop thread, served by a real ferb-rpc server on a socket in the run's folder (its
+  `schedules.*`, `reminders.*`, `timers.*` lines compared byte for byte), its timer loop's pass at each `timers_tick`
+  step, a schedule's run and its bookkeeping, with the supervisor in its seams (`flow::daemon_seams`). The timer claim
+  token counter starts where the recorder's real-time loop was (read from the recording's `timers` table).
+- **A restart** stops the supervisor as the daemon's shutdown does (`Supervisor::shut_down`: suspend, `cancel_all`,
+  every turn drained), writes the desktop observer's shutdown summary and `daemon.stopped`, then builds a new gateway
+  and supervisor on the same store with ids under the step's prefix (`recover_after_restart`, the start's recorded
+  rows, `mark_unknown_after_restart`, `start_resume`).
 - Inputs read from `scenarios.json`: each planner call's environment and live facts (`supervise`), each role's
   instruction inputs (`system`), each context's activity search (its `/FX` written as the run's folder) and desktop
   observations (`context`); the desktop observer's spans are copied from the daemon fixture's `spans` table.
 
-23 of the 28 replay fully. The other five: `timer_set_and_fired` and `schedule_created_and_fired` reach the daemon's
-schedule and timer RPCs and its timer loop (and a schedule made in chat isn't ported), `global_stop` needs the daemon's
-`stop.engage`, `restart_mid_task` and `restart_with_open_question` need a restart.
+All 28 replay fully (2,271 comparisons). One deliberate difference is applied to the recording before it is compared:
+GATE-581, `global_stop`'s "(from the task) FERB was stopped" is "FERB was stopped" (`FIXES` in tests/replay.rs).
+
+`tests/rpc_server.rs` replays 20 recorded chat and task request lines of `rpc_transcripts.json` through
+`chat_rpc::register` on a real ferb-rpc server (one deliberate difference: `conversations.list {id}` of an unknown
+conversation is refused in plain words, where Python answered an internal error).

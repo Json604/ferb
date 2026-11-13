@@ -1955,7 +1955,7 @@ async fn wait_step(w: &World, until_: &str) -> bool {
 
 /// The daemon's shutdown and a new start on the same store (main.py's `shutdown`, then a new `Daemon`).
 async fn restart(w: &mut World, prefix: &str) {
-    w.sup.shut_down();
+    w.sup.shut_down().await;
     for _ in 0..500 {
         tokio::task::yield_now().await;
     }

@@ -10,11 +10,15 @@
 //! memory, schedules, the change records, the literal checks) and ferb-worker's runtime factory. The store is FERB's
 //! SQLite database, written through ferb-orchestrator's stores as Python writes it.
 //!
-//! Not ported here (each answers [`crate::NotPorted`] by its Python name): control of running work (stop, pause,
-//! steer, continue, retry), suspend and resume, restart recovery, scheduled runs, waits for the owner (a plan's ask
-//! step, a checker's `ask`, the check-in after five attempts, a runtime switch), loops, delegated conversations, the
-//! side entries (memory, forgets, reminders, schedules), the running summary's fold, the planner's lookups' last call,
-//! the image-refused rerun and the intro preview.
+//! Control and recovery are in [`control`], [`owner_wait`], [`restart`] (the shutdown's suspension, the restart's
+//! recovery and resume) and [`scheduled`] (a schedule's run); a schedule made or changed from chat in
+//! [`schedules_chat`]; the daemon's seams for the supervisor in `daemon_seams` (feature `daemon`).
+//!
+//! Not ported here (each answers [`crate::NotPorted`] by its Python name): several asks in one answer (the card),
+//! plans that state a big job or standing sends, loops, delegated conversations, wait and ask steps, the memory and
+//! forget side entries, the running summary's fold, the planner's lookups' last call, the image-refused rerun, the
+//! front window at send, `_browse_as`, `_result_problems`, inventory walks, the intro preview, `route_question`,
+//! `mention_paused`.
 
 pub mod attempt;
 pub mod chat;
@@ -30,6 +34,9 @@ pub mod restart;
 pub mod scheduled;
 // the forward path's joins to the daemon: the gateway's observer (`_Watch`), the chat RPCs (areas/chat.py)
 pub mod chat_rpc;
+#[cfg(feature = "daemon")]
+pub mod daemon_seams;
+pub mod schedules_chat;
 pub mod side;
 pub mod steps;
 pub mod watch;
@@ -261,6 +268,24 @@ pub trait Daemon: Send + Sync {
     /// `gateway.reopen_noes(tree_id, request_id, source)`: the owner's own new message carrying a task on reopens
     /// each No recorded in its tree before it (L11 round 4).
     fn reopen_noes(&self, _tree_id: &str, _request_id: &str, _source: &str) {}
+    /// `_grant_in_force(approval_id)`: a schedule's grant (`schedule:<id>`) holds only while that schedule may still
+    /// run with it (D30).
+    fn grant_in_force(&self, _approval_id: &str) -> bool {
+        true
+    }
+    /// `standing.grant(tree_id, scopes, approval_id)`.
+    fn standing_grant(&self, _tree_id: &str, _scopes: &[Value], _approval_id: &str) {}
+    /// A task resumed after a restart ended (`on_resumed_outcome`, schedules.py `_resumed_outcome`): a scheduled run's
+    /// result goes through its schedule's bookkeeping. True when the daemon took it; false: the supervisor records it
+    /// as any task's result (`_task_result(event, shown=False)`).
+    fn resumed_outcome<'a>(&'a self, _event: &'a Value) -> BoxFuture<'a, bool> {
+        Box::pin(async { false })
+    }
+    /// The schedules port (Python's `SchedulePort`: a schedule made, edited or changed from chat, a reminder
+    /// cancelled, the schedules card); None: those side entries are not available here.
+    fn schedules_chat(&self) -> Option<Arc<dyn schedules_chat::SchedulesChat>> {
+        None
+    }
     /// `ledger.mark_unknown_after_restart()`: the intents a restart cut off, now of unknown outcome (restart.rs).
     fn mark_unknown_after_restart(&self) -> Vec<String> {
         Vec::new()
@@ -390,6 +415,10 @@ pub struct Turn {
     pub prepare: Option<turn::Prepare>,
     /// Trees whose Noes this turn reopened (`reopened`, control.rs).
     pub reopened: BTreeSet<String>,
+    /// A scheduled run's: what the message that made it carried (L4), its request's origins for the sink rule.
+    pub request_origins: BTreeSet<String>,
+    /// A scheduled run's previous run that left an answer (`schedule_previous`).
+    pub schedule_previous: Option<scheduled::Previous>,
 }
 
 impl Turn {
@@ -478,6 +507,8 @@ pub struct TreeState {
     pub stop_told_in: String,
     /// The wait a restart asks again as itself (`restored_wait`: a check-in or a runtime switch, owner_wait.rs).
     pub restored_wait: Map<String, Value>,
+    /// A restart came during the step's fix round (ORCH-545): what the plan row kept (`restored_fix`).
+    pub restored_fix: Map<String, Value>,
 }
 
 /// A tree (or a plan step's member tree): its ids, its state and the corrections it shares with its root.
@@ -524,6 +555,8 @@ pub struct Live {
     pub questions: HashMap<String, String>,
     /// `_suspending`: FERB is shutting down; its trees resume after the restart (restart.rs).
     pub suspending: bool,
+    /// `_plan_runs`' keys: the trees whose plan runner runs now.
+    pub plan_runs: BTreeSet<String>,
 }
 
 /// The supervisor. Cheap to clone; every flow runs on a shared [`Inner`].
@@ -540,6 +573,13 @@ pub struct Inner {
     pub(crate) me: Weak<Inner>,
     /// The workers' liveness (guards.py `Activity`, `self.activity`).
     pub(crate) activity: Arc<ferb_orchestrator::guards::Activity>,
+    /// The daemon's shutdown has begun (main.py `shutdown`'s drain of the chat turns): every turn and run stops where
+    /// it is, as Python's cancellation does (restart.rs).
+    pub(crate) shutdown: tokio::sync::watch::Sender<bool>,
+    /// The chat turns and resumed runs under way (the daemon's `_turns | _runs`), drained at shutdown.
+    pub(crate) jobs: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    /// L34 Phase G (`hold_new_work`): false while an update holds new work.
+    pub(crate) work_open: tokio::sync::watch::Sender<bool>,
 }
 
 impl Supervisor {
@@ -554,6 +594,9 @@ impl Supervisor {
             worker: OnceLock::new(),
             live: Mutex::new(Live::default()),
             me: me.clone(),
+            shutdown: tokio::sync::watch::channel(false).0,
+            jobs: Mutex::new(Vec::new()),
+            work_open: tokio::sync::watch::channel(true).0,
         });
         let host = Arc::new(host::Host {
             sup: Arc::downgrade(&inner),

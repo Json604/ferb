@@ -24,6 +24,30 @@ use super::{Emit, Failure, Flow, Inner, Tree, TreeState};
 use crate::words::*;
 use crate::NotPorted;
 
+/// supervisor.py `RESTORED_WAITS`: the waits a restart asks again as themselves.
+pub const RESTORED_WAITS: [&str; 2] = ["check_in", "runtime_switch"];
+
+/// `run_tree`'s keyword arguments.
+#[derive(Clone, Debug, Default)]
+pub struct RunOpts {
+    pub conversation: Option<String>,
+    pub prior_task: Option<String>,
+    /// What the request's planning turn was given (S3); empty: unlabeled outside content.
+    pub origins: BTreeSet<String>,
+    /// The tree to resume in place (a restart, a continue or retry of an ended task).
+    pub resume_id: Option<String>,
+    /// Resumed after a restart: its steps carry on as saved, and nothing is said again.
+    pub restored: bool,
+    /// The standing scopes in force for a run nobody attends (None: the owner is present).
+    pub unattended_scopes: Option<Vec<Value>>,
+    /// D30: scopes recorded with the owner earlier (a schedule's) and their approval id.
+    pub start_grant: Option<(Vec<Value>, String)>,
+    /// A watch's check (fix wave 6c).
+    pub watch: bool,
+    /// The schedule run this is (kept with the plan).
+    pub schedule: Option<Map<String, Value>>,
+}
+
 /// The step id of a single task's one step, its worker's (`WORKER`).
 pub const WORKER: &str = SINGLE;
 
@@ -150,7 +174,8 @@ impl Inner {
     }
 
     /// supervisor.py:4465 `run_tree`: one task's run; its events on `emit`. `release`: the turn lets the chat go once
-    /// the plan line is out.
+    /// the plan line is out. A shutdown suspends it (restart.rs): nothing records an end, and it resumes after the
+    /// restart in place (`opts.resume_id`, `opts.restored`).
     #[allow(clippy::too_many_arguments)] // run_tree's own arguments
     pub async fn run_tree(
         &self,
@@ -158,13 +183,17 @@ impl Inner {
         text: &str,
         request_id: &str,
         message: &str,
-        conversation: Option<&str>,
-        prior_task: Option<&str>,
-        origins: &BTreeSet<String>,
+        opts: RunOpts,
         emit: &Emit,
         release: &(dyn Fn() + Send + Sync),
     ) -> Flow<()> {
-        let tree_id = self.new_id();
+        // L34 Phase G: an update's hold (the shutdown ends the wait)
+        self.work_opened().await;
+        let tree_id = opts.resume_id.clone().unwrap_or_else(|| self.new_id());
+        let conversation = opts.conversation.as_deref();
+        let prior_task = opts.prior_task.as_deref();
+        let origins = &opts.origins;
+        let restored = opts.restored;
         let scopes = self.deps.daemon.all_scopes();
         let root = Task {
             id: tree_id.clone(),
@@ -199,6 +228,18 @@ impl Inner {
             deadline: None,
         };
         let turn = self.turn_of(request_id);
+        let schedule_id = opts
+            .schedule
+            .as_ref()
+            .and_then(|s| s.get("id"))
+            .map(ferb_py::value::py_str);
+        let schedule_facts = opts
+            .schedule
+            .as_ref()
+            .and_then(|s| s.get("facts"))
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
         let tree = Arc::new(Tree {
             id: tree_id.clone(),
             worker: worker.clone(),
@@ -208,6 +249,10 @@ impl Inner {
                 spec: Some(spec.clone()),
                 prior_task: prior_task.map(str::to_string),
                 accepting_updates: true,
+                unattended_scopes: opts.unattended_scopes.clone(),
+                watch: opts.watch,
+                schedule_id,
+                schedule_facts,
                 ..TreeState::default()
             }),
             steering: Arc::default(),
@@ -230,14 +275,20 @@ impl Inner {
                         .iter()
                         .map(|s| s.origin.clone())
                         .collect::<Vec<_>>(),
-                    t.message_origin.clone(),
+                    // a scheduled run's request carries what the message that made it carried (L4)
+                    if t.request_origins.is_empty() {
+                        t.message_origin.clone()
+                    } else {
+                        t.request_origins.clone()
+                    },
                 )
             }
             None => (Vec::new(), BTreeSet::new()),
         };
         if let Some(t) = &turn {
             let mut t = t.lock().unwrap();
-            if !t.said_first.is_empty() {
+            if !t.said_first.is_empty() && !restored {
+                // ORCH-638: said once, in this plan event
                 let mut st = tree.lock();
                 st.said_first = std::mem::take(&mut t.said_first);
                 st.said_first_cards = std::mem::take(&mut t.said_first_cards);
@@ -306,15 +357,20 @@ impl Inner {
         let unattended = self.deps.daemon.unattended(request_id);
         let mut message_origins: Vec<&String> = request_origins.iter().collect();
         message_origins.sort();
-        let saved = json!({"spec": dump_task_spec(&spec).to_value(), "request_id": request_id,
+        let mut saved = obj(
+            json!({"spec": dump_task_spec(&spec).to_value(), "request_id": request_id,
             "words": request.words, "payload": request.payload,
             "origins": origins.iter().collect::<Vec<_>>(), "message_origins": message_origins,
-            "unattended": unattended});
+            "unattended": unattended}),
+        );
+        if let Some(schedule) = opts.schedule.as_ref().filter(|s| !s.is_empty()) {
+            saved.insert("schedule".into(), Value::Object(schedule.clone()));
+        }
+        let saved = Value::Object(saved);
         match &spec.plan {
             Some(plan) => self.plans(|p| p.create(&tree_id, plan, &saved, conversation))?,
-            None => {
-                self.plans(|p| p.create_single(&tree_id, &spec.goal, &saved, conversation, false))?
-            }
+            None => self
+                .plans(|p| p.create_single(&tree_id, &spec.goal, &saved, conversation, restored))?,
         }
         if !receipts.is_empty() {
             let s = self.span_start(
@@ -340,17 +396,35 @@ impl Inner {
         self.runs.set_tree(&tree_id, tree.clone());
         self.runs.set_tree(&worker.id, tree.clone());
         if spec.parts.len() > 1 {
+            // (the tree is registered: its end below takes it out again)
+            self.forget_tree_now(&tree, request_id);
             return Err(NotPorted("Supervisor.run_tree (several asks: the card)").into());
         }
         self.deps.daemon.task_folders(&tree_id, Some(&spec.folders));
         if spec.keep_tabs_open {
             self.deps.daemon.keep_tabs_open(&tree_id);
         }
-        self.deps.daemon.publish(
-            "task.created",
-            json!({"task_id": tree_id, "goal": spec.goal,
-                   "name": ferb_orchestrator::names::shown_name(Some(&spec.name), &spec.goal)}),
-        );
+        if !opts.watch {
+            self.deps.daemon.publish(
+                "task.created",
+                json!({"task_id": tree_id, "goal": spec.goal,
+                       "name": ferb_orchestrator::names::shown_name(Some(&spec.name), &spec.goal)}),
+            );
+        }
+        if let Some((grant, approval)) = opts.start_grant.as_ref().filter(|g| !g.0.is_empty()) {
+            // D30: scopes recorded with the owner earlier (a schedule's), checked again now
+            if self.deps.daemon.grant_in_force(approval) {
+                self.deps.daemon.standing_grant(&tree_id, grant, approval);
+            } else {
+                tree.lock().unattended_scopes = Some(Vec::new());
+                self.journal(
+                    "standing.withheld",
+                    json!({"task_id": tree_id, "approval_id": approval,
+                           "reason": "schedule no longer active"}),
+                    None,
+                );
+            }
+        }
         self.journal(
             "chat.plan",
             json!({"request_id": request_id, "task_id": tree_id}),
@@ -358,10 +432,16 @@ impl Inner {
         );
         let mut stated = String::new();
         if let Some(plan) = &spec.plan {
-            if plan.big_job || !plan.standing_sends.is_empty() {
+            let approved = self
+                .plans(|p| p.load(&tree_id))
+                .map(|l| l.row.get("approved").is_some_and(ferb_py::value::truthy))
+                .unwrap_or(false);
+            if (plan.big_job || !plan.standing_sends.is_empty()) && !approved {
+                self.forget_tree_now(&tree, request_id);
                 return Err(NotPorted("Supervisor._plan_statement").into());
             }
             if plan.steps.iter().any(Step::loops) {
+                self.forget_tree_now(&tree, request_id);
                 return Err(NotPorted("Supervisor.run_tree (loops)").into());
             }
         }
@@ -376,11 +456,12 @@ impl Inner {
             stated
                 .push_str(&self.redact_text(&format!("Sites: {}.", spec.targets.sites.join(", "))));
         }
-        let plan_event = self.plan_event(&tree, text, &stated);
+        let plan_event = self.plan_event(&tree, text, &stated, restored);
         release();
         let _ = emit.send(Value::Object(plan_event));
         self.record_planner_reads(&tree, &root_span, request_id);
         if spec.identity == "ferb" {
+            self.forget_tree_now(&tree, request_id);
             return Err(NotPorted("Supervisor._browse_as").into());
         }
         self.deps.daemon.on_task_start(&tree_id).await;
@@ -392,50 +473,122 @@ impl Inner {
             }
             let _ = emit.send(Value::Object(ev));
         };
-        let run = self.execute(&tree, &root_span);
-        tokio::pin!(run);
-        loop {
+        let mut run = Box::pin(self.execute(&tree, &root_span));
+        // the shutdown's cancellation comes first: once it began, nothing more of this run is told
+        let completed = loop {
+            if self.shutting_down_now() {
+                break false;
+            }
             tokio::select! {
                 biased;
+                _ = self.shutting_down() => break false,
                 Some(ev) = rx.recv() => forward(ev),
-                _ = &mut run => break,
+                done = &mut run => break done,
             }
-        }
-        while let Ok(ev) = rx.try_recv() {
-            forward(ev);
+        };
+        drop(run);
+        if completed {
+            while let Ok(ev) = rx.try_recv() {
+                forward(ev);
+            }
         }
         self.runs.close_live(&tree_id);
         self.live().live_lines.remove(&tree_id);
-        let (verification, stopped) = {
-            let st = tree.lock();
-            (st.verification.clone(), !st.stop.is_empty())
-        };
-        if !verification.is_empty() && !stopped {
-            let _ = emit.send(
-                json!({"type": "verification", "id": WORKER, "task_id": worker.id,
-                "results": verification.iter().map(ConditionResult::as_dict).collect::<Vec<_>>()}),
+        if !completed {
+            // Python's `except BaseException`: the run was cancelled (FERB's shutdown)
+            {
+                let suspending = self.live().suspending;
+                let mut st = tree.lock();
+                if st.stop.is_empty() {
+                    st.stop = if suspending {
+                        SHUT_DOWN.into()
+                    } else {
+                        "FERB was stopped".into()
+                    };
+                }
+            }
+            self.journal(
+                "task.interrupted",
+                json!({"task_id": tree_id, "error": "CancelledError"}),
+                None,
             );
+            self.cancel_tree(&tree);
+            self.release_resources(&tree, &root_span).await;
+        } else {
+            let (verification, stopped) = {
+                let st = tree.lock();
+                (st.verification.clone(), !st.stop.is_empty())
+            };
+            if !verification.is_empty() && !stopped {
+                let _ = emit.send(
+                    json!({"type": "verification", "id": WORKER, "task_id": worker.id,
+                    "results": verification.iter().map(ConditionResult::as_dict).collect::<Vec<_>>()}),
+                );
+            }
+            self.release_resources(&tree, &root_span).await;
         }
-        self.release_resources(&tree, &root_span).await;
-        self.deps.daemon.on_task_finish(&tree_id).await;
-        let answer = ferb_py::value::py_str(
-            self.redact(&Value::Object(self.final_(&tree)?))
-                .get("answer")
-                .unwrap_or(&Value::Null),
-        );
-        let made: Vec<String> = origin::split(Some(&self.task_made(&tree_id)))
-            .into_iter()
-            .collect();
-        let stored = ferb_policy::carried::derive(&answer, &self.tree_shown(&tree_id), &made);
+        // FERB's shutdown suspends the tree: it isn't over, and resumes after the restart, so nothing records an end
+        // and nothing of the task-end clean-up runs (ORCH-510)
+        let suspended = {
+            let suspending = self.live().suspending;
+            let st = tree.lock();
+            suspending && (st.outcome.is_none() || st.stop == SHUT_DOWN)
+        };
+        let mut stored = None;
+        if !suspended {
+            self.deps.daemon.on_task_finish(&tree_id).await;
+            let answer = ferb_py::value::py_str(
+                self.redact(&Value::Object(self.final_(&tree)?))
+                    .get("answer")
+                    .unwrap_or(&Value::Null),
+            );
+            let made: Vec<String> = origin::split(Some(&self.task_made(&tree_id)))
+                .into_iter()
+                .collect();
+            stored = Some(ferb_policy::carried::derive(
+                &answer,
+                &self.tree_shown(&tree_id),
+                &made,
+            ));
+        }
         let final_ = self
-            .finish_tree(&tree, &root_span, request_id, Some(stored))
+            .finish_tree(&tree, &root_span, request_id, suspended, stored)
             .await?;
-        let _ = emit.send(Value::Object(final_));
+        if !suspended && completed {
+            let _ = emit.send(Value::Object(final_));
+        }
+        if !completed {
+            return Err(Failure::Cancelled);
+        }
         Ok(())
     }
 
+    /// A tree registered by `run_tree` that ends before it runs (a path not ported): its live records go again.
+    fn forget_tree_now(&self, tree: &Arc<Tree>, request_id: &str) {
+        let _ = request_id;
+        let members: Vec<String> = {
+            let live = self.live();
+            live.tree_of
+                .iter()
+                .filter(|(_, t)| t.id == tree.id)
+                .map(|(k, _)| k.clone())
+                .collect()
+        };
+        for tid in members {
+            self.live().tree_of.remove(&tid);
+            self.runs.forget_tree(&tid);
+            self.task_remove(&tid);
+        }
+    }
+
     /// supervisor.py:4637 `_plan_event`.
-    fn plan_event(&self, tree: &Arc<Tree>, text: &str, stated: &str) -> Map<String, Value> {
+    fn plan_event(
+        &self,
+        tree: &Arc<Tree>,
+        text: &str,
+        stated: &str,
+        restored: bool,
+    ) -> Map<String, Value> {
         let spec = tree.spec();
         let plan_line = ferb_policy::confirm::from_task_lines(text);
         let lines: Vec<Value> = stated
@@ -456,6 +609,9 @@ impl Inner {
                 "work_in".into(),
                 json!(self.redact_text(&crate::lines::work_in(&spec.folders, &self.deps.home))),
             );
+        }
+        if restored {
+            event.insert("resumed".into(), json!(true));
         }
         event.extend(self.checklist(tree, None));
         self.said_first(tree, event)
@@ -643,6 +799,9 @@ impl Inner {
         let Some(root) = self.root(tree_id) else {
             return;
         };
+        if self.live().suspending {
+            return;
+        }
         let before = obj(root
             .lock()
             .step_states
@@ -736,8 +895,9 @@ impl Inner {
         }
     }
 
-    /// supervisor.py:6094 `_execute`.
-    async fn execute(&self, tree: &Arc<Tree>, span: &str) {
+    /// supervisor.py:6094 `_execute`. False: cancelled (a shutdown cut the step short; it runs again after the
+    /// restart), nothing recorded.
+    async fn execute(&self, tree: &Arc<Tree>, span: &str) -> bool {
         let worker = &tree.worker;
         let stop = tree.lock().stop.clone();
         let out = if !stop.is_empty() {
@@ -749,6 +909,7 @@ impl Inner {
             );
             match self.execute_plan(tree, span).await {
                 Ok(out) => out,
+                Err(Failure::Cancelled) => return false,
                 Err(e) => {
                     self.journal(
                         "task.execution_failed",
@@ -797,6 +958,7 @@ impl Inner {
             json!({"type": "subtask", "id": WORKER, "task_id": worker.id, "status": status,
                    "summary": out.summary, "role": "worker"}),
         );
+        true
     }
 
     /// supervisor.py:1784 `_stop_status`.
@@ -808,8 +970,14 @@ impl Inner {
         }
     }
 
-    /// supervisor.py:1778 `_stopped`.
+    /// supervisor.py:1778 `_stopped`: the one stop check: the task was stopped (by the owner, or FERB was stopped),
+    /// and FERB isn't merely shutting down (a shutdown suspends the tree; it resumes after the restart).
     pub fn stopped(&self, tree: &Arc<Tree>) -> bool {
+        !tree.lock().stop.is_empty() && !self.live().suspending
+    }
+
+    /// `tree.stop`: any stop words, a shutdown's included (the attempt loop's own check).
+    pub fn has_stop(&self, tree: &Arc<Tree>) -> bool {
         !tree.lock().stop.is_empty()
     }
 
@@ -840,6 +1008,35 @@ impl Inner {
             Some(&json!({"summary": out.summary})),
         );
         status
+    }
+
+    /// `_execute_plan`'s rounds: a correction that arrived after a step ended unfinished reaches the work still to do:
+    /// the unfinished steps run again under it, once per correction.
+    async fn run_plan_rounds(&self, tree: &Arc<Tree>, span: &str) -> Flow<Value> {
+        loop {
+            let result = self.run_plan(tree, span).await?;
+            let steering = tree.steering.lock().await.messages.len();
+            let states = self.plans(|p| p.steps(&tree.id))?;
+            let unheard = states.iter().any(|(_, s)| {
+                ["failed", "blocked", "needs_user"].contains(&s.status.as_str())
+                    && (s
+                        .output
+                        .get("steers_seen")
+                        .and_then(Value::as_i64)
+                        .unwrap_or(steering as i64)
+                        < steering as i64)
+            });
+            let status = result["status"].as_str().unwrap_or("").to_string();
+            if status == "done"
+                || status == "cancelled"
+                || self.stopped(tree)
+                || self.live().suspending
+                || !unheard
+            {
+                return Ok(result);
+            }
+            self.plans(|p| p.retry_unfinished(&tree.id))?;
+        }
     }
 
     /// The plan runner (plan_executor.py `PlanExecutor.run`): steps whose dependencies are done run together; a step
@@ -1014,18 +1211,57 @@ impl Inner {
             .get("previous_attempt")
             .cloned()
             .unwrap_or(Value::Null);
-        if previous.get("status").and_then(Value::as_str) == Some("paused")
-            || previous.get("fixing").is_some()
+        // a check-in or runtime switch it waited on when FERB restarted is asked again as itself (`_restored`)
+        let paused = previous.get("status").and_then(Value::as_str) == Some("paused");
+        let restored: Map<String, Value> = if paused
+            && previous
+                .get("question_kind")
+                .and_then(Value::as_str)
+                .is_some_and(|k| RESTORED_WAITS.contains(&k))
         {
-            return Err(NotPorted(
-                "Supervisor._execute_plan (a step a restart left waiting or fixing)",
-            )
-            .into());
+            previous.as_object().cloned().unwrap_or_default()
+        } else {
+            Map::new()
+        };
+        let fixing: Map<String, Value> = previous
+            .get("fixing")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        if paused && restored.is_empty() && !self.live().pauses.contains_key(&tree.id) {
+            // it waited for the owner when FERB restarted: it pauses again and asks again (rule 9)
+            let options: Vec<String> = previous
+                .get("options")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().map(ferb_py::value::py_str).collect())
+                .unwrap_or_default();
+            let options: Vec<&str> = options.iter().map(String::as_str).collect();
+            let made = previous
+                .get("origin")
+                .filter(|o| ferb_py::value::truthy(o))
+                .map(ferb_py::value::py_str)
+                .unwrap_or_else(|| origin::FERB.to_string());
+            let question = previous
+                .get("question")
+                .filter(|q| ferb_py::value::truthy(q))
+                .map(ferb_py::value::py_str)
+                .unwrap_or_default();
+            let wait = super::owner_wait::Wait::new(&tree.id, &question, &options, &made, TASK_ASK);
+            self.live().pauses.insert(tree.id.clone(), Arc::new(wait));
         }
         let spec = tree.spec();
         let single = spec.plan.is_none();
         if single {
+            {
+                let mut st = tree.lock();
+                st.restored_wait = restored.clone();
+                st.restored_fix = fixing.clone();
+            }
             let out = self.worker_loop(tree, span).await?;
+            if self.live().suspending {
+                // a shutdown cut it short: it reports nothing and runs again after the restart
+                return Err(Failure::Cancelled);
+            }
             tree.lock().single_ran = Some(out.clone());
             let status = self.finish_step(tree, &out);
             let (answer, declined, question, revision) = {
@@ -1131,7 +1367,17 @@ impl Inner {
             &tree.id,
             json!({"type": "subtask", "id": step.id, "task_id": child.id, "status": "started", "role": "worker"}),
         );
+        {
+            let mut st = member.lock();
+            st.restored_wait = restored;
+            st.restored_fix = fixing;
+        }
         let ran = self.worker_loop(&member, span).await;
+        let ran = match ran {
+            // as for a single task's step: it runs again after the restart
+            Ok(_) if self.live().suspending => Err(Failure::Cancelled),
+            other => other,
+        };
         let result = match ran {
             Err(e) => Err(e),
             Ok(out) => {
@@ -1214,6 +1460,57 @@ impl Inner {
         st.resources.extend(resources);
         st.cleanup_errors.extend(errors);
         result
+    }
+
+    /// supervisor.py:5359 `_adopt_saved`: the answer of answer steps that ended before this run (a restart), from
+    /// what each saved: its answer, its "Couldn't confirm" line and its check.
+    fn adopt_saved(&self, tree: &Arc<Tree>, outputs: &[Value]) -> Flow<()> {
+        let said = |o: &Value| -> String {
+            let pick = o
+                .get("answer")
+                .filter(|v| ferb_py::value::truthy(v))
+                .or_else(|| o.get("summary").filter(|v| ferb_py::value::truthy(v)));
+            ferb_orchestrator::py::strip(&pick.map(ferb_py::value::py_str).unwrap_or_default())
+                .to_string()
+        };
+        let answer = outputs
+            .iter()
+            .map(said)
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let unconfirmed = outputs
+            .iter()
+            .filter_map(|o| o.get("note").filter(|n| ferb_py::value::truthy(n)))
+            .map(ferb_py::value::py_str)
+            .collect::<Vec<_>>()
+            .join("; ");
+        let planned = tree.spec().success_conditions.len() as i64;
+        let one = outputs.len() == 1;
+        let verification = if one
+            && outputs[0]
+                .get("verification")
+                .is_some_and(ferb_py::value::truthy)
+        {
+            Some(super::attempt::saved_results(
+                outputs[0].get("verification"),
+                planned,
+            )?)
+        } else {
+            None
+        };
+        let mut st = tree.lock();
+        st.owner_answer = answer;
+        st.unconfirmed = unconfirmed;
+        if let Some(v) = verification {
+            st.verification = v;
+        }
+        st.stands_unconfirmed = !one
+            || !outputs[0]
+                .get("verified")
+                .is_some_and(ferb_py::value::truthy)
+            || outputs[0].get("status").and_then(Value::as_str) != Some("done");
+        Ok(())
     }
 
     /// supervisor.py:5315 `_answer_conditions`.
@@ -1328,32 +1625,13 @@ impl Inner {
         let spec = tree.spec();
         let single = spec.plan.is_none();
         let answering = answer_steps(spec.plan.as_ref(), &spec.parts);
-        let result = loop {
-            let result = self.run_plan(tree, span).await?;
-            let steering = tree.steering.lock().await.messages.len();
-            let states = self.plans(|p| p.steps(&tree.id))?;
-            let unheard: Vec<String> = states
-                .iter()
-                .filter(|(_, s)| {
-                    ["failed", "blocked", "needs_user"].contains(&s.status.as_str())
-                        && (s
-                            .output
-                            .get("steers_seen")
-                            .and_then(Value::as_i64)
-                            .unwrap_or(steering as i64)
-                            < steering as i64)
-                })
-                .map(|(k, _)| k.clone())
-                .collect();
-            let status = result["status"].as_str().unwrap_or("").to_string();
-            if status == "done" || status == "cancelled" || self.stopped(tree) || unheard.is_empty()
-            {
-                break result;
-            }
-            self.plans(|p| p.retry_unfinished(&tree.id))?;
-        };
+        self.live().plan_runs.insert(tree.id.clone());
+        let ran = self.run_plan_rounds(tree, span).await;
+        self.live().plan_runs.remove(&tree.id);
+        let result = ran?;
         let states = self.plans(|p| p.steps(&tree.id))?;
         let state = |id: &str| states.iter().find(|(k, _)| k == id).map(|(_, s)| s.clone());
+
         if single {
             let ran = tree.lock().single_ran.clone();
             if let Some(out) = ran {
@@ -1365,7 +1643,8 @@ impl Inner {
                 .map(ferb_py::value::py_str)
                 .unwrap_or_else(|| "failed".into());
             if DONE.contains(&status.as_str()) {
-                return Err(NotPorted("Supervisor._adopt_saved").into());
+                self.adopt_saved(tree, std::slice::from_ref(&saved))?;
+                status = "done".into();
             }
             if self.stopped(tree)
                 || !["done", "failed", "blocked", "needs_user", "cancelled"]
@@ -1439,7 +1718,20 @@ impl Inner {
                     }
                 }
             }
-            return Err(NotPorted("Supervisor._adopt_saved").into());
+            // ended before a restart: their saved answers
+            let saved: Vec<Value> = answering
+                .iter()
+                .filter_map(|k| state(k).map(|s| s.output))
+                .collect();
+            self.adopt_saved(tree, &saved)?;
+            let answer = tree.lock().owner_answer.clone();
+            return Ok(outcome(
+                &tree.worker.id,
+                "done",
+                &answer,
+                artifacts,
+                evidence,
+            ));
         }
         if status == "needs_user" {
             let question = plan
@@ -1608,12 +1900,15 @@ impl Inner {
         ferb_policy::carried::shown_records(&self.payload_outputs(tree_id))
     }
 
-    /// supervisor.py:4917 `_finish_tree`.
+    /// supervisor.py:4917 `_finish_tree`: the one finish of a task tree, however it ended: its outcome recorded once,
+    /// or, suspended by a shutdown, nothing but its plan marked to resume. Then its live state goes, and its episode is
+    /// recorded.
     async fn finish_tree(
         &self,
         tree: &Arc<Tree>,
         root_span: &str,
         request_id: &str,
+        suspended: bool,
         stored: Option<Value>,
     ) -> Flow<Map<String, Value>> {
         let tree_id = tree.id.clone();
@@ -1621,8 +1916,10 @@ impl Inner {
         self.record_planner_reads(tree, root_span, request_id);
         let mut final_ = obj(self.redact(&Value::Object(self.final_(tree)?)));
         let status = final_["status"].as_str().unwrap_or("").to_string();
-        self.plans(|p| p.set_status(&tree_id, &status))?;
-        self.deps.daemon.standing_revoke(&tree_id);
+        self.plans(|p| p.set_status(&tree_id, if suspended { "suspended" } else { &status }))?;
+        if !suspended {
+            self.deps.daemon.standing_revoke(&tree_id);
+        }
         final_.insert("goal".into(), json!(spec.goal));
         final_.insert(
             "name".into(),
@@ -1631,53 +1928,69 @@ impl Inner {
                 &spec.goal
             )),
         );
-        let answer = ferb_py::value::py_str(&final_["answer"]);
-        let terms = ferb_orchestrator::language::internal_terms(&answer);
-        if !terms.is_empty() {
-            self.journal(
-                "language.audit",
-                json!({"task_id": tree_id, "terms": terms}),
+        if suspended {
+            self.span_finish(
+                root_span,
+                Some(json!({"status": "suspended", "summary": SHUT_DOWN})),
+                Some(SHUT_DOWN),
+                None,
                 None,
             );
+            // never left 'running': start-up would offer to pick it up again, though it resumes by itself
+            self.set_status(
+                &tree_id,
+                "interrupted",
+                Some(&json!({"status": "interrupted", "summary": SHUT_DOWN})),
+            );
+        } else {
+            let answer = ferb_py::value::py_str(&final_["answer"]);
+            let terms = ferb_orchestrator::language::internal_terms(&answer);
+            if !terms.is_empty() {
+                self.journal(
+                    "language.audit",
+                    json!({"task_id": tree_id, "terms": terms}),
+                    None,
+                );
+            }
+            let made = self.task_made(&tree_id);
+            let provenance = stored.unwrap_or_else(|| {
+                let made: Vec<String> = origin::split(Some(&made)).into_iter().collect();
+                ferb_policy::carried::derive(&answer, &self.tree_shown(&tree_id), &made)
+            });
+            let mut data = obj(
+                json!({"task_id": tree_id, "request_id": request_id, "status": status,
+                "text": answer, ferb_policy::carried::PROVENANCE: provenance}),
+            );
+            if let Some(w) = final_.get("watch_met") {
+                data.insert("watch_met".into(), w.clone());
+            }
+            if let Some(t) = final_.get("told_in").filter(|t| ferb_py::value::truthy(t)) {
+                data.insert("told_in".into(), t.clone());
+            }
+            if final_.contains_key("card") {
+                data.insert("index".into(), json!(true));
+            }
+            self.journal("task.answer", Value::Object(data), Some(&made));
+            self.span_finish(
+                root_span,
+                Some(Value::Object(final_.clone())),
+                None,
+                None,
+                None,
+            );
+            self.set_status(&tree_id, &status, Some(&Value::Object(final_.clone())));
+            let resources = tree.lock().resources.clone();
+            self.journal(
+                "task.outcome",
+                json!({"task_id": tree_id, "status": status, "summary": final_["summary"], "verified": final_["verified"],
+                       "verification": final_["verification"], "subtasks": final_["subtasks"], "resources": resources}),
+                Some(&made),
+            );
+            self.deps.daemon.publish(
+                "task.finished",
+                json!({"task_id": tree_id, "status": status}),
+            );
         }
-        let made = self.task_made(&tree_id);
-        let provenance = stored.unwrap_or_else(|| {
-            let made: Vec<String> = origin::split(Some(&made)).into_iter().collect();
-            ferb_policy::carried::derive(&answer, &self.tree_shown(&tree_id), &made)
-        });
-        let mut data = obj(
-            json!({"task_id": tree_id, "request_id": request_id, "status": status,
-            "text": answer, ferb_policy::carried::PROVENANCE: provenance}),
-        );
-        if let Some(w) = final_.get("watch_met") {
-            data.insert("watch_met".into(), w.clone());
-        }
-        if let Some(t) = final_.get("told_in").filter(|t| ferb_py::value::truthy(t)) {
-            data.insert("told_in".into(), t.clone());
-        }
-        if final_.contains_key("card") {
-            data.insert("index".into(), json!(true));
-        }
-        self.journal("task.answer", Value::Object(data), Some(&made));
-        self.span_finish(
-            root_span,
-            Some(Value::Object(final_.clone())),
-            None,
-            None,
-            None,
-        );
-        self.set_status(&tree_id, &status, Some(&Value::Object(final_.clone())));
-        let resources = tree.lock().resources.clone();
-        self.journal(
-            "task.outcome",
-            json!({"task_id": tree_id, "status": status, "summary": final_["summary"], "verified": final_["verified"],
-                   "verification": final_["verification"], "subtasks": final_["subtasks"], "resources": resources}),
-            Some(&made),
-        );
-        self.deps.daemon.publish(
-            "task.finished",
-            json!({"task_id": tree_id, "status": status}),
-        );
         let ids = self.tree_task_ids(tree);
         self.deps.daemon.forget_tasks(&ids);
         self.deps.daemon.task_folders(&tree_id, None);
@@ -1694,6 +2007,15 @@ impl Inner {
             self.live().tree_of.remove(&tid);
             self.runs.forget_tree(&tid);
             self.task_remove(&tid);
+        }
+        {
+            let mut live = self.live();
+            live.pauses.remove(&tree_id);
+            live.waiting.remove(&tree_id);
+            live.questions.remove(&tree_id);
+        }
+        if suspended {
+            return Ok(final_);
         }
         let stop = tree.lock().stop.clone();
         for row in self.task_rows(&tree_id) {

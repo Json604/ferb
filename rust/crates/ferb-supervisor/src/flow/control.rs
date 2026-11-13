@@ -9,9 +9,9 @@
 //! tree's stop words and cancels its runs (`Runs::active_of`); a pause ends the current attempt the same way but
 //! keeps the task (ORCH-308).
 //!
-//! Not here: a continue or retry of a task that already ended (`_resume`) runs its tree again in place
-//! (`run_tree(resume_id=...)`), which the forward path's `run_tree` doesn't take yet: it answers `NotPorted`. A revised
-//! standing scope in a correction (`restate_scope`, D30) needs the gateway's standing grants: `NotPorted` too.
+//! A continue or retry of a task that already ended (`_resume`) runs its tree again in place (`run_tree(resume_id=...)`).
+//! Not here: a revised standing scope in a correction (`restate_scope`, D30) needs the gateway's standing grants:
+//! `NotPorted`.
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
@@ -778,16 +778,159 @@ impl Inner {
     }
 
     /// supervisor.py:3085 `_resume`: a continue or retry of an ended task carries on in place (`resume_id`), so its
-    /// completed work, uncertain effects and records stay the same. The forward path's `run_tree` doesn't take a
-    /// tree to resume yet, so nothing is changed and this answers NotPorted.
+    /// completed work, uncertain effects (P19's repeat check is per tree), confirmations, history and sites stay the
+    /// same records (L11): a continue with a new goal or a changed identity takes the planner's spec (the saved plan
+    /// reopens only when unchanged, a new plan replaces it); any other continue, or a retry without a task, resumes the
+    /// saved goal and plan; a retry with the planner's task is the fresh attempt with the earlier goal and result.
     async fn resume_ended(
         &self,
-        _turn: &Arc<Mutex<Turn>>,
-        _out: &SupervisorOutcome,
-        _conversation: &str,
-        _emit: &Emit,
+        turn: &Arc<Mutex<Turn>>,
+        out: &SupervisorOutcome,
+        conversation: &str,
+        emit: &Emit,
     ) -> Flow<()> {
-        Err(NotPorted("Supervisor._resume (run_tree with resume_id)").into())
+        let control = out.control.clone().expect("a control");
+        // a forget's scrub queued as that task finished runs first (fix wave 6a)
+        self.deps.daemon.settle().await;
+        let prior = self.continuity(|c| c.load(&control.task_id, conversation))?;
+        let Some(prior) = prior else {
+            return self
+                .exit_as(
+                    turn,
+                    out,
+                    "reply",
+                    UNKNOWN_TASK,
+                    ExitAs::by(origin::FERB),
+                    emit,
+                )
+                .await;
+        };
+        let prior_spec = prior.spec.clone();
+        let tid = control.task_id.clone();
+        let identity_changed = out
+            .task
+            .as_ref()
+            .is_some_and(|t| t.identity != prior_spec.identity);
+        let for_model = turn.lock().unwrap().for_model.clone();
+        let mut resumed: TaskSpec;
+        if ((control.action == "continue" && control.new_goal) || identity_changed)
+            && out.task.is_some()
+        {
+            resumed = out.task.clone().expect("a task");
+            resumed.goal.push_str(&format!(
+                "\nEarlier goal of this task: {}\nLast recorded result (verify afresh): {}",
+                prior_spec.goal, prior.state
+            ));
+            match (&prior_spec.plan, &resumed.plan) {
+                (Some(old), Some(new)) if old == new => self.plans(|p| p.reopen(&tid))?,
+                (Some(_), Some(new)) => self.plans(|p| p.replace(&tid, new))?,
+                (Some(_), None) => self.plans(|p| p.set_status(&tid, "replaced"))?,
+                _ => {}
+            }
+        } else if control.action == "continue"
+            || out.task.is_none()
+            || (prior_spec.plan.is_some()
+                && out
+                    .task
+                    .as_ref()
+                    .is_some_and(|t| t.plan.is_none() || t.plan == prior_spec.plan))
+        {
+            resumed = prior_spec.clone();
+            if let Some(t) = &out.task {
+                // the owner's folders and kept tabs for this go (HAND-201, 4)
+                resumed.folders = t.folders.clone();
+                resumed.keep_tabs_open = t.keep_tabs_open;
+                // ORCH-619: earlier results the follow-up names join the ones the task already used
+                let mut all = prior_spec.earlier_results.clone();
+                for r in &t.earlier_results {
+                    if !all.contains(r) {
+                        all.push(r.clone());
+                    }
+                }
+                resumed.earlier_results = all;
+            }
+            if prior_spec.plan.is_some() {
+                self.plans(|p| p.reopen(&tid))?;
+            } else {
+                resumed.goal.push_str(&format!(
+                    "\nLast recorded result (verify afresh): {}",
+                    prior.state
+                ));
+            }
+        } else {
+            resumed = out.task.clone().expect("a task");
+            resumed.goal.push_str(&format!(
+                "\nOriginal request context: {}\nLast recorded result (verify afresh): {}\nOwner's follow-up: {for_model}",
+                prior_spec.goal, prior.state
+            ));
+            if let (Some(_), Some(new)) = (&prior_spec.plan, &resumed.plan) {
+                self.plans(|p| p.replace(&tid, new))?;
+            }
+        }
+        // the earlier requests' answers to FERB's questions keep what those questions were written from (S4 b)
+        let (rid, typed, payload, asked_outside) = {
+            let t = turn.lock().unwrap();
+            (
+                t.request_id.clone(),
+                t.typed.clone(),
+                t.payload.clone(),
+                t.asked_outside.clone(),
+            )
+        };
+        let mut asked = self.deps.daemon.asked_origins(&tid);
+        asked.extend(asked_outside);
+        let targets = &resumed.targets;
+        let paths: Vec<String> = targets.paths.iter().map(|p| self.normalize(p)).collect();
+        let continued = Request {
+            request_id: rid,
+            words: format!("{}\n{typed}", prior.words),
+            targets: [
+                targets.apps.clone(),
+                targets.sites.clone(),
+                paths,
+                targets.recipients.clone(),
+            ],
+            payload: format!("{}\n\nOwner follow-up:\n{payload}", prior.payload),
+            asked_origins: asked,
+        };
+        self.deps.daemon.record_request(&continued);
+        // the continuation carries the earlier request and what its attempts read (S3, MP2)
+        let more = self.task_origins(&tid);
+        let earlier = self.request_origins_of_request(&prior.request_id);
+        let read = self.request_origins_of(&tid);
+        {
+            let mut t = turn.lock().unwrap();
+            t.turn_origins.extend(more);
+            t.turn_origins.extend(earlier);
+            t.message_origin.extend(read);
+        }
+        self.reopen_noes(&tid, turn);
+        let prior_task = self.continuity(|c| c.prior_of(&tid)).ok().flatten();
+        self.start_with(
+            turn,
+            out,
+            resumed,
+            emit,
+            Some(super::turn::Resumed {
+                resume_id: Some(tid),
+                prior_task,
+                message: Some(continued.payload),
+                conversation: Some(conversation.to_string()),
+            }),
+        )
+        .await
+    }
+
+    /// supervisor.py:4111 `_request_origins`: the stored origins of the owner's chat message(s) for a request (its
+    /// lead's and those read with it).
+    fn request_origins_of_request(&self, request_id: &str) -> BTreeSet<String> {
+        let mut out = BTreeSet::new();
+        for field in ["request_id", "read_with"] {
+            for e in self.of_kind("chat.message", field, request_id, None) {
+                out.extend(origin::split(Some(&e.origin)));
+            }
+        }
+        out
     }
 
     /// supervisor.py:2979 `_then_start` (ORCH-638): a stop or pause, then the message's new task, in one turn; code's

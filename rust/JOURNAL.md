@@ -1098,3 +1098,32 @@ Python's JPEGs; the 20 RPC methods replay against the recordings with four named
   the weekly Mac-profile refresh.
 - Seams: `ferb-mac-hands` futures are not Send; `ferb-daemon`'s timer sleepers are private; the gateway's
   `question_sites` is private, so `secrets.list` shows no linked sites; `Learning.embedder` cannot be set later.
+
+## 2026-11-13 · 46 · The supervisor replays every recorded scenario
+
+**What.** The supervisor's third pass: a shutdown suspends a task tree and a restart resumes it in place
+(`tree.rs` `RunOpts`, `restart.rs`); scheduled runs (`run_scheduled`); schedules made and changed from chat
+(`flow/schedules_chat.rs`: `_schedule_create`, `_schedule_problems`, `_schedule_scopes`,
+`_schedule_edit_from_chat`); `_resume`; `tasks.list`; and, behind a `daemon` feature so the phone build stays
+clean, the implementations of the daemon's `Tasks`, `Owner`, `Questions` and schedule seams
+(`flow/daemon_seams.rs`).
+
+**Evidence.** **All 28 recorded chat scenarios replay fully** (2,271 comparisons: frames, model calls, gateway
+calls, store tables), on the real gateway. The two restart scenarios shut the supervisor down and build a new one
+on the same store: completed steps do not run again and `seq` keeps rising. The timer and schedule scenarios run
+`ferb-daemon`'s real handlers on a real `ferb-rpc` server with the supervisor plugged in. The 10 control scenarios
+replay fully. 20 recorded chat and task request lines match through `chat_rpc::register` on a real server.
+Format and clippy clean; the iOS check passes (run by the porting agent).
+
+**Fixed against Python.** `conversations.list` with an unknown id answered an internal error; it is refused in
+plain words.
+
+**Open.**
+- Of the Python class's 282 methods: 172 ported, 21 partly, 89 not. The missing groups, each answering
+  `NotPorted` by name: the summary fold, several asks and their card, the checklist for plans of three or more
+  steps, loops, delegated conversations, wait and ask steps, `route_question`, the memory and forget side entries,
+  the runtime offer, the preview, the front window at send, attention. None is reached by the 28 scenarios; new
+  recordings are needed to judge them.
+- The supervisor's own task questions still live in a second store sharing the gateway's id counter: `ask_own`
+  lacks a task question's `part`, `runtime_switch` and `options_only`.
+- Noted by the agent: the owner's installed Python FERB daemon was running throughout (untouched).

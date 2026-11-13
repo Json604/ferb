@@ -172,9 +172,19 @@ impl Inner {
                 st.prior_task.clone(),
             )
         };
-        if schedule_id.is_some() || !schedule_facts.is_empty() {
-            return Err(NotPorted("Supervisor._context (a scheduled run)").into());
-        }
+        // a scheduled run's schedule (the root's: `_tree_of[tree.id]`) and what its roles read of it
+        let (schedule_id, schedule_facts) = match self.live().tree_of.get(&tree.id).cloned() {
+            Some(root) if !Arc::ptr_eq(&root, tree) => {
+                let st = root.lock();
+                (st.schedule_id.clone(), st.schedule_facts.clone())
+            }
+            _ => (schedule_id, schedule_facts),
+        };
+        // ORCH-597: the owner's own messages that made or changed the schedule follow its instructions
+        let schedule_messages = match &schedule_id {
+            Some(sid) => self.schedule_messages(sid),
+            None => String::new(),
+        };
         if !spec.earlier_results.is_empty() {
             return Err(NotPorted("Supervisor._result_blocks").into());
         }
@@ -228,15 +238,15 @@ impl Inner {
             words: request.words.clone(),
             payload: request.payload.clone(),
             activity: Some(activity),
-            schedule_id: None,
-            schedule_messages: String::new(),
+            schedule_id,
+            schedule_messages,
             parent_goal,
             goal: spec.goal.clone(),
             worker_type: spec.worker_type.clone(),
             step_context,
             intake_receipts: receipts.into_iter().map(Value::String).collect(),
             disturbance: self.deps.daemon.disturbance_context(&tree.id),
-            schedule_facts: Map::new(),
+            schedule_facts,
             reports: reports.into_iter().map(Value::Object).collect(),
             task_made: self.task_made(&tree.id),
             unresolved,
@@ -391,6 +401,11 @@ impl Inner {
         tree.lock().confirmed.clear();
         let mut retrying = false;
         let worker = self.worker.get().expect("the worker").clone();
+        let fix = std::mem::take(&mut tree.lock().restored_fix);
+        if !fix.is_empty() {
+            // a restart came during the step's fix round: code settles it (ORCH-545)
+            return self.restored_fix(tree, &task, &fix, span).await;
+        }
         if !tree.lock().restored_wait.is_empty() {
             match self.restored_wait(tree, &task, &mut attempts, span).await {
                 Ok(more) => instructions = more,
@@ -1766,6 +1781,109 @@ impl Inner {
         self.keep_fixing(tree, task, None, &[]);
     }
 
+    /// supervisor.py:6541 `_restored_fix`: a restart came during the step's fix round (ORCH-545): the work and its
+    /// check stand as saved, and code settles the saved answer's quoted sentences (never run twice, nor redone).
+    async fn restored_fix(
+        &self,
+        tree: &Arc<Tree>,
+        task: &Task,
+        saved: &Map<String, Value>,
+        span: &str,
+    ) -> Flow<Outcome> {
+        let planned = {
+            let st = tree.lock();
+            st.spec.as_ref().map_or(0, |s| s.success_conditions.len()) + usize::from(st.watch)
+        } as i64;
+        let verification = saved_results(saved.get("verification"), planned)?;
+        let list = |k: &str| -> Vec<Value> {
+            saved
+                .get(k)
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter(|v| v.is_object()).cloned().collect())
+                .unwrap_or_default()
+        };
+        let mut findings = Vec::new();
+        for f in list("findings") {
+            let f =
+                ferb_orchestrator::validate::finding_validate(&ferb_context::Py::from_value(&f))
+                    .map_err(|e| Failure::raised("ValidationError", e.to_string()))?;
+            findings.push((f.quote.clone(), f.kind.clone()));
+        }
+        let answer = saved
+            .get("answer")
+            .filter(|v| ferb_py::value::truthy(v))
+            .map(ferb_py::value::py_str)
+            .unwrap_or_default();
+        let done = ferb_orchestrator::answer_marks::settle(&answer, &findings);
+        {
+            let mut st = tree.lock();
+            st.stands_unconfirmed =
+                verification.iter().any(|r| r.met != Some(true)) || verification.is_empty();
+            st.verification = verification;
+            st.unconfirmed = saved
+                .get("unconfirmed")
+                .filter(|v| ferb_py::value::truthy(v))
+                .map(ferb_py::value::py_str)
+                .unwrap_or_default();
+            st.input_notes = list("input_notes");
+            st.conversation_proposals = list("conversation_proposals");
+            st.part_updates = list("part_updates");
+            st.how = saved
+                .get("how")
+                .filter(|v| ferb_py::value::truthy(v))
+                .map(ferb_py::value::py_str)
+                .unwrap_or_default();
+            st.owner_answer = done.answer.clone();
+            st.answer_settled = true;
+            st.answer_unmarked = ferb_orchestrator::answer_marks::unmarked(&answer, &findings);
+        }
+        let mut data = obj(json!({"task_id": task.id, "how": "marked", "restart": true,
+            "removed": done.removed, "marked": done.marked, "missing": done.missing}));
+        if !done.kept_contradicted.is_empty() {
+            data.insert("kept_contradicted".into(), json!(done.kept_contradicted));
+        }
+        self.journal("task.answer_settled", Value::Object(data), None);
+        if !done.kept_contradicted.is_empty() {
+            let mut st = tree.lock();
+            st.kept_contradicted = true;
+            st.stands_unconfirmed = true;
+            if !st.unconfirmed.contains(REPORT_UNCONFIRMED) {
+                st.unconfirmed = [st.unconfirmed.as_str(), REPORT_UNCONFIRMED]
+                    .iter()
+                    .filter(|p| !p.is_empty())
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join("; ");
+            }
+        }
+        self.keep_fixing(tree, task, None, &[]);
+        let mine = self
+            .live()
+            .tree_of
+            .get(&tree.id)
+            .is_some_and(|t| Arc::ptr_eq(t, tree));
+        if mine {
+            tree.lock().work_done = true;
+        }
+        self.release_resources(tree, span).await;
+        let strs = |k: &str| -> Vec<String> {
+            saved
+                .get(k)
+                .and_then(Value::as_array)
+                .map(|a| a.iter().map(ferb_py::value::py_str).collect())
+                .unwrap_or_default()
+        };
+        let out = Outcome {
+            task_id: task.id.clone(),
+            status: OutcomeStatus::Done,
+            summary: done.answer,
+            artifacts: strs("artifacts"),
+            evidence: strs("evidence"),
+        };
+        tree.lock().outcome = Some(out.clone());
+        Ok(out)
+    }
+
     /// supervisor.py:6527 `_keep_fixing`.
     fn keep_fixing(&self, tree: &Arc<Tree>, task: &Task, answer: Option<&str>, findings: &[Value]) {
         let fixing_step = (task.id == format!("{}.{WORKER}", tree.id)
@@ -1996,4 +2114,50 @@ impl Inner {
 enum Checked {
     Verdict(CheckerOutcome),
     Unchecked(Vec<ConditionResult>),
+}
+
+/// A saved check's results (`_restored_fix`, `_adopt_saved`): those whose index is below `planned`, as Python rebuilds
+/// each `ConditionResult(int(r['index']), ...)`.
+pub fn saved_results(v: Option<&Value>, planned: i64) -> Flow<Vec<ConditionResult>> {
+    let mut out = Vec::new();
+    for r in v.and_then(Value::as_array).cloned().unwrap_or_default() {
+        let index = match r.get("index") {
+            Some(Value::Number(n)) => n
+                .as_i64()
+                .or_else(|| n.as_f64().map(|f| f as i64))
+                .unwrap_or(planned),
+            Some(Value::String(t)) => t.trim().parse::<i64>().map_err(|_| {
+                Failure::raised(
+                    "ValueError",
+                    format!("invalid literal for int() with base 10: '{t}'"),
+                )
+            })?,
+            Some(Value::Bool(b)) => i64::from(*b),
+            None => planned,
+            Some(other) => {
+                return Err(Failure::raised(
+                    "TypeError",
+                    format!("int() argument must be a string, a bytes-like object or a real number, not '{}'",
+                        if other.is_null() { "NoneType" } else { "list" }),
+                ))
+            }
+        };
+        if index >= planned {
+            continue;
+        }
+        let text = |k: &str, d: &str| {
+            r.get(k)
+                .map(ferb_py::value::py_str)
+                .unwrap_or_else(|| d.to_string())
+        };
+        out.push(ConditionResult {
+            index,
+            text: text("condition", ""),
+            met: r.get("met").and_then(Value::as_bool),
+            path: text("path", "verifier"),
+            evidence: text("evidence", ""),
+            how: text("how", ""),
+        });
+    }
+    Ok(out)
 }

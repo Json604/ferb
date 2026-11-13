@@ -15,6 +15,7 @@ use ferb_context::assemble::ContextBlock;
 use ferb_core::types::{Identity, Task, TaskRole};
 use ferb_orchestrator::models::{SupervisorOutcome, TaskSpec};
 use ferb_orchestrator::validate::supervisor_outcome_validate_json;
+use ferb_policy::small::blocked;
 use ferb_sanitize::origin;
 use ferb_sanitize::untrusted::{mark, Marked};
 use ferb_worker::{Call, CallHooks};
@@ -650,7 +651,7 @@ impl Inner {
         Ok(Arc::new(Mutex::new(turn)))
     }
 
-    fn normalize(&self, path: &str) -> String {
+    pub(crate) fn normalize(&self, path: &str) -> String {
         ferb_fs::files::normalize_path(path, &self.deps.workspace, &self.deps.home)
             .unwrap_or_else(|_| path.to_string())
     }
@@ -851,7 +852,7 @@ impl Inner {
     }
 
     /// supervisor.py:1507 `_decide`: the planner's choice, repaired once.
-    async fn decide(
+    pub(crate) async fn decide(
         &self,
         turn: &Arc<Mutex<Turn>>,
         emit: &Emit,
@@ -874,7 +875,7 @@ impl Inner {
         };
         self.join_question(turn, &out);
         let mut problems = self.problems(turn, &mut out)?;
-        problems.extend(self.side_quote_problems(turn, &out)?);
+        problems.extend(self.side_quote_problems(turn, &out).await?);
         if problems.is_empty() {
             return Ok(out);
         }
@@ -975,8 +976,25 @@ impl Inner {
                 }
             }
         }
-        if !candidate.schedules.is_empty() {
-            return Err(NotPorted("Supervisor._problems (schedules)").into());
+        // ORCH-313: what every run uses is checked as a task's is
+        let types = self.deps.daemon.worker_types();
+        for sched in candidate.schedules.iter_mut() {
+            if !sched.worker_type.is_empty() && !types.contains(&sched.worker_type) {
+                problems.push(format!(
+                    "schedule worker_type {} isn't one of the worker types available now: {}.",
+                    ferb_orchestrator::py::repr_str(&sched.worker_type),
+                    types.join(", ")
+                ));
+            }
+            let (folders, broad) = self.folders(&sched.folders);
+            sched.folders = folders;
+            if !broad.is_empty() {
+                problems.push(format!(
+                    "schedule folders must each name one specific folder, never the whole disk, the home folder, \
+                     /Volumes or iCloud Drive itself: {}",
+                    ferb_py::json::dumps(&broad)
+                ));
+            }
         }
         if let Some(task) = &candidate.task {
             if task.parts.iter().any(|p| p.direct.as_deref() == Some("")) {
@@ -1033,21 +1051,98 @@ impl Inner {
 
     /// supervisor.py:1439 `_side_quote_problems`: the reminders and timers (side.rs); any other side entry present
     /// is refused by name.
-    fn side_quote_problems(
+    async fn side_quote_problems(
         &self,
         turn: &Arc<Mutex<Turn>>,
         out: &SupervisorOutcome,
     ) -> Flow<Vec<String>> {
-        if has_unported_side_entries(out) {
-            return Err(NotPorted("Supervisor._side_quote_problems").into());
+        if !out.remember.is_empty()
+            || !out.forget.is_empty()
+            || !out.conversation_changes.is_empty()
+        {
+            return Err(NotPorted(
+                "Supervisor._side_quote_problems (memory, forgets, conversations)",
+            )
+            .into());
         }
         let mut problems = self.timer_quote_problems(turn, out);
+        let tell = |what: &str, quote: &str| {
+            format!(
+                "{what}: its quote isn't the owner's exact words from this message or their recent messages in this \
+                 chat, so code would refuse it: {}",
+                ferb_py::json::dumps_utf8(&json!(quote))
+            )
+        };
+        for (i, sched) in out.schedules.iter().enumerate() {
+            let (_, refused) = self.schedule_words(turn, sched);
+            if refused == "quote" {
+                problems.push(tell(&format!("schedules[{i}]"), &sched.quote));
+            } else if refused == "until" {
+                if let Some(u) = &sched.until {
+                    problems.push(tell(&format!("schedules[{i}] until"), &u.quote));
+                }
+            }
+        }
+        let repr = |id: &str| ferb_orchestrator::py::repr_str(id);
+        let mut quotes: Vec<(String, String)> = out
+            .schedule_changes
+            .iter()
+            .map(|ch| {
+                (
+                    format!("schedule_changes {}", repr(&ch.id)),
+                    ch.quote.clone(),
+                )
+            })
+            .collect();
+        quotes.extend(out.schedule_changes.iter().filter_map(|ch| {
+            ch.until.as_ref().map(|u| {
+                (
+                    format!("schedule_changes {} until", repr(&ch.id)),
+                    u.quote.clone(),
+                )
+            })
+        }));
+        quotes.extend(out.reminder_cancels.iter().map(|rc| {
+            (
+                format!("reminder_cancels {}", repr(&rc.id)),
+                rc.quote.clone(),
+            )
+        }));
+        for (what, quote) in quotes {
+            if self.owner_said(turn, &quote).is_none() {
+                problems.push(tell(&what, &quote));
+            }
+        }
         if !problems.is_empty() {
             problems.push(
                 "Quote the owner's exact words for each of these, or leave it out; your text says only what will \
                  actually happen, never that something was set, saved, changed or restored."
                     .into(),
             );
+        }
+        // T-1066: each new or edited schedule's timing works and its request names only times it runs at
+        let entries: Vec<super::schedules_chat::Entry> = out
+            .schedules
+            .iter()
+            .cloned()
+            .map(|e| super::schedules_chat::Entry::New(Box::new(e)))
+            .chain(
+                out.schedule_changes
+                    .iter()
+                    .filter(|ch| ch.action == "edit")
+                    .cloned()
+                    .map(|e| super::schedules_chat::Entry::Change(Box::new(e))),
+            )
+            .collect();
+        if !entries.is_empty() {
+            let Some(port) = self.deps.daemon.schedules_chat() else {
+                return Err(
+                    NotPorted("Supervisor._side_quote_problems (no schedules port)").into(),
+                );
+            };
+            for entry in entries {
+                problems.extend(port.problems(entry).await);
+            }
         }
         Ok(problems)
     }
@@ -1496,6 +1591,31 @@ impl Inner {
         } else {
             self.deps.daemon.last_run_origins()
         };
+        // a recurring run compares with its previous run
+        let previous_run = if t.schedule_previous.is_some() || session.starts_with("schedule:") {
+            let previous = t.schedule_previous.as_ref().map(|p| {
+                let ran = ferb_clock::py::parse(&p.ran_at).unwrap_or(now);
+                (
+                    JournalRow {
+                        id: p.entry_id.clone(),
+                        at: ran,
+                        kind: String::new(),
+                        data: obj(json!({"text": p.text})),
+                        origin: p.origin.clone(),
+                    },
+                    ran,
+                    p.status.clone(),
+                )
+            });
+            Some(crate::planner::previous_run_block(
+                previous
+                    .as_ref()
+                    .map(|(row, ran, status)| (row, ran, status.as_str())),
+                &zone,
+            ))
+        } else {
+            None
+        };
         let wrap = |text: &str| self.wrap(text);
         let (sourced, first, last) = crate::planner::planner_sourced(PlannerTurn {
             session: &session,
@@ -1513,7 +1633,7 @@ impl Inner {
             since,
             latest: latest_blocks,
             windows: Vec::new(),
-            previous_run: None,
+            previous_run,
             questions,
             repair: repair.map(|r| (repair_prompt.as_str(), r)),
             last_call: None,
@@ -1965,19 +2085,182 @@ impl Inner {
         self.start(turn, &out, spec, emit).await
     }
 
-    /// supervisor.py:3344 `_side_entries`: the reminders and timers (side.rs); any other side entry is refused by name
-    /// before routing (`_side_quote_problems`).
-    fn side_entries(&self, turn: &Arc<Mutex<Turn>>, out: &SupervisorOutcome) -> Flow<Side> {
+    /// supervisor.py:3344 `_side_entries`: the reminder cancels, the reminders and timers (side.rs), the schedules and
+    /// their changes and the schedules card (schedules_chat.rs, through the daemon's schedules port), each with the one
+    /// quote check. Memory, forgets and conversation changes are not ported: refused by name.
+    async fn side_entries(&self, turn: &Arc<Mutex<Turn>>, out: &SupervisorOutcome) -> Flow<Side> {
         if has_unported_side_entries(out) {
             return Err(NotPorted("Supervisor._side_entries").into());
         }
+        let scheduled = !out.schedules.is_empty()
+            || !out.schedule_changes.is_empty()
+            || !out.reminder_cancels.is_empty()
+            || out.show_schedules;
+        let port = self.deps.daemon.schedules_chat();
+        if scheduled && port.is_none() {
+            return Err(NotPorted("Supervisor._side_entries (no schedules port)").into());
+        }
+        let recent = blocked::NOT_IN_RECENT;
+        let mut events: Vec<Value> = Vec::new();
+        let mut changed: Vec<String> = Vec::new();
+        let mut cards: Vec<Value> = Vec::new();
+        let rid = turn.lock().unwrap().request_id.clone();
+        if let Some(port) = &port {
+            for rc in &out.reminder_cancels {
+                let line = match self.owner_said(turn, &rc.quote) {
+                    Some(words) => port.reminder_cancel(rc, &words).await,
+                    None => blocked::blocked(
+                        blocked::CHANGES,
+                        recent,
+                        "no reminder was cancelled",
+                        "say which reminder to cancel and I'll cancel it",
+                    ),
+                };
+                events.push(json!({"type": "timer", "text": line}));
+                changed.push(line);
+            }
+        }
         let timers = self.timer_side(turn, out);
+        events.extend(timers.events);
+        cards.extend(timers.cards);
+        if let Some(port) = &port {
+            // what wrote a scheduled request
+            let mut made: BTreeSet<String> =
+                origin::kinds(turn.lock().unwrap().turn_origins.iter().map(String::as_str));
+            made.insert(origin::INFERRED.into());
+            for sched in &out.schedules {
+                let (words, unquoted) = self.schedule_words(turn, sched);
+                let (line, card) = if !unquoted.is_empty() {
+                    self.journal(
+                        "schedule.refused",
+                        json!({"why": format!("{unquoted} words not in the owner's words")}),
+                        None,
+                    );
+                    (
+                        blocked::blocked(
+                            if unquoted == "quote" {
+                                blocked::REMINDERS
+                            } else {
+                                blocked::END_DATE
+                            },
+                            recent,
+                            &format!(
+                                "{} isn't scheduled",
+                                crate::lines::quoted(&[&sched.request])
+                            ),
+                            "type what you want scheduled in this chat and I'll set it up",
+                        ),
+                        None,
+                    )
+                } else {
+                    let sink = self.sink_origins_for_new_schedule(turn);
+                    port.create(sched, &words, &rid, &made, &sink).await
+                };
+                events.push(json!({"type": "timer", "text": line}));
+                changed.push(line);
+                cards.extend(card);
+            }
+            for ch in &out.schedule_changes {
+                let held = self.owner_said(turn, &ch.quote);
+                let (line, card) = match held {
+                    None => (
+                        blocked::blocked(
+                            blocked::CHANGES,
+                            recent,
+                            "no schedule was changed",
+                            "say which schedule should change and how",
+                        ),
+                        None,
+                    ),
+                    Some(mut words) => {
+                        if let Some(until) = &ch.until {
+                            if !ferb_memory::terms::quoted(&words, &until.quote) {
+                                if let Some(more) = self.owner_said(turn, &until.quote) {
+                                    words = format!("{words}\n{more}");
+                                }
+                            }
+                        }
+                        if ch.action == "edit" {
+                            let sink = self.sink_origins_for_new_schedule(turn);
+                            port.edit(ch, &words, &rid, &made, &sink).await
+                        } else {
+                            (port.change(ch, &words).await, None)
+                        }
+                    }
+                };
+                events.push(json!({"type": "timer", "text": line}));
+                changed.push(line);
+                cards.extend(card);
+            }
+            if out.show_schedules {
+                if let Some((line, card)) = port.card().await {
+                    changed.push(line);
+                    cards.push(card);
+                }
+            }
+        }
+        let mut lines = changed;
+        lines.extend(timers.lines);
         Ok(Side {
-            events: timers.events,
-            lines: timers.lines,
+            events,
+            lines,
             refused: timers.refused,
-            cards: timers.cards,
+            cards,
         })
+    }
+
+    /// supervisor.py:1414 `_owner_said`: the owner's words holding `quote` (the one quote check): this turn's first,
+    /// else the newest recent earlier message of theirs in this chat; None: the quote check refuses.
+    fn owner_said(&self, turn: &Arc<Mutex<Turn>>, quote: &str) -> Option<String> {
+        self.said_in_chat(turn)
+            .into_iter()
+            .find(|w| ferb_learning::text::quoted(w, quote, false))
+    }
+
+    /// supervisor.py:1424 `_schedule_words`: the owner's words a new schedule rests on, and "" or which quote the check
+    /// refused ("quote", "until").
+    fn schedule_words(
+        &self,
+        turn: &Arc<Mutex<Turn>>,
+        spec: &ferb_orchestrator::models::ScheduleRequest,
+    ) -> (String, String) {
+        let mut words = turn.lock().unwrap().typed.clone();
+        let until = spec
+            .until
+            .as_ref()
+            .map(|u| u.quote.clone())
+            .unwrap_or_default();
+        for (part, quote) in [("quote", spec.quote.as_str()), ("until", until.as_str())] {
+            if quote.is_empty() || ferb_memory::terms::quoted(&words, quote) {
+                continue;
+            }
+            match self.owner_said(turn, quote) {
+                None => return (String::new(), part.to_string()),
+                Some(held) => words = format!("{words}\n{held}"),
+            }
+        }
+        (words, String::new())
+    }
+
+    /// supervisor.py:4321 `_sink_origins_for_new_schedule`: the sink rule's request origins a schedule made in this
+    /// turn records for its runs (S4, L4).
+    fn sink_origins_for_new_schedule(&self, turn: &Arc<Mutex<Turn>>) -> BTreeSet<String> {
+        let t = turn.lock().unwrap();
+        let mut out: BTreeSet<String> = BTreeSet::from([origin::INFERRED.to_string()]);
+        if t.message_origin.is_empty() {
+            out.insert(origin::external("unlabeled", ""));
+        } else {
+            out.extend(t.message_origin.iter().cloned());
+        }
+        for e in &t.exposures {
+            let made = e.get("origin").and_then(Value::as_str).unwrap_or("");
+            for o in origin::split(Some(made)) {
+                if origin::is_external(&o) {
+                    out.insert(origin::kind(&o));
+                }
+            }
+        }
+        out
     }
 
     /// supervisor.py:4691 `_said_cards`: cards as the owner is shown them, redacted like the text beside them, each
@@ -2012,7 +2295,7 @@ impl Inner {
         by: &str,
         emit: &Emit,
     ) -> Flow<()> {
-        let effects = self.side_entries(turn, out)?;
+        let effects = self.side_entries(turn, out).await?;
         for ev in &effects.events {
             let _ = emit.send(ev.clone());
         }
@@ -2158,7 +2441,19 @@ impl Inner {
         spec: TaskSpec,
         emit: &Emit,
     ) -> Flow<()> {
-        let effects = self.side_entries(turn, out)?;
+        self.start_with(turn, out, spec, emit, None).await
+    }
+
+    /// `_start` with `resume=`, `prior_task=`, `message=`, `conversation=`: an ended task carried on in place.
+    pub(crate) async fn start_with(
+        &self,
+        turn: &Arc<Mutex<Turn>>,
+        out: &SupervisorOutcome,
+        spec: TaskSpec,
+        emit: &Emit,
+        resumed: Option<Resumed>,
+    ) -> Flow<()> {
+        let effects = self.side_entries(turn, out).await?;
         for ev in &effects.events {
             let _ = emit.send(ev.clone());
         }
@@ -2178,37 +2473,54 @@ impl Inner {
         for (kind, text) in &effects.refused {
             let _ = emit.send(json!({"type": kind, "text": text}));
         }
-        let targets = &spec.targets;
-        let paths: Vec<String> = targets.paths.iter().map(|p| self.normalize(p)).collect();
-        self.deps.daemon.record_request(&Request {
-            request_id: rid.clone(),
-            words: typed,
-            targets: [
-                targets.apps.clone(),
-                targets.sites.clone(),
-                paths,
-                targets.recipients.clone(),
-            ],
-            payload: payload.clone(),
-            asked_origins: asked_outside,
-        });
+        if resumed.is_none() {
+            let targets = &spec.targets;
+            let paths: Vec<String> = targets.paths.iter().map(|p| self.normalize(p)).collect();
+            self.deps.daemon.record_request(&Request {
+                request_id: rid.clone(),
+                words: typed,
+                targets: [
+                    targets.apps.clone(),
+                    targets.sites.clone(),
+                    paths,
+                    targets.recipients.clone(),
+                ],
+                payload: payload.clone(),
+                asked_origins: asked_outside,
+            });
+        }
         let me = self.me();
         let release_session = session.clone();
         let release_rid = rid.clone();
         let release = move || me.release(&release_session, &release_rid);
+        let r = resumed.unwrap_or_default();
+        let message = r.message.unwrap_or(payload);
         self.run_tree(
             spec,
             &out.text,
             &rid,
-            &payload,
-            Some(&session),
-            None,
-            &origins,
+            &message,
+            super::tree::RunOpts {
+                conversation: Some(r.conversation.unwrap_or(session)),
+                origins,
+                prior_task: r.prior_task,
+                resume_id: r.resume_id,
+                ..super::tree::RunOpts::default()
+            },
             emit,
             &release,
         )
         .await
     }
+}
+
+/// `_start`'s keyword arguments for an ended task carried on in place (`_resume`).
+#[derive(Clone, Debug, Default)]
+pub struct Resumed {
+    pub resume_id: Option<String>,
+    pub prior_task: Option<String>,
+    pub message: Option<String>,
+    pub conversation: Option<String>,
 }
 
 /// supervisor.py:494 `_Prepare`: the planner's work before its model call (ORCH-525).
@@ -2284,13 +2596,7 @@ pub fn origin_set(items: &[&str]) -> BTreeSet<String> {
 /// `_carries_more`'s side outputs: anything besides an answer, a control or a task.
 /// A side entry other than a reminder or timer (side.rs ports those).
 pub fn has_unported_side_entries(out: &SupervisorOutcome) -> bool {
-    !out.remember.is_empty()
-        || !out.forget.is_empty()
-        || !out.schedules.is_empty()
-        || !out.schedule_changes.is_empty()
-        || out.show_schedules
-        || !out.reminder_cancels.is_empty()
-        || !out.conversation_changes.is_empty()
+    !out.remember.is_empty() || !out.forget.is_empty() || !out.conversation_changes.is_empty()
 }
 
 pub fn has_side_entries(out: &SupervisorOutcome) -> bool {

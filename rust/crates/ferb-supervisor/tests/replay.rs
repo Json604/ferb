@@ -25,6 +25,8 @@
 //! compared as `<sha256>`.
 
 mod common;
+#[path = "replay/daemon_side.rs"]
+mod daemon_side;
 #[path = "replay/gateway.rs"]
 mod gw;
 
@@ -196,11 +198,30 @@ impl RunRoot {
 // The seams
 // ---------------------------------------------------------------------------------------------------------------
 
-struct Ids(AtomicUsize);
+/// `SequentialIds("id")`; after a restart `SequentialIds("r1")` (as the recorder's `own_daemon`).
+struct Ids {
+    prefix: Mutex<String>,
+    n: AtomicUsize,
+}
+
+impl Ids {
+    fn new(prefix: &str, from: usize) -> Ids {
+        Ids {
+            prefix: Mutex::new(prefix.into()),
+            n: AtomicUsize::new(from),
+        }
+    }
+
+    fn restart(&self, prefix: &str) {
+        *self.prefix.lock().unwrap() = prefix.into();
+        self.n.store(0, Ordering::SeqCst);
+    }
+}
 
 impl ferb_core::interfaces::IdSource for Ids {
     fn new_id(&self) -> String {
-        format!("id-{:06}", self.0.fetch_add(1, Ordering::SeqCst) + 1)
+        let prefix = self.prefix.lock().unwrap().clone();
+        format!("{prefix}-{:06}", self.n.fetch_add(1, Ordering::SeqCst) + 1)
     }
 }
 
@@ -274,8 +295,8 @@ struct TestDaemon {
     spans: Vec<Vec<Value>>,
     span_columns: Vec<String>,
     run: Arc<RunRoot>,
-    /// The daemon's gateway (ferb-gateway), built on the scenario's store.
-    gateway: std::sync::OnceLock<Arc<ferb_gateway::gateway::Gateway>>,
+    /// The daemon's gateway (ferb-gateway), built on the scenario's store (a new one after a restart).
+    gateway: Mutex<Option<Arc<ferb_gateway::gateway::Gateway>>>,
     /// The change record (L39) the gateway's hooks write and the checker reads.
     changes: Arc<ferb_fs::changes::Changes>,
     /// The daemon's bus: (subscriber, its topics, where its events go).
@@ -294,13 +315,27 @@ struct TestDaemon {
     tool_calls: AtomicUsize,
     redactor: Arc<ferb_sanitize::Redactor>,
     clock: Arc<FakeClock>,
-    /// The supervisor, for the journal rows the daemon's event consumers write.
-    sup: std::sync::OnceLock<Supervisor>,
+    /// The supervisor, for the journal rows the daemon's event consumers write (a new one after a restart).
+    sup: Mutex<Option<Supervisor>>,
     /// compose.py `_asked_kinds`, `_answered_ids`.
     asked_kinds: Mutex<HashMap<String, String>>,
     answered_ids: Mutex<BTreeSet<String>>,
-    /// The supervisor's own questions (see [`OwnQuestions`]).
-    own: Arc<OwnQuestions>,
+    /// The supervisor's own questions (see [`OwnQuestions`]); in memory, so a restart starts a new store.
+    own: Mutex<Arc<OwnQuestions>>,
+    /// The recorded desktop-observer rows already written (each is written once).
+    spans_used: Mutex<BTreeSet<usize>>,
+    /// The trees the desktop observer watches now (a baseline taken, no summary yet).
+    watching: Mutex<BTreeSet<String>>,
+    /// The daemon's group A (schedules, reminders, timers) with the supervisor in its seams, when the scenario
+    /// reaches it.
+    side: Mutex<Option<Arc<daemon_side::DaemonSide>>>,
+    /// `state.approvals.unattended`.
+    unattended: Mutex<BTreeSet<String>>,
+    /// `state.stopped`: the global stop is engaged (`stop.engage`).
+    stopped: Arc<AtomicBool>,
+    /// FERB's workspace and the owner's home (the schedules port normalizes paths as a task's).
+    workspace: String,
+    user_home: String,
     /// Calls the recorder held until `release_model` (their index), and whether they are released.
     gated: BTreeSet<usize>,
     released: Arc<AtomicBool>,
@@ -317,20 +352,32 @@ fn pop(q: &Mutex<Vec<Value>>, what: &str) -> Value {
 }
 
 impl TestDaemon {
-    fn gw(&self) -> &ferb_gateway::gateway::Gateway {
-        self.gateway.get().expect("the scenario's gateway")
+    fn gw(&self) -> Arc<ferb_gateway::gateway::Gateway> {
+        self.gateway
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("the scenario's gateway")
+    }
+
+    fn own(&self) -> Arc<OwnQuestions> {
+        self.own.lock().unwrap().clone()
+    }
+
+    fn sup(&self) -> Option<Supervisor> {
+        self.sup.lock().unwrap().clone()
     }
 
     /// A question of the gateway's or the supervisor's own, by id.
     fn approval(&self, id: &str) -> Option<ferb_gateway::questions::Approval> {
         self.gw()
             .approval(id)
-            .or_else(|| self.own.store.lock().unwrap().get(id).cloned())
+            .or_else(|| self.own().store.lock().unwrap().get(id).cloned())
     }
 
     /// Every pending question, in asking order.
     fn pending(&self) -> Vec<ferb_gateway::questions::Approval> {
-        ChatGw(self.gateway.get().unwrap().clone(), self.own.clone()).all_pending()
+        ChatGw(self.gw(), self.own(), self.stopped.clone()).all_pending()
     }
 
     /// compose.py `_publish` and the consumers `_wire_events` installs, in their order, as far as a chat scenario
@@ -371,7 +418,7 @@ impl TestDaemon {
         let Some(ap) = self.approval(&s(&data["approval_id"])) else {
             return;
         };
-        let Some(sup) = self.sup.get() else { return };
+        let Some(sup) = self.sup() else { return };
         let first = |t: &str| -> String {
             t.lines()
                 .map(str::trim)
@@ -490,6 +537,19 @@ impl TestDaemon {
         });
     }
 
+    /// What a daemon keeps only in memory goes with a restart: its requests, run tokens, bus subscriptions, live task
+    /// records, questions and compose.py's question records.
+    fn restart(&self) {
+        self.requests.lock().unwrap().clear();
+        self.grants.lock().unwrap().clear();
+        self.run_grants.lock().unwrap().clear();
+        self.only.lock().unwrap().clear();
+        self.bus.lock().unwrap().clear();
+        self.live_tasks.lock().unwrap().clear();
+        self.asked_kinds.lock().unwrap().clear();
+        self.answered_ids.lock().unwrap().clear();
+    }
+
     /// The owner's file a `note` step names, written when its moment comes.
     fn apply_note(&self) {
         if let Some((path, text)) = self.note.lock().unwrap().take() {
@@ -505,12 +565,17 @@ impl TestDaemon {
     fn write_span(&self, kind: &str, tree_id: &str) {
         let cols = &self.span_columns;
         let at = |name: &str| cols.iter().position(|c| c == name).unwrap();
-        let row = self
-            .spans
-            .iter()
-            .find(|r| r[at("kind")] == kind && r[at("task_id")] == json!(tree_id))
-            .cloned();
-        let Some(row) = row else {
+        let found = {
+            let mut used = self.spans_used.lock().unwrap();
+            let found = self.spans.iter().enumerate().find(|(i, r)| {
+                !used.contains(i) && r[at("kind")] == kind && r[at("task_id")] == json!(tree_id)
+            });
+            if let Some((i, _)) = found {
+                used.insert(i);
+            }
+            found.map(|(_, r)| r.clone())
+        };
+        let Some(row) = found else {
             self.note(&format!("no recorded {kind} span for {tree_id}"));
             return;
         };
@@ -714,8 +779,30 @@ impl Daemon for TestDaemon {
         self.gw().forget_request(request_id);
         self.requests.lock().unwrap().remove(request_id);
     }
-    fn unattended(&self, _request_id: &str) -> bool {
-        false
+    fn unattended(&self, request_id: &str) -> bool {
+        self.unattended.lock().unwrap().contains(request_id)
+    }
+    fn stopped(&self) -> bool {
+        self.stopped.load(Ordering::SeqCst)
+    }
+    fn set_unattended(&self, request_id: &str) {
+        self.unattended
+            .lock()
+            .unwrap()
+            .insert(request_id.to_string());
+    }
+    fn schedules_chat(
+        &self,
+    ) -> Option<Arc<dyn ferb_supervisor::flow::schedules_chat::SchedulesChat>> {
+        let side = self.side.lock().unwrap().clone()?;
+        Some(Arc::new(
+            ferb_supervisor::flow::daemon_seams::DaemonSchedules {
+                local: side.local.clone(),
+                home: self.user_home.clone(),
+                workspace: self.workspace.clone(),
+                blocking: true,
+            },
+        ))
     }
     fn pending_questions(&self) -> Vec<OpenQuestion> {
         Vec::new()
@@ -818,10 +905,26 @@ impl Daemon for TestDaemon {
         BTreeSet::new()
     }
     fn on_task_start<'a>(&'a self, tree_id: &'a str) -> BoxFuture<'a, ()> {
-        Box::pin(async move { self.write_span("disturbance.baseline", tree_id) })
+        Box::pin(async move {
+            self.watching.lock().unwrap().insert(tree_id.to_string());
+            self.write_span("disturbance.baseline", tree_id)
+        })
     }
     fn on_task_finish<'a>(&'a self, tree_id: &'a str) -> BoxFuture<'a, ()> {
-        Box::pin(async move { self.write_span("disturbance.summary", tree_id) })
+        Box::pin(async move {
+            self.watching.lock().unwrap().remove(tree_id);
+            self.write_span("disturbance.summary", tree_id)
+        })
+    }
+    fn mark_unknown_after_restart(&self) -> Vec<String> {
+        let ledger = gw::RealLedger {
+            db: self.db.clone(),
+            clock: self.clock.clone(),
+            ids: self.ids.clone(),
+        };
+        ledger
+            .with(|l| l.mark_unknown_after_restart())
+            .unwrap_or_default()
     }
     fn disturbance_context(&self, _tree_id: &str) -> String {
         let rec = pop(&self.contexts, "a context");
@@ -973,7 +1076,7 @@ impl Daemon for TestDaemon {
         self.pending()
     }
     fn questions(&self) -> Option<Arc<dyn ferb_supervisor::flow::owner_wait::Questions>> {
-        let q: Arc<dyn ferb_supervisor::flow::owner_wait::Questions> = self.own.clone();
+        let q: Arc<dyn ferb_supervisor::flow::owner_wait::Questions> = self.own();
         Some(q)
     }
     fn subscribe(&self, topics: &[&str], sink: BusSink) -> Option<Unsubscribe> {
@@ -1148,7 +1251,8 @@ impl ScriptEvents {
                     let name = s(&params["name"]);
                     // `Gateway::call`'s future isn't Send (ferb-policy's `confirm::Facts` holds `&dyn Fn` across an
                     // await); the replay's runtime has one thread, where it is made, polled and dropped
-                    match OneThread(d.gw().call(&grant, &name, &args)).await {
+                    let gateway = d.gw();
+                    match OneThread(gateway.call(&grant, &name, &args)).await {
                         Ok(reply) => reply.to_json(),
                         Err(e) => json!({"error": format!("{e:?}")}),
                     }
@@ -1262,7 +1366,11 @@ impl ferb_supervisor::flow::owner_wait::Questions for OwnQuestions {
 }
 
 /// The chat RPCs' view of the scenario's gateway (and the supervisor's own questions, in asking order).
-struct ChatGw(Arc<ferb_gateway::gateway::Gateway>, Arc<OwnQuestions>);
+struct ChatGw(
+    Arc<ferb_gateway::gateway::Gateway>,
+    Arc<OwnQuestions>,
+    Arc<AtomicBool>,
+);
 
 impl ChatGw {
     fn all_pending(&self) -> Vec<ferb_gateway::questions::Approval> {
@@ -1318,7 +1426,7 @@ impl ferb_supervisor::flow::chat_rpc::ChatGateway for ChatGw {
         }))
     }
     fn stopped(&self) -> bool {
-        false
+        self.2.load(Ordering::SeqCst)
     }
 }
 
@@ -1539,7 +1647,11 @@ fn run_scenario(
         .unwrap_or(15);
     let tables = &sc["tables"];
     for row in tables["journal"]["rows"].as_array().unwrap() {
-        let n: usize = s(&row[1])[3..].parse().unwrap_or(usize::MAX);
+        let id = s(&row[1]);
+        let n: usize = id
+            .strip_prefix("id-")
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(usize::MAX);
         if n < first_request {
             let vals: Vec<rusqlite::types::Value> = row
                 .as_array()
@@ -1566,7 +1678,7 @@ fn run_scenario(
         )
         .unwrap();
     let db = Arc::new(Mutex::new(db));
-    let ids = Arc::new(Ids(AtomicUsize::new(first_request - 1)));
+    let ids = Arc::new(Ids::new("id", first_request - 1));
     let nn = format!("{:02}", index + 1);
     let root = run.root.clone();
     let ferb_home = format!("{root}/{nn}/home");
@@ -1631,12 +1743,17 @@ fn run_scenario(
         }
     }
     let question_ids = Arc::new(AtomicUsize::new(0));
-    let own = Arc::new(OwnQuestions {
-        store: Mutex::new(ferb_gateway::questions::Approvals::new({
-            let ids = question_ids.clone();
-            move || format!("ap-a{:011}", ids.fetch_add(1, Ordering::SeqCst) + 1)
-        })),
-    });
+    let new_own = {
+        let question_ids = question_ids.clone();
+        move || {
+            Arc::new(OwnQuestions {
+                store: Mutex::new(ferb_gateway::questions::Approvals::new({
+                    let ids = question_ids.clone();
+                    move || format!("ap-a{:011}", ids.fetch_add(1, Ordering::SeqCst) + 1)
+                })),
+            })
+        }
+    };
     let daemon = Arc::new_cyclic(|me| TestDaemon {
         me: me.clone(),
         db: db.clone(),
@@ -1664,7 +1781,7 @@ fn run_scenario(
             .collect(),
         span_columns,
         run: run.clone(),
-        gateway: std::sync::OnceLock::new(),
+        gateway: Mutex::new(None),
         changes: changes.clone(),
         bus: Mutex::default(),
         subscribers: AtomicUsize::new(0),
@@ -1676,87 +1793,105 @@ fn run_scenario(
         tool_calls: AtomicUsize::new(0),
         redactor: redactor.clone(),
         clock: clock.clone(),
-        sup: std::sync::OnceLock::new(),
+        sup: Mutex::new(None),
         asked_kinds: Mutex::default(),
         answered_ids: Mutex::default(),
-        own: own.clone(),
+        own: Mutex::new(new_own()),
+        spans_used: Mutex::default(),
+        watching: Mutex::default(),
+        side: Mutex::new(None),
+        unattended: Mutex::default(),
+        stopped: Arc::new(AtomicBool::new(false)),
+        workspace: workspace.clone(),
+        user_home: home.clone(),
         gated: gated.clone(),
         released: Arc::new(AtomicBool::new(false)),
         released_now: Arc::new(tokio::sync::Notify::new()),
     });
-    let bus = Arc::downgrade(&daemon);
     let waiting = Arc::new(AtomicBool::new(false));
-    let gateway = Arc::new(gw::build(gw::Parts {
-        db: db.clone(),
-        clock: clock.clone(),
-        ids: ids.clone(),
-        redactor: redactor.clone(),
-        publish: Arc::new(move |topic: &str, data: ferb_sanitize::Py| {
-            // the daemon's events (ferb/daemon/events.py) redact each event once, FERB's own marked words kept
-            if let Some(d) = bus.upgrade() {
-                d.events(topic, data);
-            }
-        }),
-        home: ferb_home.clone(),
-        user: home.clone(),
-        changes: changes.clone(),
-        calls: sc["gateway_calls"].as_array().cloned().unwrap_or_default(),
-        real_root: run.resolved.clone(),
-        device_id: "unknown-device".into(),
-        wait: gw::Wait {
+    // the daemon's composition (main.py `start`): its gateway on the store, the supervisor, the chat RPCs; a restart
+    // makes them again on the same store
+    let start = || {
+        let bus = Arc::downgrade(&daemon);
+        let gateway = Arc::new(gw::build(gw::Parts {
+            db: db.clone(),
             clock: clock.clone(),
-            status: {
-                let d = Arc::downgrade(&daemon);
-                Arc::new(
-                    move |worker: &str,
-                          task: &str,
-                          until: Option<&ferb_clock::py::Time>,
-                          line: Option<&str>| {
-                        if let Some(sup) = d.upgrade().and_then(|d| d.sup.get().cloned()) {
-                            sup.wait_status(worker, task, until, line);
-                        }
-                    },
-                )
+            ids: ids.clone(),
+            redactor: redactor.clone(),
+            publish: Arc::new(move |topic: &str, data: ferb_sanitize::Py| {
+                // the daemon's events (ferb/daemon/events.py) redact each event once, FERB's own marked words kept
+                if let Some(d) = bus.upgrade() {
+                    d.events(topic, data);
+                }
+            }),
+            home: ferb_home.clone(),
+            user: home.clone(),
+            changes: changes.clone(),
+            calls: sc["gateway_calls"].as_array().cloned().unwrap_or_default(),
+            real_root: run.resolved.clone(),
+            device_id: "unknown-device".into(),
+            wait: gw::Wait {
+                clock: clock.clone(),
+                status: {
+                    let d = Arc::downgrade(&daemon);
+                    Arc::new(
+                        move |worker: &str,
+                              task: &str,
+                              until: Option<&ferb_clock::py::Time>,
+                              line: Option<&str>| {
+                            if let Some(sup) = d.upgrade().and_then(|d| d.sup()) {
+                                sup.wait_status(worker, task, until, line);
+                            }
+                        },
+                    )
+                },
+                running: waiting.clone(),
             },
-            running: waiting.clone(),
-        },
-        question_ids: question_ids.clone(),
-    }));
-    let _ = daemon.gateway.set(gateway.clone());
-    let sup = Supervisor::new(Deps {
-        db: db.clone(),
-        clock: clock.clone(),
-        ids: ids.clone(),
-        redactor: redactor.clone(),
-        policy: Arc::new(TestPolicy),
-        daemon: daemon.clone(),
-        prompts: root_prompts(),
-        tokenizer: Tokenizer::Utf8Bytes,
-        device_id: "unknown-device".into(),
-        workspace,
-        home,
-        wrap: Arc::new(|t: &str| ferb_sanitize::untrusted::wrap_untrusted_with_id(t, WRAP_ID)),
-        new_chat: Arc::new(|| "c00000000001".into()),
-        stall_s: 180.0,
-        heartbeat_poll_s: 5.0,
-    });
-    // supervisor.py:1223 `gateway.attach(_Watch(self), ...)`
-    gateway.attach(sup.watch());
-    let _ = daemon.sup.set(sup.clone());
-    let rpc =
-        ferb_supervisor::flow::chat_rpc::ChatRpc::new(ferb_supervisor::flow::chat_rpc::ChatDeps {
-            supervisor: sup.clone(),
-            gateway: Arc::new(ChatGw(gateway.clone(), own.clone())),
-            persona: None,
-            prepare_persona: Arc::new(|| {}),
-            notices: Some(Arc::new(Vec::new)),
-            conversations: Arc::new(Vec::new),
-            sensing_paused: Arc::new(|| false),
-            shutting_down: Arc::new(|| false),
-            question_answered: Arc::new(|_ap| String::new()),
-            ask_input_monitoring: Arc::new(|| {}),
-            click_through: None,
+            question_ids: question_ids.clone(),
+        }));
+        *daemon.gateway.lock().unwrap() = Some(gateway.clone());
+        let sup = Supervisor::new(Deps {
+            db: db.clone(),
+            clock: clock.clone(),
+            ids: ids.clone(),
+            redactor: redactor.clone(),
+            policy: Arc::new(TestPolicy),
+            daemon: daemon.clone(),
+            prompts: root_prompts(),
+            tokenizer: Tokenizer::Utf8Bytes,
+            device_id: "unknown-device".into(),
+            workspace: workspace.clone(),
+            home: home.clone(),
+            wrap: Arc::new(|t: &str| ferb_sanitize::untrusted::wrap_untrusted_with_id(t, WRAP_ID)),
+            new_chat: Arc::new(|| "c00000000001".into()),
+            stall_s: 180.0,
+            heartbeat_poll_s: 5.0,
         });
+        // supervisor.py:1223 `gateway.attach(_Watch(self), ...)`
+        gateway.attach(sup.watch());
+        *daemon.sup.lock().unwrap() = Some(sup.clone());
+        let rpc = ferb_supervisor::flow::chat_rpc::ChatRpc::new(
+            ferb_supervisor::flow::chat_rpc::ChatDeps {
+                supervisor: sup.clone(),
+                gateway: Arc::new(ChatGw(
+                    gateway.clone(),
+                    daemon.own(),
+                    daemon.stopped.clone(),
+                )),
+                persona: None,
+                prepare_persona: Arc::new(|| {}),
+                notices: Some(Arc::new(Vec::new)),
+                conversations: Arc::new(Vec::new),
+                sensing_paused: Arc::new(|| false),
+                shutting_down: Arc::new(|| false),
+                question_answered: Arc::new(|_ap| String::new()),
+                ask_input_monitoring: Arc::new(|| {}),
+                click_through: None,
+            },
+        );
+        (sup, rpc)
+    };
+    let (mut sup, mut rpc) = start();
     let session = ferb_rpc::server::Session {
         role: ferb_rpc::auth::Role::Cli,
         grant: None,
@@ -1772,6 +1907,47 @@ fn run_scenario(
     rt.block_on(async {
         let mut streams: HashMap<String, (u64, Result<tokio::sync::mpsc::UnboundedReceiver<Value>, String>)> =
             HashMap::new();
+        // the daemon's group A when the scenario reaches it (its RPCs, its timer loop)
+        let reaches_side = sc["steps"].as_array().unwrap().iter().any(|st| {
+            (st["do"] == "timers_tick" && st["fired"] != 0)
+                || st["lines"].as_array().is_some_and(|ls| {
+                    ls.iter().filter_map(|l| l.get("send").and_then(Value::as_str)).any(|l| {
+                        serde_json::from_str::<Value>(l).is_ok_and(|v| {
+                            ferb_daemon::areas_a::METHODS.contains(&v["method"].as_str().unwrap_or(""))
+                        })
+                    })
+                })
+        });
+        if reaches_side {
+            let first_token = tables["timers"]["rows"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|r| r[8].as_str())
+                .filter_map(|t| t.trim_start_matches('t').parse::<u64>().ok())
+                .min()
+                .unwrap_or(1);
+            let bus = Arc::downgrade(&daemon);
+            let side = daemon_side::DaemonSide::start(daemon_side::Parts {
+                home: ferb_home.clone().into(),
+                user: home.clone().into(),
+                db_path: dir.path().join("ferb.db"),
+                repo: repo(),
+                clock: clock.clone(),
+                ids: ids.clone(),
+                redactor: redactor.clone(),
+                publish: Arc::new(move |topic: &str, data: Map<String, Value>| {
+                    if let Some(d) = bus.upgrade() {
+                        d.events(topic, ferb_sanitize::Py::from(&Value::Object(data)));
+                    }
+                }),
+                first_token,
+                supervisor: sup.clone(),
+            });
+            *daemon.side.lock().unwrap() = Some(Arc::new(side));
+        }
+        let side = || daemon.side.lock().unwrap().clone();
+        let mut notif_conns: BTreeSet<String> = BTreeSet::new();
         let mut daemon_conns: BTreeSet<String> = BTreeSet::new();
         for st in sc["steps"].as_array().unwrap() {
             let conn = s(&st["conn"]);
@@ -1786,6 +1962,87 @@ fn run_scenario(
                         let v: Value = serde_json::from_str(sent.as_str().unwrap()).unwrap();
                         let method = s(&v["method"]);
                         if method == "auth.hello" {
+                            continue;
+                        }
+                        if let (true, Some(side)) =
+                            (ferb_daemon::areas_a::METHODS.contains(&method.as_str()), side())
+                        {
+                            let id = v["id"].clone();
+                            let got = run.mask(&side.call(&conn, sent.as_str().unwrap(), &id));
+                            let want = lines
+                                .iter()
+                                .filter_map(|l| l.get("recv"))
+                                .map(|r| fixed(&name, &s(&resolve(r))))
+                                .find(|r| serde_json::from_str::<Value>(r).is_ok_and(|x| x["id"] == id))
+                                .unwrap_or_default();
+                            report.checked += 1;
+                            if got != want {
+                                report.frames.push(format!(
+                                    "{conn} {method}\n    python: {}\n    rust:   {}",
+                                    cut(&want),
+                                    cut(&got)
+                                ));
+                            }
+                            settle(&db).await;
+                            continue;
+                        }
+                        if method == "stop.engage" || method == "stop.lift" {
+                            // areas/rpc.py `_stop_engage` / `_stop_lift`: the gateway's stop order (ferb-gateway
+                            // `stop`: block, revoke every run token, the hooks "runtimes" = the supervisor's
+                            // `cancel_all` and "identity_browser"), journaled and published
+                            let result = if method == "stop.engage" {
+                                let gateway = daemon.gw();
+                                let grants = daemon.clone();
+                                let mut control = ferb_gateway::stop::StopControl::new(
+                                    move || {
+                                        let mut held = grants.run_grants.lock().unwrap();
+                                        let n = held.len();
+                                        held.clear();
+                                        grants.grants.lock().unwrap().clear();
+                                        n
+                                    },
+                                    move |on| gateway.set_stopped(on),
+                                );
+                                daemon.stopped.store(true, Ordering::SeqCst);
+                                let hook = sup.clone();
+                                control.register(
+                                    "runtimes",
+                                    Box::new(move || {
+                                        hook.cancel_all();
+                                        Ok(())
+                                    }),
+                                );
+                                control.register("identity_browser", Box::new(|| Ok(())));
+                                let summary = Value::Object(control.engage());
+                                sup.inner().journal("stop.engaged", summary.clone(), None);
+                                daemon.publish("stop.engaged", summary.clone());
+                                summary
+                            } else {
+                                daemon.stopped.store(false, Ordering::SeqCst);
+                                daemon.gw().set_stopped(false);
+                                sup.inner().journal("stop.lifted", json!({}), None);
+                                daemon.publish("stop.lifted", json!({}));
+                                json!({"stopped": false})
+                            };
+                            let id = v["id"].clone();
+                            let got = line(&json!({"jsonrpc": "2.0", "id": id, "result": result}));
+                            let want = lines
+                                .iter()
+                                .filter_map(|l| l.get("recv"))
+                                .map(|r| fixed(&name, &s(&resolve(r))))
+                                .find(|r| serde_json::from_str::<Value>(r).is_ok_and(|x| x["id"] == id))
+                                .unwrap_or_default();
+                            report.checked += 1;
+                            if got != want {
+                                report.frames.push(format!(
+                                    "{conn} {method}\n    python: {}\n    rust:   {}",
+                                    cut(&want),
+                                    cut(&got)
+                                ));
+                            }
+                            for _ in 0..100 {
+                                tokio::task::yield_now().await;
+                            }
                             continue;
                         }
                         if !CHAT_RPCS.contains(&method.as_str()) {
@@ -1806,7 +2063,7 @@ fn run_scenario(
                         let want = lines
                             .iter()
                             .filter_map(|l| l.get("recv"))
-                            .map(|r| s(&resolve(r)))
+                            .map(|r| fixed(&name, &s(&resolve(r))))
                             .find(|r| serde_json::from_str::<Value>(r).is_ok_and(|x| x["id"] == id))
                             .unwrap_or_default();
                         report.checked += 1;
@@ -1828,6 +2085,10 @@ fn run_scenario(
                 "stream" => {
                     let sent: Value =
                         serde_json::from_str(st["lines"][0]["send"].as_str().unwrap()).unwrap();
+                    if sent["method"] == "notifications.subscribe" && side().is_some() {
+                        notif_conns.insert(conn.clone());
+                        continue;
+                    }
                     if sent["method"] != "chat.send" {
                         report.skipped.push(format!("the stream {}", sent["method"]));
                         daemon_conns.insert(conn.clone());
@@ -1840,7 +2101,42 @@ fn run_scenario(
                     streams.insert(conn, (id, got));
                     tokio::task::yield_now().await;
                 }
-                "stream_end" => {
+                "restart" => {
+                    // main.py `shutdown`: the supervisor suspends its trees and every turn and run is drained
+                    sup.shut_down().await;
+                    // the desktop observer's shutdown: the summary of each task it still watched
+                    let open: Vec<String> = std::mem::take(&mut *daemon.watching.lock().unwrap())
+                        .into_iter()
+                        .collect();
+                    for tree in open {
+                        daemon.write_span("disturbance.summary", &tree);
+                    }
+                    sup.inner().journal("daemon.stopped", json!({"pid": "<volatile>"}), None);
+                    // a new daemon on the same home: its in-memory state starts empty, ids under the new prefix
+                    let prefix = s(&st["ids_prefix"]);
+                    daemon.restart();
+                    *daemon.own.lock().unwrap() = new_own();
+                    ids.restart(&prefix);
+                    (sup, rpc) = start();
+                    // main.py's start: what was running is interrupted, then the daemon's own rows (as recorded),
+                    // the ledger's unknown outcomes, then the saved plans resume
+                    sup.recover_after_restart();
+                    for row in tables["journal"]["rows"].as_array().unwrap() {
+                        let kind = s(&row[3]);
+                        if s(&row[1]).starts_with(&format!("{prefix}-"))
+                            && ["daemon.started", "runtime.limits_unknown"].contains(&kind.as_str())
+                        {
+                            let data: Value = serde_json::from_str(&s(&cell(&row[4]))).unwrap();
+                            sup.inner().journal(&kind, data, None);
+                        }
+                    }
+                    sup.mark_unknown_after_restart();
+                    sup.start_resume();
+                    for _ in 0..100 {
+                        tokio::task::yield_now().await;
+                    }
+                }
+                "stream_end" | "stream_end_at_shutdown" => {
                     let Some((id, got)) = streams.remove(&conn) else { continue };
                     let mut lines = Vec::new();
                     match got {
@@ -1869,7 +2165,7 @@ fn run_scenario(
                         .as_array()
                         .unwrap()
                         .iter()
-                        .map(|l| s(&resolve(&l["recv"])))
+                        .map(|l| fixed(&name, &s(&resolve(&l["recv"]))))
                         .collect();
                     report.checked += want.len();
                     for i in 0..want.len().max(lines.len()) {
@@ -1921,11 +2217,17 @@ fn run_scenario(
                         Some("running") | Some("planned") | None => false,
                         Some(_) => !want_paused,
                     };
-                    for _ in 0..10_000 {
+                    for i in 0..10_000 {
                         if reached(status()) {
                             break;
                         }
-                        tokio::task::yield_now().await;
+                        // a wait for the owner looks at its question every `hold_poll_s` on tokio's clock, which
+                        // moves only while every task is idle
+                        if i % 100 == 99 {
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        } else {
+                            tokio::task::yield_now().await;
+                        }
                     }
                     if !reached(status()) {
                         report.stopped = Some(format!("a wait for {} (never true here)", s(&st["until"])));
@@ -1948,8 +2250,39 @@ fn run_scenario(
                 }
                 // one pass of the timer loop: no timer is due in a scenario this port replays (the step records none)
                 "timers_tick" if st["fired"] == 0 => {}
-                // the timer loop's delivery and the notifications it publishes are the daemon's
+                // one pass of the daemon's timer loop (group A's), its timers handed over
+                "timers_tick" if side().is_some() => {
+                    let fired = side().unwrap().tick();
+                    report.checked += 1;
+                    if json!(fired) != st["fired"] {
+                        report.frames.push(format!("timers_tick fired {fired}, recorded {}", st["fired"]));
+                    }
+                    settle(&db).await;
+                }
                 "timers_tick" => report.skipped.push("a timer firing".into()),
+                "stream_cut" if notif_conns.contains(&conn) => {
+                    let want: Vec<String> = st["lines"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .filter_map(|l| l.get("recv"))
+                        .map(|r| fixed(&name, &s(&resolve(r))))
+                        .collect();
+                    let got: Vec<String> = side()
+                        .unwrap()
+                        .notes
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .map(|l| run.mask(l))
+                        .collect();
+                    report.checked += want.len();
+                    if got != want {
+                        report.frames.push(format!(
+                            "{conn}\n    python: {want:?}\n    rust:   {got:?}"
+                        ));
+                    }
+                }
                 "stream_cut" if daemon_conns.contains(&conn) => {}
                 "wait" if st["until"] == "the first checker has answered" => {
                     let first = recorded.iter().position(|m| m["key"] == "worker.verify");
@@ -1970,11 +2303,33 @@ fn run_scenario(
                         report.stopped = Some(format!("a wait for {until}"));
                         break;
                     };
+                    // the nth call of that key, by its place in the recording
+                    let key = until
+                        .strip_prefix("the model has received call ")
+                        .and_then(|r| r.rsplit_once(" ("))
+                        .map(|(k, _)| k.trim_matches('\'').to_string())
+                        .unwrap_or_default();
+                    let at = recorded
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, m)| m["key"] == json!(key))
+                        .nth(n.saturating_sub(1))
+                        .map(|(i, _)| i);
                     for _ in 0..10_000 {
-                        if daemon.calls.lock().unwrap().started.len() >= n {
+                        let started = daemon.calls.lock().unwrap().started.iter().any(|c| {
+                            at.is_some_and(|i| c["n"] == json!(i))
+                        });
+                        if started || (at.is_none() && daemon.calls.lock().unwrap().started.len() >= n) {
                             break;
                         }
                         tokio::task::yield_now().await;
+                        if side().is_some() {
+                            // a scheduled run starts on the daemon's loop thread
+                            std::thread::sleep(std::time::Duration::from_micros(200));
+                        }
+                    }
+                    if side().is_some() {
+                        settle(&db).await;
                     }
                 }
                 other => {
@@ -1989,6 +2344,11 @@ fn run_scenario(
         for _ in 0..100 {
             tokio::task::yield_now().await;
         }
+        if side().is_some() {
+            settle(&db).await;
+        }
+        // the daemon's side stops with the scenario (its loop thread and server)
+        daemon.side.lock().unwrap().take();
     });
     if let Some(n) = daemon.unsupported.lock().unwrap().first() {
         report.stopped.get_or_insert(n.clone());
@@ -2162,7 +2522,7 @@ fn run_scenario(
                     .unwrap()
                     .iter()
                     .map(|c| match scrub(&cell(c)) {
-                        Value::String(t) => json!(unhash(&t)),
+                        Value::String(t) => json!(fixed(&name, &unhash(&t))),
                         other => other,
                     })
                     .collect()
@@ -2219,6 +2579,60 @@ fn run_scenario(
     report
 }
 
+/// The deliberate differences from Python (ENG-6), applied to what the recording expects before it is compared:
+/// (scenario, recorded text, what the port says instead).
+const FIXES: [(&str, &str, &str); 1] = [
+    // GATE-581: Python ends a task the global stop cut with "(from the task) FERB was stopped", marking FERB's own words
+    // as the task's; the port says "FERB was stopped" (the outcome frame, the task row, the span, the journal)
+    (
+        "global_stop",
+        "(from the task) FERB was stopped",
+        "FERB was stopped",
+    ),
+];
+
+fn fixed(scenario: &str, text: &str) -> String {
+    FIXES
+        .iter()
+        .filter(|(n, _, _)| *n == scenario)
+        .fold(text.to_string(), |t, (_, a, b)| t.replace(a, b))
+}
+
+/// Until FERB is quiet (the recorder's `settle`): no new journal row or span, here or on the daemon's loop thread,
+/// for a while; the replay's runtime runs meanwhile.
+async fn settle(db: &Arc<Mutex<Db>>) {
+    let mark = || -> (i64, i64) {
+        let db = db.lock().unwrap();
+        let q = |sql: &str| {
+            db.conn()
+                .query_row(sql, [], |r| r.get::<_, i64>(0))
+                .unwrap_or(0)
+        };
+        (
+            q("SELECT COALESCE(MAX(seq), 0) FROM journal"),
+            q("SELECT COUNT(*) FROM spans"),
+        )
+    };
+    let mut last = mark();
+    let mut quiet = 0;
+    for _ in 0..2000 {
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        let now = mark();
+        if now == last {
+            quiet += 1;
+            if quiet >= 25 {
+                return;
+            }
+        } else {
+            quiet = 0;
+            last = now;
+        }
+    }
+}
+
 /// Where two texts first differ, with some context on each side.
 fn first_diff(a: &str, b: &str) -> String {
     let (ac, bc): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
@@ -2258,7 +2672,7 @@ fn root_prompts() -> ferb_context::prompts::PromptRoot {
 /// steer and resume, a correction delivered into a running call, the stops (by task.stop, by chat, with a new task), the
 /// merged message and the attachment with chat.send's refusals. Control and recovery's paths are the other port's
 /// (control.rs, owner_wait.rs), run here through the real gateway.
-const FULL: [&str; 23] = [
+const FULL: [&str; 28] = [
     "plain_reply",
     "clarify_then_answer",
     "one_step_task",
@@ -2282,6 +2696,11 @@ const FULL: [&str; 23] = [
     "worker_question_answered",
     "check_in_after_five",
     "attachment_and_bad_params",
+    "restart_mid_task",
+    "restart_with_open_question",
+    "timer_set_and_fired",
+    "schedule_created_and_fired",
+    "global_stop",
 ];
 
 #[test]
@@ -2407,8 +2826,9 @@ fn note_of(sc: &Value, workspace: &str) -> Option<(String, String)> {
 }
 
 /// The unary methods areas/chat.py answers (ported in ferb-supervisor's `chat_rpc`); every other is the daemon's.
-const CHAT_RPCS: [&str; 12] = [
+const CHAT_RPCS: [&str; 13] = [
     "chat.status",
+    "tasks.list",
     "results.ack",
     "chat.approve",
     "chat.answer",

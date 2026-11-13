@@ -91,6 +91,14 @@ fn refusal(message: impl Into<String>) -> HandlerError {
 }
 
 /// Python's `str(params[key])` (a missing key is the KeyError Python raises: an internal error).
+/// What `conversations.list {id}` answers for an id no delegated conversation has (the fix against Python's
+/// internal error).
+pub const NO_CONVERSATION: &str = "There's no delegated conversation with that id.";
+
+/// areas/shared.py:21 `TASK_PAGE, TASK_PAGE_MAX`: the Tasks page's rows per page, and most per call.
+pub const TASK_PAGE: i64 = 50;
+pub const TASK_PAGE_MAX: i64 = 200;
+
 fn required(params: &Params, key: &str) -> Result<String, HandlerError> {
     params
         .get(key)
@@ -134,9 +142,10 @@ impl ChatRpc {
                 "chat.correct" => self.correct(&params).await,
                 "chat.attach" => self.attach(&params),
                 "task.stop" => self.task_stop(&params),
+                "tasks.list" => self.tasks_list(&params),
                 "tools.list" => self.tools_list(session),
                 "tools.call" => self.tools_call(session, &params).await,
-                "conversations.list" => Ok(self.conversations_list(&params)),
+                "conversations.list" => self.conversations_list(&params),
                 "conversations.change" => {
                     // `str(params['id'])`, `str(params['action'])`, `str(params['owner_words'])` come first
                     for key in ["id", "action", "owner_words"] {
@@ -289,6 +298,74 @@ impl ChatRpc {
             .mark_shown(&ids)
             .map_err(|e| HandlerError::fault("OperationalError", e.to_string()))?;
         Ok(obj(json!({"ok": true})))
+    }
+
+    /// areas/rpc.py:53 `_tasks_list`: root tasks newest first, `limit` at a time before `before` (the `created_at` the
+    /// last page ended at), each with its status, what FERB answered (its result, else its outcome) and the owner's
+    /// latest verdict; a single ask's checklist count, live while it runs, else as its end recorded it (APP-894).
+    pub fn tasks_list(&self, params: &Params) -> HandlerResult {
+        let limit = match params.get("limit") {
+            None => Some(TASK_PAGE),
+            Some(Value::Number(n)) => n.as_i64().filter(|l| (1..=TASK_PAGE_MAX).contains(l)),
+            Some(_) => None,
+        };
+        let Some(limit) = limit else {
+            return Err(refusal(format!(
+                "limit must be a whole number from 1 to {TASK_PAGE_MAX}"
+            )));
+        };
+        let before = match params.get("before") {
+            Some(v) if ferb_py::value::truthy(v) => ferb_py::value::py_str(v),
+            _ => "9999".to_string(),
+        };
+        let inner = self.sup().inner();
+        let rows = {
+            let db = inner.db();
+            ferb_store::task_results::TaskResults::new(&db)
+                .page(&before, limit + 1)
+                .map_err(|e| HandlerError::fault("OperationalError", e.to_string()))?
+        };
+        let text = |r: &Map<String, Value>, k: &str| match r.get(k) {
+            None | Some(Value::Null) => String::new(),
+            Some(v) => ferb_py::value::py_str(v),
+        };
+        let mut out = Vec::new();
+        for r in rows.iter().take(limit as usize) {
+            let outcome: Map<String, Value> = r
+                .get("outcome_json")
+                .and_then(Value::as_str)
+                .filter(|t| !t.is_empty())
+                .and_then(|t| serde_json::from_str(t).ok())
+                .unwrap_or_default();
+            let pick = |v: Option<&Value>| v.filter(|x| ferb_py::value::truthy(x)).cloned();
+            let answer = pick(r.get("answer"))
+                .or_else(|| pick(outcome.get("answer")))
+                .or_else(|| pick(outcome.get("summary")))
+                .map(|v| ferb_py::value::py_str(&v))
+                .unwrap_or_default();
+            let id = text(r, "id");
+            let goal = text(r, "goal");
+            let name = r.get("name").and_then(Value::as_str).map(str::to_string);
+            let checklist = inner
+                .checklist_state(&id)
+                .filter(ferb_py::value::truthy)
+                .or_else(|| pick(outcome.get("checklist")));
+            let mut row = obj(json!({"task_id": id, "goal": inner.redact_text(&goal),
+                "name": inner.redact_text(&ferb_orchestrator::names::shown_name(name.as_deref(), &goal)),
+                "status": r.get("status").cloned().unwrap_or(Value::Null),
+                "created_at": r.get("created_at").cloned().unwrap_or(Value::Null),
+                "updated_at": r.get("updated_at").cloned().unwrap_or(Value::Null),
+                "answer": inner.redact_text(&answer),
+                "verdict": r.get("verdict").cloned().unwrap_or(Value::Null)}));
+            if let Some(c) = checklist {
+                let (done, total) = ferb_orchestrator::plans::steps_done(&c);
+                row.insert("steps".into(), json!({"done": done, "total": total}));
+            }
+            out.push(Value::Object(row));
+        }
+        Ok(obj(
+            json!({"tasks": out, "more": rows.len() as i64 > limit}),
+        ))
     }
 
     /// areas/chat.py:191 `_chat_approve`.
@@ -570,9 +647,30 @@ impl ChatRpc {
         }
     }
 
-    /// areas/chat.py:135 `_conversations_list`.
-    pub fn conversations_list(&self, _params: &Params) -> Params {
-        obj(json!({"conversations": (self.deps.conversations)()}))
+    /// areas/chat.py:135 `_conversations_list`: the delegated conversations, or one's digest by `id`.
+    ///
+    /// Fixed against Python (ENG-6): an id no conversation has raised ValueError inside `digest`, an internal error
+    /// on the wire (-32603 "ValueError"); here it is refused in plain words. A known conversation's digest belongs to
+    /// the delegated conversations, which are not ported (NotPorted by name).
+    pub fn conversations_list(&self, params: &Params) -> HandlerResult {
+        let all = (self.deps.conversations)();
+        match params.get("id").filter(|v| ferb_py::value::truthy(v)) {
+            None => Ok(obj(json!({"conversations": all}))),
+            Some(id) => {
+                let id = ferb_py::value::py_str(id);
+                if all
+                    .iter()
+                    .any(|c| c.get("id").map(ferb_py::value::py_str) == Some(id.clone()))
+                {
+                    Err(HandlerError::fault(
+                        "NotImplementedError",
+                        "not ported yet: ConversationStore.digest",
+                    ))
+                } else {
+                    Err(refusal(NO_CONVERSATION))
+                }
+            }
+        }
     }
 
     /// areas/chat.py:146 `_ui_click_through` (D31): the notch's click-through windows, from FERB's own app only.
@@ -753,6 +851,7 @@ pub fn register(server: &Server, rpc: Arc<ChatRpc>) {
         "chat.correct",
         "chat.attach",
         "task.stop",
+        "tasks.list",
         "tools.list",
         "tools.call",
         "conversations.list",

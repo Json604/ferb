@@ -99,7 +99,7 @@ fn global_stop_with_the_stop_words_as_ferbs_own() {
 // decision: ORCH-308
 #[test]
 fn partly_up_to_the_paths_they_still_need() {
-    let cases: [(&str, &str, &str); 9] = [
+    let cases: [(&str, &str, &str); 7] = [
         // the resumed attempt's file write goes through the gateway's tool bridge (the forward path's join)
         ("pause_steer_resume", "frames", "chat line 9"),
         // the protected write that asks is a tool call through the gateway (the forward path's join)
@@ -114,10 +114,8 @@ fn partly_up_to_the_paths_they_still_need() {
             "stopped",
             "a wait for an approval is pending",
         ),
-        // a shutdown suspends the tree: run_tree records no end for it, then resumes it by resume_id (tree.rs)
-        ("restart_mid_task", "frames", "chat line 5"),
-        ("restart_with_open_question", "frames", "chat line 17"),
-        // the schedule is a side entry of the planner's answer (the forward path's `_side_entries`)
+        // (restart_mid_task and restart_with_open_question replay fully in tests/replay.rs, on the real gateway)
+        // this harness has no daemon side (group A's schedules and timer loop): tests/replay.rs replays it fully
         ("schedule_created_and_fired", "frames", "app#2 line 1"),
         // the planner's task state shows the open check-in's card row (`_task_state`'s cards, turn.rs)
         (
