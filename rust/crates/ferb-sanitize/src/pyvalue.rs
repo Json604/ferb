@@ -10,7 +10,6 @@
 use serde_json::Value;
 
 use crate::known::json_escape;
-use crate::unicode as u;
 
 /// Which redactor marked a string, and under which known values and exclusions (redact.py:164
 /// `Redactor.marked`): a mark made under other ones is never trusted.
@@ -554,61 +553,12 @@ pub fn float_repr(f: f64) -> String {
 
 /// `repr(str)`.
 pub fn str_repr(s: &str) -> String {
-    let quote = if s.contains('\'') && !s.contains('"') {
-        '"'
-    } else {
-        '\''
-    };
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push(quote);
-    for c in s.chars() {
-        let cp = c as u32;
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '\t' => out.push_str("\\t"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            _ if c == quote => {
-                out.push('\\');
-                out.push(c);
-            }
-            _ if cp < 0x20 || cp == 0x7f => out.push_str(&format!("\\x{cp:02x}")),
-            _ if cp < 0x7f || u::is_printable(c) => out.push(c),
-            _ if cp < 0x100 => out.push_str(&format!("\\x{cp:02x}")),
-            _ if cp < 0x10000 => out.push_str(&format!("\\u{cp:04x}")),
-            _ => out.push_str(&format!("\\U{cp:08x}")),
-        }
-    }
-    out.push(quote);
-    out
+    ferb_py::text::str_repr(s)
 }
 
 /// `repr(bytes)`.
 pub fn bytes_repr(b: &[u8]) -> String {
-    let quote = if b.contains(&b'\'') && !b.contains(&b'"') {
-        b'"'
-    } else {
-        b'\''
-    };
-    let mut out = String::with_capacity(b.len() + 3);
-    out.push('b');
-    out.push(quote as char);
-    for &c in b {
-        match c {
-            b'\\' => out.push_str("\\\\"),
-            b'\t' => out.push_str("\\t"),
-            b'\n' => out.push_str("\\n"),
-            b'\r' => out.push_str("\\r"),
-            _ if c == quote => {
-                out.push('\\');
-                out.push(c as char);
-            }
-            0x20..=0x7e => out.push(c as char),
-            _ => out.push_str(&format!("\\x{c:02x}")),
-        }
-    }
-    out.push(quote as char);
-    out
+    ferb_py::text::bytes_repr(b)
 }
 
 /// `repr(value)`.

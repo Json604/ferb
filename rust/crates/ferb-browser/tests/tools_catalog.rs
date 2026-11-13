@@ -330,3 +330,95 @@ fn the_tools_own_checks() {
         "press requires explicit text naming a key"
     );
 }
+
+/// The owner's hidden input as an older implementor wrote it: only the task-keyed calls.
+struct OldInput(std::sync::Mutex<Vec<String>>);
+
+impl ferb_browser::driver::OwnerInput for OldInput {
+    fn ask_code(&self, task: &str, intent: &str, origin: &str) -> BoxFuture<'_, Option<Secret>> {
+        self.0
+            .lock()
+            .unwrap()
+            .push(format!("code {task} {intent} {origin}"));
+        Box::pin(async { None })
+    }
+    fn ask_secret(
+        &self,
+        task: &str,
+        intent: &str,
+        origin: &str,
+        _ask: ferb_browser::driver::SecretAsk,
+    ) -> BoxFuture<'_, Option<Secret>> {
+        self.0
+            .lock()
+            .unwrap()
+            .push(format!("secret {task} {intent} {origin}"));
+        Box::pin(async { None })
+    }
+}
+
+#[test]
+fn both_families_are_built_by_one_constructor_each_and_old_inputs_still_answer() {
+    use ferb_browser::driver::OwnerInput;
+    use ferb_browser::tools::FamilyParts;
+    let (owner, _) = tools(vec![]);
+    let parts = || FamilyParts {
+        hub: owner.driver.hub.clone(),
+        tasks: Tasks::default(),
+        wake: None,
+        random: Arc::new(Counter::new()),
+        policy: Arc::new(NoPolicy),
+        host: Arc::new(NoHost),
+    };
+    let o = Tools::owner_family(
+        parts(),
+        Arc::new(|_| Err(ferb_browser::Error::refused("none"))),
+        None,
+    );
+    assert_eq!(o.family.prefix, OWNER_BROWSER.prefix);
+    assert_eq!(o.driver.identity, Identity::Owner);
+    let f = Tools::ferb_family(parts(), Arc::new(|| None), Arc::new(Saved(vec![])));
+    assert_eq!(f.family.prefix, FERB_BROWSER.prefix);
+    assert_eq!(f.driver.identity, Identity::Ferb);
+    let names: Vec<String> = f.verbs().iter().map(|v| f.name(v)).collect();
+    assert_eq!(names.len(), ferb_browser::tools::FERB_VERBS.len());
+    assert!(names.iter().all(|n| n.starts_with("ferb_browser.")));
+
+    // the context-carrying asks forward to the old ones by default
+    let input = OldInput(std::sync::Mutex::new(Vec::new()));
+    let ctx = ToolContext {
+        task_id: "t-1".into(),
+        worker_id: "w-1".into(),
+        request_id: "r-1".into(),
+        identity: Identity::Owner,
+        scopes: Default::default(),
+        device_id: "dev-1".into(),
+        span_id: None,
+        workspace: "/tmp/invented".into(),
+        owner_roots: vec![],
+        untrusted_roots: vec![],
+        intent_id: None,
+        observe_only: false,
+        probe: false,
+        path_closed: None,
+        escape: None,
+        terminal: None,
+        folders: vec![],
+    };
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    assert!(rt
+        .block_on(input.ask_code_for(&ctx, "i-1", "https://example.test"))
+        .is_none());
+    assert!(rt
+        .block_on(input.ask_secret_for(&ctx, "i-2", "https://example.test", Default::default()))
+        .is_none());
+    assert_eq!(
+        *input.0.lock().unwrap(),
+        [
+            "code t-1 i-1 https://example.test",
+            "secret t-1 i-2 https://example.test"
+        ]
+    );
+}

@@ -24,7 +24,7 @@ use std::time::Duration;
 
 use ferb_core::interfaces::BoxFuture;
 use ferb_core::types::{
-    ActionResult, Dict, ElementRef, Identity, PageElement, PageSnapshot, TabRef,
+    ActionResult, Dict, ElementRef, Identity, PageElement, PageSnapshot, TabRef, ToolContext,
 };
 use ferb_identity::secrets::{SecretRef, SecretSpec};
 use ferb_identity::Secret;
@@ -125,6 +125,31 @@ pub trait Secrets: Send + Sync {
     fn reveal(&self, secret: &SecretRef) -> BoxFuture<'_, std::result::Result<Secret, String>>;
 }
 
+/// FERB's own configured secrets (`ferb_identity::secrets::KeychainSecretStore`, behind the signed helper) as the
+/// FERB-identity driver reads them; a value is revealed in a worker thread (the helper is a blocking call).
+pub struct KeychainSecrets(pub Arc<ferb_identity::secrets::KeychainSecretStore>);
+
+impl Secrets for KeychainSecrets {
+    fn specs(&self) -> Vec<SecretSpec> {
+        self.0.specs()
+    }
+    fn has(&self, secret: &SecretRef) -> bool {
+        self.0.has(secret)
+    }
+    fn spec(&self, secret: &SecretRef) -> Option<SecretSpec> {
+        self.0.spec(secret)
+    }
+    fn reveal(&self, secret: &SecretRef) -> BoxFuture<'_, std::result::Result<Secret, String>> {
+        let store = Arc::clone(&self.0);
+        let secret = secret.clone();
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || store.reveal(&secret).map_err(|e| e.reason))
+                .await
+                .unwrap_or_else(|_| Err(String::new()))
+        })
+    }
+}
+
 /// Seals a value for one command and origin under a pairing key (production:
 /// [`seal::seal_fill`], a fresh nonce each time; the daemon's helper may seal instead).
 pub type Sealer =
@@ -141,6 +166,29 @@ pub trait OwnerInput: Send + Sync {
         origin: &str,
         ask: SecretAsk,
     ) -> BoxFuture<'_, Option<Secret>>;
+
+    /// `ask_code` with the whole call's context (Python's gateway reads the calling context: its worker, grant and
+    /// intent), which the gateway's hidden input needs. By default it forwards to [`OwnerInput::ask_code`] with the
+    /// context's task.
+    fn ask_code_for<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        intent: &'a str,
+        origin: &'a str,
+    ) -> BoxFuture<'a, Option<Secret>> {
+        self.ask_code(&ctx.task_id, intent, origin)
+    }
+
+    /// `ask_secret` with the whole call's context; by default [`OwnerInput::ask_secret`] with the context's task.
+    fn ask_secret_for<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        intent: &'a str,
+        origin: &'a str,
+        ask: SecretAsk,
+    ) -> BoxFuture<'a, Option<Secret>> {
+        self.ask_secret(&ctx.task_id, intent, origin, ask)
+    }
 }
 
 /// What the owner's secret question carries besides the origin.
@@ -2034,6 +2082,28 @@ impl Driver {
         task: &str,
         intent_id: &str,
     ) -> Result<ActionResult> {
+        self.owner_code_as(el, task, intent_id, None).await
+    }
+
+    /// [`Driver::owner_code`] for one tool call: the owner's hidden input is asked with the call's whole context
+    /// ([`OwnerInput::ask_code_for`]).
+    pub async fn owner_code_for(
+        &self,
+        el: &ElementRef,
+        ctx: &ToolContext,
+        intent_id: &str,
+    ) -> Result<ActionResult> {
+        self.owner_code_as(el, &ctx.task_id, intent_id, Some(ctx))
+            .await
+    }
+
+    async fn owner_code_as(
+        &self,
+        el: &ElementRef,
+        task: &str,
+        intent_id: &str,
+        ctx: Option<&ToolContext>,
+    ) -> Result<ActionResult> {
         let (t, frame, snap, local, info) = self.resolve(el)?;
         self.owned_by(&el.tab.tab_id, task, true)?;
         no_secret_into_terminal(&info)?;
@@ -2052,11 +2122,11 @@ impl Driver {
         if !origin.starts_with("https://") {
             return Err(Error::refused("login codes require an HTTPS destination"));
         }
-        let Some(value) = input
-            .ask_code(task, intent_id, &origin)
-            .await
-            .filter(|v| !v.expose().is_empty())
-        else {
+        let asked = match ctx {
+            Some(ctx) => input.ask_code_for(ctx, intent_id, &origin),
+            None => input.ask_code(task, intent_id, &origin),
+        };
+        let Some(value) = asked.await.filter(|v| !v.expose().is_empty()) else {
             return Ok(ActionResult {
                 ok: false,
                 detail: "login code declined".into(),
@@ -2090,6 +2160,33 @@ impl Driver {
         intent_id: &str,
         ask: SecretAsk,
         split_elements: Option<&[String]>,
+    ) -> Result<ActionResult> {
+        self.owner_secret_as(el, task, intent_id, ask, split_elements, None)
+            .await
+    }
+
+    /// [`Driver::owner_secret`] for one tool call: the owner's hidden input is asked with the call's whole context
+    /// ([`OwnerInput::ask_secret_for`]).
+    pub async fn owner_secret_for(
+        &self,
+        el: &ElementRef,
+        ctx: &ToolContext,
+        intent_id: &str,
+        ask: SecretAsk,
+        split_elements: Option<&[String]>,
+    ) -> Result<ActionResult> {
+        self.owner_secret_as(el, &ctx.task_id, intent_id, ask, split_elements, Some(ctx))
+            .await
+    }
+
+    async fn owner_secret_as(
+        &self,
+        el: &ElementRef,
+        task: &str,
+        intent_id: &str,
+        ask: SecretAsk,
+        split_elements: Option<&[String]>,
+        ctx: Option<&ToolContext>,
     ) -> Result<ActionResult> {
         let (t, frame, snap, local, info) = self.resolve(el)?;
         self.owned_by(&el.tab.tab_id, task, true)?;
@@ -2152,11 +2249,11 @@ impl Driver {
             kind: info.field_kind.clone().filter(|k| !k.is_empty()),
             ..ask
         };
-        let Some(value) = input
-            .ask_secret(task, intent_id, &origin, ask)
-            .await
-            .filter(|v| !v.expose().is_empty())
-        else {
+        let asked = match ctx {
+            Some(ctx) => input.ask_secret_for(ctx, intent_id, &origin, ask),
+            None => input.ask_secret(task, intent_id, &origin, ask),
+        };
+        let Some(value) = asked.await.filter(|v| !v.expose().is_empty()) else {
             return Ok(ActionResult {
                 ok: false,
                 detail: "secret input declined".into(),

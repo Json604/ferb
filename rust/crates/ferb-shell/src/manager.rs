@@ -277,7 +277,7 @@ impl ShellManager {
             }
         }
         if lift == Some(ADMIN)
-            && !(escape.is_some_and(|e| e.secret.as_deref().is_some_and(|s| !s.is_empty()))
+            && !(escape.is_some_and(|e| e.secret.as_ref().is_some_and(|s| !s.is_empty()))
                 && self.cfg.admin_ready)
         {
             return Err(refused(
@@ -325,7 +325,7 @@ impl ShellManager {
         };
         let profile = Sandbox::profile_path(&argv);
         let secret = if lift == Some(ADMIN) {
-            escape.and_then(|e| e.secret.clone())
+            escape.and_then(|e| e.secret.as_ref().map(|s| s.expose().to_owned()))
         } else {
             None
         };

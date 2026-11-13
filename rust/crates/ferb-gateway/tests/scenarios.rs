@@ -2174,3 +2174,166 @@ fn the_daemon_recordings_file_calls_get_the_same_replies() {
     assert_eq!(replayed, 8);
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
+
+/// A gateway with no tools on a fresh store, its events kept in `events`.
+fn bare_gateway(events: Arc<Mutex<Vec<(String, Value)>>>) -> (Gateway, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let user = dir.path().join("user").to_str().unwrap().to_string();
+    let home = dir.path().join("home").to_str().unwrap().to_string();
+    let db = Db::open(dir.path().join("ferb.db")).unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(Mutex::new(db));
+    let clock = Arc::new(FakeClock(Mutex::new(start())));
+    let ids: Arc<dyn IdSource> = Arc::new(Seq(Mutex::new(0)));
+    let never_read = json!(ferb_policy::protection::default_never_read());
+    let never_write = json!(ferb_policy::protection::DEFAULT_NEVER_WRITE);
+    let terminals = json!(ferb_policy::protection::DEFAULT_TERMINAL_APPS);
+    let ports = json!([]);
+    let lists = ferb_policy::protection::Lists {
+        never_read: &never_read,
+        never_write: &never_write,
+        terminal_apps: &terminals,
+        local_ports: &ports,
+    };
+    let protection =
+        ferb_policy::protection::Protection::new(&user, &home, &lists, None, &POSIX_FILES).unwrap();
+    let deps = Deps {
+        db: db.clone(),
+        clock: clock.clone(),
+        ids: ids.clone(),
+        redactor: Arc::new(Redactor::new(&[], &[])),
+        ledger: Arc::new(RealLedger {
+            db: db.clone(),
+            clock: clock.clone(),
+            ids: ids.clone(),
+        }),
+        publish: Box::new(move |t, d| {
+            events
+                .lock()
+                .unwrap()
+                .push((t.to_string(), ferb_gateway::gateway::py_value(&d)))
+        }),
+        roots: FsRoots {
+            workspace: format!("{home}/workspace"),
+            owner_roots: vec![],
+            untrusted_roots: vec![],
+            home: user.clone(),
+            protection: Arc::new(SyncProtection(protection)),
+        },
+        device_id: "dev".into(),
+        recovery: Arc::new(ferb_gateway::adapters::fs::FsRecovery {
+            db: db.clone(),
+            clock: clock.clone(),
+            ids: ids.clone(),
+            root: dir.path().join("recovery").to_str().unwrap().into(),
+        }),
+        snapshots: None,
+        usage: Arc::new(RealUsage),
+        apps: Arc::new(NoApps),
+        describe: Arc::new(Words),
+        journal_problem: Box::new(|_k, _d| {}),
+        profile_name: Box::new(|_b, f| f.to_string()),
+        profile_account: Box::new(|_b, _f| String::new()),
+        owner_contacts: Box::new(Vec::new),
+        pay_same_site_forms: Box::new(|| true),
+        on_path: Box::new(|_p, _t| {}),
+        proc_task: Box::new(|_p| None),
+        route_question: None,
+        hooks: Arc::new(ferb_gateway::seams::NoHooks),
+        made_in_tree: None,
+        excluded_host: None,
+        owner_secrets: None,
+        places: Arc::new(BrowserPlaces),
+        username_holds: None,
+    };
+    let mut n = 0;
+    let gw = Gateway::new(Registry::new(), deps, move || {
+        n += 1;
+        format!("ap-{n}")
+    });
+    (gw, dir)
+}
+
+#[test]
+fn ferbs_own_questions_are_asked_answered_and_set_aside() {
+    use ferb_gateway::gateway::OwnQuestion;
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let (gw, _dir) = bare_gateway(events.clone());
+    let q = OwnQuestion {
+        capability: "memory.forget".into(),
+        reason: "Forget for good?\nThe note about the invented plant.".into(),
+        options: vec!["Yes".into(), "No".into()],
+        request_id: "own-1".into(),
+        approval_id: None,
+        summary: Some("Forget for good?".into()),
+        detail: Some("The note about the invented plant.".into()),
+        labels: vec!["Forget".into(), "Keep".into()],
+    };
+    let ap = gw.ask_own(&q);
+    assert_eq!(ap.id, "ap-1");
+    assert!(gw.waiting("ap-1") && !gw.waiting("ap-2"));
+    {
+        let ev = events.lock().unwrap();
+        assert_eq!(ev[0].0, "approval.requested");
+        let d = &ev[0].1;
+        assert_eq!(d["approval_id"], "ap-1");
+        assert_eq!(d["capability"], "memory.forget");
+        assert_eq!(d["kind"], "owner_question");
+        assert_eq!(d["task_id"], Value::Null);
+        assert_eq!(d["options"], json!(["Yes", "No"]));
+        assert_eq!(d["summary"], "Forget for good?");
+        assert_eq!(d["labels"], json!(["Forget", "Keep"]));
+    }
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let answered = rt.block_on(async {
+        let cancel = Cancel::new();
+        let wait = gw.await_own("ap-1", &cancel);
+        tokio::pin!(wait);
+        tokio::select! {
+            biased;
+            _ = &mut wait => panic!("answered before the owner answered"),
+            () = tokio::task::yield_now() => {}
+        }
+        gw.resolve("ap-1", true, None, Some("yes")).unwrap();
+        wait.await.unwrap().unwrap()
+    });
+    assert_eq!(answered.choice.as_deref(), Some("Yes"));
+    // asked again after a restart: the same id; set aside, never a No
+    let again = gw.ask_own(&OwnQuestion {
+        approval_id: Some("ap-9".into()),
+        ..q
+    });
+    assert_eq!(again.id, "ap-9");
+    assert!(gw.close_own("ap-9"));
+    assert!(!gw.close_own("ap-9"), "closed once");
+    assert_eq!(
+        gw.approval("ap-9").unwrap().state,
+        ferb_gateway::questions::State::Superseded
+    );
+    {
+        let ev = events.lock().unwrap();
+        assert_eq!(ev.last().unwrap().0, "approval.resolved");
+        assert_eq!(ev.last().unwrap().1["state"], "superseded");
+    }
+    // a cancelled wait leaves the question open
+    let open = gw.ask_own(&OwnQuestion {
+        request_id: "own-2".into(),
+        approval_id: None,
+        ..OwnQuestion::default()
+    });
+    let cancel = Cancel::new();
+    cancel.cancel();
+    assert_eq!(
+        rt.block_on(gw.await_own(&open.id, &cancel)),
+        Err(CallError::Cancelled)
+    );
+    assert!(gw.waiting(&open.id));
+    gw.forget_request("own-2");
+    assert_eq!(
+        rt.block_on(gw.await_own(&open.id, &Cancel::new())),
+        Ok(None)
+    );
+}

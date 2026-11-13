@@ -4,6 +4,9 @@
 
 use crate::generated as g;
 
+// The one copy, in ferb-py (rust/fixtures/py/make_unicode.py made its tables as gen_rust.py made these).
+pub use ferb_py::text::{is_alnum, is_digit, is_space, lower};
+
 fn in_table(table: &[(u32, u32)], c: char) -> bool {
     let cp = c as u32;
     table
@@ -17,24 +20,6 @@ fn in_table(table: &[(u32, u32)], c: char) -> bool {
             }
         })
         .is_ok()
-}
-
-/// `str.isspace()` (and `\s` in a str pattern).
-pub fn is_space(c: char) -> bool {
-    if c.is_ascii() {
-        matches!(c as u32, 0x09..=0x0d | 0x1c..=0x20)
-    } else {
-        in_table(g::SPACE, c)
-    }
-}
-
-/// `str.isdigit()`.
-pub fn is_digit(c: char) -> bool {
-    if c.is_ascii() {
-        c.is_ascii_digit()
-    } else {
-        in_table(g::DIGIT, c)
-    }
 }
 
 /// `str.isdecimal()` (and `\d` in a str pattern).
@@ -55,15 +40,6 @@ pub fn is_alpha(c: char) -> bool {
     }
 }
 
-/// `str.isalnum()`.
-pub fn is_alnum(c: char) -> bool {
-    if c.is_ascii() {
-        c.is_ascii_alphanumeric()
-    } else {
-        in_table(g::ALNUM, c)
-    }
-}
-
 /// known.py:31 `word_char`: a letter, number or mark, or a private-use character.
 pub fn word_char(c: char) -> bool {
     in_table(g::WORD_CHAR, c)
@@ -72,14 +48,6 @@ pub fn word_char(c: char) -> bool {
 /// untrusted.py:105: a character `as_data` writes as an escape.
 pub fn is_escaped_category(c: char) -> bool {
     in_table(g::ESCAPED, c)
-}
-
-pub fn is_printable(c: char) -> bool {
-    !in_table(g::NOT_PRINTABLE, c)
-}
-
-pub fn nfkc_delim(c: char) -> bool {
-    in_table(g::NFKC_DELIMS, c)
 }
 
 /// `str.isupper()`.
@@ -94,38 +62,6 @@ pub fn is_upper_str(s: &str) -> bool {
         }
     }
     cased
-}
-
-/// `str.lower()`, from Python's own table (Unicode 15.0), with CPython's rule for a capital sigma
-/// (Objects/unicodeobject.c `handle_capital_sigma`): final after a cased letter and before none, case-ignorable
-/// characters skipped on both sides.
-pub fn lower(s: &str) -> String {
-    if s.is_ascii() {
-        return s.to_ascii_lowercase();
-    }
-    let mut out = String::with_capacity(s.len());
-    for (i, c) in s.char_indices() {
-        if c.is_ascii() {
-            out.push(c.to_ascii_lowercase());
-        } else if c == '\u{3a3}' {
-            let before = s[..i]
-                .chars()
-                .rev()
-                .find(|&x| !in_table(g::CASE_IGNORABLE, x));
-            let after = s[i + c.len_utf8()..]
-                .chars()
-                .find(|&x| !in_table(g::CASE_IGNORABLE, x));
-            let last = before.is_some_and(|x| in_table(g::CASED, x))
-                && !after.is_some_and(|x| in_table(g::CASED, x));
-            out.push(if last { '\u{3c2}' } else { '\u{3c3}' });
-        } else {
-            match g::LOWER.binary_search_by_key(&(c as u32), |&(cp, _)| cp) {
-                Ok(k) => out.push_str(g::LOWER[k].1),
-                Err(_) => out.push(c),
-            }
-        }
-    }
-    out
 }
 
 /// `str.casefold()`, from Python's own table.

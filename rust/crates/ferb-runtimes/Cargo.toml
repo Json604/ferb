@@ -8,6 +8,9 @@ publish = false
 
 [dependencies]
 ferb-core = { path = "../ferb-core" }
+ferb-context = { path = "../ferb-context" }
+ferb-orchestrator = { path = "../ferb-orchestrator", default-features = false }
+ferb-worker = { path = "../ferb-worker" }
 ferb-py = { path = "../ferb-py" }
 ferb-sanitize = { path = "../ferb-sanitize" }
 ferb-identity = { path = "../ferb-identity" }

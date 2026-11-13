@@ -75,7 +75,8 @@ pub struct PtyProc {
     pub log: PathBuf,
     redact_text: RedactText,
     on_exit: Mutex<Option<OnExit>>,
-    admin_secret: Mutex<Option<String>>,
+    /// Zeroed when taken and dropped (rule 7).
+    admin_secret: Mutex<Option<ferb_py::secret::Secret>>,
     started_at: Mutex<Option<f64>>,
     st: Mutex<St>,
     done: watch::Sender<bool>,
@@ -150,7 +151,7 @@ impl PtyProc {
             log,
             redact_text,
             on_exit: Mutex::new(on_exit),
-            admin_secret: Mutex::new(admin_secret),
+            admin_secret: Mutex::new(admin_secret.map(ferb_py::secret::Secret::new)),
             started_at: Mutex::new(None),
             st: Mutex::new(St {
                 total: 0,
@@ -309,7 +310,10 @@ impl PtyProc {
         if let Some(secret) = secret {
             if let Some(mut stdin) = child.stdin.take() {
                 use tokio::io::AsyncWriteExt;
-                let _ = stdin.write_all(format!("{secret}\n").as_bytes()).await; // a broken pipe is ignored
+                // the value, then its line end: no unzeroed copy of the line is made (a broken pipe is ignored)
+                if stdin.write_all(secret.expose().as_bytes()).await.is_ok() {
+                    let _ = stdin.write_all(b"\n").await;
+                }
                 drop(stdin);
             }
             drop(secret);

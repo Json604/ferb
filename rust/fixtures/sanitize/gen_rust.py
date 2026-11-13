@@ -1,6 +1,6 @@
 """Writes rust/crates/ferb-sanitize/src/generated.rs from the Python build: the source of every compiled pattern in
 ferb/sanitize (so the Rust port translates the same text Python compiles) and the Unicode facts Python 3.12 answers
-with (str.isspace, isdigit, isalnum, unicodedata.category, casefold). Called by make.py; never edit the output."""
+with (str.isspace, isalnum, unicodedata.category, casefold). Called by make.py; never edit the output."""
 
 import re
 import unicodedata
@@ -117,7 +117,8 @@ def main() -> None:
 
     parts.append(table("SPACE", str.isspace, "str.isspace(), which is also `\\s` in a str pattern."))
     parts.append(table("DECIMAL", str.isdecimal, "str.isdecimal(), which is `\\d` in a str pattern."))
-    parts.append(table("DIGIT", str.isdigit, "str.isdigit()."))
+    # DIGIT, NOT_PRINTABLE, CASE_IGNORABLE, CASED, LOWER and NFKC_DELIMS live in ferb-py now (rust/fixtures/py/make_unicode.py
+    # makes them with this file's `table`), with the helpers that read them (`ferb_py::text`, `ferb_py::url`)
     parts.append(table("ALPHA", str.isalpha, "str.isalpha()."))
     parts.append(table("ALNUM", str.isalnum, "str.isalnum(); with \"_\" it is `\\w` in a str pattern."))
     assert ranges(lambda c: re.match(r"\w", c) is not None) == ranges(lambda c: c.isalnum() or c == "_")
@@ -129,30 +130,6 @@ def main() -> None:
     parts.append(table("UPPER", str.isupper, "Characters str.isupper() counts as uppercase."))
     parts.append(table("LOWER_OR_TITLE", lambda c: c.islower() or unicodedata.category(c) == "Lt",
                        "Characters that make str.isupper() false: lowercase or titlecase."))
-    parts.append(table("NOT_PRINTABLE", lambda c: not c.isprintable(), "Characters repr() writes as an escape."))
-    # urllib.parse._checknetloc refuses a host whose NFKC form holds one of "/?#@:". Those five never combine with a
-    # following mark (checked here), so the check is per character.
-    delims = "/?#@:"
-    for d in delims:
-        for cp in range(0x110000):
-            if not 0xD800 <= cp <= 0xDFFF and unicodedata.combining(chr(cp)):
-                assert unicodedata.normalize("NFKC", d + chr(cp))[0] == d, (d, cp)
-    parts.append(table("NFKC_DELIMS", lambda c: c not in delims and any(d in unicodedata.normalize("NFKC", c)
-                                                                         for d in delims),
-                       "Characters whose NFKC form holds one of \"/?#@:\" (urllib.parse._checknetloc)."))
-    # str.lower(): one table, plus the capital sigma's rule (Objects/unicodeobject.c handle_capital_sigma): it is
-    # a final sigma after a cased letter and before none, case-ignorable characters skipped on both sides. Python
-    # exposes neither property, so both are read off its own answers.
-    sigma = "\u03a3"
-    parts.append(table("CASE_IGNORABLE", lambda c: ("a" + c + sigma).lower()[-1] == "\u03c2" and (c + sigma).lower()[-1] != "\u03c2",
-                       "Characters str.lower() skips around a capital sigma (case-ignorable)."))
-    parts.append(table("CASED", lambda c: (c + sigma).lower()[-1] == "\u03c2",
-                       "Cased characters that aren't case-ignorable (a capital sigma after one may be final)."))
-    lowers = [(cp, chr(cp).lower()) for cp in range(0x110000)
-              if not 0xD800 <= cp <= 0xDFFF and chr(cp).lower() != chr(cp) and cp != 0x3A3]
-    parts.append("/// str.lower() for every character it changes (the capital sigma aside: see CASED).\n"
-                 "pub static LOWER: &[(u32, &str)] = &[\n"
-                 + "".join(f"    (0x{cp:x}, {lit(f)}),\n" for cp, f in lowers) + "];\n\n")
     folds = [(cp, chr(cp).casefold()) for cp in range(0x110000)
              if not 0xD800 <= cp <= 0xDFFF and chr(cp).casefold() != chr(cp)]
     parts.append("/// str.casefold() for every character it changes.\npub static CASEFOLD: &[(u32, &str)] = &[\n"

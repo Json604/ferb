@@ -330,7 +330,7 @@ fn nettop_endpoint(text: &str, v4: bool) -> Result<Option<(String, Option<u32>)>
         return Ok(None);
     };
     let (address, port) = (&text[..i], &text[i + 1..]);
-    let digits = !port.is_empty() && port.chars().all(ferb_sanitize::parity::is_digit);
+    let digits = !port.is_empty() && port.chars().all(ferb_py::text::is_digit);
     if !(digits || port == "*") {
         return Ok(None);
     }

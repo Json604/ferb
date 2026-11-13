@@ -58,7 +58,11 @@ impl std::fmt::Display for SchemaTooComplex {
 
 impl std::error::Error for SchemaTooComplex {}
 
-/// A core answer schema and the form one provider receives (`wire`); `mapped` when answers need mapping back.
+/// A way back from a provider's answer to the core form, as ferb-runtimes' former `Shape` carried it.
+pub type Back = std::sync::Arc<dyn Fn(&Value) -> Value + Send + Sync>;
+
+/// A core answer schema and the form one provider receives (`wire`); `mapped` when answers need mapping back. The one
+/// `Shape` type: ferb-runtimes' adapters use it (`ferb_runtimes::forms::Shape` is this).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Shape {
     pub core: Value,
@@ -73,6 +77,26 @@ impl Shape {
             core: schema.clone(),
             wire: schema.clone(),
             mapped: false,
+        }
+    }
+
+    /// A reshaped form (`mapped`): its way back is always the core schema's own (`back(core, answer)`), so `_back`
+    /// is not called. Kept so code written for ferb-runtimes' former `Shape` (which carried the way back as a
+    /// function) compiles unchanged; build shapes with [`for_anthropic`] / [`for_gemini`] instead.
+    pub fn mapped(core: Value, wire: Value, _back: Back) -> Shape {
+        Shape {
+            core,
+            wire,
+            mapped: true,
+        }
+    }
+
+    /// [`Shape::value`] on a decoded JSON answer (what the runtimes' adapters hold).
+    pub fn value_json(&self, answer: &Value) -> Value {
+        if self.mapped {
+            self.value(Py::from_value(answer)).to_value()
+        } else {
+            answer.clone()
         }
     }
 

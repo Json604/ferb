@@ -1078,6 +1078,20 @@ impl Worker {
                             &account,
                         ))
                     }
+                    // an AccountError is a RuntimeUnavailable: the same, with the adapter's own facts
+                    Some(Err(Error::Adapter(a)))
+                        if a.class == crate::errors::AdapterClass::Account =>
+                    {
+                        if ACCOUNT_PROBLEMS.contains(&a.account.as_str()) {
+                            host.runtime_account(&name, &a.account); // RUN-424; Settings → AI
+                        }
+                        Error::Service(ServiceError::new(
+                            a.message,
+                            &name,
+                            a.reason != "auth_required",
+                            &a.account,
+                        ))
+                    }
                     Some(Err(e)) => e,
                     // the watchdog's cancellation, not Stop or shutdown
                     _ => {

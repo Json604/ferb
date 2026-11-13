@@ -32,14 +32,22 @@ pub fn timedelta_us(value: f64, factor: i64) -> Result<i64, Overflow> {
             "cannot convert float infinity to integer".into()
         }));
     }
+    // Python's int is unbounded; a total past i128 has far more days than a C int holds, which is the error
+    // Python raises for it (`microseconds_to_delta`)
+    let too_large = || Overflow("Python int too large to convert to C int".into());
     let int_part = value.trunc();
     let frac = value - int_part;
-    let mut x: i128 = (int_part as i128) * i128::from(factor);
+    if int_part.abs() >= i128::MAX as f64 {
+        return Err(too_large());
+    }
+    let mut x: i128 = (int_part as i128)
+        .checked_mul(i128::from(factor))
+        .ok_or_else(too_large)?;
     let mut leftover = 0.0f64;
     if frac != 0.0 {
         let d = factor as f64 * frac;
         let ip = d.trunc();
-        x += ip as i128;
+        x = x.checked_add(ip as i128).ok_or_else(too_large)?;
         leftover += d - ip;
     }
     if leftover != 0.0 {
@@ -48,10 +56,12 @@ pub fn timedelta_us(value: f64, factor: i64) -> Result<i64, Overflow> {
             let odd = (x & 1) as f64;
             whole = 2.0 * ((leftover + odd) * 0.5).round() - odd;
         }
-        x += whole as i128;
+        x = x.checked_add(whole as i128).ok_or_else(too_large)?;
     }
     check_days(x.div_euclid(86_400_000_000))?;
-    Ok(x as i64)
+    // A timedelta past i64 microseconds (over ~106.75 million days) is legal in Python, but adding it to any datetime
+    // raises this OverflowError (year 9999 is ~3.65 million days): said here, never wrapped into a wrong value.
+    i64::try_from(x).map_err(|_| Overflow("date value out of range".into()))
 }
 
 /// `microseconds_to_delta`'s checks: the day count must fit a C int, then +-999999999.
@@ -483,6 +493,35 @@ pub fn fmt_g(x: f64) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_huge_timedelta_is_pythons_overflow_error_not_a_panic() {
+        let words = "Python int too large to convert to C int";
+        for v in [1e300, -1e300, f64::MAX, f64::MIN, 1e38 * 3.0, 9.3e30] {
+            for factor in [1, US_PER_SECOND, 86_400_000_000] {
+                assert_eq!(
+                    timedelta_us(v, factor),
+                    Err(Overflow(words.into())),
+                    "timedelta({v} * {factor} us)"
+                );
+            }
+        }
+        // the largest whole-day total i64 holds still reads; past it, the date error Python raises where it is used;
+        // past 999999999 days, Python's own days error
+        assert_eq!(
+            timedelta_us(106_751_991.0, 86_400_000_000),
+            Ok(106_751_991 * 86_400_000_000)
+        );
+        assert_eq!(
+            timedelta_us(999_999_999.0, 86_400_000_000),
+            Err(Overflow("date value out of range".into()))
+        );
+        assert!(timedelta_us(1_000_000_000.0, 86_400_000_000)
+            .unwrap_err()
+            .0
+            .starts_with("days=1000000000"));
+    }
+
     use super::*;
 
     #[test]

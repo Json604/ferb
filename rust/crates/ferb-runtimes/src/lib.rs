@@ -29,6 +29,7 @@ pub mod pyjson;
 pub mod run;
 pub mod tooltrace;
 pub mod usage;
+pub mod worker;
 
 pub use error::{Raised, RuntimeError};
 

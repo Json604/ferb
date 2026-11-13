@@ -477,15 +477,44 @@ words!(
     FileAccess { Read = "read", Write = "write", Remove = "remove", Metadata = "metadata" }
 );
 
-/// types.py:285. `Debug` leaves the secret out, as Python's repr does.
-#[derive(Clone, PartialEq, Eq)]
+/// types.py:285. `Debug` leaves the secret out, as Python's repr does. The admin password is a zeroizing
+/// [`Secret`](ferb_py::secret::Secret) (rule 7): zeroed when the grant goes, never printed; a clone is an explicit
+/// copy of it, zeroed on its own drop.
 pub struct EscapeGrant {
     pub rule: String,
     pub confirmation_id: String,
     pub command: String,
     pub cwd: String,
-    pub secret: Option<String>,
+    pub secret: Option<ferb_py::secret::Secret>,
 }
+
+impl Clone for EscapeGrant {
+    fn clone(&self) -> Self {
+        EscapeGrant {
+            rule: self.rule.clone(),
+            confirmation_id: self.confirmation_id.clone(),
+            command: self.command.clone(),
+            cwd: self.cwd.clone(),
+            secret: self.secret.as_ref().map(|s| s.duplicate()),
+        }
+    }
+}
+
+impl PartialEq for EscapeGrant {
+    fn eq(&self, other: &Self) -> bool {
+        self.rule == other.rule
+            && self.confirmation_id == other.confirmation_id
+            && self.command == other.command
+            && self.cwd == other.cwd
+            && match (&self.secret, &other.secret) {
+                (None, None) => true,
+                (Some(a), Some(b)) => a.same_as(b),
+                _ => false,
+            }
+    }
+}
+
+impl Eq for EscapeGrant {}
 
 impl fmt::Debug for EscapeGrant {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

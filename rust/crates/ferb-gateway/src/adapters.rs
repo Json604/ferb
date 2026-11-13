@@ -340,3 +340,145 @@ pub mod fs {
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// ferb-shell: the eight shell.* tools
+// ---------------------------------------------------------------------------------------------------------------
+
+/// FERB's shell tools through the `Tool` trait: each tool's facts and `describe` are ferb-shell's own
+/// (`tools::declared`, `tools::describe`, checked against the catalog there), its run is `tools::run`, and a
+/// command's working folder is resolved by the file tools' path rules (ferb-fs `resolve`).
+#[cfg(target_os = "macos")]
+pub mod shell {
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use ferb_core::interfaces::BoxFuture;
+    use ferb_core::types::{ActionSpec, ToolContext};
+    use ferb_shell::manager::{ShellError, ShellManager};
+    use ferb_shell::protection::Protection;
+    use ferb_shell::tools;
+
+    use crate::tool::{Args, Facts, Tool, ToolError, ToolOutput};
+
+    /// The fs tools' path rules for a command's working folder (`guard.working_directory` → `files.resolve`).
+    pub struct FsResolver {
+        /// The owner's home folder.
+        pub home: String,
+    }
+
+    impl tools::ResolvePath for FsResolver {
+        fn resolve(
+            &self,
+            path: &str,
+            ctx: &ToolContext,
+            must_exist: bool,
+        ) -> Result<PathBuf, String> {
+            ferb_fs::files::resolve(path, &ctx.workspace, &self.home, must_exist)
+                .map(PathBuf::from)
+                .map_err(|e| match e {
+                    ferb_fs::files::Fail::Refused(m) => m,
+                    other => format!("{other:?}"),
+                })
+        }
+    }
+
+    /// One of the eight shell tools.
+    pub struct ShellTool {
+        pub name: &'static str,
+        pub shells: Arc<ShellManager>,
+        pub protection: Arc<dyn Protection>,
+        /// The egress proxy's port shell.rules names, when the proxy runs.
+        pub proxy_port: Option<u16>,
+        pub resolver: Arc<dyn tools::ResolvePath>,
+    }
+
+    impl ShellTool {
+        /// All eight, in the registry's order, over one manager and the protection lists.
+        pub fn all(
+            shells: Arc<ShellManager>,
+            protection: Arc<dyn Protection>,
+            proxy_port: Option<u16>,
+            home: &str,
+        ) -> Vec<Arc<dyn Tool>> {
+            let resolver: Arc<dyn tools::ResolvePath> = Arc::new(FsResolver {
+                home: home.to_string(),
+            });
+            tools::TOOLS
+                .iter()
+                .map(|&name| {
+                    Arc::new(ShellTool {
+                        name,
+                        shells: shells.clone(),
+                        protection: protection.clone(),
+                        proxy_port,
+                        resolver: resolver.clone(),
+                    }) as Arc<dyn Tool>
+                })
+                .collect()
+        }
+    }
+
+    /// A shell failure as the tool's error: a refusal before acting, anything else Python's `RuntimeError`.
+    pub fn tool_error(e: ShellError) -> ToolError {
+        match e {
+            ShellError::Refused(m) => ToolError::refused(m),
+            other => ToolError::failed("RuntimeError", other.to_string()),
+        }
+    }
+
+    impl Tool for ShellTool {
+        fn name(&self) -> &str {
+            self.name
+        }
+
+        fn facts(&self) -> Facts {
+            let Some(d) = tools::declared(self.name) else {
+                return Facts::from_catalog(self.name).unwrap_or_default();
+            };
+            Facts {
+                risk: d.risk,
+                reversible: d.reversible,
+                observation: d.observation,
+                origin: d.origin.map(str::to_string),
+                on_screen: d.on_screen,
+                probe_safe: d.probe_safe,
+                ledger_key: d.ledger_key.map(str::to_string),
+                method_args: d.method_args.iter().map(|s| s.to_string()).collect(),
+                target_args: d.target_args.iter().map(|s| s.to_string()).collect(),
+                ..Facts::default()
+            }
+        }
+
+        fn describe(&self, args: &Args) -> ActionSpec {
+            tools::describe(self.name, args).unwrap_or_else(|| ActionSpec::new(self.name))
+        }
+
+        fn run<'a>(
+            &'a self,
+            args: &'a Args,
+            ctx: &'a ToolContext,
+        ) -> BoxFuture<'a, Result<ToolOutput, ToolError>> {
+            Box::pin(async move {
+                let ran = tools::run(
+                    self.name,
+                    &self.shells,
+                    self.protection.as_ref(),
+                    self.proxy_port,
+                    args,
+                    ctx,
+                    self.resolver.as_ref(),
+                )
+                .await;
+                match ran {
+                    Some(Ok(r)) => Ok(r.into()),
+                    Some(Err(e)) => Err(tool_error(e)),
+                    None => Err(ToolError::refused(format!(
+                        "{} isn't a shell tool",
+                        self.name
+                    ))),
+                }
+            })
+        }
+    }
+}

@@ -42,9 +42,11 @@ that are `int`/`float`/`bool`/`None` become `"1"`, `"1.5"`, `"true"`, `"null"` (
   - RPC `tools.list` (`ferb/daemon/areas/chat.py:181`): `{"tools": tools_for(grant)}`, sent as `json.dumps(msg)`
     (defaults) by `ferb/daemon/server.py:452`.
   - The tool bridge `ferb/cli/mcp.py:75-79`: name → `mcp_name` (`.` → `_`), `input_schema` → `inputSchema`; nothing
-    else changes (asserted in `make.py`). `mcp_tools_list.planner_example` is one full `tools/list` result; the mcp
-    library adds `ttlMs`, `cacheScope`, `resultType`. The dump flags (`by_alias`, `exclude_none`) were read from the
-    mcp package, the JSON-RPC envelope and its exact bytes were **not** frozen.
+    else changes (asserted in `make.py`). `mcp_tools_list.planner_example` is one full `tools/list` result as the
+    model programs receive it: the mcp library's handler result carries `ttlMs`, `cacheScope`, `resultType`, which its
+    runner sieves out for the 2025-06-18 protocol Codex and Claude Code negotiate (`rust/fixtures/runtimes/mcp.json`).
+    The dump flags (`by_alias`, `exclude_none`) were read from the mcp package; the JSON-RPC envelope's exact bytes are
+    in the runtimes fixture, not here.
   - The provider APIs `ferb/runtimes/api.py:256-261`: `ToolSpec(mcp_name, description, inline_refs(input_schema))`.
     `inline_refs` (`api.py:152`) only changes schemas with `$defs`: `mac.act`, `mac.click`, `mac.pointer`,
     `wait.for` (their `api_schema` is stored). Envelopes: OpenAI `{"type":"function","name","description",

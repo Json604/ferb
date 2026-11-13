@@ -570,6 +570,7 @@ dependencies = [
  "ferb-py",
  "ferb-rpc",
  "ferb-sanitize",
+ "ferb-shell",
  "ferb-store",
  "ferb-trace",
  "getrandom 0.3.4",
@@ -605,9 +606,11 @@ dependencies = [
  "ferb-context",
  "ferb-core",
  "ferb-memory",
+ "ferb-orchestrator",
  "ferb-py",
  "ferb-sanitize",
  "ferb-store",
+ "ferb-worker",
  "rusqlite",
  "serde_json",
  "sha2",
@@ -729,6 +732,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "zeroize",
 ]
 
 [[package]]
@@ -757,10 +761,13 @@ dependencies = [
  "bytes",
  "chrono",
  "fancy-regex 0.14.0",
+ "ferb-context",
  "ferb-core",
  "ferb-identity",
+ "ferb-orchestrator",
  "ferb-py",
  "ferb-sanitize",
+ "ferb-worker",
  "futures-util",
  "getrandom 0.3.4",
  "libc",
@@ -778,6 +785,7 @@ name = "ferb-sanitize"
 version = "0.28.0"
 dependencies = [
  "fancy-regex 0.14.0",
+ "ferb-py",
  "getrandom 0.3.4",
  "libc",
  "serde_json",
@@ -818,6 +826,7 @@ name = "ferb-shell"
 version = "0.28.0"
 dependencies = [
  "ferb-core",
+ "ferb-policy",
  "ferb-py",
  "ferb-sanitize",
  "getrandom 0.3.4",
@@ -871,10 +880,6 @@ dependencies = [
  "serde_json",
  "tokio",
 ]
-
-[[package]]
-name = "ferbd"
-version = "0.28.0"
 
 [[package]]
 name = "find-msvc-tools"

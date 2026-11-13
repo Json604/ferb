@@ -54,7 +54,9 @@ use crate::tool::{Args, Registry, Tool, ToolError, ToolOutput};
 use crate::words::*;
 
 mod hidden;
+mod own;
 pub use hidden::{HiddenError, SecretAsk};
+pub use own::OwnQuestion;
 
 // ---------------------------------------------------------------------------------------------------------------
 // FERB's own words, marked (Python's `Redacted`)
@@ -714,9 +716,10 @@ impl Gateway {
         choice: Option<usize>,
         text: Option<&str>,
     ) -> Result<Approval, ResolveError> {
+        // a hidden input's answer goes straight into a zeroizing secret its call takes (rule 7)
         let out = lock(&self.inner)
             .approvals
-            .resolve(id, granted, choice, text)
+            .resolve_sealed(id, granted, choice, text)
             .cloned();
         self.answers.notify_waiters();
         out
@@ -2586,50 +2589,56 @@ impl Gateway {
         let sources: ArgSources = arg_sources_back(c.extra.get("arg_sources"));
         let declared: Vec<String> = rules::declared_kinds(&c.checked).into_iter().collect();
         let declared_refs: Vec<&str> = declared.iter().map(String::as_str).collect();
-        let facts = confirm::Facts {
-            read_private: read.contains(origin::PRIVATE),
-            read_external: !outside.is_empty(),
-            known: &known,
-            approved: Some(&approved),
-            outside_read: &outside,
-            place: c.spec.place.as_deref(),
-            content: c.spec.content.as_deref(),
-            own: &own,
-        };
-        let mut needs = confirm::decide(&c.spec.kind, &declared_refs, &target, &sources, &facts);
-        let mut kinds_all: BTreeSet<String> = declared.iter().cloned().collect();
-        kinds_all.insert(c.spec.kind.clone());
-        let mut deletes: Vec<(String, ArgSources)> = Vec::new();
-        if let Some(p) = target.path.clone().filter(|p| !p.is_empty()) {
-            if kinds_all.contains(Kind::DELETE_PERMANENT) {
-                deletes.push((p, sources.clone()));
-            }
-        }
-        for (kind, fact_target) in c.fact_targets.clone() {
-            if kind == Kind::SUBMIT {
-                if let Some(sink) = self.submit_sink(c, &fact_target, &outside)? {
-                    needs.push(sink);
-                }
-                continue;
-            }
-            let fact_sources = self.arg_sources(&fact_target, &c.rec, &c.grant)?;
-            let f2 = confirm::Facts {
-                content: None,
-                ..facts_copy(&facts)
+        // The policy's facts hold plain `&dyn Fn` lookups (not `Sync`): they live only in this block, never across
+        // the counting await below, so the call's future stays `Send`.
+        let (mut needs, deletes) = {
+            let facts = confirm::Facts {
+                read_private: read.contains(origin::PRIVATE),
+                read_external: !outside.is_empty(),
+                known: &known,
+                approved: Some(&approved),
+                outside_read: &outside,
+                place: c.spec.place.as_deref(),
+                content: c.spec.content.as_deref(),
+                own: &own,
             };
-            needs.extend(confirm::decide(
-                &kind,
-                &[],
-                &fact_target,
-                &fact_sources,
-                &f2,
-            ));
-            if kind == Kind::DELETE_PERMANENT {
-                if let Some(p) = fact_target.path.clone() {
-                    deletes.push((p, fact_sources));
+            let mut needs =
+                confirm::decide(&c.spec.kind, &declared_refs, &target, &sources, &facts);
+            let mut kinds_all: BTreeSet<String> = declared.iter().cloned().collect();
+            kinds_all.insert(c.spec.kind.clone());
+            let mut deletes: Vec<(String, ArgSources)> = Vec::new();
+            if let Some(p) = target.path.clone().filter(|p| !p.is_empty()) {
+                if kinds_all.contains(Kind::DELETE_PERMANENT) {
+                    deletes.push((p, sources.clone()));
                 }
             }
-        }
+            for (kind, fact_target) in c.fact_targets.clone() {
+                if kind == Kind::SUBMIT {
+                    if let Some(sink) = self.submit_sink(c, &fact_target, &outside)? {
+                        needs.push(sink);
+                    }
+                    continue;
+                }
+                let fact_sources = self.arg_sources(&fact_target, &c.rec, &c.grant)?;
+                let f2 = confirm::Facts {
+                    content: None,
+                    ..facts_copy(&facts)
+                };
+                needs.extend(confirm::decide(
+                    &kind,
+                    &[],
+                    &fact_target,
+                    &fact_sources,
+                    &f2,
+                ));
+                if kind == Kind::DELETE_PERMANENT {
+                    if let Some(p) = fact_target.path.clone() {
+                        deletes.push((p, fact_sources));
+                    }
+                }
+            }
+            (needs, deletes)
+        };
         for (path, path_sources) in deletes {
             let real =
                 ferb_fs::files::real_path(&path, &self.d.roots.workspace, &self.d.roots.home)
@@ -4572,7 +4581,7 @@ impl Gateway {
                     .admin_password(&c.grant, &c.rec, &command, &c.cancel, &c.left)
                     .await?;
                 match given {
-                    Some(s) => Some(s.expose().to_string()),
+                    Some(s) => Some(s),
                     None => {
                         return Ok(Err(obj(
                             json!({"error": "the approved admin command was cancelled without a password"}),

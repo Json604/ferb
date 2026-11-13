@@ -38,42 +38,8 @@ pub fn clip_value(value: &Value, n: usize) -> String {
     clip(&str_of(value), n)
 }
 
-/// `shorten(text, n, fold)`: a short form that never cuts a word (ORCH-601).
-pub fn shorten(text: &str, n: usize, fold: bool) -> String {
-    let s = if fold { squeeze(text) } else { text.to_owned() };
-    if char_len(&s) <= n {
-        return s;
-    }
-    let head: Vec<char> = s.chars().take(n.saturating_sub(1)).collect();
-    let at = |i: usize| head[i];
-    let mut last_end = None;
-    let mut i = 0;
-    while i + 1 < head.len() {
-        if matches!(at(i), '.' | '!' | '?') && crate::py::is_py_space(at(i + 1)) {
-            last_end = Some(i);
-            i += 2;
-        } else {
-            i += 1;
-        }
-    }
-    if let Some(e) = last_end {
-        if e + 1 >= n / 2 {
-            let cut: String = head[..=e].iter().collect();
-            return format!("{cut} …");
-        }
-    }
-    let last_space = head.iter().rposition(|&c| crate::py::is_py_space(c));
-    match last_space {
-        Some(sp) if sp > 0 => {
-            let cut: String = head[..sp].iter().collect();
-            format!(
-                "{}…",
-                cut.trim_end_matches([' ', ',', ';', ':', '(', '—', '-', '\n', '\t'])
-            )
-        }
-        _ => format!("{}…", head.iter().collect::<String>()),
-    }
-}
+/// `shorten(text, n, fold)`: a short form that never cuts a word (ORCH-601). The one copy is ferb-py's.
+pub use ferb_py::text::shorten;
 
 /// `plural(n, one, many)`.
 pub fn plural(n: i64, one: &str, many: &str) -> String {

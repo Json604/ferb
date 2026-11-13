@@ -9,12 +9,15 @@
 //!
 //! What touches macOS (libproc, `sandbox_check`, `nettop`, `sandbox-exec`) sits behind `cfg(target_os = "macos")`;
 //! elsewhere those readings return nothing, so every check fails closed. Seams to other parts: `protection::Protection`
-//! (the policy part), `tools::ResolvePath` (the files part), `local::SocketFacts`, the proxy's `allow`/`resolve`
-//! callbacks (the gateway), `manager::ManagerConfig`'s callbacks (the daemon).
+//! (the policy part; implemented over ferb-policy's lists in `policy_lists`), `tools::ResolvePath` (the files part),
+//! `local::SocketFacts`, the proxy's `allow`/`resolve` callbacks (the gateway), `manager::ManagerConfig`'s callbacks
+//! (the daemon).
 
 pub mod listeners;
 pub mod local;
 pub mod manager;
+#[cfg(feature = "policy")]
+pub mod policy_lists;
 pub mod protection;
 pub mod proxy;
 pub mod pty;

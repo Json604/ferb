@@ -145,6 +145,11 @@ pub enum Programs {
     Rust(RustPrograms),
 }
 
+/// `ferbd`'s argument that runs the background service (`ferbd daemon`; rust/crates/ferbd/src/run.rs).
+pub const RUST_DAEMON_ARG: &str = "daemon";
+/// The Rust build's native host inside FERB.app.
+pub const BUNDLE_RUST_NATIVE_HOST: &str = "Contents/Helpers/ferb-native-host";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RustPrograms {
     /// Inside FERB.app: the daemon's executable (the nested `com.ferb.daemon` app's, BUNDLE_AGENT by default) and the
@@ -154,8 +159,23 @@ pub struct RustPrograms {
     /// A checkout's built binaries (absolute paths).
     pub checkout_daemon: PathBuf,
     pub checkout_native_host: PathBuf,
-    /// The daemon's arguments (none: `ferbd` is the daemon).
+    /// The daemon's arguments (`["daemon"]` for `ferbd`: [`RustPrograms::ferbd`]).
     pub daemon_args: Vec<String>,
+}
+
+impl RustPrograms {
+    /// The Rust build's service definition: `ferbd daemon`. Inside FERB.app the nested agent app's executable is
+    /// `ferbd` (BUNDLE_AGENT, so macOS's permissions stay FERB.app's agent's) and the native host is
+    /// BUNDLE_RUST_NATIVE_HOST; a checkout runs the binaries cargo built in `built` (its `target/release`).
+    pub fn ferbd(built: &Path) -> RustPrograms {
+        RustPrograms {
+            bundle_daemon: BUNDLE_AGENT.into(),
+            bundle_native_host: BUNDLE_RUST_NATIVE_HOST.into(),
+            checkout_daemon: built.join("ferbd"),
+            checkout_native_host: built.join("ferb-native-host"),
+            daemon_args: vec![RUST_DAEMON_ARG.into()],
+        }
+    }
 }
 
 /// The pinned Codex (ferb/runtimes/codex_exec.py CODEX_VERSION and `native_bin()` for this Mac).
@@ -1452,11 +1472,9 @@ impl Installer {
             self.write_marker()?;
             return self.install_from_bundle(while_stopped);
         }
-        if matches!(self.programs, Programs::Rust(_)) {
-            return Err(InstallError::Install(
-                "a checkout's install of the Rust daemon isn't defined yet (rust/PLAN.md part 12)"
-                    .into(),
-            ));
+        if let Programs::Rust(r) = &self.programs {
+            let r = r.clone();
+            return self.install_rust_checkout(&r, update_only, while_stopped);
         }
         self.recover_venv()?;
         if update_only && !self.installed() {
@@ -1503,6 +1521,57 @@ impl Installer {
         });
         let loaded = self.load();
         finally(switched, loaded)
+    }
+
+    /// A checkout's install of the Rust build: the checkout's built `ferbd` and `ferb-native-host` run in place (they
+    /// play the venv's part: nothing is staged or swapped), with the same steps around them as a Python checkout's
+    /// install (install.py:725): the secret helper, Codex when a role uses it, the native host, FERB's extension, the
+    /// embedding model, the LaunchAgent and its load. A binary that isn't built is refused before anything changes.
+    fn install_rust_checkout(
+        &mut self,
+        r: &RustPrograms,
+        update_only: bool,
+        while_stopped: Option<Work<'_>>,
+    ) -> Result<()> {
+        if update_only && !self.installed() {
+            return Err(InstallError::Install(
+                "FERB isn't installed yet: run `ferb setup` first".into(),
+            ));
+        }
+        for built in [&r.checkout_daemon, &r.checkout_native_host] {
+            if !built.is_file() {
+                return Err(InstallError::Install(format!(
+                    "{} isn't built: build the Rust programs first (cargo build --release -p ferbd -p ferb-native-host)",
+                    built.display()
+                )));
+            }
+        }
+        self.check_not_foreign("before running FERB from this checkout")?;
+        self.write_marker()?;
+        self.install_secret_helper()?;
+        if self.codex_wanted()? {
+            self.ensure_codex()?;
+        }
+        self.write_native_host()?;
+        self.install_files()?;
+        self.ensure_embedding_model();
+        self.write_plist()?;
+        let mut work = while_stopped;
+        if self.loaded() {
+            self.unload()?;
+            let done = self.check_exited().and_then(|_| match work.as_mut() {
+                Some(w) => w(),
+                None => Ok(()),
+            });
+            let loaded = self.load();
+            return finally(done, loaded);
+        }
+        let done = match work.as_mut() {
+            Some(w) => w(),
+            None => Ok(()),
+        };
+        let loaded = self.load();
+        finally(done, loaded)
     }
 
     /// install.py:767.

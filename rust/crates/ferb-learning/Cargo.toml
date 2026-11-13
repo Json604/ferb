@@ -19,12 +19,15 @@ ferb-core = { path = "../ferb-core" }
 ferb-memory = { path = "../ferb-memory", default-features = false }
 ferb-py = { path = "../ferb-py" }
 ferb-sanitize = { path = "../ferb-sanitize" }
+# The runtime interface every caller shares (`ModelRuntime`): `calls::Made::from_model`.
+ferb-worker = { path = "../ferb-worker" }
+ferb-orchestrator = { path = "../ferb-orchestrator", default-features = false }
 ferb-store = { path = "../ferb-store", optional = true }
 # The same version ferb-store names (the workspace's), so one bundled SQLite is linked.
 rusqlite = { version = "0.42", features = ["bundled"], optional = true }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"
-tokio = { version = "1", default-features = false, features = ["sync"] }
+tokio = { version = "1", default-features = false, features = ["sync", "rt"] }
 
 [dev-dependencies]
 tempfile = "3"

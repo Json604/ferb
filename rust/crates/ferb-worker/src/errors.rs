@@ -155,6 +155,66 @@ pub struct OsError {
     pub message: String,
 }
 
+/// Which adapter class an [`AdapterError`] is (the runtimes' own exceptions).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AdapterClass {
+    /// codex_stream.py:82 `ProtocolError` (a `ValueError`): Codex's own failure, marked.
+    Protocol,
+    /// codex_stream.py:125 `AccountError` (a `ProtocolError` and a `RuntimeUnavailable`): an account check at start,
+    /// fixed categories and a numeric code only.
+    Account,
+    /// api.py:46 `ProviderError` (an `Exception`, not a `ValueError`): a provider's failure, worded without the key.
+    Provider,
+}
+
+/// An adapter's own exception as it travelled (raised by `start`, or out of the event stream), with every fact its
+/// adapter marked on it, which the worker and the supervisor read by attribute (`getattr(e, "account", "")`, ...).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AdapterError {
+    pub class: AdapterClass,
+    /// `str(e)`.
+    pub message: String,
+    /// The model's window overflowed (`overflow`; Codex's `contextWindowExceeded`, a provider's documented error).
+    pub overflow: bool,
+    /// `usage_limit` / `signed_out` / "" (ORCH-315).
+    pub account: String,
+    /// The provider refused an image the request carried (ORCH-524).
+    pub image: bool,
+    /// The turn completed with no final answer (RUN-446).
+    pub empty: bool,
+    /// A provider refusal's HTTP status; 0 for any other failure.
+    pub status: u16,
+    /// `AccountError.reason`: `auth_required` or `account_unavailable`; "" for the other classes.
+    pub reason: String,
+    /// `AccountError.code`.
+    pub code: Option<i64>,
+}
+
+impl AdapterError {
+    /// A failure of `class` with no marked facts.
+    pub fn new(class: AdapterClass, message: impl Into<String>) -> AdapterError {
+        AdapterError {
+            class,
+            message: message.into(),
+            overflow: false,
+            account: String::new(),
+            image: false,
+            empty: false,
+            status: 0,
+            reason: String::new(),
+            code: None,
+        }
+    }
+
+    pub fn class_name(&self) -> &'static str {
+        match self.class {
+            AdapterClass::Protocol => "ProtocolError",
+            AdapterClass::Account => "AccountError",
+            AdapterClass::Provider => "ProviderError",
+        }
+    }
+}
+
 /// Every exception the worker raises, reads or hands back.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
@@ -186,6 +246,8 @@ pub enum Error {
     Os(OsError),
     /// Anything else Python would let travel: its class name and `str()`.
     Other { class: String, message: String },
+    /// An adapter's own exception (`ProtocolError`, `AccountError`, `ProviderError`) with its marked facts.
+    Adapter(AdapterError),
 }
 
 /// `ValueError` subclasses an adapter or a decoder may let travel, read by class: Python's own, and the runtimes'
@@ -240,6 +302,53 @@ impl Error {
             Error::Stalled { .. } => "Stalled".into(),
             Error::Os(o) => o.class.clone(),
             Error::Other { class, .. } => class.clone(),
+            Error::Adapter(a) => a.class_name().into(),
+        }
+    }
+
+    /// `isinstance(e, RuntimeUnavailable)`: the adapter couldn't start (an `AccountError` is one).
+    pub fn is_runtime_unavailable(&self) -> bool {
+        matches!(self, Error::Unavailable { .. })
+            || matches!(self, Error::Adapter(a) if a.class == AdapterClass::Account)
+    }
+
+    /// `getattr(e, "account", "")`: the account fact a class carries (ORCH-315): `usage_limit`, `signed_out` or "".
+    pub fn account(&self) -> &str {
+        match self {
+            Error::Service(s) => &s.account,
+            Error::Unavailable { account, .. } => account,
+            Error::SignedOut { .. } => "signed_out",
+            Error::Adapter(a) => &a.account,
+            _ => "",
+        }
+    }
+
+    /// `getattr(e, "runtime", "")`.
+    pub fn runtime(&self) -> &str {
+        match self {
+            Error::Service(s) => &s.runtime,
+            Error::SignedOut { runtime, .. } => runtime,
+            Error::AnswerMissing(a) => &a.runtime,
+            Error::Violation(v) => &v.runtime,
+            _ => "",
+        }
+    }
+
+    /// `getattr(e, "overflow", False)` (or a `ContextOverflow`): the model's window overflowed.
+    pub fn overflow(&self) -> bool {
+        match self {
+            Error::Service(s) => s.kind == ServiceKind::Overflow,
+            Error::Adapter(a) => a.overflow,
+            _ => false,
+        }
+    }
+
+    /// `getattr(e, "image", False)` (or an `ImageRefused`): the provider refused an image (ORCH-524).
+    pub fn image(&self) -> bool {
+        match self {
+            Error::Service(s) => s.kind == ServiceKind::Image,
+            Error::Adapter(a) => a.image,
+            _ => false,
         }
     }
 
@@ -253,6 +362,7 @@ impl Error {
             | Error::Value(_) => true,
             Error::Ferb(e) => e.is_value_error(),
             Error::Other { class, .. } => VALUE_ERRORS.contains(&class.as_str()),
+            Error::Adapter(a) => a.class != AdapterClass::Provider,
             _ => false,
         }
     }
@@ -301,6 +411,7 @@ impl fmt::Display for Error {
             Error::Stalled { .. } => f.write_str("no sign of life"),
             Error::Os(o) => f.write_str(&o.message),
             Error::Other { message, .. } => f.write_str(message),
+            Error::Adapter(a) => f.write_str(&a.message),
         }
     }
 }
@@ -522,7 +633,7 @@ pub fn reason(e: &Error, redact: Option<RedactText<'_>>, route: Route<'_>) -> St
         );
     }
     let text = e.to_string();
-    if (e.is_ferb_error() || matches!(e, Error::Unavailable { .. })) && !strip(&text).is_empty() {
+    if (e.is_ferb_error() || e.is_runtime_unavailable()) && !strip(&text).is_empty() {
         return ended(&w(&text));
     }
     if let Error::Os(o) = e {

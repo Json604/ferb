@@ -5,7 +5,9 @@
 //! waits; it closes when answered or when its task's request is forgotten. A restart loses every pending question
 //! (the planner asks again; `restart_with_open_question` in the daemon recordings).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
+
+use ferb_py::secret::Secret;
 
 use serde_json::{Map, Value};
 
@@ -280,6 +282,9 @@ pub struct Approvals {
     items: Vec<Approval>,
     pub unattended: BTreeSet<String>,
     ids: Option<Box<IdFn>>,
+    /// A hidden input's answer (SECRET_KINDS) from [`Approvals::resolve_sealed`] until its call takes it: a zeroizing
+    /// [`Secret`], never the question's plain `answer` (rule 7).
+    sealed: HashMap<String, Secret>,
 }
 
 type IdFn = dyn FnMut() -> String + Send + Sync;
@@ -289,6 +294,7 @@ impl std::fmt::Debug for Approvals {
         f.debug_struct("Approvals")
             .field("items", &self.items)
             .field("unattended", &self.unattended)
+            .field("sealed", &self.sealed.keys().collect::<Vec<_>>())
             .finish()
     }
 }
@@ -300,6 +306,7 @@ impl Approvals {
             items: Vec::new(),
             unattended: BTreeSet::new(),
             ids: Some(Box::new(ids)),
+            sealed: HashMap::new(),
         }
     }
 
@@ -388,6 +395,41 @@ impl Approvals {
         Ok(ap)
     }
 
+    /// `resolve`, with a hidden input's typed answer (a one-time secret, a saved one, the Mac password, a login code:
+    /// [`SECRET_KINDS`]) moved at once out of the question into a zeroizing [`Secret`] that only
+    /// [`Approvals::take_sealed`] hands out; its `answer` stays None. Every other answer is as `resolve` keeps it.
+    pub fn resolve_sealed(
+        &mut self,
+        approval_id: &str,
+        granted: bool,
+        choice: Option<usize>,
+        text: Option<&str>,
+    ) -> Result<&Approval, ResolveError> {
+        self.resolve(approval_id, granted, choice, text)?;
+        let ap = self
+            .items
+            .iter_mut()
+            .find(|a| a.id == approval_id)
+            .ok_or_else(|| ResolveError::Unknown(approval_id.to_string()))?;
+        if SECRET_KINDS.contains(&ap.kind.as_str()) {
+            if let Some(answer) = ap.answer.take() {
+                self.sealed
+                    .insert(approval_id.to_string(), Secret::new(answer));
+            }
+        }
+        Ok(ap)
+    }
+
+    /// A hidden input's answer, once: no copy stays here.
+    pub fn take_sealed(&mut self, approval_id: &str) -> Option<Secret> {
+        self.sealed.remove(approval_id)
+    }
+
+    /// Drop a hidden input's answer nobody took (its question ended): zeroed now.
+    pub fn drop_sealed(&mut self, approval_id: &str) {
+        self.sealed.remove(approval_id);
+    }
+
     /// `supersede(id)`: close a pending question nobody can use any more (L3); not a No.
     pub fn supersede(&mut self, approval_id: &str) -> Option<&Approval> {
         let ap = self.items.iter_mut().find(|a| a.id == approval_id)?;
@@ -429,6 +471,15 @@ impl Approvals {
     /// `forget_request(id)`: its questions go (the task ended).
     pub fn forget_request(&mut self, request_id: &str) {
         self.unattended.remove(request_id);
+        let gone: Vec<String> = self
+            .items
+            .iter()
+            .filter(|a| a.request_id == request_id)
+            .map(|a| a.id.clone())
+            .collect();
+        for id in &gone {
+            self.sealed.remove(id);
+        }
         self.items.retain(|a| a.request_id != request_id);
     }
 }
@@ -527,6 +578,36 @@ mod tests {
                 .as_deref(),
             Some(" pass ")
         );
+    }
+
+    #[test]
+    fn a_hidden_inputs_answer_is_sealed_until_taken_once() {
+        for kind in SECRET_KINDS {
+            let (mut a, id) = asked("shell.admin", &[]);
+            a.get_mut(&id).unwrap().kind = kind.to_string();
+            let ap = a
+                .resolve_sealed(&id, true, None, Some("invented-canary"))
+                .unwrap();
+            assert_eq!(
+                ap.answer, None,
+                "{kind}: no plain copy stays in the question"
+            );
+            assert!(!format!("{a:?}").contains("invented-canary"));
+            assert_eq!(a.take_sealed(&id).unwrap().expose(), "invented-canary");
+            assert!(a.take_sealed(&id).is_none(), "taken once");
+        }
+        let (mut a, id) = asked("owner.ask", &[]);
+        let ap = a.resolve_sealed(&id, true, None, Some(" words ")).unwrap();
+        assert_eq!(
+            ap.answer.as_deref(),
+            Some("words"),
+            "a plain answer is kept as resolve keeps it"
+        );
+        let (mut a, id) = asked("shell.admin", &[]);
+        a.get_mut(&id).unwrap().kind = "owner_secret".into();
+        a.resolve_sealed(&id, true, None, Some("x")).unwrap();
+        a.forget_request("r1");
+        assert!(a.take_sealed(&id).is_none(), "forgotten with its request");
     }
 
     #[test]

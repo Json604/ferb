@@ -192,12 +192,12 @@ pub fn dedupe<T: PartialEq + Clone>(items: impl IntoIterator<Item = T>) -> Vec<T
 
 /// `str.isalnum()` for one character (Python 3.12's Unicode tables, through ferb-sanitize).
 pub fn is_alnum(c: char) -> bool {
-    ferb_sanitize::parity::is_alnum(c)
+    ferb_py::text::is_alnum(c)
 }
 
 /// `str.isspace()` for one character.
 pub fn is_space(c: char) -> bool {
-    ferb_sanitize::parity::is_space(c)
+    ferb_py::text::is_space(c)
 }
 
 /// `str.strip()` (no argument).

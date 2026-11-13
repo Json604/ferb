@@ -111,6 +111,7 @@ struct Seal<'a> {
 impl Drop for Seal<'_> {
     fn drop(&mut self) {
         let used = self.used;
+        lock(&self.gw.inner).approvals.drop_sealed(&self.id);
         self.gw.with_approval(&self.id, |ap| {
             ap.answer = None;
             ap.state = if used {
@@ -448,6 +449,9 @@ impl Gateway {
     /// The answer out of its question, once: no copy stays there.
     fn take_answer(&self, id: &str) -> Option<Secret> {
         let mut i = lock(&self.inner);
+        if let Some(sealed) = i.approvals.take_sealed(id) {
+            return Some(sealed);
+        }
         let ap = i.approvals.get_mut(id)?;
         ap.answer.take().map(Secret::new)
     }

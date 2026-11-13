@@ -36,6 +36,7 @@ tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
 ferb-trace = { path = "../ferb-trace" }
 ferb-store = { path = "../ferb-store" }
 ferb-fs = { path = "../ferb-fs" }
+ferb-shell = { path = "../ferb-shell" }
 ferb-identity = { path = "../ferb-identity" }
 rusqlite = { version = "0.42", features = ["bundled"] }
 

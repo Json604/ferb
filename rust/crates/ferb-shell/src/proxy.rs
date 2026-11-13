@@ -117,13 +117,13 @@ pub fn literal(host: &str) -> bool {
 
 /// Only explicit local destinations: no arbitrary DNS name gets resolved before the destination gate.
 pub fn local_host(host: &str) -> bool {
-    ferb_sanitize::parity::lower(host.trim_end_matches('.')) == "localhost"
+    ferb_py::text::lower(host.trim_end_matches('.')) == "localhost"
         || (literal(host) && this_mac(host))
 }
 
 /// Where an explicit local destination is dialled: localhost never causes DNS; a literal exactly as supplied.
 pub fn local_addresses(host: &str, port: u16) -> Vec<(bool, String, u16)> {
-    if ferb_sanitize::parity::lower(host.trim_end_matches('.')) == "localhost" {
+    if ferb_py::text::lower(host.trim_end_matches('.')) == "localhost" {
         return vec![
             (true, "::1".into(), port),
             (false, "127.0.0.1".into(), port),
@@ -333,7 +333,7 @@ pub fn token_urlsafe(n: usize) -> String {
 /// The process a `Proxy-Authorization` value names, when its token is the one FERB issued (proxy.py:249).
 pub fn who(value: &str, tokens: &HashMap<String, String>) -> Option<String> {
     let (scheme, raw) = value.split_once(' ').unwrap_or((value, ""));
-    if ferb_sanitize::parity::lower(scheme) != "basic" {
+    if ferb_py::text::lower(scheme) != "basic" {
         return None;
     }
     let decoded = b64decode_strict(strip(raw))?;
@@ -1489,7 +1489,7 @@ impl Handler {
                 if nums.len() != 2
                     || nums
                         .iter()
-                        .any(|n| n.is_empty() || !n.chars().all(ferb_sanitize::parity::is_digit))
+                        .any(|n| n.is_empty() || !n.chars().all(ferb_py::text::is_digit))
                 {
                     return None;
                 }
@@ -1558,7 +1558,7 @@ impl Handler {
         self.headers = parse_header_lines(&lines);
         let expect = self
             .header("Expect")
-            .map(ferb_sanitize::parity::lower)
+            .map(ferb_py::text::lower)
             .unwrap_or_default();
         if expect == "100-continue" && self.request_version.as_str() >= "HTTP/1.1" {
             let head = self.head(100, "Continue", &[], false);
@@ -1587,7 +1587,7 @@ impl Handler {
             return Ok(None);
         };
         self.proxy.settled(self.conn_id); // authenticated: no deadline, no idle timeout
-        let host = ferb_sanitize::parity::lower(host);
+        let host = ferb_py::text::lower(host);
         let local = if local_host(&host) {
             self.proxy.cfg.local_access.clone()
         } else {
@@ -1700,7 +1700,7 @@ impl Handler {
         let Some((proc, mut upstream, local)) = self.open(&host, port)? else {
             return Ok(());
         };
-        let host = ferb_sanitize::parity::lower(&host);
+        let host = ferb_py::text::lower(&host);
         let result = (|| -> std::io::Result<()> {
             let head = self.head(200, "Connection established", &[], true);
             self.write(&head)?;
@@ -1742,14 +1742,14 @@ impl Handler {
             .header("Connection")
             .unwrap_or("")
             .split(',')
-            .map(|t| ferb_sanitize::parity::lower(strip(t)))
+            .map(|t| ferb_py::text::lower(strip(t)))
             .collect();
         let upgrading =
             conn.contains("upgrade") && self.header("Upgrade").is_some_and(|u| !u.is_empty());
         let Some((proc, mut upstream, _local)) = self.open(&host, port)? else {
             return Ok(());
         };
-        let host = ferb_sanitize::parity::lower(&host);
+        let host = ferb_py::text::lower(&host);
         let target = format!(
             "{}{}",
             if url.path.is_empty() { "/" } else { &url.path },
@@ -1811,7 +1811,7 @@ impl Handler {
     ) -> Result<(), Framing> {
         let te = self
             .header("Transfer-Encoding")
-            .map(ferb_sanitize::parity::lower)
+            .map(ferb_py::text::lower)
             .unwrap_or_default();
         if te.ends_with("chunked") {
             loop {

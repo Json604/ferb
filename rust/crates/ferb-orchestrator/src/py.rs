@@ -1,7 +1,8 @@
 //! Python's `str` methods this crate's text relies on, with Python 3.12's character classes (from ferb-sanitize's
 //! tables). Offsets are bytes; Python's are code points, so a caller that counts uses `chars()`.
 
-pub use ferb_sanitize::parity::{casefold, is_alnum, is_digit, is_space, lower};
+pub use ferb_py::text::{is_alnum, is_digit, is_space, lower};
+pub use ferb_sanitize::parity::casefold;
 
 /// `str.strip()`.
 pub fn strip(s: &str) -> &str {

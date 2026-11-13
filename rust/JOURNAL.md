@@ -997,3 +997,68 @@ at the daemon's timer delivery); global_stop (needs the daemon's `stop.engage`).
 steps, `route_question`, memory and schedule side entries, `_resume`; unverified chat handlers (`chat.correct`,
 `chat.attach`, `results.ack`); the chat methods' recorded lines are not replayed yet. `Gateway::call` is not Send
 and the gateway cannot take FERB's own questions (being fixed at the source). The fixture folder is about 3.8 MB.
+
+## 2026-11-13 · 44 · Seams fixed at their source
+
+**What.** The interfaces `ferbd` papered over with adapters (entry 42) are fixed in the crates that own them, each
+additively (old paths keep compiling; nothing removed).
+- `ferb-gateway`: the call pipeline's future is `Send` (the policy's `Facts`, which holds plain `&dyn Fn` lookups,
+  was held across the counting await; it now lives in a block before it), so no dedicated call thread is needed.
+  FERB's own questions outside a task (`areas/memory.py` `_ask_owner`): `Gateway::ask_own(&OwnQuestion)`,
+  `await_own`, `waiting`, `close_own`. A hidden input's typed answer is moved at `resolve` into a zeroizing
+  `Secret` (`Approvals::resolve_sealed` / `take_sealed`), never left in the question's plain `answer`.
+- One `Secret` type, in `ferb-py` (`ferb_py::secret`), re-exported as `ferb_identity::Secret`; `EscapeGrant.secret`
+  holds it (`Option<Secret>`; `Clone` duplicates, `PartialEq` compares values).
+- `ferb-shell`: `policy_lists::PolicyProtection` implements its `Protection` seam over ferb-policy's lists (feature
+  `policy`, default; the shell owns the seam and may see the policy crate, not the reverse). `tools::declared`,
+  `tools::describe`, `tools::run` and `TOOLS` give the eight tools' facts and runs; `ferb_gateway::adapters::shell::
+  ShellTool` puts them behind the gateway's `Tool` trait.
+- One `Shape` (ferb-context's); `ferb_runtimes::forms::{Shape, SchemaTooComplex}` re-export it and
+  `forms::ContextForms` is the `Forms` seam over ferb-context.
+- `ferb_worker::Error::Adapter(AdapterError)` carries a runtime error's class (`ProtocolError`, `AccountError`,
+  `ProviderError`) with `overflow`, `account`, `image`, `empty`, `status`, `reason`, `code`; `account()`,
+  `overflow()`, `image()`, `runtime()`, `is_runtime_unavailable()` read them as Python's `getattr` does.
+  `ferb_runtimes::worker`: `From<RuntimeError> for ferb_worker::Error`, `WorkerRuntime`, `WorkerEvents`,
+  `WorkerControl` (the glue entry 37 left unwritten).
+- `ferb-browser`: `OwnerInput::ask_code_for` / `ask_secret_for` carry the call's whole `ToolContext` (defaults
+  forward to the old methods); the tools call `owner_code_for` / `owner_secret_for`. `Tools::owner_family` and
+  `Tools::ferb_family` build each family with its driver; `KeychainSecrets` puts FERB's configured secrets behind the
+  FERB-identity driver.
+- `ferb-device`: `RustPrograms::ferbd(built)` (`ferbd daemon`, the native host beside it) and a checkout install of
+  the Rust programs (refused before any change while a binary isn't built).
+- `ferb-learning`: `Made::from_model` and `MakeModelRuntime` take a worker `ModelRuntime` (its limits and model read
+  from it).
+- Times: `ferb_py::time::DateTime` is the stored and wire representation (it holds everything Python reads and
+  writes); `ferb_core::when::{to_py, from_py}` convert losslessly or refuse by name (`NotRepresentable`).
+- `ferb-py` now holds `text` (`is_space`, `is_digit`, `is_alnum`, `is_printable`, `lower`, `str_repr`,
+  `bytes_repr`, `shorten`) and `url` (`hostname`), with their tables from `rust/fixtures/py/make_unicode.py`;
+  ferb-sanitize, ferb-context, ferb-trace and ferb-orchestrator re-export them, and sanitize's generator no longer
+  writes the six moved tables (re-run: the same bytes as the hand edit). `ferb_clock::py::timedelta_us` answers
+  Python's `OverflowError` for a total past i128 instead of panicking, and a total past i64 microseconds (legal in
+  Python, but no date can take it) is `date value out of range` instead of a silently wrapped number.
+
+**The catalog's MCP listing was the wrong one.** `rust/fixtures/catalog/tools.json` recorded `Shim.list_tools`'s
+`model_dump`, which still has `ttlMs`, `cacheScope` and `resultType`; mcp 2.2.0's `ServerRunner` sieves a spec
+method's result by the connection's protocol version, so a 2025-06-18 client (Codex, Claude Code) receives
+`{"tools": [...]}` only, as `rust/fixtures/runtimes/mcp.json` (a real run of `cli/mcp.py`) shows. `make.py` now
+records the sieved form (`--only tools.json` regenerated that file alone; only `mcp_tools_list` changed). The Rust
+bridge already wrote the wire form.
+
+**Evidence.** Workspace format, clippy (`-D warnings`) and tests pass; `ferbd` and `ferb-supervisor` (outside the
+workspace) pass clippy unchanged. New tests: the call future's `Send` (compile-time), FERB's own questions
+asked, answered, set aside and cancelled; a hidden answer sealed and taken once; the shell's facts and `describe`
+against the catalog; `PolicyProtection` against the policy lists; the runtime error conversion and steering; the
+browser families and the old `OwnerInput` still answering; a checkout install of `ferbd` with a recording runner,
+and Python's `bundle_install` scenario replayed with the Rust programs (same commands, same files, only the
+definition, its hash and the launcher differ); the datetime conversions on the core and store fixtures' times;
+Python's whitespace table equal to `is_py_space` on every character.
+
+**Not done.** `ModelRuntime` / `EventSource` / `RunControl` stay in ferb-worker: their error type is the worker's
+`Error`, whose `Validation` variant holds ferb-orchestrator's pydantic `ValidationError` over ferb-context's `Py`,
+so they can't sit in ferb-core without moving those down too; `ferb_core::interfaces::AgentRuntime` is still used
+(ferb-runtimes' `CoreRuntime`, ferb-learning) and is not deprecated. `Approval.answer` stays a `String` for
+ordinary answers (only the hidden kinds are sealed). Nothing in `ferbd` was changed: its adapters can now go.
+
+**Left for later removal.** `ferb_runtimes::forms::Shape::mapped` (now on ferb-context's `Shape`, ignoring its way
+back), the task-keyed `OwnerInput::ask_code` / `ask_secret` and `Driver::owner_code` / `owner_secret`,
+`ferb_core::interfaces::AgentRuntime`, ferb-sanitize's `parity` re-exports of the moved helpers.

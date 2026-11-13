@@ -9,72 +9,31 @@ use serde_json::Value;
 
 use crate::pyjson::compact;
 
-/// The way a reshaped answer goes back to the core form.
+/// The way a reshaped answer goes back to the core form (ferb-context's [`ferb_context::shape::Back`]).
 pub type Back = Arc<dyn Fn(&Value) -> Value + Send + Sync>;
 
-/// schema_shape.Shape: a core output schema and the form one provider receives (`wire`), with the way back for
-/// answers when `mapped`.
-#[derive(Clone)]
-pub struct Shape {
-    pub core: Value,
-    pub wire: Value,
-    pub mapped: bool,
-    back: Option<Back>,
-}
+/// schema_shape.Shape and SchemaTooComplex: ferb-context's, the verified port of schema_shape.py (one type for every
+/// crate; these paths are kept for the adapters' callers).
+pub use ferb_context::shape::{SchemaTooComplex, Shape};
 
-impl std::fmt::Debug for Shape {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Shape")
-            .field("wire", &self.wire)
-            .field("mapped", &self.mapped)
-            .finish()
+/// ferb-context's reshaping (`for_anthropic`, `for_gemini`) and `structured.check_final` behind [`Forms`]: what a
+/// daemon gives the adapters.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ContextForms;
+
+impl Forms for ContextForms {
+    fn anthropic(&self, schema: &Value) -> Result<Shape, SchemaTooComplex> {
+        ferb_context::shape::for_anthropic(schema)
+    }
+    fn gemini(&self, schema: &Value) -> Result<Shape, SchemaTooComplex> {
+        ferb_context::shape::for_gemini(schema)
+    }
+    fn check_final(&self, text: &str, schema: &Value) -> Result<(), String> {
+        ferb_context::structured::check_final(text, Some(schema))
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 }
-
-impl Shape {
-    /// schema_shape.same: nothing to map back.
-    pub fn same(schema: &Value) -> Shape {
-        Shape {
-            core: schema.clone(),
-            wire: schema.clone(),
-            mapped: false,
-            back: None,
-        }
-    }
-
-    /// A reshaped form and its way back (`_back(core, answer)`).
-    pub fn mapped(core: Value, wire: Value, back: Back) -> Shape {
-        Shape {
-            core,
-            wire,
-            mapped: true,
-            back: Some(back),
-        }
-    }
-
-    /// Shape.value.
-    pub fn value(&self, answer: &Value) -> Value {
-        match (&self.back, self.mapped) {
-            (Some(back), true) => back(answer),
-            _ => answer.clone(),
-        }
-    }
-
-    /// Shape.answer_text: text that isn't JSON is left for FERB's check to name.
-    pub fn answer_text(&self, text: &str) -> String {
-        if !self.mapped {
-            return text.to_string();
-        }
-        match ferb_py::json::loads(text) {
-            Ok(answer) => ferb_py::json::dumps_utf8(&self.value(&answer)),
-            Err(_) => text.to_string(),
-        }
-    }
-}
-
-/// schema_shape.SchemaTooComplex: over a provider's documented limit after reshaping.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SchemaTooComplex(pub String);
 
 /// What the adapters need from the schema port and the structured-answer check.
 pub trait Forms: Send + Sync {

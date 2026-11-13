@@ -234,7 +234,7 @@ impl Split {
 
 /// `urllib.parse.urlsplit(url)` (allow_fragments=True), or None where it raises ValueError.
 pub fn urlsplit(url: &str) -> Option<Split> {
-    let hostname = ferb_sanitize::parity::hostname(url).ok()?;
+    let hostname = ferb_py::url::hostname(url).ok()?;
     let cleaned: String = url
         .trim_start_matches(|c: char| (c as u32) <= 0x20)
         .replace(['\t', '\r', '\n'], "");

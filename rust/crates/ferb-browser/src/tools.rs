@@ -781,7 +781,63 @@ pub struct Tools {
     pub host: Arc<dyn Host>,
 }
 
+/// What both browser families are built over: the extension hub, the daemon's task facts, the wake hook, the random
+/// source, the policy part's words and the daemon's host seams.
+pub struct FamilyParts {
+    pub hub: Arc<crate::bridge::Hub>,
+    pub tasks: crate::driver::Tasks,
+    pub wake: Option<Arc<dyn crate::driver::Wake>>,
+    pub random: Arc<dyn crate::pairing::Random>,
+    pub policy: Arc<dyn Policy>,
+    pub host: Arc<dyn Host>,
+}
+
 impl Tools {
+    /// `_build_browsers`' owner family: the `Router` over the owner's paired profiles (`choose` picks one by name;
+    /// `input`: the owner's hidden input for codes and secrets) and its `browser.*` tools.
+    pub fn owner_family(
+        parts: FamilyParts,
+        choose: crate::driver::Choose,
+        input: Option<Arc<dyn crate::driver::OwnerInput>>,
+    ) -> Arc<Tools> {
+        let driver = Driver::new(
+            parts.hub,
+            DriverKind::Owner { choose, input },
+            parts.tasks,
+            parts.wake,
+            parts.random,
+        );
+        Arc::new(Tools {
+            family: OWNER_BROWSER,
+            driver,
+            policy: parts.policy,
+            host: parts.host,
+        })
+    }
+
+    /// `add_identity_browser` (ferb/registry.py): FERB's own profile's driver (`FerbIdentity`: tabs in the
+    /// (browser, folder) `profile` gives now, the [identity] profile; None when none is set) with FERB's own saved
+    /// secrets, and its `ferb_browser.*` tools.
+    pub fn ferb_family(
+        parts: FamilyParts,
+        profile: Arc<dyn Fn() -> Option<(String, String)> + Send + Sync>,
+        secrets: Arc<dyn crate::driver::Secrets>,
+    ) -> Arc<Tools> {
+        let driver = Driver::new(
+            parts.hub,
+            DriverKind::Ferb { profile, secrets },
+            parts.tasks,
+            parts.wake,
+            parts.random,
+        );
+        Arc::new(Tools {
+            family: FERB_BROWSER,
+            driver,
+            policy: parts.policy,
+            host: parts.host,
+        })
+    }
+
     /// The verbs this family registers, in the registry's order.
     pub fn verbs(&self) -> Vec<&'static Verb> {
         let list: &[&str] = if self.family.identity == Identity::Ferb {
@@ -1680,7 +1736,7 @@ impl Tools {
                 let tab = self.owned(&a.tab, ctx)?;
                 let el = d.element_ref(&tab, &a.element);
                 let r = d
-                    .owner_code(&el, &ctx.task_id, ctx.intent_id.as_deref().unwrap_or(""))
+                    .owner_code_for(&el, ctx, ctx.intent_id.as_deref().unwrap_or(""))
                     .await?;
                 let mut out = Map::new();
                 out.insert("ok".into(), r.ok.into());
@@ -1704,9 +1760,9 @@ impl Tools {
                     ..crate::driver::SecretAsk::default()
                 };
                 let r = d
-                    .owner_secret(
+                    .owner_secret_for(
                         &el,
-                        &ctx.task_id,
+                        ctx,
                         ctx.intent_id.as_deref().unwrap_or(""),
                         ask,
                         a.split_elements.as_deref(),

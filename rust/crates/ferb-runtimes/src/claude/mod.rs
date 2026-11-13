@@ -1030,7 +1030,7 @@ async fn result_message(
     };
     let mut text = result_text.clone();
     if let Some(s) = &structured {
-        let value = rt.shape.as_ref().map_or(s.clone(), |sh| sh.value(s));
+        let value = rt.shape.as_ref().map_or(s.clone(), |sh| sh.value_json(s));
         text = ferb_py::json::dumps(&value);
     } else if let Some(sh) = &rt.shape {
         text = sh.answer_text(&if typed.starts_with("stated") {
@@ -1075,7 +1075,9 @@ fn repair_mark(run: &ClaudeRun, m: &Value, typed: &str, is_error: bool) -> Optio
         v => Some(v),
     };
     let text = match structured {
-        Some(s) => ferb_py::json::dumps(&rt.shape.as_ref().map_or(s.clone(), |sh| sh.value(&s))),
+        Some(s) => {
+            ferb_py::json::dumps(&rt.shape.as_ref().map_or(s.clone(), |sh| sh.value_json(&s)))
+        }
         None => {
             let t = match opt(m, "result") {
                 Value::String(s) => s,

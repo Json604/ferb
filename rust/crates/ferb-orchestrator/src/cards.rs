@@ -161,7 +161,7 @@ fn host(policy: &dyn Policy, url: Option<&Value>) -> String {
     match url {
         Some(v) if ferb_py::value::truthy(v) => {
             let s = crate::py::str_of(v);
-            ferb_sanitize::parity::hostname(&s)
+            ferb_py::url::hostname(&s)
                 .ok()
                 .flatten()
                 .unwrap_or_default()

@@ -2,7 +2,7 @@
 pydantic, answer schemas and their per-provider forms, the roles' instructions, jsonschema's error text and the
 gateway's argument-validation replies. README.md beside this file is the map for the porter.
 
-Run from the repo root:  uv run python rust/fixtures/catalog/make.py
+Run from the repo root:  uv run python rust/fixtures/catalog/make.py  (`--only tools.json` writes that file alone)
 
 A real `ferb.daemon.main.Daemon` is started in this process in a temporary home (FERB_HOME and HOME both point into a
 temporary folder, so nothing reads or writes ~/.ferb or the Keychain), with the switches tests/conftest.py's
@@ -30,6 +30,8 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
+# The MCP protocol version Codex and Claude Code negotiate with FERB's tool bridge (rust/fixtures/runtimes/mcp.json).
+MCP_WIRE_VERSION = "2025-06-18"
 ROOT = Path(tempfile.mkdtemp(prefix="ferbfx-"))          # short: the daemon's socket path is limited to 104 bytes
 os.environ["FERB_HOME"] = str(ROOT / "home")
 os.environ["HOME"] = str(ROOT / "user")
@@ -53,6 +55,7 @@ import ferb.sanitize.untrusted as untrusted  # noqa: E402
 import ferb.sense.network as network  # noqa: E402
 from ferb.act.catalog import search_actions  # noqa: E402
 from ferb.cli import mcp as mcp_shim  # noqa: E402
+from mcp_types import methods as mcp_methods  # noqa: E402
 from ferb.clock import context as clock_context  # noqa: E402
 from ferb.clock.clock import FakeClock  # noqa: E402
 from ferb.core.ids import SequentialIds  # noqa: E402
@@ -215,7 +218,12 @@ async def tools_fixture(d: Daemon) -> dict[str, Any]:
             return json.loads(json.dumps({"tools": g.tools_for(g_)}))       # as it crosses the socket
         shim._rpc = rpc  # type: ignore[method-assign]
         result = await shim.list_tools(None, None)
-        return result.model_dump(by_alias=True, mode="json", exclude_none=True)  # type: ignore[no-any-return]
+        dumped = result.model_dump(by_alias=True, mode="json", exclude_none=True)
+        # What the model programs receive: mcp's ServerRunner._serialize sieves a spec method's result by the
+        # connection's protocol version (mcp/server/runner.py), so the handler's ttlMs, cacheScope and resultType
+        # never reach a 2025-06-18 client (Codex and Claude Code negotiate it: rust/fixtures/runtimes/mcp.json, a
+        # real run of cli/mcp.py). ferb/cli/mcp.py sets no cache hints.
+        return mcp_methods.serialize_server_result("tools/list", MCP_WIRE_VERSION, dumped)
     mcp_all = await mcp_list(grant(Identity.OWNER, every))
     for t, src in zip(mcp_all["tools"], g.tools_for(grant(Identity.OWNER, every))):
         assert t == {"name": mcp_shim.mcp_name(src["name"]), "description": src["description"],
@@ -244,7 +252,9 @@ async def tools_fixture(d: Daemon) -> dict[str, Any]:
                       "PLANNER_SCOPES": sorted(sup_mod.PLANNER_SCOPES), "PLANNER_LOOKUPS": sup_mod.PLANNER_LOOKUPS},
         "tool_count": len(tools), "tools": tools, "listings": listings,
         "mcp_tools_list": {
-            "note": ("Shim.list_tools's result as mcp's model_dump(by_alias=True, mode='json', exclude_none=True). "
+            "note": ("Shim.list_tools's result as the model programs receive it: mcp's model_dump(by_alias=True, "
+                     "mode='json', exclude_none=True) sieved for protocol " + MCP_WIRE_VERSION + " "
+                     "(mcp_types.methods.serialize_server_result, as mcp's ServerRunner does). "
                      "For every listing each tool is exactly {name: mcp_name, description, inputSchema: input_schema} "
                      "(asserted here for the full owner listing); the planner's listing is written out as the example."),
             "full_owner_listing_sha256": sha(json.dumps(mcp_all)), "full_owner_listing_count": len(mcp_all["tools"]),
@@ -825,6 +835,10 @@ def prompt_fixture(d: Daemon) -> dict[str, Any]:
 
 # ---------------------------------------------------------------------------------------------------------------
 
+# `--only tools.json`: write that file alone (the others unchanged).
+ONLY = sys.argv[sys.argv.index("--only") + 1] if "--only" in sys.argv else None
+
+
 async def main() -> dict[str, int]:
     d = Daemon(home=ROOT / "home", clock=FakeClock(), ids=SequentialIds("id"), watch_owner_input=False,
                watchers=False, distill=False, retention=False, resources=False, notifications=False, snapshots=False,
@@ -837,6 +851,8 @@ async def main() -> dict[str, int]:
     try:
         d.use_identity_browser(StubBrowser())  # type: ignore[arg-type]
         sizes["tools.json"] = write("tools.json", await tools_fixture(d))
+        if ONLY == "tools.json":
+            return sizes
         answers, named = await answer_schemas_fixture(d)
         sizes["answer_schemas.json"] = write("answer_schemas.json", answers)
         sizes["repair_notes.json"] = write("repair_notes.json", repair_fixture(named))

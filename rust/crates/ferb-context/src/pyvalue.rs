@@ -574,39 +574,7 @@ pub fn str_repr(s: &str) -> String {
 }
 
 fn write_str_repr(s: &str, out: &mut String) {
-    let quote = if s.contains('\'') && !s.contains('"') {
-        '"'
-    } else {
-        '\''
-    };
-    out.push(quote);
-    for c in s.chars() {
-        let cp = c as u32;
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '\t' => out.push_str("\\t"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            _ if c == quote => {
-                out.push('\\');
-                out.push(c);
-            }
-            _ if cp < 0x20 || cp == 0x7f => {
-                let _ = write!(out, "\\x{cp:02x}");
-            }
-            _ if cp < 0x7f || is_printable(c) => out.push(c),
-            _ if cp < 0x100 => {
-                let _ = write!(out, "\\x{cp:02x}");
-            }
-            _ if cp < 0x10000 => {
-                let _ = write!(out, "\\u{cp:04x}");
-            }
-            _ => {
-                let _ = write!(out, "\\U{cp:08x}");
-            }
-        }
-    }
-    out.push(quote);
+    ferb_py::text::write_str_repr(s, out)
 }
 
 /// `repr(float)`, as `float.__repr__` writes it (`1e+16`, `2.0`, `nan`, `-inf`).

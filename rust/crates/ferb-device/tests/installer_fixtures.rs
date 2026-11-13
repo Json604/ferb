@@ -6,7 +6,7 @@ mod support;
 
 use std::path::{Path, PathBuf};
 
-use ferb_device::install::{CodexPin, InstallError, Installer, Programs, Sources};
+use ferb_device::install::{CodexPin, InstallError, Installer, Programs, RustPrograms, Sources};
 use serde_json::{json, Value};
 use support::*;
 
@@ -360,4 +360,252 @@ fn the_rust_build_differs_only_in_the_programs_it_names() {
     }));
     assert!(checkout.install(false, None).is_err());
     assert!(!home.exists());
+}
+
+/// Answers every command as a Mac with nothing loaded would, records each, and makes the file a build writes. Never
+/// runs anything.
+struct Recording {
+    seen: std::rc::Rc<std::cell::RefCell<Vec<Vec<String>>>>,
+    loaded: std::rc::Rc<std::cell::RefCell<bool>>,
+}
+
+impl ferb_device::install::Runner for Recording {
+    fn run(&mut self, argv: &[String]) -> ferb_device::install::Output {
+        self.seen.borrow_mut().push(argv.to_vec());
+        let a: Vec<&str> = argv.iter().map(String::as_str).collect();
+        let ok = |stdout: &str| ferb_device::install::Output {
+            code: 0,
+            stdout: stdout.into(),
+            stderr: String::new(),
+        };
+        match a.as_slice() {
+            ["launchctl", "print", ..] if !*self.loaded.borrow() => ferb_device::install::Output {
+                code: 113,
+                stdout: String::new(),
+                stderr: "Could not find service".into(),
+            },
+            ["launchctl", "bootstrap", ..] => {
+                *self.loaded.borrow_mut() = true;
+                ok("")
+            }
+            ["launchctl", "bootout", ..] => {
+                *self.loaded.borrow_mut() = false;
+                ok("")
+            }
+            ["xcrun", "swiftc", "-O", "-o", out, ..] => {
+                std::fs::write(out, b"invented helper").unwrap();
+                ok("")
+            }
+            ["/usr/bin/codesign", "-d", "-r-", ..] => ok(
+                "designated => identifier \"com.ferb.secrets\" and certificate leaf = H\"0123456789abcdef0123456789abcdef01234567\"",
+            ),
+            _ => ok(""),
+        }
+    }
+}
+
+#[test]
+fn a_checkout_installs_the_rust_programs_it_built() {
+    // decision: DMN-14
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join(".ferb");
+    let built = dir.path().join("target/release");
+    std::fs::create_dir_all(&built).unwrap();
+    std::fs::create_dir_all(dir.path().join("extension")).unwrap();
+    std::fs::write(
+        dir.path().join("extension/manifest.json"),
+        r#"{"name": "FERB", "version": "0.0.1"}"#,
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("extension/background.js"), "// invented\n").unwrap();
+    let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let make = || {
+        let mut i = Installer::new(
+            home.clone(),
+            dir.path().join("LaunchAgents"),
+            Box::new(Recording {
+                seen: seen.clone(),
+                loaded: Default::default(),
+            }),
+            Box::new(Stepped::default()),
+            dir.path().to_path_buf(),
+            CodexPin {
+                version: "0".into(),
+                native_bin: "x".into(),
+            },
+            Sources {
+                repo_root: dir.path().to_path_buf(),
+                helper_source: dir.path().join("secret_helper.swift"),
+                extension: dir.path().join("extension"),
+            },
+        );
+        i.uid = UID;
+        i.native_hosts_dirs = vec![dir.path().join("NativeMessagingHosts")];
+        i.programs = Programs::Rust(RustPrograms::ferbd(&built));
+        i
+    };
+    // not built yet: refused before anything changes
+    assert!(make().install(false, None).is_err());
+    assert!(!home.exists() && seen.borrow().is_empty());
+    for bin in ["ferbd", "ferb-native-host"] {
+        std::fs::write(built.join(bin), b"#!/bin/sh\n").unwrap();
+    }
+    // no role uses Codex: nothing is fetched for it
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(
+        home.join("config.toml"),
+        "[runtimes]\norchestrator = \"claude\"\nworker = \"claude\"\n",
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(
+            home.join("config.toml"),
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+    }
+    let mut i = make();
+    i.install(false, None).unwrap();
+    let plist = i.plist().unwrap();
+    assert_eq!(
+        plist["ProgramArguments"],
+        ferb_device::plistlib::Value::strings([
+            built.join("ferbd").to_string_lossy().into_owned(),
+            "daemon".to_string()
+        ])
+    );
+    let written = std::fs::read(i.plist_path()).unwrap();
+    assert_eq!(
+        written,
+        i.plist_bytes().unwrap(),
+        "the LaunchAgent as it is defined"
+    );
+    assert_eq!(
+        i.native_host_exec(),
+        built.join("ferb-native-host").to_string_lossy()
+    );
+    assert!(
+        home.join("bin/ferb-secrets").is_file(),
+        "the helper built from the checkout"
+    );
+    let cmds: Vec<String> = seen.borrow().iter().map(|a| a.join(" ")).collect();
+    assert!(cmds.iter().any(|c| c.starts_with("xcrun swiftc")));
+    assert!(cmds
+        .iter()
+        .any(|c| c.starts_with("launchctl bootstrap gui/4321 ")));
+    assert!(
+        !cmds
+            .iter()
+            .any(|c| c.starts_with("uv ") || c.contains("python")),
+        "no venv is staged for the Rust build: {cmds:?}"
+    );
+    // an update of a loaded service: unloaded, then loaded again
+    seen.borrow_mut().clear();
+    let mut again = make();
+    let mut work_ran = false;
+    let mut work = || -> Result<(), ferb_device::install::InstallError> {
+        work_ran = true;
+        Ok(())
+    };
+    again.install(true, Some(&mut work)).unwrap();
+    assert!(work_ran);
+}
+
+#[test]
+fn the_bundled_rust_install_replays_pythons_with_only_the_programs_changed() {
+    // decision: DMN-14
+    let fx = fixture("installer.json");
+    let codex = CodexPin {
+        version: fx["constants"]["codex_version"].as_str().unwrap().into(),
+        native_bin: PathBuf::from(fx["constants"]["native_bin"].as_str().unwrap()),
+    };
+    let sc = fx["scenarios"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["name"] == "bundle_install")
+        .unwrap();
+    let root = PathBuf::from(sc["root"].as_str().unwrap());
+    materialize(&root, &sc["initial"]);
+    let world = World {
+        script: Shared::default(),
+        clock: Stepped::default(),
+        root: root.clone(),
+        user_home: PathBuf::from(sc["user_home"].as_str().unwrap()),
+        codex,
+    };
+    world.script.borrow_mut().root = root.clone();
+    let steps = sc["steps"].as_array().unwrap();
+    assert_eq!(
+        (steps[0]["op"].as_str(), steps[1]["op"].as_str()),
+        (Some("configure"), Some("install"))
+    );
+    let mut inst = world.installer(&steps[0]["args"]);
+    inst.programs = Programs::Rust(RustPrograms::ferbd(Path::new("/unused")));
+    let bundle = inst.bundle.clone().unwrap();
+    std::fs::write(
+        bundle.join(ferb_device::install::BUNDLE_RUST_NATIVE_HOST),
+        b"",
+    )
+    .unwrap();
+    let step = &steps[1];
+    apply(&root, &step["edits"], &[]);
+    {
+        let mut s = world.script.borrow_mut();
+        s.events = step["events"].as_array().unwrap().iter().cloned().collect();
+        s.context = "bundle_install (Rust programs)".into();
+    }
+    let before = snap(&root);
+    inst.install(step["args"]["update_only"].as_bool().unwrap(), None)
+        .unwrap();
+    assert!(
+        world.script.borrow().events.is_empty(),
+        "the same commands as Python's"
+    );
+    let got = changes(&before, &snap(&root));
+    let want = expected_changes(&step["changes"]);
+    assert_eq!(
+        got.keys().collect::<Vec<_>>(),
+        want.keys().collect::<Vec<_>>(),
+        "the same files"
+    );
+    let daemon = bundle
+        .join(ferb_device::install::BUNDLE_AGENT)
+        .to_string_lossy()
+        .into_owned();
+    let host = bundle
+        .join(ferb_device::install::BUNDLE_RUST_NATIVE_HOST)
+        .to_string_lossy()
+        .into_owned();
+    let mut differ = 0;
+    for (path, entry) in &got {
+        if *entry == want[path] {
+            continue;
+        }
+        differ += 1;
+        let text = entry["text"].as_str().unwrap_or_default();
+        if path.ends_with("service.json") {
+            // the record of the definition: only its hash differs (the definition names other programs)
+            let mut a: Value = serde_json::from_str(text).unwrap();
+            let mut b: Value = serde_json::from_str(want[path]["text"].as_str().unwrap()).unwrap();
+            a.as_object_mut().unwrap().remove("definition");
+            b.as_object_mut().unwrap().remove("definition");
+            assert_eq!(a, b, "{path}");
+            continue;
+        }
+        assert!(
+            (path.ends_with(".plist")
+                && text.contains(&daemon)
+                && text.contains("<string>daemon</string>"))
+                || text.contains(&format!("exec {host}")),
+            "{path}: differs beyond the programs: {text}"
+        );
+    }
+    assert!(
+        differ >= 2,
+        "the definition and the native host's launcher name the Rust programs"
+    );
+    let _ = std::fs::remove_dir_all(&root);
 }

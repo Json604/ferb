@@ -61,6 +61,159 @@ pub fn description(tool: &str) -> Option<String> {
     })
 }
 
+// ---------- what the gateway reads off each tool (tools.py's class attributes and `describe`) ----------
+
+/// The eight tools, in the registry's order (`_build_mac_and_shell`).
+pub const TOOLS: [&str; 8] = [
+    "shell.run",
+    "shell.start",
+    "shell.wait",
+    "shell.read",
+    "shell.send",
+    "shell.kill",
+    "shell.list",
+    "shell.rules",
+];
+
+/// A tool's declared facts (tools.py `_Base` and each class's attributes), as the gateway's `Tool` trait reads them:
+/// the same values `rust/fixtures/catalog/tools.json` holds under `facts`, `scopes` and `identities`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Declared {
+    /// `RiskLevel`: 1 low, 2 medium.
+    pub risk: u8,
+    pub reversible: bool,
+    /// Only reads: the final checker may use it (V3, W4).
+    pub observation: bool,
+    /// A loop's probe may use it (L31).
+    pub probe_safe: bool,
+    /// The fixed origin label of what it returns (S3), if any.
+    pub origin: Option<&'static str>,
+    /// It can change what is on the owner's screen (DMN-5).
+    pub on_screen: bool,
+    /// Argument keys a normalized Target field binds (P19).
+    pub target_args: &'static [&'static str],
+    /// How a call is delivered, left out of P19's hash.
+    pub method_args: &'static [&'static str],
+    /// The ledger key sibling tools share (P19).
+    pub ledger_key: Option<&'static str>,
+    pub scopes: &'static [&'static str],
+    pub identities: &'static [&'static str],
+}
+
+const BASE: Declared = Declared {
+    risk: 2,
+    reversible: false,
+    observation: false,
+    probe_safe: false,
+    origin: None,
+    on_screen: false,
+    target_args: &[],
+    method_args: &[],
+    ledger_key: None,
+    scopes: &["shell"],
+    identities: &["ferb", "owner"],
+};
+
+/// `shell.start` and `shell.run` (ShellStart): one command, one ledger action.
+const START: Declared = Declared {
+    on_screen: true,
+    target_args: &["cwd"],
+    method_args: &["background", "timeout_s", "escape", "external_source"],
+    ledger_key: Some("shell.run"),
+    ..BASE
+};
+
+/// A tool that only reads (`RiskLevel.LOW`, reversible, observation).
+const READS: Declared = Declared {
+    risk: 1,
+    reversible: true,
+    observation: true,
+    ..BASE
+};
+
+/// tools.py's class attributes of one tool; None for a name that isn't a shell tool.
+pub fn declared(tool: &str) -> Option<Declared> {
+    Some(match tool {
+        "shell.start" => START,
+        "shell.run" => Declared {
+            origin: Some(OUTPUT_ORIGIN),
+            ..START
+        },
+        "shell.wait" => Declared {
+            origin: Some(OUTPUT_ORIGIN),
+            ..READS
+        },
+        "shell.read" => Declared {
+            origin: Some(OUTPUT_ORIGIN),
+            probe_safe: true,
+            ..READS
+        },
+        "shell.send" => Declared {
+            on_screen: true,
+            ..BASE
+        },
+        "shell.kill" => Declared {
+            risk: 1,
+            on_screen: true,
+            ..BASE
+        },
+        "shell.list" => Declared {
+            origin: Some("ferb"),
+            probe_safe: true,
+            ..READS
+        },
+        "shell.rules" => Declared {
+            origin: Some("ferb"),
+            ..READS
+        },
+        _ => return None,
+    })
+}
+
+/// `str(getattr(args, key))` of a validated argument: its text, `""` when absent or null.
+fn arg_text(args: &Map<String, Value>, key: &str) -> String {
+    match args.get(key) {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Null) | None => String::new(),
+        Some(v) => ferb_py::value::py_str(v),
+    }
+}
+
+fn arg_opt(args: &Map<String, Value>, key: &str) -> Option<String> {
+    match args.get(key) {
+        Some(Value::String(s)) => Some(s.clone()),
+        _ => None,
+    }
+}
+
+/// Each tool's `describe(args)` (kind, target, content) on its validated arguments; None for another tool's name.
+/// The kinds are ferb-policy's `Kind` words (`run_shell`, `stop_process`, `read`).
+pub fn describe(tool: &str, args: &Map<String, Value>) -> Option<ferb_core::types::ActionSpec> {
+    use ferb_core::types::ActionSpec;
+    Some(match tool {
+        // no cwd is the workspace (guard.working_directory); "." normalizes to it, so both spellings are one target
+        "shell.run" | "shell.start" => {
+            let mut s = ActionSpec::new("run_shell");
+            s.target.path = Some(
+                arg_opt(args, "cwd")
+                    .filter(|c| !c.is_empty())
+                    .unwrap_or_else(|| ".".into()),
+            );
+            s.content = Some(arg_text(args, "command"));
+            s
+        }
+        "shell.send" => {
+            let mut s = ActionSpec::new("run_shell");
+            s.content = Some(arg_text(args, "text"));
+            s
+        }
+        // ending a process loses its state: not reversible
+        "shell.kill" => ActionSpec::new("stop_process"),
+        "shell.wait" | "shell.read" | "shell.list" | "shell.rules" => ActionSpec::new("read"),
+        _ => return None,
+    })
+}
+
 // ---------- arguments (the catalog's input schemas; the gateway adds `why` and `effect`) ----------
 
 #[derive(Debug, Clone, PartialEq)]
@@ -570,4 +723,106 @@ pub fn shell_list(shells: &ShellManager, ctx: &ToolContext) -> ToolResult {
 
 pub fn shell_rules(protection: &dyn Protection, proxy_port: Option<u16>) -> ToolResult {
     rules_result(protection, proxy_port)
+}
+
+// ---------- one call by name, on the validated arguments ----------
+
+fn arg_num(args: &Map<String, Value>, key: &str, default: f64) -> f64 {
+    args.get(key).and_then(Value::as_f64).unwrap_or(default)
+}
+
+fn arg_int(args: &Map<String, Value>, key: &str) -> i64 {
+    args.get(key).and_then(Value::as_i64).unwrap_or(0)
+}
+
+impl StartArgs {
+    /// The validated arguments (`model_dump`) of shell.start or shell.run.
+    pub fn from_args(args: &Map<String, Value>) -> StartArgs {
+        StartArgs {
+            command: arg_text(args, "command"),
+            cwd: arg_opt(args, "cwd"),
+            background: args
+                .get("background")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            external_source: arg_opt(args, "external_source"),
+            escape: arg_opt(args, "escape"),
+        }
+    }
+}
+
+/// One shell tool's run by its name on its validated arguments (the catalog's defaults filled in): what the
+/// gateway's `Tool::run` calls. `proxy_port`: the egress proxy's port shell.rules names, when it runs. None for a name
+/// that isn't a shell tool.
+pub async fn run(
+    tool: &str,
+    shells: &ShellManager,
+    protection: &dyn Protection,
+    proxy_port: Option<u16>,
+    args: &Map<String, Value>,
+    ctx: &ToolContext,
+    resolver: &dyn ResolvePath,
+) -> Option<Result<ToolResult, ShellError>> {
+    Some(match tool {
+        "shell.run" => {
+            shell_run(
+                shells,
+                &RunArgs {
+                    start: StartArgs::from_args(args),
+                    timeout_s: arg_num(args, "timeout_s", 30.0),
+                },
+                ctx,
+                resolver,
+            )
+            .await
+        }
+        "shell.start" => shell_start(shells, &StartArgs::from_args(args), ctx, resolver).await,
+        "shell.wait" => {
+            shell_wait(
+                shells,
+                &WaitArgs {
+                    id: arg_text(args, "id"),
+                    timeout_s: arg_num(args, "timeout_s", 30.0),
+                    since: arg_int(args, "since"),
+                },
+                ctx,
+            )
+            .await
+        }
+        "shell.read" => {
+            shell_read(
+                shells,
+                &ReadArgs {
+                    id: arg_text(args, "id"),
+                    since: arg_int(args, "since"),
+                },
+                ctx,
+            )
+            .await
+        }
+        "shell.send" => {
+            shell_send(
+                shells,
+                &SendArgs {
+                    id: arg_text(args, "id"),
+                    text: arg_text(args, "text"),
+                },
+                ctx,
+            )
+            .await
+        }
+        "shell.kill" => {
+            shell_kill(
+                shells,
+                &KillArgs {
+                    id: arg_text(args, "id"),
+                },
+                ctx,
+            )
+            .await
+        }
+        "shell.list" => Ok(shell_list(shells, ctx)),
+        "shell.rules" => Ok(shell_rules(protection, proxy_port)),
+        _ => return None,
+    })
 }
