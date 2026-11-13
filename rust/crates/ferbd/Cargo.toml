@@ -17,6 +17,12 @@ path = "src/lib.rs"
 name = "ferbd"
 path = "src/main.rs"
 
+# FERB.app's Contents/Resources/bin/ferb: the internal commands and the toolbox, without the agent's modes
+# (src/host.rs); scripts/build-app-rust.sh
+[[bin]]
+name = "ferb"
+path = "src/bin/ferb.rs"
+
 [features]
 default = []
 # Test-only: the binary honors FERBD_STAND_INS (the ferb-daemon test suite's stand-ins, a fake clock and ids, and a
@@ -64,6 +70,8 @@ futures-util = { version = "0.3.34", default-features = false, features = ["std"
 # fs.look's decoders (ImageIO, PDFKit, CoreGraphics) and the pasteboard's change count: src/native.rs
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.3"
+# the disturbance sentinel's Space observer (src/compose/desktop.rs)
+block2 = "0.6.2"
 objc2-foundation = "0.3.2"
 objc2-core-foundation = "0.3.2"
 objc2-core-graphics = "0.3.2"
@@ -76,3 +84,8 @@ hex = "0.4"
 # The test build's binary honors FERBD_STAND_INS (cargo unifies a dev-dependency's features into what the tests
 # build); `cargo build` and a release build never enable it.
 ferbd = { path = ".", features = ["stand-ins"] }
+
+# A debug build's start hashes its own executable (areas_c `code_hash`, about 160 MB unoptimized): the hash compiled
+# without optimization took over the tests' 30 s start limit.
+[profile.dev.package.sha2]
+opt-level = 3

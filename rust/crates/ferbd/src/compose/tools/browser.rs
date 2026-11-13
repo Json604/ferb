@@ -262,6 +262,88 @@ impl ferb_browser::rules::BrowserApps for Apps {
     }
 }
 
+/// What both drivers read about FERB's tasks (browsers.py:308-326): a live task (removed when its tree ends), a paused
+/// one (it keeps its group, ORCH-308), a loop between its rounds (L31), the task tree (tab cap, group), the tree's goal
+/// for its group's label, the tab cap, a registered checker's worker (its tabs), the owner's own input near now
+/// (HAND-511), the redactor and a link's address parsed as the browser will (S4). The parts are held weakly: the
+/// drivers live inside them.
+fn driver_tasks(p: &Parts) -> Tasks {
+    let weak = Arc::downgrade(&p.0);
+    let parts = move || weak.upgrade().map(Parts);
+    let r = p.redactor();
+    let (p1, p2, p3, p4, p5, p6, p7, p8) = (
+        parts.clone(),
+        parts.clone(),
+        parts.clone(),
+        parts.clone(),
+        parts.clone(),
+        parts.clone(),
+        parts.clone(),
+        parts,
+    );
+    Tasks {
+        running: Arc::new(move |task| p1().is_some_and(|p| p.task(task).is_some())),
+        paused: Arc::new(move |task| {
+            p2().and_then(|p| p.supervisor().map(|s| s.inner().task_paused(task)))
+                .unwrap_or(false)
+        }),
+        resting: Arc::new(move |task| {
+            p3().and_then(|p| p.supervisor().map(|s| s.loop_resting(task)))
+                .unwrap_or(false)
+        }),
+        root: Arc::new(move |task| {
+            p4().and_then(|p| p.task(task).and_then(|t| t.tree_id))
+                .unwrap_or_else(|| task.split('.').next().unwrap_or(task).to_string())
+        }),
+        title: Arc::new(move |root| {
+            // `_task_title`: the live tree's goal
+            let Some(p) = p5() else {
+                return String::new();
+            };
+            if p.task(root).is_none() {
+                return String::new();
+            }
+            let shared = p.db();
+            let db = crate::basics::lock(&shared);
+            db.conn()
+                .query_row("SELECT goal FROM tasks WHERE id = ?", [root], |r| {
+                    r.get::<_, String>(0)
+                })
+                .unwrap_or_default()
+        }),
+        max_tabs: Arc::new(move || {
+            p6().map_or(50, |p| match p.config().get("browser", "task_max_tabs") {
+                Ok(Some(v)) => v
+                    .as_i64()
+                    .or_else(|| v.as_f64().map(|f| f as i64))
+                    .unwrap_or(50),
+                _ => 50,
+            })
+        }),
+        inspection_parent: Arc::new(move |task| {
+            p7().and_then(|p| crate::compose::env_seams::inspection_parent(&p, task))
+        }),
+        owner_input_near: Arc::new(move || {
+            let p = p8()?;
+            let o = p.owner()?;
+            let now = p.clock().now().timestamp_micros() as f64 / 1e6;
+            o.input_near(now)
+        }),
+        redact: Arc::new(move |t: &str| r.text(t)),
+        check_url: Arc::new(|url: &str| match ferb_policy::urls::parse(url) {
+            Some(u) if u.scheme == "http" || u.scheme == "https" => {
+                if u.host.is_empty() {
+                    Err("this address names no site, so FERB didn't open it".into())
+                } else {
+                    Ok(())
+                }
+            }
+            Some(u) => Err(format!("only http(s) URLs can be opened, not {}", u.scheme)),
+            None => Err("only http(s) URLs can be opened, not this".into()),
+        }),
+    }
+}
+
 /// The browser parts, built once.
 pub struct Browsers {
     pub pairings: Arc<Pairings>,
@@ -307,11 +389,7 @@ impl Browsers {
             Arc::new(Apps),
             Arc::new(|_pid| None),
         );
-        let r = p.redactor();
-        let tasks = Tasks {
-            redact: Arc::new(move |t: &str| r.text(t)),
-            ..Tasks::default()
-        };
+        let tasks = driver_tasks(p);
         let router = Driver::new(
             hub.clone(),
             Kind::Owner {
@@ -356,17 +434,13 @@ impl Browsers {
             },
             crate::compose::areas::helper(opts, &opts.home),
         ));
-        let r = p.redactor();
         let identity = Driver::new(
             hub.clone(),
             Kind::Ferb {
                 profile: Arc::new(move || identity_profile(&cfg)),
                 secrets: Arc::new(OwnSecrets(secrets)),
             },
-            Tasks {
-                redact: Arc::new(move |t: &str| r.text(t)),
-                ..Tasks::default()
-            },
+            driver_tasks(p),
             None,
             random,
         );
@@ -508,11 +582,15 @@ pub fn browsers_deps(
             ))
         })
     };
-    // the native host the manifests name: FERB's launcher in its home, running the Rust relay beside this program
-    let relay = std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().map(|d| d.join("ferb-native-host")))
-        .unwrap_or_default();
+    // the native host the manifests name: FERB's launcher in its home, running the Rust relay: FERB.app's
+    // Contents/Helpers/ferb-native-host (ferb-device BUNDLE_RUST_NATIVE_HOST, what `setup --service` writes), else
+    // the one built beside this program
+    let relay = match &opts.app_bundle {
+        Some(app) => app.join(ferb_device::install::BUNDLE_RUST_NATIVE_HOST),
+        None => crate::host::real_exe()
+            .and_then(|e| e.parent().map(|d| d.join("ferb-native-host")))
+            .unwrap_or_default(),
+    };
     b::Deps {
         pairings: br.pairings.clone(),
         hub: br.hub.clone(),

@@ -268,6 +268,39 @@ impl ScriptReads {
 }
 
 impl Reads for ScriptReads {
+    fn captures_at_send(&self) -> Option<bool> {
+        Some(
+            self.0.file["captures"]
+                .as_array()
+                .is_some_and(|a| !a.is_empty()),
+        )
+    }
+    /// The front window the recorder's daemon captured as this message arrived (its picture: invented bytes).
+    fn front_capture<'a>(
+        &'a self,
+        request_id: &'a str,
+    ) -> Option<BoxFuture<'a, Result<Option<ferb_supervisor::flow::FrontCapture>, String>>> {
+        let got = self.0.file["captures"]
+            .as_array()
+            .and_then(|a| a.iter().find(|c| c["request_id"] == request_id))
+            .map(|c| {
+                let image_ref = s(&c["image_ref"]);
+                ferb_supervisor::flow::FrontCapture {
+                    window: ferb_supervisor::planner::FrontWindow {
+                        facts: c["facts"].as_object().cloned().unwrap_or_default(),
+                        image_ref: image_ref.clone(),
+                        withheld: String::new(),
+                        masking: String::new(),
+                        origin: s(&c["origin"]),
+                    },
+                    image: Some(ferb_core::types::ModelImage::new(
+                        s(&c["image"]).into_bytes(),
+                        &image_ref,
+                    )),
+                }
+            });
+        Some(Box::pin(async move { Ok(got) }))
+    }
     fn environment<'a>(&'a self, _words: &'a str) -> BoxFuture<'a, Environment> {
         let next = lock(&self.0.supervise).front().cloned();
         Box::pin(async move {
@@ -784,6 +817,49 @@ pub fn control(
                 )
                 .map(Value::String)
                 .unwrap_or(Value::Null))
+        }
+        // make_more.py `loop_status`: a loop's latest status says it watches
+        "loop_watching" => Ok(json!(d
+            .supervisor
+            .supervisor
+            .loop_statuses()
+            .iter()
+            .any(|v| v["state"] == "watching"))),
+        // a plan step waits for an event (`_plan_runs`)
+        "plan_waits" => Ok(json!(!d
+            .supervisor
+            .supervisor
+            .inner()
+            .live()
+            .plan_runs
+            .is_empty())),
+        // make_more.py: the owner is back (`mention_paused`, a task of its own on the daemon's loop)
+        "mention_paused" => {
+            let inner = d.supervisor.supervisor.inner().clone();
+            tokio::spawn(async move {
+                let _ = inner.mention_paused().await;
+            });
+            Ok(Value::Null)
+        }
+        // make_more.py: an event reaches the supervisor (`notify_plan_event`)
+        "plan_event" => {
+            let topic = req["topic"].as_str().unwrap_or_default().to_string();
+            d.supervisor
+                .supervisor
+                .inner()
+                .notify_plan_event(&topic, &req["data"]);
+            Ok(Value::Null)
+        }
+        // make_more.py: the app's one tap on a runtime offer (`runtime_offer`, `answer_runtime_switch`)
+        "runtime_switch" => {
+            let inner = d.supervisor.supervisor.inner();
+            let task = req["task_id"].as_str().unwrap_or_default();
+            let runtime = req["runtime"].as_str().unwrap_or_default();
+            let offer = inner.runtime_offer(task).unwrap_or(Value::Null);
+            let answered = inner
+                .answer_runtime_switch(task, runtime)
+                .unwrap_or_else(|e| json!({"error": e}));
+            Ok(json!({"offer": offer, "answered": answered}))
         }
         "quiet_mark" => {
             let db = lock(&d.db);

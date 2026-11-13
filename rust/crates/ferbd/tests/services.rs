@@ -245,7 +245,8 @@ fn setup_service_uninstall_and_doctor_run_with_a_recording_launchctl() {
     let app = r.join("Applications/FERB.app");
     for (part, from) in [
         ("Contents/Helpers/FERB.app/Contents/MacOS/FERB", BIN),
-        ("Contents/MacOS/ferb-native-host", BIN),
+        // ferb-device BUNDLE_RUST_NATIVE_HOST, beside the agent app
+        ("Contents/Helpers/ferb-native-host", BIN),
         ("Contents/Helpers/ferb-secrets", BIN),
         // the pinned Codex (never run: the recording runner answers its --version)
         (

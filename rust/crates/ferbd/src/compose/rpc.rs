@@ -81,8 +81,9 @@ pub fn register(server: &Server, p: &Parts) {
                     Arc::new(move || left.as_ref().is_some_and(|l| l.is_set()));
                 match parts.call(gw, grant, name, args, left).await {
                     Ok(reply) => Ok(crate::basics::object(reply.to_json())),
+                    // a stop cancelled the call: Python's CancelledError closes the bridge's connection, no line
                     Err(ferb_gateway::gateway::CallError::Cancelled) => {
-                        Err(HandlerError::fault("CancelledError", ""))
+                        Err(HandlerError::cancelled())
                     }
                     Err(ferb_gateway::gateway::CallError::Internal(m)) => {
                         Err(HandlerError::fault("RuntimeError", m))

@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "name": "ferb-rust-tooling",
+  "description": "The pinned Claude Code that FERB.app's Rust build bundles (scripts/build-app-rust.sh); its version is ferb-runtimes CLAUDE_CODE_VERSION. Codex stays pinned in the root package.json.",
+  "devDependencies": {
+    "@anthropic-ai/claude-code": "2.1.310"
+  }
+}

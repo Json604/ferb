@@ -3,9 +3,9 @@
 //! process, the pasteboard, Launch Services), its 12 `mac.*` tools, `recording.*`, `audio.listen`, and the image
 //! sanitizer every tool image passes (Vision's text recognition, then painting).
 //!
-//! Background first (rule 10): the owner-input tap is not composed in this build, so FERB can't tell whether the owner
-//! is using the Mac; as Python's daemon with the tap down, foreground input is unavailable (it says why) and only the
-//! background routes (Accessibility, events to one process, window capture) run.
+//! Background first (rule 10): foreground input is available only while the owner-input tap runs and sensing isn't
+//! paused, and yields whenever the owner is using keyboard or mouse; with the tap down FERB counts the owner as using
+//! the Mac (SENSE-406) and only the background routes (Accessibility, events to one process, window capture) run.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -310,6 +310,8 @@ impl ferb_gateway::call_hooks::AppWindows for AppWindows {
 pub struct Mac {
     pub tools: Arc<MacTools>,
     pub hearing: Arc<ferb_mac_hands::listen::Hearing>,
+    /// FERB.app's speech recognition (`hearing.transcriber`: doctor's and setup's status probe).
+    pub transcriber: Arc<ferb_sense::transcribe::Transcriber>,
     pub recordings: Arc<ferb_mac_hands::recording::RecordingManager>,
     pub images: Arc<Images>,
 }
@@ -335,13 +337,35 @@ impl Mac {
             _ => "unknown-device".into(),
         };
         let handlers = Arc::new(ferb_mac_hands::apps::WebHandlers::default());
+        // SENSE-406 (desktop.py `_build_mac_and_shell`): with the owner-input tap down (paused, Input Monitoring
+        // missing, macOS refused the tap) FERB counts the owner as using the Mac: no foreground input
+        let tap = p.owner().map(|o| o.input.clone());
+        let paused = {
+            let marker = p.home().join("PAUSED");
+            move || marker.exists()
+        };
+        let owner_active: Arc<dyn Fn() -> bool + Send + Sync> = match tap.clone() {
+            Some(t) => Arc::new(move || t.active() || !t.is_running()),
+            None => Arc::new(|| true),
+        };
         let mut input = ferb_mac_hands::input::RealInput::new(
-            // SENSE-406: with the owner-input tap down FERB counts the owner as using the Mac
-            Arc::new(|| true),
+            owner_active,
             ferb_mac_hands::locks::GuiLock::new(),
         );
-        input.available = Arc::new(|| false);
-        input.why_unavailable = Arc::new(|| ferb_mac_hands::input::UNMONITORED.to_string());
+        input.available = match tap {
+            Some(t) => {
+                let paused = paused.clone();
+                Arc::new(move || !paused() && t.is_running())
+            }
+            None => Arc::new(|| false),
+        };
+        input.why_unavailable = Arc::new(move || {
+            if paused() {
+                ferb_mac_hands::input::PAUSED.to_string()
+            } else {
+                ferb_mac_hands::input::UNMONITORED.to_string()
+            }
+        });
         let mut d = ferb_mac_hands::driver::MacDriver::new(ferb_mac_hands::driver::Parts {
             device_id,
             input,
@@ -514,7 +538,7 @@ impl Mac {
                 .join(ferb_mac_hands::listen::FOLDER),
             capture,
             Arc::new(Transcribe {
-                transcriber,
+                transcriber: transcriber.clone(),
                 redactor: redactor.clone(),
             }),
             {
@@ -545,6 +569,7 @@ impl Mac {
         Mac {
             tools: Arc::new(tools),
             hearing,
+            transcriber,
             recordings,
             images,
         }
@@ -994,7 +1019,10 @@ pub fn hooks(p: &Parts) -> Arc<dyn ferb_gateway::seams::CallHooks> {
     let mac = p.mac();
     Arc::new(ferb_gateway::call_hooks::RealHooks::new(
         ferb_gateway::call_hooks::HookParts {
-            sentinel: None,
+            sentinel: p.sentinel().map(|s| {
+                Arc::new(crate::compose::desktop::GatewaySentinel(s))
+                    as Arc<dyn ferb_gateway::call_hooks::Sentinel>
+            }),
             previews: None,
             evidence: Some(Arc::new(EvidenceKeeper { parts: p.clone() })),
             changes: Some(Arc::new(super::ChangeHook(p.changes()))),

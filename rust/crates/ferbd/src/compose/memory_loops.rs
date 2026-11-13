@@ -4,9 +4,9 @@
 //! core-profile pass), each job in its own error scope, journaled when it fails and tried again next hour. The
 //! learners' model calls go through the runtimes area's factory ([`learning_runtime`]).
 //!
-//! Not composed here: the weekly re-check of what FERB saw on this Mac (`_refresh_mac_profile`: its review service
-//! is not part of the Rust build), and downloading the embedding model for a checkout (FERB.app ships it; a daemon
-//! without it searches by keywords and recency, as Python's does until it is there).
+//! The weekly re-check of what FERB saw on this Mac (`_refresh_mac_profile`) is group A's `persona::refresh`. Not
+//! composed here: downloading the embedding model for a checkout (FERB.app ships it; a daemon without it searches by
+//! keywords and recency, as Python's does until it is there).
 
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -304,7 +304,7 @@ pub async fn memory_pass(
         }
     }
     // the episode cards whose inputs changed or that were never captured, one at a time, only while no task runs
-    if let Err(e) = refresh_cards(st, journal) {
+    if let Err(e) = refresh_cards(st, journal).await {
         fail("memory.cards_failed", e);
     }
     // playbooks: only once the local model is there (it finds the candidates) and while no task runs
@@ -334,20 +334,26 @@ pub async fn memory_pass(
     if let Err(e) = areas_a::memory::profile_pass(st, false).await {
         fail("memory.profile_failed", e);
     }
+    // `_refresh_mac_profile` (MEM-13): weekly, with the profile pass's cadence, what FERB saw on this Mac is gathered
+    // again and interpreted again only when it changed; quiet
+    if let Err(e) = areas_a::persona::refresh(st).await {
+        journal.note("memory.mac_profile_failed", json!({"error": e}));
+    }
 }
 
-/// `_refresh_cards`: each card to read is captured again; one that can't be built is tried once more, then waits
-/// for its inputs to change (MEM-422); then the day summaries are indexed for search.
-fn refresh_cards(st: &Rc<State>, journal: &crate::basics::Journal) -> ferb_learning::Result<()> {
+/// `_refresh_cards`: each card to read is captured again (`_capture_card`: its reads off the loop), one at a time and
+/// only while no task runs; one that can't be built is tried once more, then waits for its inputs to change
+/// (MEM-422); then the day summaries are indexed for search.
+async fn refresh_cards(
+    st: &Rc<State>,
+    journal: &crate::basics::Journal,
+) -> ferb_learning::Result<()> {
     let l = &st.learning;
     for task_id in l.cards_to_read()? {
         if st.tasks.running() {
             return Ok(()); // a task started: the next pass reads the rest
         }
-        let captured = l
-            .prepare_episode(&task_id, None)
-            .and_then(|p| l.write_episode(p.as_ref()));
-        match captured {
+        match areas_a::cards::capture_card(st, &task_id, None, false).await {
             Ok(_) => {
                 let read: bool = st
                     .store
@@ -368,7 +374,7 @@ fn refresh_cards(st: &Rc<State>, journal: &crate::basics::Journal) -> ferb_learn
                     l.card_read(&task_id, &inputs, None)?;
                 }
             }
-            Err(ferb_learning::Error::LearningRefused(why)) => {
+            Err(areas_a::cards::CardError::Refused(why)) => {
                 let why = if why.is_empty() {
                     "refused".to_string()
                 } else {
@@ -386,8 +392,11 @@ fn refresh_cards(st: &Rc<State>, journal: &crate::basics::Journal) -> ferb_learn
                            "next": if status == "parked" { "waits until its task changes" } else { "tried once more next hour" }}),
                 );
             }
-            Err(e) => return Err(e),
+            // FERB is stopping: the next start's pass reads the rest
+            Err(areas_a::cards::CardError::Deferred) => return Ok(()),
+            Err(areas_a::cards::CardError::Failed(e)) => return Err(e),
         }
+        tokio::task::yield_now().await;
     }
     ferb_learning::learning::index_summaries(l, &SummarySeams, &mut || false)
 }

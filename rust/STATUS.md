@@ -54,8 +54,8 @@ the phone apps share; they reach the Mac's own parts only through traits.
 | Internal commands the app calls, toolbox | `ferb/cli` | 2,442 | `ferb-device` | verified (journal 29); no `ferb` program yet |
 | Traces | `ferb/trace`, trace output of `ferb/cli/admin.py` | 759 | `ferb-trace` | verified (journal 27) |
 | The daemon program | `ferb/daemon/main.py` | 748 | `ferbd` | runs with the supervisor joined: 40 recorded scenarios replay through the real binary, restarts included (journal 42, 45, 47, 49); no real model or browser run yet |
-| Daemon host in FERB.app | `ui/mac/FERBAgent/main.c` | - | `ferbd` | not started |
-| Build, sign, package without Python | `scripts/` | - | - | not started |
+| Daemon host in FERB.app | `ui/mac/FERBAgent/main.c` | - | `ferbd` (`src/host.rs`) | built and run from inside the bundle on a temp home (journal 51); permissions unproven until installed |
+| Build, sign, package without Python | `scripts/` | - | `scripts/build-app-rust.sh` | builds an ad-hoc-signed FERB.app with no Python, arm64 and x86_64 (journal 51); release signing and notarization not run |
 
 ## Later stages
 

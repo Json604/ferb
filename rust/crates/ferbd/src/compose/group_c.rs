@@ -71,17 +71,50 @@ pub fn deps(p: Parts<'_>) -> Deps {
             "local_reports": Value::Null,
         }))
     });
-    // `_hearing_status`: FERB.app installed (the probe of FERB.app's own Speech Recognition state is not composed)
+    // `_hearing_status` (voice.py:26, L26): FERB.app installed and signed as recorded, and (probe) its Speech
+    // Recognition state and on-device support, asked of FERB.app itself in the background; never a prompt
     let voice = ferb_device::install::voice_app(&home, opts.app_bundle.as_deref());
+    let asking = p
+        .tools
+        .mac()
+        .map(|m| (m.transcriber.clone(), m.hearing.folder.clone()));
+    let red = p.redactor.clone();
     let hearing: areas_c::Hearing = Arc::new(move |probe: bool| {
         let installed = voice.exists();
+        let asking = asking.clone();
+        let red = red.clone();
         Box::pin(async move {
-            if installed && probe {
-                json!({"installed": true, "error": "not available in this build: asking FERB.app for its \
-                       Speech Recognition state isn't part of the Rust daemon yet"})
-            } else {
-                json!({"installed": installed})
+            let mut out = Map::new();
+            out.insert("installed".into(), json!(installed));
+            if !installed || !probe {
+                return Value::Object(out);
             }
+            let Some((transcriber, folder)) = asking else {
+                out.insert("signed".into(), json!(true));
+                out.insert(
+                    "error".into(),
+                    json!("HearingUnavailable: FERB's Mac parts aren't running"),
+                );
+                return Value::Object(out);
+            };
+            match transcriber.status(&folder).await {
+                Ok(status) => {
+                    out.extend(status);
+                    out.insert("signed".into(), json!(true));
+                }
+                Err(ferb_sense::transcribe::Hearing::NotSigned(_)) => {
+                    out.insert("signed".into(), json!(false));
+                }
+                Err(e) => {
+                    // the check passed; FERB.app's answer didn't come
+                    out.insert("signed".into(), json!(true));
+                    out.insert(
+                        "error".into(),
+                        json!(red.text(&format!("{}: {}", e.kind(), e.message()))),
+                    );
+                }
+            }
+            Value::Object(out)
         })
     });
     let sensing = p.b.deps.sensing.as_ref().map(|s| {

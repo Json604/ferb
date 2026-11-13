@@ -21,6 +21,21 @@ pub const LOOP_RESTART_S: f64 = 1.0;
 pub const LOOP_RESTART_MAX_S: f64 = 60.0;
 
 pub fn start(d: &Arc<Daemon>) {
+    // `_build_timers` (ORCH-317): timers held for the owner follow the Mac's presence; its return wakes the timers and
+    // brings the day's paused-task mentions (`_owner_back`)
+    if let Some(o) = d.tools.owner() {
+        let presence: Arc<dyn ferb_clock::timers::Presence + Send + Sync> =
+            Arc::new(super::presence::TimerPresence(o.presence.clone()));
+        let _ =
+            d.a.spawn(move |st| async move { st.set_presence(presence) });
+        let a = d.a.clone();
+        o.presence.set_on_return(Some(Arc::new(move |signal: &str| {
+            let signal = signal.to_string();
+            let _ = a.spawn(move |st| async move {
+                areas_a::schedules::owner_back(&st, &signal);
+            });
+        })));
+    }
     // the timer loop runs on group A's thread, where its state lives
     if d.opts.timer_loop {
         let a = d.a.clone();
@@ -335,6 +350,7 @@ pub fn sense(opts: &Options, s: &Shared) -> Sense {
         clock: opts.clock.clone(),
     };
     let j2 = s.journal.clone();
+    let h_tap = host.clone();
     let hooks = Hooks {
         // `_on_pause` (sensing.py): journaled and published; the owner's tabs forgotten (the router's)
         on_pause: Arc::new(move |paused| {
@@ -346,6 +362,13 @@ pub fn sense(opts: &Options, s: &Shared) -> Sense {
                 json!({"source": source, "error": why}),
             )
         }),
+        // `_tap_changed` (SENSE-406): the owner-input tap went down (why) or came back up
+        on_tap: {
+            let h = h_tap;
+            Arc::new(move |why: &str| {
+                let _ = ferb_daemon::areas_b::sensing::tap_changed(&h, why);
+            })
+        },
         ..Hooks::default()
     };
     let watchers = if opts.native {
@@ -353,7 +376,21 @@ pub fn sense(opts: &Options, s: &Shared) -> Sense {
     } else {
         Vec::new()
     };
-    Sense::new(s.home.clone(), watchers, emit, None, None, hooks)
+    // `watch_owner_input`: the owner-input tap and the Mac's presence start and stop with sensing
+    let (tap, presence) = match s.tools.owner() {
+        Some(o) => (
+            Some(
+                Arc::new(ferb_sense::watchers::owner_input::Tap(o.input.clone()))
+                    as Arc<dyn ferb_sense::manager::OwnerInputTap>,
+            ),
+            Some(
+                Arc::new(ferb_sense::watchers::presence::Presence(o.presence.clone()))
+                    as Arc<dyn ferb_sense::manager::PresenceWatch>,
+            ),
+        ),
+        None => (None, None),
+    };
+    Sense::new(s.home.clone(), watchers, emit, tap, presence, hooks)
 }
 
 /// The watchers `_build_sense` starts with `run_watchers` (sensing.py:71-76) whose native reads are composed here:

@@ -198,6 +198,28 @@ impl Logins for SavedLogins {
             other => LoginError::Failed(format!("{other:?}")),
         })
     }
+
+    /// memory.py:1010 `write`: the username saved for its place (when `save`), then every record whose username
+    /// came from an older version of the fact takes the new spelling.
+    fn save_username(
+        &self,
+        place: &str,
+        name: &str,
+        source: &str,
+        save: bool,
+        older: &std::collections::BTreeSet<String>,
+    ) -> Result<Vec<String>, LoginError> {
+        let said = |e: ferb_identity::Error| match e {
+            ferb_identity::Error::Refused(m) => LoginError::Refused(m),
+            other => LoginError::Failed(format!("{other:?}")),
+        };
+        if save {
+            self.0.set_username(place, name, source).map_err(said)?;
+        }
+        self.0
+            .replace_usernames(older, Some(name), Some(source))
+            .map_err(said)
+    }
 }
 
 /// `settings.set`'s host: the privacy exclusions reach the Redactor at once, and the change is journaled.
@@ -254,6 +276,8 @@ pub struct GroupB {
 /// are off.
 struct MacDesk {
     native: bool,
+    /// The Mac's presence (`owner_idle`, ORCH-317); None: the Mac counts as in use.
+    presence: Option<Arc<ferb_sense::watchers::presence::MacPresence>>,
 }
 
 impl notify::Desk for MacDesk {
@@ -280,8 +304,10 @@ impl notify::Desk for MacDesk {
         })
     }
 
+    /// notify.py `owner_idle`: the Mac is out of use (asleep, displays asleep, locked, switched away); never input
+    /// idleness; unknown counts as present.
     fn away(&self) -> bool {
-        false
+        self.presence.as_ref().is_some_and(|p| p.away())
     }
 }
 
@@ -565,6 +591,7 @@ pub fn group_b(
         posters: posters.clone(),
         desk: Arc::new(MacDesk {
             native: opts.native,
+            presence: s.tools.owner().map(|o| o.presence.clone()),
         }),
         listeners: Arc::new(NoListeners),
         notices: Some(s.db.clone()),

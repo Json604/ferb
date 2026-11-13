@@ -57,3 +57,13 @@ rule = "When a port finds a bug in the Python code, the Rust port fixes it as th
 why = "The first rule was to mirror Python and fix both later; the owner asked why known bugs, one of them a secret left unredacted, were being carried into new code."
 rejected = ["Mirror every Python bug so the comparison stays exact, and fix both sides after the cutover."]
 untestable = "A working rule; each fix has its own named test."
+
+[ENG-7]
+title = "FERB.app's Rust build: ferbd is the agent's executable; the internal commands are a separate program"
+by = "agent"
+date = 2026-11-13
+status = "active"
+rule = "In FERB.app's Rust build ferbd is the nested agent app's executable (com.ferb.daemon, same Info.plist and entitlements) and runs there only as `daemon`, `mcp` or `grant-probe`, exactly, with the account's own ~/.ferb and a rebuilt environment (src/host.rs, as main.c). The internal commands are Contents/Resources/bin/ferb, holding no permission. FERB_DEV_HOME and FERB_DEV_DRY_RUN are honored only by an ad-hoc-signed build; a certificate-signed one refuses them. Claude Code is npm's package locked in rust/packaging at CLAUDE_CODE_VERSION, checked once per process."
+why = "macOS attaches FERB's permissions to the agent app, so it must run nothing but FERB's own entry points (rule 3), as the C host did. Without Python there is no SDK to carry Claude Code. What ships accepts only ~/.ferb, yet the packaging needs proof short of installing."
+rejected = ["One program for the agent and the internal commands: the permission-holding executable would accept toolbox commands that take paths.", "A compile-time feature for the development home: the proof would not be of the binary that ships.", "Claude Code from the Python SDK's wheel: it ends with the Python build."]
+paths = ["rust/crates/ferbd/src/host.rs", "rust/crates/ferbd/src/setup_env.rs", "scripts/build-app-rust.sh", "scripts/rust-parts.sh", "rust/packaging/package-lock.json"]

@@ -57,7 +57,8 @@ impl super::Mac for RealMac {
     fn fresh_grants(&self) -> BoxFuture<'static, Map<String, Value>> {
         Box::pin(async {
             // `_fresh_grants`: this program started now as `grant-probe`; one that doesn't answer in 2 s is killed
-            let Ok(exe) = std::env::current_exe() else {
+            // by its real path (crate::host): inside FERB.app the agent, whose `grant-probe` mode it allows
+            let Some(exe) = crate::host::real_exe() else {
                 return Map::new();
             };
             let child = tokio::process::Command::new(exe)

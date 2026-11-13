@@ -34,24 +34,29 @@ pub fn rule_for(exe: &Path) -> Rule {
     }
 }
 
-/// FERB's home for this process, or the shipping host's refusal (its words, `ForeignHome`).
+/// FERB's home for this process, or the shipping host's refusal (its words, `ForeignHome`, or the development
+/// override's, crate::host::dev_home).
 pub fn resolve() -> Result<(PathBuf, Rule), String> {
-    let exe = std::env::current_exe().unwrap_or_default();
+    let exe = crate::host::real_exe().unwrap_or_default();
     let rule = rule_for(&exe);
     let home = match rule {
         Rule::Python => paths::ferb_home(),
-        Rule::Shipping => {
-            let given = std::env::var("FERB_HOME").ok();
-            paths::shipping_home(given.as_deref(), paths::account_home().as_deref())
-                .map_err(|e| e.to_string())?
-        }
+        Rule::Shipping => match crate::host::dev_home()? {
+            // an ad-hoc-signed development build only (crate::host::DEV_HOME)
+            Some(dev) => dev,
+            None => {
+                let given = std::env::var("FERB_HOME").ok();
+                paths::shipping_home(given.as_deref(), paths::account_home().as_deref())
+                    .map_err(|e| e.to_string())?
+            }
+        },
     };
     Ok((home, rule))
 }
 
 /// The FERB.app the daemon runs from (`paths.app_bundle()`): the outermost `.app` around this executable.
 pub fn app_bundle() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
+    let exe = crate::host::real_exe()?;
     match mode_for(&exe, Path::new("/nonexistent-ferb-home")) {
         Mode::Bundled(app) => Some(app),
         _ => None,
@@ -60,18 +65,29 @@ pub fn app_bundle() -> Option<PathBuf> {
 
 /// FERB's package folder (`ferb/`): the runtime Markdown the learners and roles read (prompts, memory notes,
 /// abilities). Inside FERB.app: `Contents/Resources/ferb`; elsewhere the checkout's `ferb/` next to `rust/`, found
-/// from the executable's folders, else from where this crate was built.
+/// from the executable's folders, else (a debug build only) from where this crate was built. A release build carries
+/// no build-machine path (scripts/build-app-rust.sh), so it has no such fallback.
 pub fn package_folder() -> PathBuf {
     if let Some(app) = app_bundle() {
         return app.join("Contents/Resources/ferb");
     }
     let marker = |p: &Path| p.join("ferb/orchestrator/prompts").is_dir();
-    if let Ok(exe) = std::env::current_exe() {
+    if let Some(exe) = crate::host::real_exe() {
         if let Some(root) = exe.ancestors().find(|p| marker(p)) {
             return root.join("ferb");
         }
     }
+    built_package()
+}
+
+#[cfg(debug_assertions)]
+fn built_package() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../ferb")
+}
+
+#[cfg(not(debug_assertions))]
+fn built_package() -> PathBuf {
+    PathBuf::from("ferb")
 }
 
 /// `service_streams(home)` (main.py:718): the working folder is FERB's home, and standard output and error go to

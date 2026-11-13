@@ -277,6 +277,12 @@ impl Overrides for Seams {
             p.tokenizer = ferb_context::tokens::Tokenizer::Utf8Bytes;
             p.wrap_id = Some("0123456789ab".into());
             p.new_chat = Some(Arc::new(|| "c00000000001".into()));
+            // make_more.py `_Uuids`: `uuid4()` as a counter from 1, so its hex's first 12 are zeros
+            let n = Arc::new(std::sync::atomic::AtomicU64::new(0));
+            p.notice_hex = Some(Arc::new(move || {
+                let k = n.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                format!("{k:032x}")[..12].to_string()
+            }));
         }
     }
 
@@ -457,6 +463,13 @@ pub fn from_env(opts: &mut Options) -> Option<StandIns> {
             format!("t{:015}", t.fetch_add(1, Ordering::SeqCst) + 1)
         }));
     }
+    // run tokens as a recorder's patched `secrets.token_urlsafe` gives them: a counter (ferb-rpc's injected source)
+    {
+        let n = Arc::new(AtomicU64::new(0));
+        opts.run_tokens = Some(Arc::new(move || {
+            format!("run-token-{:06}", n.fetch_add(1, Ordering::SeqCst) + 1)
+        }));
+    }
     let stand = Stand::default();
     let script = config
         .get("script")
@@ -530,6 +543,38 @@ fn sql_value(a: &Value) -> rusqlite::types::Value {
 
 async fn control(d: &Arc<Daemon>, s: &StandIns, req: &Value) -> Result<Value, String> {
     match req["do"].as_str().unwrap_or("") {
+        // L12's capture as the supervisor would await it for a message (`front_window`): only what kind of facts came
+        // back, never their words or the picture (the owner's own screen)
+        "front_window" => {
+            let rid = req["request_id"].as_str().unwrap_or("req-1").to_string();
+            let seen =
+                ferb_supervisor::flow::Daemon::front_window(d.supervisor.daemon.as_ref(), &rid)
+                    .await;
+            Ok(match seen {
+                None => json!({"captured": false}),
+                Some(f) => json!({"captured": true,
+                                  "fact_keys": f.facts.keys().collect::<Vec<_>>(),
+                                  "image": f.image.as_ref().map(|i| !i.data.is_empty()),
+                                  "image_ref": f.image.is_some(),
+                                  "origin_kinds": f.origin.split(['+', ',']).map(|o| o.split(':').next()
+                                      .unwrap_or("").to_string()).collect::<Vec<_>>()}),
+            })
+        }
+        // the desktop observer's start and end of a task tree (the supervisor's on_task_start / on_task_finish)
+        "sentinel_start" => {
+            let tree = req["tree"].as_str().unwrap_or("task-1").to_string();
+            if let Some(sn) = d.tools.sentinel() {
+                sn.start(&tree).await;
+            }
+            Ok(Value::Null)
+        }
+        "sentinel_finish" => {
+            let tree = req["tree"].as_str().unwrap_or("task-1").to_string();
+            if let Some(sn) = d.tools.sentinel() {
+                sn.finish(&tree).await;
+            }
+            Ok(Value::Null)
+        }
         "clock" => {
             let c = s.clock.as_ref().ok_or("no fake clock")?;
             c.advance(req["advance_s"].as_f64().unwrap_or(0.0));

@@ -82,6 +82,20 @@ final class AppSetupTests: XCTestCase {
         XCTAssertTrue(AppSetupPlan.needsConfirmation(action))
     }
 
+    /// The Rust build's checkout runs its built `ferbd daemon` (ferb-device daemon_command); an app's agent with
+    /// `daemon` is FERB.app's own service, never a checkout's.
+    // decision: APP-904
+    func testARustCheckoutsLaunchAgentIsReplacedOnlyAfterTheOwnerSaysSo() {
+        let built = "/Users/o/src/ferb/rust/target/release/ferbd"
+        XCTAssertEqual(decide(agent([built, "daemon"]), record: record()), .confirmReplace(current: built))
+        XCTAssertFalse(AppSetupPlan.isCheckout([agentExecutable, "daemon"]))
+        XCTAssertFalse(AppSetupPlan.isCheckout(["/Users/o/Downloads/FERB.app/Contents/Helpers/FERB.app/Contents/MacOS/FERB",
+                                                "daemon"]))
+        XCTAssertFalse(AppSetupPlan.isCheckout(["/Users/o/X.app/Contents/MacOS/ferbd", "daemon"]))
+        XCTAssertFalse(AppSetupPlan.isCheckout([built, "daemon", "x"]))
+        XCTAssertFalse(AppSetupPlan.isCheckout([built, "mcp"]))
+    }
+
     func testAServiceThatIsntRunningIsRepairedByAnUpdate() {
         XCTAssertEqual(decide(ours, record: record(), running: false), .update)
         XCTAssertEqual(decide(ours, record: record(app: "/Users/o/Downloads/FERB.app")), .update)

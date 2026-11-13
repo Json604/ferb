@@ -8,26 +8,32 @@
 //! about the Mac and FERB (the environment, the facts in every role's instructions, the relevant activity, the desktop
 //! observer, the model runtime) is [`Reads`]: [`RealReads`] here, the recorder's stand-ins in a test build.
 //!
+//! Also here: chat capture (`remember`, group A), the task questions in the gateway's one store
+//! (`GatewayTaskQuestions`), the front window at send (L12, [`super::front`]), the desktop observer
+//! ([`super::desktop`]), episode cards (`on_episode`), the literal checks ([`super::checks`]), the browser drivers'
+//! tabs, a loop's rest, notices and probes.
+//!
 //! Not wired, each named where it sits: the standing permissions and the named destinations (no public store on the
-//! gateway), the front window at send (L12), the disturbance sentinel (its context is empty, its start and finish do
-//! nothing), memory's push and Tier 1 (`identity_context`, `memory_push`: empty), chat capture (`remember`: not ported
-//! in ferb-daemon's memory area), the intro's preview (not ported in ferb-supervisor: [`PREVIEW_NOT_PORTED`]).
+//! gateway), memory's push and Tier 1 (`identity_context`, `memory_push`: empty), the intro's preview (not ported in
+//! ferb-supervisor: [`PREVIEW_NOT_PORTED`]). The supervisor never asks for the front window yet (its chat RPC sends
+//! `screen: false`, and its planner answers NotPorted for a turn that has one).
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use ferb_context::assemble::ContextBlock;
-use ferb_core::types::{Identity, ModelImage};
+use ferb_core::types::Identity;
 use ferb_daemon::areas_b::core::Host;
 use ferb_gateway::gateway::Gateway;
-use ferb_gateway::questions::{Approval, Approvals, Asker, ResolveError};
+use ferb_gateway::questions::{Approval, ResolveError};
 use ferb_orchestrator::models::Condition;
 use ferb_orchestrator::ports::BoxFuture;
 use ferb_orchestrator::verify::ConditionResult;
 use ferb_rpc::auth::RunGrant;
 use ferb_rpc::{HandlerError, RunTokens};
-use ferb_supervisor::flow::owner_wait::{Ask, Asked, Questions};
+use ferb_supervisor::flow::daemon_seams::GatewayTaskQuestions;
+use ferb_supervisor::flow::owner_wait::Questions;
 use ferb_supervisor::flow::{
     BusSink, Change, Daemon, Environment, FrontSeen, LiveTask, Request, Supervisor, Unsubscribe,
 };
@@ -70,6 +76,18 @@ pub trait Reads: Send + Sync {
     fn shutdown(&self) {}
     /// `_worker_types()`: the default and each runtime available now.
     fn worker_types(&self) -> Vec<String>;
+    /// areas/chat.py:355 `self.front_window is not None`: messages are captured at send. None: as this daemon's parts
+    /// say (the Mac's parts on).
+    fn captures_at_send(&self) -> Option<bool> {
+        None
+    }
+    /// The front window a message got at send; None: this daemon's own capture ([`super::front`]).
+    fn front_capture<'a>(
+        &'a self,
+        _request_id: &'a str,
+    ) -> Option<BoxFuture<'a, Result<Option<ferb_supervisor::flow::FrontCapture>, String>>> {
+        None
+    }
     /// `memory_push(query, targets)`: the ranked memory blocks a worker is given (L36 §4).
     fn memory_push<'a>(
         &'a self,
@@ -190,15 +208,25 @@ impl Reads for RealReads {
             Err(_) => Activity::Text(None),
         }
     }
-    fn disturbance_context(&self, _tree_id: &str) -> String {
-        // the disturbance sentinel (`disturbance.context`) is not started in this build
-        String::new()
+    fn disturbance_context(&self, tree_id: &str) -> String {
+        self.tools
+            .sentinel()
+            .map(|s| s.context(tree_id))
+            .unwrap_or_default()
     }
-    fn on_task_start<'a>(&'a self, _tree_id: &'a str) -> BoxFuture<'a, ()> {
-        Box::pin(async {})
+    fn on_task_start<'a>(&'a self, tree_id: &'a str) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            if let Some(s) = self.tools.sentinel() {
+                s.start(tree_id).await;
+            }
+        })
     }
-    fn on_task_finish<'a>(&'a self, _tree_id: &'a str) -> BoxFuture<'a, ()> {
-        Box::pin(async {})
+    fn on_task_finish<'a>(&'a self, tree_id: &'a str) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            if let Some(s) = self.tools.sentinel() {
+                s.finish(tree_id).await;
+            }
+        })
     }
     fn running_apps(&self) -> Vec<(String, String, i64)> {
         if !self.native {
@@ -232,110 +260,6 @@ impl Reads for RealReads {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// FERB's own questions inside a task
-// ---------------------------------------------------------------------------------------------------------------
-
-/// The supervisor's own questions (a plan's ask step, a checker's ask, the check-in): Python keeps them in the
-/// gateway's one `state.approvals`; ferb-gateway's `ask_own` can't carry a task question's `part`,
-/// `runtime_switch` and `options_only` (journal 46), so they are a second question store sharing the gateway's id
-/// source, and the chat RPCs and the planner read both, in asking order.
-pub struct OwnQuestions {
-    pub store: Mutex<Approvals>,
-}
-
-impl OwnQuestions {
-    pub fn new(ids: super::gateway::QuestionIds) -> OwnQuestions {
-        OwnQuestions {
-            store: Mutex::new(Approvals::new(move || ids())),
-        }
-    }
-}
-
-fn asked_of(ap: &Approval) -> Asked {
-    Asked {
-        id: ap.id.clone(),
-        capability: ap.capability.clone(),
-        kind: ap.kind.clone(),
-        request_id: ap.request_id.clone(),
-        task_id: ap.task_id.clone(),
-        state: ap.state.as_str().into(),
-        options: ap.options.clone(),
-        choice: ap.choice.clone(),
-        answer: ap.answer.clone(),
-        hidden: ap.hidden.clone(),
-        options_only: ap.options_only,
-        corrects: ap.corrects,
-    }
-}
-
-impl Questions for OwnQuestions {
-    fn ask(&self, ask: &Ask) -> String {
-        let mut store = lock(&self.store);
-        let ap = store.question(
-            &Asker {
-                capability: &ask.capability,
-                task_id: &ask.task_id,
-                request_id: &ask.request_id,
-            },
-            &ask.question,
-            &ask.options,
-            None,
-        );
-        ap.part = ask.part.clone();
-        ap.runtime_switch = ask
-            .runtime_switch
-            .as_ref()
-            .and_then(|v| v.as_object().cloned());
-        ap.from_task = ask.from_task;
-        ap.options_only = ask.options_only;
-        ap.corrects = ask.corrects;
-        ap.summary = ask.summary.clone();
-        ap.detail = ask.detail.clone();
-        ap.exact = ask.exact.clone();
-        ap.labels = ask.labels.clone();
-        ap.id.clone()
-    }
-    fn get(&self, id: &str) -> Option<Asked> {
-        lock(&self.store).get(id).map(asked_of)
-    }
-    fn supersede(&self, id: &str) -> bool {
-        lock(&self.store).supersede(id).is_some()
-    }
-    fn pending(&self) -> Vec<Asked> {
-        lock(&self.store)
-            .pending()
-            .into_iter()
-            .map(asked_of)
-            .collect()
-    }
-    fn answer(&self, id: &str, words: &str) {
-        let _ = lock(&self.store).resolve(id, true, None, Some(words));
-    }
-    fn card(&self, id: &str) -> Map<String, Value> {
-        let store = lock(&self.store);
-        let Some(ap) = store.get(id) else {
-            return Map::new();
-        };
-        let mut m = ferb_gateway::questions::card_parts(ap);
-        m.extend(ferb_gateway::questions::card_flags(ap));
-        m
-    }
-}
-
-/// Both stores' open questions, in asking order.
-fn all_pending(gw: &Gateway, own: &OwnQuestions) -> Vec<Approval> {
-    let mut all = gw.pending();
-    all.extend(lock(&own.store).pending().into_iter().cloned());
-    all.sort_by(|a, b| a.id.cmp(&b.id));
-    all
-}
-
-fn approval_of(gw: &Gateway, own: &OwnQuestions, id: &str) -> Option<Approval> {
-    gw.approval(id)
-        .or_else(|| lock(&own.store).get(id).cloned())
-}
-
-// ---------------------------------------------------------------------------------------------------------------
 // the seam
 // ---------------------------------------------------------------------------------------------------------------
 
@@ -353,7 +277,8 @@ pub struct SupDaemon {
     pub journal: Arc<Journal>,
     pub stop: Arc<Stop>,
     pub ledger: Arc<super::gateway::RealLedger>,
-    pub own: Arc<OwnQuestions>,
+    /// The environment area's seams: the browser drivers' tabs a checker, a loop round and a task's end read.
+    pub env: Arc<super::env_seams::EnvSeams>,
     pub reads: Arc<dyn Reads>,
     pub home: String,
     pub user_home: String,
@@ -366,6 +291,8 @@ pub struct SupDaemon {
     pub runtimes: Arc<OnceLock<ferb_daemon::areas_b::runtimes::Runtimes>>,
     /// The supervisor, once built (the journal rows of `_question_record`).
     pub sup: OnceLock<Supervisor>,
+    /// A loop notice's id (`uuid4().hex[:12]`; a test build: the recorder's counter).
+    pub notice_hex: OnceLock<Arc<dyn Fn() -> String + Send + Sync>>,
     requests: Mutex<HashMap<String, Request>>,
     /// The planner's lookups: worker id -> the only tools its token offers (ORCH-516).
     only: Mutex<HashMap<String, Vec<String>>>,
@@ -392,7 +319,7 @@ pub struct SupParts {
     pub journal: Arc<Journal>,
     pub stop: Arc<Stop>,
     pub ledger: Arc<super::gateway::RealLedger>,
-    pub own: Arc<OwnQuestions>,
+    pub env: Arc<super::env_seams::EnvSeams>,
     pub reads: Arc<dyn Reads>,
     pub home: String,
     pub user_home: String,
@@ -417,7 +344,7 @@ impl SupDaemon {
             journal: p.journal,
             stop: p.stop,
             ledger: p.ledger,
-            own: p.own,
+            env: p.env,
             reads: p.reads,
             home: p.home,
             user_home: p.user_home,
@@ -426,6 +353,7 @@ impl SupDaemon {
             a: p.a,
             runtimes: p.runtimes,
             sup: OnceLock::new(),
+            notice_hex: OnceLock::new(),
             requests: Mutex::default(),
             only: Mutex::default(),
             unattended: Mutex::default(),
@@ -470,7 +398,7 @@ impl SupDaemon {
     }
 
     fn approval(&self, id: &str) -> Option<Approval> {
-        approval_of(&self.gateway, &self.own, id)
+        self.gateway.approval(id)
     }
 
     /// compose.py `_publish`: a task's question names its request (the event contract), then the events.
@@ -535,12 +463,18 @@ impl SupDaemon {
             {
                 "secret".to_string()
             } else {
+                // compose.py:23 `question_kind`
                 match ap.capability.as_str() {
                     "ferb.confirm" => "confirm",
                     "ferb.retry" => "retry",
+                    "conversation.approve" => "conversation_scope",
                     "plan.ask" | "owner.ask" => "task",
+                    "downloads.delete" => "downloads",
+                    "browsing.choose" => "browsing",
                     "loop.ask" => "loop",
                     "runtime.switch" => "runtime_switch",
+                    // steering.py MEMORY_ASKS (a forget asked in chat)
+                    "memory.forget" => "memory",
                     other => other,
                 }
                 .to_string()
@@ -781,7 +715,8 @@ impl Daemon for SupDaemon {
         }
         let zone = self.zone;
         let checks = &ferb_supervisor::words::FERB_CHECKS;
-        all_pending(&self.gateway, &self.own)
+        self.gateway
+            .pending()
             .into_iter()
             .map(|ap| {
                 let routable = ferb_supervisor::planner::routable(&ap.kind, &ap.capability, checks);
@@ -886,8 +821,19 @@ impl Daemon for SupDaemon {
     ) -> BoxFuture<'a, Vec<ContextBlock>> {
         self.reads.memory_push(query, targets)
     }
-    fn on_episode<'a>(&'a self, _tree_id: &'a str) -> BoxFuture<'a, ()> {
-        Box::pin(async {})
+    /// memory.py `_capture_learning_episode`: the finished task's episode card, on group A's loop (its reads off it).
+    fn on_episode<'a>(&'a self, tree_id: &'a str) -> BoxFuture<'a, ()> {
+        let a = self.a.get().cloned();
+        let task = tree_id.to_string();
+        Box::pin(async move {
+            if let Some(a) = a {
+                let _ = a
+                    .call(move |st| async move {
+                        ferb_daemon::areas_a::cards::capture_learning_episode(&st, &task).await
+                    })
+                    .await;
+            }
+        })
     }
     fn last_run_origins(&self) -> BTreeSet<String> {
         self.a
@@ -952,29 +898,134 @@ impl Daemon for SupDaemon {
             .to_string_lossy()
             .into_owned()]
     }
-    fn browser_context(&self, _task_id: &str) -> String {
-        String::new()
+    fn browser_context(&self, task_id: &str) -> String {
+        ferb_daemon::areas_b::environment::browser_context(&self.host(), self.env.as_ref(), task_id)
     }
-    fn task_tabs(&self, _task_id: &str) -> Vec<Value> {
-        Vec::new()
+    fn task_tabs(&self, task_id: &str) -> Vec<Value> {
+        ferb_daemon::areas_b::environment::task_tabs(&self.host(), self.env.as_ref(), task_id)
     }
-    fn keep_tabs_open(&self, _task_id: &str) {}
-    fn code_checkable(&self, condition: &Condition, _task_id: &str) -> bool {
-        // verify.py `Checks`: the literal checks need the browser drivers' URLs and the span reads; a condition with
-        // one is judged by the checker in this build
-        let _ = condition;
-        false
+    fn keep_tabs_open(&self, task_id: &str) {
+        ferb_daemon::areas_b::environment::keep_tabs_open(self.env.as_ref(), task_id)
     }
+    /// notify.py `_loop_notice` (L31): a loop's back-off or pause notice in the owner's chat (`_tell_owner`: stored,
+    /// journaled `chat.notice`, published; a banner while no FERB client shows it).
+    fn loop_notice<'a>(
+        &'a self,
+        tree_id: &'a str,
+        step_id: &'a str,
+        text: &'a str,
+        origin: &'a str,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        let hex = self
+            .notice_hex
+            .get()
+            .map(|f| f())
+            .unwrap_or_else(|| ferb_runtimes::codex::token_hex(6));
+        let ident = format!("loop-{step_id}-{hex}");
+        let notifier = super::areas::NOTIFIER.get().cloned();
+        Box::pin(async move {
+            match notifier {
+                Some(n) => {
+                    n.tell_owner(
+                        &ident,
+                        &[format!("task:{tree_id}")],
+                        text,
+                        origin,
+                        "loop",
+                        tree_id,
+                        &[],
+                        &Value::Null,
+                        None,
+                    )
+                    .await
+                }
+                None => Err("the owner's notices aren't built yet".into()),
+            }
+        })
+    }
+    /// `gateway.caps.get(tool)` as a probe's checks read it (`probes.refusal`): the registered tool's scopes,
+    /// identities and facts; a browser verb's look-only facts (`moves_view`, `holds_tab`, `probe_keys`).
+    fn probe_cap(&self, tool: &str) -> Option<Arc<dyn ferb_orchestrator::ports::CapFacts>> {
+        let found = self.gateway.registry().get(tool).cloned()?;
+        Some(Arc::new(ProbeCap::of(tool, found)))
+    }
+    /// `gateway.probe(RunGrant(task_id, worker_id, scopes, identity, inf, observe_only=True), tool, args, span)`.
+    fn probe_read<'a>(
+        &'a self,
+        task_id: &'a str,
+        worker_id: &'a str,
+        scopes: &'a BTreeSet<String>,
+        identity: &'a str,
+        tool: &'a str,
+        args: &'a Map<String, Value>,
+        span: &'a str,
+    ) -> BoxFuture<'a, Result<Value, String>> {
+        let grant = RunGrant {
+            task_id: task_id.to_string(),
+            worker_id: worker_id.to_string(),
+            scopes: scopes.clone(),
+            identity: if identity == "ferb" {
+                ferb_rpc::auth::Identity::Ferb
+            } else {
+                ferb_rpc::auth::Identity::Owner
+            },
+            expires_at: f64::INFINITY,
+            observe_only: true,
+            tools: BTreeSet::new(),
+            max_calls: 0,
+        };
+        let (gw, tool, args, span) = (
+            self.gateway.clone(),
+            tool.to_string(),
+            args.clone(),
+            span.to_string(),
+        );
+        Box::pin(async move {
+            // `Gateway::probe`'s future is not Send (its argument model's hooks are held across an await): it runs to
+            // its end on a blocking thread of this runtime
+            let handle = tokio::runtime::Handle::current();
+            let read = tokio::task::spawn_blocking(move || {
+                handle.block_on(gw.probe(&grant, &tool, &args, &span))
+            })
+            .await
+            .map_err(|e| format!("the probe's read stopped: {e}"))?;
+            match read {
+                Ok(m) => Ok(Value::Object(m)),
+                Err(ferb_gateway::gateway::CallError::Internal(m)) => Err(m),
+                Err(ferb_gateway::gateway::CallError::Cancelled) => {
+                    Err("the read was cancelled".into())
+                }
+            }
+        })
+    }
+    /// `changes.reset(task_id)` (L39): a loop round's check reads only the files this round changed.
+    fn changes_reset(&self, task_id: &str) -> Vec<String> {
+        self.tools.changes().reset(task_id)
+    }
+    /// environment.py `_loop_rest` (L31): each browser driver gives the owner's held tab back between a loop's
+    /// rounds, or takes it for the round.
+    fn loop_rest<'a>(
+        &'a self,
+        task_id: &'a str,
+        resting: bool,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            ferb_daemon::areas_b::environment::loop_rest(self.env.as_ref(), task_id, resting).await;
+            Ok(())
+        })
+    }
+    /// verify.py `Checks.code_checkable`: only literal predicates are code-checked (V6).
+    fn code_checkable(&self, condition: &Condition, task_id: &str) -> bool {
+        super::checks::checkable(&self.tools, condition, task_id)
+    }
+    /// verify.py `Checks.run`.
     fn code_check<'a>(
         &'a self,
         index: i64,
         condition: &'a Condition,
-        _task_id: &'a str,
+        task_id: &'a str,
     ) -> BoxFuture<'a, ConditionResult> {
-        let _ = (index, condition);
-        Box::pin(async {
-            unreachable!("code_checkable answers false: no literal check runs in this build")
-        })
+        Box::pin(async move { super::checks::run(&self.tools, index, condition, task_id) })
     }
     fn declined(
         &self,
@@ -1025,10 +1076,32 @@ impl Daemon for SupDaemon {
         std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
         std::fs::rename(&tmp, p).map_err(|e| e.to_string())
     }
-    fn front_window<'a>(&'a self, _request_id: &'a str) -> BoxFuture<'a, Option<FrontSeen>> {
-        // L12's front window at send: not captured in this build
-        let _: Option<ModelImage> = None;
-        Box::pin(async { None })
+    /// L12 (desktop.py `_front_window`, supervisor.py `_screen_at_send`): the owner's front window as the message
+    /// arrived, waited for at most `FRONT_WINDOW_WAIT_S`.
+    fn front_window<'a>(&'a self, request_id: &'a str) -> BoxFuture<'a, Option<FrontSeen>> {
+        Box::pin(async move {
+            super::front::at_send(&self.tools, request_id)
+                .await
+                .map(|c| FrontSeen {
+                    facts: c.window.facts,
+                    image: c.image,
+                    origin: c.window.origin,
+                })
+        })
+    }
+    fn captures_at_send(&self) -> bool {
+        self.reads
+            .captures_at_send()
+            .unwrap_or_else(|| self.tools.mac().is_some())
+    }
+    fn front_window_capture<'a>(
+        &'a self,
+        request_id: &'a str,
+    ) -> BoxFuture<'a, Result<Option<ferb_supervisor::flow::FrontCapture>, String>> {
+        if let Some(recorded) = self.reads.front_capture(request_id) {
+            return recorded;
+        }
+        Box::pin(async move { Ok(super::front::at_send(&self.tools, request_id).await) })
     }
     fn make_runtime(
         &self,
@@ -1057,7 +1130,8 @@ impl Daemon for SupDaemon {
         self.stop.engaged()
     }
     fn questions(&self) -> Option<Arc<dyn Questions>> {
-        Some(self.own.clone())
+        // the supervisor's task questions live in the gateway's one store, as Python's `state.approvals`
+        Some(Arc::new(GatewayTaskQuestions(self.gateway.clone())))
     }
     fn set_unattended(&self, request_id: &str) {
         lock(&self.unattended).insert(request_id.to_string());
@@ -1112,10 +1186,10 @@ impl Daemon for SupDaemon {
         }))
     }
     fn approvals(&self) -> Vec<Approval> {
-        all_pending(&self.gateway, &self.own)
+        self.gateway.pending()
     }
     fn approval(&self, id: &str) -> Option<Approval> {
-        approval_of(&self.gateway, &self.own, id)
+        self.gateway.approval(id)
     }
     fn resolve_question(
         &self,
@@ -1129,11 +1203,7 @@ impl Daemon for SupDaemon {
             .ok()
     }
     fn supersede_question(&self, id: &str) -> bool {
-        // whichever store holds it: a correction typed on a confirmation sets the gateway's aside too
-        if self.gateway.approval(id).is_some() {
-            return self.gateway.supersede(id).is_some();
-        }
-        lock(&self.own.store).supersede(id).is_some()
+        self.gateway.supersede(id).is_some()
     }
     fn worker_limits(&self, worker_type: &str) -> Option<ferb_core::types::ModelLimits> {
         self.reads.worker_limits(worker_type)
@@ -1177,8 +1247,33 @@ impl Daemon for SupDaemon {
         })
         .unwrap_or_default()
     }
-    // `remember` (areas/memory.py `_remember`, chat capture) stays the trait's default: ferb-daemon's memory area
-    // doesn't port it (its module text says so), so a turn that remembers answers NotPorted
+    /// areas/memory.py `_remember` (chat capture), on group A's loop: ferb-daemon's `areas_a::remember`. An error
+    /// Python would raise out of the turn (a store failure) is the item's refusal here, with its words.
+    fn remember<'a>(
+        &'a self,
+        items: &'a [Value],
+        words: &'a str,
+        source: &'a str,
+        sites: &'a [String],
+        elsewhere: &'a [String],
+        about: &'a str,
+    ) -> BoxFuture<'a, Option<Vec<Value>>> {
+        let a = self.a.get().cloned();
+        let (items, words, source) = (items.to_vec(), words.to_string(), source.to_string());
+        let (sites, elsewhere, about) = (sites.to_vec(), elsewhere.to_vec(), about.to_string());
+        Box::pin(async move {
+            let a = a?;
+            a.call(move |st| async move {
+                ferb_daemon::areas_a::remember::remember(
+                    &st, &items, &words, &source, &sites, &elsewhere, &about,
+                )
+                .await
+                .unwrap_or_else(|e| vec![json!({"refused": format!("{}: {e}", e.class())})])
+            })
+            .await
+            .ok()
+        })
+    }
 }
 
 impl SupDaemon {
@@ -1261,6 +1356,20 @@ impl super::tools::WaitHooks for Waits {
     fn steered(&self, task: &str) -> i64 {
         self.0.corrections(task)
     }
+    fn sleeping(&self, worker: &str, task: &str, until: Option<&ferb_clock::py::Time>, why: &str) {
+        if let Some(sup) = self.0.sup.get() {
+            match until {
+                // `activity.waiting(worker, True)` (wait_status with no time: its task_sleeping(None) finds no sleep
+                // yet and does nothing), then `task_sleeping(task, at, why)`: one status line
+                Some(at) => {
+                    sup.wait_status(worker, task, None, Some(""));
+                    sup.task_sleeping(task, Some(at), why, "");
+                }
+                // awake: `activity.waiting(worker, False)`, `task_sleeping(task, None, "")`
+                None => sup.wait_status(worker, task, None, None),
+            }
+        }
+    }
 }
 
 /// The chat RPCs' view of the gateway and the supervisor's own questions.
@@ -1276,13 +1385,9 @@ impl ChatGw {
         text: Option<&str>,
         hidden: &[String],
     ) -> Result<Approval, ResolveError> {
-        if self.0.gateway.approval(id).is_some() {
-            return self.0.gateway.resolve(id, granted, choice, text);
-        }
-        let mut store = lock(&self.0.own.store);
-        let ap = store.resolve(id, granted, choice, text)?.clone();
-        if let Some(held) = store.get_mut(id) {
-            held.hidden = hidden.to_vec();
+        let ap = self.0.gateway.resolve(id, granted, choice, text)?;
+        if !hidden.is_empty() {
+            self.0.gateway.set_hidden(id, hidden);
         }
         Ok(ap)
     }
@@ -1290,7 +1395,7 @@ impl ChatGw {
 
 impl ferb_supervisor::flow::chat_rpc::ChatGateway for ChatGw {
     fn pending(&self) -> Vec<Approval> {
-        all_pending(&self.0.gateway, &self.0.own)
+        self.0.gateway.pending()
     }
     fn approval(&self, id: &str) -> Option<Approval> {
         self.0.approval(id)
@@ -1397,6 +1502,8 @@ pub struct BuildParts {
     pub wrap_id: Option<String>,
     /// `"chat-" + token_hex(6)`'s hex (None: random).
     pub new_chat: Option<Arc<dyn Fn() -> String + Send + Sync>>,
+    /// A loop notice's id, `uuid4().hex[:12]` (None: random).
+    pub notice_hex: Option<Arc<dyn Fn() -> String + Send + Sync>>,
     pub shutting_down: Arc<dyn Fn() -> bool + Send + Sync>,
     /// The token count (o200k; a test build: the recorder's byte ceiling).
     pub tokenizer: ferb_context::tokens::Tokenizer,
@@ -1434,8 +1541,12 @@ pub fn build(daemon: Arc<SupDaemon>, p: BuildParts) -> Built {
         stall_s: 180.0,
         heartbeat_poll_s: 5.0,
     });
+    if let Some(f) = p.notice_hex {
+        let _ = daemon.notice_hex.set(f);
+    }
     daemon.gateway.attach(supervisor.watch());
     let _ = daemon.sup.set(supervisor.clone());
+    daemon.tools.set_supervisor(supervisor.clone());
     daemon.tools.set_wait_hooks(Arc::new(Waits(daemon.clone())));
     let rpc =
         ferb_supervisor::flow::chat_rpc::ChatRpc::new(ferb_supervisor::flow::chat_rpc::ChatDeps {
@@ -1443,7 +1554,22 @@ pub fn build(daemon: Arc<SupDaemon>, p: BuildParts) -> Built {
             gateway: daemon.chat_gateway(),
             persona: None,
             prepare_persona: Arc::new(|| {}),
-            notices: None,
+            // `attention_notices.unseen()`: the notices no FERB client has shown yet (a loop's pause, an always-on fact)
+            notices: Some({
+                let d = daemon.clone();
+                Arc::new(move || {
+                    let db = lock(&d.db);
+                    let r = d.redactor.clone();
+                    let notices = ferb_orchestrator::attention::AttentionNotices {
+                        db: &db,
+                        now: Box::new(String::new),
+                        redact: Arc::new(move |v: &Value| r.value(v)),
+                    };
+                    let unseen = notices.unseen().unwrap_or_default();
+                    drop(notices);
+                    unseen
+                })
+            }),
             conversations: {
                 let d = daemon.clone();
                 Arc::new(move || {
@@ -1473,4 +1599,117 @@ pub fn build(daemon: Arc<SupDaemon>, p: BuildParts) -> Built {
         daemon,
         rpc,
     }
+}
+
+/// One registered tool's facts as a loop's probe checks read them (probes.py `refusal`, `cap.Input.model_validate`).
+pub struct ProbeCap {
+    tool: Arc<dyn ferb_gateway::tool::Tool>,
+    verb: Option<&'static ferb_browser::tools::Verb>,
+}
+
+impl ProbeCap {
+    fn of(name: &str, tool: Arc<dyn ferb_gateway::tool::Tool>) -> ProbeCap {
+        let verb = name
+            .strip_prefix("browser.")
+            .or_else(|| name.strip_prefix("ferb_browser."))
+            .and_then(ferb_browser::tools::verb);
+        ProbeCap { tool, verb }
+    }
+}
+
+impl ferb_orchestrator::ports::CapFacts for ProbeCap {
+    fn scopes(&self) -> Vec<String> {
+        self.tool.scopes().into_iter().collect()
+    }
+    fn identities(&self) -> Vec<String> {
+        self.tool.identities().into_iter().collect()
+    }
+    fn observation(&self) -> bool {
+        self.tool.facts().observation
+    }
+    fn probe_safe(&self) -> bool {
+        self.tool.facts().probe_safe
+    }
+    fn moves_view(&self) -> bool {
+        self.verb.is_some_and(|v| v.moves_view)
+    }
+    fn on_screen(&self) -> bool {
+        self.tool.facts().on_screen
+    }
+    fn holds_tab(&self) -> bool {
+        self.verb.is_some_and(|v| v.holds_tab)
+    }
+    fn probe_keys(&self) -> Vec<String> {
+        self.verb
+            .map(|v| v.probe_keys.iter().map(|k| k.to_string()).collect())
+            .unwrap_or_default()
+    }
+    /// `cap.Input.model_validate(args)`: the fields the arguments set (`exclude_unset`), or `str(e)`.
+    fn validate(&self, args: &Value) -> Result<Map<String, Value>, String> {
+        let mut schema = self.tool.input_schema();
+        if !schema.is_object() {
+            schema = json!({});
+        }
+        let hooks = self.tool.hooks();
+        let mut model = ferb_gateway::pydantic::Model::of(&schema);
+        model.hooks = hooks.as_deref();
+        match model.validate(args) {
+            Ok(mut fields) => {
+                let given = args.as_object();
+                fields.retain(|k, _| given.is_some_and(|g| g.contains_key(k)));
+                Ok(fields)
+            }
+            Err(details) => Err(validation_text(model.class_name, &details)),
+        }
+    }
+}
+
+/// pydantic's `str(ValidationError)` of these details.
+fn validation_text(title: &str, details: &[ferb_gateway::pydantic::Detail]) -> String {
+    let n = details.len();
+    let mut out = format!(
+        "{n} validation error{} for {title}",
+        if n == 1 { "" } else { "s" }
+    );
+    for d in details {
+        if !d.loc.is_empty() {
+            let loc: Vec<String> = d
+                .loc
+                .iter()
+                .map(|l| match l {
+                    ferb_gateway::pydantic::Loc::Key(k) => k.clone(),
+                    ferb_gateway::pydantic::Loc::Index(i) => i.to_string(),
+                })
+                .collect();
+            out.push_str(&format!("\n{}", loc.join(".")));
+        }
+        let repr = ferb_daemon::shared::py_repr(&d.input);
+        let repr = if repr.len() <= 50 {
+            repr
+        } else {
+            let (mut head, mut tail) = (25, repr.len() - 24);
+            while !repr.is_char_boundary(head) {
+                head -= 1;
+            }
+            while !repr.is_char_boundary(tail) {
+                tail += 1;
+            }
+            format!("{}...{}", &repr[..head], &repr[tail..])
+        };
+        let kind = match &d.input {
+            Value::Null => "NoneType",
+            Value::Bool(_) => "bool",
+            Value::Number(n) if n.is_f64() => "float",
+            Value::Number(_) => "int",
+            Value::String(_) => "str",
+            Value::Array(_) => "list",
+            Value::Object(_) => "dict",
+        };
+        out.push_str(&format!(
+            "\n  {} [type={}, input_value={repr}, input_type={kind}]\n    For further information visit \
+             https://errors.pydantic.dev/2.13/v/{}",
+            d.msg, d.kind, d.kind
+        ));
+    }
+    out
 }

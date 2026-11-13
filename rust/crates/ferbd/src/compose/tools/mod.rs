@@ -114,6 +114,13 @@ struct Inner {
     changes: Arc<ferb_fs::changes::Changes>,
     /// What a waiting worker tells the supervisor (`_wait_status`, `supervisor.corrections`), once it is built.
     waits: OnceLock<Arc<dyn WaitHooks>>,
+    /// The disturbance sentinel (DMN-5): the gateway's hooks sample around on-screen calls; the supervisor starts and
+    /// finishes each tree's observation.
+    sentinel: OnceLock<Arc<ferb_daemon::areas_b::disturbance::DisturbanceSentinel>>,
+    /// The owner-input tap and the Mac's presence (main.py:201-203), when the Mac's parts are on.
+    owner: Option<super::presence::MacOwner>,
+    /// The supervisor, once built: the browser drivers read a loop's rest and a task's pause from it.
+    supervisor: OnceLock<ferb_supervisor::flow::Supervisor>,
 }
 
 /// The change record (L39) behind the gateway's hooks: `Changes.before` for the files a call names.
@@ -148,6 +155,12 @@ pub trait WaitHooks: Send + Sync {
         line: Option<&str>,
     );
     fn steered(&self, task: &str) -> i64;
+    /// `_sleep_until`'s side (ORCH-598): the worker waits (not stalled) and its task's status says until when and
+    /// why; `until` None: it woke.
+    fn sleeping(&self, worker: &str, task: &str, until: Option<&ferb_clock::py::Time>, why: &str) {
+        let _ = why;
+        self.status(worker, task, until, until.map(|_| ""));
+    }
 }
 
 /// Tools built as refusing "not available in this build" (none, once every part is composed): the catalog test
@@ -172,6 +185,28 @@ impl IdSource for IdsRef {
     fn new_id(&self) -> String {
         self.0.new_id()
     }
+}
+
+/// The owner-input tap and the Mac's presence, when the Mac's parts are on.
+fn mac_owner(opts: &Options) -> Option<super::presence::MacOwner> {
+    #[cfg(target_os = "macos")]
+    if opts.native {
+        let clock: Arc<dyn Clock> = opts.clock.clone();
+        return Some(super::presence::MacOwner::build(clock));
+    }
+    let _ = opts;
+    None
+}
+
+/// The desktop read the sentinel samples: the Mac's own (`DesktopProbe`: Accessibility reads, as the Mac hands make)
+/// when the Mac hands' native parts are on.
+fn desktop_read(opts: &Options) -> Arc<dyn ferb_daemon::areas_b::disturbance::DesktopRead> {
+    #[cfg(target_os = "macos")]
+    if opts.mac {
+        return Arc::new(super::desktop::MacDesktop::default());
+    }
+    let _ = opts;
+    Arc::new(super::desktop::Unread)
 }
 
 /// The parts the tools are built over, shared with the areas that drive the same parts (shell processes, browsers).
@@ -222,10 +257,34 @@ impl Parts {
                 &opts.user_home.to_string_lossy(),
             )),
             waits: OnceLock::new(),
+            sentinel: OnceLock::new(),
+            owner: mac_owner(opts),
+            supervisor: OnceLock::new(),
         }));
         let _ = p.0.mac.set(mac::Mac::build(opts, &p));
+        let _ =
+            p.0.sentinel
+                .set(super::desktop::sentinel(&p, desktop_read(opts)));
         let _ = p.0.browsers.set(browser::Browsers::build(opts, &p));
         p
+    }
+
+    /// The owner-input tap and the Mac's presence (None when the Mac's parts are off).
+    pub fn owner(&self) -> Option<&super::presence::MacOwner> {
+        self.0.owner.as_ref()
+    }
+
+    /// The supervisor, once built.
+    pub fn set_supervisor(&self, s: ferb_supervisor::flow::Supervisor) {
+        let _ = self.0.supervisor.set(s);
+    }
+    pub fn supervisor(&self) -> Option<&ferb_supervisor::flow::Supervisor> {
+        self.0.supervisor.get()
+    }
+
+    /// The disturbance sentinel (built with the parts).
+    pub fn sentinel(&self) -> Option<Arc<ferb_daemon::areas_b::disturbance::DisturbanceSentinel>> {
+        self.0.sentinel.get().cloned()
     }
 
     pub fn home(&self) -> &PathBuf {

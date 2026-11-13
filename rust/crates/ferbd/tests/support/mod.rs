@@ -116,10 +116,38 @@ impl Run {
                 }
             }
             if Instant::now() >= until {
-                panic!("the daemon didn't start (home {})", self.home.display());
+                panic!(
+                    "the daemon didn't start (home {}): {}",
+                    self.home.display(),
+                    self.stderr_now()
+                );
             }
             std::thread::sleep(Duration::from_millis(50));
         }
+    }
+
+    /// What a daemon that didn't start wrote on stderr (it is stopped first, so the read ends).
+    fn stderr_now(&self) -> String {
+        let Some(child) = &self.child else {
+            return String::new();
+        };
+        unsafe {
+            // SAFETY: a plain signal to the child this test started.
+            libc::kill(child.id() as i32, libc::SIGKILL);
+        }
+        let fd = child.stderr.as_ref().map(|e| {
+            use std::os::fd::AsRawFd;
+            e.as_raw_fd()
+        });
+        let Some(fd) = fd else {
+            return String::new();
+        };
+        use std::os::fd::FromRawFd;
+        // SAFETY: the descriptor stays owned by the child handle; ManuallyDrop never closes it here.
+        let file = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(fd) });
+        let mut out = String::new();
+        let _ = std::io::Read::read_to_string(&mut &*file, &mut out);
+        out
     }
 
     /// One request on the control socket.

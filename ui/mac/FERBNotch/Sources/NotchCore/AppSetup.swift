@@ -86,9 +86,13 @@ public enum AppSetupPlan {
     }
 
     /// A checkout's LaunchAgent, by its exact shape (ferb/device/install.py daemon_command without a bundle): a venv
-    /// python with `-P -m ferb.daemon`. Older installs ran `-m ferb.daemon` without `-P`, or an app's agent.
+    /// python with `-P -m ferb.daemon`, or the Rust build's `ferbd daemon` from outside any app (ferb-device
+    /// daemon_command). Older installs ran `-m ferb.daemon` without `-P`, or an app's agent.
     public static func isCheckout(_ arguments: [String]) -> Bool {
-        arguments.count == 4 && Array(arguments[1...]) == ["-P", "-m", "ferb.daemon"]
+        if arguments.count == 2, arguments[1] == "daemon" {
+            return (arguments[0] as NSString).lastPathComponent == "ferbd" && !arguments[0].contains(".app/")
+        }
+        return arguments.count == 4 && Array(arguments[1...]) == ["-P", "-m", "ferb.daemon"]
             && !arguments[0].hasSuffix(".app/Contents/MacOS/FERB")
     }
 

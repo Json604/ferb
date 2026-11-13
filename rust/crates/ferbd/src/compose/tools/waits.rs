@@ -349,11 +349,10 @@ pub fn wait_for(p: &Parts) -> Arc<dyn Tool> {
     })
 }
 
-/// `_sleep_until`: a durable "sleep" timer; the sleep ends when the timer loop marks it fired (it is redelivered
-/// after a restart), or when the call is cancelled (the task ended: the timer is cancelled).
-///
-/// ferb-daemon keeps the timer loop's sleepers private (`State::sleepers`, crate-private), so the sleeper here reads
-/// the timer's row once a second instead of being woken: up to a second later than Python's (seam mismatch, listed).
+/// `_sleep_until` (areas/schedules.py:200): a durable "sleep" timer on group A's timer loop, which wakes it when the
+/// timer fires (it is redelivered after a restart); the call's end (the task ended) cancels it. ORCH-598: while it
+/// sleeps the worker counts as waiting, not stalled, and the task's status says until when and the worker's reason
+/// (the call's `why`, as its span recorded it).
 pub struct Sleeper {
     pub parts: Parts,
 }
@@ -361,55 +360,54 @@ pub struct Sleeper {
 impl ferb_clock::tools::Sleeper for Sleeper {
     fn sleep<'a>(
         &'a self,
-        _worker: &'a str,
+        worker: &'a str,
         task: &'a str,
         at: &'a Time,
-        _span: Option<&'a str>,
+        span: Option<&'a str>,
     ) -> BoxFuture<'a, ()> {
         Box::pin(async move {
             let p = &self.parts;
-            let added = {
-                let db = p.db();
-                let d = crate::basics::lock(&db);
-                let ids = p.ids();
-                let clock = p.clock();
-                let timers =
-                    ferb_clock::timers::Timers::new(&d, clock.as_ref(), move || ids.new_id());
-                timers.add("sleep", at, "", Some(task), None, false, None, "", None)
-            };
-            let Ok(timer) = added else {
+            let Some(a) = p.group_a() else {
                 return;
             };
-            struct Cancel(Parts, String);
-            impl Drop for Cancel {
-                fn drop(&mut self) {
-                    let db = self.0.db();
-                    let d = crate::basics::lock(&db);
-                    let ids = self.0.ids();
-                    let clock = self.0.clock();
-                    let timers =
-                        ferb_clock::timers::Timers::new(&d, clock.as_ref(), move || ids.new_id());
-                    let _ = timers.cancel(&self.1);
-                }
-            }
-            let _cancel = Cancel(p.clone(), timer.id.clone());
-            loop {
-                let done = {
+            let why = span
+                .and_then(|id| {
                     let db = p.db();
                     let d = crate::basics::lock(&db);
                     d.conn()
                         .query_row(
-                            "SELECT state != 'pending' FROM timers WHERE id = ?",
-                            [&timer.id],
-                            |r| r.get::<_, bool>(0),
+                            "SELECT json_extract(input_json, '$.why') FROM spans WHERE id = ?",
+                            [id],
+                            |r| r.get::<_, Option<String>>(0),
                         )
-                        .unwrap_or(true)
-                };
-                if done {
-                    return;
-                }
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        .ok()
+                        .flatten()
+                })
+                .unwrap_or_default();
+            let hooks = p.wait_hooks();
+            if let Some(h) = &hooks {
+                h.sleeping(worker, task, Some(at), &why);
             }
+            struct Awake(Option<Arc<dyn super::WaitHooks>>, String, String);
+            impl Drop for Awake {
+                fn drop(&mut self) {
+                    if let Some(h) = &self.0 {
+                        h.sleeping(&self.1, &self.2, None, "");
+                    }
+                }
+            }
+            let _awake = Awake(hooks, worker.to_string(), task.to_string());
+            // dropping this call drops `_cancel`: the wait on the loop ends and its timer is cancelled
+            let (_cancel, ended) = tokio::sync::oneshot::channel::<()>();
+            let (task, at) = (task.to_string(), *at);
+            let _ = a
+                .call(move |st| async move {
+                    ferb_daemon::areas_a::schedules::sleep_until(&st, &task, &at, async move {
+                        let _ = ended.await;
+                    })
+                    .await
+                })
+                .await;
         })
     }
 }

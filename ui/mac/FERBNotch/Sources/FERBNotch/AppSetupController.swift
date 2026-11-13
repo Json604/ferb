@@ -54,7 +54,6 @@ final class AppSetupController: NSObject {
         super.init()
     }
 
-    private var python: URL { bundle.appendingPathComponent("Contents/Resources/python/bin/python3.12") }
     private var agentExecutable: URL { bundle.appendingPathComponent("Contents/Helpers/FERB.app/Contents/MacOS/FERB") }
     private var launcher: URL { bundle.appendingPathComponent("Contents/Resources/bin/ferb") }
     /// The background service's user LaunchAgent (this app's, an older install's or a checkout's; DMN-513).
@@ -79,8 +78,10 @@ final class AppSetupController: NSObject {
                           background: isPackaged ? background : nil)
     }()
 
+    /// The packaged app's two programs: the `ferb` launcher (a script running the app's Python, or the Rust build's
+    /// `ferb` program) and the agent that runs the daemon.
     var isPackaged: Bool {
-        FileManager.default.isExecutableFile(atPath: launcher.path) && FileManager.default.fileExists(atPath: python.path)
+        FileManager.default.isExecutableFile(atPath: launcher.path)
             && FileManager.default.isExecutableFile(atPath: agentExecutable.path)
     }
 

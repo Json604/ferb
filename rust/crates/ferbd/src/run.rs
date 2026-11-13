@@ -5,12 +5,19 @@
 //!   from the runtime factory's `mcp_shim_command`.
 //! - anything else: the internal commands FERB.app calls and the developer toolbox (`ferb <command>`,
 //!   ferb-device's `cli::run`), e.g. `ferbd setup --service`, `ferbd uninstall --purge --yes`, `ferbd --version`.
+//!   Only outside FERB.app: inside it this program is the agent and runs only `daemon`, `mcp` and `grant-probe`
+//!   (crate::host); FERB.app's internal commands are the separate `ferb` program ([`cli`]).
 
 use std::sync::Arc;
 
 use crate::compose::{Daemon, Options, StartError};
 
 pub fn main(args: &[String]) -> i32 {
+    // inside FERB.app: only the agent's modes, only the owner's home, a rebuilt environment (crate::host, main.c)
+    if let Err((status, line)) = crate::host::enter(args) {
+        eprintln!("{line}");
+        return status;
+    }
     match args.first().map(String::as_str) {
         Some("daemon") => daemon(),
         Some("mcp") => mcp(),
@@ -23,6 +30,14 @@ pub fn main(args: &[String]) -> i32 {
         }
         _ => crate::device::run(args),
     }
+}
+
+/// `ferb <args>`: the program FERB.app ships at `Contents/Resources/bin/ferb` (`src/bin/ferb.rs`), which FERB.app
+/// runs for its internal commands (`setup --service`, `uninstall`, `setup --cli`, sign-ins) and the `ferb` link
+/// serves as the developer toolbox. It never runs the daemon, the tool bridge or the grant probe: those run as
+/// FERB.app's agent ([`main`], crate::host), which holds macOS's permissions; this program holds none.
+pub fn cli(args: &[String]) -> i32 {
+    crate::device::run(args)
 }
 
 fn runtime() -> tokio::runtime::Runtime {

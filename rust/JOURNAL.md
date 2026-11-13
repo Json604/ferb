@@ -1249,3 +1249,40 @@ preview, attention, a correction updating the worker's goal. About 6 ported but 
 sites named elsewhere). `ferbd` must implement the new seams (`loop_rest`, `loop_notice`, `probe_cap`,
 `probe_read`, `changes_reset`) and switch to the gateway's question store. The method counts were made by hand.
 The fixture folder is 5.6 MB.
+
+## 2026-11-13 · 51 · FERB.app with the Rust engine: the build, the host, no Python (ENG-7)
+
+**What.**
+- `scripts/build-app-rust.sh` (helpers in `scripts/rust-parts.sh`; `scripts/build-app.sh` is unchanged and the
+  Python build still builds) makes a FERB.app whose nested `com.ferb.daemon` app runs `ferbd` as its executable,
+  with `ferb-native-host` in `Helpers/` and a new, separate `ferb` program for the internal commands.
+- It carries the 30 runtime Markdown files byte for byte, the extension, the embedding model, Codex, Claude Code
+  (newly pinned in `rust/packaging`, the same bytes as the Python SDK's bundled program) and the pinned secrets
+  helper; every pin is read from the Rust sources, never from Python files.
+- `ferbd/src/host.rs` carries what `main.c` guaranteed: only `daemon`, `mcp` and `grant-probe`; only the account's
+  own `~/.ferb`; a rebuilt environment; the real executable path. The internal commands, some of which take
+  paths, are no longer accepted by the program that holds FERB's macOS permissions.
+- A development home (`FERB_DEV_HOME`) and a dry run (`FERB_DEV_DRY_RUN`) are honored only by ad-hoc-signed code
+  (read from the signature's flags); a certificate-signed build refuses them.
+- FERB.app, three Swift changes: `isPackaged` no longer requires a Python interpreter; `isCheckout` also knows a
+  Rust checkout's service (`ferbd daemon` from outside any `.app`), which closes entry 29's finding; one test.
+
+**Evidence.** The arm64 bundle is 662 MB against the Python build's 709 MB (Claude Code 274, Codex 273, `ferbd` 57).
+No Python file, folder or libpython link in it. `codesign --verify --deep --strict` passes and every Mach-O file is
+signed (ad hoc). The agent's identifier, entitlements and Info.plist equal the installed app's. From inside the
+bundle on a temp home: wrong modes and a foreign home exit 64; the daemon answers `ping` and `about.get`; the
+bridge answers `initialize`; `ferb ps` reaches the daemon; SIGTERM exits 0. `ferb setup --service` as a dry run
+writes the service definition and records `launchctl` without running it. An x86_64 bundle runs under Rosetta.
+Tests: Swift 742; pytest 61 (packaging and release checks); `ferbd` host 3, services 6 (run by the porting agent).
+
+**Ran on the owner's Mac.** Cargo, Swift and npm builds (npm registry reads for the Claude Code pin);
+`rustup target add x86_64-apple-darwin`; the bundled daemon for a few seconds at a time on temp homes, removed.
+Read-only `codesign` reads of `/Applications/FERB.app`. Nothing installed or registered; the owner's running
+daemon untouched. Left in place: `build/rust-app-arm64/FERB.app` and `build/rust-app-x86_64/FERB.app`.
+
+**Open.**
+- Unproven until an installed, certificate-signed build: release and Developer ID signing, notarization, whether
+  macOS permissions attach to the `ferbd` agent, SMAppService registration.
+- On a development home the tool bridge refuses, because model programs pass `FERB_HOME` but not `FERB_DEV_HOME`.
+- Claude Code's start-time version check has not run inside `ferbd` against the real program.
+- `release-appcast.sh` has not run on a Rust disk image.

@@ -6,8 +6,9 @@
 //! models, FERB's secrets, the owner's schedules, reminders and time meanings (group A), today's activity
 //! (`activity/today.jsonl`).
 //!
-//! Not read in this build, each answering what Python's daemon answers without that part: the extension hub and the
-//! browser drivers' tabs (`hub`, `router`, `ferb_identity`: None, so no live connection line and no task tabs), the
+//! The browser drivers (`router`, `ferb_identity`) are the composition's ([`Tabs`]). Not read in this build, each
+//! answering what Python's daemon answers without that part: the extension hub (`hub`: None, so no live connection
+//! line), the
 //! browser profiles discovered from Local State (`profiles`, `fresh_profiles`: none), FERB's own browser-free route
 //! (`browsing`: not asked), the missing developer tools (none), an unpaired browser's note ("").
 
@@ -23,6 +24,52 @@ use ferb_identity::Secret;
 use serde_json::{json, Map, Value};
 
 use super::tools::Parts;
+
+/// One browser driver (the owner's router, FERB's own profile's) as the environment area reads it (`_TabDriver`).
+pub struct Tabs(pub Arc<ferb_browser::driver::Driver>);
+
+impl TabDriver for Tabs {
+    fn task_tabs(&self, task_id: &str) -> Vec<Map<String, Value>> {
+        self.0.task_tabs(task_id)
+    }
+    fn urls_of(&self, task_id: &str) -> Vec<String> {
+        self.0.urls_of(task_id)
+    }
+    fn keep_tabs_open(&self, task_id: &str) {
+        self.0.keep_tabs_open(task_id)
+    }
+    fn rest<'a>(
+        &'a self,
+        task_id: &'a str,
+        resting: bool,
+    ) -> ferb_core::interfaces::BoxFuture<'a, ()> {
+        Box::pin(async move {
+            // a failure never stops the loop (supervisor.py `_loop_rest`)
+            let _ = self.0.rest(task_id, resting).await;
+        })
+    }
+    fn release<'a>(
+        &'a self,
+        task_id: &'a str,
+    ) -> ferb_core::interfaces::BoxFuture<
+        'a,
+        Result<Vec<Value>, ferb_daemon::areas_b::environment::ReleaseError>,
+    > {
+        Box::pin(async move {
+            self.0
+                .release(task_id)
+                .await
+                .map(|tabs| tabs.into_iter().map(Value::Object).collect())
+                .map_err(|e| ferb_daemon::areas_b::environment::ReleaseError {
+                    error: e.to_string(),
+                    tabs: None,
+                })
+        })
+    }
+    fn has_wake(&self) -> bool {
+        self.0.wake.is_some()
+    }
+}
 
 /// The environment area's seams over the daemon's parts.
 pub struct EnvSeams {
@@ -113,22 +160,20 @@ impl Seams for EnvSeams {
             .unwrap_or_default())
     }
     fn task(&self, task_id: &str) -> Option<TaskRec> {
-        let rec = self.tools.task(task_id)?;
-        Some(TaskRec {
-            id: rec.task_id,
-            tree_id: rec.tree_id,
-            request_id: Some(rec.request_id),
-            ..TaskRec::default()
-        })
+        task_rec(&self.tools, task_id)
     }
     fn readable_tasks(&self, _tree: &str) -> Option<BTreeSet<String>> {
         None
     }
     fn router(&self) -> Option<Arc<dyn TabDriver>> {
-        None
+        self.tools
+            .owner_driver()
+            .map(|d| Arc::new(Tabs(d)) as Arc<dyn TabDriver>)
     }
     fn ferb_identity(&self) -> Option<Arc<dyn TabDriver>> {
-        None
+        self.tools
+            .ferb_driver()
+            .map(|d| Arc::new(Tabs(d)) as Arc<dyn TabDriver>)
     }
     fn activity_search(&self, words: &str) -> Vec<Map<String, Value>> {
         self.activity.search(words, 8)
@@ -220,4 +265,60 @@ impl Seams for EnvSeams {
     fn unpaired_note(&self, _browser: &str) -> String {
         String::new()
     }
+}
+
+/// The live record (`self.tasks.get`), with its task's role, parent, identity and scopes from the task store (Python's
+/// record holds the `Task` itself); one device: this Mac's.
+pub fn task_rec(tools: &Parts, task_id: &str) -> Option<TaskRec> {
+    let rec = tools.task(task_id)?;
+    let row: Option<(String, Option<String>, String, String)> = {
+        let shared = tools.db();
+        let db = crate::basics::lock(&shared);
+        db.conn()
+            .query_row(
+                "SELECT role, parent_id, identity, scopes_json FROM tasks WHERE id = ?",
+                [task_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .ok()
+    };
+    let (role, parent_id, identity, scopes) = row.unwrap_or_default();
+    let scopes: BTreeSet<String> = serde_json::from_str(&scopes).unwrap_or_default();
+    Some(TaskRec {
+        id: rec.task_id,
+        tree_id: rec.tree_id,
+        request_id: Some(rec.request_id),
+        role,
+        parent_id,
+        scopes,
+        identity,
+        device_id: String::new(),
+    })
+}
+
+/// environment.py `_inspection_parent`: a registered checker reaches its worker's tabs and evidence.
+pub fn inspection_parent(tools: &Parts, task_id: &str) -> Option<String> {
+    let child = task_rec(tools, task_id)?;
+    if child.role != "verifier" {
+        return None;
+    }
+    let parent = child
+        .parent_id
+        .as_deref()
+        .and_then(|p| task_rec(tools, p))?;
+    if parent.role != "worker" || !child.scopes.is_subset(&parent.scopes) {
+        return None;
+    }
+    let same = (
+        child.request_id,
+        child.identity,
+        child.device_id,
+        child.tree_id,
+    ) == (
+        parent.request_id.clone(),
+        parent.identity.clone(),
+        parent.device_id.clone(),
+        parent.tree_id.clone(),
+    );
+    same.then_some(parent.id)
 }

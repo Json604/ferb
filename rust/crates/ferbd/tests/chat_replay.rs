@@ -156,11 +156,19 @@ fn unhash(text: &str) -> String {
 }
 
 /// The deliberate differences from Python (ENG-6), applied to the recording: (scenario, recorded, the port's).
-const FIXES: [(&str, &str, &str); 1] = [(
-    "global_stop",
-    "(from the task) FERB was stopped",
-    "FERB was stopped",
-)];
+const FIXES: [(&str, &str, &str); 2] = [
+    (
+        "global_stop",
+        "(from the task) FERB was stopped",
+        "FERB was stopped",
+    ),
+    // GATE-581's kind: the forget question FERB wrote whole is not tagged as the task's (ferb-supervisor's FIXES)
+    (
+        "remember_then_forget",
+        "(from the task) FERB deletes:",
+        "FERB deletes:",
+    ),
+];
 
 fn fixed(scenario: &str, text: &str) -> String {
     FIXES
@@ -252,8 +260,9 @@ impl Report {
 
 const NOT_COMPARED: [&str; 3] = ["perception_floor", "recall_state", "trail_changes"];
 
+/// make.py `tables`: the recorder leaves out every full-text index (`_fts` in the name) with its shadow tables.
 fn compared(table: &str) -> bool {
-    !NOT_COMPARED.contains(&table) && !table.starts_with("learning_")
+    !NOT_COMPARED.contains(&table) && !table.starts_with("learning_") && !table.contains("_fts")
 }
 
 fn is_shadow(name: &str) -> bool {
@@ -357,6 +366,8 @@ struct Script {
     availability: String,
     spans: Value,
     note: Value,
+    /// The front windows the recorder's daemon captured at send (`captures`), by request.
+    captures: Value,
 }
 
 fn catalogs() -> &'static Value {
@@ -455,6 +466,7 @@ fn script_of(sc: &Value, recs: &[Value], catalogs: &Value, workspace: &str) -> S
         availability,
         spans,
         note,
+        captures: sc["captures"].clone(),
     }
 }
 
@@ -523,7 +535,7 @@ fn write_script(path: &Path, sc: &Script, used: &Used, run: &RunRoot) {
         "systems": sc.systems[used.systems.min(sc.systems.len())..],
         "contexts": sc.contexts[used.contexts.min(sc.contexts.len())..],
         "availability": sc.availability, "spans": spans, "root": run.root, "root_resolved": run.resolved,
-        "note": sc.note, "questions_from": used.questions,
+        "note": sc.note, "questions_from": used.questions, "captures": sc.captures,
         "state_out": path.with_extension("state.json").to_string_lossy(),
     });
     std::fs::write(path, file.to_string()).unwrap();
@@ -600,6 +612,9 @@ fn run_scenario(
     let nn = format!("{:02}", index + 1);
     let root = PathBuf::from(&run_root.root);
     let (home, user) = Run::paths(&root, &nn);
+    // two recordings made in separate runs can share a folder number: each scenario starts on an empty home (the
+    // one before it has stopped)
+    let _ = std::fs::remove_dir_all(root.join(&nn));
     let workspace = home.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
     std::fs::create_dir_all(&user).unwrap();
@@ -759,6 +774,14 @@ fn run_scenario(
                             Some(_) => !paused,
                         }
                     })
+                } else if until == "the loop watches" {
+                    poll(&run, 30, |r| {
+                        r.control(json!({"do": "loop_watching"})) == json!(true)
+                    })
+                } else if until == "the plan waits" {
+                    poll(&run, 30, |r| {
+                        r.control(json!({"do": "plan_waits"})) == json!(true)
+                    })
                 } else if until == "the worker's wait.for is running" {
                     poll(&run, 30, |r| {
                         r.control(json!({"do": "sleeping"})) != json!(0)
@@ -787,6 +810,32 @@ fn run_scenario(
             }
             "release_model" => {
                 run.control(json!({"do": "release_model"}));
+                settle(&run);
+            }
+            "mention_paused" => {
+                run.control(json!({"do": "mention_paused"}));
+                settle(&run);
+            }
+            "plan_event" => {
+                run.control(json!({"do": "plan_event", "topic": st["topic"], "data": st["data"]}));
+                settle(&run);
+            }
+            "runtime_switch" => {
+                let got = run.control(json!({"do": "runtime_switch", "task_id": st["task_id"],
+                                             "runtime": st["runtime"]}));
+                report.checked += 2;
+                if got["offer"] != st["offer"] {
+                    report.frames.push(format!(
+                        "runtime_offer {}, recorded {}",
+                        got["offer"], st["offer"]
+                    ));
+                }
+                if got["answered"] != st["answered"] {
+                    report.frames.push(format!(
+                        "answer_runtime_switch {}, recorded {}",
+                        got["answered"], st["answered"]
+                    ));
+                }
                 settle(&run);
             }
             "note" => {
@@ -1096,15 +1145,10 @@ fn the_recorded_chat_scenarios_through_the_program() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
-/// What still differs, by scenario, with the reason (each a seam mismatch reported in rust/JOURNAL.md):
-/// - confirm_stop_pending: a tool call the global stop cancels while it waits for the owner. Python's server lets
-///   the handler's CancelledError leave `_dispatch` (server.py:395-399), so the bridge's connection closes with no
-///   line; ferb-rpc's server has no way for a handler to end its connection without a reply, so ferbd answers
-///   -32603 "CancelledError" (journaled as nothing). Every frame, model call and table row still matches.
-const KNOWN_GAPS: [(&str, &str); 1] = [(
-    "confirm_stop_pending",
-    "model calls: call 2 \"fs.write\"\n    python: {\"error\": \"Cancelled\"}\n    rust:   {\"error\": \"CancelledError\"}",
-)];
+/// What still differs, by scenario, with the reason (each a seam mismatch reported in rust/JOURNAL.md). Empty: a
+/// tool call the global stop cancels (confirm_stop_pending) now closes the bridge's connection with no line, as
+/// Python's CancelledError does (ferb-rpc's `HandlerError::cancelled`).
+const KNOWN_GAPS: [(&str, &str); 0] = [];
 
 /// The scenario's only difference is this one.
 fn only_gap(line: &str, gap: &str) -> bool {
@@ -1195,11 +1239,32 @@ fn the_more_scenarios_through_the_program() {
         lines.push(line);
     }
     eprintln!("{full} of {} replay fully", lines.len());
-    // remember_then_forget: chat capture (areas/memory.py `_remember`) isn't ported in ferb-daemon's memory area, so
-    // the supervisor's remember side entry answers NotPorted (its reply says so) where Python saved the item
     let failures: Vec<&String> = lines
         .iter()
-        .filter(|l| !l.ends_with(": replays fully") && !l.starts_with("remember_then_forget: "))
+        .filter(|l| !l.ends_with(": replays fully"))
+        .filter(|l| !IN_PROGRESS.iter().any(|p| l.starts_with(p)))
+        .filter(|l| {
+            !MORE_GAPS
+                .iter()
+                .any(|(name, gap)| l.starts_with(&format!("{name}: ")) && only_gap(l, gap))
+        })
         .collect();
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// Recordings of paths not judged here yet, replayed and printed: delegated conversations (ferb-supervisor's port,
+/// another agent's work as this was written), and a scope the owner stated for a task (`stated_scope`: the named
+/// destinations and standing permissions need a public store on ferb-gateway, which ferbd can't fill: its known
+/// destinations are never written).
+const IN_PROGRESS: [&str; 2] = ["conversation_", "stated_scope"];
+
+/// What still differs in the newer recordings through the program, with the reason:
+/// - loop_steer_finish: a steer wakes the loop (`wake_loops`) before the turn has written its reply. Python's one
+///   event loop runs the woken round only once the turn awaits, so the planner's reply span and `chat.reply` come
+///   first; the program's runtime has several threads and the round's worker span starts at once, taking two ids
+///   before the reply's. Every frame and model call matches; ferb-supervisor's in-process replay (one thread) matches
+///   whole. To fix in ferb-supervisor: wake the loop after the turn's reply is recorded.
+const MORE_GAPS: [(&str, &str); 1] = [(
+    "loop_steer_finish",
+    "tables: journal row 21 id at char 9\n    python: …\"id-000046\"\n    rust:   …\"id-000048\"\n  tables: spans row 19 parent_id at char 0\n    python: …null\n    rust:   …\"id-000045\"",
+)];

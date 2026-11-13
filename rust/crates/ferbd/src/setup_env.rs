@@ -7,9 +7,8 @@
 //! there as one JSON line and answered as a success, and the waits are skipped, so a test never runs `launchctl` and
 //! never writes outside its temporary HOME.
 //!
-//! Not composed: a checkout's per-browser steps (DMN-508: FERB.app's setup lists no browser folder), the store's
-//! one-time clean-up (`setup --cleanup`: its episode-card side, `CardSources`, has no implementation in the Rust
-//! build yet; it answers so), downloading the embedding model (FERB.app ships it).
+//! Not composed: a checkout's per-browser steps (DMN-508: FERB.app's setup lists no browser folder), downloading the
+//! embedding model (FERB.app ships it).
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -26,6 +25,9 @@ fn run_program(argv: &[String], opts: &RunOpts) -> Result<Output, String> {
     #[cfg(feature = "stand-ins")]
     if let Some(out) = fake_run(argv) {
         return Ok(out);
+    }
+    if let Some(out) = dry_run(argv) {
+        return out;
     }
     let Some((program, args)) = argv.split_first() else {
         return Err("no program".into());
@@ -83,6 +85,55 @@ fn run_program(argv: &[String], opts: &RunOpts) -> Result<Output, String> {
     })
 }
 
+/// The development dry run: with `FERB_DEV_DRY_RUN` naming a file, every program the setup commands would run is
+/// written there as one JSON line. Only `codesign`'s reads (display and
+/// verify, never a signature) run for real; `launchctl print` answers 113, launchctl's word for a service it doesn't
+/// know (the temporary home's service was never loaded); every other program (`launchctl bootstrap`, `security`,
+/// `tccutil`...) is answered as a success without running. Like `FERB_DEV_HOME` (crate::host::DEV_HOME) it is honored
+/// only by a build signed ad hoc; a certificate-signed build refuses every program while it is set (nothing runs), so
+/// a dry run asked of a release build can never become a real one.
+pub const DEV_DRY_RUN: &str = "FERB_DEV_DRY_RUN";
+
+fn dry_run_file() -> Option<std::ffi::OsString> {
+    std::env::var_os(DEV_DRY_RUN).filter(|v| !v.is_empty())
+}
+
+fn dry_run(argv: &[String]) -> Option<Result<Output, String>> {
+    let path = dry_run_file()?;
+    if !crate::host::ad_hoc_signed() {
+        return Some(Err(format!(
+            "{DEV_DRY_RUN} is honored only by a development build signed ad hoc: nothing was run"
+        )));
+    }
+    let line = serde_json::to_string(argv).unwrap_or_default();
+    let wrote = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .and_then(|mut f| writeln!(f, "{line}"));
+    if let Err(e) = wrote {
+        return Some(Err(format!("{DEV_DRY_RUN}: {e}")));
+    }
+    let program = argv.first().map(|p| p.rsplit('/').next().unwrap_or(p));
+    let reads_only = program == Some("codesign")
+        && argv
+            .iter()
+            .any(|a| a == "-d" || a == "-dv" || a == "--verify" || a == "--display")
+        && !argv
+            .iter()
+            .any(|a| a == "-s" || a == "--sign" || a == "-f" || a == "--force");
+    if reads_only {
+        return None; // run for real: it reads a signature and changes nothing
+    }
+    if program == Some("launchctl") && argv.get(1).map(String::as_str) == Some("print") {
+        return Some(Ok(Output {
+            code: 113,
+            ..Output::default()
+        }));
+    }
+    Some(Ok(Output::default()))
+}
+
 /// The test build's recording runner: each argv one JSON line in `FERBD_FAKE_RUN`'s file, answered as a success.
 #[cfg(feature = "stand-ins")]
 fn fake_run(argv: &[String]) -> Option<Output> {
@@ -131,7 +182,15 @@ fn test_bundle() -> Option<PathBuf> {
     None
 }
 
+/// The test build's recording runner or the development dry run: nothing outside the temporary folders is read
+/// (no Keychain presence check).
 fn faking() -> bool {
+    skip_waits() || (dry_run_file().is_some() && crate::host::ad_hoc_signed())
+}
+
+/// The test build skips the installer's waits; a dry run keeps them (it waits for a daemon nothing started, then
+/// says so).
+fn skip_waits() -> bool {
     cfg!(feature = "stand-ins") && std::env::var_os("FERBD_FAKE_RUN").is_some()
 }
 
@@ -164,7 +223,7 @@ impl ferb_device::install::Clock for Clock {
         self.0.monotonic()
     }
     fn sleep(&mut self, seconds: f64) {
-        if !faking() {
+        if !skip_waits() {
             self.0.sleep(seconds)
         }
     }
@@ -182,25 +241,22 @@ impl PermissionFacts for Permissions {
     }
 }
 
-/// The store's size and pending clean-up (ferb-store); the clean-up itself isn't composed (see the module's text).
+/// The store's size, pending clean-up and the one-time clean-up itself (ferb-store, its episode-card side over
+/// ferb-learning: [`crate::cleanup_cards`]).
 struct Store;
 
-pub const CLEANUP_NOT_COMPOSED: &str =
-    "not available in this build: the store's one-time clean-up isn't part of \
-the Rust program yet (its episode-card side has no Rust implementation)";
-
 impl StoreFacts for Store {
-    fn preview(&mut self, _path: &Path) -> Value {
-        serde_json::json!({"error": CLEANUP_NOT_COMPOSED})
+    fn preview(&mut self, path: &Path) -> Value {
+        crate::cleanup_cards::preview(path)
     }
     fn apply(
         &mut self,
-        _home: &Path,
-        _ok: &str,
-        _stop: &dyn Fn() -> bool,
-        _say: &mut dyn FnMut(&str),
+        home: &Path,
+        ok: &str,
+        stop: &dyn Fn() -> bool,
+        say: &mut dyn FnMut(&str),
     ) -> Result<Value, (String, String)> {
-        Err(("FerbError".into(), CLEANUP_NOT_COMPOSED.into()))
+        crate::cleanup_cards::apply(home, ok, stop, say)
     }
     fn pending(&mut self, path: &Path) -> bool {
         ferb_store::cleanup::pending(path)
@@ -312,7 +368,8 @@ fn user_home() -> PathBuf {
 /// from one, else from where it was built.
 pub fn installer(home: &Path) -> Installer {
     let user = user_home();
-    let exe = std::env::current_exe().unwrap_or_default();
+    // the real path: `ferb` may run through the `setup --cli` link
+    let exe = crate::host::real_exe().unwrap_or_default();
     let beside = exe.parent().map(Path::to_path_buf).unwrap_or_default();
     let bundle = test_bundle().or_else(crate::home::app_bundle);
     let repo = crate::home::package_folder()
@@ -339,19 +396,10 @@ pub fn installer(home: &Path) -> Installer {
             repo_root: repo,
         },
     );
-    inst.programs = Programs::Rust(RustPrograms {
-        bundle_daemon: bundle
-            .as_ref()
-            .map(|b| b.join(ferb_device::install::BUNDLE_AGENT))
-            .unwrap_or_default(),
-        bundle_native_host: bundle
-            .as_ref()
-            .map(|b| b.join("Contents/MacOS/ferb-native-host"))
-            .unwrap_or_default(),
-        checkout_daemon: exe,
-        checkout_native_host: beside.join("ferb-native-host"),
-        daemon_args: vec!["daemon".into()],
-    });
+    // Inside FERB.app the agent's executable (BUNDLE_AGENT) and Contents/Helpers/ferb-native-host
+    // (BUNDLE_RUST_NATIVE_HOST); a checkout's `ferbd` and `ferb-native-host` beside this program (`ferbd` itself, or
+    // the `ferb` program cargo built next to it)
+    inst.programs = Programs::Rust(RustPrograms::ferbd(&beside));
     inst.bundle = bundle;
     let config = ferb_core::config::Config::new(home);
     inst.extension_ids = crate::compose::tools::browser::extension_ids(&config)
@@ -389,7 +437,7 @@ pub fn env(home: &Path, out: Box<dyn Write>) -> Env<'static> {
         }),
         out,
         sleep: Box::new(|s: f64| {
-            if !faking() {
+            if !skip_waits() {
                 std::thread::sleep(std::time::Duration::from_secs_f64(s.max(0.0)))
             }
         }),

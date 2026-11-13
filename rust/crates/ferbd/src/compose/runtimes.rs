@@ -19,9 +19,10 @@ use ferb_runtimes::forms::Refusals;
 use ferb_sanitize::redact::Redactor;
 use serde_json::Value;
 
-/// How a model program starts FERB's tool bridge: this program, `mcp` (`mcp_shim_command`).
+/// How a model program starts FERB's tool bridge: this program by its real path (main.c's `sys.executable`), `mcp`
+/// (`mcp_shim_command`). Inside FERB.app that is the agent, whose `mcp` mode crate::host allows.
 pub fn mcp_shim_command() -> Vec<String> {
-    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("ferbd"));
+    let exe = crate::host::real_exe().unwrap_or_else(|| PathBuf::from("ferbd"));
     vec![exe.to_string_lossy().into_owned(), "mcp".into()]
 }
 
@@ -31,6 +32,47 @@ pub fn mcp_shim_command() -> Vec<String> {
 
 /// codex_exec.py `CODEX_VERSION`: the pinned Codex.
 pub const CODEX_VERSION: &str = "0.166.0";
+
+/// The pinned Claude Code inside a node folder (FERB.app's `Contents/Resources`): npm's platform package for this
+/// Mac, as rust/packaging/package-lock.json pins it (scripts/build-app-rust.sh copies the same folder).
+pub fn claude_bin(machine: &str) -> PathBuf {
+    let package = match machine {
+        "x86_64" => "claude-code-darwin-x64",
+        _ => "claude-code-darwin-arm64",
+    };
+    PathBuf::from(format!("node/node_modules/@anthropic-ai/{package}/claude"))
+}
+
+/// What `claude --version` printed is the pinned Claude Code (`2.1.310 (Claude Code)`).
+pub fn claude_version_ok(printed: &str) -> bool {
+    printed.split_whitespace().next() == Some(ferb_runtimes::claude::transport::CLAUDE_CODE_VERSION)
+}
+
+/// The start-time check of the bundled Claude Code, once per process: `binary --version` in an empty environment
+/// (it prints and writes nothing) must be the pinned version. The answer is kept for the daemon's life.
+fn checked_claude(binary: &Path) -> Result<PathBuf, String> {
+    static CHECKED: std::sync::OnceLock<Result<PathBuf, String>> = std::sync::OnceLock::new();
+    CHECKED
+        .get_or_init(|| {
+            let out = std::process::Command::new(binary)
+                .arg("--version")
+                .env_clear()
+                .env("PATH", crate::host::FIXED_PATH)
+                .stdin(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .output()
+                .map_err(|e| format!("FERB's pinned Claude Code didn't run: {e}"))?;
+            let printed = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !out.status.success() || !claude_version_ok(&printed) {
+                return Err(format!(
+                    "Claude Code {printed} is not the pinned {}: download FERB again",
+                    ferb_runtimes::claude::transport::CLAUDE_CODE_VERSION
+                ));
+            }
+            Ok(binary.to_path_buf())
+        })
+        .clone()
+}
 
 /// The Mac's programs for the runtimes (the pinned Codex, the pinned Claude Code).
 pub struct MacPrograms {
@@ -56,17 +98,22 @@ impl Programs for MacPrograms {
         ferb_runtimes::codex::codex_binary(&self.home, repo.as_deref(), machine())
     }
 
-    /// The pinned Claude Code (ENG-2: driven directly, no Python SDK). Where the Rust build carries it is a packaging
-    /// decision not made yet (rust/PLAN.md part 13): inside FERB.app it is looked for at `Contents/Resources/claude`.
+    /// The pinned Claude Code (ENG-2: driven directly, no Python SDK). FERB.app's Rust build carries npm's platform
+    /// package, locked in rust/packaging/package-lock.json and copied as Codex's is ([`claude_bin`]). The first time a
+    /// daemon resolves it, its `--version` must name ferb-runtimes' CLAUDE_CODE_VERSION, or every Claude run is refused
+    /// for the daemon's life ([`checked_claude`]).
     fn claude_cli(&self) -> Result<PathBuf, FerbError> {
         let found = self
             .app_bundle
             .as_ref()
-            .map(|a| a.join("Contents/Resources/claude"))
+            .map(|a| a.join("Contents/Resources").join(claude_bin(machine())))
             .filter(|p| p.is_file());
-        found.ok_or_else(|| {
-            FerbError::Unsupported("FERB's pinned Claude Code isn't part of this build yet".into())
-        })
+        let Some(found) = found else {
+            return Err(FerbError::Unsupported(
+                "FERB's pinned Claude Code isn't part of this build".into(),
+            ));
+        };
+        checked_claude(&found).map_err(FerbError::Unsupported)
     }
 
     fn bundled_catalog(&self) {
@@ -293,5 +340,21 @@ mod tests {
         let cmd = mcp_shim_command();
         assert_eq!(cmd.last().map(String::as_str), Some("mcp"));
         assert_eq!(cmd.len(), 2);
+    }
+
+    #[test]
+    fn the_bundled_claude_is_npms_platform_package_at_the_pinned_version() {
+        assert_eq!(
+            claude_bin("arm64"),
+            PathBuf::from("node/node_modules/@anthropic-ai/claude-code-darwin-arm64/claude")
+        );
+        assert_eq!(
+            claude_bin("x86_64"),
+            PathBuf::from("node/node_modules/@anthropic-ai/claude-code-darwin-x64/claude")
+        );
+        let pinned = ferb_runtimes::claude::transport::CLAUDE_CODE_VERSION;
+        assert!(claude_version_ok(&format!("{pinned} (Claude Code)")));
+        assert!(!claude_version_ok("2.1.309 (Claude Code)"));
+        assert!(!claude_version_ok(""));
     }
 }

@@ -6,12 +6,16 @@
 //! run changes comes in through [`Options`] (Python's constructor flags), never through a global.
 
 pub mod areas;
+pub mod checks;
+pub mod desktop;
 pub mod egress;
 pub mod env_seams;
+pub mod front;
 pub mod gateway;
 pub mod group_c;
 pub mod loops;
 pub mod memory_loops;
+pub mod presence;
 pub mod rpc;
 pub mod runtimes;
 pub mod supervisor;
@@ -94,6 +98,8 @@ pub struct Options {
     pub resources: bool,
     /// The questions' ids (`"ap-" + token_hex(6)`; a test build: a counter).
     pub question_ids: gateway::QuestionIds,
+    /// Each run token's text (`secrets.token_urlsafe(32)`); None: the system's random bytes. Only a test sets it.
+    pub run_tokens: Option<Arc<ferb_rpc::auth::TokenSource>>,
 }
 
 /// Replacements for seams the real composition fills, applied once each area's deps are built.
@@ -142,6 +148,7 @@ impl Options {
             memory_loops: true,
             resources: true,
             question_ids: Arc::new(gateway::random_question_id),
+            run_tokens: None,
         }
     }
 }
@@ -385,7 +392,11 @@ impl Daemon {
         });
 
         // the server and its run tokens
-        let tokens = Arc::new(RunTokens::new(Arc::new(RpcClock(opts.clock.clone()))));
+        let rpc_clock = Arc::new(RpcClock(opts.clock.clone()));
+        let tokens = Arc::new(match &opts.run_tokens {
+            Some(source) => RunTokens::with_source(rpc_clock, source.clone()),
+            None => RunTokens::new(rpc_clock),
+        });
         let mut server = match opts.owner_uid {
             Some(uid) => Server::with_owner_uid(&socket, tokens.clone(), uid),
             None => Server::new(&socket, tokens.clone()),
@@ -397,11 +408,6 @@ impl Daemon {
         {
             let j = journal.clone();
             server.on_internal(move |method, e| {
-                // a call the gateway cancelled (a stop while it ran) is no internal error: Python's handler task is
-                // cancelled and journals nothing
-                if e.type_name == "CancelledError" {
-                    return;
-                }
                 j.note(
                     ferb_rpc::server::INTERNAL_ERROR,
                     json!({"method": method, "error": e.type_name, "message": j.redactor.text(&e.message)}),
@@ -531,7 +537,7 @@ impl Daemon {
             });
             let real: Arc<dyn supervisor::Reads> = Arc::new(supervisor::RealReads {
                 host,
-                seams,
+                seams: seams.clone(),
                 runtimes: learning_area.clone(),
                 tools: tool_parts.clone(),
                 native: opts.native,
@@ -540,7 +546,6 @@ impl Daemon {
                 Some(o) => o.supervisor_reads(real),
                 None => real,
             };
-            let own = Arc::new(supervisor::OwnQuestions::new(opts.question_ids.clone()));
             let seam = supervisor::SupDaemon::new(supervisor::SupParts {
                 gateway: gw.clone(),
                 tokens: tokens.clone(),
@@ -553,7 +558,7 @@ impl Daemon {
                 journal: journal.clone(),
                 stop: stop.clone(),
                 ledger: ledger.clone(),
-                own,
+                env: seams,
                 reads,
                 home: home.to_string_lossy().into_owned(),
                 user_home: opts.user_home.to_string_lossy().into_owned(),
@@ -575,6 +580,7 @@ impl Daemon {
                 user_home: opts.user_home.to_string_lossy().into_owned(),
                 wrap_id: None,
                 new_chat: None,
+                notice_hex: None,
                 shutting_down: {
                     let t = tool_parts.clone();
                     Arc::new(move || t.shutting_down())
@@ -820,7 +826,7 @@ impl Daemon {
         } else {
             None
         };
-        let _new_session =
+        let new_session =
             self.a
                 .call(move |st| async move {
                     areas_a::schedules::record_start(&st, pid, login.as_deref())
@@ -828,6 +834,7 @@ impl Daemon {
                 .await
                 .map_err(|e| e.to_string())?
                 .map_err(|e| e.message)?;
+        self.mac_started(new_session);
         // L28 (main.py:460-468): an unknown window is said, never guessed
         if let Ok(limits) = self.b.runtimes.runtime_limits() {
             for (role, entry) in limits {
@@ -913,6 +920,10 @@ impl Daemon {
         // drains every chat turn
         self.supervisor.supervisor.shut_down().await;
         self.supervisor.daemon.reads.shutdown();
+        // main.py:551: the desktop observer's summaries of the trees it still watches
+        if let Some(s) = self.tools.sentinel() {
+            s.shutdown().await;
+        }
         for job in lock(&self.loops).drain(..) {
             job.abort();
         }
@@ -949,6 +960,22 @@ impl crate::resources::SampleClock for SampleClock {
 }
 
 impl Daemon {
+    /// schedules.py `_mac_started` (ORCH-317): a start in a new login session (a restart, a login) is the Mac coming
+    /// back into use, unless it is out of use right now (its unlock is the return then). A start in the same session
+    /// (an update, a crash) is no return: Python then dates the current stretch from the last return journaled
+    /// (`mac.present_since = ...`); ferb-sense's `MacPresence` has no way to set it, so it stays unknown until the next
+    /// return (listed as a seam).
+    fn mac_started(&self, new_session: bool) {
+        let Some(o) = self.tools.owner() else { return };
+        let mac = &o.presence;
+        if !mac.running() {
+            return;
+        }
+        if new_session && !mac.away() {
+            mac.returned("login");
+        }
+    }
+
     /// `_sample_resources`: one sample; a failure is journaled and the next sample covers this window too.
     pub fn sample_resources(&self) {
         let mut held = lock(&self.resource_log);

@@ -3,6 +3,7 @@
 //! other entry modes (the models' tool bridge, the internal commands FERB.app calls).
 //!
 //! - [`home`]: which FERB home, where output goes.
+//! - [`host`]: inside FERB.app, what `ui/mac/FERBAgent/main.c` guaranteed (entry modes, home, environment).
 //! - [`basics`]: the shared store connection, journal, events and the global stop.
 //! - [`compose`]: [`compose::Daemon::start`] and `shutdown`, the gateway and its tools, the handler areas' seams,
 //!   the runtime factory, the background loops.
@@ -10,9 +11,11 @@
 
 pub mod areas_c;
 pub mod basics;
+pub mod cleanup_cards;
 pub mod compose;
 pub mod device;
 pub mod home;
+pub mod host;
 pub mod mainloop;
 #[cfg(target_os = "macos")]
 pub mod native;
