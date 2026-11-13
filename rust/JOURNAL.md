@@ -1127,3 +1127,37 @@ plain words.
 - The supervisor's own task questions still live in a second store sharing the gateway's id counter: `ask_own`
   lacks a task question's `part`, `runtime_switch` and `options_only`.
 - Noted by the agent: the owner's installed Python FERB daemon was running throughout (untouched).
+
+## 2026-11-13 · 47 · The Mac hands on the real Mac: background open, a late app list, and typing into TextEdit
+
+**What.** Entry 45's findings checked against Python on this Mac. `mac.open` now waits for an app it launched to
+show on the running-app list (`wait_listed`) before recording it as the task's; the open arguments are named
+constants (`launch_args`, `OPEN_ACTIVATES`); `mainloop::run_with` makes the main-thread turn testable; the
+real-machine check no longer kills anything (it skips itself when TextEdit is already running, quits through ⌘Q,
+and a guard asks only the pids it started to quit).
+
+**Evidence.** Through `ferbd` on the real Mac: `mac.open` in the background, a `mac.snapshot` of the text area,
+`mac.act type` on the pid route ("typing delivered in the background; a value change was observed"), the line read
+back through AX (34 characters), safe quit. The system's front app (asked through `lsappinfo`, not the daemon's
+flags) stayed the owner's Brave throughout and the cursor did not move. With no main-thread turn a launched
+TextEdit stayed off NSWorkspace's list for 6 s; with turns it was listed within 0.25 s. A cold Vision load took
+44.6 s; a first request made during the warm-up waited for it and succeeded. 5 tests on fakes and a mainloop test;
+workspace clippy clean (run by the porting agent).
+
+**Ran on the owner's Mac.** TextEdit opened with an empty temp document and asked to quit, about seven times
+(two Python control runs, two Rust probes, three through `ferbd`); two screenshots of the owner's Brave window,
+kept only in a temp home and deleted with it; AX reads of VS Code and TextEdit; Vision on blank in-memory images.
+Nothing left behind (checked by the coordinator: no TextEdit, no `ferbd`).
+
+**Fixed against Python.** `tools.py:348` looks for a launched app once, right after the open and before the main
+run loop's turn lists it, so the app could go unrecorded: no quit at release, and ⌘Q refused as "not an app FERB
+opened". Rust waits for it as long as for its window.
+
+**Corrections to entry 45.** "`mac.open` brings the app forward" was wrong: the owner was switching apps under a
+before/after comparison of the daemon's `isActive` flags; both builds leave the app in the background. "NoTarget
+with several windows and no id" is Python's rule (`driver.py:913-923`), ported as it is. The coordinator had
+reported both to the owner as bugs from one run.
+
+**Open.** `ferbd` does not wire the front-window capture at send (L12: no `NativeFront` implementation). Vision's
+error text is dropped in both builds, so the one failure at 51 s is unexplained. Python treats a window's missing
+layer as 1, Rust as 0. Never run for real: pointer routes, foreground input, recordings, audio.

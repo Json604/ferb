@@ -986,6 +986,26 @@ impl MacDriver {
         Ok(ok)
     }
 
+    /// The app a launch just started, once the running-app list shows it (at most `wait_s`). Deliberate difference
+    /// from tools.py:348, which looks once right after the open: macOS adds a launched app to NSWorkspace's list only
+    /// on a later turn of the main run loop (the daemon's `_macos_events`, every 0.2 s), so that single look missed
+    /// it on this Mac (TextEdit, 2026-11-13) and the app wasn't recorded as the task's (L39): never quit at the
+    /// task's end, and ⌘Q refused as "not an app FERB opened". None: it never showed (it ended at once, or the
+    /// list can't be read).
+    pub async fn wait_listed(self: &Arc<Self>, bundle_id: &str, wait_s: f64) -> Option<A> {
+        let deadline = self.now() + wait_s;
+        loop {
+            let b = bundle_id.to_string();
+            if let Some(a) = self.blk(move |d| d.apps.find(&b)).await {
+                return Some(a);
+            }
+            if self.now() >= deadline {
+                return None;
+            }
+            self.sleep(0.25).await;
+        }
+    }
+
     /// driver.py:591: the app shows at least one window Accessibility can reach.
     pub async fn ensure_window(self: &Arc<Self>, bundle_id: &str, wait_s: f64) -> bool {
         let deadline = self.now() + wait_s;

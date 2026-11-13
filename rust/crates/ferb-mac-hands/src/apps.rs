@@ -498,3 +498,13 @@ pub const RUNNABLE_TYPES: [&str; 10] = [
 ];
 pub const PROFILE_TYPES: [&str; 2] = ["com.apple.mobileconfig", "com.apple.configprofile"];
 pub const OPEN_WAIT_S: f64 = 15.0;
+
+/// apps.py:151 (HAND-239): `/usr/bin/open`'s arguments that launch an installed app in the background: `-g` never
+/// brings it forward, and no `-j` (a hidden app's windows are off screen, so captures and pointer input can't reach
+/// them).
+pub fn launch_args(bundle_id: &str) -> Vec<String> {
+    vec!["-g".into(), "-b".into(), bundle_id.into()]
+}
+
+/// apps.py:257 (HAND-240): a file or address is handed over with NSWorkspace's open configuration `activates` off.
+pub const OPEN_ACTIVATES: bool = false;

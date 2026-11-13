@@ -245,7 +245,7 @@ impl Apps for NativeApps {
             return false;
         }
         std::process::Command::new("/usr/bin/open")
-            .args(["-g", "-b", bundle_id])
+            .args(appsm::launch_args(bundle_id))
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false)
@@ -271,7 +271,7 @@ impl Apps for NativeApps {
                 )
             })?;
             let config = NSWorkspaceOpenConfiguration::configuration();
-            config.setActivates(false);
+            config.setActivates(appsm::OPEN_ACTIVATES);
             let s2 = slot.clone();
             let done = RcBlock::new(
                 move |_app: *mut NSRunningApplication, error: *mut NSError| {

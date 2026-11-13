@@ -1,6 +1,8 @@
 //! The native layer (macOS only): Apple framework calls behind the logic's traits. Every blocking call here drains
-//! its own autorelease pool (ferb/device/autorelease.py: each unit of work on a long-lived thread). Unverified beyond
-//! compiling and the read-only `#[ignore]`d tests: nothing here has run against the owner's apps yet.
+//! its own autorelease pool (ferb/device/autorelease.py: each unit of work on a long-lived thread). Run on a real Mac
+//! through `ferbd` (rust/JOURNAL.md 45 and 47): the app list, launch and open in the background, AX reads, a window
+//! capture, Vision, process-directed typing into a background TextEdit and the safe quit. Not yet run for real: the
+//! pointer routes (CGEvent and SkyLight), foreground input, recordings, audio capture.
 
 pub mod apps;
 pub mod audio;
