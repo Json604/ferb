@@ -795,3 +795,45 @@ raised TypeError and broke the whole scan.
 **Process note.** This follow-up worked inside a crate that was already a workspace member, and its half-edited
 files failed the tree-wide format check, which held four finished ports out of a commit for about an hour. A
 follow-up on a member crate now works on a copy, or the crate leaves `members` while it is edited.
+
+## 2026-11-13 · 37 · The worker
+
+**What.** `ferb-worker` ports `ferb/orchestrator/worker.py`: one attempt (worker, checker, fix, re-check), the
+shared model call with its silence watchdog and retry rules, every event kind, steering and stop, the failure
+classes and the owner's words for each, usage where unknown cost stays unknown, and the live lines. Portable. Its
+`ModelRuntime` / `EventSource` / `RunControl` traits are the runtime interface real adapters need (start returns
+the run with its event stream and control; errors arrive as items): `ferb-runtimes`' adapters map onto it one for
+one, and `ferb-core`'s older trait should give way to it.
+
+**Evidence.** `rust/fixtures/worker/make.py` runs the real Python worker on the tests' fake runtime with recording
+fakes for every seam: 69 attempts, 14 calls, 15 tool lines, 36 failure reasons; 2,815 comparisons, every seam call
+in order, none differ. All 80 worker and checker requests recorded in `chat_scenarios.json` match (system text,
+parts, tool names, schema); 6 of them up to an 8-byte step, because the daemon recorder masked two forms of the
+temp root as one. A one-word mutation produced 12 differences, so the comparison does catch changes. 6 test groups
+pass, re-run by the coordinator.
+
+**Fixed against Python.** None.
+
+**Open.**
+- The glue from `ferb-runtimes`' adapters to `ModelRuntime` is unwritten (the daemon part).
+- `deliver` is implemented here again because `ferb-orchestrator`'s version makes futures non-Send; one of the two
+  should go.
+- Cleanup when an attempt's future is dropped skips the steering and timing writes; stopping through the tree's
+  stop words is the intended path.
+- If the redactor raises inside the owner's words for a failure, Python propagates and Rust shows empty words.
+
+## 2026-11-13 · 38 · The supervisor, first pass: what it composes (not yet a workspace member)
+
+**What.** `ferb-supervisor` has everything `supervisor.py` composes for a model or the owner: every role's
+instructions, the planner's context (conversation, live facts, tasks, open questions, the latest result, what
+happened since), a turn's payload, the worker's and checker's context, the checker's report, the fix and re-check
+blocks, the owner-facing lines and the chat line's arrival order. The flows answer `NotPorted` by name; a second
+agent is porting the path from a message's arrival to its result.
+
+**Evidence.** 32 of 32 frozen instruction texts; all 118 recorded model calls (system text and parts); 38 planner
+calls, 37 turn payloads, 78 worker and checker contexts, 36 checker reports, 328 unit cases; none differ. (The
+daemon recordings hold 118 model calls; entry 23 said 136, which counted 18 in the RPC scenarios.) Run by the
+porting agent; the crate is outside the workspace until the flows land, and is not committed yet.
+
+**Open.** No scenario replays end to end: frames, gateway calls and tables need the flows. Pause, steer, stop,
+suspend, resume, restart, scheduled runs and waits come after the forward path.

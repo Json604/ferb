@@ -1,0 +1,27 @@
+[package]
+name = "ferb-worker"
+version = "0.28.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.100"
+publish = false
+description = "The worker (ferb/orchestrator/worker.py): one model attempt of a task step, the checker's read-only run and the shared model call every other role goes through, with its silence watchdog, steering, stop, the owner's lines for a failure and the live progress lines"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[dependencies]
+chrono = { version = "0.4.42", default-features = false, features = ["std", "clock"] }
+ferb-clock = { path = "../ferb-clock", default-features = false }
+ferb-context = { path = "../ferb-context" }
+ferb-core = { path = "../ferb-core" }
+ferb-orchestrator = { path = "../ferb-orchestrator", default-features = false }
+ferb-py = { path = "../ferb-py" }
+indexmap = "2.14"
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+tokio = { version = "1.54.1", features = ["sync", "time", "rt", "macros"] }
+
+[dev-dependencies]
+# The policy part's words and keys, to answer the `Policy` seam (progress lines) as the Python build does.
+ferb-policy = { path = "../ferb-policy" }
+tokio = { version = "1.54.1", features = ["sync", "time", "rt", "macros", "test-util"] }

@@ -26,10 +26,11 @@ members = [
     "crates/ferb-learning",
     "crates/ferb-orchestrator",
     "crates/ferb-mac-hands",
+    "crates/ferb-worker",
 ]
 exclude = [
+    "crates/ferb-daemon",
     "crates/ferb-supervisor",
-    "crates/ferb-worker",
     "crates/ferb-gateway",
 ]
 
