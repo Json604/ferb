@@ -1,0 +1,27 @@
+[package]
+name = "ferb-memory"
+version = "0.28.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.100"
+publish = false
+
+[features]
+default = ["store"]
+# The parts that read and write the Mac's SQLite store (search, vectors, the import record). Without it the crate
+# is the portable part only: tokenizer, vector math, import parsers.
+store = ["dep:rusqlite"]
+
+[dependencies]
+ferb-py = { path = "../ferb-py" }
+libc = "0.2.191"
+rusqlite = { version = "0.32.1", features = ["bundled"], optional = true }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+sha2 = "0.10.9"
+
+[dev-dependencies]
+ferb-store = { path = "../ferb-store" }
+tempfile = "3.27.0"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"

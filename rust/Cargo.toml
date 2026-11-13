@@ -16,12 +16,12 @@ members = [
     "crates/ferb-fs",
     "crates/ferb-clock",
     "crates/ferb-shell",
+    "crates/ferb-memory",
 ]
 exclude = [
     "crates/ferb-policy",
     "crates/ferb-browser",
     "crates/ferb-runtimes",
-    "crates/ferb-memory",
 ]
 
 [workspace.package]

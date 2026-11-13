@@ -434,6 +434,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferb-memory"
+version = "0.28.0"
+dependencies = [
+ "ferb-py",
+ "ferb-store",
+ "libc",
+ "rusqlite",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "ferb-native-host"
 version = "0.28.0"
 

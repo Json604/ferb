@@ -37,7 +37,7 @@ the phone apps share; they reach the Mac's own parts only through traits.
 | Prompt context, structured answers, answer schemas | `ferb/core/context.py`, `structured.py`, `orchestrator/schemas.py`, `runtimes/schema_shape.py` | ~1,500 | `ferb-context` | verified (journal 17); outcome models go with orchestration |
 | Policy: confirmations, protection, payments, destinations | `ferb/policy` | 4,666 | `ferb-policy` | in progress |
 | Gateway, questions, stop, resources, registry | `ferb/daemon/gateway.py` and state files | ~6,000 | - | not started (needs policy) |
-| RPC handlers (106 methods), daemon composition | `ferb/daemon/main.py`, `areas/` | ~9,700 | `ferbd` | not started; recordings of the Python daemon in progress (`rust/fixtures/daemon`) |
+| RPC handlers (106 methods), daemon composition | `ferb/daemon/main.py`, `areas/` | ~9,700 | `ferbd` | not started; recordings of the Python daemon done (journal 23) |
 | Files, recovery | `ferb/act/fs` | (in 21,723) | `ferb-fs` | verified (journal 18); Mac renderers and Trash locator not written |
 | Shell, sandbox, proxy | `ferb/act/shell` | (in 21,723) | `ferb-shell` | verified, live sandbox tests included (journal 20) |
 | Browser hands and extension bridge | `ferb/act/browser` | (in 21,723) | `ferb-browser` | protocol, pairing, bridge verified (journal 21); tool verbs in progress |
@@ -45,7 +45,7 @@ the phone apps share; they reach the Mac's own parts only through traits.
 | Model runtimes: Codex, Claude, APIs, tool bridge | `ferb/runtimes`, `ferb/cli/mcp.py` | 4,876 | `ferb-runtimes` | in progress |
 | Orchestration: planner, workers, checker, plans | `ferb/orchestrator`, `ferb/decide` | 15,817 | - | not started |
 | Time: timers, schedules, waits | `ferb/clock`, `orchestrator/schedules.py` | ~2,000 | `ferb-clock` | verified (journal 19); tz database to settle |
-| Memory: embeddings, search, import parsers | `ferb/memory` (4 files) | ~1,770 | `ferb-memory` | in progress |
+| Memory: embeddings, search, import parsers | `ferb/memory` (4 files) | ~1,770 | `ferb-memory` | verified (journal 22); needs SQLite 3.53.4+ for trigram tables |
 | Memory: items, profile, learning, distill, playbooks, import job | `ferb/memory` (rest) | ~4,300 | - | not started |
 | Perception | `ferb/sense` | 3,817 | - | not started |
 | Device: install, permissions, service | `ferb/device` | 2,276 | - | not started |

@@ -267,3 +267,12 @@ also worth fixing in the Python build on `main`, since that build is installed t
 | gateway validators (`browser.pdf`, `ferb_browser.pdf`, `audio.listen`) | A reply that cannot be serialized | catalog fixtures |
 | `ferb/store/retention.py` `_with_descendants` | Never ends on a span parent cycle | fixed in Rust (16) |
 | `ferb/identity/helper.py` | The helper is verified, then run by path (a swap window) | fixed in Rust (16) |
+| `ferb/memory/search.py:364-409` | Vectors stored for facts deleted mid-batch are never removed | fixed in Rust (22) |
+| `ferb/memory/import_sources.py:452,485` | Gemini HTML parsers never closed: trailing text with `&` dropped | fixed in Rust (22) |
+| `ferb/memory/import_sources.py:87-97` | `window_start` loops forever early in year 1 | fixed in Rust (22) |
+| `ferb/act/shell/sockets.py` | A nettop port with a non-decimal digit raises out of `complete()` | fixed in Rust (20) |
+| `ferb/act/browser/ext_bridge.py` | A closed connection fails the profile's commands on its newer connection too | fixed in Rust (21) |
+| `ferb/act/fs/files.py:51` | A file's `mtime_ns` is redacted as a card number about one time in ten | open: fix with the gateway port (23) |
+| about 15 RPC handlers | Bad parameters answer an internal error instead of a refusal | open: fix with the daemon port (23) |
+| global stop | Tags FERB's own words "(from the task)" | open: fix with the daemon port (23) |
+| `ferb/act/shell/proxy.py` | A bare-LF head is forwarded with `Connection: close` after the body bytes | open: mirrored in `ferb-shell` (20) |

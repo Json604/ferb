@@ -410,3 +410,59 @@ command in flight on that profile, including ones already sent on its newer conn
 
 **Open.** Everything in the second half. Python's `enters_text` and the extension's `entersText` disagree on six
 key specs (for example `a+` and `Cmd+V`).
+
+## 2026-11-13 · 22 · Memory: embeddings, search and the import parsers
+
+**What.** `ferb-memory` ports `embeddings.py`, `search.py`, `import_sources.py` and `import_extract.py`, with the
+word rules of `items.py` they need. Python 3.12's Unicode, HTML-entity and cp437 tables are generated into the
+crate. Store-backed search sits behind the `store` feature; the pure parts build for iOS and Android.
+
+**Evidence.** `rust/fixtures/memory/make.py` (fixed clock and zone, hash seed 0): 5,300 tokenizer cases, 504
+embedded texts (vectors bit for bit), 95 store steps, 2,266 search helper cases, 1,698 SQLite comparisons, 30
+export files, 384 reader cases; none differ. 10 tests pass, 1 ignored (the real model table, 308 texts; passed
+when the porting agent ran it).
+
+**Fixed against Python.**
+- `embed_pending` stored vectors for facts deleted while their batch was being encoded, and nothing removed them
+  (`search.py:364-409`); Rust rechecks inside the write.
+- The Gemini HTML parsers were never closed, so trailing text holding an `&` was dropped
+  (`import_sources.py:452,485`).
+- `window_start` looped forever in January to March of year 1 (`import_sources.py:87-97`).
+
+**Open.**
+- SQLite: `unicode61` tables tokenize and rank identically on the bundled 3.46 and Python's 3.53.4, but the
+  **trigram** tokenizer differs on text containing NUL (3.46 stops at it). That reaches `learning_titles`
+  (migration 0030). The workspace needs a rusqlite whose bundled SQLite is 3.53.4 or newer before the learning
+  port; rusqlite 0.42 exists (0.32 is pinned today).
+- No zstd decoder yet: `.zst` Codex rollouts go through the `Unzstd` seam and are skipped without one.
+- Zip members compressed with bzip2 or LZMA stop the import (Python reads them); zip64 untested.
+- `save` and `said_at` go with the items part.
+- The plan's "deletion-generation recheck" did not exist in Python; it is the first fix above.
+
+## 2026-11-13 · 23 · Recordings of the Python daemon
+
+**What.** `rust/fixtures/daemon/make.py` starts the real Python daemon in a fixed temp home with the test suite's
+fake model and records raw socket lines both ways. `rpc_transcripts.json`: 12 scenarios calling all 106 owner
+methods and the 3 tool-bridge methods, 61 of them also in a way that is refused. `chat_scenarios.json`: 28 chat
+scenarios (a plain reply, a clarifying question, plans, confirmations answered Yes and No and stopped while
+pending, pause and steer, stop plus a new task, a merged message, a schedule, a wait, a tool failure and repair, a
+checker rejection, a restart mid-task) with every frame, all 136 prompts the model received, every gateway call
+and the store tables. `README.md` maps it and says how a Rust test replays a scenario.
+
+**Why.** Parts 8 and 12 of the plan are judged against these: the Rust daemon must send the same bytes to FERB.app
+and the same prompts to the models.
+
+**Evidence.** Three full runs byte-identical; every scripted answer validated against its schema; 3.6 MB.
+
+**Open.**
+- Recorded only as refusals or stand-ins: browser and pairing calls, `ps.*`, some secrets and conversation calls,
+  runtime checks (signed out only), real Mac answers (permissions, clipboard, Automation).
+- Frame order across connections is not fixed, only within each.
+- Things the app relies on that are easy to miss: `ack` always first; `request_id` and `at` are stamped when a
+  frame is queued; a merged message's stream is `ack`, `merged`, end; a restart ends open streams with
+  `{"ended": true}` and the result comes later through `chat.status`; an unknown method answers
+  `-32001 "not allowed for cli"`.
+- Found in Python (to fix with the ports that own them): a file's 19-digit `mtime_ns` in a tool result is
+  redacted as a card number when it passes the Luhn check, about one time in ten (`act/fs/files.py:51`); about 15
+  handlers answer bad parameters with an internal error; the global stop tags FERB's own words "(from the task)";
+  the trace stores a redacted copy of the system prompt, not what was sent.
