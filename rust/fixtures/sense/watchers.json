@@ -1,0 +1,1901 @@
+{
+ "accessibility": [
+  [
+   "com.google.Chrome",
+   "Chrome",
+   1,
+   "AXTitleChanged",
+   {
+    "window_id": "1",
+    "field_id": "f",
+    "role": "AXWindow",
+    "title": "Private bank statement"
+   },
+   {
+    "bundle_id": "com.google.Chrome",
+    "app": "Chrome",
+    "pid": 1,
+    "notification": "AXTitleChanged",
+    "window_id": "1",
+    "field_id": "f",
+    "role": "AXWindow"
+   }
+  ],
+  [
+   "com.apple.Notes",
+   "Notes",
+   2,
+   "AXTitleChanged",
+   {
+    "window_id": "1",
+    "field_id": "f",
+    "role": "AXWindow",
+    "title": "Bank statement 4111 1111 1111 1111",
+    "extra": "dropped"
+   },
+   {
+    "bundle_id": "com.apple.Notes",
+    "app": "Notes",
+    "pid": 2,
+    "notification": "AXTitleChanged",
+    "window_id": "1",
+    "field_id": "f",
+    "role": "AXWindow",
+    "title": "Bank statement [redacted]"
+   }
+  ],
+  [
+   "com.apple.Notes",
+   "Notes",
+   2,
+   "AXFocusedUIElementChanged",
+   {
+    "role": "AXButton"
+   },
+   {
+    "bundle_id": "com.apple.Notes",
+    "app": "Notes",
+    "pid": 2,
+    "notification": "AXFocusedUIElementChanged",
+    "role": "AXButton"
+   }
+  ]
+ ],
+ "element_facts": [
+  [
+   "plain",
+   "AXValueChanged",
+   {
+    "role": "AXTextField",
+    "field_id": "f1",
+    "window_id": "4242",
+    "title": "To"
+   }
+  ],
+  [
+   "plain",
+   "AXTitleChanged",
+   {
+    "role": "AXTextField",
+    "field_id": "f1",
+    "window_id": "4242",
+    "title": "To"
+   }
+  ],
+  [
+   "secure",
+   "AXValueChanged",
+   null
+  ],
+  [
+   "secure",
+   "AXTitleChanged",
+   {
+    "role": "AXSecureTextField",
+    "field_id": "s1",
+    "window_id": "4242"
+   }
+  ],
+  [
+   "sub",
+   "AXValueChanged",
+   null
+  ],
+  [
+   "sub",
+   "AXTitleChanged",
+   {
+    "role": "AXTextField",
+    "field_id": "s2",
+    "window_id": "4242"
+   }
+  ],
+  [
+   "shown",
+   "AXValueChanged",
+   null
+  ],
+  [
+   "shown",
+   "AXTitleChanged",
+   {
+    "role": "AXTextField",
+    "field_id": "p1",
+    "window_id": "4242"
+   }
+  ],
+  [
+   "nowin",
+   "AXValueChanged",
+   {
+    "role": "AXButton",
+    "field_id": "b1",
+    "window_id": "",
+    "title": ""
+   }
+  ],
+  [
+   "nowin",
+   "AXTitleChanged",
+   {
+    "role": "AXButton",
+    "field_id": "b1",
+    "window_id": "",
+    "title": ""
+   }
+  ],
+  [
+   "num",
+   "AXValueChanged",
+   {
+    "role": "",
+    "field_id": "n",
+    "window_id": "4242",
+    "title": "7"
+   }
+  ],
+  [
+   "num",
+   "AXTitleChanged",
+   {
+    "role": "",
+    "field_id": "n",
+    "window_id": "4242",
+    "title": "7"
+   }
+  ]
+ ],
+ "element_table": {
+  "plain": {
+   "AXRole": "AXTextField",
+   "AXIdentifier": "f1",
+   "AXTitle": "To",
+   "AXWindow": "win"
+  },
+  "secure": {
+   "AXRole": "AXSecureTextField",
+   "AXIdentifier": "s1",
+   "AXTitle": "Password",
+   "AXWindow": "win"
+  },
+  "sub": {
+   "AXRole": "AXTextField",
+   "AXSubrole": "AXSecureTextField",
+   "AXIdentifier": "s2",
+   "AXWindow": "win"
+  },
+  "shown": {
+   "AXRole": "AXTextField",
+   "AXIdentifier": "p1",
+   "AXPlaceholderValue": "Password",
+   "AXTitle": "x",
+   "AXWindow": "win"
+  },
+  "nowin": {
+   "AXRole": "AXButton",
+   "AXIdentifier": "b1",
+   "AXTitle": null
+  },
+  "win": {
+   "AXWindowNumber": 4242
+  },
+  "num": {
+   "AXRole": null,
+   "AXIdentifier": "n",
+   "AXTitle": 7,
+   "AXWindow": "win"
+  }
+ },
+ "app_install_folders": [
+  "<TMP>/Apps",
+  "<TMP>/Apps/Utilities"
+ ],
+ "app_installs": [
+  [
+   "<TMP>/Apps/Here.app",
+   256,
+   [
+    "app_install",
+    {
+     "change": "installed",
+     "app": "Here",
+     "bundle_id": "com.example.here",
+     "path": "<TMP>/Apps/Here.app"
+    },
+    {
+     "actor": "unknown"
+    }
+   ]
+  ],
+  [
+   "<TMP>/Apps/Gone.app",
+   512,
+   [
+    "app_install",
+    {
+     "change": "removed",
+     "app": "Gone",
+     "path": "<TMP>/Apps/Gone.app"
+    },
+    {
+     "actor": "unknown"
+    }
+   ]
+  ],
+  [
+   "<TMP>/Apps/Here.app",
+   2048,
+   [
+    "app_install",
+    {
+     "change": "installed",
+     "app": "Here",
+     "bundle_id": "com.example.here",
+     "path": "<TMP>/Apps/Here.app"
+    },
+    {
+     "actor": "unknown"
+    }
+   ]
+  ],
+  [
+   "<TMP>/Apps/Gone.app",
+   2048,
+   [
+    "app_install",
+    {
+     "change": "removed",
+     "app": "Gone",
+     "path": "<TMP>/Apps/Gone.app"
+    },
+    {
+     "actor": "unknown"
+    }
+   ]
+  ],
+  [
+   "<TMP>/Apps/Here.app/Contents",
+   256,
+   null
+  ],
+  [
+   "<TMP>/Elsewhere/Here.app",
+   256,
+   null
+  ],
+  [
+   "<TMP>/Apps/Here.txt",
+   256,
+   null
+  ],
+  [
+   "<TMP>/Apps/Here.app",
+   4096,
+   null
+  ],
+  [
+   "<TMP>/Apps/Here.app",
+   512,
+   null
+  ],
+  [
+   "<TMP>/Apps/Unknown.app",
+   256,
+   null
+  ],
+  [
+   "<TMP>/Apps/Unknown.app",
+   256,
+   null
+  ]
+ ],
+ "tab_observation": [
+  [
+   [
+    "chrome",
+    "Default",
+    false,
+    "activated",
+    "https://Docs.Example:8080/a",
+    "Docs",
+    null,
+    null
+   ],
+   [
+    "browser_tab",
+    {
+     "browser": "chrome",
+     "profile": "Default",
+     "host": "docs.example",
+     "url": "https://Docs.Example:8080/a",
+     "title": "Docs",
+     "incognito": false
+    },
+    {
+     "ferb_identity": false,
+     "tab_task": null
+    }
+   ]
+  ],
+  [
+   [
+    "brave",
+    "P1",
+    true,
+    "updated",
+    "https://x.example/",
+    null,
+    true,
+    "task-1"
+   ],
+   [
+    "browser_tab",
+    {
+     "browser": "brave",
+     "profile": "P1",
+     "host": "x.example",
+     "url": "https://x.example/",
+     "title": "",
+     "incognito": true
+    },
+    {
+     "ferb_identity": true,
+     "tab_task": "task-1"
+    }
+   ]
+  ],
+  [
+   [
+    "chrome",
+    "Default",
+    false,
+    "created",
+    "https://x.example/",
+    "t",
+    false,
+    null
+   ],
+   null
+  ],
+  [
+   [
+    "chrome",
+    "Default",
+    false,
+    "updated",
+    "",
+    "t",
+    false,
+    null
+   ],
+   null
+  ],
+  [
+   [
+    "chrome",
+    "Default",
+    false,
+    "updated",
+    "about:blank",
+    "t",
+    false,
+    null
+   ],
+   [
+    "browser_tab",
+    {
+     "browser": "chrome",
+     "profile": "Default",
+     "host": "",
+     "url": "about:blank",
+     "title": "t",
+     "incognito": false
+    },
+    {
+     "ferb_identity": false,
+     "tab_task": null
+    }
+   ]
+  ]
+ ],
+ "scripts": {
+  "com.apple.Safari": [
+   "safari",
+   "set t to current tab of front window\nreturn (URL of t) & linefeed & (name of t)"
+  ],
+  "com.google.Chrome": [
+   "chrome",
+   "set t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)"
+  ],
+  "com.google.Chrome.beta": [
+   "chrome-beta",
+   "set t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)"
+  ],
+  "com.google.Chrome.dev": [
+   "chrome-dev",
+   "set t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)"
+  ],
+  "com.google.Chrome.canary": [
+   "chrome-canary",
+   "set t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)"
+  ],
+  "org.chromium.Chromium": [
+   "chromium",
+   "set t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)"
+  ],
+  "com.brave.Browser": [
+   "brave",
+   "set t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)"
+  ],
+  "com.microsoft.edgemac": [
+   "edge",
+   "set t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)"
+  ],
+  "com.microsoft.edgemac.Beta": [
+   "edge-beta",
+   "set t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)"
+  ],
+  "com.microsoft.edgemac.Dev": [
+   "edge-dev",
+   "set t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)"
+  ],
+  "com.microsoft.edgemac.Canary": [
+   "edge-canary",
+   "set t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)"
+  ],
+  "com.vivaldi.Vivaldi": [
+   "vivaldi",
+   "set t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)"
+  ],
+  "company.thebrowser.Browser": [
+   "arc",
+   "set t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)"
+  ]
+ },
+ "window_scripts": {
+  "com.apple.Safari": "set fs to character id 31\nset rs to character id 30\nset gs to character id 29\ntell application id \"com.apple.Safari\"\n  set out to \"\"\n  repeat with w in (get windows)\n    set b to \"\"\n    try\n      set {x1, y1, x2, y2} to bounds of w\n      set b to (x1 as text) & gs & (y1 as text) & gs & (x2 as text) & gs & (y2 as text)\n    end try\n    set n to \"\"\n    try\n      set v to name of w\n      if v is not missing value then set n to v\n    end try\n    set u to \"\"\n    set ti to \"\"\n    try\n      set tb to current tab of w\n      set v to URL of tb\n      if v is not missing value then set u to v\n      set v to name of tb\n      if v is not missing value then set ti to v\n    end try\n    set out to out & b & fs & n & fs & u & fs & ti & rs\n  end repeat\n  return out\nend tell",
+  "com.google.Chrome": "set fs to character id 31\nset rs to character id 30\nset gs to character id 29\ntell application id \"com.google.Chrome\"\n  set out to \"\"\n  repeat with w in (get windows)\n    set b to \"\"\n    try\n      set {x1, y1, x2, y2} to bounds of w\n      set b to (x1 as text) & gs & (y1 as text) & gs & (x2 as text) & gs & (y2 as text)\n    end try\n    set n to \"\"\n    try\n      set v to name of w\n      if v is not missing value then set n to v\n    end try\n    set u to \"\"\n    set ti to \"\"\n    try\n      set tb to active tab of w\n      set v to URL of tb\n      if v is not missing value then set u to v\n      set v to title of tb\n      if v is not missing value then set ti to v\n    end try\n    set out to out & b & fs & n & fs & u & fs & ti & rs\n  end repeat\n  return out\nend tell",
+  "com.google.Chrome.beta": "set fs to character id 31\nset rs to character id 30\nset gs to character id 29\ntell application id \"com.google.Chrome.beta\"\n  set out to \"\"\n  repeat with w in (get windows)\n    set b to \"\"\n    try\n      set {x1, y1, x2, y2} to bounds of w\n      set b to (x1 as text) & gs & (y1 as text) & gs & (x2 as text) & gs & (y2 as text)\n    end try\n    set n to \"\"\n    try\n      set v to name of w\n      if v is not missing value then set n to v\n    end try\n    set u to \"\"\n    set ti to \"\"\n    try\n      set tb to active tab of w\n      set v to URL of tb\n      if v is not missing value then set u to v\n      set v to title of tb\n      if v is not missing value then set ti to v\n    end try\n    set out to out & b & fs & n & fs & u & fs & ti & rs\n  end repeat\n  return out\nend tell",
+  "com.google.Chrome.dev": "set fs to character id 31\nset rs to character id 30\nset gs to character id 29\ntell application id \"com.google.Chrome.dev\"\n  set out to \"\"\n  repeat with w in (get windows)\n    set b to \"\"\n    try\n      set {x1, y1, x2, y2} to bounds of w\n      set b to (x1 as text) & gs & (y1 as text) & gs & (x2 as text) & gs & (y2 as text)\n    end try\n    set n to \"\"\n    try\n      set v to name of w\n      if v is not missing value then set n to v\n    end try\n    set u to \"\"\n    set ti to \"\"\n    try\n      set tb to active tab of w\n      set v to URL of tb\n      if v is not missing value then set u to v\n      set v to title of tb\n      if v is not missing value then set ti to v\n    end try\n    set out to out & b & fs & n & fs & u & fs & ti & rs\n  end repeat\n  return out\nend tell",
+  "com.google.Chrome.canary": "set fs to character id 31\nset rs to character id 30\nset gs to character id 29\ntell application id \"com.google.Chrome.canary\"\n  set out to \"\"\n  repeat with w in (get windows)\n    set b to \"\"\n    try\n      set {x1, y1, x2, y2} to bounds of w\n      set b to (x1 as text) & gs & (y1 as text) & gs & (x2 as text) & gs & (y2 as text)\n    end try\n    set n to \"\"\n    try\n      set v to name of w\n      if v is not missing value then set n to v\n    end try\n    set u to \"\"\n    set ti to \"\"\n    try\n      set tb to active tab of w\n      set v to URL of tb\n      if v is not missing value then set u to v\n      set v to title of tb\n      if v is not missing value then set ti to v\n    end try\n    set out to out & b & fs & n & fs & u & fs & ti & rs\n  end repeat\n  return out\nend tell",
+  "org.chromium.Chromium": "set fs to character id 31\nset rs to character id 30\nset gs to character id 29\ntell application id \"org.chromium.Chromium\"\n  set out to \"\"\n  repeat with w in (get windows)\n    set b to \"\"\n    try\n      set {x1, y1, x2, y2} to bounds of w\n      set b to (x1 as text) & gs & (y1 as text) & gs & (x2 as text) & gs & (y2 as text)\n    end try\n    set n to \"\"\n    try\n      set v to name of w\n      if v is not missing value then set n to v\n    end try\n    set u to \"\"\n    set ti to \"\"\n    try\n      set tb to active tab of w\n      set v to URL of tb\n      if v is not missing value then set u to v\n      set v to title of tb\n      if v is not missing value then set ti to v\n    end try\n    set out to out & b & fs & n & fs & u & fs & ti & rs\n  end repeat\n  return out\nend tell",
+  "com.brave.Browser": "set fs to character id 31\nset rs to character id 30\nset gs to character id 29\ntell application id \"com.brave.Browser\"\n  set out to \"\"\n  repeat with w in (get windows)\n    set b to \"\"\n    try\n      set {x1, y1, x2, y2} to bounds of w\n      set b to (x1 as text) & gs & (y1 as text) & gs & (x2 as text) & gs & (y2 as text)\n    end try\n    set n to \"\"\n    try\n      set v to name of w\n      if v is not missing value then set n to v\n    end try\n    set u to \"\"\n    set ti to \"\"\n    try\n      set tb to active tab of w\n      set v to URL of tb\n      if v is not missing value then set u to v\n      set v to title of tb\n      if v is not missing value then set ti to v\n    end try\n    set out to out & b & fs & n & fs & u & fs & ti & rs\n  end repeat\n  return out\nend tell",
+  "com.microsoft.edgemac": "set fs to character id 31\nset rs to character id 30\nset gs to character id 29\ntell application id \"com.microsoft.edgemac\"\n  set out to \"\"\n  repeat with w in (get windows)\n    set b to \"\"\n    try\n      set {x1, y1, x2, y2} to bounds of w\n      set b to (x1 as text) & gs & (y1 as text) & gs & (x2 as text) & gs & (y2 as text)\n    end try\n    set n to \"\"\n    try\n      set v to name of w\n      if v is not missing value then set n to v\n    end try\n    set u to \"\"\n    set ti to \"\"\n    try\n      set tb to active tab of w\n      set v to URL of tb\n      if v is not missing value then set u to v\n      set v to title of tb\n      if v is not missing value then set ti to v\n    end try\n    set out to out & b & fs & n & fs & u & fs & ti & rs\n  end repeat\n  return out\nend tell",
+  "com.microsoft.edgemac.Beta": "set fs to character id 31\nset rs to character id 30\nset gs to character id 29\ntell application id \"com.microsoft.edgemac.Beta\"\n  set out to \"\"\n  repeat with w in (get windows)\n    set b to \"\"\n    try\n      set {x1, y1, x2, y2} to bounds of w\n      set b to (x1 as text) & gs & (y1 as text) & gs & (x2 as text) & gs & (y2 as text)\n    end try\n    set n to \"\"\n    try\n      set v to name of w\n      if v is not missing value then set n to v\n    end try\n    set u to \"\"\n    set ti to \"\"\n    try\n      set tb to active tab of w\n      set v to URL of tb\n      if v is not missing value then set u to v\n      set v to title of tb\n      if v is not missing value then set ti to v\n    end try\n    set out to out & b & fs & n & fs & u & fs & ti & rs\n  end repeat\n  return out\nend tell",
+  "com.microsoft.edgemac.Dev": "set fs to character id 31\nset rs to character id 30\nset gs to character id 29\ntell application id \"com.microsoft.edgemac.Dev\"\n  set out to \"\"\n  repeat with w in (get windows)\n    set b to \"\"\n    try\n      set {x1, y1, x2, y2} to bounds of w\n      set b to (x1 as text) & gs & (y1 as text) & gs & (x2 as text) & gs & (y2 as text)\n    end try\n    set n to \"\"\n    try\n      set v to name of w\n      if v is not missing value then set n to v\n    end try\n    set u to \"\"\n    set ti to \"\"\n    try\n      set tb to active tab of w\n      set v to URL of tb\n      if v is not missing value then set u to v\n      set v to title of tb\n      if v is not missing value then set ti to v\n    end try\n    set out to out & b & fs & n & fs & u & fs & ti & rs\n  end repeat\n  return out\nend tell",
+  "com.microsoft.edgemac.Canary": "set fs to character id 31\nset rs to character id 30\nset gs to character id 29\ntell application id \"com.microsoft.edgemac.Canary\"\n  set out to \"\"\n  repeat with w in (get windows)\n    set b to \"\"\n    try\n      set {x1, y1, x2, y2} to bounds of w\n      set b to (x1 as text) & gs & (y1 as text) & gs & (x2 as text) & gs & (y2 as text)\n    end try\n    set n to \"\"\n    try\n      set v to name of w\n      if v is not missing value then set n to v\n    end try\n    set u to \"\"\n    set ti to \"\"\n    try\n      set tb to active tab of w\n      set v to URL of tb\n      if v is not missing value then set u to v\n      set v to title of tb\n      if v is not missing value then set ti to v\n    end try\n    set out to out & b & fs & n & fs & u & fs & ti & rs\n  end repeat\n  return out\nend tell",
+  "com.vivaldi.Vivaldi": "set fs to character id 31\nset rs to character id 30\nset gs to character id 29\ntell application id \"com.vivaldi.Vivaldi\"\n  set out to \"\"\n  repeat with w in (get windows)\n    set b to \"\"\n    try\n      set {x1, y1, x2, y2} to bounds of w\n      set b to (x1 as text) & gs & (y1 as text) & gs & (x2 as text) & gs & (y2 as text)\n    end try\n    set n to \"\"\n    try\n      set v to name of w\n      if v is not missing value then set n to v\n    end try\n    set u to \"\"\n    set ti to \"\"\n    try\n      set tb to active tab of w\n      set v to URL of tb\n      if v is not missing value then set u to v\n      set v to title of tb\n      if v is not missing value then set ti to v\n    end try\n    set out to out & b & fs & n & fs & u & fs & ti & rs\n  end repeat\n  return out\nend tell",
+  "company.thebrowser.Browser": "set fs to character id 31\nset rs to character id 30\nset gs to character id 29\ntell application id \"company.thebrowser.Browser\"\n  set out to \"\"\n  repeat with w in (get windows)\n    set b to \"\"\n    try\n      set {x1, y1, x2, y2} to bounds of w\n      set b to (x1 as text) & gs & (y1 as text) & gs & (x2 as text) & gs & (y2 as text)\n    end try\n    set n to \"\"\n    try\n      set v to name of w\n      if v is not missing value then set n to v\n    end try\n    set u to \"\"\n    set ti to \"\"\n    try\n      set tb to active tab of w\n      set v to URL of tb\n      if v is not missing value then set u to v\n      set v to title of tb\n      if v is not missing value then set ti to v\n    end try\n    set out to out & b & fs & n & fs & u & fs & ti & rs\n  end repeat\n  return out\nend tell"
+ },
+ "front_tab_script": {
+  "com.apple.Safari": "tell application id \"com.apple.Safari\"\nset t to current tab of front window\nreturn (URL of t) & linefeed & (name of t)\nend tell",
+  "com.google.Chrome": "tell application id \"com.google.Chrome\"\nset t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)\nend tell",
+  "com.google.Chrome.beta": "tell application id \"com.google.Chrome.beta\"\nset t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)\nend tell",
+  "com.google.Chrome.dev": "tell application id \"com.google.Chrome.dev\"\nset t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)\nend tell",
+  "com.google.Chrome.canary": "tell application id \"com.google.Chrome.canary\"\nset t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)\nend tell",
+  "org.chromium.Chromium": "tell application id \"org.chromium.Chromium\"\nset t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)\nend tell",
+  "com.brave.Browser": "tell application id \"com.brave.Browser\"\nset t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)\nend tell",
+  "com.microsoft.edgemac": "tell application id \"com.microsoft.edgemac\"\nset t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)\nend tell",
+  "com.microsoft.edgemac.Beta": "tell application id \"com.microsoft.edgemac.Beta\"\nset t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)\nend tell",
+  "com.microsoft.edgemac.Dev": "tell application id \"com.microsoft.edgemac.Dev\"\nset t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)\nend tell",
+  "com.microsoft.edgemac.Canary": "tell application id \"com.microsoft.edgemac.Canary\"\nset t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)\nend tell",
+  "com.vivaldi.Vivaldi": "tell application id \"com.vivaldi.Vivaldi\"\nset t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)\nend tell",
+  "company.thebrowser.Browser": "tell application id \"company.thebrowser.Browser\"\nset t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)\nend tell"
+ },
+ "parsed": {
+  "ok": {
+   "stdout": "1\u001d22\u001d1201\u001d822\u001fMail\u001fhttps://mail.example/\u001fInbox\u001e-5,5\u001d0\u001d100\u001d50\u001fDocs\u001f  https://docs.example/ \u001fDocs\u001e\u001fNo bounds\u001f\u001f\u001ebad\u001d1\u001fBad\u001fu\u001ft\u001e3 fields\u001fx\u001fy\n",
+   "windows": [
+    [
+     [
+      1.0,
+      22.0,
+      1200.0,
+      800.0
+     ],
+     "Mail",
+     "https://mail.example/",
+     "Inbox"
+    ],
+    [
+     [
+      -5.5,
+      0.0,
+      105.5,
+      50.0
+     ],
+     "Docs",
+     "https://docs.example/",
+     "Docs"
+    ],
+    [
+     null,
+     "No bounds",
+     "",
+     ""
+    ],
+    [
+     null,
+     "Bad",
+     "u",
+     "t"
+    ]
+   ],
+   "front": [
+    "1\u001d22\u001d1201\u001d822\u001fMail\u001fhttps://mail.example/\u001fInbox\u001e-5,5\u001d0\u001d100\u001d50\u001fDocs\u001f  https://docs.example/ \u001fDocs\u001e\u001fNo bounds\u001f\u001f\u001ebad\u001d1\u001fBad\u001fu\u001ft\u001e3 fields\u001fx\u001fy",
+    ""
+   ]
+  },
+  "front": {
+   "stdout": "https://a.example/\nA title\nwith lines\n",
+   "windows": [],
+   "front": [
+    "https://a.example/",
+    "A title\nwith lines"
+   ]
+  },
+  "blank": {
+   "stdout": "  \nT\n",
+   "windows": [],
+   "front": null
+  },
+  "fail": {
+   "stdout": null,
+   "windows": null,
+   "front": null
+  }
+ },
+ "window_sets": {
+  "one": [
+   [
+    [
+     0,
+     0,
+     800,
+     600
+    ],
+    "A",
+    "https://a/",
+    "At"
+   ]
+  ],
+  "two": [
+   [
+    [
+     0,
+     0,
+     800,
+     600
+    ],
+    "A",
+    "u1",
+    "t1"
+   ],
+   [
+    [
+     1,
+     1,
+     799,
+     601
+    ],
+    "B",
+    "u2",
+    "t2"
+   ]
+  ],
+  "none": [
+   [
+    [
+     500,
+     0,
+     800,
+     600
+    ],
+    "A",
+    "u",
+    "t"
+   ]
+  ],
+  "anywhere": [
+   [
+    null,
+    "A",
+    "u",
+    "t"
+   ]
+  ],
+  "mix": [
+   [
+    [
+     0,
+     0,
+     800,
+     600
+    ],
+    "A",
+    "u1",
+    "t1"
+   ],
+   [
+    null,
+    "B",
+    "u2",
+    "B"
+   ]
+  ],
+  "empty": []
+ },
+ "window_tab": [
+  [
+   "one",
+   "A",
+   [
+    [
+     0,
+     0,
+     800,
+     600
+    ],
+    "A",
+    "https://a/",
+    "At"
+   ]
+  ],
+  [
+   "one",
+   "B",
+   [
+    [
+     0,
+     0,
+     800,
+     600
+    ],
+    "A",
+    "https://a/",
+    "At"
+   ]
+  ],
+  [
+   "one",
+   "",
+   [
+    [
+     0,
+     0,
+     800,
+     600
+    ],
+    "A",
+    "https://a/",
+    "At"
+   ]
+  ],
+  [
+   "one",
+   "zzz",
+   [
+    [
+     0,
+     0,
+     800,
+     600
+    ],
+    "A",
+    "https://a/",
+    "At"
+   ]
+  ],
+  [
+   "one",
+   "t2",
+   [
+    [
+     0,
+     0,
+     800,
+     600
+    ],
+    "A",
+    "https://a/",
+    "At"
+   ]
+  ],
+  [
+   "two",
+   "A",
+   [
+    [
+     0,
+     0,
+     800,
+     600
+    ],
+    "A",
+    "u1",
+    "t1"
+   ]
+  ],
+  [
+   "two",
+   "B",
+   [
+    [
+     1,
+     1,
+     799,
+     601
+    ],
+    "B",
+    "u2",
+    "t2"
+   ]
+  ],
+  [
+   "two",
+   "",
+   {
+    "ambiguous": "more than one of the browser's windows could be the captured one and its title doesn't single one out, so FERB can't tell which tab it shows: no URL or tab title"
+   }
+  ],
+  [
+   "two",
+   "zzz",
+   {
+    "ambiguous": "more than one of the browser's windows could be the captured one and its title doesn't single one out, so FERB can't tell which tab it shows: no URL or tab title"
+   }
+  ],
+  [
+   "two",
+   "t2",
+   [
+    [
+     1,
+     1,
+     799,
+     601
+    ],
+    "B",
+    "u2",
+    "t2"
+   ]
+  ],
+  [
+   "none",
+   "A",
+   {
+    "lookup": "none of the browser's windows is where the captured window is, so FERB can't tell which tab it shows: no URL or tab title"
+   }
+  ],
+  [
+   "none",
+   "B",
+   {
+    "lookup": "none of the browser's windows is where the captured window is, so FERB can't tell which tab it shows: no URL or tab title"
+   }
+  ],
+  [
+   "none",
+   "",
+   {
+    "lookup": "none of the browser's windows is where the captured window is, so FERB can't tell which tab it shows: no URL or tab title"
+   }
+  ],
+  [
+   "none",
+   "zzz",
+   {
+    "lookup": "none of the browser's windows is where the captured window is, so FERB can't tell which tab it shows: no URL or tab title"
+   }
+  ],
+  [
+   "none",
+   "t2",
+   {
+    "lookup": "none of the browser's windows is where the captured window is, so FERB can't tell which tab it shows: no URL or tab title"
+   }
+  ],
+  [
+   "anywhere",
+   "A",
+   [
+    null,
+    "A",
+    "u",
+    "t"
+   ]
+  ],
+  [
+   "anywhere",
+   "B",
+   {
+    "ambiguous": "more than one of the browser's windows could be the captured one and its title doesn't single one out, so FERB can't tell which tab it shows: no URL or tab title"
+   }
+  ],
+  [
+   "anywhere",
+   "",
+   {
+    "ambiguous": "more than one of the browser's windows could be the captured one and its title doesn't single one out, so FERB can't tell which tab it shows: no URL or tab title"
+   }
+  ],
+  [
+   "anywhere",
+   "zzz",
+   {
+    "ambiguous": "more than one of the browser's windows could be the captured one and its title doesn't single one out, so FERB can't tell which tab it shows: no URL or tab title"
+   }
+  ],
+  [
+   "anywhere",
+   "t2",
+   {
+    "ambiguous": "more than one of the browser's windows could be the captured one and its title doesn't single one out, so FERB can't tell which tab it shows: no URL or tab title"
+   }
+  ],
+  [
+   "mix",
+   "A",
+   [
+    [
+     0,
+     0,
+     800,
+     600
+    ],
+    "A",
+    "u1",
+    "t1"
+   ]
+  ],
+  [
+   "mix",
+   "B",
+   [
+    null,
+    "B",
+    "u2",
+    "B"
+   ]
+  ],
+  [
+   "mix",
+   "",
+   {
+    "ambiguous": "more than one of the browser's windows could be the captured one and its title doesn't single one out, so FERB can't tell which tab it shows: no URL or tab title"
+   }
+  ],
+  [
+   "mix",
+   "zzz",
+   {
+    "ambiguous": "more than one of the browser's windows could be the captured one and its title doesn't single one out, so FERB can't tell which tab it shows: no URL or tab title"
+   }
+  ],
+  [
+   "mix",
+   "t2",
+   {
+    "ambiguous": "more than one of the browser's windows could be the captured one and its title doesn't single one out, so FERB can't tell which tab it shows: no URL or tab title"
+   }
+  ],
+  [
+   "empty",
+   "A",
+   {
+    "lookup": "none of the browser's windows is where the captured window is, so FERB can't tell which tab it shows: no URL or tab title"
+   }
+  ],
+  [
+   "empty",
+   "B",
+   {
+    "lookup": "none of the browser's windows is where the captured window is, so FERB can't tell which tab it shows: no URL or tab title"
+   }
+  ],
+  [
+   "empty",
+   "",
+   {
+    "lookup": "none of the browser's windows is where the captured window is, so FERB can't tell which tab it shows: no URL or tab title"
+   }
+  ],
+  [
+   "empty",
+   "zzz",
+   {
+    "lookup": "none of the browser's windows is where the captured window is, so FERB can't tell which tab it shows: no URL or tab title"
+   }
+  ],
+  [
+   "empty",
+   "t2",
+   {
+    "lookup": "none of the browser's windows is where the captured window is, so FERB can't tell which tab it shows: no URL or tab title"
+   }
+  ]
+ ],
+ "scripted_tabs": [
+  [
+   null,
+   null
+  ],
+  [
+   [
+    1,
+    "com.apple.Notes",
+    "Notes"
+   ],
+   null
+  ],
+  [
+   [
+    2,
+    "com.apple.Safari",
+    "Safari"
+   ],
+   [
+    "browser_tab",
+    {
+     "browser": "safari",
+     "profile": null,
+     "host": "s.example",
+     "url": "https://s.example/",
+     "title": "S"
+    },
+    {}
+   ]
+  ],
+  [
+   [
+    2,
+    "com.apple.Safari",
+    "Safari"
+   ],
+   null
+  ],
+  [
+   [
+    3,
+    "com.google.Chrome",
+    "Chrome"
+   ],
+   null
+  ],
+  [
+   [
+    4,
+    "com.brave.Browser",
+    "Brave"
+   ],
+   null
+  ],
+  [
+   [
+    5,
+    "com.vivaldi.Vivaldi",
+    "Vivaldi"
+   ],
+   null
+  ],
+  [
+   [
+    6,
+    "com.operasoftware.Opera",
+    "Opera"
+   ],
+   null
+  ],
+  [
+   [
+    2,
+    "com.apple.Safari",
+    "Safari"
+   ],
+   [
+    "browser_tab",
+    {
+     "browser": "safari",
+     "profile": null,
+     "host": "s.example",
+     "url": "https://s.example/2",
+     "title": "S2"
+    },
+    {}
+   ]
+  ]
+ ],
+ "access": [
+  [
+   null,
+   "unrestricted"
+  ],
+  [
+   0,
+   "default"
+  ],
+  [
+   1,
+   "ask"
+  ],
+  [
+   2,
+   "allow"
+  ],
+  [
+   3,
+   "deny"
+  ],
+  [
+   9,
+   "unknown"
+  ]
+ ],
+ "clipboard_steps": {
+  "initial": 1,
+  "log": [
+   {
+    "step": {},
+    "emitted": [],
+    "reported": [],
+    "last": 1,
+    "state": null
+   },
+   {
+    "step": {
+     "count": 2
+    },
+    "emitted": [
+     [
+      "clipboard",
+      {
+       "bundle_id": "com.apple.Notes",
+       "app": "Notes",
+       "pid": 9,
+       "app_context": "frontmost; not proof of writer",
+       "text": "hello",
+       "change_count": 2
+      },
+      {
+       "actor": "unknown",
+       "task_id": null
+      }
+     ]
+    ],
+    "reported": [
+     "allow"
+    ],
+    "last": 2,
+    "state": "allow"
+   },
+   {
+    "step": {
+     "count": 3,
+     "text": "card 4111 1111 1111 1111"
+    },
+    "emitted": [
+     [
+      "clipboard",
+      {
+       "bundle_id": "com.apple.Notes",
+       "app": "Notes",
+       "pid": 9,
+       "app_context": "frontmost; not proof of writer",
+       "text": "card [redacted]",
+       "change_count": 3
+      },
+      {
+       "actor": "unknown",
+       "task_id": null
+      }
+     ]
+    ],
+    "reported": [],
+    "last": 3,
+    "state": "allow"
+   },
+   {
+    "step": {
+     "count": 4,
+     "behavior": 1
+    },
+    "emitted": [],
+    "reported": [
+     "ask"
+    ],
+    "last": 4,
+    "state": "ask"
+   },
+   {
+    "step": {
+     "count": 5,
+     "behavior": 0
+    },
+    "emitted": [],
+    "reported": [
+     "default"
+    ],
+    "last": 5,
+    "state": "default"
+   },
+   {
+    "step": {
+     "count": 6,
+     "behavior": 2
+    },
+    "emitted": [
+     [
+      "clipboard",
+      {
+       "bundle_id": "com.apple.Notes",
+       "app": "Notes",
+       "pid": 9,
+       "app_context": "frontmost; not proof of writer",
+       "text": "card [redacted]",
+       "change_count": 6
+      },
+      {
+       "actor": "unknown",
+       "task_id": null
+      }
+     ]
+    ],
+    "reported": [
+     "allow"
+    ],
+    "last": 6,
+    "state": "allow"
+   },
+   {
+    "step": {
+     "count": 7,
+     "focus": null
+    },
+    "emitted": [],
+    "reported": [],
+    "last": 7,
+    "state": "allow"
+   },
+   {
+    "step": {
+     "count": 8,
+     "focus": [
+      "com.example.vault",
+      "Vault"
+     ]
+    },
+    "emitted": [],
+    "reported": [],
+    "last": 8,
+    "state": "allow"
+   },
+   {
+    "step": {
+     "count": 9,
+     "focus": [
+      "com.apple.Notes",
+      "Notes"
+     ],
+     "kinds": [
+      "org.nspasteboard.ConcealedType"
+     ]
+    },
+    "emitted": [],
+    "reported": [],
+    "last": 9,
+    "state": "allow"
+   },
+   {
+    "step": {
+     "count": 10,
+     "kinds": [
+      "public.utf8-plain-text"
+     ],
+     "text": null
+    },
+    "emitted": [],
+    "reported": [],
+    "last": 10,
+    "state": "allow"
+   },
+   {
+    "step": {
+     "count": 11,
+     "text": "raced",
+     "bump": true
+    },
+    "emitted": [],
+    "reported": [],
+    "last": 11,
+    "state": "allow"
+   },
+   {
+    "step": {
+     "count": 13,
+     "bump": false,
+     "text": "mine",
+     "mark": [
+      13,
+      "task-2"
+     ]
+    },
+    "emitted": [
+     [
+      "clipboard",
+      {
+       "bundle_id": "com.apple.Notes",
+       "app": "Notes",
+       "pid": 9,
+       "app_context": "frontmost; not proof of writer",
+       "text": "mine",
+       "change_count": 13
+      },
+      {
+       "actor": "ferb",
+       "task_id": "task-2"
+      }
+     ]
+    ],
+    "reported": [],
+    "last": 13,
+    "state": "allow"
+   },
+   {
+    "step": {
+     "count": 14,
+     "text": "after mine"
+    },
+    "emitted": [
+     [
+      "clipboard",
+      {
+       "bundle_id": "com.apple.Notes",
+       "app": "Notes",
+       "pid": 9,
+       "app_context": "frontmost; not proof of writer",
+       "text": "after mine",
+       "change_count": 14
+      },
+      {
+       "actor": "unknown",
+       "task_id": null
+      }
+     ]
+    ],
+    "reported": [],
+    "last": 14,
+    "state": "allow"
+   }
+  ]
+ },
+ "valid_folders": [
+  [
+   "<TMP>/home/Docs",
+   "<TMP>/home",
+   "<TMP>/home/Docs",
+   "<TMP>/home/Docs"
+  ],
+  [
+   "~/Docs/sub: excluded ([privacy] exclude_paths)",
+   "~/.ssh: excluded ([privacy] exclude_paths)",
+   "~/missing: doesn't exist",
+   "~/file.txt: not a folder",
+   "<TMP>/outside: not inside your home folder"
+  ]
+ ],
+ "change_of": [
+  [
+   "exists",
+   512,
+   null
+  ],
+  [
+   "gone",
+   512,
+   "removed"
+  ],
+  [
+   "exists",
+   2048,
+   "renamed_in"
+  ],
+  [
+   "gone",
+   2048,
+   "renamed_out"
+  ],
+  [
+   "exists",
+   256,
+   "created"
+  ],
+  [
+   "exists",
+   4096,
+   "modified"
+  ],
+  [
+   "exists",
+   4352,
+   "created"
+  ],
+  [
+   "gone",
+   768,
+   "removed"
+  ],
+  [
+   "exists",
+   768,
+   "created"
+  ],
+  [
+   "exists",
+   131072,
+   null
+  ],
+  [
+   "exists",
+   0,
+   null
+  ]
+ ],
+ "noise": [
+  [
+   "/a/.DS_Store",
+   true
+  ],
+  [
+   "/a/.git",
+   true
+  ],
+  [
+   "/a/.git/x",
+   true
+  ],
+  [
+   "/a/.github/x",
+   false
+  ],
+  [
+   "/r/.git/objects/ab",
+   true
+  ],
+  [
+   "a",
+   false
+  ],
+  [
+   "/a/b.git",
+   false
+  ],
+  [
+   ".git",
+   true
+  ],
+  [
+   "/",
+   false
+  ]
+ ],
+ "files_observe": [
+  [
+   "exists",
+   256,
+   0,
+   [
+    "file",
+    {
+     "path": "<TMP>/fs/exists",
+     "change": "created",
+     "is_dir": false
+    }
+   ]
+  ],
+  [
+   "exists",
+   256,
+   0.5,
+   [
+    "file",
+    {
+     "path": "<TMP>/fs/exists",
+     "change": "modified",
+     "is_dir": false
+    }
+   ]
+  ],
+  [
+   "exists",
+   4352,
+   0.6,
+   null
+  ],
+  [
+   "exists",
+   4096,
+   0.2,
+   null
+  ],
+  [
+   "gone",
+   512,
+   0.1,
+   [
+    "file",
+    {
+     "path": "<TMP>/fs/gone",
+     "change": "removed",
+     "is_dir": false
+    }
+   ]
+  ],
+  [
+   "gone",
+   512,
+   0.1,
+   null
+  ],
+  [
+   "gone",
+   512,
+   2.0,
+   [
+    "file",
+    {
+     "path": "<TMP>/fs/gone",
+     "change": "removed",
+     "is_dir": false
+    }
+   ]
+  ],
+  [
+   "exists",
+   256,
+   0.1,
+   [
+    "file",
+    {
+     "path": "<TMP>/fs/exists",
+     "change": "modified",
+     "is_dir": false
+    }
+   ]
+  ],
+  [
+   ".DS_Store",
+   256,
+   0,
+   null
+  ],
+  [
+   "exists",
+   135168,
+   3,
+   [
+    "file",
+    {
+     "path": "<TMP>/fs/exists",
+     "change": "modified",
+     "is_dir": true
+    }
+   ]
+  ],
+  [
+   "exists",
+   0,
+   0,
+   null
+  ]
+ ],
+ "idle": [
+  [
+   null,
+   true,
+   1000.0,
+   [
+    [
+     "idle",
+     {
+      "state": "idle"
+     },
+     {
+      "actor": "owner"
+     }
+    ]
+   ]
+  ],
+  [
+   990.0,
+   true,
+   1000.0,
+   [
+    [
+     "idle",
+     {
+      "state": "active"
+     },
+     {
+      "actor": "owner"
+     }
+    ]
+   ]
+  ],
+  [
+   990.0,
+   true,
+   1100.0,
+   []
+  ],
+  [
+   990.0,
+   true,
+   1110.0,
+   [
+    [
+     "idle",
+     {
+      "state": "idle"
+     },
+     {
+      "actor": "owner"
+     }
+    ]
+   ]
+  ],
+  [
+   990.0,
+   false,
+   2000.0,
+   []
+  ],
+  [
+   1999.0,
+   true,
+   2000.0,
+   [
+    [
+     "idle",
+     {
+      "state": "active"
+     },
+     {
+      "actor": "owner"
+     }
+    ]
+   ]
+  ],
+  [
+   null,
+   true,
+   3000.0,
+   [
+    [
+     "idle",
+     {
+      "state": "idle"
+     },
+     {
+      "actor": "owner"
+     }
+    ]
+   ]
+  ]
+ ],
+ "notifications": [
+  {
+   "after": 0,
+   "out": [
+    [
+     "notification",
+     {
+      "external_id": "0c526e964e6bf0ab52aa15ac7e0605faa5120d27ad9555b823f2facb4171483f",
+      "bundle_id": "com.chat",
+      "title": "Ann",
+      "body": "lunch? [redacted]",
+      "conversation": "t-1",
+      "conversation_source": "thread"
+     },
+     {
+      "actor": "unknown"
+     }
+    ],
+    [
+     "notification",
+     {
+      "external_id": "4a0693e91de623afeba525f30e152d88f6a59bd08ba687f8ebc6abdd4fa96763",
+      "bundle_id": "com.mail",
+      "title": "Plain",
+      "body": "5",
+      "conversation": "Plain",
+      "conversation_source": "title"
+     },
+     {
+      "actor": "unknown"
+     }
+    ],
+    [
+     "notification",
+     {
+      "external_id": "3ebde4b5e6d8a3d3041f11394caef4c3e6db345037fb0a816e0e1d263fae0426",
+      "bundle_id": "com.chat",
+      "decode_error": "unsupported notification payload"
+     },
+     {
+      "actor": "unknown"
+     }
+    ],
+    [
+     "notification",
+     {
+      "external_id": "59cf524725ff35c98fd429830ab2975aaa290744384c37a27a65fe1135013b5a",
+      "bundle_id": "com.chat",
+      "decode_error": "unsupported notification payload"
+     },
+     {
+      "actor": "unknown"
+     }
+    ],
+    [
+     "notification",
+     {
+      "external_id": "ff8eef7afcd7edd25fadd990eabfbdede6505c9479ed0e3db80fee9bfbdd66a0",
+      "bundle_id": "com.mail",
+      "title": "",
+      "body": "",
+      "conversation": "",
+      "conversation_source": "title"
+     },
+     {
+      "actor": "unknown"
+     }
+    ]
+   ],
+   "after_read": 6
+  },
+  {
+   "after": 6,
+   "out": [
+    [
+     "notification",
+     {
+      "external_id": "69903ca3759e128cf4fe092742823bf1e33a83c7b31219b66a610513ed5dc620",
+      "bundle_id": "com.chat",
+      "title": "Bob",
+      "body": "hey",
+      "conversation": "Bob",
+      "conversation_source": "title"
+     },
+     {
+      "actor": "unknown"
+     }
+    ]
+   ],
+   "after_read": 7
+  },
+  {
+   "after": 7,
+   "out": [
+    [
+     "notification",
+     {
+      "external_id": "0c526e964e6bf0ab52aa15ac7e0605faa5120d27ad9555b823f2facb4171483f",
+      "bundle_id": "com.chat",
+      "title": "Ann",
+      "body": "lunch? [redacted]",
+      "conversation": "t-1",
+      "conversation_source": "thread"
+     },
+     {
+      "actor": "unknown"
+     }
+    ]
+   ],
+   "after_read": 2
+  },
+  {
+   "bad": "Notification Center schema is unsupported"
+  }
+ ],
+ "notification_records": [
+  [
+   1,
+   1,
+   "0102757569642d31",
+   "62706c6973743030d1010253726571d303040506070854626f64795474687265547469746c5f101a6c756e63683f203431313120313131312031313131203131313153742d3153416e6e080b0f161b20254246000000000000010100000000000000090000000000000000000000000000004a"
+  ],
+  [
+   2,
+   2,
+   "757569642d32",
+   "3c3f786d6c2076657273696f6e3d22312e302220656e636f64696e673d225554462d38223f3e0a3c21444f435459504520706c697374205055424c494320222d2f2f4170706c652f2f44544420504c49535420312e302f2f454e222022687474703a2f2f7777772e6170706c652e636f6d2f445444732f50726f70657274794c6973742d312e302e647464223e0a3c706c6973742076657273696f6e3d22312e30223e0a3c646963743e0a093c6b65793e7265713c2f6b65793e0a093c646963743e0a09093c6b65793e626f64793c2f6b65793e0a09093c737472696e673e7365637265743c2f737472696e673e0a09093c6b65793e7469746c3c2f6b65793e0a09093c737472696e673e5661756c743c2f737472696e673e0a093c2f646963743e0a3c2f646963743e0a3c2f706c6973743e0a"
+  ],
+  [
+   3,
+   3,
+   "text-uuid-3",
+   "3c3f786d6c2076657273696f6e3d22312e302220656e636f64696e673d225554462d38223f3e0a3c21444f435459504520706c697374205055424c494320222d2f2f4170706c652f2f44544420504c49535420312e302f2f454e222022687474703a2f2f7777772e6170706c652e636f6d2f445444732f50726f70657274794c6973742d312e302e647464223e0a3c706c6973742076657273696f6e3d22312e30223e0a3c646963743e0a093c6b65793e626f64793c2f6b65793e0a093c696e74656765723e353c2f696e74656765723e0a093c6b65793e7469746c653c2f6b65793e0a093c737472696e673e506c61696e3c2f737472696e673e0a3c2f646963743e0a3c2f706c6973743e0a"
+  ],
+  [
+   4,
+   1,
+   "757569642d34",
+   "6e6f74206120706c697374"
+  ],
+  [
+   5,
+   1,
+   "757569642d35",
+   "3c3f786d6c2076657273696f6e3d22312e302220656e636f64696e673d225554462d38223f3e0a3c21444f435459504520706c697374205055424c494320222d2f2f4170706c652f2f44544420504c49535420312e302f2f454e222022687474703a2f2f7777772e6170706c652e636f6d2f445444732f50726f70657274794c6973742d312e302e647464223e0a3c706c6973742076657273696f6e3d22312e30223e0a3c646963743e0a093c6b65793e7265713c2f6b65793e0a093c61727261793e0a09093c737472696e673e6c6973743c2f737472696e673e0a093c2f61727261793e0a3c2f646963743e0a3c2f706c6973743e0a"
+  ],
+  [
+   6,
+   3,
+   "757569642d36",
+   "3c3f786d6c2076657273696f6e3d22312e302220656e636f64696e673d225554462d38223f3e0a3c21444f435459504520706c697374205055424c494320222d2f2f4170706c652f2f44544420504c49535420312e302f2f454e222022687474703a2f2f7777772e6170706c652e636f6d2f445444732f50726f70657274794c6973742d312e302e647464223e0a3c706c6973742076657273696f6e3d22312e30223e0a3c646963743e0a093c6b65793e7265713c2f6b65793e0a093c646963743e0a09093c6b65793e746872653c2f6b65793e0a09093c737472696e673e3c2f737472696e673e0a09093c6b65793e7469746c3c2f6b65793e0a09093c737472696e673e3c2f737472696e673e0a093c2f646963743e0a3c2f646963743e0a3c2f706c6973743e0a"
+  ]
+ ],
+ "presence": [
+  {
+   "op": "away before start",
+   "away": false
+  },
+  {
+   "op": "changed before start",
+   "away": false,
+   "returns": []
+  },
+  {
+   "op": "start locked",
+   "away": true,
+   "returns": [],
+   "present_since": null
+  },
+  {
+   "op": "changed",
+   "flag": "asleep",
+   "value": true,
+   "away": true,
+   "returns": [],
+   "present_since": null
+  },
+  {
+   "op": "changed",
+   "flag": "locked",
+   "value": false,
+   "away": true,
+   "returns": [],
+   "present_since": null
+  },
+  {
+   "op": "changed",
+   "flag": "asleep",
+   "value": false,
+   "away": false,
+   "returns": [
+    "wake"
+   ],
+   "present_since": 5030.0
+  },
+  {
+   "op": "changed",
+   "flag": "asleep",
+   "value": false,
+   "away": false,
+   "returns": [
+    "wake"
+   ],
+   "present_since": 5030.0
+  },
+  {
+   "op": "changed",
+   "flag": "nonsense",
+   "value": true,
+   "away": false,
+   "returns": [
+    "wake"
+   ],
+   "present_since": 5030.0
+  },
+  {
+   "op": "changed",
+   "flag": "displays_asleep",
+   "value": true,
+   "away": true,
+   "returns": [
+    "wake"
+   ],
+   "present_since": 5030.0
+  },
+  {
+   "op": "changed",
+   "flag": "switched_away",
+   "value": true,
+   "away": true,
+   "returns": [
+    "wake"
+   ],
+   "present_since": 5030.0
+  },
+  {
+   "op": "changed",
+   "flag": "displays_asleep",
+   "value": false,
+   "away": true,
+   "returns": [
+    "wake"
+   ],
+   "present_since": 5030.0
+  },
+  {
+   "op": "changed",
+   "flag": "switched_away",
+   "value": false,
+   "away": false,
+   "returns": [
+    "wake",
+    "session_active"
+   ],
+   "present_since": 5090.0
+  },
+  {
+   "op": "read",
+   "away": true,
+   "returns": [
+    "wake",
+    "session_active"
+   ]
+  },
+  {
+   "op": "read nothing",
+   "away": true,
+   "returns": [
+    "wake",
+    "session_active"
+   ]
+  },
+  {
+   "op": "read back",
+   "away": false,
+   "returns": [
+    "wake",
+    "session_active",
+    "screens_wake"
+   ],
+   "present_since": 5091.0
+  },
+  {
+   "op": "on_return raises",
+   "away": false,
+   "present_since": 5091.0
+  },
+  {
+   "op": "stop",
+   "away": false
+  },
+  {
+   "op": "changed after stop",
+   "away": false
+  }
+ ]
+}

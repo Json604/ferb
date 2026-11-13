@@ -1,0 +1,49 @@
+[package]
+name = "ferb-sense"
+version = "0.28.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.100"
+publish = false
+description = "FERB's perception (ferb/sense): the trail and its receipts, exclusions, attribution, capture, today's activity, batches, the watcher manager, the trail tools, the front window, software facts, transcription's daemon side, and each watcher's mapping, with the macOS sources in `mac`"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[features]
+default = ["store"]
+# The Mac-side parts: the SQLite store (trail rows, receipts, batches, notification context, perception's
+# notification path, the trail tools, TCC and Notification Center reads) and transcription (which needs ferb-fs's
+# difflib and starts FERB.app). Without it the crate is the portable engine only.
+store = ["dep:ferb-store", "dep:rusqlite", "dep:ferb-fs", "dep:ferb-memory"]
+
+[dependencies]
+ferb-core = { path = "../ferb-core" }
+ferb-py = { path = "../ferb-py" }
+ferb-sanitize = { path = "../ferb-sanitize" }
+ferb-context = { path = "../ferb-context" }
+ferb-memory = { path = "../ferb-memory", default-features = false, optional = true }
+ferb-store = { path = "../ferb-store", optional = true }
+ferb-fs = { path = "../ferb-fs", optional = true }
+rusqlite = { version = "0.42", features = ["bundled"], optional = true }
+chrono = { version = "0.4.42", default-features = false, features = ["std", "clock"] }
+ferb-clock = { path = "../ferb-clock", default-features = false }
+serde_json = { version = "1", features = ["preserve_order"] }
+plist = { version = "1", default-features = false }
+sha2 = "0.10.9"
+hex = "0.4"
+regex = "1"
+libc = "0.2"
+getrandom = "0.3"
+tokio = { version = "1", features = ["sync", "time", "rt", "macros", "process"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation-sys = "0.8.7"
+objc2 = "0.6.5"
+block2 = "0.6.2"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSString", "NSNotification", "NSDictionary", "NSArray", "NSOperation", "NSDistributedNotificationCenter", "NSObject", "NSEnumerator", "NSAutoreleasePool"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "libc", "NSWorkspace", "NSRunningApplication", "NSPasteboard"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["sync", "time", "rt", "macros", "test-util", "rt-multi-thread"] }

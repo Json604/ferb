@@ -1,0 +1,1076 @@
+{
+ "time_bound": [
+  [
+   "UTC",
+   "2026-03-04",
+   false,
+   "2026-03-04T00:00:00+00:00"
+  ],
+  [
+   "UTC",
+   "2026-03-04",
+   true,
+   "2026-03-05T00:00:00+00:00"
+  ],
+  [
+   "UTC",
+   "2026-03-04T10:30",
+   false,
+   "2026-03-04T10:30:00+00:00"
+  ],
+  [
+   "UTC",
+   "2026-03-04T10:30:15.5+02:00",
+   true,
+   "2026-03-04T08:30:15.500000+00:00"
+  ],
+  [
+   "UTC",
+   " 2026-03-08T02:30 ",
+   false,
+   "2026-03-08T02:30:00+00:00"
+  ],
+  [
+   "UTC",
+   "",
+   false,
+   null
+  ],
+  [
+   "UTC",
+   null,
+   true,
+   null
+  ],
+  [
+   "UTC",
+   "   ",
+   false,
+   null
+  ],
+  [
+   "UTC",
+   "2026-02-30",
+   false,
+   {
+    "error": "day is out of range for month"
+   }
+  ],
+  [
+   "UTC",
+   "2026-03-04 10:30",
+   false,
+   "2026-03-04T10:30:00+00:00"
+  ],
+  [
+   "UTC",
+   "20260304",
+   false,
+   "2026-03-04T00:00:00+00:00"
+  ],
+  [
+   "UTC",
+   "2026-03-04T10:30Z",
+   false,
+   "2026-03-04T10:30:00+00:00"
+  ],
+  [
+   "UTC",
+   "2026-03-08",
+   true,
+   "2026-03-09T00:00:00+00:00"
+  ],
+  [
+   "UTC",
+   "2026-11-01T01:30",
+   false,
+   "2026-11-01T01:30:00+00:00"
+  ],
+  [
+   "UTC",
+   "not a date",
+   false,
+   {
+    "error": "Invalid isoformat string: 'not a date'"
+   }
+  ],
+  [
+   "UTC",
+   "2026-03-04T25:00",
+   false,
+   {
+    "error": "hour must be in 0..23"
+   }
+  ],
+  [
+   "Asia/Kolkata",
+   "2026-03-04",
+   false,
+   "2026-03-04T00:00:00+05:30"
+  ],
+  [
+   "Asia/Kolkata",
+   "2026-03-04",
+   true,
+   "2026-03-05T00:00:00+05:30"
+  ],
+  [
+   "Asia/Kolkata",
+   "2026-03-04T10:30",
+   false,
+   "2026-03-04T10:30:00+05:30"
+  ],
+  [
+   "Asia/Kolkata",
+   "2026-03-04T10:30:15.5+02:00",
+   true,
+   "2026-03-04T14:00:15.500000+05:30"
+  ],
+  [
+   "Asia/Kolkata",
+   " 2026-03-08T02:30 ",
+   false,
+   "2026-03-08T02:30:00+05:30"
+  ],
+  [
+   "Asia/Kolkata",
+   "",
+   false,
+   null
+  ],
+  [
+   "Asia/Kolkata",
+   null,
+   true,
+   null
+  ],
+  [
+   "Asia/Kolkata",
+   "   ",
+   false,
+   null
+  ],
+  [
+   "Asia/Kolkata",
+   "2026-02-30",
+   false,
+   {
+    "error": "day is out of range for month"
+   }
+  ],
+  [
+   "Asia/Kolkata",
+   "2026-03-04 10:30",
+   false,
+   "2026-03-04T10:30:00+05:30"
+  ],
+  [
+   "Asia/Kolkata",
+   "20260304",
+   false,
+   "2026-03-04T00:00:00+05:30"
+  ],
+  [
+   "Asia/Kolkata",
+   "2026-03-04T10:30Z",
+   false,
+   "2026-03-04T16:00:00+05:30"
+  ],
+  [
+   "Asia/Kolkata",
+   "2026-03-08",
+   true,
+   "2026-03-09T00:00:00+05:30"
+  ],
+  [
+   "Asia/Kolkata",
+   "2026-11-01T01:30",
+   false,
+   "2026-11-01T01:30:00+05:30"
+  ],
+  [
+   "Asia/Kolkata",
+   "not a date",
+   false,
+   {
+    "error": "Invalid isoformat string: 'not a date'"
+   }
+  ],
+  [
+   "Asia/Kolkata",
+   "2026-03-04T25:00",
+   false,
+   {
+    "error": "hour must be in 0..23"
+   }
+  ],
+  [
+   "America/New_York",
+   "2026-03-04",
+   false,
+   "2026-03-04T00:00:00-05:00"
+  ],
+  [
+   "America/New_York",
+   "2026-03-04",
+   true,
+   "2026-03-05T00:00:00-05:00"
+  ],
+  [
+   "America/New_York",
+   "2026-03-04T10:30",
+   false,
+   "2026-03-04T10:30:00-05:00"
+  ],
+  [
+   "America/New_York",
+   "2026-03-04T10:30:15.5+02:00",
+   true,
+   "2026-03-04T03:30:15.500000-05:00"
+  ],
+  [
+   "America/New_York",
+   " 2026-03-08T02:30 ",
+   false,
+   "2026-03-08T02:30:00-05:00"
+  ],
+  [
+   "America/New_York",
+   "",
+   false,
+   null
+  ],
+  [
+   "America/New_York",
+   null,
+   true,
+   null
+  ],
+  [
+   "America/New_York",
+   "   ",
+   false,
+   null
+  ],
+  [
+   "America/New_York",
+   "2026-02-30",
+   false,
+   {
+    "error": "day is out of range for month"
+   }
+  ],
+  [
+   "America/New_York",
+   "2026-03-04 10:30",
+   false,
+   "2026-03-04T10:30:00-05:00"
+  ],
+  [
+   "America/New_York",
+   "20260304",
+   false,
+   "2026-03-04T00:00:00-05:00"
+  ],
+  [
+   "America/New_York",
+   "2026-03-04T10:30Z",
+   false,
+   "2026-03-04T05:30:00-05:00"
+  ],
+  [
+   "America/New_York",
+   "2026-03-08",
+   true,
+   "2026-03-09T00:00:00-04:00"
+  ],
+  [
+   "America/New_York",
+   "2026-11-01T01:30",
+   false,
+   "2026-11-01T01:30:00-04:00"
+  ],
+  [
+   "America/New_York",
+   "not a date",
+   false,
+   {
+    "error": "Invalid isoformat string: 'not a date'"
+   }
+  ],
+  [
+   "America/New_York",
+   "2026-03-04T25:00",
+   false,
+   {
+    "error": "hour must be in 0..23"
+   }
+  ],
+  [
+   null,
+   "2026-03-04",
+   false,
+   "2026-03-04T00:00:00+05:30"
+  ],
+  [
+   null,
+   "2026-03-04",
+   true,
+   "2026-03-05T00:00:00+05:30"
+  ],
+  [
+   null,
+   "2026-03-04T10:30",
+   false,
+   "2026-03-04T10:30:00+05:30"
+  ],
+  [
+   null,
+   "2026-03-04T10:30:15.5+02:00",
+   true,
+   "2026-03-04T14:00:15.500000+05:30"
+  ],
+  [
+   null,
+   " 2026-03-08T02:30 ",
+   false,
+   "2026-03-08T02:30:00+05:30"
+  ],
+  [
+   null,
+   "",
+   false,
+   null
+  ],
+  [
+   null,
+   null,
+   true,
+   null
+  ],
+  [
+   null,
+   "   ",
+   false,
+   null
+  ],
+  [
+   null,
+   "2026-02-30",
+   false,
+   {
+    "error": "day is out of range for month"
+   }
+  ],
+  [
+   null,
+   "2026-03-04 10:30",
+   false,
+   "2026-03-04T10:30:00+05:30"
+  ],
+  [
+   null,
+   "20260304",
+   false,
+   "2026-03-04T00:00:00+05:30"
+  ],
+  [
+   null,
+   "2026-03-04T10:30Z",
+   false,
+   "2026-03-04T16:00:00+05:30"
+  ],
+  [
+   null,
+   "2026-03-08",
+   true,
+   "2026-03-09T00:00:00+05:30"
+  ],
+  [
+   null,
+   "2026-11-01T01:30",
+   false,
+   "2026-11-01T01:30:00+05:30"
+  ],
+  [
+   null,
+   "not a date",
+   false,
+   {
+    "error": "Invalid isoformat string: 'not a date'"
+   }
+  ],
+  [
+   null,
+   "2026-03-04T25:00",
+   false,
+   {
+    "error": "hour must be in 0..23"
+   }
+  ]
+ ],
+ "sources": [
+  [
+   [],
+   [
+    [
+     "app",
+     "trail"
+    ]
+   ]
+  ],
+  [
+   [
+    "app_focus"
+   ],
+   [
+    [
+     "app",
+     "trail"
+    ]
+   ]
+  ],
+  [
+   [
+    "window"
+   ],
+   [
+    [
+     "web",
+     "trail"
+    ]
+   ]
+  ],
+  [
+   [
+    "browser_tab",
+    "file"
+   ],
+   [
+    [
+     "web",
+     "trail"
+    ]
+   ]
+  ],
+  [
+   [
+    "clipboard"
+   ],
+   [
+    [
+     "web",
+     "trail"
+    ],
+    [
+     "owner_account",
+     "trail|"
+    ]
+   ]
+  ],
+  [
+   [
+    "notification",
+    "window"
+   ],
+   [
+    [
+     "web",
+     "trail"
+    ],
+    [
+     "owner_account",
+     "trail|"
+    ]
+   ]
+  ],
+  [
+   [
+    "idle",
+    "software"
+   ],
+   [
+    [
+     "web",
+     "trail"
+    ],
+    [
+     "owner_account",
+     "trail|"
+    ]
+   ]
+  ]
+ ],
+ "query": [
+  {
+   "args": {},
+   "output": {
+    "events": [
+     {
+      "id": "q3",
+      "at": "2026-03-04T11:30:00+05:30",
+      "source": "clipboard",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "text": "copied"
+      }
+     },
+     {
+      "id": "q2",
+      "at": "2026-03-04T11:00:00+05:30",
+      "source": "app_focus",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "app": "Notes"
+      }
+     },
+     {
+      "id": "q1",
+      "at": "2026-03-04T08:00:00+05:30",
+      "source": "browser_tab",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "host": "a.example",
+       "title": "A"
+      }
+     }
+    ],
+    "count": 3,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   },
+   "read_sources": [
+    [
+     "web",
+     "trail"
+    ],
+    [
+     "owner_account",
+     "trail|"
+    ]
+   ],
+   "is_error": false
+  },
+  {
+   "args": {
+    "since_hours": 2
+   },
+   "output": {
+    "events": [
+     {
+      "id": "q3",
+      "at": "2026-03-04T11:30:00+05:30",
+      "source": "clipboard",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "text": "copied"
+      }
+     },
+     {
+      "id": "q2",
+      "at": "2026-03-04T11:00:00+05:30",
+      "source": "app_focus",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "app": "Notes"
+      }
+     }
+    ],
+    "count": 2,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   },
+   "read_sources": [
+    [
+     "web",
+     "trail"
+    ],
+    [
+     "owner_account",
+     "trail|"
+    ]
+   ],
+   "is_error": false
+  },
+  {
+   "args": {
+    "since": "2026-03-04"
+   },
+   "output": {
+    "events": [
+     {
+      "id": "q3",
+      "at": "2026-03-04T11:30:00+05:30",
+      "source": "clipboard",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "text": "copied"
+      }
+     },
+     {
+      "id": "q2",
+      "at": "2026-03-04T11:00:00+05:30",
+      "source": "app_focus",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "app": "Notes"
+      }
+     },
+     {
+      "id": "q1",
+      "at": "2026-03-04T08:00:00+05:30",
+      "source": "browser_tab",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "host": "a.example",
+       "title": "A"
+      }
+     }
+    ],
+    "count": 3,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   },
+   "read_sources": [
+    [
+     "web",
+     "trail"
+    ],
+    [
+     "owner_account",
+     "trail|"
+    ]
+   ],
+   "is_error": false
+  },
+  {
+   "args": {
+    "since": "2026-03-03",
+    "until": "2026-03-03"
+   },
+   "output": {
+    "events": [
+     {
+      "id": "q0",
+      "at": "2026-03-03T09:00:00+05:30",
+      "source": "window",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "title": "yesterday"
+      }
+     }
+    ],
+    "count": 1,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   },
+   "read_sources": [
+    [
+     "web",
+     "trail"
+    ]
+   ],
+   "is_error": false
+  },
+  {
+   "args": {
+    "since": "2026-03-04T08:00",
+    "until": "2026-03-04T11:00"
+   },
+   "output": {
+    "events": [
+     {
+      "id": "q1",
+      "at": "2026-03-04T08:00:00+05:30",
+      "source": "browser_tab",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "host": "a.example",
+       "title": "A"
+      }
+     }
+    ],
+    "count": 1,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   },
+   "read_sources": [
+    [
+     "web",
+     "trail"
+    ]
+   ],
+   "is_error": false
+  },
+  {
+   "args": {
+    "source": "app_focus"
+   },
+   "output": {
+    "events": [
+     {
+      "id": "q2",
+      "at": "2026-03-04T11:00:00+05:30",
+      "source": "app_focus",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "app": "Notes"
+      }
+     }
+    ],
+    "count": 1,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   },
+   "read_sources": [
+    [
+     "app",
+     "trail"
+    ]
+   ],
+   "is_error": false
+  },
+  {
+   "args": {
+    "since_hours": 48,
+    "host": "a.example"
+   },
+   "output": {
+    "events": [
+     {
+      "id": "q1",
+      "at": "2026-03-04T08:00:00+05:30",
+      "source": "browser_tab",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "host": "a.example",
+       "title": "A"
+      }
+     }
+    ],
+    "count": 1,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   },
+   "read_sources": [
+    [
+     "web",
+     "trail"
+    ]
+   ],
+   "is_error": false
+  },
+  {
+   "args": {
+    "since_hours": 0.5
+   },
+   "output": {
+    "events": [
+     {
+      "id": "q3",
+      "at": "2026-03-04T11:30:00+05:30",
+      "source": "clipboard",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "text": "copied"
+      }
+     }
+    ],
+    "count": 1,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   },
+   "read_sources": [
+    [
+     "web",
+     "trail"
+    ],
+    [
+     "owner_account",
+     "trail|"
+    ]
+   ],
+   "is_error": false
+  },
+  {
+   "args": {
+    "since": "2026-03-04T05:00:00+00:00"
+   },
+   "output": {
+    "events": [
+     {
+      "id": "q3",
+      "at": "2026-03-04T11:30:00+05:30",
+      "source": "clipboard",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "text": "copied"
+      }
+     },
+     {
+      "id": "q2",
+      "at": "2026-03-04T11:00:00+05:30",
+      "source": "app_focus",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "app": "Notes"
+      }
+     }
+    ],
+    "count": 2,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   },
+   "read_sources": [
+    [
+     "web",
+     "trail"
+    ],
+    [
+     "owner_account",
+     "trail|"
+    ]
+   ],
+   "is_error": false
+  },
+  {
+   "args": "no trail",
+   "output": {
+    "error": "the trail isn't available"
+   },
+   "is_error": true
+  }
+ ],
+ "days": [
+  {
+   "args": {},
+   "output": {
+    "days": [
+     {
+      "id": "s2",
+      "day": "2026-03-03",
+      "kind": "narrative",
+      "data": {
+       "day": "2026-03-03",
+       "text": "A day"
+      }
+     },
+     {
+      "id": "s1",
+      "day": "2026-03-03",
+      "kind": "summary",
+      "data": {
+       "day": "2026-03-03",
+       "apps_min": {
+        "Notes": 3
+       }
+      }
+     },
+     {
+      "id": "s3",
+      "day": "2026-03-02",
+      "kind": "summary",
+      "data": {
+       "day": "2026-03-02"
+      }
+     }
+    ],
+    "count": 3,
+    "source_refs": [
+     "journal:s1",
+     "journal:s2",
+     "journal:s3",
+     "trail:q0"
+    ]
+   },
+   "read_sources": [
+    [
+     "origin",
+     "external:web:trail"
+    ],
+    [
+     "origin",
+     "inferred"
+    ],
+    [
+     "origin",
+     "private"
+    ]
+   ]
+  },
+  {
+   "args": {
+    "text": "day"
+   },
+   "output": {
+    "days": [
+     {
+      "id": "s2",
+      "day": "2026-03-03",
+      "kind": "narrative",
+      "data": {
+       "day": "2026-03-03",
+       "text": "A day"
+      }
+     }
+    ],
+    "count": 1,
+    "source_refs": [
+     "journal:s2",
+     "trail:q0"
+    ]
+   },
+   "read_sources": [
+    [
+     "origin",
+     "external:web:trail"
+    ],
+    [
+     "origin",
+     "inferred"
+    ]
+   ]
+  },
+  {
+   "args": {
+    "since_days": 1
+   },
+   "output": {
+    "days": [
+     {
+      "id": "s2",
+      "day": "2026-03-03",
+      "kind": "narrative",
+      "data": {
+       "day": "2026-03-03",
+       "text": "A day"
+      }
+     },
+     {
+      "id": "s1",
+      "day": "2026-03-03",
+      "kind": "summary",
+      "data": {
+       "day": "2026-03-03",
+       "apps_min": {
+        "Notes": 3
+       }
+      }
+     }
+    ],
+    "count": 2,
+    "source_refs": [
+     "journal:s1",
+     "journal:s2",
+     "trail:q0"
+    ]
+   },
+   "read_sources": [
+    [
+     "origin",
+     "external:web:trail"
+    ],
+    [
+     "origin",
+     "inferred"
+    ],
+    [
+     "origin",
+     "private"
+    ]
+   ]
+  }
+ ],
+ "handles": {
+  "2026-03-03": [
+   "trail:q0"
+  ],
+  "2026-03-02": []
+ },
+ "digest_origins": [
+  [
+   "trail.day_narrative",
+   {},
+   [
+    "external:web:trail",
+    "inferred"
+   ]
+  ],
+  [
+   "trail.day_summary",
+   {},
+   [
+    "private"
+   ]
+  ],
+  [
+   "trail.day_summary",
+   {
+    "windows": [
+     "x"
+    ]
+   },
+   [
+    "external:web:trail"
+   ]
+  ],
+  [
+   "trail.day_summary",
+   {
+    "folders": {
+     "a": 1
+    },
+    "ferb": {
+     "tasks": [
+      1
+     ]
+    }
+   },
+   [
+    "inferred",
+    "private"
+   ]
+  ],
+  [
+   "trail.day_summary",
+   {
+    "ferb": {
+     "tasks": []
+    }
+   },
+   [
+    "private"
+   ]
+  ],
+  [
+   "trail.day_summary",
+   {
+    "hours": {
+     "1": []
+    },
+    "apps_min": {
+     "x": 1
+    }
+   },
+   [
+    "external:web:trail",
+    "private"
+   ]
+  ]
+ ]
+}

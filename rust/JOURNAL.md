@@ -619,3 +619,42 @@ software scan; Rust skips that app.
 - argparse's own usage and error text is not reproduced (the exit status is).
 - Found in Python, mirrored because it is owner-facing wording: `setup --codex-logout` with no Codex installed
   prints its reason twice ("FERB's pinned Codex isn't installed: FERB's pinned Codex isn't installed: ...").
+
+## 2026-11-13 · 30 · Perception
+
+**What.** `ferb-sense` ports `ferb/sense`: the trail and its receipts, exclusions applied before anything is kept,
+attribution, capture, today's activity, the watcher manager, the trail tools, the front window, software facts,
+the daemon side of transcription and every watcher's mapping. The macOS sources (FSEvents, a listen-only event
+tap, NSWorkspace notifications, AX observers on their own run-loop thread, the pasteboard, the secure-input check)
+are in a `mac` module; each thread and callback drains its own autorelease pool. Jev's batcher is ported and stays
+switched off; notices stay paused.
+
+**Evidence.** `rust/fixtures/sense/make.py`: 969 comparisons across 13 areas, none differ. Behavior tests from
+the Python scenarios: key text is never extracted under Secure Input, in a secure field or in a terminal; the tap
+starts and stops with the Input Monitoring grant; a pause survives a restart; notifications are not read until
+Full Disk Access. 23 tests pass, 2 ignored, re-run by the coordinator. The pure half builds for iOS.
+
+**Fixed against Python.** `Path.resolve` raised on a symlink loop out of exclusions and the trail; a launch-job
+plist whose root is a list failed the software watcher.
+
+**Open.**
+- All native code is unverified on an installed build (AX observers, the tap's key text, notifications, window
+  list, pasteboard reads). The porting agent ran two passive read-only tests by hand; no prompts appeared.
+- Composing the watchers is the daemon part.
+- The plan's "recovery after an event-bus overflow" does not exist in `ferb/sense`; its consumers are synchronous.
+- `ferb-clock::py::timedelta_us` overflows and panics in a debug build on very large values; to fix in the clock
+  crate.
+
+## 2026-11-13 · 31 · The Rust release is a fresh install (owner, STORE-421)
+
+**What the owner said.** Asked whether the Rust release may require a fresh install with the old data kept only as
+an archive: "yes ofc , tahts what i want". Only the owner and one friend run the Python build.
+
+**What changes.**
+- Not built: upgrade tests on real older databases for the Rust store (T-400 and T-403 stay as they are, for the
+  Python build), the service and login-item moves from a Python install, config from older layouts.
+- Unchanged: the schema and migration files (ENG-4), so the port stays checkable against Python and an archive
+  stays readable.
+- FERB.app may change with the Rust release. So the finding in entry 29 (the app recognizes a checkout's service by
+  Python arguments) is closed by a one-line change in the app, not by a marker in the Rust service definition.
+  ENG-1's "FERB.app unchanged" stays the rule for verifying the port, not a rule for the release.

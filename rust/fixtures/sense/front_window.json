@@ -1,0 +1,1442 @@
+{
+ "apps": {
+  "10": [
+   "Safari",
+   "com.apple.Safari"
+  ],
+  "11": [
+   "Notes",
+   "com.apple.Notes"
+  ],
+  "12": [
+   "FERB",
+   "com.ferb.ferb"
+  ],
+  "13": [
+   "Terminal",
+   "com.apple.Terminal"
+  ],
+  "14": [
+   "Vault",
+   "com.example.vault"
+  ],
+  "15": [
+   "Brave",
+   "com.brave.Browser"
+  ],
+  "16": [
+   "Messages",
+   "com.apple.MobileSMS"
+  ],
+  "20": [
+   "",
+   ""
+  ],
+  "21": [
+   "",
+   ""
+  ]
+ },
+ "parents": {
+  "20": 99,
+  "21": 1,
+  "30": 13,
+  "31": 30,
+  "99": 1
+ },
+ "daemon_pid": 99,
+ "captures": [
+  {
+   "scenario": {
+    "name": "plain app",
+    "shoot": "ok",
+    "windows": [
+     [
+      1,
+      11,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "Groceries"
+     ]
+    ]
+   },
+   "stage": [
+    "windows",
+    "screenshot",
+    "image redaction",
+    "keeping the evidence"
+   ],
+   "calls": [
+    [
+     "shoot",
+     1
+    ],
+    [
+     "keep",
+     "jpeg-1-redacted",
+     {
+      "app": "Notes",
+      "bundle_id": "com.apple.Notes",
+      "title": "Groceries",
+      "url": null,
+      "tab_title": null
+     },
+     "private"
+    ]
+   ],
+   "out": {
+    "app": "Notes",
+    "bundle_id": "com.apple.Notes",
+    "title": "Groceries",
+    "url": null,
+    "tab_title": null,
+    "image_ref": "ev-1",
+    "origin": "private",
+    "withheld": null,
+    "image": "jpeg-1-redacted",
+    "tab_note": null,
+    "tab_source": null,
+    "masking": "",
+    "facts": {
+     "app": "Notes",
+     "bundle_id": "com.apple.Notes",
+     "window_title": "Groceries"
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "ferb first",
+    "shoot": "ok",
+    "masking": "fields found by Accessibility",
+    "windows": [
+     [
+      1,
+      12,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "FERB"
+     ],
+     [
+      2,
+      20,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "helper"
+     ],
+     [
+      3,
+      11,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "Note"
+     ]
+    ]
+   },
+   "stage": [
+    "windows",
+    "screenshot",
+    "image redaction",
+    "keeping the evidence"
+   ],
+   "calls": [
+    [
+     "shoot",
+     3
+    ],
+    [
+     "keep",
+     "jpeg-3-redacted",
+     {
+      "app": "Notes",
+      "bundle_id": "com.apple.Notes",
+      "title": "Note",
+      "url": null,
+      "tab_title": null,
+      "masking": "fields found by Accessibility"
+     },
+     "private"
+    ]
+   ],
+   "out": {
+    "app": "Notes",
+    "bundle_id": "com.apple.Notes",
+    "title": "Note",
+    "url": null,
+    "tab_title": null,
+    "image_ref": "ev-1",
+    "origin": "private",
+    "withheld": null,
+    "image": "jpeg-3-redacted",
+    "tab_note": null,
+    "tab_source": null,
+    "masking": "fields found by Accessibility",
+    "facts": {
+     "app": "Notes",
+     "bundle_id": "com.apple.Notes",
+     "window_title": "Note"
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "nothing",
+    "windows": [
+     [
+      1,
+      12,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      ""
+     ],
+     [
+      2,
+      20,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      ""
+     ]
+    ]
+   },
+   "stage": [
+    "windows"
+   ],
+   "calls": [],
+   "out": null
+  },
+  {
+   "scenario": {
+    "name": "sender skipped",
+    "client": 31,
+    "shoot": "ok",
+    "windows": [
+     [
+      1,
+      13,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "zsh"
+     ],
+     [
+      2,
+      13,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "zsh 2"
+     ],
+     [
+      3,
+      11,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "N"
+     ]
+    ]
+   },
+   "stage": [
+    "windows",
+    "screenshot",
+    "image redaction",
+    "keeping the evidence"
+   ],
+   "calls": [
+    [
+     "shoot",
+     2
+    ],
+    [
+     "keep",
+     "jpeg-2-redacted",
+     {
+      "app": "Terminal",
+      "bundle_id": "com.apple.Terminal",
+      "title": "zsh 2",
+      "url": null,
+      "tab_title": null
+     },
+     "private"
+    ]
+   ],
+   "out": {
+    "app": "Terminal",
+    "bundle_id": "com.apple.Terminal",
+    "title": "zsh 2",
+    "url": null,
+    "tab_title": null,
+    "image_ref": "ev-1",
+    "origin": "private",
+    "withheld": null,
+    "image": "jpeg-2-redacted",
+    "tab_note": null,
+    "tab_source": null,
+    "masking": "",
+    "facts": {
+     "app": "Terminal",
+     "bundle_id": "com.apple.Terminal",
+     "window_title": "zsh 2"
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "excluded app",
+    "shoot": "ok",
+    "windows": [
+     [
+      1,
+      14,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "Vault — passwords"
+     ]
+    ]
+   },
+   "stage": [
+    "windows"
+   ],
+   "calls": [],
+   "out": {
+    "app": "[excluded]",
+    "bundle_id": "",
+    "title": "",
+    "url": null,
+    "tab_title": null,
+    "image_ref": null,
+    "origin": "private",
+    "withheld": "an app FERB doesn't look at ([excluded]) is in front: no title, page or screenshot",
+    "image": null,
+    "tab_note": null,
+    "tab_source": null,
+    "masking": "",
+    "facts": {
+     "app": "[excluded]"
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "browser tab",
+    "tab": [
+     "https://docs.example/a",
+     "Docs"
+    ],
+    "shoot": "ok",
+    "windows": [
+     [
+      1,
+      10,
+      [
+       10,
+       20,
+       900,
+       700
+      ],
+      "Docs"
+     ]
+    ]
+   },
+   "stage": [
+    "windows",
+    "browser tab",
+    "screenshot",
+    "image redaction",
+    "keeping the evidence"
+   ],
+   "calls": [
+    [
+     "tab",
+     "com.apple.Safari",
+     1,
+     false
+    ],
+    [
+     "shoot",
+     1
+    ],
+    [
+     "keep",
+     "jpeg-1-redacted",
+     {
+      "app": "Safari",
+      "bundle_id": "com.apple.Safari",
+      "title": "Docs",
+      "url": "https://docs.example/a",
+      "tab_title": "Docs"
+     },
+     "external:web:docs.example"
+    ]
+   ],
+   "out": {
+    "app": "Safari",
+    "bundle_id": "com.apple.Safari",
+    "title": "Docs",
+    "url": "https://docs.example/a",
+    "tab_title": "Docs",
+    "image_ref": "ev-1",
+    "origin": "external:web:docs.example",
+    "withheld": null,
+    "image": "jpeg-1-redacted",
+    "tab_note": null,
+    "tab_source": "applescript",
+    "masking": "",
+    "facts": {
+     "app": "Safari",
+     "bundle_id": "com.apple.Safari",
+     "window_title": "Docs",
+     "url": "https://docs.example/a",
+     "tab_title": "Docs",
+     "tab_source": "applescript"
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "browser extension named",
+    "tab": null,
+    "named": [
+     "https://mail.example/inbox?token=SECRETCODE123",
+     "Inbox"
+    ],
+    "shoot": "ok",
+    "windows": [
+     [
+      1,
+      15,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "Mail"
+     ]
+    ]
+   },
+   "stage": [
+    "windows",
+    "browser tab",
+    "screenshot",
+    "image redaction",
+    "keeping the evidence"
+   ],
+   "calls": [
+    [
+     "tab",
+     "com.brave.Browser",
+     1,
+     false
+    ],
+    [
+     "shoot",
+     1
+    ],
+    [
+     "keep",
+     "jpeg-1-redacted",
+     {
+      "app": "Brave",
+      "bundle_id": "com.brave.Browser",
+      "title": "Mail",
+      "url": "https://mail.example/inbox?token=[redacted]",
+      "tab_title": "Inbox"
+     },
+     "external:web:mail.example"
+    ]
+   ],
+   "out": {
+    "app": "Brave",
+    "bundle_id": "com.brave.Browser",
+    "title": "Mail",
+    "url": "https://mail.example/inbox?token=[redacted]",
+    "tab_title": "Inbox",
+    "image_ref": "ev-1",
+    "origin": "external:web:mail.example",
+    "withheld": null,
+    "image": "jpeg-1-redacted",
+    "tab_note": null,
+    "tab_source": "extension",
+    "masking": "",
+    "facts": {
+     "app": "Brave",
+     "bundle_id": "com.brave.Browser",
+     "window_title": "Mail",
+     "url": "https://mail.example/inbox?token=[redacted]",
+     "tab_title": "Inbox",
+     "tab_source": "extension"
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "browser ambiguous then named",
+    "tab": "ambiguous",
+    "named": [
+     "https://mail.example/",
+     "Inbox"
+    ],
+    "shoot": "ok",
+    "windows": [
+     [
+      1,
+      15,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "Mail"
+     ]
+    ]
+   },
+   "stage": [
+    "windows",
+    "browser tab",
+    "screenshot",
+    "image redaction",
+    "keeping the evidence"
+   ],
+   "calls": [
+    [
+     "tab",
+     "com.brave.Browser",
+     1,
+     false
+    ],
+    [
+     "shoot",
+     1
+    ],
+    [
+     "keep",
+     "jpeg-1-redacted",
+     {
+      "app": "Brave",
+      "bundle_id": "com.brave.Browser",
+      "title": "Mail",
+      "url": null,
+      "tab_title": null,
+      "tab_note": "several could be it"
+     },
+     "external:web:com.brave.Browser"
+    ]
+   ],
+   "out": {
+    "app": "Brave",
+    "bundle_id": "com.brave.Browser",
+    "title": "Mail",
+    "url": null,
+    "tab_title": null,
+    "image_ref": "ev-1",
+    "origin": "external:web:com.brave.Browser",
+    "withheld": null,
+    "image": "jpeg-1-redacted",
+    "tab_note": "several could be it",
+    "tab_source": null,
+    "masking": "",
+    "facts": {
+     "app": "Brave",
+     "bundle_id": "com.brave.Browser",
+     "window_title": "Mail",
+     "url": null,
+     "tab_title": null,
+     "tab_note": "several could be it"
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "browser no window",
+    "tab": "lookup",
+    "shoot": "ok",
+    "windows": [
+     [
+      1,
+      15,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "Mail"
+     ]
+    ]
+   },
+   "stage": [
+    "windows",
+    "browser tab",
+    "screenshot",
+    "image redaction",
+    "keeping the evidence"
+   ],
+   "calls": [
+    [
+     "tab",
+     "com.brave.Browser",
+     1,
+     false
+    ],
+    [
+     "shoot",
+     1
+    ],
+    [
+     "keep",
+     "jpeg-1-redacted",
+     {
+      "app": "Brave",
+      "bundle_id": "com.brave.Browser",
+      "title": "Mail",
+      "url": null,
+      "tab_title": null,
+      "tab_note": "no window is there"
+     },
+     "external:web:com.brave.Browser"
+    ]
+   ],
+   "out": {
+    "app": "Brave",
+    "bundle_id": "com.brave.Browser",
+    "title": "Mail",
+    "url": null,
+    "tab_title": null,
+    "image_ref": "ev-1",
+    "origin": "external:web:com.brave.Browser",
+    "withheld": null,
+    "image": "jpeg-1-redacted",
+    "tab_note": "no window is there",
+    "tab_source": null,
+    "masking": "",
+    "facts": {
+     "app": "Brave",
+     "bundle_id": "com.brave.Browser",
+     "window_title": "Mail",
+     "url": null,
+     "tab_title": null,
+     "tab_note": "no window is there"
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "browser read after the shot",
+    "tab": null,
+    "tab_after": [
+     "https://after.example/",
+     ""
+    ],
+    "shoot": "ok",
+    "windows": [
+     [
+      1,
+      15,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "Mail"
+     ]
+    ]
+   },
+   "stage": [
+    "windows",
+    "browser tab",
+    "screenshot",
+    "image redaction",
+    "browser tab after the shot",
+    "keeping the evidence"
+   ],
+   "calls": [
+    [
+     "tab",
+     "com.brave.Browser",
+     1,
+     false
+    ],
+    [
+     "shoot",
+     1
+    ],
+    [
+     "tab",
+     "com.brave.Browser",
+     1,
+     true
+    ],
+    [
+     "keep",
+     "jpeg-1-redacted",
+     {
+      "app": "Brave",
+      "bundle_id": "com.brave.Browser",
+      "title": "Mail",
+      "url": "https://after.example/",
+      "tab_title": null
+     },
+     "external:web:after.example"
+    ]
+   ],
+   "out": {
+    "app": "Brave",
+    "bundle_id": "com.brave.Browser",
+    "title": "Mail",
+    "url": "https://after.example/",
+    "tab_title": null,
+    "image_ref": "ev-1",
+    "origin": "external:web:after.example",
+    "withheld": null,
+    "image": "jpeg-1-redacted",
+    "tab_note": null,
+    "tab_source": "applescript",
+    "masking": "",
+    "facts": {
+     "app": "Brave",
+     "bundle_id": "com.brave.Browser",
+     "window_title": "Mail",
+     "url": "https://after.example/",
+     "tab_title": null,
+     "tab_source": "applescript"
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "browser after the shot ambiguous",
+    "tab": null,
+    "tab_after": "ambiguous",
+    "shoot": "ok",
+    "windows": [
+     [
+      1,
+      15,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "Mail"
+     ]
+    ]
+   },
+   "stage": [
+    "windows",
+    "browser tab",
+    "screenshot",
+    "image redaction",
+    "browser tab after the shot",
+    "keeping the evidence"
+   ],
+   "calls": [
+    [
+     "tab",
+     "com.brave.Browser",
+     1,
+     false
+    ],
+    [
+     "shoot",
+     1
+    ],
+    [
+     "tab",
+     "com.brave.Browser",
+     1,
+     true
+    ],
+    [
+     "keep",
+     "jpeg-1-redacted",
+     {
+      "app": "Brave",
+      "bundle_id": "com.brave.Browser",
+      "title": "Mail",
+      "url": null,
+      "tab_title": null,
+      "tab_note": "several could be it"
+     },
+     "external:web:com.brave.Browser"
+    ]
+   ],
+   "out": {
+    "app": "Brave",
+    "bundle_id": "com.brave.Browser",
+    "title": "Mail",
+    "url": null,
+    "tab_title": null,
+    "image_ref": "ev-1",
+    "origin": "external:web:com.brave.Browser",
+    "withheld": null,
+    "image": "jpeg-1-redacted",
+    "tab_note": "several could be it",
+    "tab_source": null,
+    "masking": "",
+    "facts": {
+     "app": "Brave",
+     "bundle_id": "com.brave.Browser",
+     "window_title": "Mail",
+     "url": null,
+     "tab_title": null,
+     "tab_note": "several could be it"
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "excluded site",
+    "tab": [
+     "https://www.bank.example/acct",
+     "Bank"
+    ],
+    "shoot": "ok",
+    "windows": [
+     [
+      1,
+      10,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "Bank"
+     ]
+    ]
+   },
+   "stage": [
+    "windows",
+    "browser tab",
+    "screenshot",
+    "image redaction",
+    "keeping the evidence"
+   ],
+   "calls": [
+    [
+     "tab",
+     "com.apple.Safari",
+     1,
+     false
+    ],
+    [
+     "shoot",
+     1
+    ],
+    [
+     "keep",
+     "jpeg-1-redacted",
+     {
+      "app": "Safari",
+      "bundle_id": "com.apple.Safari",
+      "title": "Bank",
+      "url": "[excluded]",
+      "tab_title": "Bank"
+     },
+     "external:web:excluded"
+    ]
+   ],
+   "out": {
+    "app": "Safari",
+    "bundle_id": "com.apple.Safari",
+    "title": "Bank",
+    "url": "[excluded]",
+    "tab_title": "Bank",
+    "image_ref": "ev-1",
+    "origin": "external:web:excluded",
+    "withheld": null,
+    "image": "jpeg-1-redacted",
+    "tab_note": null,
+    "tab_source": "applescript",
+    "masking": "",
+    "facts": {
+     "app": "Safari",
+     "bundle_id": "com.apple.Safari",
+     "window_title": "Bank",
+     "url": "[excluded]",
+     "tab_title": "Bank",
+     "tab_source": "applescript"
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "refused shot",
+    "shoot": "refused",
+    "windows": [
+     [
+      1,
+      11,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "N"
+     ]
+    ]
+   },
+   "stage": [
+    "windows",
+    "screenshot"
+   ],
+   "calls": [
+    [
+     "shoot",
+     1
+    ]
+   ],
+   "out": {
+    "app": "Notes",
+    "bundle_id": "com.apple.Notes",
+    "title": "N",
+    "url": null,
+    "tab_title": null,
+    "image_ref": null,
+    "origin": "private",
+    "withheld": "the window is on another Space",
+    "image": null,
+    "tab_note": null,
+    "tab_source": null,
+    "masking": "",
+    "facts": {
+     "app": "Notes",
+     "bundle_id": "com.apple.Notes",
+     "window_title": "N"
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "failed shot",
+    "shoot": "error",
+    "windows": [
+     [
+      1,
+      11,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "N"
+     ]
+    ]
+   },
+   "stage": [
+    "windows",
+    "screenshot"
+   ],
+   "calls": [
+    [
+     "shoot",
+     1
+    ]
+   ],
+   "out": {
+    "app": "Notes",
+    "bundle_id": "com.apple.Notes",
+    "title": "N",
+    "url": null,
+    "tab_title": null,
+    "image_ref": null,
+    "origin": "private",
+    "withheld": "the window couldn't be captured (OSError)",
+    "image": null,
+    "tab_note": null,
+    "tab_source": null,
+    "masking": "",
+    "facts": {
+     "app": "Notes",
+     "bundle_id": "com.apple.Notes",
+     "window_title": "N"
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "redaction fails",
+    "shoot": "ok",
+    "redact_image": "error",
+    "windows": [
+     [
+      1,
+      11,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "N"
+     ]
+    ]
+   },
+   "stage": [
+    "windows",
+    "screenshot",
+    "image redaction"
+   ],
+   "calls": [
+    [
+     "shoot",
+     1
+    ]
+   ],
+   "out": {
+    "app": "Notes",
+    "bundle_id": "com.apple.Notes",
+    "title": "N",
+    "url": null,
+    "tab_title": null,
+    "image_ref": null,
+    "origin": "private",
+    "withheld": "the screenshot couldn't be redacted, so it was withheld",
+    "image": null,
+    "tab_note": null,
+    "tab_source": null,
+    "masking": "",
+    "facts": {
+     "app": "Notes",
+     "bundle_id": "com.apple.Notes",
+     "window_title": "N"
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "keep fails",
+    "shoot": "ok",
+    "keep": "error",
+    "masking": "masked by text recognition",
+    "windows": [
+     [
+      1,
+      11,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "N"
+     ]
+    ]
+   },
+   "stage": [
+    "windows",
+    "screenshot",
+    "image redaction",
+    "keeping the evidence"
+   ],
+   "calls": [
+    [
+     "shoot",
+     1
+    ],
+    [
+     "keep",
+     "jpeg-1-redacted",
+     {
+      "app": "Notes",
+      "bundle_id": "com.apple.Notes",
+      "title": "N",
+      "url": null,
+      "tab_title": null,
+      "masking": "masked by text recognition"
+     },
+     "private"
+    ]
+   ],
+   "out": {
+    "app": "Notes",
+    "bundle_id": "com.apple.Notes",
+    "title": "N",
+    "url": null,
+    "tab_title": null,
+    "image_ref": null,
+    "origin": "private",
+    "withheld": "the screenshot couldn't be kept as evidence (KeyError)",
+    "image": null,
+    "tab_note": null,
+    "tab_source": null,
+    "masking": "",
+    "facts": {
+     "app": "Notes",
+     "bundle_id": "com.apple.Notes",
+     "window_title": "N"
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "main window",
+    "main": {
+     "15": [
+      101,
+      51,
+      1199,
+      801
+     ]
+    },
+    "tab": null,
+    "shoot": "ok",
+    "windows": [
+     [
+      1,
+      15,
+      [
+       0,
+       0,
+       784,
+       21
+      ],
+      ""
+     ],
+     [
+      2,
+      15,
+      [
+       100,
+       50,
+       1200,
+       800
+      ],
+      "Instagram"
+     ],
+     [
+      3,
+      11,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "N"
+     ]
+    ]
+   },
+   "stage": [
+    "windows",
+    "browser tab",
+    "screenshot",
+    "image redaction",
+    "browser tab after the shot",
+    "keeping the evidence"
+   ],
+   "calls": [
+    [
+     "tab",
+     "com.brave.Browser",
+     2,
+     false
+    ],
+    [
+     "shoot",
+     2
+    ],
+    [
+     "tab",
+     "com.brave.Browser",
+     2,
+     true
+    ],
+    [
+     "keep",
+     "jpeg-2-redacted",
+     {
+      "app": "Brave",
+      "bundle_id": "com.brave.Browser",
+      "title": "Instagram",
+      "url": null,
+      "tab_title": null
+     },
+     "external:web:com.brave.Browser"
+    ]
+   ],
+   "out": {
+    "app": "Brave",
+    "bundle_id": "com.brave.Browser",
+    "title": "Instagram",
+    "url": null,
+    "tab_title": null,
+    "image_ref": "ev-1",
+    "origin": "external:web:com.brave.Browser",
+    "withheld": null,
+    "image": "jpeg-2-redacted",
+    "tab_note": null,
+    "tab_source": null,
+    "masking": "",
+    "facts": {
+     "app": "Brave",
+     "bundle_id": "com.brave.Browser",
+     "window_title": "Instagram"
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "messages",
+    "shoot": "ok",
+    "windows": [
+     [
+      1,
+      16,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "Ann"
+     ]
+    ]
+   },
+   "stage": [
+    "windows",
+    "screenshot",
+    "image redaction",
+    "keeping the evidence"
+   ],
+   "calls": [
+    [
+     "shoot",
+     1
+    ],
+    [
+     "keep",
+     "jpeg-1-redacted",
+     {
+      "app": "Messages",
+      "bundle_id": "com.apple.MobileSMS",
+      "title": "Ann",
+      "url": null,
+      "tab_title": null
+     },
+     "external:message:com.apple.MobileSMS,private"
+    ]
+   ],
+   "out": {
+    "app": "Messages",
+    "bundle_id": "com.apple.MobileSMS",
+    "title": "Ann",
+    "url": null,
+    "tab_title": null,
+    "image_ref": "ev-1",
+    "origin": "external:message:com.apple.MobileSMS,private",
+    "withheld": null,
+    "image": "jpeg-1-redacted",
+    "tab_note": null,
+    "tab_source": null,
+    "masking": "",
+    "facts": {
+     "app": "Messages",
+     "bundle_id": "com.apple.MobileSMS",
+     "window_title": "Ann"
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "secret title",
+    "shoot": "ok",
+    "windows": [
+     [
+      1,
+      11,
+      [
+       0,
+       0,
+       800,
+       600
+      ],
+      "password: hunter2"
+     ]
+    ]
+   },
+   "stage": [
+    "windows",
+    "screenshot",
+    "image redaction",
+    "keeping the evidence"
+   ],
+   "calls": [
+    [
+     "shoot",
+     1
+    ],
+    [
+     "keep",
+     "jpeg-1-redacted",
+     {
+      "app": "Notes",
+      "bundle_id": "com.apple.Notes",
+      "title": "password: [redacted]",
+      "url": null,
+      "tab_title": null
+     },
+     "private"
+    ]
+   ],
+   "out": {
+    "app": "Notes",
+    "bundle_id": "com.apple.Notes",
+    "title": "password: [redacted]",
+    "url": null,
+    "tab_title": null,
+    "image_ref": "ev-1",
+    "origin": "private",
+    "withheld": null,
+    "image": "jpeg-1-redacted",
+    "tab_note": null,
+    "tab_source": null,
+    "masking": "",
+    "facts": {
+     "app": "Notes",
+     "bundle_id": "com.apple.Notes",
+     "window_title": "password: [redacted]"
+    }
+   }
+  }
+ ],
+ "ferb_process": [
+  [
+   12,
+   "com.ferb.ferb",
+   true
+  ],
+  [
+   12,
+   "COM.FERB.DAEMON",
+   true
+  ],
+  [
+   99,
+   "x",
+   true
+  ],
+  [
+   20,
+   "",
+   true
+  ],
+  [
+   21,
+   "",
+   false
+  ],
+  [
+   31,
+   "",
+   false
+  ],
+  [
+   11,
+   "com.apple.Notes",
+   false
+  ],
+  [
+   1,
+   "",
+   false
+  ],
+  [
+   0,
+   "",
+   false
+  ],
+  [
+   55,
+   "",
+   false
+  ],
+  [
+   40,
+   "",
+   false
+  ]
+ ],
+ "sending_app": [
+  [
+   31,
+   13
+  ],
+  [
+   30,
+   13
+  ],
+  [
+   20,
+   null
+  ],
+  [
+   11,
+   11
+  ],
+  [
+   1,
+   null
+  ],
+  [
+   55,
+   null
+  ],
+  [
+   40,
+   null
+  ]
+ ],
+ "excluded_app_text": "an app FERB doesn't look at ([excluded]) is in front: no title, page or screenshot",
+ "ferb_apps": [
+  "com.ferb.app",
+  "com.ferb.daemon",
+  "com.ferb.ferb",
+  "com.ferb.python",
+  "com.ferb.secrets",
+  "dev.ferb.notch"
+ ]
+}

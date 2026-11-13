@@ -190,8 +190,9 @@ Lines are Python lines at `63369cb3`. "Fixtures" names what exists; a part witho
 - `scripts/build-app.sh` and `app-parts.sh` bundle Python today; `build-app.sh:67` and `release-appcast.sh:61-62`
   read constants out of Python sources with `sed`. Replace with the Rust binaries; keep signing, notarization and
   the Developer ID transition (REL-419..423, APP-902..905, DMN-587).
-- Before cutover: upgrade tests on older stores (STORE-403, T-400, T-403), a signed build's FERB.app check, the
-  real secrets helper, a real browser through the Rust relay.
+- The Rust release is a fresh install (STORE-421, owner): no in-place upgrade from the Python build, its data kept
+  as an archive. FERB.app may change with the release (for example how it recognizes a checkout's service).
+- Before cutover: a signed build's FERB.app check, the real secrets helper, a real browser through the Rust relay.
 - Cutover is the owner's install: quit FERB.app, no running tasks (in-memory authority does not transfer), install,
   live checks (`kb/live.toml`). Python is deleted only after that, in its own commit, with the gate's Python
   checks retired by a recorded gate change.

@@ -1,0 +1,3532 @@
+{
+ "start": "2026-03-04T18:20:05.250000+00:00",
+ "mono_start": 500.0,
+ "exclusions": {
+  "apps": [
+   "com.example.vault"
+  ],
+  "domains": [
+   "bank.example"
+  ],
+  "paths": [
+   "<TMP>/secretdir"
+  ]
+ },
+ "steps": [
+  {
+   "step": {
+    "op": "record",
+    "source": "app_focus",
+    "data": {
+     "app": "Notes",
+     "bundle_id": "com.apple.Notes"
+    }
+   },
+   "event": {
+    "id": "tr-000001",
+    "at": "2026-03-04T18:20:05.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "owner",
+    "task_id": null,
+    "source": "app_focus",
+    "data": {
+     "app": "Notes",
+     "bundle_id": "com.apple.Notes"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000001",
+      "source": "app_focus",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "app": "Notes",
+       "bundle_id": "com.apple.Notes"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001"
+   ],
+   "last_event_at": "2026-03-04T18:20:05.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "app_focus",
+    "data": {
+     "app": "Vault",
+     "bundle_id": "com.example.vault"
+    }
+   },
+   "event": null,
+   "published": [],
+   "tagged": [
+    "tr-000001"
+   ],
+   "last_event_at": "2026-03-04T18:20:05.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "browser_tab",
+    "data": {
+     "browser": "chrome",
+     "profile": "Default",
+     "host": "www.bank.example",
+     "url": "https://www.bank.example/a",
+     "title": "Balance",
+     "incognito": false
+    }
+   },
+   "event": null,
+   "published": [],
+   "tagged": [
+    "tr-000001"
+   ],
+   "last_event_at": "2026-03-04T18:20:05.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "typed_text",
+    "data": {
+     "bundle_id": "com.google.Chrome",
+     "app": "Chrome",
+     "text": "typed on the bank"
+    },
+    "hints": {
+     "actor": "owner"
+    }
+   },
+   "event": null,
+   "published": [],
+   "tagged": [
+    "tr-000001"
+   ],
+   "last_event_at": "2026-03-04T18:20:05.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "typed_text",
+    "data": {
+     "bundle_id": "com.brave.Browser",
+     "app": "Brave",
+     "text": "no page known"
+    },
+    "hints": {
+     "actor": "owner"
+    }
+   },
+   "event": null,
+   "published": [],
+   "tagged": [
+    "tr-000001"
+   ],
+   "last_event_at": "2026-03-04T18:20:05.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "browser_tab",
+    "data": {
+     "browser": "chrome",
+     "profile": "Default",
+     "host": "docs.example",
+     "incognito": false,
+     "url": "https://docs.example/d?code=SECRETCODE123&x=1",
+     "title": "Notes — café"
+    },
+    "hints": {
+     "tab_task": "task-7"
+    }
+   },
+   "event": {
+    "id": "tr-000002",
+    "at": "2026-03-04T18:20:05.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "ferb",
+    "task_id": "task-7",
+    "source": "browser_tab",
+    "data": {
+     "browser": "chrome",
+     "profile": "Default",
+     "host": "docs.example",
+     "incognito": false,
+     "url": "https://docs.example/d?code=[redacted]&x=1",
+     "title": "Notes — café"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000002",
+      "source": "browser_tab",
+      "actor": "ferb",
+      "task_id": "task-7",
+      "data": {
+       "browser": "chrome",
+       "profile": "Default",
+       "host": "docs.example",
+       "incognito": false,
+       "url": "https://docs.example/d?code=[redacted]&x=1",
+       "title": "Notes — café"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002"
+   ],
+   "last_event_at": "2026-03-04T18:20:05.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "typed_text",
+    "data": {
+     "bundle_id": "com.google.Chrome",
+     "app": "Chrome",
+     "text": "card 4111 1111 1111 1111 ok"
+    },
+    "hints": {
+     "actor": "owner"
+    }
+   },
+   "event": {
+    "id": "tr-000003",
+    "at": "2026-03-04T18:20:05.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "owner",
+    "task_id": null,
+    "source": "typed_text",
+    "data": {
+     "bundle_id": "com.google.Chrome",
+     "app": "Chrome",
+     "text": "card [redacted] ok",
+     "host": "docs.example",
+     "incognito": false
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000003",
+      "source": "typed_text",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "bundle_id": "com.google.Chrome",
+       "app": "Chrome",
+       "text": "card [redacted] ok",
+       "host": "docs.example",
+       "incognito": false
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003"
+   ],
+   "last_event_at": "2026-03-04T18:20:05.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "clipboard",
+    "data": {
+     "bundle_id": "COM.GOOGLE.CHROME",
+     "app": "Chrome",
+     "text": "copied",
+     "change_count": 7
+    },
+    "hints": {
+     "actor": "ferb",
+     "task_id": "task-2"
+    }
+   },
+   "event": {
+    "id": "tr-000004",
+    "at": "2026-03-04T18:20:05.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "ferb",
+    "task_id": "task-2",
+    "source": "clipboard",
+    "data": {
+     "bundle_id": "COM.GOOGLE.CHROME",
+     "app": "Chrome",
+     "text": "copied",
+     "change_count": 7,
+     "host": "docs.example",
+     "incognito": false
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000004",
+      "source": "clipboard",
+      "actor": "ferb",
+      "task_id": "task-2",
+      "data": {
+       "bundle_id": "COM.GOOGLE.CHROME",
+       "app": "Chrome",
+       "text": "copied",
+       "change_count": 7,
+       "host": "docs.example",
+       "incognito": false
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004"
+   ],
+   "last_event_at": "2026-03-04T18:20:05.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "browser_tab",
+    "data": {
+     "browser": "safari",
+     "profile": null,
+     "host": "x.example",
+     "url": "https://x.example/",
+     "title": "t",
+     "incognito": true
+    }
+   },
+   "event": null,
+   "published": [],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004"
+   ],
+   "last_event_at": "2026-03-04T18:20:05.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "clipboard",
+    "data": {
+     "bundle_id": "com.apple.Safari",
+     "text": "private"
+    },
+    "hints": {
+     "actor": "unknown"
+    }
+   },
+   "event": null,
+   "published": [],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004"
+   ],
+   "last_event_at": "2026-03-04T18:20:05.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "advance",
+    "seconds": 600,
+    "mono": 600
+   }
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "window",
+    "data": {
+     "app": "Terminal",
+     "bundle_id": "com.apple.Terminal",
+     "title": "export TOKEN=hunter2 password: hunter2"
+    }
+   },
+   "event": {
+    "id": "tr-000005",
+    "at": "2026-03-04T18:30:05.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "owner",
+    "task_id": null,
+    "source": "window",
+    "data": {
+     "app": "Terminal",
+     "bundle_id": "com.apple.Terminal",
+     "title": "export TOKEN=[redacted] password: [redacted]"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000005",
+      "source": "window",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "app": "Terminal",
+       "bundle_id": "com.apple.Terminal",
+       "title": "export TOKEN=[redacted] password: [redacted]"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005"
+   ],
+   "last_event_at": "2026-03-04T18:30:05.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "ferb_activated",
+    "bundle": "com.apple.Mail",
+    "task": "task-3"
+   }
+  },
+  {
+   "step": {
+    "op": "advance",
+    "seconds": 1,
+    "mono": 1
+   }
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "app_focus",
+    "data": {
+     "app": "Mail",
+     "bundle_id": "com.apple.Mail"
+    }
+   },
+   "event": {
+    "id": "tr-000006",
+    "at": "2026-03-04T18:30:06.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "ferb",
+    "task_id": "task-3",
+    "source": "app_focus",
+    "data": {
+     "app": "Mail",
+     "bundle_id": "com.apple.Mail"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000006",
+      "source": "app_focus",
+      "actor": "ferb",
+      "task_id": "task-3",
+      "data": {
+       "app": "Mail",
+       "bundle_id": "com.apple.Mail"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006"
+   ],
+   "last_event_at": "2026-03-04T18:30:06.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "advance",
+    "seconds": 3,
+    "mono": 3
+   }
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "app_focus",
+    "data": {
+     "app": "Mail",
+     "bundle_id": "com.apple.Mail"
+    }
+   },
+   "event": {
+    "id": "tr-000007",
+    "at": "2026-03-04T18:30:09.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "owner",
+    "task_id": null,
+    "source": "app_focus",
+    "data": {
+     "app": "Mail",
+     "bundle_id": "com.apple.Mail"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000007",
+      "source": "app_focus",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "app": "Mail",
+       "bundle_id": "com.apple.Mail"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007"
+   ],
+   "last_event_at": "2026-03-04T18:30:09.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "acting_enter",
+    "bundle": "com.apple.Mail",
+    "task": "task-4"
+   }
+  },
+  {
+   "step": {
+    "op": "acting_enter",
+    "bundle": "com.apple.Mail",
+    "task": null
+   }
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "window",
+    "data": {
+     "app": "Mail",
+     "bundle_id": "com.apple.Mail",
+     "title": "Inbox"
+    }
+   },
+   "event": {
+    "id": "tr-000008",
+    "at": "2026-03-04T18:30:09.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "ferb",
+    "task_id": null,
+    "source": "window",
+    "data": {
+     "app": "Mail",
+     "bundle_id": "com.apple.Mail",
+     "title": "Inbox"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000008",
+      "source": "window",
+      "actor": "ferb",
+      "task_id": null,
+      "data": {
+       "app": "Mail",
+       "bundle_id": "com.apple.Mail",
+       "title": "Inbox"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008"
+   ],
+   "last_event_at": "2026-03-04T18:30:09.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "notification",
+    "data": {
+     "bundle_id": "com.apple.Mail",
+     "title": "New mail",
+     "external_id": "n1"
+    },
+    "hints": {
+     "actor": "unknown"
+    }
+   },
+   "event": {
+    "id": "tr-000009",
+    "at": "2026-03-04T18:30:09.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "unknown",
+    "task_id": null,
+    "source": "notification",
+    "data": {
+     "bundle_id": "com.apple.Mail",
+     "title": "New mail",
+     "external_id": "n1"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000009",
+      "source": "notification",
+      "actor": "unknown",
+      "task_id": null,
+      "data": {
+       "bundle_id": "com.apple.Mail",
+       "title": "New mail",
+       "external_id": "n1"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008",
+    "tr-000009"
+   ],
+   "last_event_at": "2026-03-04T18:30:09.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "acting_exit",
+    "bundle": "com.apple.Mail",
+    "task": null
+   },
+   "acting": {
+    "com.apple.Mail": [
+     "task-4"
+    ]
+   }
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "window",
+    "data": {
+     "app": "Mail",
+     "bundle_id": "com.apple.Mail",
+     "title": "Draft"
+    }
+   },
+   "event": {
+    "id": "tr-000010",
+    "at": "2026-03-04T18:30:09.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "ferb",
+    "task_id": "task-4",
+    "source": "window",
+    "data": {
+     "app": "Mail",
+     "bundle_id": "com.apple.Mail",
+     "title": "Draft"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000010",
+      "source": "window",
+      "actor": "ferb",
+      "task_id": "task-4",
+      "data": {
+       "app": "Mail",
+       "bundle_id": "com.apple.Mail",
+       "title": "Draft"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008",
+    "tr-000009",
+    "tr-000010"
+   ],
+   "last_event_at": "2026-03-04T18:30:09.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "acting_exit",
+    "bundle": "com.apple.Mail",
+    "task": "task-4"
+   },
+   "acting": {}
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "window",
+    "data": {
+     "app": "Mail",
+     "bundle_id": "com.apple.Mail",
+     "title": "Sent"
+    },
+    "hints": {
+     "actor": "unknown",
+     "task_id": "t-x"
+    }
+   },
+   "event": {
+    "id": "tr-000011",
+    "at": "2026-03-04T18:30:09.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "unknown",
+    "task_id": "t-x",
+    "source": "window",
+    "data": {
+     "app": "Mail",
+     "bundle_id": "com.apple.Mail",
+     "title": "Sent"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000011",
+      "source": "window",
+      "actor": "unknown",
+      "task_id": "t-x",
+      "data": {
+       "app": "Mail",
+       "bundle_id": "com.apple.Mail",
+       "title": "Sent"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008",
+    "tr-000009",
+    "tr-000010",
+    "tr-000011"
+   ],
+   "last_event_at": "2026-03-04T18:30:09.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "ferb_touched",
+    "path": "<TMP>/work/alias/f.txt",
+    "task": "task-5"
+   },
+   "paths": [
+    [
+     "<TMP>/work/real/f.txt",
+     "task-5",
+     1114.0
+    ],
+    [
+     "<TMP>/work/alias/f.txt",
+     "task-5",
+     1114.0
+    ]
+   ]
+  },
+  {
+   "step": {
+    "op": "advance",
+    "seconds": 2,
+    "mono": 2
+   }
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "file",
+    "data": {
+     "path": "<TMP>/work/real/f.txt",
+     "change": "modified"
+    }
+   },
+   "event": {
+    "id": "tr-000012",
+    "at": "2026-03-04T18:30:11.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "owner",
+    "task_id": null,
+    "source": "file",
+    "data": {
+     "path": "<TMP>/work/real/f.txt",
+     "change": "modified"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000012",
+      "source": "file",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "path": "<TMP>/work/real/f.txt",
+       "change": "modified"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008",
+    "tr-000009",
+    "tr-000010",
+    "tr-000011",
+    "tr-000012"
+   ],
+   "last_event_at": "2026-03-04T18:30:11.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "file",
+    "data": {
+     "path": "<TMP>/work/alias/f.txt",
+     "change": "modified"
+    }
+   },
+   "event": {
+    "id": "tr-000013",
+    "at": "2026-03-04T18:30:11.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "ferb",
+    "task_id": "task-5",
+    "source": "file",
+    "data": {
+     "path": "<TMP>/work/alias/f.txt",
+     "change": "modified"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000013",
+      "source": "file",
+      "actor": "ferb",
+      "task_id": "task-5",
+      "data": {
+       "path": "<TMP>/work/alias/f.txt",
+       "change": "modified"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008",
+    "tr-000009",
+    "tr-000010",
+    "tr-000011",
+    "tr-000012",
+    "tr-000013"
+   ],
+   "last_event_at": "2026-03-04T18:30:11.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "advance",
+    "seconds": 11,
+    "mono": 11
+   }
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "file",
+    "data": {
+     "path": "<TMP>/work/real/f.txt",
+     "change": "modified"
+    }
+   },
+   "event": {
+    "id": "tr-000014",
+    "at": "2026-03-04T18:30:22.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "owner",
+    "task_id": null,
+    "source": "file",
+    "data": {
+     "path": "<TMP>/work/real/f.txt",
+     "change": "modified"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000014",
+      "source": "file",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "path": "<TMP>/work/real/f.txt",
+       "change": "modified"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008",
+    "tr-000009",
+    "tr-000010",
+    "tr-000011",
+    "tr-000012",
+    "tr-000013",
+    "tr-000014"
+   ],
+   "last_event_at": "2026-03-04T18:30:22.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "shell_cwds",
+    "cwds": [
+     [
+      "<TMP>/work/",
+      "task-6"
+     ]
+    ]
+   }
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "file",
+    "data": {
+     "path": "<TMP>/work/other.txt",
+     "change": "created"
+    }
+   },
+   "event": {
+    "id": "tr-000015",
+    "at": "2026-03-04T18:30:22.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "unknown",
+    "task_id": null,
+    "source": "file",
+    "data": {
+     "path": "<TMP>/work/other.txt",
+     "change": "created"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000015",
+      "source": "file",
+      "actor": "unknown",
+      "task_id": null,
+      "data": {
+       "path": "<TMP>/work/other.txt",
+       "change": "created"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008",
+    "tr-000009",
+    "tr-000010",
+    "tr-000011",
+    "tr-000012",
+    "tr-000013",
+    "tr-000014",
+    "tr-000015"
+   ],
+   "last_event_at": "2026-03-04T18:30:22.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "file",
+    "data": {
+     "path": "<TMP>/workshop/x",
+     "change": "created"
+    }
+   },
+   "event": {
+    "id": "tr-000016",
+    "at": "2026-03-04T18:30:22.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "owner",
+    "task_id": null,
+    "source": "file",
+    "data": {
+     "path": "<TMP>/workshop/x",
+     "change": "created"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000016",
+      "source": "file",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "path": "<TMP>/workshop/x",
+       "change": "created"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008",
+    "tr-000009",
+    "tr-000010",
+    "tr-000011",
+    "tr-000012",
+    "tr-000013",
+    "tr-000014",
+    "tr-000015",
+    "tr-000016"
+   ],
+   "last_event_at": "2026-03-04T18:30:22.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "file",
+    "data": {
+     "path": "<TMP>/work",
+     "change": "modified",
+     "is_dir": true
+    }
+   },
+   "event": {
+    "id": "tr-000017",
+    "at": "2026-03-04T18:30:22.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "owner",
+    "task_id": null,
+    "source": "file",
+    "data": {
+     "path": "<TMP>/work",
+     "change": "modified",
+     "is_dir": true
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000017",
+      "source": "file",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "path": "<TMP>/work",
+       "change": "modified",
+       "is_dir": true
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008",
+    "tr-000009",
+    "tr-000010",
+    "tr-000011",
+    "tr-000012",
+    "tr-000013",
+    "tr-000014",
+    "tr-000015",
+    "tr-000016",
+    "tr-000017"
+   ],
+   "last_event_at": "2026-03-04T18:30:22.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "shell_cwds",
+    "cwds": []
+   }
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "file",
+    "data": {
+     "path": "<TMP>/secretdir/a",
+     "change": "created"
+    }
+   },
+   "event": null,
+   "published": [],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008",
+    "tr-000009",
+    "tr-000010",
+    "tr-000011",
+    "tr-000012",
+    "tr-000013",
+    "tr-000014",
+    "tr-000015",
+    "tr-000016",
+    "tr-000017"
+   ],
+   "last_event_at": "2026-03-04T18:30:22.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "browser_tab",
+    "data": {
+     "browser": "brave",
+     "profile": "P",
+     "host": "h.example",
+     "url": "https://h.example/",
+     "title": "x"
+    },
+    "hints": {
+     "ferb_identity": true,
+     "task_id": "",
+     "tab_task": "task-8"
+    }
+   },
+   "event": {
+    "id": "tr-000018",
+    "at": "2026-03-04T18:30:22.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "ferb",
+    "task_id": "task-8",
+    "source": "browser_tab",
+    "data": {
+     "browser": "brave",
+     "profile": "P",
+     "host": "h.example",
+     "url": "https://h.example/",
+     "title": "x"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000018",
+      "source": "browser_tab",
+      "actor": "ferb",
+      "task_id": "task-8",
+      "data": {
+       "browser": "brave",
+       "profile": "P",
+       "host": "h.example",
+       "url": "https://h.example/",
+       "title": "x"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008",
+    "tr-000009",
+    "tr-000010",
+    "tr-000011",
+    "tr-000012",
+    "tr-000013",
+    "tr-000014",
+    "tr-000015",
+    "tr-000016",
+    "tr-000017",
+    "tr-000018"
+   ],
+   "last_event_at": "2026-03-04T18:30:22.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "browser_tab",
+    "data": {
+     "browser": "brave",
+     "profile": "P",
+     "host": "h.example",
+     "url": "https://h.example/2",
+     "title": "y"
+    },
+    "hints": {
+     "ferb_identity": true
+    }
+   },
+   "event": {
+    "id": "tr-000019",
+    "at": "2026-03-04T18:30:22.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "ferb",
+    "task_id": null,
+    "source": "browser_tab",
+    "data": {
+     "browser": "brave",
+     "profile": "P",
+     "host": "h.example",
+     "url": "https://h.example/2",
+     "title": "y"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000019",
+      "source": "browser_tab",
+      "actor": "ferb",
+      "task_id": null,
+      "data": {
+       "browser": "brave",
+       "profile": "P",
+       "host": "h.example",
+       "url": "https://h.example/2",
+       "title": "y"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008",
+    "tr-000009",
+    "tr-000010",
+    "tr-000011",
+    "tr-000012",
+    "tr-000013",
+    "tr-000014",
+    "tr-000015",
+    "tr-000016",
+    "tr-000017",
+    "tr-000018",
+    "tr-000019"
+   ],
+   "last_event_at": "2026-03-04T18:30:22.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "idle",
+    "data": {
+     "state": "idle"
+    },
+    "hints": {
+     "actor": "owner",
+     "task_id": "z"
+    }
+   },
+   "event": {
+    "id": "tr-000020",
+    "at": "2026-03-04T18:30:22.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "owner",
+    "task_id": "z",
+    "source": "idle",
+    "data": {
+     "state": "idle"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000020",
+      "source": "idle",
+      "actor": "owner",
+      "task_id": "z",
+      "data": {
+       "state": "idle"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008",
+    "tr-000009",
+    "tr-000010",
+    "tr-000011",
+    "tr-000012",
+    "tr-000013",
+    "tr-000014",
+    "tr-000015",
+    "tr-000016",
+    "tr-000017",
+    "tr-000018",
+    "tr-000019",
+    "tr-000020"
+   ],
+   "last_event_at": "2026-03-04T18:30:22.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "software",
+    "data": {
+     "bundle_id": "com.example.app"
+    },
+    "hints": {
+     "default_actor": "unknown"
+    }
+   },
+   "event": {
+    "id": "tr-000021",
+    "at": "2026-03-04T18:30:22.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "unknown",
+    "task_id": null,
+    "source": "software",
+    "data": {
+     "bundle_id": "com.example.app"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000021",
+      "source": "software",
+      "actor": "unknown",
+      "task_id": null,
+      "data": {
+       "bundle_id": "com.example.app"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008",
+    "tr-000009",
+    "tr-000010",
+    "tr-000011",
+    "tr-000012",
+    "tr-000013",
+    "tr-000014",
+    "tr-000015",
+    "tr-000016",
+    "tr-000017",
+    "tr-000018",
+    "tr-000019",
+    "tr-000020",
+    "tr-000021"
+   ],
+   "last_event_at": "2026-03-04T18:30:22.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "window",
+    "data": {
+     "app": "Notes",
+     "title": "x"
+    },
+    "hints": {
+     "actor": "ferb",
+     "task_id": "test-run-1"
+    }
+   },
+   "event": null,
+   "published": [],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008",
+    "tr-000009",
+    "tr-000010",
+    "tr-000011",
+    "tr-000012",
+    "tr-000013",
+    "tr-000014",
+    "tr-000015",
+    "tr-000016",
+    "tr-000017",
+    "tr-000018",
+    "tr-000019",
+    "tr-000020",
+    "tr-000021"
+   ],
+   "last_event_at": "2026-03-04T18:30:22.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "window",
+    "data": {
+     "app": "Notes",
+     "title": "y"
+    },
+    "hints": {
+     "actor": "ferb",
+     "task_id": "task-9"
+    }
+   },
+   "event": {
+    "id": "tr-000022",
+    "at": "2026-03-04T18:30:22.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "ferb",
+    "task_id": "task-9",
+    "source": "window",
+    "data": {
+     "app": "Notes",
+     "title": "y"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000022",
+      "source": "window",
+      "actor": "ferb",
+      "task_id": "task-9",
+      "data": {
+       "app": "Notes",
+       "title": "y"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008",
+    "tr-000009",
+    "tr-000010",
+    "tr-000011",
+    "tr-000012",
+    "tr-000013",
+    "tr-000014",
+    "tr-000015",
+    "tr-000016",
+    "tr-000017",
+    "tr-000018",
+    "tr-000019",
+    "tr-000020",
+    "tr-000021",
+    "tr-000022"
+   ],
+   "last_event_at": "2026-03-04T18:30:22.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "pause",
+    "on": true
+   }
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "app_focus",
+    "data": {
+     "app": "Notes",
+     "bundle_id": "com.apple.Notes"
+    }
+   },
+   "event": null,
+   "published": [],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008",
+    "tr-000009",
+    "tr-000010",
+    "tr-000011",
+    "tr-000012",
+    "tr-000013",
+    "tr-000014",
+    "tr-000015",
+    "tr-000016",
+    "tr-000017",
+    "tr-000018",
+    "tr-000019",
+    "tr-000020",
+    "tr-000021",
+    "tr-000022"
+   ],
+   "last_event_at": "2026-03-04T18:30:22.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "pause",
+    "on": false
+   }
+  },
+  {
+   "step": {
+    "op": "advance",
+    "seconds": 172830,
+    "mono": 5
+   }
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "window",
+    "data": {
+     "app": "Notes",
+     "bundle_id": "com.apple.Notes",
+     "title": "Groceries: milk, eggs; पानी"
+    }
+   },
+   "event": {
+    "id": "tr-000023",
+    "at": "2026-03-06T18:30:52.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "owner",
+    "task_id": null,
+    "source": "window",
+    "data": {
+     "app": "Notes",
+     "bundle_id": "com.apple.Notes",
+     "title": "Groceries: milk, eggs; पानी"
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000023",
+      "source": "window",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "app": "Notes",
+       "bundle_id": "com.apple.Notes",
+       "title": "Groceries: milk, eggs; पानी"
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008",
+    "tr-000009",
+    "tr-000010",
+    "tr-000011",
+    "tr-000012",
+    "tr-000013",
+    "tr-000014",
+    "tr-000015",
+    "tr-000016",
+    "tr-000017",
+    "tr-000018",
+    "tr-000019",
+    "tr-000020",
+    "tr-000021",
+    "tr-000022",
+    "tr-000023"
+   ],
+   "last_event_at": "2026-03-06T18:30:52.250000+00:00"
+  },
+  {
+   "step": {
+    "op": "record",
+    "source": "accessibility",
+    "data": {
+     "bundle_id": "com.apple.Notes",
+     "role": "AXButton",
+     "notification": "AXValueChanged",
+     "nested": {
+      "k": [
+       1,
+       2.5,
+       null,
+       true
+      ]
+     }
+    },
+    "hints": {
+     "actor": "unknown"
+    }
+   },
+   "event": {
+    "id": "tr-000024",
+    "at": "2026-03-06T18:30:52.250000+00:00",
+    "device_id": "dev-1",
+    "actor": "unknown",
+    "task_id": null,
+    "source": "accessibility",
+    "data": {
+     "bundle_id": "com.apple.Notes",
+     "role": "AXButton",
+     "notification": "AXValueChanged",
+     "nested": {
+      "k": [
+       1,
+       2.5,
+       null,
+       true
+      ]
+     }
+    }
+   },
+   "published": [
+    [
+     "trail.event",
+     {
+      "id": "tr-000024",
+      "source": "accessibility",
+      "actor": "unknown",
+      "task_id": null,
+      "data": {
+       "bundle_id": "com.apple.Notes",
+       "role": "AXButton",
+       "notification": "AXValueChanged",
+       "nested": {
+        "k": [
+         1,
+         2.5,
+         null,
+         true
+        ]
+       }
+      }
+     }
+    ]
+   ],
+   "tagged": [
+    "tr-000001",
+    "tr-000002",
+    "tr-000003",
+    "tr-000004",
+    "tr-000005",
+    "tr-000006",
+    "tr-000007",
+    "tr-000008",
+    "tr-000009",
+    "tr-000010",
+    "tr-000011",
+    "tr-000012",
+    "tr-000013",
+    "tr-000014",
+    "tr-000015",
+    "tr-000016",
+    "tr-000017",
+    "tr-000018",
+    "tr-000019",
+    "tr-000020",
+    "tr-000021",
+    "tr-000022",
+    "tr-000023",
+    "tr-000024"
+   ],
+   "last_event_at": "2026-03-06T18:30:52.250000+00:00"
+  }
+ ],
+ "rows": [
+  {
+   "seq": 1,
+   "id": "tr-000001",
+   "at": "2026-03-04T18:20:05.250000+00:00",
+   "day": "2026-03-04",
+   "device_id": "dev-1",
+   "actor": "owner",
+   "task_id": null,
+   "source": "app_focus",
+   "data_json": "{\"app\": \"Notes\", \"bundle_id\": \"com.apple.Notes\"}"
+  },
+  {
+   "seq": 2,
+   "id": "tr-000002",
+   "at": "2026-03-04T18:20:05.250000+00:00",
+   "day": "2026-03-04",
+   "device_id": "dev-1",
+   "actor": "ferb",
+   "task_id": "task-7",
+   "source": "browser_tab",
+   "data_json": "{\"browser\": \"chrome\", \"profile\": \"Default\", \"host\": \"docs.example\", \"incognito\": false, \"url\": \"https://docs.example/d?code=[redacted]&x=1\", \"title\": \"Notes — café\"}"
+  },
+  {
+   "seq": 3,
+   "id": "tr-000003",
+   "at": "2026-03-04T18:20:05.250000+00:00",
+   "day": "2026-03-04",
+   "device_id": "dev-1",
+   "actor": "owner",
+   "task_id": null,
+   "source": "typed_text",
+   "data_json": "{\"bundle_id\": \"com.google.Chrome\", \"app\": \"Chrome\", \"text\": \"card [redacted] ok\", \"host\": \"docs.example\", \"incognito\": false}"
+  },
+  {
+   "seq": 4,
+   "id": "tr-000004",
+   "at": "2026-03-04T18:20:05.250000+00:00",
+   "day": "2026-03-04",
+   "device_id": "dev-1",
+   "actor": "ferb",
+   "task_id": "task-2",
+   "source": "clipboard",
+   "data_json": "{\"bundle_id\": \"COM.GOOGLE.CHROME\", \"app\": \"Chrome\", \"text\": \"copied\", \"change_count\": 7, \"host\": \"docs.example\", \"incognito\": false}"
+  },
+  {
+   "seq": 5,
+   "id": "tr-000005",
+   "at": "2026-03-04T18:30:05.250000+00:00",
+   "day": "2026-03-05",
+   "device_id": "dev-1",
+   "actor": "owner",
+   "task_id": null,
+   "source": "window",
+   "data_json": "{\"app\": \"Terminal\", \"bundle_id\": \"com.apple.Terminal\", \"title\": \"export TOKEN=[redacted] password: [redacted]\"}"
+  },
+  {
+   "seq": 6,
+   "id": "tr-000006",
+   "at": "2026-03-04T18:30:06.250000+00:00",
+   "day": "2026-03-05",
+   "device_id": "dev-1",
+   "actor": "ferb",
+   "task_id": "task-3",
+   "source": "app_focus",
+   "data_json": "{\"app\": \"Mail\", \"bundle_id\": \"com.apple.Mail\"}"
+  },
+  {
+   "seq": 7,
+   "id": "tr-000007",
+   "at": "2026-03-04T18:30:09.250000+00:00",
+   "day": "2026-03-05",
+   "device_id": "dev-1",
+   "actor": "owner",
+   "task_id": null,
+   "source": "app_focus",
+   "data_json": "{\"app\": \"Mail\", \"bundle_id\": \"com.apple.Mail\"}"
+  },
+  {
+   "seq": 8,
+   "id": "tr-000008",
+   "at": "2026-03-04T18:30:09.250000+00:00",
+   "day": "2026-03-05",
+   "device_id": "dev-1",
+   "actor": "ferb",
+   "task_id": null,
+   "source": "window",
+   "data_json": "{\"app\": \"Mail\", \"bundle_id\": \"com.apple.Mail\", \"title\": \"Inbox\"}"
+  },
+  {
+   "seq": 9,
+   "id": "tr-000009",
+   "at": "2026-03-04T18:30:09.250000+00:00",
+   "day": "2026-03-05",
+   "device_id": "dev-1",
+   "actor": "unknown",
+   "task_id": null,
+   "source": "notification",
+   "data_json": "{\"bundle_id\": \"com.apple.Mail\", \"title\": \"New mail\", \"external_id\": \"n1\"}"
+  },
+  {
+   "seq": 10,
+   "id": "tr-000010",
+   "at": "2026-03-04T18:30:09.250000+00:00",
+   "day": "2026-03-05",
+   "device_id": "dev-1",
+   "actor": "ferb",
+   "task_id": "task-4",
+   "source": "window",
+   "data_json": "{\"app\": \"Mail\", \"bundle_id\": \"com.apple.Mail\", \"title\": \"Draft\"}"
+  },
+  {
+   "seq": 11,
+   "id": "tr-000011",
+   "at": "2026-03-04T18:30:09.250000+00:00",
+   "day": "2026-03-05",
+   "device_id": "dev-1",
+   "actor": "unknown",
+   "task_id": "t-x",
+   "source": "window",
+   "data_json": "{\"app\": \"Mail\", \"bundle_id\": \"com.apple.Mail\", \"title\": \"Sent\"}"
+  },
+  {
+   "seq": 12,
+   "id": "tr-000012",
+   "at": "2026-03-04T18:30:11.250000+00:00",
+   "day": "2026-03-05",
+   "device_id": "dev-1",
+   "actor": "owner",
+   "task_id": null,
+   "source": "file",
+   "data_json": "{\"path\": \"<TMP>/work/real/f.txt\", \"change\": \"modified\"}"
+  },
+  {
+   "seq": 13,
+   "id": "tr-000013",
+   "at": "2026-03-04T18:30:11.250000+00:00",
+   "day": "2026-03-05",
+   "device_id": "dev-1",
+   "actor": "ferb",
+   "task_id": "task-5",
+   "source": "file",
+   "data_json": "{\"path\": \"<TMP>/work/alias/f.txt\", \"change\": \"modified\"}"
+  },
+  {
+   "seq": 14,
+   "id": "tr-000014",
+   "at": "2026-03-04T18:30:22.250000+00:00",
+   "day": "2026-03-05",
+   "device_id": "dev-1",
+   "actor": "owner",
+   "task_id": null,
+   "source": "file",
+   "data_json": "{\"path\": \"<TMP>/work/real/f.txt\", \"change\": \"modified\"}"
+  },
+  {
+   "seq": 15,
+   "id": "tr-000015",
+   "at": "2026-03-04T18:30:22.250000+00:00",
+   "day": "2026-03-05",
+   "device_id": "dev-1",
+   "actor": "unknown",
+   "task_id": null,
+   "source": "file",
+   "data_json": "{\"path\": \"<TMP>/work/other.txt\", \"change\": \"created\"}"
+  },
+  {
+   "seq": 16,
+   "id": "tr-000016",
+   "at": "2026-03-04T18:30:22.250000+00:00",
+   "day": "2026-03-05",
+   "device_id": "dev-1",
+   "actor": "owner",
+   "task_id": null,
+   "source": "file",
+   "data_json": "{\"path\": \"<TMP>/workshop/x\", \"change\": \"created\"}"
+  },
+  {
+   "seq": 17,
+   "id": "tr-000017",
+   "at": "2026-03-04T18:30:22.250000+00:00",
+   "day": "2026-03-05",
+   "device_id": "dev-1",
+   "actor": "owner",
+   "task_id": null,
+   "source": "file",
+   "data_json": "{\"path\": \"<TMP>/work\", \"change\": \"modified\", \"is_dir\": true}"
+  },
+  {
+   "seq": 18,
+   "id": "tr-000018",
+   "at": "2026-03-04T18:30:22.250000+00:00",
+   "day": "2026-03-05",
+   "device_id": "dev-1",
+   "actor": "ferb",
+   "task_id": "task-8",
+   "source": "browser_tab",
+   "data_json": "{\"browser\": \"brave\", \"profile\": \"P\", \"host\": \"h.example\", \"url\": \"https://h.example/\", \"title\": \"x\"}"
+  },
+  {
+   "seq": 19,
+   "id": "tr-000019",
+   "at": "2026-03-04T18:30:22.250000+00:00",
+   "day": "2026-03-05",
+   "device_id": "dev-1",
+   "actor": "ferb",
+   "task_id": null,
+   "source": "browser_tab",
+   "data_json": "{\"browser\": \"brave\", \"profile\": \"P\", \"host\": \"h.example\", \"url\": \"https://h.example/2\", \"title\": \"y\"}"
+  },
+  {
+   "seq": 20,
+   "id": "tr-000020",
+   "at": "2026-03-04T18:30:22.250000+00:00",
+   "day": "2026-03-05",
+   "device_id": "dev-1",
+   "actor": "owner",
+   "task_id": "z",
+   "source": "idle",
+   "data_json": "{\"state\": \"idle\"}"
+  },
+  {
+   "seq": 21,
+   "id": "tr-000021",
+   "at": "2026-03-04T18:30:22.250000+00:00",
+   "day": "2026-03-05",
+   "device_id": "dev-1",
+   "actor": "unknown",
+   "task_id": null,
+   "source": "software",
+   "data_json": "{\"bundle_id\": \"com.example.app\"}"
+  },
+  {
+   "seq": 22,
+   "id": "tr-000022",
+   "at": "2026-03-04T18:30:22.250000+00:00",
+   "day": "2026-03-05",
+   "device_id": "dev-1",
+   "actor": "ferb",
+   "task_id": "task-9",
+   "source": "window",
+   "data_json": "{\"app\": \"Notes\", \"title\": \"y\"}"
+  },
+  {
+   "seq": 23,
+   "id": "tr-000023",
+   "at": "2026-03-06T18:30:52.250000+00:00",
+   "day": "2026-03-07",
+   "device_id": "dev-1",
+   "actor": "owner",
+   "task_id": null,
+   "source": "window",
+   "data_json": "{\"app\": \"Notes\", \"bundle_id\": \"com.apple.Notes\", \"title\": \"Groceries: milk, eggs; पानी\"}"
+  },
+  {
+   "seq": 24,
+   "id": "tr-000024",
+   "at": "2026-03-06T18:30:52.250000+00:00",
+   "day": "2026-03-07",
+   "device_id": "dev-1",
+   "actor": "unknown",
+   "task_id": null,
+   "source": "accessibility",
+   "data_json": "{\"bundle_id\": \"com.apple.Notes\", \"role\": \"AXButton\", \"notification\": \"AXValueChanged\", \"nested\": {\"k\": [1, 2.5, null, true]}}"
+  }
+ ],
+ "pages": {
+  "chrome": {
+   "host": "docs.example",
+   "incognito": false
+  },
+  "safari": {
+   "host": "x.example",
+   "incognito": true
+  },
+  "brave": {
+   "host": "h.example",
+   "incognito": false
+  }
+ },
+ "browser_key": [
+  [
+   "com.google.Chrome",
+   "chrome"
+  ],
+  [
+   "COM.BRAVE.BROWSER",
+   "brave"
+  ],
+  [
+   "com.apple.Safari",
+   "safari"
+  ],
+  [
+   "com.apple.SafariTechnologyPreview",
+   ""
+  ],
+  [
+   "company.thebrowser.Browser",
+   "arc"
+  ],
+  [
+   "com.operasoftware.Opera",
+   "opera"
+  ],
+  [
+   "org.mozilla.firefox",
+   ""
+  ],
+  [
+   "",
+   ""
+  ]
+ ],
+ "query_rows": [
+  {
+   "seq": 1,
+   "id": "e0",
+   "at": "2026-03-01T10:00:00+05:30",
+   "day": "2026-03-01",
+   "device_id": "dev-q",
+   "actor": "owner",
+   "task_id": null,
+   "source": "window",
+   "data_json": "{\"title\": \"quarterly report draft\", \"app\": \"Pages\"}"
+  },
+  {
+   "seq": 2,
+   "id": "e1",
+   "at": "2026-03-01T11:00:00+05:30",
+   "day": "2026-03-01",
+   "device_id": "dev-q",
+   "actor": "ferb",
+   "task_id": "task-1",
+   "source": "browser_tab",
+   "data_json": "{\"host\": \"docs.example.com\", \"url\": \"https://docs.example.com/x\", \"title\": \"Docs\"}"
+  },
+  {
+   "seq": 3,
+   "id": "e2",
+   "at": "2026-03-02T09:00:00+05:30",
+   "day": "2026-03-02",
+   "device_id": "dev-q",
+   "actor": "unknown",
+   "task_id": null,
+   "source": "browser_tab",
+   "data_json": "{\"host\": \"example.com\", \"url\": \"https://example.com/\", \"title\": \"Example 100%_off\"}"
+  },
+  {
+   "seq": 4,
+   "id": "e3",
+   "at": "2026-03-02T09:30:00+05:30",
+   "day": "2026-03-02",
+   "device_id": "dev-q",
+   "actor": "owner",
+   "task_id": null,
+   "source": "browser_tab",
+   "data_json": "{\"host\": \"EXAMPLE.COM.evil\", \"title\": \"Evil\"}"
+  },
+  {
+   "seq": 5,
+   "id": "e4",
+   "at": "2026-03-02T10:00:00+05:30",
+   "day": "2026-03-02",
+   "device_id": "dev-q",
+   "actor": "owner",
+   "task_id": null,
+   "source": "typed_text",
+   "data_json": "{\"text\": \"Straße नमस्ते report\", \"bundle_id\": \"com.apple.Notes\"}"
+  },
+  {
+   "seq": 6,
+   "id": "e5",
+   "at": "2026-03-03T08:00:00+05:30",
+   "day": "2026-03-03",
+   "device_id": "dev-q",
+   "actor": "owner",
+   "task_id": null,
+   "source": "file",
+   "data_json": "{\"path\": \"/Users/x/report.txt\", \"change\": \"created\"}"
+  },
+  {
+   "seq": 7,
+   "id": "e6",
+   "at": "2026-03-03T08:30:00+05:30",
+   "day": "2026-03-03",
+   "device_id": "dev-q",
+   "actor": "ferb",
+   "task_id": "task-2",
+   "source": "window",
+   "data_json": "{\"title\": \"Report: final\", \"n\": 3}"
+  },
+  {
+   "seq": 8,
+   "id": "e7",
+   "at": "2026-03-04T08:30:00+05:30",
+   "day": "2026-03-04",
+   "device_id": "dev-q",
+   "actor": "owner",
+   "task_id": null,
+   "source": "browser_tab",
+   "data_json": "{\"host\": \"a%b.example\", \"title\": \"pct\"}"
+  }
+ ],
+ "queries": [
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30"
+   },
+   "out": {
+    "events": [
+     {
+      "id": "e7",
+      "at": "2026-03-04T08:30:00+05:30",
+      "source": "browser_tab",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "host": "a%b.example",
+       "title": "pct"
+      }
+     },
+     {
+      "id": "e6",
+      "at": "2026-03-03T08:30:00+05:30",
+      "source": "window",
+      "actor": "ferb",
+      "task_id": "task-2",
+      "data": {
+       "title": "Report: final",
+       "n": 3
+      }
+     },
+     {
+      "id": "e5",
+      "at": "2026-03-03T08:00:00+05:30",
+      "source": "file",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "path": "/Users/x/report.txt",
+       "change": "created"
+      }
+     },
+     {
+      "id": "e4",
+      "at": "2026-03-02T10:00:00+05:30",
+      "source": "typed_text",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "text": "Straße नमस्ते report",
+       "bundle_id": "com.apple.Notes"
+      }
+     },
+     {
+      "id": "e3",
+      "at": "2026-03-02T09:30:00+05:30",
+      "source": "browser_tab",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "host": "EXAMPLE.COM.evil",
+       "title": "Evil"
+      }
+     },
+     {
+      "id": "e2",
+      "at": "2026-03-02T09:00:00+05:30",
+      "source": "browser_tab",
+      "actor": "unknown",
+      "task_id": null,
+      "data": {
+       "host": "example.com",
+       "url": "https://example.com/",
+       "title": "Example 100%_off"
+      }
+     },
+     {
+      "id": "e1",
+      "at": "2026-03-01T11:00:00+05:30",
+      "source": "browser_tab",
+      "actor": "ferb",
+      "task_id": "task-1",
+      "data": {
+       "host": "docs.example.com",
+       "url": "https://docs.example.com/x",
+       "title": "Docs"
+      }
+     },
+     {
+      "id": "e0",
+      "at": "2026-03-01T10:00:00+05:30",
+      "source": "window",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "title": "quarterly report draft",
+       "app": "Pages"
+      }
+     }
+    ],
+    "count": 8,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30",
+    "limit": 3
+   },
+   "out": {
+    "events": [
+     {
+      "id": "e7",
+      "at": "2026-03-04T08:30:00+05:30",
+      "source": "browser_tab",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "host": "a%b.example",
+       "title": "pct"
+      }
+     },
+     {
+      "id": "e6",
+      "at": "2026-03-03T08:30:00+05:30",
+      "source": "window",
+      "actor": "ferb",
+      "task_id": "task-2",
+      "data": {
+       "title": "Report: final",
+       "n": 3
+      }
+     },
+     {
+      "id": "e5",
+      "at": "2026-03-03T08:00:00+05:30",
+      "source": "file",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "path": "/Users/x/report.txt",
+       "change": "created"
+      }
+     }
+    ],
+    "count": 3,
+    "next_before_seq": 6,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30",
+    "limit": 3,
+    "before_seq": 6
+   },
+   "out": {
+    "events": [
+     {
+      "id": "e4",
+      "at": "2026-03-02T10:00:00+05:30",
+      "source": "typed_text",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "text": "Straße नमस्ते report",
+       "bundle_id": "com.apple.Notes"
+      }
+     },
+     {
+      "id": "e3",
+      "at": "2026-03-02T09:30:00+05:30",
+      "source": "browser_tab",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "host": "EXAMPLE.COM.evil",
+       "title": "Evil"
+      }
+     },
+     {
+      "id": "e2",
+      "at": "2026-03-02T09:00:00+05:30",
+      "source": "browser_tab",
+      "actor": "unknown",
+      "task_id": null,
+      "data": {
+       "host": "example.com",
+       "url": "https://example.com/",
+       "title": "Example 100%_off"
+      }
+     }
+    ],
+    "count": 3,
+    "next_before_seq": 3,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2026-03-02T00:00:00+05:30",
+    "until": "2026-03-03T00:00:00+05:30"
+   },
+   "out": {
+    "events": [
+     {
+      "id": "e4",
+      "at": "2026-03-02T10:00:00+05:30",
+      "source": "typed_text",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "text": "Straße नमस्ते report",
+       "bundle_id": "com.apple.Notes"
+      }
+     },
+     {
+      "id": "e3",
+      "at": "2026-03-02T09:30:00+05:30",
+      "source": "browser_tab",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "host": "EXAMPLE.COM.evil",
+       "title": "Evil"
+      }
+     },
+     {
+      "id": "e2",
+      "at": "2026-03-02T09:00:00+05:30",
+      "source": "browser_tab",
+      "actor": "unknown",
+      "task_id": null,
+      "data": {
+       "host": "example.com",
+       "url": "https://example.com/",
+       "title": "Example 100%_off"
+      }
+     }
+    ],
+    "count": 3,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30",
+    "source": "browser_tab"
+   },
+   "out": {
+    "events": [
+     {
+      "id": "e7",
+      "at": "2026-03-04T08:30:00+05:30",
+      "source": "browser_tab",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "host": "a%b.example",
+       "title": "pct"
+      }
+     },
+     {
+      "id": "e3",
+      "at": "2026-03-02T09:30:00+05:30",
+      "source": "browser_tab",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "host": "EXAMPLE.COM.evil",
+       "title": "Evil"
+      }
+     },
+     {
+      "id": "e2",
+      "at": "2026-03-02T09:00:00+05:30",
+      "source": "browser_tab",
+      "actor": "unknown",
+      "task_id": null,
+      "data": {
+       "host": "example.com",
+       "url": "https://example.com/",
+       "title": "Example 100%_off"
+      }
+     },
+     {
+      "id": "e1",
+      "at": "2026-03-01T11:00:00+05:30",
+      "source": "browser_tab",
+      "actor": "ferb",
+      "task_id": "task-1",
+      "data": {
+       "host": "docs.example.com",
+       "url": "https://docs.example.com/x",
+       "title": "Docs"
+      }
+     }
+    ],
+    "count": 4,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30",
+    "actor": "ferb"
+   },
+   "out": {
+    "events": [
+     {
+      "id": "e6",
+      "at": "2026-03-03T08:30:00+05:30",
+      "source": "window",
+      "actor": "ferb",
+      "task_id": "task-2",
+      "data": {
+       "title": "Report: final",
+       "n": 3
+      }
+     },
+     {
+      "id": "e1",
+      "at": "2026-03-01T11:00:00+05:30",
+      "source": "browser_tab",
+      "actor": "ferb",
+      "task_id": "task-1",
+      "data": {
+       "host": "docs.example.com",
+       "url": "https://docs.example.com/x",
+       "title": "Docs"
+      }
+     }
+    ],
+    "count": 2,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30",
+    "host": "example.com"
+   },
+   "out": {
+    "events": [
+     {
+      "id": "e2",
+      "at": "2026-03-02T09:00:00+05:30",
+      "source": "browser_tab",
+      "actor": "unknown",
+      "task_id": null,
+      "data": {
+       "host": "example.com",
+       "url": "https://example.com/",
+       "title": "Example 100%_off"
+      }
+     },
+     {
+      "id": "e1",
+      "at": "2026-03-01T11:00:00+05:30",
+      "source": "browser_tab",
+      "actor": "ferb",
+      "task_id": "task-1",
+      "data": {
+       "host": "docs.example.com",
+       "url": "https://docs.example.com/x",
+       "title": "Docs"
+      }
+     }
+    ],
+    "count": 2,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30",
+    "host": "Example.Com"
+   },
+   "out": {
+    "events": [
+     {
+      "id": "e2",
+      "at": "2026-03-02T09:00:00+05:30",
+      "source": "browser_tab",
+      "actor": "unknown",
+      "task_id": null,
+      "data": {
+       "host": "example.com",
+       "url": "https://example.com/",
+       "title": "Example 100%_off"
+      }
+     },
+     {
+      "id": "e1",
+      "at": "2026-03-01T11:00:00+05:30",
+      "source": "browser_tab",
+      "actor": "ferb",
+      "task_id": "task-1",
+      "data": {
+       "host": "docs.example.com",
+       "url": "https://docs.example.com/x",
+       "title": "Docs"
+      }
+     }
+    ],
+    "count": 2,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30",
+    "host": "a%b.example"
+   },
+   "out": {
+    "events": [
+     {
+      "id": "e7",
+      "at": "2026-03-04T08:30:00+05:30",
+      "source": "browser_tab",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "host": "a%b.example",
+       "title": "pct"
+      }
+     }
+    ],
+    "count": 1,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30",
+    "host": "b.example"
+   },
+   "out": {
+    "events": [],
+    "count": 0,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30",
+    "text": "report"
+   },
+   "out": {
+    "events": [
+     {
+      "id": "e6",
+      "at": "2026-03-03T08:30:00+05:30",
+      "source": "window",
+      "actor": "ferb",
+      "task_id": "task-2",
+      "data": {
+       "title": "Report: final",
+       "n": 3
+      }
+     },
+     {
+      "id": "e5",
+      "at": "2026-03-03T08:00:00+05:30",
+      "source": "file",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "path": "/Users/x/report.txt",
+       "change": "created"
+      }
+     },
+     {
+      "id": "e4",
+      "at": "2026-03-02T10:00:00+05:30",
+      "source": "typed_text",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "text": "Straße नमस्ते report",
+       "bundle_id": "com.apple.Notes"
+      }
+     },
+     {
+      "id": "e0",
+      "at": "2026-03-01T10:00:00+05:30",
+      "source": "window",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "title": "quarterly report draft",
+       "app": "Pages"
+      }
+     }
+    ],
+    "count": 4,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30",
+    "text": "REPORT draft"
+   },
+   "out": {
+    "events": [
+     {
+      "id": "e0",
+      "at": "2026-03-01T10:00:00+05:30",
+      "source": "window",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "title": "quarterly report draft",
+       "app": "Pages"
+      }
+     }
+    ],
+    "count": 1,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30",
+    "text": "straße"
+   },
+   "out": {
+    "events": [
+     {
+      "id": "e4",
+      "at": "2026-03-02T10:00:00+05:30",
+      "source": "typed_text",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "text": "Straße नमस्ते report",
+       "bundle_id": "com.apple.Notes"
+      }
+     }
+    ],
+    "count": 1,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30",
+    "text": "नमस्ते"
+   },
+   "out": {
+    "events": [
+     {
+      "id": "e4",
+      "at": "2026-03-02T10:00:00+05:30",
+      "source": "typed_text",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "text": "Straße नमस्ते report",
+       "bundle_id": "com.apple.Notes"
+      }
+     }
+    ],
+    "count": 1,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30",
+    "text": "!!! ..."
+   },
+   "out": {
+    "events": [],
+    "count": 0,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30",
+    "text": "Report: final"
+   },
+   "out": {
+    "events": [
+     {
+      "id": "e6",
+      "at": "2026-03-03T08:30:00+05:30",
+      "source": "window",
+      "actor": "ferb",
+      "task_id": "task-2",
+      "data": {
+       "title": "Report: final",
+       "n": 3
+      }
+     }
+    ],
+    "count": 1,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2099-01-01",
+    "event_id": "e2"
+   },
+   "out": {
+    "events": [
+     {
+      "id": "e2",
+      "at": "2026-03-02T09:00:00+05:30",
+      "source": "browser_tab",
+      "actor": "unknown",
+      "task_id": null,
+      "data": {
+       "host": "example.com",
+       "url": "https://example.com/",
+       "title": "Example 100%_off"
+      }
+     }
+    ],
+    "count": 1,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30",
+    "event_id": "e2",
+    "source": "window"
+   },
+   "out": {
+    "events": [],
+    "count": 0,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30",
+    "limit": 1
+   },
+   "out": {
+    "events": [
+     {
+      "id": "e7",
+      "at": "2026-03-04T08:30:00+05:30",
+      "source": "browser_tab",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "host": "a%b.example",
+       "title": "pct"
+      }
+     }
+    ],
+    "count": 1,
+    "next_before_seq": 8,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30",
+    "limit": 0
+   },
+   "error": "limit must be positive"
+  },
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30",
+    "text": "report",
+    "limit": 1
+   },
+   "out": {
+    "events": [
+     {
+      "id": "e6",
+      "at": "2026-03-03T08:30:00+05:30",
+      "source": "window",
+      "actor": "ferb",
+      "task_id": "task-2",
+      "data": {
+       "title": "Report: final",
+       "n": 3
+      }
+     }
+    ],
+    "count": 1,
+    "next_before_seq": 7,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  },
+  {
+   "args": {
+    "since": "2026-03-01T00:00:00+05:30",
+    "source": "window",
+    "actor": "owner",
+    "until": "2026-03-04T00:00:00+05:30"
+   },
+   "out": {
+    "events": [
+     {
+      "id": "e0",
+      "at": "2026-03-01T10:00:00+05:30",
+      "source": "window",
+      "actor": "owner",
+      "task_id": null,
+      "data": {
+       "title": "quarterly report draft",
+       "app": "Pages"
+      }
+     }
+    ],
+    "count": 1,
+    "next_before_seq": null,
+    "ordering": "newest first; observations are evidence, not a selected profile or target"
+   }
+  }
+ ],
+ "events": [
+  {
+   "args": {},
+   "out": [
+    {
+     "id": "e7",
+     "at": "2026-03-04T08:30:00+05:30",
+     "device_id": "dev-q",
+     "actor": "owner",
+     "task_id": null,
+     "source": "browser_tab",
+     "data": {
+      "host": "a%b.example",
+      "title": "pct"
+     }
+    },
+    {
+     "id": "e6",
+     "at": "2026-03-03T08:30:00+05:30",
+     "device_id": "dev-q",
+     "actor": "ferb",
+     "task_id": "task-2",
+     "source": "window",
+     "data": {
+      "title": "Report: final",
+      "n": 3
+     }
+    },
+    {
+     "id": "e5",
+     "at": "2026-03-03T08:00:00+05:30",
+     "device_id": "dev-q",
+     "actor": "owner",
+     "task_id": null,
+     "source": "file",
+     "data": {
+      "path": "/Users/x/report.txt",
+      "change": "created"
+     }
+    },
+    {
+     "id": "e4",
+     "at": "2026-03-02T10:00:00+05:30",
+     "device_id": "dev-q",
+     "actor": "owner",
+     "task_id": null,
+     "source": "typed_text",
+     "data": {
+      "text": "Straße नमस्ते report",
+      "bundle_id": "com.apple.Notes"
+     }
+    },
+    {
+     "id": "e3",
+     "at": "2026-03-02T09:30:00+05:30",
+     "device_id": "dev-q",
+     "actor": "owner",
+     "task_id": null,
+     "source": "browser_tab",
+     "data": {
+      "host": "EXAMPLE.COM.evil",
+      "title": "Evil"
+     }
+    },
+    {
+     "id": "e2",
+     "at": "2026-03-02T09:00:00+05:30",
+     "device_id": "dev-q",
+     "actor": "unknown",
+     "task_id": null,
+     "source": "browser_tab",
+     "data": {
+      "host": "example.com",
+      "url": "https://example.com/",
+      "title": "Example 100%_off"
+     }
+    },
+    {
+     "id": "e1",
+     "at": "2026-03-01T11:00:00+05:30",
+     "device_id": "dev-q",
+     "actor": "ferb",
+     "task_id": "task-1",
+     "source": "browser_tab",
+     "data": {
+      "host": "docs.example.com",
+      "url": "https://docs.example.com/x",
+      "title": "Docs"
+     }
+    },
+    {
+     "id": "e0",
+     "at": "2026-03-01T10:00:00+05:30",
+     "device_id": "dev-q",
+     "actor": "owner",
+     "task_id": null,
+     "source": "window",
+     "data": {
+      "title": "quarterly report draft",
+      "app": "Pages"
+     }
+    }
+   ]
+  },
+  {
+   "args": {
+    "source": "window"
+   },
+   "out": [
+    {
+     "id": "e6",
+     "at": "2026-03-03T08:30:00+05:30",
+     "device_id": "dev-q",
+     "actor": "ferb",
+     "task_id": "task-2",
+     "source": "window",
+     "data": {
+      "title": "Report: final",
+      "n": 3
+     }
+    },
+    {
+     "id": "e0",
+     "at": "2026-03-01T10:00:00+05:30",
+     "device_id": "dev-q",
+     "actor": "owner",
+     "task_id": null,
+     "source": "window",
+     "data": {
+      "title": "quarterly report draft",
+      "app": "Pages"
+     }
+    }
+   ]
+  },
+  {
+   "args": {
+    "actor": "owner",
+    "limit": 2
+   },
+   "out": [
+    {
+     "id": "e7",
+     "at": "2026-03-04T08:30:00+05:30",
+     "device_id": "dev-q",
+     "actor": "owner",
+     "task_id": null,
+     "source": "browser_tab",
+     "data": {
+      "host": "a%b.example",
+      "title": "pct"
+     }
+    },
+    {
+     "id": "e5",
+     "at": "2026-03-03T08:00:00+05:30",
+     "device_id": "dev-q",
+     "actor": "owner",
+     "task_id": null,
+     "source": "file",
+     "data": {
+      "path": "/Users/x/report.txt",
+      "change": "created"
+     }
+    }
+   ]
+  },
+  {
+   "args": {
+    "source": "nothing"
+   },
+   "out": []
+  }
+ ],
+ "journal": [
+  [
+   "j1",
+   "trail.day_summary",
+   {
+    "day": "2026-03-01",
+    "windows": [
+     "quarterly report"
+    ],
+    "apps_min": {
+     "Pages": 5
+    }
+   }
+  ],
+  [
+   "j2",
+   "trail.day_narrative",
+   {
+    "day": "2026-03-01",
+    "text": "Wrote the quarterly report"
+   }
+  ],
+  [
+   "j3",
+   "trail.day_summary",
+   {
+    "day": "2026-03-02",
+    "sites": {
+     "example.com": 3
+    }
+   }
+  ],
+  [
+   "j4",
+   "other.kind",
+   {
+    "day": "2026-03-02",
+    "text": "report"
+   }
+  ],
+  [
+   "j5",
+   "trail.day_summary",
+   {
+    "day": "2026-02-01",
+    "windows": [
+     "old report"
+    ]
+   }
+  ],
+  [
+   "j6",
+   "trail.day_summary",
+   {
+    "day": "2026-03-03",
+    "ferb": {
+     "tasks": [
+      {
+       "summary": "Filed report"
+      }
+     ]
+    }
+   }
+  ]
+ ],
+ "days": [
+  {
+   "args": {},
+   "out": [
+    {
+     "id": "j6",
+     "day": "2026-03-03",
+     "kind": "summary",
+     "data": {
+      "day": "2026-03-03",
+      "ferb": {
+       "tasks": [
+        {
+         "summary": "Filed report"
+        }
+       ]
+      }
+     }
+    },
+    {
+     "id": "j3",
+     "day": "2026-03-02",
+     "kind": "summary",
+     "data": {
+      "day": "2026-03-02",
+      "sites": {
+       "example.com": 3
+      }
+     }
+    },
+    {
+     "id": "j2",
+     "day": "2026-03-01",
+     "kind": "narrative",
+     "data": {
+      "day": "2026-03-01",
+      "text": "Wrote the quarterly report"
+     }
+    },
+    {
+     "id": "j1",
+     "day": "2026-03-01",
+     "kind": "summary",
+     "data": {
+      "day": "2026-03-01",
+      "windows": [
+       "quarterly report"
+      ],
+      "apps_min": {
+       "Pages": 5
+      }
+     }
+    }
+   ]
+  },
+  {
+   "args": {
+    "text": "report"
+   },
+   "out": [
+    {
+     "id": "j6",
+     "day": "2026-03-03",
+     "kind": "summary",
+     "data": {
+      "day": "2026-03-03",
+      "ferb": {
+       "tasks": [
+        {
+         "summary": "Filed report"
+        }
+       ]
+      }
+     }
+    },
+    {
+     "id": "j2",
+     "day": "2026-03-01",
+     "kind": "narrative",
+     "data": {
+      "day": "2026-03-01",
+      "text": "Wrote the quarterly report"
+     }
+    },
+    {
+     "id": "j1",
+     "day": "2026-03-01",
+     "kind": "summary",
+     "data": {
+      "day": "2026-03-01",
+      "windows": [
+       "quarterly report"
+      ],
+      "apps_min": {
+       "Pages": 5
+      }
+     }
+    }
+   ]
+  },
+  {
+   "args": {
+    "text": "quarterly"
+   },
+   "out": [
+    {
+     "id": "j2",
+     "day": "2026-03-01",
+     "kind": "narrative",
+     "data": {
+      "day": "2026-03-01",
+      "text": "Wrote the quarterly report"
+     }
+    },
+    {
+     "id": "j1",
+     "day": "2026-03-01",
+     "kind": "summary",
+     "data": {
+      "day": "2026-03-01",
+      "windows": [
+       "quarterly report"
+      ],
+      "apps_min": {
+       "Pages": 5
+      }
+     }
+    }
+   ]
+  },
+  {
+   "args": {
+    "since_days": 40
+   },
+   "out": [
+    {
+     "id": "j6",
+     "day": "2026-03-03",
+     "kind": "summary",
+     "data": {
+      "day": "2026-03-03",
+      "ferb": {
+       "tasks": [
+        {
+         "summary": "Filed report"
+        }
+       ]
+      }
+     }
+    },
+    {
+     "id": "j3",
+     "day": "2026-03-02",
+     "kind": "summary",
+     "data": {
+      "day": "2026-03-02",
+      "sites": {
+       "example.com": 3
+      }
+     }
+    },
+    {
+     "id": "j2",
+     "day": "2026-03-01",
+     "kind": "narrative",
+     "data": {
+      "day": "2026-03-01",
+      "text": "Wrote the quarterly report"
+     }
+    },
+    {
+     "id": "j1",
+     "day": "2026-03-01",
+     "kind": "summary",
+     "data": {
+      "day": "2026-03-01",
+      "windows": [
+       "quarterly report"
+      ],
+      "apps_min": {
+       "Pages": 5
+      }
+     }
+    },
+    {
+     "id": "j5",
+     "day": "2026-02-01",
+     "kind": "summary",
+     "data": {
+      "day": "2026-02-01",
+      "windows": [
+       "old report"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "args": {
+    "since_days": 2
+   },
+   "out": [
+    {
+     "id": "j6",
+     "day": "2026-03-03",
+     "kind": "summary",
+     "data": {
+      "day": "2026-03-03",
+      "ferb": {
+       "tasks": [
+        {
+         "summary": "Filed report"
+        }
+       ]
+      }
+     }
+    },
+    {
+     "id": "j3",
+     "day": "2026-03-02",
+     "kind": "summary",
+     "data": {
+      "day": "2026-03-02",
+      "sites": {
+       "example.com": 3
+      }
+     }
+    }
+   ]
+  },
+  {
+   "args": {
+    "limit": 1
+   },
+   "out": [
+    {
+     "id": "j6",
+     "day": "2026-03-03",
+     "kind": "summary",
+     "data": {
+      "day": "2026-03-03",
+      "ferb": {
+       "tasks": [
+        {
+         "summary": "Filed report"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "args": {
+    "text": "..."
+   },
+   "out": []
+  },
+  {
+   "args": {
+    "text": "example.com"
+   },
+   "out": [
+    {
+     "id": "j3",
+     "day": "2026-03-02",
+     "kind": "summary",
+     "data": {
+      "day": "2026-03-02",
+      "sites": {
+       "example.com": 3
+      }
+     }
+    }
+   ]
+  },
+  {
+   "args": {
+    "text": "filed"
+   },
+   "out": [
+    {
+     "id": "j6",
+     "day": "2026-03-03",
+     "kind": "summary",
+     "data": {
+      "day": "2026-03-03",
+      "ferb": {
+       "tasks": [
+        {
+         "summary": "Filed report"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "summarized_days": [
+  "2026-02-01",
+  "2026-03-01",
+  "2026-03-02",
+  "2026-03-03"
+ ],
+ "purge": [
+  {
+   "retention_days": 1,
+   "today": "2026-03-04",
+   "purged": [
+    "2026-03-01",
+    "2026-03-02"
+   ],
+   "refused": [],
+   "left": [
+    "e5",
+    "e6",
+    "e7"
+   ]
+  },
+  {
+   "retention_days": 0,
+   "today": "2026-03-04",
+   "purged": [
+    "2026-03-03"
+   ],
+   "refused": [],
+   "left": [
+    "e7"
+   ]
+  }
+ ],
+ "purge_source": {
+  "rows": [
+   [
+    "r0",
+    "accessibility",
+    "2026-10-01"
+   ],
+   [
+    "r1",
+    "accessibility",
+    "2026-10-29"
+   ],
+   [
+    "r2",
+    "window",
+    "2026-10-01"
+   ],
+   [
+    "r3",
+    "accessibility",
+    "2026-10-02"
+   ],
+   [
+    "r4",
+    "accessibility",
+    "2026-10-02"
+   ],
+   [
+    "r5",
+    "accessibility",
+    "2026-10-02"
+   ],
+   [
+    "r6",
+    "accessibility",
+    "2026-10-02"
+   ],
+   [
+    "r7",
+    "accessibility",
+    "2026-10-02"
+   ]
+  ],
+  "steps": [
+   2,
+   2,
+   2
+  ],
+  "left": [
+   "r1",
+   "r2"
+  ],
+  "receipts": [
+   "r2"
+  ]
+ }
+}

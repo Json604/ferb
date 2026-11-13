@@ -1,0 +1,927 @@
+{
+ "launch_args": [
+  [
+   "/usr/bin/open",
+   "-g",
+   "-n",
+   "-W",
+   "--env",
+   "FERB_HOME=<TMP>/home/.ferb",
+   "<TMP>/home/.ferb/FERB.app",
+   "--args",
+   "transcribe",
+   "/a.wav",
+   "/ans.json",
+   "en-US"
+  ],
+  [
+   "/usr/bin/open",
+   "-g",
+   "-n",
+   "-W",
+   "--env",
+   "FERB_HOME=<TMP>/fh",
+   "<TMP>/home/.ferb/FERB.app",
+   "--args",
+   "status"
+  ]
+ ],
+ "why": [
+  [
+   {
+    "error": "x",
+    "reason": "on_device_unavailable",
+    "locale": "hi-IN"
+   },
+   "On-device speech recognition isn't available for hi-IN on this Mac, so FERB didn't transcribe it; it never sends sound to a cloud recognizer."
+  ],
+  [
+   {
+    "error": "x",
+    "reason": "on_device_unavailable"
+   },
+   "On-device speech recognition isn't available for this language on this Mac, so FERB didn't transcribe it; it never sends sound to a cloud recognizer."
+  ],
+  [
+   {
+    "error": "x",
+    "reason": "not_authorized",
+    "speech": "denied"
+   },
+   "FERB isn't allowed to use Speech Recognition (denied): the owner allows it in FERB's Settings → Permissions."
+  ],
+  [
+   {
+    "error": "x",
+    "reason": "not_authorized"
+   },
+   "FERB isn't allowed to use Speech Recognition (not allowed): the owner allows it in FERB's Settings → Permissions."
+  ],
+  [
+   {
+    "error": "x",
+    "reason": "unsupported_language",
+    "locale": "xx"
+   },
+   "Apple speech recognition has no recognizer for xx."
+  ],
+  [
+   {
+    "error": "boom"
+   },
+   "FERB.app couldn't transcribe the sound: boom."
+  ],
+  [
+   {
+    "error": 5,
+    "reason": null
+   },
+   "FERB.app couldn't transcribe the sound: 5."
+  ]
+ ],
+ "redacted": [
+  {
+   "text": "Hello there. My card is 4111 1111 1111 1111. Thanks!",
+   "words": [
+    [
+     "Hello",
+     0.0,
+     0.4
+    ],
+    [
+     "there.",
+     0.4,
+     0.8
+    ],
+    [
+     "My",
+     1.0,
+     1.1
+    ],
+    [
+     "card",
+     1.1,
+     1.4
+    ],
+    [
+     "is",
+     1.4,
+     1.5
+    ],
+    [
+     "4111",
+     1.5,
+     2.0
+    ],
+    [
+     "1111",
+     2.0,
+     2.4
+    ],
+    [
+     "1111",
+     2.4,
+     2.8
+    ],
+    [
+     "1111.",
+     2.8,
+     3.3
+    ],
+    [
+     "Thanks!",
+     3.5,
+     4.0
+    ]
+   ],
+   "offset": 0.0,
+   "out": {
+    "transcript": "Hello there. My card is [redacted]. Thanks!",
+    "segments": [
+     {
+      "start": 0.0,
+      "end": 0.8,
+      "text": "Hello there."
+     },
+     {
+      "start": 1.0,
+      "end": 3.3,
+      "text": "My card is [redacted]."
+     },
+     {
+      "start": 3.5,
+      "end": 4.0,
+      "text": "Thanks!"
+     }
+    ]
+   }
+  },
+  {
+   "text": "Hello there. My card is 4111 1111 1111 1111. Thanks!",
+   "words": [
+    [
+     "Hello",
+     0.0,
+     0.4
+    ],
+    [
+     "there.",
+     0.4,
+     0.8
+    ],
+    [
+     "My",
+     1.0,
+     1.1
+    ],
+    [
+     "card",
+     1.1,
+     1.4
+    ],
+    [
+     "is",
+     1.4,
+     1.5
+    ],
+    [
+     "4111",
+     1.5,
+     2.0
+    ],
+    [
+     "1111",
+     2.0,
+     2.4
+    ],
+    [
+     "1111",
+     2.4,
+     2.8
+    ],
+    [
+     "1111.",
+     2.8,
+     3.3
+    ],
+    [
+     "Thanks!",
+     3.5,
+     4.0
+    ]
+   ],
+   "offset": 12.345,
+   "out": {
+    "transcript": "Hello there. My card is [redacted]. Thanks!",
+    "segments": [
+     {
+      "start": 12.35,
+      "end": 13.15,
+      "text": "Hello there."
+     },
+     {
+      "start": 13.35,
+      "end": 15.64,
+      "text": "My card is [redacted]."
+     },
+     {
+      "start": 15.85,
+      "end": 16.34,
+      "text": "Thanks!"
+     }
+    ]
+   }
+  },
+  {
+   "text": "one two three",
+   "words": [
+    [
+     "one",
+     0,
+     0.3
+    ],
+    [
+     "missing",
+     0.3,
+     0.4
+    ],
+    [
+     "two",
+     0.5,
+     0.7
+    ],
+    [
+     "",
+     0.7,
+     0.8
+    ],
+    [
+     "three",
+     0.8,
+     1.123456
+    ]
+   ],
+   "offset": 0.0,
+   "out": {
+    "transcript": "one two three",
+    "segments": [
+     {
+      "start": 0.0,
+      "end": 1.12,
+      "text": "one two three"
+     }
+    ]
+   }
+  },
+  {
+   "text": "one two three",
+   "words": [
+    [
+     "one",
+     0,
+     0.3
+    ],
+    [
+     "missing",
+     0.3,
+     0.4
+    ],
+    [
+     "two",
+     0.5,
+     0.7
+    ],
+    [
+     "",
+     0.7,
+     0.8
+    ],
+    [
+     "three",
+     0.8,
+     1.123456
+    ]
+   ],
+   "offset": 12.345,
+   "out": {
+    "transcript": "one two three",
+    "segments": [
+     {
+      "start": 12.35,
+      "end": 13.47,
+      "text": "one two three"
+     }
+    ]
+   }
+  },
+  {
+   "text": "Line one\nline two? yes… done。end",
+   "words": [
+    [
+     "Line",
+     0,
+     1
+    ],
+    [
+     "one",
+     1,
+     2
+    ],
+    [
+     "line",
+     2,
+     3
+    ],
+    [
+     "two?",
+     3,
+     4
+    ],
+    [
+     "yes…",
+     4,
+     5
+    ],
+    [
+     "done。end",
+     5,
+     6
+    ]
+   ],
+   "offset": 0.0,
+   "out": {
+    "transcript": "Line one\nline two? yes… done。end",
+    "segments": [
+     {
+      "start": 0.0,
+      "end": 2.0,
+      "text": "Line one"
+     },
+     {
+      "start": 2.0,
+      "end": 4.0,
+      "text": "line two?"
+     },
+     {
+      "start": 4.0,
+      "end": 5.0,
+      "text": "yes…"
+     },
+     {
+      "start": 5.0,
+      "end": 6.0,
+      "text": "done。end"
+     }
+    ]
+   }
+  },
+  {
+   "text": "Line one\nline two? yes… done。end",
+   "words": [
+    [
+     "Line",
+     0,
+     1
+    ],
+    [
+     "one",
+     1,
+     2
+    ],
+    [
+     "line",
+     2,
+     3
+    ],
+    [
+     "two?",
+     3,
+     4
+    ],
+    [
+     "yes…",
+     4,
+     5
+    ],
+    [
+     "done。end",
+     5,
+     6
+    ]
+   ],
+   "offset": 12.345,
+   "out": {
+    "transcript": "Line one\nline two? yes… done。end",
+    "segments": [
+     {
+      "start": 12.35,
+      "end": 14.35,
+      "text": "Line one"
+     },
+     {
+      "start": 14.35,
+      "end": 16.34,
+      "text": "line two?"
+     },
+     {
+      "start": 16.34,
+      "end": 17.34,
+      "text": "yes…"
+     },
+     {
+      "start": 17.34,
+      "end": 18.34,
+      "text": "done。end"
+     }
+    ]
+   }
+  },
+  {
+   "text": "",
+   "words": [],
+   "offset": 0.0,
+   "out": {
+    "transcript": "",
+    "segments": []
+   }
+  },
+  {
+   "text": "",
+   "words": [],
+   "offset": 12.345,
+   "out": {
+    "transcript": "",
+    "segments": []
+   }
+  },
+  {
+   "text": "password: hunter2 is it",
+   "words": [
+    [
+     "password:",
+     0,
+     1
+    ],
+    [
+     "hunter2",
+     1,
+     2
+    ],
+    [
+     "is",
+     2,
+     3
+    ],
+    [
+     "it",
+     3,
+     4
+    ]
+   ],
+   "offset": 0.0,
+   "out": {
+    "transcript": "password: [redacted] is it",
+    "segments": [
+     {
+      "start": 0.0,
+      "end": 4.0,
+      "text": "password: [redacted] is it"
+     }
+    ]
+   }
+  },
+  {
+   "text": "password: hunter2 is it",
+   "words": [
+    [
+     "password:",
+     0,
+     1
+    ],
+    [
+     "hunter2",
+     1,
+     2
+    ],
+    [
+     "is",
+     2,
+     3
+    ],
+    [
+     "it",
+     3,
+     4
+    ]
+   ],
+   "offset": 12.345,
+   "out": {
+    "transcript": "password: [redacted] is it",
+    "segments": [
+     {
+      "start": 12.35,
+      "end": 16.34,
+      "text": "password: [redacted] is it"
+     }
+    ]
+   }
+  },
+  {
+   "text": "ünïcödé 😀 words. second",
+   "words": [
+    [
+     "ünïcödé",
+     0,
+     1
+    ],
+    [
+     "😀",
+     1,
+     2
+    ],
+    [
+     "words.",
+     2,
+     3
+    ],
+    [
+     "second",
+     3,
+     4.005
+    ]
+   ],
+   "offset": 0.0,
+   "out": {
+    "transcript": "ünïcödé 😀 words. second",
+    "segments": [
+     {
+      "start": 0.0,
+      "end": 3.0,
+      "text": "ünïcödé 😀 words."
+     },
+     {
+      "start": 3.0,
+      "end": 4.0,
+      "text": "second"
+     }
+    ]
+   }
+  },
+  {
+   "text": "ünïcödé 😀 words. second",
+   "words": [
+    [
+     "ünïcödé",
+     0,
+     1
+    ],
+    [
+     "😀",
+     1,
+     2
+    ],
+    [
+     "words.",
+     2,
+     3
+    ],
+    [
+     "second",
+     3,
+     4.005
+    ]
+   ],
+   "offset": 12.345,
+   "out": {
+    "transcript": "ünïcödé 😀 words. second",
+    "segments": [
+     {
+      "start": 12.35,
+      "end": 15.35,
+      "text": "ünïcödé 😀 words."
+     },
+     {
+      "start": 15.35,
+      "end": 16.35,
+      "text": "second"
+     }
+    ]
+   }
+  }
+ ],
+ "asks": [
+  {
+   "name": "ok",
+   "answer": {
+    "text": "hi there",
+    "segments": [
+     {
+      "text": "hi",
+      "start": 0.5,
+      "duration": 0.25
+     },
+     {
+      "text": "there",
+      "start": null
+     }
+    ],
+    "locale": "en-US"
+   },
+   "signed": true,
+   "requirement": "req",
+   "launched": [
+    [
+     "/usr/bin/open",
+     "-g",
+     "-n",
+     "-W",
+     "--env",
+     "FERB_HOME=<TMP>/home/.ferb",
+     "<TMP>/home/.ferb/FERB.app",
+     "--args",
+     "transcribe",
+     "<TMP>/home/.ferb/workspace/audio/clip.wav",
+     "<TMP>/home/.ferb/workspace/audio/.transcribe-0000000000000001.json",
+     "en-US"
+    ],
+    "0o600"
+   ],
+   "out": {
+    "text": "hi there",
+    "words": [
+     [
+      "hi",
+      0.5,
+      0.75
+     ],
+     [
+      "there",
+      0.0,
+      0.0
+     ]
+    ],
+    "locale": "en-US"
+   },
+   "left": [],
+   "in_flight": 0,
+   "folder_mode": "0o700"
+  },
+  {
+   "name": "no locale",
+   "answer": {
+    "text": "x"
+   },
+   "signed": true,
+   "requirement": "req",
+   "launched": [
+    [
+     "/usr/bin/open",
+     "-g",
+     "-n",
+     "-W",
+     "--env",
+     "FERB_HOME=<TMP>/home/.ferb",
+     "<TMP>/home/.ferb/FERB.app",
+     "--args",
+     "transcribe",
+     "<TMP>/home/.ferb/workspace/audio/clip.wav",
+     "<TMP>/home/.ferb/workspace/audio/.transcribe-0000000000000002.json"
+    ],
+    "0o600"
+   ],
+   "out": {
+    "text": "x",
+    "words": [],
+    "locale": ""
+   },
+   "left": [],
+   "in_flight": 0,
+   "folder_mode": "0o700"
+  },
+  {
+   "name": "error",
+   "answer": {
+    "error": "denied",
+    "reason": "not_authorized",
+    "speech": "denied"
+   },
+   "signed": true,
+   "requirement": "req",
+   "launched": [
+    [
+     "/usr/bin/open",
+     "-g",
+     "-n",
+     "-W",
+     "--env",
+     "FERB_HOME=<TMP>/home/.ferb",
+     "<TMP>/home/.ferb/FERB.app",
+     "--args",
+     "transcribe",
+     "<TMP>/home/.ferb/workspace/audio/clip.wav",
+     "<TMP>/home/.ferb/workspace/audio/.transcribe-0000000000000003.json",
+     "en-US"
+    ],
+    "0o600"
+   ],
+   "out": {
+    "error": "HearingUnavailable",
+    "message": "FERB isn't allowed to use Speech Recognition (denied): the owner allows it in FERB's Settings → Permissions."
+   },
+   "left": [],
+   "in_flight": 0,
+   "folder_mode": "0o700"
+  },
+  {
+   "name": "empty",
+   "answer": "",
+   "signed": true,
+   "requirement": "req",
+   "launched": [
+    [
+     "/usr/bin/open",
+     "-g",
+     "-n",
+     "-W",
+     "--env",
+     "FERB_HOME=<TMP>/home/.ferb",
+     "<TMP>/home/.ferb/FERB.app",
+     "--args",
+     "transcribe",
+     "<TMP>/home/.ferb/workspace/audio/clip.wav",
+     "<TMP>/home/.ferb/workspace/audio/.transcribe-0000000000000004.json",
+     "en-US"
+    ],
+    "0o600"
+   ],
+   "out": {
+    "error": "HearingUnavailable",
+    "message": "FERB gave no answer (exit 7)"
+   },
+   "left": [],
+   "in_flight": 0,
+   "folder_mode": "0o700"
+  },
+  {
+   "name": "not json",
+   "answer": "{oops",
+   "signed": true,
+   "requirement": "req",
+   "launched": [
+    [
+     "/usr/bin/open",
+     "-g",
+     "-n",
+     "-W",
+     "--env",
+     "FERB_HOME=<TMP>/home/.ferb",
+     "<TMP>/home/.ferb/FERB.app",
+     "--args",
+     "transcribe",
+     "<TMP>/home/.ferb/workspace/audio/clip.wav",
+     "<TMP>/home/.ferb/workspace/audio/.transcribe-0000000000000005.json",
+     "en-US"
+    ],
+    "0o600"
+   ],
+   "out": {
+    "error": "HearingUnavailable",
+    "message": "FERB's hearing answer couldn't be read"
+   },
+   "left": [],
+   "in_flight": 0,
+   "folder_mode": "0o700"
+  },
+  {
+   "name": "list",
+   "answer": [
+    1,
+    2
+   ],
+   "signed": true,
+   "requirement": "req",
+   "launched": [
+    [
+     "/usr/bin/open",
+     "-g",
+     "-n",
+     "-W",
+     "--env",
+     "FERB_HOME=<TMP>/home/.ferb",
+     "<TMP>/home/.ferb/FERB.app",
+     "--args",
+     "transcribe",
+     "<TMP>/home/.ferb/workspace/audio/clip.wav",
+     "<TMP>/home/.ferb/workspace/audio/.transcribe-0000000000000006.json",
+     "en-US"
+    ],
+    "0o600"
+   ],
+   "out": {
+    "error": "HearingUnavailable",
+    "message": "FERB's hearing answer couldn't be read"
+   },
+   "left": [],
+   "in_flight": 0,
+   "folder_mode": "0o700"
+  },
+  {
+   "name": "unsigned",
+   "answer": {
+    "text": "x"
+   },
+   "signed": false,
+   "requirement": "req",
+   "launched": [],
+   "out": {
+    "error": "NotSigned",
+    "message": "FERB.app's signature isn't the one setup recorded, so FERB didn't give it the sound; set up FERB again"
+   },
+   "left": [],
+   "in_flight": 0,
+   "folder_mode": "0o700"
+  },
+  {
+   "name": "no requirement",
+   "answer": {
+    "text": "x"
+   },
+   "signed": true,
+   "requirement": null,
+   "launched": [],
+   "out": {
+    "error": "NotSigned",
+    "message": "FERB.app's signature isn't the one setup recorded, so FERB didn't give it the sound; set up FERB again"
+   },
+   "left": [],
+   "in_flight": 0,
+   "folder_mode": "0o700"
+  },
+  {
+   "name": "timeout",
+   "answer": {
+    "text": "late"
+   },
+   "signed": true,
+   "requirement": "req",
+   "launched": [
+    [
+     "/usr/bin/open",
+     "-g",
+     "-n",
+     "-W",
+     "--env",
+     "FERB_HOME=<TMP>/home/.ferb",
+     "<TMP>/home/.ferb/FERB.app",
+     "--args",
+     "transcribe",
+     "<TMP>/home/.ferb/workspace/audio/clip.wav",
+     "<TMP>/home/.ferb/workspace/audio/.transcribe-0000000000000007.json",
+     "en-US"
+    ],
+    "0o600"
+   ],
+   "out": {
+    "error": "HearingUnavailable",
+    "message": "FERB didn't finish turning the sound into text within 0 s, so it stopped; nothing was transcribed"
+   },
+   "left": [],
+   "in_flight": 0,
+   "folder_mode": "0o700"
+  }
+ ],
+ "status": {
+  "launched": [
+   [
+    "/usr/bin/open",
+    "-g",
+    "-n",
+    "-W",
+    "--env",
+    "FERB_HOME=<TMP>/fh2",
+    "<TMP>/home/.ferb/FERB.app",
+    "--args",
+    "status",
+    "<TMP>/fh2/audio/.status-0000000000000008.json"
+   ]
+  ],
+  "out": {
+   "speech": "authorized",
+   "on_device": true,
+   "locale": "en"
+  }
+ },
+ "missing_app": {
+  "error": "HearingUnavailable",
+  "message": "FERB.app isn't there, so FERB can't turn sound into text; download FERB again"
+ },
+ "hearing_pids": {
+  "ps": "  101 <TMP>/home/.ferb/FERB.app/Contents/MacOS/FERB transcribe <TMP>/home/.ferb/workspace/audio/clip.wav <TMP>/home/.ferb/workspace/audio/.t.json\n102 <TMP>/home/.ferb/FERB.app/Contents/MacOS/FERB status <TMP>/home/.ferb/workspace/audio/.s.json\n103 <TMP>/home/.ferb/FERB.app/Contents/MacOS/FERB\n104 <TMP>/home/.ferb/FERB.app/Contents/MacOS/FERB request-speech\nx05 <TMP>/home/.ferb/FERB.app/Contents/MacOS/FERB transcribe <TMP>/home/.ferb/workspace/audio/a\n106 /other/FERB.app/Contents/MacOS/FERB transcribe <TMP>/home/.ferb/workspace/audio/a\n107 <TMP>/home/.ferb/FERB.app/Contents/MacOS/FERB transcribe /elsewhere/a\n<SELF> <TMP>/home/.ferb/FERB.app/Contents/MacOS/FERB transcribe <TMP>/home/.ferb/workspace/audio/a\n",
+  "app": "<TMP>/home/.ferb/FERB.app",
+  "folder": "<TMP>/home/.ferb/workspace/audio",
+  "out": [
+   101,
+   102
+  ]
+ }
+}

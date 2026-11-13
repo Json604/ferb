@@ -1,0 +1,533 @@
+[
+ {
+  "start": "2026-03-04T10:00:00+00:00",
+  "steps": [
+   {
+    "op": "record",
+    "args": [
+     {
+      "id": "w1",
+      "source": "window",
+      "what": "window",
+      "data": {
+       "title": "Quarterly report draft",
+       "n": 4
+      }
+     }
+    ],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"Quarterly report draft\", \"n\": 4}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "record",
+    "args": [
+     {
+      "id": "t1",
+      "source": "browser_tab",
+      "data": {
+       "url": "https://x.example/a?q=1#f",
+       "title": "Café menu"
+      }
+     }
+    ],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"Quarterly report draft\", \"n\": 4}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"id\": \"t1\", \"source\": \"browser_tab\", \"data\": {\"url\": \"https://x.example/a?q=1#f\", \"title\": \"Café menu\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"t1\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "search",
+    "args": [
+     "quarterly report",
+     8
+    ],
+    "out": [
+     {
+      "id": "w1",
+      "source": "window",
+      "what": "window",
+      "data": {
+       "title": "Quarterly report draft",
+       "n": 4
+      },
+      "day": "2026-03-04",
+      "when": "2026-03-04T15:30:00+05:30",
+      "source_id": "w1"
+     }
+    ],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"Quarterly report draft\", \"n\": 4}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"id\": \"t1\", \"source\": \"browser_tab\", \"data\": {\"url\": \"https://x.example/a?q=1#f\", \"title\": \"Café menu\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"t1\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "search",
+    "args": [
+     "café",
+     8
+    ],
+    "out": [
+     {
+      "id": "t1",
+      "source": "browser_tab",
+      "data": {
+       "url": "https://x.example/a?q=1#f",
+       "title": "Café menu"
+      },
+      "day": "2026-03-04",
+      "when": "2026-03-04T15:30:00+05:30",
+      "source_id": "t1"
+     }
+    ],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"Quarterly report draft\", \"n\": 4}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"id\": \"t1\", \"source\": \"browser_tab\", \"data\": {\"url\": \"https://x.example/a?q=1#f\", \"title\": \"Café menu\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"t1\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "search",
+    "args": [
+     "a b",
+     8
+    ],
+    "out": [],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"Quarterly report draft\", \"n\": 4}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"id\": \"t1\", \"source\": \"browser_tab\", \"data\": {\"url\": \"https://x.example/a?q=1#f\", \"title\": \"Café menu\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"t1\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "search",
+    "args": [
+     "data window",
+     8
+    ],
+    "out": [
+     {
+      "id": "w1",
+      "source": "window",
+      "what": "window",
+      "data": {
+       "title": "Quarterly report draft",
+       "n": 4
+      },
+      "day": "2026-03-04",
+      "when": "2026-03-04T15:30:00+05:30",
+      "source_id": "w1"
+     }
+    ],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"Quarterly report draft\", \"n\": 4}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"id\": \"t1\", \"source\": \"browser_tab\", \"data\": {\"url\": \"https://x.example/a?q=1#f\", \"title\": \"Café menu\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"t1\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "record",
+    "args": [
+     {
+      "source": "idle",
+      "data": {
+       "state": "idle",
+       "flag": true,
+       "f": 2.5,
+       "neg": -3
+      }
+     }
+    ],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"Quarterly report draft\", \"n\": 4}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"id\": \"t1\", \"source\": \"browser_tab\", \"data\": {\"url\": \"https://x.example/a?q=1#f\", \"title\": \"Café menu\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"t1\"}\n{\"source\": \"idle\", \"data\": {\"state\": \"idle\", \"flag\": true, \"f\": 2.5, \"neg\": -3}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "search",
+    "args": [
+     "idle",
+     8
+    ],
+    "out": [
+     {
+      "source": "idle",
+      "data": {
+       "state": "idle",
+       "flag": true,
+       "f": 2.5,
+       "neg": -3
+      },
+      "day": "2026-03-04",
+      "when": "2026-03-04T15:30:00+05:30"
+     }
+    ],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"Quarterly report draft\", \"n\": 4}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"id\": \"t1\", \"source\": \"browser_tab\", \"data\": {\"url\": \"https://x.example/a?q=1#f\", \"title\": \"Café menu\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"t1\"}\n{\"source\": \"idle\", \"data\": {\"state\": \"idle\", \"flag\": true, \"f\": 2.5, \"neg\": -3}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "search",
+    "args": [
+     "2.5",
+     8
+    ],
+    "out": [],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"Quarterly report draft\", \"n\": 4}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"id\": \"t1\", \"source\": \"browser_tab\", \"data\": {\"url\": \"https://x.example/a?q=1#f\", \"title\": \"Café menu\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"t1\"}\n{\"source\": \"idle\", \"data\": {\"state\": \"idle\", \"flag\": true, \"f\": 2.5, \"neg\": -3}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "search",
+    "args": [
+     "true",
+     8
+    ],
+    "out": [],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"Quarterly report draft\", \"n\": 4}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"id\": \"t1\", \"source\": \"browser_tab\", \"data\": {\"url\": \"https://x.example/a?q=1#f\", \"title\": \"Café menu\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"t1\"}\n{\"source\": \"idle\", \"data\": {\"state\": \"idle\", \"flag\": true, \"f\": 2.5, \"neg\": -3}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "raw_append",
+    "args": [
+     "not json\n{\"day\": \"2026-03-04\", \"partial\""
+    ],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"Quarterly report draft\", \"n\": 4}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"id\": \"t1\", \"source\": \"browser_tab\", \"data\": {\"url\": \"https://x.example/a?q=1#f\", \"title\": \"Café menu\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"t1\"}\n{\"source\": \"idle\", \"data\": {\"state\": \"idle\", \"flag\": true, \"f\": 2.5, \"neg\": -3}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\"}\nnot json\n{\"day\": \"2026-03-04\", \"partial\"",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "record",
+    "args": [
+     {
+      "id": "w2",
+      "source": "window",
+      "data": {
+       "title": "report again"
+      }
+     }
+    ],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"Quarterly report draft\", \"n\": 4}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"id\": \"t1\", \"source\": \"browser_tab\", \"data\": {\"url\": \"https://x.example/a?q=1#f\", \"title\": \"Café menu\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"t1\"}\n{\"source\": \"idle\", \"data\": {\"state\": \"idle\", \"flag\": true, \"f\": 2.5, \"neg\": -3}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\"}\nnot json\n{\"day\": \"2026-03-04\", \"partial\"\n{\"id\": \"w2\", \"source\": \"window\", \"data\": {\"title\": \"report again\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w2\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "search",
+    "args": [
+     "report",
+     1
+    ],
+    "out": [
+     {
+      "id": "w2",
+      "source": "window",
+      "data": {
+       "title": "report again"
+      },
+      "day": "2026-03-04",
+      "when": "2026-03-04T15:30:00+05:30",
+      "source_id": "w2"
+     }
+    ],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"Quarterly report draft\", \"n\": 4}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"id\": \"t1\", \"source\": \"browser_tab\", \"data\": {\"url\": \"https://x.example/a?q=1#f\", \"title\": \"Café menu\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"t1\"}\n{\"source\": \"idle\", \"data\": {\"state\": \"idle\", \"flag\": true, \"f\": 2.5, \"neg\": -3}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\"}\nnot json\n{\"day\": \"2026-03-04\", \"partial\"\n{\"id\": \"w2\", \"source\": \"window\", \"data\": {\"title\": \"report again\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w2\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "search",
+    "args": [
+     "report",
+     0
+    ],
+    "out": [
+     {
+      "id": "w2",
+      "source": "window",
+      "data": {
+       "title": "report again"
+      },
+      "day": "2026-03-04",
+      "when": "2026-03-04T15:30:00+05:30",
+      "source_id": "w2"
+     }
+    ],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"Quarterly report draft\", \"n\": 4}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"id\": \"t1\", \"source\": \"browser_tab\", \"data\": {\"url\": \"https://x.example/a?q=1#f\", \"title\": \"Café menu\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"t1\"}\n{\"source\": \"idle\", \"data\": {\"state\": \"idle\", \"flag\": true, \"f\": 2.5, \"neg\": -3}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\"}\nnot json\n{\"day\": \"2026-03-04\", \"partial\"\n{\"id\": \"w2\", \"source\": \"window\", \"data\": {\"title\": \"report again\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w2\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "search",
+    "args": [
+     "report",
+     8
+    ],
+    "out": [
+     {
+      "id": "w2",
+      "source": "window",
+      "data": {
+       "title": "report again"
+      },
+      "day": "2026-03-04",
+      "when": "2026-03-04T15:30:00+05:30",
+      "source_id": "w2"
+     },
+     {
+      "id": "w1",
+      "source": "window",
+      "what": "window",
+      "data": {
+       "title": "Quarterly report draft",
+       "n": 4
+      },
+      "day": "2026-03-04",
+      "when": "2026-03-04T15:30:00+05:30",
+      "source_id": "w1"
+     }
+    ],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"Quarterly report draft\", \"n\": 4}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"id\": \"t1\", \"source\": \"browser_tab\", \"data\": {\"url\": \"https://x.example/a?q=1#f\", \"title\": \"Café menu\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"t1\"}\n{\"source\": \"idle\", \"data\": {\"state\": \"idle\", \"flag\": true, \"f\": 2.5, \"neg\": -3}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\"}\nnot json\n{\"day\": \"2026-03-04\", \"partial\"\n{\"id\": \"w2\", \"source\": \"window\", \"data\": {\"title\": \"report again\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w2\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "redact_source",
+    "args": [
+     "w1",
+     {
+      "title": "[redacted] report"
+     }
+    ],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"[redacted] report\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"id\": \"t1\", \"source\": \"browser_tab\", \"data\": {\"url\": \"https://x.example/a?q=1#f\", \"title\": \"Café menu\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"t1\"}\n{\"source\": \"idle\", \"data\": {\"state\": \"idle\", \"flag\": true, \"f\": 2.5, \"neg\": -3}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\"}\n{\"id\": \"w2\", \"source\": \"window\", \"data\": {\"title\": \"report again\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w2\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "search",
+    "args": [
+     "quarterly",
+     8
+    ],
+    "out": [],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"[redacted] report\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"id\": \"t1\", \"source\": \"browser_tab\", \"data\": {\"url\": \"https://x.example/a?q=1#f\", \"title\": \"Café menu\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"t1\"}\n{\"source\": \"idle\", \"data\": {\"state\": \"idle\", \"flag\": true, \"f\": 2.5, \"neg\": -3}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\"}\n{\"id\": \"w2\", \"source\": \"window\", \"data\": {\"title\": \"report again\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w2\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "search",
+    "args": [
+     "report",
+     8
+    ],
+    "out": [
+     {
+      "id": "w2",
+      "source": "window",
+      "data": {
+       "title": "report again"
+      },
+      "day": "2026-03-04",
+      "when": "2026-03-04T15:30:00+05:30",
+      "source_id": "w2"
+     },
+     {
+      "id": "w1",
+      "source": "window",
+      "what": "window",
+      "data": {
+       "title": "[redacted] report"
+      },
+      "day": "2026-03-04",
+      "when": "2026-03-04T15:30:00+05:30",
+      "source_id": "w1"
+     }
+    ],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"[redacted] report\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"id\": \"t1\", \"source\": \"browser_tab\", \"data\": {\"url\": \"https://x.example/a?q=1#f\", \"title\": \"Café menu\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"t1\"}\n{\"source\": \"idle\", \"data\": {\"state\": \"idle\", \"flag\": true, \"f\": 2.5, \"neg\": -3}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\"}\n{\"id\": \"w2\", \"source\": \"window\", \"data\": {\"title\": \"report again\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w2\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "forget",
+    "args": [
+     [
+      "t1",
+      "nothing"
+     ]
+    ],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"[redacted] report\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"source\": \"idle\", \"data\": {\"state\": \"idle\", \"flag\": true, \"f\": 2.5, \"neg\": -3}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\"}\n{\"id\": \"w2\", \"source\": \"window\", \"data\": {\"title\": \"report again\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w2\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "forget",
+    "args": [
+     []
+    ],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"[redacted] report\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"source\": \"idle\", \"data\": {\"state\": \"idle\", \"flag\": true, \"f\": 2.5, \"neg\": -3}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\"}\n{\"id\": \"w2\", \"source\": \"window\", \"data\": {\"title\": \"report again\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w2\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "search",
+    "args": [
+     "café",
+     8
+    ],
+    "out": [],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"[redacted] report\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"source\": \"idle\", \"data\": {\"state\": \"idle\", \"flag\": true, \"f\": 2.5, \"neg\": -3}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\"}\n{\"id\": \"w2\", \"source\": \"window\", \"data\": {\"title\": \"report again\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w2\"}\n",
+    "now": "2026-03-04T10:00:00+00:00"
+   },
+   {
+    "op": "advance",
+    "args": [
+     86400
+    ],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"[redacted] report\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"source\": \"idle\", \"data\": {\"state\": \"idle\", \"flag\": true, \"f\": 2.5, \"neg\": -3}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\"}\n{\"id\": \"w2\", \"source\": \"window\", \"data\": {\"title\": \"report again\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w2\"}\n",
+    "now": "2026-03-05T10:00:00+00:00"
+   },
+   {
+    "op": "search",
+    "args": [
+     "report",
+     8
+    ],
+    "out": [],
+    "file": "{\"id\": \"w1\", \"source\": \"window\", \"what\": \"window\", \"data\": {\"title\": \"[redacted] report\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w1\"}\n{\"source\": \"idle\", \"data\": {\"state\": \"idle\", \"flag\": true, \"f\": 2.5, \"neg\": -3}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\"}\n{\"id\": \"w2\", \"source\": \"window\", \"data\": {\"title\": \"report again\"}, \"day\": \"2026-03-04\", \"when\": \"2026-03-04T15:30:00+05:30\", \"source_id\": \"w2\"}\n",
+    "now": "2026-03-05T10:00:00+00:00"
+   },
+   {
+    "op": "roll_over",
+    "args": [],
+    "file": "",
+    "now": "2026-03-05T10:00:00+00:00"
+   },
+   {
+    "op": "record",
+    "args": [
+     {
+      "id": "n1",
+      "source": "window",
+      "data": {
+       "title": "new day ünïcödé ДЕНЬ"
+      }
+     }
+    ],
+    "file": "{\"id\": \"n1\", \"source\": \"window\", \"data\": {\"title\": \"new day ünïcödé ДЕНЬ\"}, \"day\": \"2026-03-05\", \"when\": \"2026-03-05T15:30:00+05:30\", \"source_id\": \"n1\"}\n",
+    "now": "2026-03-05T10:00:00+00:00"
+   },
+   {
+    "op": "search",
+    "args": [
+     "день",
+     8
+    ],
+    "out": [
+     {
+      "id": "n1",
+      "source": "window",
+      "data": {
+       "title": "new day ünïcödé ДЕНЬ"
+      },
+      "day": "2026-03-05",
+      "when": "2026-03-05T15:30:00+05:30",
+      "source_id": "n1"
+     }
+    ],
+    "file": "{\"id\": \"n1\", \"source\": \"window\", \"data\": {\"title\": \"new day ünïcödé ДЕНЬ\"}, \"day\": \"2026-03-05\", \"when\": \"2026-03-05T15:30:00+05:30\", \"source_id\": \"n1\"}\n",
+    "now": "2026-03-05T10:00:00+00:00"
+   },
+   {
+    "op": "raw_write",
+    "args": [
+     "{\"day\": \"2026-03-05\", \"data\": \"x\"}"
+    ],
+    "file": "{\"day\": \"2026-03-05\", \"data\": \"x\"}",
+    "now": "2026-03-05T10:00:00+00:00"
+   },
+   {
+    "op": "record",
+    "args": [
+     {
+      "id": "n2",
+      "source": "window",
+      "data": {
+       "title": "after no newline"
+      }
+     }
+    ],
+    "file": "{\"day\": \"2026-03-05\", \"data\": \"x\"}\n{\"id\": \"n2\", \"source\": \"window\", \"data\": {\"title\": \"after no newline\"}, \"day\": \"2026-03-05\", \"when\": \"2026-03-05T15:30:00+05:30\", \"source_id\": \"n2\"}\n",
+    "now": "2026-03-05T10:00:00+00:00"
+   },
+   {
+    "op": "search",
+    "args": [
+     "newline",
+     8
+    ],
+    "out": [],
+    "file": "{\"day\": \"2026-03-05\", \"data\": \"x\"}\n{\"id\": \"n2\", \"source\": \"window\", \"data\": {\"title\": \"after no newline\"}, \"day\": \"2026-03-05\", \"when\": \"2026-03-05T15:30:00+05:30\", \"source_id\": \"n2\"}\n",
+    "now": "2026-03-05T10:00:00+00:00"
+   }
+  ],
+  "extra": {
+   "terms": [
+    [
+     "Hello, wörld! ab abc ÄBC straße ﬁx 12 123 x_y_z",
+     [
+      "123",
+      "abc",
+      "fix",
+      "hello",
+      "strasse",
+      "wörld",
+      "x_y_z",
+      "äbc"
+     ]
+    ],
+    [
+     "",
+     []
+    ],
+    [
+     "नमस्ते दुनिया",
+     [
+      "नमस"
+     ]
+    ]
+   ],
+   "values": [
+    [
+     {
+      "a": [
+       1,
+       "x",
+       {
+        "b": true,
+        "c": null,
+        "d": 1.5
+       }
+      ],
+      "k": "v"
+     },
+     [
+      "1",
+      "x",
+      "1.5",
+      "v"
+     ]
+    ],
+    [
+     [
+      2,
+      [
+       3
+      ]
+     ],
+     [
+      "2",
+      "3"
+     ]
+    ]
+   ],
+   "without_queries": [
+    [
+     {
+      "u": "https://a.example/p?q=1#h",
+      "l": [
+       "http://b.example/#x?y",
+       "ftp://c/?q"
+      ],
+      "n": 3
+     },
+     {
+      "u": "https://a.example/p",
+      "l": [
+       "http://b.example/",
+       "ftp://c/?q"
+      ],
+      "n": 3
+     }
+    ],
+    [
+     "https://only.example?x",
+     "https://only.example"
+    ],
+    [
+     "HTTPS://upper.example/?q",
+     "HTTPS://upper.example/?q"
+    ]
+   ]
+  }
+ }
+]

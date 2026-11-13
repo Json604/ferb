@@ -47,7 +47,7 @@ the phone apps share; they reach the Mac's own parts only through traits.
 | Time: timers, schedules, waits | `ferb/clock`, `orchestrator/schedules.py` | ~2,000 | `ferb-clock` | verified (journal 19); tz database to settle |
 | Memory: embeddings, search, import parsers | `ferb/memory` (4 files) | ~1,770 | `ferb-memory` | verified (journal 22); needs SQLite 3.53.4+ for trigram tables |
 | Memory: items, profile, learning, distill, playbooks, import job | `ferb/memory` (rest) | ~4,300 | - | not started |
-| Perception | `ferb/sense` | 3,817 | - | not started |
+| Perception | `ferb/sense` | 3,817 | `ferb-sense` | verified on fixtures (journal 30); native sources unverified on a build |
 | Device: install, service, profile, scan | `ferb/device` | 2,276 | `ferb-device` | verified on recorded flows (journal 29); permissions are in `ferb-mac-hands` |
 | Internal commands the app calls, toolbox | `ferb/cli` | 2,442 | `ferb-device` | verified (journal 29); no `ferb` program yet |
 | Traces | `ferb/trace`, trace output of `ferb/cli/admin.py` | 759 | `ferb-trace` | verified (journal 27) |

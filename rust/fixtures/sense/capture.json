@@ -1,0 +1,925 @@
+{
+ "typed": [
+  [
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "a",
+     "AXTextField",
+     "",
+     false
+    ],
+    "text": "first note",
+    "actor": "owner",
+    "now": 0.0,
+    "secure": false,
+    "emitted": []
+   },
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "b",
+     "AXTextField",
+     "",
+     false
+    ],
+    "text": "second",
+    "actor": "owner",
+    "now": 0.1,
+    "secure": false,
+    "emitted": [
+     [
+      "typed_text",
+      {
+       "bundle_id": "com.apple.Notes",
+       "app": "Notes",
+       "pid": 1,
+       "window_id": "w",
+       "field_id": "a",
+       "role": "AXTextField",
+       "field": "",
+       "text": "first note"
+      },
+      {
+       "actor": "owner"
+      }
+     ]
+    ]
+   },
+   {
+    "op": "flush",
+    "field": null,
+    "secure": false,
+    "now": 0.2,
+    "emitted": [
+     [
+      "typed_text",
+      {
+       "bundle_id": "com.apple.Notes",
+       "app": "Notes",
+       "pid": 1,
+       "window_id": "w",
+       "field_id": "b",
+       "role": "AXTextField",
+       "field": "",
+       "text": "second"
+      },
+      {
+       "actor": "owner"
+      }
+     ]
+    ]
+   },
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "c",
+     "AXTextField",
+     "",
+     false
+    ],
+    "text": "typed then hidden",
+    "actor": "owner",
+    "now": 1.0,
+    "secure": false,
+    "emitted": []
+   },
+   {
+    "op": "leave",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "c",
+     "AXStaticText",
+     "",
+     false
+    ],
+    "emitted": []
+   },
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "d",
+     "AXTextField",
+     "",
+     false
+    ],
+    "text": "secret soon",
+    "actor": "owner",
+    "now": 2.0,
+    "secure": false,
+    "emitted": []
+   },
+   {
+    "op": "flush",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "e",
+     "AXTextField",
+     "",
+     false
+    ],
+    "secure": true,
+    "now": 2.1,
+    "emitted": []
+   }
+  ],
+  [
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "a",
+     "AXTextField",
+     "",
+     false
+    ],
+    "text": "helo\blop me\r\t\u001b",
+    "actor": "owner",
+    "now": 0.0,
+    "secure": false,
+    "emitted": []
+   },
+   {
+    "op": "flush",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "a",
+     "AXTextField",
+     "",
+     false
+    ],
+    "secure": false,
+    "now": 0.3,
+    "emitted": []
+   },
+   {
+    "op": "flush",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "a",
+     "AXTextField",
+     "",
+     false
+    ],
+    "secure": false,
+    "now": 0.5,
+    "emitted": [
+     [
+      "typed_text",
+      {
+       "bundle_id": "com.apple.Notes",
+       "app": "Notes",
+       "pid": 1,
+       "window_id": "w",
+       "field_id": "a",
+       "role": "AXTextField",
+       "field": "",
+       "text": "help me"
+      },
+      {
+       "actor": "owner"
+      }
+     ]
+    ]
+   },
+   {
+    "op": "holding",
+    "holding": false,
+    "emitted": []
+   }
+  ],
+  [
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "a",
+     "AXTextField",
+     "",
+     false
+    ],
+    "text": "x",
+    "actor": "owner",
+    "now": 0.0,
+    "secure": false,
+    "emitted": []
+   },
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "a",
+     "AXTextField",
+     "",
+     false
+    ],
+    "text": "y",
+    "actor": "ferb",
+    "now": 0.1,
+    "secure": false,
+    "emitted": [
+     [
+      "typed_text",
+      {
+       "bundle_id": "com.apple.Notes",
+       "app": "Notes",
+       "pid": 1,
+       "window_id": "w",
+       "field_id": "a",
+       "role": "AXTextField",
+       "field": "",
+       "text": "x"
+      },
+      {
+       "actor": "owner"
+      }
+     ]
+    ]
+   },
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "a",
+     "AXTextField",
+     "One-time code",
+     false
+    ],
+    "text": "123456",
+    "actor": "ferb",
+    "now": 0.2,
+    "secure": false,
+    "emitted": [
+     [
+      "typed_text",
+      {
+       "bundle_id": "com.apple.Notes",
+       "app": "Notes",
+       "pid": 1,
+       "window_id": "w",
+       "field_id": "a",
+       "role": "AXTextField",
+       "field": "",
+       "text": "y"
+      },
+      {
+       "actor": "ferb"
+      }
+     ]
+    ]
+   },
+   {
+    "op": "flush",
+    "field": null,
+    "secure": false,
+    "now": 0.3,
+    "emitted": [
+     [
+      "typed_text",
+      {
+       "bundle_id": "com.apple.Notes",
+       "app": "Notes",
+       "pid": 1,
+       "window_id": "w",
+       "field_id": "a",
+       "role": "AXTextField",
+       "field": "One-time code",
+       "text": "[redacted]"
+      },
+      {
+       "actor": "ferb"
+      }
+     ]
+    ]
+   }
+  ],
+  [
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "p",
+     "AXTextField",
+     "Password",
+     false
+    ],
+    "text": "hunter2",
+    "actor": "owner",
+    "now": 0.0,
+    "secure": false,
+    "emitted": []
+   },
+   {
+    "op": "flush",
+    "field": null,
+    "secure": false,
+    "now": 1.0,
+    "emitted": [
+     [
+      "typed_text",
+      {
+       "bundle_id": "com.apple.Notes",
+       "app": "Notes",
+       "pid": 1,
+       "window_id": "w",
+       "field_id": "p",
+       "role": "AXTextField",
+       "field": "Password",
+       "text": "[redacted]"
+      },
+      {
+       "actor": "owner"
+      }
+     ]
+    ]
+   },
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "q",
+     "AXSecureTextField",
+     "",
+     false
+    ],
+    "text": "zzz",
+    "actor": "owner",
+    "now": 0.0,
+    "secure": false,
+    "emitted": []
+   },
+   {
+    "op": "holding",
+    "holding": false,
+    "emitted": []
+   },
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "r",
+     "AXTextField",
+     "",
+     false
+    ],
+    "text": "kept",
+    "actor": "owner",
+    "now": 0.0,
+    "secure": true,
+    "emitted": []
+   },
+   {
+    "op": "holding",
+    "holding": false,
+    "emitted": []
+   },
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "s",
+     "AXTextField",
+     "",
+     true
+    ],
+    "text": "•••",
+    "actor": "owner",
+    "now": 0.0,
+    "secure": false,
+    "emitted": []
+   },
+   {
+    "op": "holding",
+    "holding": false,
+    "emitted": []
+   },
+   {
+    "op": "feed",
+    "field": null,
+    "text": "x",
+    "actor": "owner",
+    "now": 0.0,
+    "secure": false,
+    "emitted": []
+   },
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "",
+     "AXTextField",
+     "",
+     false
+    ],
+    "text": "x",
+    "actor": "owner",
+    "now": 0.0,
+    "secure": false,
+    "emitted": []
+   },
+   {
+    "op": "holding",
+    "holding": false,
+    "emitted": []
+   }
+  ],
+  [
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "a",
+     "AXTextField",
+     "",
+     false
+    ],
+    "text": "card 4111 1111 1111 1111",
+    "actor": "owner",
+    "now": 0.0,
+    "secure": false,
+    "emitted": []
+   },
+   {
+    "op": "flush",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "a",
+     "AXSecureTextField",
+     "",
+     false
+    ],
+    "secure": false,
+    "now": 0.1,
+    "emitted": []
+   },
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "b",
+     "AXTextField",
+     "",
+     false
+    ],
+    "text": "move on",
+    "actor": "owner",
+    "now": 0.0,
+    "secure": false,
+    "emitted": []
+   },
+   {
+    "op": "flush",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "b",
+     "AXTextField",
+     "changed label",
+     false
+    ],
+    "secure": false,
+    "now": 0.1,
+    "emitted": [
+     [
+      "typed_text",
+      {
+       "bundle_id": "com.apple.Notes",
+       "app": "Notes",
+       "pid": 1,
+       "window_id": "w",
+       "field_id": "b",
+       "role": "AXTextField",
+       "field": "",
+       "text": "move on"
+      },
+      {
+       "actor": "owner"
+      }
+     ]
+    ]
+   },
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "c",
+     "AXTextField",
+     "",
+     false
+    ],
+    "text": "same place",
+    "actor": "owner",
+    "now": 0.0,
+    "secure": false,
+    "emitted": []
+   },
+   {
+    "op": "leave",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "d",
+     "AXTextField",
+     "",
+     false
+    ],
+    "emitted": [
+     [
+      "typed_text",
+      {
+       "bundle_id": "com.apple.Notes",
+       "app": "Notes",
+       "pid": 1,
+       "window_id": "w",
+       "field_id": "c",
+       "role": "AXTextField",
+       "field": "",
+       "text": "same place"
+      },
+      {
+       "actor": "owner"
+      }
+     ]
+    ]
+   },
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "e",
+     "AXTextField",
+     "",
+     false
+    ],
+    "text": "cleared",
+    "actor": "owner",
+    "now": 0.0,
+    "secure": false,
+    "emitted": []
+   },
+   {
+    "op": "clear",
+    "emitted": []
+   },
+   {
+    "op": "holding",
+    "holding": false,
+    "emitted": []
+   },
+   {
+    "op": "leave",
+    "field": null,
+    "emitted": []
+   },
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "f",
+     "AXTextField",
+     "",
+     false
+    ],
+    "text": "a",
+    "actor": "owner",
+    "now": 5.0,
+    "secure": false,
+    "emitted": []
+   },
+   {
+    "op": "flush",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     2,
+     "w",
+     "f",
+     "AXTextField",
+     "",
+     false
+    ],
+    "secure": false,
+    "now": 5.1,
+    "emitted": [
+     [
+      "typed_text",
+      {
+       "bundle_id": "com.apple.Notes",
+       "app": "Notes",
+       "pid": 1,
+       "window_id": "w",
+       "field_id": "f",
+       "role": "AXTextField",
+       "field": "",
+       "text": "a"
+      },
+      {
+       "actor": "owner"
+      }
+     ]
+    ]
+   },
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "g",
+     "AXTextField",
+     "",
+     false
+    ],
+    "text": "",
+    "actor": "owner",
+    "now": 0.0,
+    "secure": false,
+    "emitted": []
+   },
+   {
+    "op": "flush",
+    "field": null,
+    "secure": false,
+    "now": 1.0,
+    "emitted": []
+   },
+   {
+    "op": "feed",
+    "field": [
+     "com.apple.Notes",
+     "Notes",
+     1,
+     "w",
+     "h",
+     "AXTextField",
+     "",
+     false
+    ],
+    "text": "ab\b\b\b",
+    "actor": "owner",
+    "now": 0.0,
+    "secure": false,
+    "emitted": []
+   },
+   {
+    "op": "flush",
+    "field": null,
+    "secure": false,
+    "now": 1.0,
+    "emitted": []
+   }
+  ]
+ ],
+ "clipboard": [
+  {
+   "count": 5,
+   "types": [
+    "public.utf8-plain-text"
+   ],
+   "text": "hello",
+   "ferb_count": null,
+   "task": null,
+   "context": null,
+   "out": [
+    "clipboard",
+    {
+     "text": "hello",
+     "change_count": 5
+    },
+    {
+     "actor": "unknown",
+     "task_id": null
+    }
+   ]
+  },
+  {
+   "count": 5,
+   "types": [
+    "public.utf8-plain-text",
+    "org.nspasteboard.ConcealedType"
+   ],
+   "text": "pw",
+   "ferb_count": null,
+   "task": null,
+   "context": null,
+   "out": null
+  },
+  {
+   "count": 6,
+   "types": [
+    "org.nspasteboard.TransientType"
+   ],
+   "text": "t",
+   "ferb_count": null,
+   "task": null,
+   "context": null,
+   "out": null
+  },
+  {
+   "count": 7,
+   "types": [
+    "public.utf8-plain-text"
+   ],
+   "text": null,
+   "ferb_count": null,
+   "task": null,
+   "context": null,
+   "out": null
+  },
+  {
+   "count": 8,
+   "types": [
+    "public.utf8-plain-text"
+   ],
+   "text": "mine 4111 1111 1111 1111",
+   "ferb_count": 8,
+   "task": "task-1",
+   "context": {
+    "bundle_id": "com.apple.Notes",
+    "app": "Notes",
+    "pid": 3,
+    "app_context": "x"
+   },
+   "out": [
+    "clipboard",
+    {
+     "bundle_id": "com.apple.Notes",
+     "app": "Notes",
+     "pid": 3,
+     "app_context": "x",
+     "text": "mine [redacted]",
+     "change_count": 8
+    },
+    {
+     "actor": "ferb",
+     "task_id": "task-1"
+    }
+   ]
+  },
+  {
+   "count": 9,
+   "types": [
+    "public.utf8-plain-text"
+   ],
+   "text": "not mine",
+   "ferb_count": 8,
+   "task": "task-1",
+   "context": {
+    "text": "overwritten",
+    "change_count": 0
+   },
+   "out": [
+    "clipboard",
+    {
+     "text": "not mine",
+     "change_count": 9
+    },
+    {
+     "actor": "unknown",
+     "task_id": null
+    }
+   ]
+  }
+ ],
+ "password_element": [
+  [
+   "AXTextField",
+   {
+    "AXTitle": "Password"
+   },
+   true
+  ],
+  [
+   "AXTextField",
+   {
+    "AXPlaceholderValue": "Enter your passcode"
+   },
+   false
+  ],
+  [
+   "AXTextField",
+   {
+    "AXIdentifier": "user-pass"
+   },
+   false
+  ],
+  [
+   "AXTextField",
+   {
+    "AXDescription": "Search"
+   },
+   false
+  ],
+  [
+   "AXStaticText",
+   {
+    "AXTitle": "Password"
+   },
+   false
+  ],
+  [
+   "AXTextArea",
+   {
+    "AXDOMIdentifier": "pwd"
+   },
+   true
+  ],
+  [
+   "AXComboBox",
+   {
+    "AXTitle": "PIN"
+   },
+   false
+  ],
+  [
+   "AXTextField",
+   {},
+   false
+  ],
+  [
+   "AXTextField",
+   {
+    "AXTitle": 5
+   },
+   false
+  ]
+ ]
+}

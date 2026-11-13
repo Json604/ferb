@@ -257,3 +257,15 @@ status = "active"
 words = "trust the code omplemted, that is somehting ive tested the info you found might be prev decision no longer needed."
 why = "A limit that existed only in code and its test (PROJ-505)."
 rule = "No retention setting can be set below one day."
+
+[STORE-421]
+title = "The Rust release is a fresh install; the Python build's data is kept as an archive"
+by = "owner"
+date = 2026-11-13
+status = "active"
+words = "yes ofc , tahts what i want"
+words_source = "Answer to the agent's question: \"Can the Rust release require a fresh install for both of you, with your old data kept only as an archive?\" Only the owner and one friend run the Python build."
+rule = "The first Rust release does not upgrade a Python install in place: it is installed fresh, and the Python build's data folder is kept as an archive, never opened for writing. STORE-403 keeps governing the Python build, and governs upgrades from one Rust release to the next. The Rust engine keeps the same schema and migration files (ENG-4), so an archive stays readable."
+why = "The owner said only they and a friend have the old Python app and that the Rust app ships anyway; carrying upgrade paths from it buys nothing."
+paths = ["rust/PLAN.md"]
+untestable = "A release rule: there is no in-place upgrade from the Python build to test."

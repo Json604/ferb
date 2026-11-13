@@ -35,3 +35,4 @@ Active decisions here. Run `tools/kb/run kb show <file>` for the ones governing 
 - **STORE-418** (owner): The audit-like journal records (security alignment, shell network use, escape used, clipboard access) are kept forever; they are not deleted with the operational records.
 - **STORE-419** (owner): Perception receipts and batches are deleted after 30 days; a loop wake-up row is deleted once it has fired; notices and learned-node change rows are deleted after 90 days.
 - **STORE-420** (owner): No retention setting can be set below one day.
+- **STORE-421** (owner): The first Rust release does not upgrade a Python install in place: it is installed fresh, and the Python build's data folder is kept as an archive, never opened for writing. STORE-403 keeps governing the Python build, and governs upgrades from one Rust release to the next. The Rust engine keeps the same schema and migration files (ENG-4), so an archive stays readable.

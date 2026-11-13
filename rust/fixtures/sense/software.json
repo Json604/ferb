@@ -1,0 +1,247 @@
+{
+ "login_items": [
+  [
+   null,
+   {
+    "status": "unavailable",
+    "reason": "no_supported_noninteractive_source",
+    "detail": "Background-task inventory was not read; passive observation does not request administrator authorization"
+   }
+  ],
+  [
+   "",
+   {
+    "status": "unsupported_or_empty",
+    "detail": "No recognizable background-task records"
+   }
+  ],
+  [
+   "garbage only\nno records here\n",
+   {
+    "status": "unsupported_or_empty",
+    "detail": "No recognizable background-task records"
+   }
+  ],
+  [
+   "UUID: 1111\n Name: Helper\n Developer Name: Example Corp\n Team Identifier: ABCDE12345\n Type: login item\n Flags: [enabled]\n Identifier: com.example.app.helper\n Parent Identifier: com.example.app\n URL: file:///Applications/Example.app/Contents/Library/LoginItems/Helper%20One.app/\nUUID: 2222\n Name: Other\n Identifier: com.other\n Executable Path: /Applications/Other.app/Contents/MacOS/o\nUUID: 3333\n Identifier: com.example.app\n Disposition: [enabled, allowed]\nUUID: 4444\n Executable Path: /Applications/Example.app/Contents/MacOS/agent\n Unknown Key: x\nUUID: 5555\n URL: relative/Example.app\nUUID: 6666\n Executable Path: /Applications/Example.appx/bin\nUUID: 7777\n URL: file:///Applications/Exa%6Dple.app/x\n",
+   {
+    "status": "read",
+    "items": [
+     {
+      "UUID": "1111",
+      "Name": "Helper",
+      "Developer Name": "Example Corp",
+      "Team Identifier": "ABCDE12345",
+      "Type": "login item",
+      "Flags": "[enabled]",
+      "Identifier": "com.example.app.helper",
+      "Parent Identifier": "com.example.app",
+      "URL": "file:///Applications/Example.app/Contents/Library/LoginItems/Helper%20One.app/"
+     },
+     {
+      "UUID": "3333",
+      "Identifier": "com.example.app",
+      "Disposition": "[enabled, allowed]"
+     },
+     {
+      "UUID": "4444",
+      "Executable Path": "/Applications/Example.app/Contents/MacOS/agent"
+     },
+     {
+      "UUID": "7777",
+      "URL": "file:///Applications/Exa%6Dple.app/x"
+     }
+    ],
+    "association": "exact app or parent identifier, or path inside app bundle; not proof of installer causation"
+   }
+  ],
+  [
+   "Name: before uuid\nUUID: a\nIdentifier: com.example.app\n�� broken: bytes\n",
+   {
+    "status": "read",
+    "items": [
+     {
+      "UUID": "a",
+      "Identifier": "com.example.app"
+     }
+    ],
+    "association": "exact app or parent identifier, or path inside app bundle; not proof of installer causation"
+   }
+  ]
+ ],
+ "security": [
+  {
+   "bundle_id": "com.example.app",
+   "path": "/Applications/Example.app",
+   "signature": {
+    "exit_code": 0,
+    "Identifier": "com.example.app",
+    "Authority": [
+     "Developer ID Application: Ex",
+     "Developer ID Certification Authority",
+     "Apple Root CA"
+    ],
+    "TeamIdentifier": "ABCDE12345",
+    "Runtime Version": "14.0.0",
+    "Signature": "adhoc"
+   },
+   "assessment": {
+    "accepted": false,
+    "exit_code": 3,
+    "detail": "/Applications/Example.app: rejected\nsource=Unnotarized\n"
+   },
+   "entitlements": {
+    "com.apple.security.app-sandbox": true,
+    "keychain-access-groups": [
+     "ABCDE12345.x"
+    ]
+   },
+   "download": {
+    "com.apple.quarantine": "0083;65f00000;Safari;ABCD-1234",
+    "com.apple.metadata:kMDItemWhereFroms": [
+     "https://example.com/Example.dmg",
+     "https://example.com/"
+    ]
+   },
+   "privacy": {
+    "user": {
+     "status": "read",
+     "grants": []
+    }
+   },
+   "launch_jobs": [
+    {
+     "path": "/Library/LaunchAgents/x.plist"
+    }
+   ],
+   "login_items": {
+    "status": "unavailable",
+    "reason": "no_supported_noninteractive_source",
+    "detail": "Background-task inventory was not read; passive observation does not request administrator authorization"
+   }
+  },
+  {
+   "bundle_id": "com.example.app",
+   "path": "/Applications/Example.app",
+   "signature": {
+    "exit_code": 1
+   },
+   "assessment": {
+    "accepted": false,
+    "exit_code": -1,
+    "detail": "FileNotFoundError"
+   },
+   "entitlements": {
+    "status": "unreadable"
+   },
+   "download": {
+    "com.apple.quarantine": null,
+    "com.apple.metadata:kMDItemWhereFroms": null
+   },
+   "privacy": {
+    "user": {
+     "status": "read",
+     "grants": []
+    }
+   },
+   "launch_jobs": [
+    {
+     "path": "/Library/LaunchAgents/x.plist"
+    }
+   ],
+   "login_items": {
+    "status": "unavailable",
+    "reason": "no_supported_noninteractive_source",
+    "detail": "Background-task inventory was not read; passive observation does not request administrator authorization"
+   }
+  }
+ ],
+ "security_calls": [
+  [
+   "/usr/bin/codesign",
+   "-dv",
+   "--verbose=4",
+   "/Applications/Example.app"
+  ],
+  [
+   "/usr/sbin/spctl",
+   "--assess",
+   "--type",
+   "execute",
+   "--verbose=4",
+   "/Applications/Example.app"
+  ],
+  [
+   "/usr/bin/codesign",
+   "-d",
+   "--entitlements",
+   ":-",
+   "/Applications/Example.app"
+  ]
+ ],
+ "jobs_list_root": {
+  "error": "AttributeError",
+  "message": "'list' object has no attribute 'get'"
+ },
+ "jobs": [
+  [
+   {
+    "path": "<TMP>/jobs/user/a.plist",
+    "label": "com.example.a",
+    "program": "/Applications/Example.app/Contents/MacOS/a",
+    "association": "executable inside this app bundle"
+   },
+   {
+    "path": "<TMP>/jobs/sys/e.plist",
+    "label": "com.example.e",
+    "program": "/Applications/Example.app/b",
+    "association": "executable inside this app bundle"
+   },
+   {
+    "path": "<TMP>/jobs/sys/i.plist",
+    "label": 5,
+    "program": "/Applications/Example.app/../Other/x",
+    "association": "executable inside this app bundle"
+   }
+  ],
+  []
+ ],
+ "privacy": [
+  {
+   "status": "read",
+   "grants": [
+    {
+     "service": "kTCCServiceAccessibility",
+     "client": "/Applications/Example.app",
+     "auth_value": 0,
+     "last_modified": 1700000001
+    },
+    {
+     "service": "kTCCServiceAppleEvents",
+     "client": "com.example.app",
+     "auth_value": 2,
+     "last_modified": 1700000002
+    },
+    {
+     "service": "kTCCServiceScreenCapture",
+     "client": "com.example.app",
+     "auth_value": 2,
+     "last_modified": 1700000000
+    }
+   ]
+  },
+  {
+   "status": "unsupported_schema"
+  },
+  {
+   "status": "unavailable",
+   "error": "OperationalError",
+   "requires": "Full Disk Access"
+  },
+  {
+   "status": "unavailable",
+   "error": "DatabaseError",
+   "requires": "Full Disk Access"
+  }
+ ]
+}
