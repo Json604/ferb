@@ -12,10 +12,10 @@ members = [
     "crates/ferb-platform-macos",
     "crates/ferb-native-host",
     "crates/ferbd",
+    "crates/ferb-context",
 ]
 exclude = [
     "crates/ferb-policy",
-    "crates/ferb-context",
     "crates/ferb-fs",
     "crates/ferb-shell",
     "crates/ferb-browser",

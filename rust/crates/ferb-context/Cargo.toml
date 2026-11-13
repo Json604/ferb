@@ -1,0 +1,24 @@
+[package]
+name = "ferb-context"
+version = "0.28.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.100"
+publish = false
+description = "Prompt context and structured answers: token counts, context assembly, prompt files, answer schemas, their provider forms and the check every answer passes"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[dependencies]
+ferb-core = { path = "../ferb-core" }
+ferb-py = { path = "../ferb-py" }
+indexmap = "2.14"
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+hex = "0.4"
+# o200k_base with its ranks embedded (the file is the one Python pins: SHA-256 446a9538…, checked in a test)
+tiktoken-rs = "=0.12.1"
+
+[dev-dependencies]
+tempfile = "3"

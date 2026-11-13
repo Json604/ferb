@@ -303,3 +303,26 @@ It is not applied: shipping a Python build is the owner's.
   on); the cause is not known. A fixture script must write the same bytes every run: to investigate.
 - A cycle split across delete batches may still fail its foreign key (not tested).
 - Not checked with a certificate pin or the real helper; the cost of the extra check is not measured.
+
+## 2026-11-13 · 17 · Prompt context and structured answers
+
+**What.** `ferb-context` ports `ferb/core/context.py` (o200k token counts, context assembly), `prompts.py`,
+`structured.py`, the schemas and JSON readers of `ferb/orchestrator/schemas.py`, and
+`ferb/runtimes/schema_shape.py`. It builds for iOS and Android and is in the portable check.
+
+**Why.** These bytes reach a model (ENG-3): jsonschema's chosen error, Python's `repr` and `json.dumps` spacing go
+back to the model as written, and a different token count moves what fits in the context.
+
+**Evidence.** Against the frozen catalog: 86 of 86 schemas byte-identical in every provider form; 117 repair notes.
+Own fixtures (`rust/fixtures/context/make.py`): 3,552 token strings, 1,497 assembly cases, 1,183 answers (839
+invalid), 168 mapped-back answers. 18 tests pass, none differ. The porting agent reports wider runs to 21,122
+strings and 5,775 answers with none differing (not re-run by the coordinator).
+
+**Fixed against Python.** None.
+
+**Open.**
+- The pydantic outcome models (`SupervisorOutcome`, `TaskSpec`, `WorkerReport`, `CheckerOutcome`) with their
+  validators and error text are not ported; they need Plan, When and Targets and go with orchestration.
+- A lone surrogate escape reads as U+FFFD; past 9,990 nesting levels Rust says `TooDeep` where Python raises
+  `RecursionError`; a schema keyword outside the implemented set is refused when the validator is made.
+- `repr` exists here and in `ferb-sanitize`; both should move into `ferb-py`.

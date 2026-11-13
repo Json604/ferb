@@ -9,7 +9,7 @@ case "${1:-}" in
   test) exec cargo test --workspace --locked ;;
   # The shared foundation builds for the phones: the engine crates, without the Mac platform crate or the store.
   portable)
-    cargo check -p ferb-py -p ferb-core -p ferb-sanitize -p ferb-rpc -p ferb-identity --target aarch64-apple-ios
-    exec cargo check -p ferb-py -p ferb-core -p ferb-sanitize -p ferb-rpc -p ferb-identity --target aarch64-linux-android ;;
+    cargo check -p ferb-py -p ferb-core -p ferb-sanitize -p ferb-rpc -p ferb-identity -p ferb-context --target aarch64-apple-ios
+    exec cargo check -p ferb-py -p ferb-core -p ferb-sanitize -p ferb-rpc -p ferb-identity -p ferb-context --target aarch64-linux-android ;;
   *) echo "usage: rust/gate.sh fmt|lint|test|portable" >&2; exit 2 ;;
 esac

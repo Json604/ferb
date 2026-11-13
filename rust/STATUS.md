@@ -34,7 +34,7 @@ the phone apps share; they reach the Mac's own parts only through traits.
 | Config, paths, bus | `ferb/config.py`, `paths.py`, `bus.py` | 490 | `ferb-core` | verified; ten config shapes refused (journal 10) |
 | Secrets helper caller, owner secrets | `ferb/identity` | 826 | `ferb-identity`; `codesign` and the helper process: `ferb-platform-macos` | verified with a fake helper (journal 12) |
 | What the models receive: tool schemas, answer schemas, prompt assembly, error text | (fixtures only) | - | `rust/fixtures/catalog` | frozen (journal 9) |
-| Prompt context, structured answers, answer schemas | `ferb/core/context.py`, `structured.py`, `orchestrator/schemas.py`, `runtimes/schema_shape.py` | ~1,500 | `ferb-context` | in progress |
+| Prompt context, structured answers, answer schemas | `ferb/core/context.py`, `structured.py`, `orchestrator/schemas.py`, `runtimes/schema_shape.py` | ~1,500 | `ferb-context` | verified (journal 17); outcome models go with orchestration |
 | Policy: confirmations, protection, payments, destinations | `ferb/policy` | 4,666 | `ferb-policy` | in progress |
 | Gateway, questions, stop, resources, registry | `ferb/daemon/gateway.py` and state files | ~6,000 | - | not started (needs policy) |
 | RPC handlers (106 methods), daemon composition | `ferb/daemon/main.py`, `areas/` | ~9,700 | `ferbd` | not started; recordings of the Python daemon in progress (`rust/fixtures/daemon`) |
