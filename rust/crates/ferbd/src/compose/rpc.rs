@@ -1,6 +1,5 @@
 //! The RPC handlers no ported area owns (`areas/rpc.py`, `areas/chat.py`): `ping`, the tool bridge's `tools.list`
-//! and `tools.call`, the global stop, `update.prepare`; and the plain refusal of the methods whose handlers are not
-//! ported yet, so a caller learns that rather than an unknown method.
+//! and `tools.call`, the global stop, `update.prepare`. The rest of `areas/rpc.py`'s handlers are `crate::areas_c`.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -23,38 +22,6 @@ pub struct Parts {
     pub events: Arc<Events>,
     pub tokens: Arc<ferb_rpc::RunTokens>,
     pub quit: Arc<tokio::sync::Notify>,
-}
-
-/// Methods of `auth::METHODS` whose Python handlers aren't ported to Rust yet (beyond the supervisor's): each
-/// answers [`NOT_PORTED`].
-pub const NOT_PORTED_UNARY: &[&str] = &[
-    "doctor.check",
-    "setup.permissions",
-    "setup.permission_request",
-    "setup.finish",
-    "clipboard.request",
-    "automation.request",
-    "ui.click_through",
-    "identity.check",
-    "conversations.list",
-    "conversations.change",
-    "tasks.preview",
-    "questions.picture",
-    "reports.build",
-    "reports.diagnostic",
-    "reports.send",
-    "recovery.list",
-    "recovery.restore",
-    "trace.get",
-    "verdict.set",
-];
-pub const NOT_PORTED_STREAMS: &[&str] = &["logs.subscribe"];
-
-pub const NOT_PORTED: &str =
-    "not available in this build: this part of FERB's daemon isn't in the Rust build yet";
-
-fn not_ported() -> HandlerError {
-    HandlerError::refusal("FerbError", NOT_PORTED)
 }
 
 fn ferb_error(message: &str) -> HandlerError {
@@ -192,16 +159,6 @@ pub fn register(server: &Server, p: &Parts) {
                 quit.notify_one();
                 Ok(crate::basics::object(json!({"ready": true, "running": []})))
             }
-        });
-    }
-    for m in NOT_PORTED_UNARY {
-        server.register_unary(m, |_s, _p: Params| async { Err(not_ported()) });
-    }
-    for m in NOT_PORTED_STREAMS {
-        server.register_stream(m, |_s, _p: Params| {
-            let (tx, rx) = tokio::sync::mpsc::channel(1);
-            let _ = tx.try_send(Err(not_ported()));
-            Box::new(rx) as Box<dyn ferb_rpc::server::EventStream>
         });
     }
     let _ = BTreeSet::<String>::new();

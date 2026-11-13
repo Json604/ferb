@@ -48,6 +48,12 @@ fn the_registry_is_the_frozen_catalog() {
     all.sort();
     assert_eq!(seen, all, "the 97 tools");
     assert_eq!(want.len(), 97);
+    // every one with a real adapter: none answers "not available in this build"
+    assert_eq!(
+        run.control(json!({"do": "refusing"})),
+        json!([]),
+        "tools still refusing"
+    );
     // each listing by grant: names in order, and the whole listing's bytes
     let mut checked = 0;
     for (name, l) in catalog["listings"].as_object().unwrap() {

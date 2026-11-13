@@ -371,7 +371,27 @@ pub struct GatewayParts {
     pub pay_same_site_forms: Box<dyn Fn() -> bool + Send + Sync>,
     pub native: bool,
     pub hooks: Arc<dyn ferb_gateway::seams::CallHooks>,
+    /// The task a running shell process belongs to (`shells.live_owner`), for the proxy's destination check.
+    pub proc_task: ProcTask,
+    /// S1's snapshots before a shell command or a permanent delete (HAND-206).
+    pub snapshots: Option<Arc<dyn ferb_gateway::seams::Snapshots>>,
 }
+
+/// S1's `Snapshots` as the gateway asks it (`snapshots.request(task, why, changes=True)`).
+pub struct GatewaySnapshots(pub Arc<ferb_fs::recovery::Snapshots>);
+
+impl ferb_gateway::seams::Snapshots for GatewaySnapshots {
+    fn request<'a>(
+        &'a self,
+        task_id: &'a str,
+        why: &'a str,
+    ) -> ferb_core::interfaces::BoxFuture<'a, serde_json::Map<String, serde_json::Value>> {
+        Box::pin(async move { self.0.request(Some(task_id), why, true).await })
+    }
+}
+
+/// The task a running shell process belongs to.
+pub type ProcTask = Box<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 /// `Gateway(GatewayDeps(...))` with `registry`'s tools. Approval ids are Python's `"ap-" + token_hex(6)`.
 pub fn build(registry: Registry, p: GatewayParts) -> Arc<Gateway> {
@@ -404,7 +424,7 @@ pub fn build(registry: Registry, p: GatewayParts) -> Arc<Gateway> {
         },
         device_id: p.device_id,
         recovery,
-        snapshots: None,
+        snapshots: p.snapshots,
         usage: Arc::new(RealUsage),
         apps: Arc::new(MacApps { native: p.native }),
         describe: Arc::new(Words { native: p.native }),
@@ -414,7 +434,7 @@ pub fn build(registry: Registry, p: GatewayParts) -> Arc<Gateway> {
         owner_contacts: p.owner_contacts,
         pay_same_site_forms: p.pay_same_site_forms,
         on_path: Box::new(|_p, _t| {}),
-        proc_task: Box::new(|_p| None),
+        proc_task: p.proc_task,
         route_question: None,
         hooks: p.hooks,
         made_in_tree: None,

@@ -1062,3 +1062,39 @@ ordinary answers (only the hidden kinds are sealed). Nothing in `ferbd` was chan
 **Left for later removal.** `ferb_runtimes::forms::Shape::mapped` (now on ferb-context's `Shape`, ignoring its way
 back), the task-keyed `OwnerInput::ask_code` / `ask_secret` and `Driver::owner_code` / `owner_secret`,
 `ferb_core::interfaces::AgentRuntime`, ferb-sanitize's `parity` re-exports of the moved helpers.
+
+## 2026-11-13 · 45 · The daemon program composes every tool; first runs against the real Mac
+
+**What.** `ferbd`: all 97 tools have real adapters and none refuses (the catalog test asserts it): the Mac driver
+over the native layer, the task-identity browser tools, memory and trail tools, waits, `fs.look` with an
+ImageIO/PDFKit renderer, `task.evidence`, `chat.history`. The 20 remaining RPC methods and `logs.subscribe`; the
+egress proxy, the Claude tool-list relay, the memory loops, the resource sampler (ported); `setup --service`,
+`uninstall`, `doctor`; SIGHUP handled.
+
+**Evidence.** 55 tests pass (run by the porting agent). Through the binary: `abilities.*`, `skills.read`,
+`memory.read` (14 of 14 calls) match Python fixtures; `fs.look`'s four decoded pictures are byte-identical to
+Python's JPEGs; the 20 RPC methods replay against the recordings with four named fixes.
+
+**Ran on the owner's Mac (the owner allows it when reported).**
+- Passive reads, four runs: running apps listed; 501 AX elements read from the frontmost window (VS Code; Brave
+  gave none); one window screenshot captured, masked and deleted with its temp home; the pasteboard's change count
+  only. No permission prompt (the terminal's app already had the grants).
+- A typing test in TextEdit, not completed. Run 1: the daemon's running-app list was stale and called TextEdit not
+  running, and the test's guard sent it SIGKILL; only the test's own empty document was open. Run 3: `mac.open`
+  with `activates=false` brought TextEdit to the front, so the agent stopped as instructed and typed nothing; it
+  closed the document and quit TextEdit. Nothing was left behind (checked: no TextEdit, no `ferbd`, no temp home).
+- The guard that kills a process is against the rule that a test closes only what it created; it is to be removed.
+
+**Found by running for real.**
+- `mac.open` with `activates=false` brings the app forward (rule 10 broken).
+- The daemon's running-app list goes stale.
+- A frontmost-window capture answers NoTarget when the app has several windows and no id is given.
+- Vision's first text recognition takes 51 to 104 s and failed once at 51 s; Python's takes 81 s on the same Mac.
+
+**Open.**
+- Never run for real: the Mac input routes (typing, clicks), recordings, `audio.listen`, `browser.record`, the
+  task-identity browser tools' success paths, pairing, handoff, `recovery.snapshot` with the real `tmutil`.
+- Not started: the disturbance sentinel, previews and change-record hooks; the owner-input tap; `setup --cleanup`;
+  the weekly Mac-profile refresh.
+- Seams: `ferb-mac-hands` futures are not Send; `ferb-daemon`'s timer sleepers are private; the gateway's
+  `question_sites` is private, so `secrets.list` shows no linked sites; `Learning.embedder` cannot be set later.

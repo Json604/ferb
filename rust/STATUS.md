@@ -53,7 +53,7 @@ the phone apps share; they reach the Mac's own parts only through traits.
 | Device: install, service, profile, scan | `ferb/device` | 2,276 | `ferb-device` | verified on recorded flows (journal 29); permissions are in `ferb-mac-hands` |
 | Internal commands the app calls, toolbox | `ferb/cli` | 2,442 | `ferb-device` | verified (journal 29); no `ferb` program yet |
 | Traces | `ferb/trace`, trace output of `ferb/cli/admin.py` | 759 | `ferb-trace` | verified (journal 27) |
-| The daemon program | `ferb/daemon/main.py` | 748 | `ferbd` | runs on a temp home, 69 methods replay through the binary (journal 42); supervisor, many tools and 19 methods not wired |
+| The daemon program | `ferb/daemon/main.py` | 748 | `ferbd` | runs; all 97 tools and 91 methods wired (journal 42, 45); first real-Mac runs found three native bugs; supervisor not joined |
 | Daemon host in FERB.app | `ui/mac/FERBAgent/main.c` | - | `ferbd` | not started |
 | Build, sign, package without Python | `scripts/` | - | - | not started |
 

@@ -65,6 +65,25 @@ pub fn start(d: &Arc<Daemon>) {
         }));
     }
 
+    // the resource log: a sample every SAMPLE_SECONDS (the owner's "every 5 minutes"); shutdown writes the last
+    if crate::basics::lock(&d.resource_log).is_some() {
+        let weak = Arc::downgrade(d);
+        d.keep(tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(crate::resources::SAMPLE_SECONDS)).await;
+                match weak.upgrade() {
+                    Some(d) => d.sample_resources(),
+                    None => return,
+                }
+            }
+        }));
+    }
+
+    // the memory: the search re-index, the embedder, the hourly pass (distill, cards, playbooks, the profile)
+    if d.opts.memory_loops {
+        super::memory_loops::start(d);
+    }
+
     // sensing: the watchers per config (a daemon with its Mac parts off starts none)
     if let Some(sense) = d.b.sense.clone() {
         d.keep(tokio::spawn(async move { sense.start().await }));
@@ -153,9 +172,9 @@ impl areas_a::retention::Purges for Purges {
         .map_or(0, |n| n as i64)
     }
 
-    fn resources(&self, _today: chrono::NaiveDate, _days: i64) -> Result<i64, String> {
-        // the resource sampler (L30) isn't composed in this build: no rows to purge
-        Ok(0)
+    fn resources(&self, today: chrono::NaiveDate, days: i64) -> Result<i64, String> {
+        let db = ferb_store::Db::open(self.home.join("ferb.db")).map_err(|e| e.to_string())?;
+        crate::resources::purge(&db, today, days)
     }
 
     fn shell_logs(&self, _before_ts: f64) -> Result<i64, String> {

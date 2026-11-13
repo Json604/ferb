@@ -2,9 +2,8 @@
 //! this program as its host.
 //!
 //! Composed here: the version, the daemon connection (the toolbox's daemon clients: `ferb memory`, `ferb ps`,
-//! `ferb browsers`...), the salvage check, the clipboard, `ferb logs`' lines. Not composed yet: the setup commands'
-//! environment (`setup --service`, `setup --cleanup`, `uninstall`, `doctor`): its installer needs the service
-//! definition the Rust build writes (rust/PLAN.md part 13); each answers with exit 1 and a line saying so.
+//! `ferb browsers`...), the salvage check, the clipboard, `ferb logs`' lines, and the setup commands' environment
+//! (`setup --service`, `uninstall`, `doctor`: crate::setup_env, the service definition naming `ferbd daemon`).
 
 use std::io::Write;
 
@@ -12,10 +11,6 @@ use ferb_device::cli::client::Client;
 use ferb_device::cli::run::{Host, StepLine};
 use ferb_device::cli::setup::Env;
 use ferb_device::cli::{CliError, Rpc};
-
-pub const SETUP_NOT_COMPOSED: &str =
-    "not available in this build: FERB's setup commands aren't part of the Rust \
-program yet (the Python build has them)";
 
 struct ProgramHost {
     home: std::path::PathBuf,
@@ -92,7 +87,10 @@ impl Host for ProgramHost {
         .map_err(|e| CliError::ferb(e.to_string()))
     }
     fn env(&mut self, _every_browser: bool) -> Result<Env<'_>, CliError> {
-        Err(CliError::ferb(SETUP_NOT_COMPOSED))
+        Ok(crate::setup_env::env(
+            &self.home,
+            Box::new(std::io::stdout()),
+        ))
     }
     fn connect(&mut self) -> Result<Box<dyn Rpc>, CliError> {
         let socket = ferb_core::paths::socket_path(&self.home);

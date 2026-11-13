@@ -182,6 +182,11 @@ impl Raw {
     pub fn connect(path: &Path) -> std::io::Result<Raw> {
         let s = UnixStream::connect(path)?;
         s.set_read_timeout(Some(Duration::from_secs(30)))?;
+        Raw::from_stream(s)
+    }
+
+    /// A connection already made (its read timeout as the caller set it).
+    pub fn from_stream(s: UnixStream) -> std::io::Result<Raw> {
         Ok(Raw {
             reader: BufReader::new(s.try_clone()?),
             writer: s,

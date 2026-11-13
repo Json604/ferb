@@ -1,6 +1,6 @@
 //! FERB's shell (`_build_mac_and_shell`'s shell half): the sandbox over the protection lists, the process manager,
-//! and the eight `shell.*` tools. The egress proxy is not composed in this build: without it the sandbox gives a
-//! command no way off the Mac (its profile names no proxy port), which is the safe side of rule 11.
+//! and the eight `shell.*` tools. The egress proxy (compose/egress.rs) is the only way off the Mac a command has: its
+//! port is in the profile, and every destination is the gateway's to allow.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -136,21 +136,44 @@ pub fn manager(
     )
     .ok()?;
     let protection: Arc<dyn Protection> = Arc::new(ShellProtection::new(p));
+    // the egress proxy is the shell's only way off the Mac (compose/egress.rs): its port goes in every profile
+    let egress = opts.egress.clone();
+    let proxy = match egress.build(redactor, protection.clone()) {
+        Ok(p) => Some(p),
+        Err(e) => {
+            eprintln!("FERB: the shell's network proxy didn't start: {e}");
+            None
+        }
+    };
+    let port = proxy.as_ref().map(|p| p.port());
     let sandbox = Arc::new(ferb_shell::sandbox::Sandbox::new(
         protection.clone(),
-        opts.home.join("profiles"),
-        Arc::new(|| None),
-        None,
+        opts.home.join("run").join("sandbox"),
+        Arc::new(move || port),
+        Some(ferb_core::paths::socket_path(&opts.home)),
     ));
+    sandbox.sweep();
+    let contained = sandbox.available();
+    if !contained.0 {
+        // no shell, so no proxy for it (`_build_mac_and_shell`)
+        egress.close();
+    }
+    let _ = egress.containment.set(contained.clone());
     let r = redactor.clone();
     let r2 = redactor.clone();
-    let cfg = ManagerConfig::new(
-        opts.home.join("logs"),
+    let mut cfg = ManagerConfig::new(
+        opts.home.join("logs").join("shell"),
         Arc::new(move |t: &str| r.text(t)),
         Arc::new(move || ferb_sanitize::stream::RedactionStream::new(r2.clone())),
         sandbox,
     );
-    Some((ShellManager::new(cfg), protection))
+    if contained.0 {
+        cfg.proxy = proxy;
+    }
+    cfg.on_network = Some(egress.on_network());
+    let shells = ShellManager::new(cfg);
+    let _ = egress.shells.set(Arc::downgrade(&shells));
+    Some((shells, protection))
 }
 
 fn text(a: &Args, k: &str) -> String {
@@ -190,8 +213,8 @@ fn start_args(a: &Args) -> st::StartArgs {
 }
 
 /// The fs tools' path rules for a command's working folder.
-struct Resolver {
-    home: String,
+pub struct Resolver {
+    pub home: String,
 }
 
 impl st::ResolvePath for Resolver {

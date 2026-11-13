@@ -252,6 +252,8 @@ pub struct Shared {
     pub tokens: Arc<ferb_rpc::RunTokens>,
     pub owner_secrets: Arc<OwnerSecrets>,
     pub tools: super::tools::Parts,
+    /// The Claude runtime's tool-list relay (`_claude_proxy`), None when it couldn't bind.
+    pub claude_proxy: Option<Arc<dyn ferb_runtimes::claude::ToolProxy>>,
 }
 
 /// Group B as built: its areas' deps and the parts the daemon's start and shutdown use.
@@ -347,6 +349,7 @@ impl runtimes::ToolRegistry for CheckTools {
 /// What one runtime check holds while it runs.
 struct Checks {
     gateway: Arc<Gateway>,
+    tools: super::tools::Parts,
     tokens: Arc<ferb_rpc::RunTokens>,
     db: SharedDb,
     redactor: Arc<Redactor>,
@@ -409,18 +412,21 @@ impl runtimes::CheckHost for Checks {
         started_at: &ferb_core::when::DateTime,
         span_id: &str,
     ) {
-        self.gateway.add_task(ferb_gateway::gateway::TaskRecord {
-            task_id: task.id.clone(),
-            request_id: task.request_id.clone(),
-            started_at: *started_at,
-            deadline: None,
-            span_id: span_id.to_string(),
-            tree_id: Some(task.id.clone()),
-        });
+        self.tools.hold_task(
+            &self.gateway,
+            ferb_gateway::gateway::TaskRecord {
+                task_id: task.id.clone(),
+                request_id: task.request_id.clone(),
+                started_at: *started_at,
+                deadline: None,
+                span_id: span_id.to_string(),
+                tree_id: Some(task.id.clone()),
+            },
+        );
     }
 
     fn remove_task(&self, task_id: &str) {
-        self.gateway.remove_task(task_id);
+        self.tools.release_task(&self.gateway, task_id);
     }
 
     fn issue_token(
@@ -721,6 +727,7 @@ pub fn group_b(
         tools: Arc::new(CheckTools(s.gateway.clone())),
         checks: Arc::new(Checks {
             gateway: s.gateway.clone(),
+            tools: s.tools.clone(),
             tokens: s.tokens.clone(),
             db: s.db.clone(),
             redactor: s.redactor.clone(),
@@ -753,7 +760,7 @@ pub fn group_b(
             move || c.monotonic()
         }))),
         claude_cli: ferb_daemon::areas_b::runtimes::Programs::claude_cli(programs.as_ref()).ok(),
-        proxy: None,
+        proxy: s.claude_proxy.clone(),
     });
     let rt_deps = rt_deps_partial(factory);
     let rt = runtimes::Runtimes::new(host.clone(), rt_deps.clone());

@@ -14,6 +14,13 @@ pub fn main(args: &[String]) -> i32 {
     match args.first().map(String::as_str) {
         Some("daemon") => daemon(),
         Some("mcp") => mcp(),
+        // `python -m ferb.device.grant_probe` (APP-662): a fresh process's reading of the grants macOS caches per
+        // process; the daemon starts this program so for `setup.permissions`
+        Some("grant-probe") => {
+            let (line, status) = ferb_device::grant_probe::main(&args[1..]);
+            println!("{line}");
+            status
+        }
         _ => crate::device::run(args),
     }
 }
@@ -59,45 +66,50 @@ fn daemon() -> i32 {
     let mut opts = Options::real(home);
     #[cfg(feature = "stand-ins")]
     let stand = crate::standins::from_env(&mut opts);
-    let rt = runtime();
-    rt.block_on(async move {
-        use tokio::signal::unix::{signal, SignalKind};
-        // the signal handlers come first: a stop asked while FERB is still starting shuts it down once started
-        let mut term = signal(SignalKind::terminate()).expect("SIGTERM handler");
-        let mut int = signal(SignalKind::interrupt()).expect("SIGINT handler");
-        let stop = Arc::new(tokio::sync::Notify::new());
-        {
-            let stop = stop.clone();
-            tokio::spawn(async move {
-                tokio::select! {
-                    _ = term.recv() => {}
-                    _ = int.recv() => {}
+    // the async work on a thread of its own; the main thread turns macOS's run loop (`_macos_events`)
+    crate::mainloop::run("ferbd-daemon", move || {
+        runtime().block_on(async move {
+            use tokio::signal::unix::{signal, SignalKind};
+            // the signal handlers come first: a stop asked while FERB is still starting shuts it down once started
+            let mut term = signal(SignalKind::terminate()).expect("SIGTERM handler");
+            let mut int = signal(SignalKind::interrupt()).expect("SIGINT handler");
+            // a hang-up (the shell that started a development daemon closing) stops it like SIGTERM: never left behind
+            let mut hup = signal(SignalKind::hangup()).expect("SIGHUP handler");
+            let stop = Arc::new(tokio::sync::Notify::new());
+            {
+                let stop = stop.clone();
+                tokio::spawn(async move {
+                    tokio::select! {
+                        _ = term.recv() => {}
+                        _ = int.recv() => {}
+                        _ = hup.recv() => {}
+                    }
+                    stop.notify_one();
+                });
+            }
+            let daemon = match Daemon::start(opts).await {
+                Ok(d) => d,
+                Err(StartError::NewerStore(m)) => {
+                    // not a crash: nothing was changed, and a clean exit keeps launchd from starting it again
+                    eprintln!("FERB: {m}");
+                    return 0;
                 }
-                stop.notify_one();
-            });
-        }
-        let daemon = match Daemon::start(opts).await {
-            Ok(d) => d,
-            Err(StartError::NewerStore(m)) => {
-                // not a crash: nothing was changed, and a clean exit keeps launchd from starting it again
-                eprintln!("FERB: {m}");
-                return 0;
+                Err(e) => {
+                    eprintln!("FERB: the daemon didn't start: {e}");
+                    return 1;
+                }
+            };
+            #[cfg(feature = "stand-ins")]
+            if let Some(s) = stand {
+                crate::standins::attach(&daemon, s).await;
             }
-            Err(e) => {
-                eprintln!("FERB: the daemon didn't start: {e}");
-                return 1;
+            let quit = daemon.quit.clone();
+            tokio::select! {
+                _ = stop.notified() => {}
+                _ = quit.notified() => {}
             }
-        };
-        #[cfg(feature = "stand-ins")]
-        if let Some(s) = stand {
-            crate::standins::attach(&daemon, s).await;
-        }
-        let quit = daemon.quit.clone();
-        tokio::select! {
-            _ = stop.notified() => {}
-            _ = quit.notified() => {}
-        }
-        daemon.shutdown().await;
-        0
+            daemon.shutdown().await;
+            0
+        })
     })
 }

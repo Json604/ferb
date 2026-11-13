@@ -8,7 +8,7 @@ use ferb_core::types::{ActionSpec, ToolContext, ToolResult};
 use ferb_gateway::tool::{Args, Tool, ToolError, ToolOutput};
 use serde_json::{json, Map, Value};
 
-use super::{unavailable, Catalogued, Parts, Run};
+use super::{Catalogued, Parts, Run};
 
 fn read_spec() -> Arc<dyn Fn(&Args) -> ActionSpec + Send + Sync> {
     Arc::new(|_a| ActionSpec::new("read"))
@@ -140,14 +140,11 @@ pub fn first(p: &Parts) -> Vec<Arc<dyn Tool>> {
             describe: read_spec(),
             run: search,
         }) as Arc<dyn Tool>,
-        unavailable("abilities.list", "FERB's abilities catalog"),
-        unavailable("abilities.read", "FERB's abilities catalog"),
+        super::context::tool_named(p, "abilities.list"),
+        super::context::tool_named(p, "abilities.read"),
         fs(ferb_fs::files::FS_LIST),
         fs(ferb_fs::files::FS_READ),
-        unavailable(
-            "fs.look",
-            "seeing a picture or PDF page on disk (the Mac's renderers)",
-        ),
+        Arc::new(FsLook { env: fs_env(p) }) as Arc<dyn Tool>,
         Arc::new(Catalogued {
             name: "fs.disk_usage",
             describe: Arc::new(|a: &Args| {
@@ -173,30 +170,112 @@ pub fn first(p: &Parts) -> Vec<Arc<dyn Tool>> {
     ]
 }
 
-/// `add_recovery`: recovery.snapshot (S1's local APFS snapshot) isn't composed: snapshots are off in this build.
-pub fn recovery_snapshot(_p: &Parts) -> Arc<dyn Tool> {
-    unavailable("recovery.snapshot", "a local snapshot of the Mac's disk")
+/// `add_recovery`: recovery.snapshot over S1's `Snapshots` (`recovery.Snapshots(local_snapshot if take_snapshots
+/// else None, ...)`): a local APFS snapshot with `tmutil localsnapshot` when the Mac's parts are on; a daemon started
+/// without them (a test) has snapshots off and says so, as Python's `snapshots=False`.
+pub fn recovery_snapshot(p: &Parts) -> Arc<dyn Tool> {
+    let take: Option<ferb_fs::recovery::Take> =
+        p.mac().is_some_and(|m| m.images.native).then(|| {
+            Arc::new(|| {
+                Ok(ferb_fs::recovery::tmutil::local_snapshot(
+                    ferb_fs::recovery::SNAPSHOT_TIMEOUT_S,
+                ))
+            }) as ferb_fs::recovery::Take
+        });
+    let conn =
+        rusqlite::Connection::open(p.home().join("ferb.db")).expect("the store was opened already");
+    let r = p.redactor();
+    let snapshots = Arc::new(ferb_fs::recovery::Snapshots::new(
+        take,
+        Arc::new(std::sync::Mutex::new(conn)),
+        p.clock(),
+        p.ids(),
+        Arc::new(move |v: &Value| r.value(v)),
+    ));
+    let _ = p.set_snapshots(snapshots.clone());
+    Arc::new(Catalogued {
+        name: ferb_fs::recovery::SNAPSHOT_TOOL,
+        describe: Arc::new(|_a: &Args| ActionSpec::new("read")),
+        run: Arc::new(move |a: &Args, ctx: &ToolContext| {
+            let snapshots = snapshots.clone();
+            let before = a
+                .get("before")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let task = ctx.task_id.clone();
+            Box::pin(async move {
+                let args = ferb_fs::recovery::SnapshotArgs { before };
+                Ok(
+                    ferb_fs::recovery::recovery_snapshot(&args, &task, &snapshots)
+                        .await
+                        .into(),
+                )
+            })
+        }),
+    })
 }
 
-/// `add_mac`: the Mac tools. The Mac driver (Accessibility, input, window capture) isn't composed in this build.
-pub fn mac(_p: &Parts) -> Vec<Arc<dyn Tool>> {
-    [
-        "mac.apps",
-        "mac.open",
-        "mac.snapshot",
-        "mac.menu",
-        "mac.act",
-        "mac.secret",
-        "mac.applescript",
-        "mac.screenshot",
-        "mac.click",
-        "mac.pointer",
-        "mac.record",
-        "mac.clipboard",
-    ]
-    .into_iter()
-    .map(|n| unavailable(n, "FERB's Mac hands (the Mac driver)"))
-    .collect()
+/// fs.look (HAND-517): a picture or a PDF page on disk as an image, decoded by ImageIO / PDFKit (src/native.rs).
+pub struct FsLook {
+    pub env: ferb_fs::files::FsEnv,
+}
+
+impl Tool for FsLook {
+    fn name(&self) -> &str {
+        ferb_fs::look::NAME
+    }
+    fn describe(&self, args: &Args) -> ActionSpec {
+        let mut s = ActionSpec::new("read");
+        let path = args.get("path").and_then(Value::as_str).unwrap_or("");
+        s.target.path = ferb_fs::files::describe_path(path, &self.env.home).ok();
+        s
+    }
+    fn locks(&self, args: &Args) -> Vec<String> {
+        let path = args.get("path").and_then(Value::as_str).unwrap_or("");
+        ferb_fs::files::declared::locks(path, &self.env.home).unwrap_or_default()
+    }
+    fn file_paths(&self, args: &Args) -> Option<Vec<(String, String)>> {
+        let path = args.get("path").and_then(Value::as_str).unwrap_or("");
+        Some(vec![(path.to_string(), "read".to_string())])
+    }
+    fn real_path(&self, args: &Args, workspace: &str) -> Option<ferb_gateway::tool::RealPath> {
+        let path = args.get("path").and_then(Value::as_str)?;
+        Some(
+            ferb_fs::files::declared::real(path, workspace, &self.env.home)
+                .map(Into::into)
+                .map_err(|_| ()),
+        )
+    }
+    fn run<'a>(
+        &'a self,
+        args: &'a Args,
+        ctx: &'a ToolContext,
+    ) -> ferb_core::interfaces::BoxFuture<'a, Result<ToolOutput, ToolError>> {
+        Box::pin(async move {
+            let a: ferb_fs::look::Args = serde_json::from_value(Value::Object(args.clone()))
+                .map_err(|e| ToolError::failed("ValidationError", e.to_string()))?;
+            let (env, ctx) = (self.env.clone(), ctx.clone());
+            // decoding runs off the loop (DMN-13)
+            let out = tokio::task::spawn_blocking(move || {
+                ferb_fs::look::fs_look(&a, &ctx, &env, &crate::native::MacRenderer)
+            })
+            .await
+            .map_err(|e| ToolError::failed("RuntimeError", e.to_string()))?;
+            match out {
+                Ok(result) => {
+                    let mut measured = Vec::new();
+                    ferb_gateway::adapters::numbers(
+                        &Value::Object(result.content.clone()),
+                        "",
+                        &mut measured,
+                    );
+                    Ok(ToolOutput { result, measured })
+                }
+                Err(e) => Err(raised(e)),
+            }
+        })
+    }
 }
 
 /// The timer store on the daemon's database (`Timers(db, clock, ids)`), for time.set_timer and time.remind_at.
@@ -240,33 +319,22 @@ pub fn rest(p: &Parts) -> Vec<Arc<dyn Tool>> {
             zone,
         })
     };
+    let ctx = |name: &'static str| super::context::tool_named(p, name);
     vec![
-        unavailable("trail.query", "searching the owner's recorded activity"),
-        unavailable("trail.days", "searching the owner's recorded activity"),
-        unavailable("task.evidence", "reading a task's recorded evidence"),
+        ctx("trail.query"),
+        ctx("trail.days"),
+        ctx("task.evidence"),
         time(ferb_clock::tools::REMIND_AT),
         time(ferb_clock::tools::SET_TIMER),
-        unavailable(
-            "time.sleep_until",
-            "a task's durable sleep (it needs the supervisor)",
-        ),
-        unavailable(
-            "wait.for",
-            "waiting for a condition (it needs the supervisor)",
-        ),
-        unavailable("skills.read", "FERB's skills"),
-        unavailable(
-            "chat.history",
-            "the conversation's history (it needs the supervisor)",
-        ),
-        unavailable("memory.read", "reading FERB's memory"),
-        unavailable("secrets.list", "the saved secrets' names"),
-        unavailable("about.read", "FERB's self-description"),
-        unavailable(
-            "conversation.read",
-            "delegated conversations (they need the supervisor)",
-        ),
-        unavailable("memory.learned", "FERB's learning store"),
+        super::waits::sleep_until(p),
+        super::waits::wait_for(p),
+        ctx("skills.read"),
+        ctx("chat.history"),
+        ctx("memory.read"),
+        ctx("secrets.list"),
+        ctx("about.read"),
+        ctx("conversation.read"),
+        ctx("memory.learned"),
     ]
 }
 

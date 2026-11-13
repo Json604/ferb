@@ -3,7 +3,7 @@
 //! two tool families, and the browser area's seams.
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use ferb_browser::bridge::Hub;
 use ferb_browser::driver::{Driver, Kind, Tasks};
@@ -31,27 +31,68 @@ impl ferb_browser::tools::Policy for BrowserPolicy {
     }
 }
 
-/// The daemon's part of some browser tools: files through the fs tools' rules; pairing, a handoff and recordings
-/// are not composed for the tools in this build (pairing runs through the browser area's RPCs).
+/// The daemon's part of some browser tools: files through the fs tools' rules; `browser.pair` and `browser.handoff`
+/// through the browser area (`_pair_for_task`, `_handoff`) once it is built; recordings through the Mac's recordings
+/// manager (browser.record).
 pub struct BrowserHost {
     home: String,
+    area: Arc<OnceLock<ferb_daemon::areas_b::browsers::Cx>>,
+    recordings: Option<Arc<dyn ferb_browser::tools::Recordings>>,
+}
+
+fn area_err(e: ferb_rpc::HandlerError) -> ferb_browser::error::Error {
+    ferb_browser::error::Error::refused(e.message)
 }
 
 impl ferb_browser::tools::Host for BrowserHost {
     fn pair(
         &self,
-        _browser: &str,
-        _folder: &str,
+        browser: &str,
+        folder: &str,
     ) -> Option<BoxFuture<'_, ferb_browser::error::Result<Map<String, Value>>>> {
-        None
+        let cx = self.area.get()?.clone();
+        let (browser, folder) = (browser.to_string(), folder.to_string());
+        Some(Box::pin(async move {
+            super::mac::off_thread(move || {
+                Box::pin(async move { cx.pair_for_task(&browser, &folder).await.map_err(area_err) })
+            })
+            .await
+            .unwrap_or_else(|| {
+                Err(ferb_browser::error::Error::driver(
+                    "the pairing's thread ended",
+                ))
+            })
+        }))
     }
     fn handoff(
         &self,
-        _tab: TabRef,
-        _message: String,
-        _ctx: ToolContext,
+        tab: TabRef,
+        message: String,
+        ctx: ToolContext,
     ) -> Option<BoxFuture<'_, ferb_browser::error::Result<Map<String, Value>>>> {
-        None
+        let cx = self.area.get()?.clone();
+        Some(Box::pin(async move {
+            let tab = serde_json::to_value(&tab).unwrap_or(Value::Null);
+            let out = super::mac::off_thread(move || {
+                Box::pin(async move {
+                    ferb_daemon::areas_b::browsers::handoff(
+                        &cx,
+                        tab,
+                        &message,
+                        &ctx.task_id,
+                        &ctx.worker_id,
+                    )
+                    .await
+                })
+            })
+            .await
+            .ok_or_else(|| ferb_browser::error::Error::driver("the handoff's thread ended"))?;
+            match out {
+                Ok(Ok(v)) => Ok(crate::basics::object(v)),
+                Ok(Err(e)) => Err(ferb_browser::error::Error::driver(e)),
+                Err(e) => Err(area_err(e)),
+            }
+        }))
     }
     fn resolve(
         &self,
@@ -87,12 +128,123 @@ impl ferb_browser::tools::Host for BrowserHost {
         f.write_all(data)
             .map_err(|e| ferb_browser::error::Error::driver(e.to_string()))
     }
-    fn display_of(&self, _rect: Rect) -> Option<i64> {
-        None
+    /// point.py:49: the display holding a rect's centre (the window server's).
+    fn display_of(&self, rect: Rect) -> Option<i64> {
+        ferb_mac_hands::native::windows::display_of(rect).map(i64::from)
     }
     fn recordings(&self) -> Option<Arc<dyn ferb_browser::tools::Recordings>> {
-        None
+        self.recordings.clone()
     }
+}
+
+/// The Mac's recordings manager as browser.record starts a tab's recording.
+pub struct TabRecordings {
+    pub manager: Arc<ferb_mac_hands::recording::RecordingManager>,
+    pub hearing: Arc<ferb_mac_hands::listen::Hearing>,
+    pub redactor: Arc<ferb_sanitize::redact::Redactor>,
+}
+
+impl ferb_browser::tools::Recordings for TabRecordings {
+    fn hearing(&self) -> bool {
+        self.manager.hearing.is_some()
+    }
+    fn excluded_host(&self, host: &str) -> bool {
+        self.redactor.excluded_host(host)
+    }
+    fn resolve_audio(&self, target: &str) -> (String, Value) {
+        match self.hearing.resolve(target) {
+            Ok((bundle, pid)) => (bundle, Value::from(pid)),
+            Err(_) => (String::new(), Value::Null),
+        }
+    }
+    fn start(
+        &self,
+        task: &str,
+        target: Map<String, Value>,
+        path: String,
+        capture: ferb_browser::capture::Recording,
+        fps: f64,
+        audio: Option<(String, Value)>,
+        language: Option<String>,
+        sources: Vec<(String, String)>,
+        _ctx: &ToolContext,
+    ) -> BoxFuture<'_, ferb_browser::error::Result<Map<String, Value>>> {
+        let capture = Arc::new(capture);
+        let frames: ferb_mac_hands::point::FrameFn = Arc::new(move || {
+            let c = capture.clone();
+            Box::pin(async move {
+                c.capture(None)
+                    .await
+                    .map(|(jpeg, note)| (jpeg, note.unwrap_or_default()))
+                    .map_err(|e| ferb_mac_hands::error::HandError::Other(e.message()))
+            })
+        });
+        let audio = audio.map(|(bundle, pid)| (bundle, pid.as_i64().unwrap_or(0) as i32));
+        let (task, manager) = (task.to_string(), self.manager.clone());
+        Box::pin(async move {
+            manager
+                .start(
+                    &task,
+                    target,
+                    std::path::PathBuf::from(path),
+                    frames,
+                    fps,
+                    audio,
+                    language,
+                    sources,
+                )
+                .await
+                .map_err(|e| match e {
+                    ferb_mac_hands::error::HandError::Refused(m) => {
+                        ferb_browser::error::Error::refused(m)
+                    }
+                    other => ferb_browser::error::Error::driver(other.to_string()),
+                })
+        })
+    }
+}
+
+/// FERB's own secrets (`KeychainSecretStore` over the signed helper, `[secrets]` read at call time) as FERB's own
+/// profile's driver reads them: names and specs for descriptions, the value only inside a sealed fill.
+pub struct OwnSecrets(pub Arc<ferb_identity::secrets::KeychainSecretStore>);
+
+impl ferb_browser::driver::Secrets for OwnSecrets {
+    fn specs(&self) -> Vec<ferb_identity::secrets::SecretSpec> {
+        self.0.specs()
+    }
+    fn has(&self, secret: &ferb_identity::secrets::SecretRef) -> bool {
+        self.0.has(secret)
+    }
+    fn spec(
+        &self,
+        secret: &ferb_identity::secrets::SecretRef,
+    ) -> Option<ferb_identity::secrets::SecretSpec> {
+        self.0.spec(secret)
+    }
+    fn reveal(
+        &self,
+        secret: &ferb_identity::secrets::SecretRef,
+    ) -> BoxFuture<'_, std::result::Result<ferb_identity::Secret, String>> {
+        let (store, secret) = (self.0.clone(), secret.clone());
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || store.reveal(&secret).map_err(|e| e.reason))
+                .await
+                .unwrap_or_else(|e| Err(e.to_string()))
+        })
+    }
+}
+
+/// `_identity_profile`: FERB's own (browser, folder), from `[identity]`.
+pub fn identity_profile(config: &ferb_core::config::Config) -> Option<(String, String)> {
+    let folder = match config.get("identity", "profile") {
+        Ok(Some(Value::String(s))) if !s.is_empty() => s,
+        _ => return None,
+    };
+    let browser = match config.get("identity", "browser") {
+        Ok(Some(Value::String(s))) if !s.is_empty() => s,
+        _ => "chrome".into(),
+    };
+    Some((browser, folder))
 }
 
 /// Which apps are browsers, and the browsers FERB pairs with (the Mac-hands part's tables).
@@ -119,6 +271,8 @@ pub struct Browsers {
     pub identity: Option<Arc<Driver>>,
     owner: Arc<Tools>,
     ferb: Option<Arc<Tools>>,
+    /// The browser area, once group B builds it (browser.pair, browser.handoff).
+    area: Arc<OnceLock<ferb_daemon::areas_b::browsers::Cx>>,
 }
 
 impl Browsers {
@@ -170,10 +324,19 @@ impl Browsers {
             },
             tasks,
             None,
-            random,
+            random.clone(),
         );
+        let area = Arc::new(OnceLock::new());
         let host: Arc<dyn ferb_browser::tools::Host> = Arc::new(BrowserHost {
             home: opts.user_home.to_string_lossy().into_owned(),
+            area: area.clone(),
+            recordings: p.mac().map(|m| {
+                Arc::new(TabRecordings {
+                    manager: m.recordings.clone(),
+                    hearing: m.hearing.clone(),
+                    redactor: p.redactor(),
+                }) as Arc<dyn ferb_browser::tools::Recordings>
+            }),
         });
         let owner = Arc::new(Tools {
             family: OWNER_BROWSER,
@@ -181,13 +344,46 @@ impl Browsers {
             policy: Arc::new(BrowserPolicy),
             host: host.clone(),
         });
+        // `FerbIdentity`: FERB's own profile, its secrets through the signed helper (its tools join the registry
+        // once that profile is paired as FERB)
+        let cfg = p.config();
+        let specs_cfg = p.config();
+        let secrets = Arc::new(ferb_identity::secrets::KeychainSecretStore::new(
+            move || {
+                ferb_identity::secrets::specs_from_config(
+                    specs_cfg.section("secrets").ok().as_ref(),
+                )
+            },
+            crate::compose::areas::helper(opts, &opts.home),
+        ));
+        let r = p.redactor();
+        let identity = Driver::new(
+            hub.clone(),
+            Kind::Ferb {
+                profile: Arc::new(move || identity_profile(&cfg)),
+                secrets: Arc::new(OwnSecrets(secrets)),
+            },
+            Tasks {
+                redact: Arc::new(move |t: &str| r.text(t)),
+                ..Tasks::default()
+            },
+            None,
+            random,
+        );
+        let ferb = Arc::new(Tools {
+            family: FERB_BROWSER,
+            driver: identity.clone(),
+            policy: Arc::new(BrowserPolicy),
+            host,
+        });
         Browsers {
             pairings,
             hub,
             router,
-            identity: None,
+            identity: Some(identity),
             owner,
-            ferb: None,
+            ferb: Some(ferb),
+            area,
         }
     }
 
@@ -195,20 +391,26 @@ impl Browsers {
         family_tools(&self.owner)
     }
 
-    /// FERB's own profile's tools: the catalog's `ferb_browser.*` (21). FERB's own profile's driver isn't
-    /// composed in this build (it needs the identity profile's seed and FERB's saved secrets): each refuses.
+    /// FERB's own profile's tools: the catalog's `ferb_browser.*` (21).
     pub fn ferb_tools(&self) -> Vec<Arc<dyn Tool>> {
-        match &self.ferb {
-            Some(t) => family_tools(t),
-            None => ferb_browser::tools::FERB_VERBS
-                .iter()
-                .map(|v| {
-                    let name: &'static str =
-                        Box::leak(format!("{}.{v}", FERB_BROWSER.prefix).into_boxed_str());
-                    super::unavailable(name, "FERB's own browser profile")
-                })
-                .collect(),
-        }
+        self.ferb.as_ref().map(family_tools).unwrap_or_default()
+    }
+
+    /// The browser area, for browser.pair and browser.handoff.
+    pub fn attach_area(&self, cx: ferb_daemon::areas_b::browsers::Cx) {
+        let _ = self.area.set(cx);
+    }
+
+    /// `_attach_identity_if_paired` at start: FERB's tools exist only once its own profile is paired as FERB.
+    pub fn identity_paired(&self, config: &ferb_core::config::Config) -> bool {
+        let Some((b, f)) = identity_profile(config) else {
+            return false;
+        };
+        self.pairings
+            .for_profile(&b, &f)
+            .ok()
+            .flatten()
+            .is_some_and(|p| p.identity == ferb_core::types::Identity::Ferb)
     }
 }
 

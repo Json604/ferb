@@ -8,10 +8,18 @@
 //!   the runtime factory, the background loops.
 //! - [`run`]: the program's modes (`daemon`, `mcp`, the internal commands).
 
+pub mod areas_c;
 pub mod basics;
 pub mod compose;
 pub mod device;
 pub mod home;
+pub mod mainloop;
+#[cfg(target_os = "macos")]
+pub mod native;
+pub mod resources;
 pub mod run;
+pub mod setup_env;
 #[cfg(feature = "stand-ins")]
 pub mod standins;
+#[cfg(feature = "stand-ins")]
+pub mod standins_c;

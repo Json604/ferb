@@ -8,8 +8,11 @@
 //! (`not available in this build`), never a made-up result.
 
 pub mod browser;
+pub mod context;
+pub mod mac;
 pub mod misc;
 pub mod shell;
+pub mod waits;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
@@ -65,6 +68,7 @@ impl Tool for Catalogued {
 /// A catalog tool whose part isn't composed in this build: described as the catalog's facts say (a read for an
 /// observation, else its kind is the tool's own name), and refused when run.
 pub fn unavailable(name: &'static str, what: &'static str) -> Arc<dyn Tool> {
+    crate::basics::lock(&REFUSING).insert(name);
     let observation = ferb_gateway::tool::Facts::from_catalog(name)
         .map(|f| f.observation)
         .unwrap_or(false);
@@ -78,6 +82,7 @@ pub fn unavailable(name: &'static str, what: &'static str) -> Arc<dyn Tool> {
 struct Inner {
     home: PathBuf,
     user_home: PathBuf,
+    package: PathBuf,
     native: bool,
     clock: Arc<dyn ferb_clock::clock::ZonedClock>,
     ids: Arc<dyn IdSource>,
@@ -93,6 +98,41 @@ struct Inner {
     browsers: OnceLock<browser::Browsers>,
     gateway: OnceLock<Weak<Gateway>>,
     secrets: Mutex<Vec<ferb_gateway::catalog::SavedSecret>>,
+    /// Group A's state (memory, learning), once registered.
+    group_a: OnceLock<ferb_daemon::shared::Local<ferb_daemon::areas_a::State>>,
+    /// The About area's document (`_about_document`), once group B is built.
+    about: OnceLock<AboutDocument>,
+    owner_secrets: OnceLock<Arc<ferb_identity::owner_secrets::OwnerSecrets>>,
+    /// The live task records the gateway holds (`self.tasks`), mirrored for the tools that read a task's tree or
+    /// deadline (the gateway keeps its own private).
+    tasks: Mutex<std::collections::HashMap<String, ferb_gateway::gateway::TaskRecord>>,
+    shutting_down: std::sync::atomic::AtomicBool,
+    mac: OnceLock<mac::Mac>,
+    snapshots: OnceLock<Arc<ferb_fs::recovery::Snapshots>>,
+}
+
+/// Tools built as refusing "not available in this build" (none, once every part is composed): the catalog test
+/// reads it.
+static REFUSING: Mutex<std::collections::BTreeSet<&'static str>> =
+    Mutex::new(std::collections::BTreeSet::new());
+
+pub fn refusing() -> Vec<String> {
+    crate::basics::lock(&REFUSING)
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// The About area's whole document, built off the loop.
+pub type AboutDocument =
+    Arc<dyn Fn() -> Result<serde_json::Map<String, serde_json::Value>, String> + Send + Sync>;
+
+/// An `IdSource` behind an `Arc`, by reference.
+pub struct IdsRef(pub Arc<dyn IdSource>);
+impl IdSource for IdsRef {
+    fn new_id(&self) -> String {
+        self.0.new_id()
+    }
 }
 
 /// The parts the tools are built over, shared with the areas that drive the same parts (shell processes, browsers).
@@ -115,6 +155,7 @@ impl Parts {
         let p = Parts(Arc::new(Inner {
             home: opts.home.clone(),
             user_home: opts.user_home.clone(),
+            package: opts.package.clone(),
             native: opts.native,
             clock: opts.clock.clone(),
             ids: opts.ids.clone(),
@@ -129,7 +170,15 @@ impl Parts {
             browsers: OnceLock::new(),
             gateway: OnceLock::new(),
             secrets: Mutex::new(Vec::new()),
+            group_a: OnceLock::new(),
+            about: OnceLock::new(),
+            owner_secrets: OnceLock::new(),
+            tasks: Mutex::new(std::collections::HashMap::new()),
+            shutting_down: std::sync::atomic::AtomicBool::new(false),
+            mac: OnceLock::new(),
+            snapshots: OnceLock::new(),
         }));
+        let _ = p.0.mac.set(mac::Mac::build(opts, &p));
         let _ = p.0.browsers.set(browser::Browsers::build(opts, &p));
         p
     }
@@ -137,6 +186,72 @@ impl Parts {
     pub fn home(&self) -> &PathBuf {
         &self.0.home
     }
+    /// FERB's package folder (`ferb/`): the runtime Markdown (abilities' procedures, prompts).
+    pub fn package(&self) -> &PathBuf {
+        &self.0.package
+    }
+    pub fn set_group_a(&self, a: ferb_daemon::shared::Local<ferb_daemon::areas_a::State>) {
+        let _ = self.0.group_a.set(a);
+    }
+    pub fn group_a(&self) -> Option<ferb_daemon::shared::Local<ferb_daemon::areas_a::State>> {
+        self.0.group_a.get().cloned()
+    }
+    pub fn set_about_document(&self, f: AboutDocument) {
+        let _ = self.0.about.set(f);
+    }
+    pub fn about_document(&self) -> Option<AboutDocument> {
+        self.0.about.get().cloned()
+    }
+    pub fn set_owner_secrets(&self, s: Arc<ferb_identity::owner_secrets::OwnerSecrets>) {
+        let _ = self.0.owner_secrets.set(s);
+    }
+    pub fn owner_secrets(&self) -> Option<Arc<ferb_identity::owner_secrets::OwnerSecrets>> {
+        self.0.owner_secrets.get().cloned()
+    }
+    /// A live task for the gateway (`tasks.hold`): kept here too, for the tools that read its tree or deadline.
+    pub fn hold_task(&self, gateway: &Gateway, rec: ferb_gateway::gateway::TaskRecord) {
+        crate::basics::lock(&self.0.tasks).insert(rec.task_id.clone(), rec.clone());
+        gateway.add_task(rec);
+    }
+    pub fn release_task(&self, gateway: &Gateway, task_id: &str) {
+        crate::basics::lock(&self.0.tasks).remove(task_id);
+        gateway.remove_task(task_id);
+    }
+    /// `self.tasks.get(task_id)`.
+    pub fn task(&self, task_id: &str) -> Option<ferb_gateway::gateway::TaskRecord> {
+        crate::basics::lock(&self.0.tasks).get(task_id).cloned()
+    }
+    /// S1's snapshots (`recovery.snapshot`, the gateway's before shell commands and permanent deletes).
+    pub fn set_snapshots(&self, s: Arc<ferb_fs::recovery::Snapshots>) -> bool {
+        self.0.snapshots.set(s).is_ok()
+    }
+    pub fn snapshots(&self) -> Option<Arc<ferb_fs::recovery::Snapshots>> {
+        self.0.snapshots.get().cloned()
+    }
+    /// The Mac's parts (driver, hearing, recordings, the image sanitizer).
+    pub fn mac(&self) -> Option<&mac::Mac> {
+        self.0.mac.get()
+    }
+    /// A job on the calls' thread (what a gateway future needs: it isn't `Send`); None when that thread stopped.
+    pub async fn on_calls_thread<T, F, Fut>(&self, f: F) -> Option<T>
+    where
+        T: Send + 'static,
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = T> + 'static,
+    {
+        self.0.calls.run(f).await.ok()
+    }
+    pub fn set_shutting_down(&self) {
+        self.0
+            .shutting_down
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    pub fn shutting_down(&self) -> bool {
+        self.0
+            .shutting_down
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     pub fn user_home(&self) -> &PathBuf {
         &self.0.user_home
     }
@@ -229,8 +344,22 @@ impl Parts {
 
     /// What a description reads when the listing is made (saved secrets, the downloads total).
     pub fn live(&self) -> ferb_gateway::catalog::Live {
+        // `_accounts(driver)`: FERB's own saved secrets (names, accounts, origins: never a value), read now
+        let mut secrets = crate::basics::lock(&self.0.secrets).clone();
+        if secrets.is_empty() {
+            secrets = ferb_identity::secrets::specs_from_config(
+                self.0.config.section("secrets").ok().as_ref(),
+            )
+            .into_iter()
+            .map(|s| ferb_gateway::catalog::SavedSecret {
+                key: s.secret.key,
+                account_hint: s.account_hint,
+                allowed_origins: s.allowed_origins,
+            })
+            .collect();
+        }
         ferb_gateway::catalog::Live {
-            secrets: crate::basics::lock(&self.0.secrets).clone(),
+            secrets,
             downloads_total_bytes: None,
         }
     }
@@ -248,8 +377,8 @@ pub fn registry(p: &Parts) -> Registry {
         add(t);
     }
     // add_recording, add_recovery
-    add(unavailable("recording.stop", "recording"));
-    add(unavailable("recording.inspect", "recording"));
+    add(mac::recording_tool(p, "recording.stop"));
+    add(mac::recording_tool(p, "recording.inspect"));
     add(misc::recovery_snapshot(p));
     // _build_browsers: the owner's browsers
     if let Some(b) = p.browsers() {
@@ -258,10 +387,10 @@ pub fn registry(p: &Parts) -> Registry {
         }
     }
     // _build_mac_and_shell: Mac tools, hearing, the shell
-    for t in misc::mac(p) {
+    for t in mac::mac_tools(p) {
         add(t);
     }
-    add(unavailable("audio.listen", "hearing an app's sound"));
+    add(mac::listen_tool(p));
     for t in shell::tools(p) {
         add(t);
     }
@@ -269,12 +398,8 @@ pub fn registry(p: &Parts) -> Registry {
     for t in misc::rest(p) {
         add(t);
     }
-    // add_identity_browser: FERB's own profile's tools, only once it is attached (`use_identity_browser`)
-    if p.ferb_driver().is_some() {
-        for t in p.ferb_browser_tools() {
-            add(t);
-        }
-    }
+    // add_identity_browser: FERB's own profile's tools join once its profile is paired as FERB (the start's
+    // `_attach_identity_if_paired`, compose/mod.rs)
     r
 }
 

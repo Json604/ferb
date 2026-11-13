@@ -6,8 +6,11 @@
 //! run changes comes in through [`Options`] (Python's constructor flags), never through a global.
 
 pub mod areas;
+pub mod egress;
 pub mod gateway;
+pub mod group_c;
 pub mod loops;
+pub mod memory_loops;
 pub mod rpc;
 pub mod runtimes;
 pub mod supervisor;
@@ -58,6 +61,9 @@ pub struct Options {
     /// The Mac's own parts: TCC reads, the running-app list, watchers, the owner-input tap, presence, notifications,
     /// the FERB.app peer check. Off: none is read or started (Python's `watchers=False`, test stand-ins).
     pub native: bool,
+    /// The Mac hands' own native parts (the pasteboard, Vision's text recognition for tool images, app sound capture,
+    /// local snapshots). The real daemon: on. A test daemon: off unless it asks (a real-machine check).
+    pub mac: bool,
     /// The retention pass and the start's sweep of stale run folders (`retention`).
     pub retention: bool,
     /// The redactor learns FERB's API keys in use at start (GATE-573, `preload_secrets`).
@@ -78,12 +84,20 @@ pub struct Options {
     /// Seams replaced after the real ones are built (Python's tests set attributes on the daemon the same way).
     /// Only the `stand-ins` build's test entry sets it; the program's own start never does.
     pub overrides: Option<Arc<dyn Overrides>>,
+    /// The shell's egress proxy and what its callbacks read (compose/egress.rs), shared by the shell and the start.
+    pub egress: Arc<egress::Egress>,
+    /// The memory's background work (compose/memory_loops.rs: re-index, embedder, the hourly pass); Python's
+    /// `distill` and `embeddings` flags.
+    pub memory_loops: bool,
+    /// The resource log (L30, `resources`): a sample every five minutes and at shutdown.
+    pub resources: bool,
 }
 
 /// Replacements for seams the real composition fills, applied once each area's deps are built.
 pub trait Overrides: Send + Sync {
     fn group_a(&self, _deps: &mut areas_a::Deps) {}
     fn group_b(&self, _deps: &mut ferb_daemon::areas_b::Deps) {}
+    fn group_c(&self, _deps: &mut crate::areas_c::Deps) {}
 }
 
 impl Options {
@@ -104,6 +118,7 @@ impl Options {
             ids: Arc::new(ferb_core::ids::RandomIds),
             keychain: Keychain::Real,
             native: true,
+            mac: true,
             retention: true,
             preload_secrets: true,
             owner_uid: None,
@@ -112,6 +127,9 @@ impl Options {
             launch_browsers: true,
             timer_loop: true,
             overrides: None,
+            egress: Arc::new(egress::Egress::default()),
+            memory_loops: true,
+            resources: true,
         }
     }
 }
@@ -144,6 +162,8 @@ pub struct Daemon {
     pub db: SharedDb,
     pub journal: Arc<Journal>,
     pub events: Arc<Events>,
+    /// The in-process bus (`self.bus`): every published event, as `logs.subscribe` reads it.
+    pub bus: ferb_core::bus::Bus,
     pub stop: Arc<Stop>,
     pub server: Server,
     pub tokens: Arc<RunTokens>,
@@ -152,6 +172,12 @@ pub struct Daemon {
     pub a: Local<AState>,
     pub b: areas::GroupB,
     pub tools: tools::Parts,
+    /// The Claude runtime's tool-list relay.
+    pub claude_proxy: Option<Arc<dyn ferb_runtimes::claude::ToolProxy>>,
+    /// Ends the memory's re-index and embedder threads at shutdown.
+    pub memory_stop: std::sync::OnceLock<Arc<std::sync::atomic::AtomicBool>>,
+    /// The resource log (None: off, or it couldn't start: journaled).
+    pub resource_log: Mutex<Option<crate::resources::ResourceLog>>,
     /// Set by SIGTERM, SIGINT or `update.prepare` (`_stop`).
     pub quit: Arc<tokio::sync::Notify>,
     loops: Mutex<Vec<JoinHandle<()>>>,
@@ -280,7 +306,46 @@ impl Daemon {
         for entry in &set_aside {
             journal.note("store.set_aside", Value::Object(entry.clone()));
         }
+        // the resource log: its first window starts here, so start-up's own work is in it (L30)
+        let resource_log = if opts.resources {
+            match crate::resources::MacReadings::new().and_then(|readings| {
+                let d = lock(&db);
+                crate::resources::ResourceLog::new(
+                    &d,
+                    Box::new(SampleClock(opts.clock.clone())),
+                    Box::new(readings),
+                    {
+                        let r = redactor.clone();
+                        Box::new(move |t: &str| r.text(t))
+                    },
+                    // perception's batcher is off (Jev is off: notices paused); no live previews without a planner
+                    Box::new(|| (0, std::collections::BTreeMap::new())),
+                    Box::new(Map::new),
+                    std::process::id() as i32,
+                )
+            }) {
+                Ok(l) => Some(l),
+                Err(e) => {
+                    journal.note("resources.failed", json!({"error": e}));
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let events = Events::new(redactor.clone());
+        // the bus as a consumer of every event (compose.py:237): `logs.subscribe` reads it; a topic the bus doesn't
+        // declare is not offered (Python's bus raises for it)
+        let bus = ferb_core::bus::Bus::new(clock.clone());
+        {
+            let bus = bus.clone();
+            events.events.on(
+                None,
+                Arc::new(move |topic: &str, data: Map<String, Value>| {
+                    let _ = bus.publish(topic, Some(data));
+                }),
+            );
+        }
         let stop = Stop::new(&home);
 
         // config upgrades, each once and journaled
@@ -335,6 +400,7 @@ impl Daemon {
         // the gateway and its tools
         let owner_secrets = Arc::new(areas::owner_secrets(&opts, &home));
         let tool_parts = tools::Parts::new(&opts, &config, &redactor, &db, &journal, &events);
+        tool_parts.set_owner_secrets(owner_secrets.clone());
         let registry = tools::registry(&tool_parts);
         let gw = {
             let ev = events.clone();
@@ -366,11 +432,31 @@ impl Daemon {
                         )
                     }),
                     native: opts.native,
-                    hooks: Arc::new(ferb_gateway::seams::NoHooks),
+                    hooks: tools::mac::hooks(&tool_parts),
+                    snapshots: tool_parts.snapshots().map(|s| {
+                        Arc::new(gateway::GatewaySnapshots(s))
+                            as Arc<dyn ferb_gateway::seams::Snapshots>
+                    }),
+                    proc_task: {
+                        let e = opts.egress.clone();
+                        Box::new(move |proc: &str| e.owner_of(proc))
+                    },
                 },
             )
         };
         tool_parts.attach_gateway(&gw);
+        // `_attach_identity_if_paired`: FERB's own profile's tools join once it is paired as FERB
+        if let Some(b) = tool_parts.browsers() {
+            if b.identity_paired(&config) {
+                let mut reg = gw.registry();
+                for t in b.ferb_tools() {
+                    reg.set(t);
+                }
+            }
+        }
+        // the proxy's destination gate is the gateway from now on
+        let _ = opts.egress.gateway.set(Arc::downgrade(&gw));
+        let _ = opts.egress.journal.set(journal.clone());
         // the browsers' native-host channel (`Hub.serve` behind ferb-rpc's NativeChannel) and the extension ids a
         // native host's hello is checked against (`accepted_extension_ids`)
         if let Some(channel) = tools::browser::native_channel(&tool_parts) {
@@ -381,6 +467,9 @@ impl Daemon {
             server.set_extension_ids(move || tools::browser::extension_ids(&cfg));
         }
 
+        // the learners' model calls go through the runtimes area, built with group B below
+        let learning_area: Arc<std::sync::OnceLock<ferb_daemon::areas_b::runtimes::Runtimes>> =
+            Arc::new(std::sync::OnceLock::new());
         // group A's areas, on their loop thread
         let a = {
             let ev = events.clone();
@@ -398,7 +487,7 @@ impl Daemon {
                     ev.publish(topic, data)
                 }),
                 timer_tokens: opts.timer_tokens.clone(),
-                make_runtime: None,
+                make_runtime: Some(memory_loops::learning_runtime(learning_area.clone())),
                 app_bundle: opts.app_bundle.clone(),
                 persona_scan: None,
                 tasks: Arc::new(supervisor::NoSupervisor {
@@ -419,6 +508,26 @@ impl Daemon {
             }
             areas_a::register(&mut server, deps).map_err(StartError::Failed)?
         };
+        tool_parts.set_group_a(a.clone());
+
+        // the Claude runtime's tool-list relay: 127.0.0.1, forwarding only a live run's own prefix (proxy.py). Python
+        // starts it at a Claude run's first need; here at start, where it can bind (it refuses everything else)
+        let claude_proxy: Option<Arc<dyn ferb_runtimes::claude::ToolProxy>> =
+            match ferb_runtimes::claude::proxy::ToolListProxy::start(
+                ferb_runtimes::claude::proxy::UPSTREAM,
+                Arc::new(ferb_runtimes::claude::proxy::token_urlsafe),
+            )
+            .await
+            {
+                Ok(p) => Some(Arc::new(p)),
+                Err(e) => {
+                    journal.note(
+                        "runtime.proxy_failed",
+                        json!({"error": redactor.text(&e.to_string())}),
+                    );
+                    None
+                }
+            };
 
         // group B's areas (about reads group A's records on its thread)
         let a_cell = Arc::new(std::sync::OnceLock::new());
@@ -436,6 +545,7 @@ impl Daemon {
                 tokens: tokens.clone(),
                 owner_secrets: owner_secrets.clone(),
                 tools: tool_parts.clone(),
+                claude_proxy: claude_proxy.clone(),
             },
             a_cell,
         );
@@ -443,7 +553,46 @@ impl Daemon {
         if let Some(o) = &opts.overrides {
             o.group_b(&mut b.deps);
         }
+        // about.read's document: the About area's, as FERB.app's About page reads it
+        if let Some(about) = b.deps.about.clone() {
+            let host = b.deps.host.clone();
+            tool_parts.set_about_document(Arc::new(move || {
+                ferb_daemon::areas_b::about::document(&host, &about).map_err(|e| e.message)
+            }));
+        }
         ferb_daemon::areas_b::register(&mut server, &b.deps);
+        // browser.pair and browser.handoff run through the browser area (`_pair_for_task`, `_handoff`)
+        if let (Some(br), Some(deps)) = (tool_parts.browsers(), b.deps.browsers.as_ref()) {
+            br.attach_area(ferb_daemon::areas_b::browsers::Cx::new(&b.deps.host, deps));
+        }
+        // the runtimes area as registered (its deps after any test's replacement), for the learners
+        let _ = learning_area.set(match &b.deps.runtimes {
+            Some(r) => {
+                ferb_daemon::areas_b::runtimes::Runtimes::new(b.deps.host.clone(), r.clone())
+            }
+            None => b.runtimes.clone(),
+        });
+
+        // the records, permissions and health, logs.subscribe (areas_c)
+        {
+            let mut c = group_c::deps(group_c::Parts {
+                opts: &opts,
+                config: config.clone(),
+                redactor: redactor.clone(),
+                journal: journal.clone(),
+                db: db.clone(),
+                stop: stop.clone(),
+                a: a.clone(),
+                gateway: gw.clone(),
+                b: &b,
+                tools: tool_parts.clone(),
+                bus: bus.clone(),
+            });
+            if let Some(o) = &opts.overrides {
+                o.group_c(&mut c);
+            }
+            crate::areas_c::register(&server, &c);
+        }
 
         // settings, the rest of rpc.py, the supervisor's refusals
         {
@@ -490,6 +639,7 @@ impl Daemon {
             db,
             journal,
             events,
+            bus,
             stop,
             server,
             tokens,
@@ -498,6 +648,9 @@ impl Daemon {
             a,
             b,
             tools: tool_parts,
+            claude_proxy,
+            memory_stop: std::sync::OnceLock::new(),
+            resource_log: Mutex::new(resource_log),
             quit,
             loops: Mutex::new(Vec::new()),
             _lock: lock_file,
@@ -560,6 +713,14 @@ impl Daemon {
             })
             .await
             .map_err(|e| e.to_string())?;
+        // DMN-520: Vision's text recognizer is loaded once at start, in the background, so the first image redaction
+        // doesn't pay for it (on this Mac its first load took 50-100 s in Python and in Rust alike)
+        if self.opts.mac {
+            // a plain thread: a shutdown never waits for it
+            let _ = std::thread::Builder::new()
+                .name("ferb-vision-warm".into())
+                .spawn(ferb_mac_hands::native::vision::warm_recognition);
+        }
         loops::start(self);
         self.server.set_ready();
         Ok(())
@@ -577,6 +738,7 @@ impl Daemon {
 
     /// `shutdown` (main.py:495): producers first, then what they started, then the server and the store.
     pub async fn shutdown(&self) {
+        self.tools.set_shutting_down();
         let _ = self
             .a
             .call(|st| async move {
@@ -587,10 +749,50 @@ impl Daemon {
         for job in lock(&self.loops).drain(..) {
             job.abort();
         }
+        if let Some(s) = self.memory_stop.get() {
+            s.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
         self.b.shutdown().await;
+        self.opts.egress.close();
         self.server.close().await;
+        // the minutes since the last sample (L30)
+        self.sample_resources();
         self.journal
             .note("daemon.stopped", json!({"pid": std::process::id()}));
+    }
+}
+
+/// The resource log's clock: the daemon's, its day the Mac's local one (`now.astimezone().date()`).
+struct SampleClock(Arc<dyn ZonedClock>);
+
+impl crate::resources::SampleClock for SampleClock {
+    fn now_iso(&self) -> String {
+        ferb_core::when::isoformat(&self.0.now())
+    }
+    fn local_day(&self) -> String {
+        self.0
+            .zone()
+            .local(&self.0.now())
+            .format("%Y-%m-%d")
+            .to_string()
+    }
+    fn monotonic(&self) -> f64 {
+        self.0.monotonic()
+    }
+}
+
+impl Daemon {
+    /// `_sample_resources`: one sample; a failure is journaled and the next sample covers this window too.
+    pub fn sample_resources(&self) {
+        let mut held = lock(&self.resource_log);
+        let Some(log) = held.as_mut() else { return };
+        let done = {
+            let d = lock(&self.db);
+            log.sample(&d)
+        };
+        if let Err(e) = done {
+            self.journal.note("resources.failed", json!({"error": e}));
+        }
     }
 }
 

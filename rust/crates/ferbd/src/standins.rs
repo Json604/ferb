@@ -265,6 +265,10 @@ impl Overrides for Seams {
         }
     }
 
+    fn group_c(&self, d: &mut crate::areas_c::Deps) {
+        crate::standins_c::group_c(&self.config, d);
+    }
+
     fn group_b(&self, d: &mut areas_b::Deps) {
         if self.config["programs"] == "recorder" {
             if let Some(r) = d.runtimes.as_mut() {
@@ -370,8 +374,11 @@ pub fn from_env(opts: &mut Options) -> Option<StandIns> {
         .unwrap_or(json!({}));
     let flag = |k: &str, d: bool| config.get(k).and_then(Value::as_bool).unwrap_or(d);
     opts.native = flag("native", false);
+    opts.mac = flag("mac", false);
     opts.keychain = Keychain::Refused;
     opts.retention = false;
+    opts.memory_loops = flag("memory_loops", false);
+    opts.resources = flag("resources", false);
     opts.preload_secrets = false;
     opts.launch_browsers = false;
     opts.app_check = match config.get("app_check") {
@@ -628,14 +635,20 @@ async fn control(d: &Arc<Daemon>, s: &StandIns, req: &Value) -> Result<Value, St
                     .map_err(|e| e.to_string())?
                     .id
             };
-            d.gateway.add_task(ferb_gateway::gateway::TaskRecord {
-                task_id,
-                request_id: req["request_id"].as_str().unwrap_or("req-1").to_string(),
-                started_at: ferb_core::interfaces::Clock::now(d.opts.clock.as_ref()),
-                deadline: None,
-                span_id,
-                tree_id: None,
-            });
+            let started = ferb_core::interfaces::Clock::now(d.opts.clock.as_ref());
+            d.tools.hold_task(
+                &d.gateway,
+                ferb_gateway::gateway::TaskRecord {
+                    task_id,
+                    request_id: req["request_id"].as_str().unwrap_or("req-1").to_string(),
+                    started_at: started,
+                    deadline: req["deadline_s"]
+                        .as_f64()
+                        .map(|s| started + chrono::Duration::milliseconds((s * 1000.0) as i64)),
+                    span_id,
+                    tree_id: req["tree_id"].as_str().map(String::from),
+                },
+            );
             Ok(Value::Null)
         }
         "attach_identity" => {
@@ -677,6 +690,9 @@ async fn control(d: &Arc<Daemon>, s: &StandIns, req: &Value) -> Result<Value, St
             let tools = crate::compose::rpc::tools_for(&d.gateway, &d.b_tools(), &grant);
             Ok(json!(tools))
         }
-        other => Err(format!("unknown control {other:?}")),
+        // the tools built as refusing "not available in this build" (the catalog test: none)
+        "refusing" => Ok(json!(crate::compose::tools::refusing())),
+        // areas_c's and the services' controls (standins_c.rs)
+        other => crate::standins_c::control(d, req, other),
     }
 }

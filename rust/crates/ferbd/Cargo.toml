@@ -59,7 +59,17 @@ tokio = { version = "1.54.1", features = ["rt", "rt-multi-thread", "macros", "sy
 sha2 = "0.10.9"
 zeroize = "1"
 hex = "0.4"
+base64 = "0.22"
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
+
+# fs.look's decoders (ImageIO, PDFKit, CoreGraphics) and the pasteboard's change count: src/native.rs
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.3"
+objc2-foundation = "0.3.2"
+objc2-core-foundation = "0.3.2"
+objc2-core-graphics = "0.3.2"
+objc2-image-io = "0.3.2"
+objc2-app-kit = "0.3.2"
 
 [dev-dependencies]
 tempfile = "3.20.0"

@@ -20,7 +20,8 @@ c = Client(sock)
 out["ping"] = c.call("ping")["role"]
 out["memory"] = c.call("memory.list")
 out["reminders"] = c.call("reminders.list")
-for name, method in (("supervisor", "chat.status"), ("not_ported", "doctor.check"), ("unknown", "nope")):
+out["doctor"] = sorted(c.call("doctor.check", {"selftest": False, "hearing": False}))
+for name, method in (("supervisor", "chat.status"), ("refused", "conversations.change"), ("unknown", "nope")):
     try:
         c.call(method)
     except RpcError as e:
@@ -85,7 +86,16 @@ fn the_python_client_talks_to_the_rust_daemon() {
         .as_str()
         .unwrap()
         .contains("supervisor"));
-    assert_eq!(out["not_ported"][0], -32004);
+    // doctor.check answers (areas_c); a bad call of one of its methods is a plain refusal
+    assert!(
+        out["doctor"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("containment")),
+        "{}",
+        out["doctor"]
+    );
+    assert_eq!(out["refused"][0], -32004);
     assert_eq!(out["unknown"], json!([-32001, "nope not allowed for cli"]));
     // the shim's grant (owner, fs:read): its listing, and a call through the gateway
     assert_eq!(
