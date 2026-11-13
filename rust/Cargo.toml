@@ -13,14 +13,14 @@ members = [
     "crates/ferb-native-host",
     "crates/ferbd",
     "crates/ferb-context",
+    "crates/ferb-fs",
+    "crates/ferb-clock",
 ]
 exclude = [
     "crates/ferb-policy",
-    "crates/ferb-fs",
     "crates/ferb-shell",
     "crates/ferb-browser",
     "crates/ferb-runtimes",
-    "crates/ferb-clock",
     "crates/ferb-memory",
 ]
 

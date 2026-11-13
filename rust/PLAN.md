@@ -260,7 +260,9 @@ also worth fixing in the Python build on `main`, since that build is installed t
 | `ferb/native_host/main.py:53-57` | A parse error leaves the relay alive and deaf | fixed in Rust (6) |
 | `ferb/native_host/main.py:61` | The rewrite inflates a 1 MiB non-ASCII frame past the daemon's limit | fixed in Rust (6) |
 | `ferb/store/db.py:212` | `migrate` rolls back unconditionally and can hide the real error | fixed in Rust (3) |
-| `ferb/daemon/areas/schedules.py:659-687` | A crash between booking the next run and creating the task loses a run | plan, part 9 |
+| `ferb/daemon/areas/schedules.py:659-687` | A crash between booking the next run and creating the task loses a run | fixed in Rust (19) |
+| `ferb/clock/timers.py` | A failure in `next_due_in` ends the timer loop; `Timers.add` is not atomic | fixed in Rust (19) |
+| `ferb/act/fs/changes.py` `named()` | Output order changes between runs (set order) | fixed in Rust (18) |
 | `ferb/memory/import_job.py:186-190` | Import writes are not atomic | plan, part 10 |
 | gateway validators (`browser.pdf`, `ferb_browser.pdf`, `audio.listen`) | A reply that cannot be serialized | catalog fixtures |
 | `ferb/store/retention.py` `_with_descendants` | Never ends on a span parent cycle | fixed in Rust (16) |

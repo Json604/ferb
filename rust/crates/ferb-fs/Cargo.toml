@@ -1,0 +1,34 @@
+[package]
+name = "ferb-fs"
+version = "0.28.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.100"
+publish = false
+description = "FERB's file tools (ferb/act/fs): list, read, write, edit, copy, move, trash, look, disk usage, S1 recovery and the before-and-after change record"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[dependencies]
+ferb-core = { path = "../ferb-core" }
+ferb-py = { path = "../ferb-py" }
+ferb-sanitize = { path = "../ferb-sanitize" }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+getrandom = "0.3"
+hex = "0.4"
+libc = "0.2"
+regex = "1"
+fancy-regex = "0.14"
+roxmltree = "0.20"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+unicode-normalization = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process"] }
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+ferb-store = { path = "../ferb-store" }
+tempfile = "3"

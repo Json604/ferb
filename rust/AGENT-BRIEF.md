@@ -25,6 +25,8 @@ with `rust/fixtures/store/make_tables.py`, and `rust/crates/ferb-rpc` for async 
    that calls an Apple framework or a macOS-only tool goes in a `#[cfg(target_os = "macos")]` module (each
    `unsafe` with a SAFETY comment) or is left as a trait for `ferb-platform-macos`; the rest compiles anywhere.
 6. A bug you find in the Python: fix it in Rust, name the one deliberate difference in its test, report it.
+7. Cite only active decisions (`// decision: ID`): `tools/kb/run kb show ID` says when one is superseded and by
+   which; the commit gate refuses a superseded citation.
 
 ## Rules
 

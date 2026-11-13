@@ -326,3 +326,46 @@ strings and 5,775 answers with none differing (not re-run by the coordinator).
 - A lone surrogate escape reads as U+FFFD; past 9,990 nesting levels Rust says `TooDeep` where Python raises
   `RecursionError`; a schema keyword outside the implemented set is refused when the validator is made.
 - `repr` exists here and in `ferb-sanitize`; both should move into `ferb-py`.
+
+## 2026-11-13 · 18 · Files, recovery and the change record
+
+**What.** `ferb-fs` ports `ferb/act/fs` (files, recovery, usage, look, changes) and the file-identity half of
+`ferb/policy/protection.py`: one function per tool (`fs.list`, `fs.read`, `fs.write`, `fs.edit`, `fs.copy`,
+`fs.move`, `fs.trash`, `fs.look`, `fs.disk_usage`, `recovery.snapshot`), plus Python's difflib and the DOCX reader.
+macOS calls sit in `sys::mac`; ImageIO, PDFKit and NSFileManager are traits for `ferb-platform-macos`.
+
+**Evidence.** `make.py` and `make_changes.py` ran the Python on invented trees in temp folders: 24 cases with 196
+steps, 72 change scenarios, 202 difflib cases; the races Python's tests make (a link swapped in, a file changed
+between read and write, hard links) replay at named hook points. 44 tests pass, none differ.
+
+**Fixed against Python.** `changes.named()` returned a word and the path inside it in hash-seeded set order, so the
+output changed between runs; Rust returns the word first.
+
+**Open.**
+- The macOS implementations behind `TrashLocator`, `Renderer` and `PdfText` are not written.
+- Real `tmutil` is untested; PDF text and times outside UTC are unverified.
+- Python's async wrappers are synchronous here: the daemon must run them off the event loop.
+- A failed `index.json` write is swallowed where Python raises; DOCX parts that are not UTF-8 give no text.
+
+## 2026-11-13 · 19 · Time: clocks, typed dates, timers, schedules, wait.for
+
+**What.** `ferb-clock` ports `ferb/clock` and the calendar arithmetic and store of
+`ferb/orchestrator/schedules.py`. Zones use `chrono-tz` with Python's fold=0 rule; the lookaround regex of
+`schedules.py:408` and Python's `random.sample` are hand-written.
+
+**Evidence.** `rust/fixtures/clock/make.py`: 3,789 recurrence cases (every DST change of 2026 and 2027 in 16 zones),
+1,676 `when` cases, 273 context cases, the timer, schedule and tool stores, 52 wait scenarios. 26 tests, about
+19,000 comparisons, none differ.
+
+**Fixed against Python.**
+- A crash between booking the next run and creating its task lost that run (`areas/schedules.py:659-687`):
+  `claim_run` and `start_run` hand the run over in one transaction.
+- A failure in `next_due_in` ended the timer loop for good; an empty day source crashed on an `assert`; a file first
+  seen at monotonic 0.0 never counted as settled; `Timers.add` wrote its rows one by one.
+
+**Open.**
+- The built-in tz database is 2025b; Python reads the Mac's (2026f today). A zone whose rules changed between the
+  two would give a different time: use the system database or pin and update it. To decide before cutover.
+- Patterns a model writes with `regex: true` run on `fancy-regex`, not Python's `re`.
+- Timer and schedule labels (they need `names.py`), the daemon handlers, `~user` expansion and Python's
+  `local_zone()` fallback are not ported. Nothing was run on real time.

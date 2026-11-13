@@ -1,0 +1,33 @@
+[package]
+name = "ferb-clock"
+version = "0.28.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.100"
+publish = false
+description = "FERB's time: clocks, typed dates, timers, schedules and wait.for (ferb/clock, ferb/orchestrator/schedules.py)"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[features]
+default = ["store"]
+# The SQLite-backed timer and schedule stores (ferb-store, bundled SQLite: Mac-side).
+store = ["dep:ferb-store", "dep:rusqlite"]
+
+[dependencies]
+chrono = { version = "0.4.42", default-features = false, features = ["std", "clock"] }
+chrono-tz = { version = "0.10.4", default-features = false, features = ["std"] }
+ferb-core = { path = "../ferb-core" }
+ferb-py = { path = "../ferb-py" }
+ferb-sanitize = { path = "../ferb-sanitize" }
+ferb-store = { path = "../ferb-store", optional = true }
+rusqlite = { version = "0.32.1", features = ["bundled"], optional = true }
+fancy-regex = "0.14.0"
+getrandom = "0.3.3"
+serde_json = { version = "1.0.140", features = ["preserve_order"] }
+sha2 = "0.10.9"
+tokio = { version = "1.54.1", features = ["sync", "time", "rt", "macros"] }
+
+[dev-dependencies]
+tempfile = "3.20.0"
