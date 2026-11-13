@@ -16,6 +16,9 @@ fn call_future_is_send(gw: Arc<Gateway>, grant: RunGrant) {
     is_send(&f);
     let f = gw.call(&grant, "fs.list", &args);
     is_send(&f);
+    // a loop's probe read runs on any runtime thread too
+    let f = gw.probe(&grant, "fs.list", &args, "span-1");
+    is_send(&f);
 }
 
 #[test]

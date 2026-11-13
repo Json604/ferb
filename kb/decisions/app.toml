@@ -3636,3 +3636,15 @@ rule = "For APP-903. An update Sparkle reports as a major upgrade (the appcast's
 why = "Only the already installed build can ask, and Sparkle never installs a major upgrade in the background, so the appcast alone keeps older builds from updating silently."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SparkleUpdater.swift", "ui/mac/FERBNotch/Sources/FERBNotch/UpdateCoordinator.swift", "ui/mac/FERBNotch/Sources/NotchCore/MenuBarState.swift::StatusMenu", "ui/mac/FERBNotch/Sources/FERBNotch/UpdateNotes.swift::noteUpdateAsk"]
 live = ["LIVE-944"]
+
+[APP-907]
+title = "The tour shows no timer"
+by = "owner"
+date = 2026-11-13
+status = "active"
+words = "also remove the timer from tour"
+words_source = "The owner's first setup on the Rust build, 2026-11-13, with a screenshot of the permissions beat showing 0:26 beside its heading."
+rule = "The setup tour shows no elapsed time on a waiting line. The spinner stays, so a wait still looks alive (APP-665's other parts stand: every wait says what FERB is doing)."
+why = "The owner asked for it on seeing the counter in the tour."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift"]
+untestable = "A look rule: the waiting indicator draws a spinner and no text."

@@ -531,12 +531,40 @@ async fn reports_send(d: Deps, p: Params) -> Result<Map<String, Value>, HandlerE
     }
 }
 
-/// `_task_preview` (rpc.py:208, FERB.app only): the live preview now. With no planner in this build no task runs,
-/// so every task reads as FERB's records say of a tree that isn't running (`preview_status`: done); the previews
-/// themselves (`ferb_daemon::areas_b::task_preview`) come with the supervisor.
-async fn tasks_preview(d: Deps, _p: Params) -> Result<Map<String, Value>, HandlerError> {
-    let answer = d.redactor.value(&json!({"state": "done", "line": "Done"}));
-    ok(answer)
+/// `_task_preview` (rpc.py:208, FERB.app only): the live preview now (`hooks.previews.frame`): the task's state and
+/// line, the masked frame (base64, after the redacted rest) unless the app's `have` names it. Never waits for the
+/// worker; the request (and its capture, when nobody else waits for it) ends when the app's connection ends.
+async fn tasks_preview(d: Deps, p: Params) -> Result<Map<String, Value>, HandlerError> {
+    let task_id = p
+        .get("task_id")
+        .filter(|v| ferb_py::value::truthy(v))
+        .map(ferb_py::value::py_str)
+        .unwrap_or_default();
+    let worker = p
+        .get("worker")
+        .filter(|v| ferb_py::value::truthy(v))
+        .map(ferb_py::value::py_str);
+    // `have if isinstance(have, int) and not isinstance(have, bool)`: a JSON integer only
+    let have = p.get("have").and_then(Value::as_i64);
+    let answer = d
+        .tools
+        .previews()
+        .frame(&task_id, worker.as_deref(), have)
+        .await;
+    let mut out = match d.redactor.value(&Value::Object(answer.fields)) {
+        Value::Object(m) => m,
+        _ => Map::new(),
+    };
+    if let Some(image) = answer.image {
+        use base64::Engine;
+        out.insert(
+            "image".into(),
+            base64::engine::general_purpose::STANDARD
+                .encode(image)
+                .into(),
+        );
+    }
+    ok(Value::Object(out))
 }
 
 /// `_question_picture` (rpc.py:238, FERB.app only; GATE-579): the payment question's one-time picture, removed by

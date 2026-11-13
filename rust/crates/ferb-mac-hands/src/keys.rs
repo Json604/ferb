@@ -147,11 +147,11 @@ fn modifier_index(m: &str) -> Option<usize> {
 
 /// Python's `str.lower()` for the ASCII-and-beyond text a combo holds.
 fn lower(s: &str) -> String {
-    ferb_sanitize::parity::lower(s)
+    ferb_py::text::lower(s)
 }
 
 fn strip(s: &str) -> &str {
-    s.trim_matches(|c: char| ferb_sanitize::parity::is_space(c))
+    s.trim_matches(|c: char| ferb_py::text::is_space(c))
 }
 
 /// input.py:230: "Cmd+Shift+S" -> ["cmd", "shift", "s"]; aliases resolved, modifiers in a fixed order, the key last.

@@ -556,7 +556,7 @@ fn kind_of(path: &str) -> &'static str {
 }
 
 fn lower(s: &str) -> String {
-    ferb_sanitize::parity::lower(s)
+    ferb_py::text::lower(s)
 }
 
 /// `_key`: the first 24 hex digits of the text's SHA-256.

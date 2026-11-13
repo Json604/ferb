@@ -7,6 +7,7 @@
 //! [`Deps`], and each handler runs there (Python's one event loop). What belongs to other parts comes in through the
 //! seams in [`seams`].
 
+pub mod candidates;
 pub mod cards;
 pub mod chat_history;
 pub mod memory;
@@ -173,12 +174,12 @@ impl ferb_learning::Clock for LearnClock {
 
 /// A chrono time as ferb-py's (`datetime`).
 pub fn to_py(t: &Time) -> ferb_learning::DateTime {
-    ferb_learning::DateTime::from_isoformat(&ferb_clock::py::iso(t)).expect("an ISO time")
+    ferb_core::when::to_py(t).expect("a clock's time is representable")
 }
 
 /// ferb-py's time as chrono's.
 pub fn from_py(t: &ferb_learning::DateTime) -> Time {
-    ferb_clock::py::parse(&t.isoformat(ferb_py::time::Timespec::Auto)).expect("an ISO time")
+    ferb_core::when::from_py(t).expect("an aware time")
 }
 
 pub(crate) struct LearnIds(Arc<dyn IdSource>);

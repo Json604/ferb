@@ -472,6 +472,30 @@ fn front_window_is_the_one_at_the_ax_frame_or_the_sole_one() {
     assert_eq!(by(Some("Draft one")), Some(2));
 }
 
+/// A window the window server lists with no layer: the filters for normal windows read it as not normal (Python's
+/// `d.get("kCGWindowLayer", 1)`, screenshot.py:62, 93, 108); a window built from it, and `window_at`, as layer 0
+/// (screenshot.py:84, 141).
+#[test]
+fn a_window_listed_without_a_layer_is_not_a_normal_window() {
+    let mut unlayered = w(1, 7, FRAME);
+    unlayered.layer_known = false;
+    let list = Listed(vec![unlayered.clone()]);
+    assert_eq!(
+        ferb_mac_hands::shots::front_window(&list, 7, None, None),
+        None
+    );
+    assert!(ferb_mac_hands::shots::normal_windows(&list).is_empty());
+    assert_eq!(
+        ferb_mac_hands::shots::window_at(&list, 150.0, 100.0, 0).map(|w| w.id),
+        Some(1)
+    );
+    let both = Listed(vec![unlayered, w(2, 7, FRAME)]);
+    assert_eq!(
+        ferb_mac_hands::shots::front_window(&both, 7, Some(FRAME), None).map(|w| w.id),
+        Some(2)
+    );
+}
+
 #[tokio::test]
 async fn a_capture_without_a_window_id_needs_a_sole_reachable_window() {
     // decision: HAND-220

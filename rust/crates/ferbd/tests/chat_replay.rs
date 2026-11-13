@@ -156,7 +156,7 @@ fn unhash(text: &str) -> String {
 }
 
 /// The deliberate differences from Python (ENG-6), applied to the recording: (scenario, recorded, the port's).
-const FIXES: [(&str, &str, &str); 2] = [
+const FIXES: [(&str, &str, &str); 6] = [
     (
         "global_stop",
         "(from the task) FERB was stopped",
@@ -168,6 +168,16 @@ const FIXES: [(&str, &str, &str); 2] = [
         "(from the task) FERB deletes:",
         "FERB deletes:",
     ),
+    // the same forget question, and the planner's history of it in the later turns, whose context is then 16 bytes
+    // shorter: their budget line counts 16 tokens fewer (ferb-supervisor's FIXES)
+    (
+        "displaced_question",
+        "(from the task) FERB deletes:",
+        "FERB deletes:",
+    ),
+    ("displaced_question", "\": 2715,", "\": 2699,"),
+    ("displaced_question", "\": 3422,", "\": 3406,"),
+    ("displaced_question", "\": 4422,", "\": 4406,"),
 ];
 
 fn fixed(scenario: &str, text: &str) -> String {
@@ -670,6 +680,14 @@ fn run_scenario(
             }
             // the recorder's seeded journal rows are the start's rows here (`recorded_start`)
             "seed" => {}
+            // an invented file the owner writes (make_more.py `write_file`), in this run's home
+            "write_file" => {
+                let path = home.join(s(&st["path"]));
+                if let Some(dir) = path.parent() {
+                    std::fs::create_dir_all(dir).unwrap();
+                }
+                std::fs::write(&path, s(&st["text"])).unwrap();
+            }
             "close" => {
                 // a stream it held may still be read (the recorder closed, then took what had arrived: `stream_cut`)
                 if let Some(c) = conns.remove(&conn) {
@@ -768,15 +786,26 @@ fn run_scenario(
                     poll(&run, 30, |r| {
                         r.control(json!({"do": "pending"})) != json!(0)
                     })
-                } else if until == "the task is paused" || until == "the task ended" {
+                } else if until == "the task is paused"
+                    || until == "the task ended"
+                    || until == "the task is done"
+                {
                     let paused = until == "the task is paused";
+                    let done = until == "the task is done";
                     poll(&run, 30, |r| {
                         match r.control(json!({"do": "root_status"})).as_str() {
                             Some("paused") => paused,
                             Some("running") | Some("planned") | None => false,
-                            Some(_) => !paused,
+                            Some("done") => !paused,
+                            Some(_) => !paused && !done,
                         }
                     })
+                } else if until.starts_with("the probe has read ") {
+                    // make_more.py `probe_reads`: the loop's armed probe has read through the gateway (its baseline,
+                    // then the watch's first read, at once). An unchanged read writes no record, so the program is
+                    // given a moment once the loop watches (the read is a local file's, well under it)
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    true
                 } else if until == "the loop watches" {
                     poll(&run, 30, |r| {
                         r.control(json!({"do": "loop_watching"})) == json!(true)
@@ -997,7 +1026,10 @@ fn run_scenario(
                 format!("sha256:{sha}")
             });
         let started = used.started.iter().find(|c| c["n"] == json!(i));
-        let parts: Vec<String> = strs(&want["parts"]).iter().map(|p| unhash(p)).collect();
+        let parts: Vec<String> = strs(&want["parts"])
+            .iter()
+            .map(|p| fixed(&name, &unhash(p)))
+            .collect();
         let expected = json!({"runtime_role": want["runtime_role"], "mode": want["mode"], "tools": want["tools"],
             "schema": want["schema"], "effort": want["effort"], "task_id": want["task_id"], "system": want["system"],
             "parts": parts, "cacheable": want["cacheable"], "images": want["images"]});
@@ -1214,27 +1246,41 @@ fn schema_by_sha(schema: &Value) -> Option<String> {
 /// The 14 recordings of rust/fixtures/supervisor/more_scenarios.json (make_more.py): the paths the first 28 never
 /// reached (the summary's fold, several asks and their card, the checklist, remember and forget, ask and wait steps, a
 /// worker's question routed by the planner, the checker's runtime trouble, ...), through the program the same way.
-#[test]
-fn the_more_scenarios_through_the_program() {
-    let more = fixture("supervisor/more_scenarios.json");
-    let chat = fixture("daemon/chat_scenarios.json");
-    let (_folder, run_root) = RunRoot::new(recorded_root_len(&chat));
-    let answers = fixture("catalog/answer_schemas.json");
-    let schemas: Map<String, Value> = answers["schemas"]
-        .as_object()
-        .unwrap()
-        .iter()
-        .filter_map(|(k, v)| v.get("core").map(|c| (k.clone(), c.clone())))
-        .collect();
-    let catalogs = resolve(&more["catalogs"]);
-    let only = std::env::var("CHAT_REPLAY").ok();
-    let debug = std::env::var("CHAT_REPLAY_DEBUG").is_ok();
-    let (mut lines, mut full) = (Vec::new(), 0);
-    for (i, sc) in more["scenarios"].as_array().unwrap().iter().enumerate() {
-        let name = s(&sc["name"]);
-        if only.as_ref().is_some_and(|o| *o != name) {
-            continue;
+/// The newer recordings (`supervisor/more_scenarios.json`), set up once for every run of them.
+struct More {
+    more: Value,
+    catalogs: Value,
+    schemas: Map<String, Value>,
+    _folder: tempfile::TempDir,
+    run_root: RunRoot,
+}
+
+impl More {
+    fn new() -> More {
+        let more = fixture("supervisor/more_scenarios.json");
+        let chat = fixture("daemon/chat_scenarios.json");
+        let (_folder, run_root) = RunRoot::new(recorded_root_len(&chat));
+        let answers = fixture("catalog/answer_schemas.json");
+        let schemas: Map<String, Value> = answers["schemas"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .filter_map(|(k, v)| v.get("core").map(|c| (k.clone(), c.clone())))
+            .collect();
+        let catalogs = resolve(&more["catalogs"]);
+        More {
+            more,
+            catalogs,
+            schemas,
+            _folder,
+            run_root,
         }
+    }
+
+    /// One recording through the program: whether it replays fully, else its first differences.
+    fn replay(&self, i: usize, sc: &Value, debug: bool) -> (bool, String) {
+        let more = &self.more;
+        let name = s(&sc["name"]);
         let recs: Vec<Value> = more["records"][&name]
             .as_array()
             .unwrap()
@@ -1253,31 +1299,57 @@ fn the_more_scenarios_through_the_program() {
             .find("/FX/")
             .and_then(|at| text[at + 4..at + 6].parse::<usize>().ok())
             .map_or(60 + i, |n| n - 1);
-        let r = run_scenario(sc, &recs, &catalogs, index, &run_root, &schemas);
-        let line = if r.full() {
+        let r = run_scenario(
+            sc,
+            &recs,
+            &self.catalogs,
+            index,
+            &self.run_root,
+            &self.schemas,
+        );
+        if r.full() {
+            return (true, format!("{name}: replays fully"));
+        }
+        let mut why = Vec::new();
+        if let Some(stop) = &r.stopped {
+            why.push(format!("stops at {stop}"));
+        }
+        let take = if debug { usize::MAX } else { 1 };
+        why.extend(r.frames.iter().take(take).map(|f| format!("frames: {f}")));
+        why.extend(
+            r.calls
+                .iter()
+                .take(take)
+                .map(|f| format!("model calls: {f}")),
+        );
+        why.extend(
+            r.tables
+                .iter()
+                .take(if debug { usize::MAX } else { 3 })
+                .map(|f| format!("tables: {f}")),
+        );
+        (
+            false,
+            format!("{name}: replays partly — {}", why.join("\n  ")),
+        )
+    }
+}
+
+#[test]
+fn the_more_scenarios_through_the_program() {
+    let m = More::new();
+    let only = std::env::var("CHAT_REPLAY").ok();
+    let debug = std::env::var("CHAT_REPLAY_DEBUG").is_ok();
+    let (mut lines, mut full) = (Vec::new(), 0);
+    for (i, sc) in m.more["scenarios"].as_array().unwrap().iter().enumerate() {
+        let name = s(&sc["name"]);
+        if only.as_ref().is_some_and(|o| *o != name) {
+            continue;
+        }
+        let (whole, line) = m.replay(i, sc, debug);
+        if whole {
             full += 1;
-            format!("{name}: replays fully")
-        } else {
-            let mut why = Vec::new();
-            if let Some(stop) = &r.stopped {
-                why.push(format!("stops at {stop}"));
-            }
-            let take = if debug { usize::MAX } else { 1 };
-            why.extend(r.frames.iter().take(take).map(|f| format!("frames: {f}")));
-            why.extend(
-                r.calls
-                    .iter()
-                    .take(take)
-                    .map(|f| format!("model calls: {f}")),
-            );
-            why.extend(
-                r.tables
-                    .iter()
-                    .take(if debug { usize::MAX } else { 3 })
-                    .map(|f| format!("tables: {f}")),
-            );
-            format!("{name}: replays partly — {}", why.join("\n  "))
-        };
+        }
         eprintln!("{line}");
         lines.push(line);
     }
@@ -1286,26 +1358,42 @@ fn the_more_scenarios_through_the_program() {
         .iter()
         .filter(|l| !l.ends_with(": replays fully"))
         .filter(|l| !IN_PROGRESS.iter().any(|p| l.starts_with(p)))
-        .filter(|l| {
-            !MORE_GAPS
-                .iter()
-                .any(|(name, gap)| l.starts_with(&format!("{name}: ")) && only_gap(l, gap))
-        })
         .collect();
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
+/// A correction that wakes a resting loop (loop_steer_finish), many times through the program on its several
+/// threads: the round's span, the reply and the round's worker come in Python's order every time (`SteerHold` in
+/// ferb-supervisor's loops.rs). `STEER_RUNS` sets how many (100 by default). Ignored in the gate (each run starts
+/// the program); run it with `cargo test -p ferbd --test chat_replay -- --ignored a_correction_and_a_woken_loop`.
+#[test]
+#[ignore]
+fn a_correction_and_a_woken_loop_keep_pythons_order_every_time() {
+    let runs: usize = std::env::var("STEER_RUNS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100);
+    let m = More::new();
+    let (i, sc) = m.more["scenarios"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+        .find(|(_, sc)| sc["name"] == "loop_steer_finish")
+        .expect("the recording");
+    let mut partly = Vec::new();
+    for n in 0..runs {
+        let (whole, line) = m.replay(i, sc, false);
+        if !whole {
+            partly.push(format!("run {n}: {line}"));
+        }
+    }
+    eprintln!(
+        "loop_steer_finish: {} of {runs} runs replay fully",
+        runs - partly.len()
+    );
+    assert!(partly.is_empty(), "{partly:#?}");
+}
+
 /// Recordings of paths not judged here yet (none: every recording is judged).
 const IN_PROGRESS: [&str; 0] = [];
-
-/// What still differs in the newer recordings through the program, with the reason:
-/// - loop_steer_finish: a steer wakes the loop (`wake_loops`) before the turn has written its reply. Python's one
-///   event loop runs the woken round only once the turn awaits, so the planner's reply span and `chat.reply` come
-///   first; the program's runtime has several threads and the round's worker span starts at once, taking two ids
-///   before the reply's (most runs: a loaded machine sometimes orders them as Python does, and it replays whole).
-///   Every frame and model call matches; ferb-supervisor's in-process replay (one thread) matches whole. To fix in
-///   ferb-supervisor: wake the loop after the turn's reply is recorded.
-const MORE_GAPS: [(&str, &str); 1] = [(
-    "loop_steer_finish",
-    "tables: journal row 21 id at char 9\n    python: …\"id-000046\"\n    rust:   …\"id-000048\"\n  tables: spans row 19 parent_id at char 0\n    python: …null\n    rust:   …\"id-000045\"",
-)];

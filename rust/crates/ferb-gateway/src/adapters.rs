@@ -202,16 +202,18 @@ pub mod fs {
             ctx: &'a ToolContext,
         ) -> BoxFuture<'a, Result<ToolOutput, ToolError>> {
             Box::pin(async move {
-                let env = &self.env;
-                let out = match self.info.name {
-                    "fs.list" => files::fs_list(&typed(args).ok_or_else(raised)?, ctx, env),
-                    "fs.read" => files::fs_read(&typed(args).ok_or_else(raised)?, ctx, env),
-                    "fs.write" => files::fs_write(&typed(args).ok_or_else(raised)?, ctx, env),
-                    "fs.edit" => files::fs_edit(&typed(args).ok_or_else(raised)?, ctx, env),
-                    "fs.copy" => files::fs_copy(&typed(args).ok_or_else(raised)?, ctx, env),
-                    "fs.move" => files::fs_move(&typed(args).ok_or_else(raised)?, ctx, env),
-                    _ => files::fs_trash(&typed(args).ok_or_else(raised)?, ctx, env),
-                };
+                // `await asyncio.to_thread(self._guarded, args, ctx)` (files.py:423): the file work (reads, copies,
+                // the Trash) runs on a thread of its own, never on the runtime's
+                let (name, args, ctx, env) =
+                    (self.info.name, args.clone(), ctx.clone(), self.env.clone());
+                let out = tokio::task::spawn_blocking(move || fs_run(name, &args, &ctx, &env))
+                    .await
+                    .map_err(|e| {
+                        ToolError::failed(
+                            "RuntimeError",
+                            format!("the file tool's thread ended: {e}"),
+                        )
+                    })??;
                 match out {
                     Ok(result) => {
                         // A file tool's numbers (sizes, offsets, its stat facts: mtime_ns, inode) are its own
@@ -229,6 +231,24 @@ pub mod fs {
                 }
             })
         }
+    }
+
+    /// One file tool's run, on its own thread.
+    fn fs_run(
+        name: &str,
+        args: &Args,
+        ctx: &ToolContext,
+        env: &FsEnv,
+    ) -> Result<Result<ferb_core::types::ToolResult, Raised>, ToolError> {
+        Ok(match name {
+            "fs.list" => files::fs_list(&typed(args).ok_or_else(raised)?, ctx, env),
+            "fs.read" => files::fs_read(&typed(args).ok_or_else(raised)?, ctx, env),
+            "fs.write" => files::fs_write(&typed(args).ok_or_else(raised)?, ctx, env),
+            "fs.edit" => files::fs_edit(&typed(args).ok_or_else(raised)?, ctx, env),
+            "fs.copy" => files::fs_copy(&typed(args).ok_or_else(raised)?, ctx, env),
+            "fs.move" => files::fs_move(&typed(args).ok_or_else(raised)?, ctx, env),
+            _ => files::fs_trash(&typed(args).ok_or_else(raised)?, ctx, env),
+        })
     }
 
     fn raised() -> ToolError {

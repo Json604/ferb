@@ -1650,6 +1650,8 @@ impl Inner {
                 me.owner_stopped_part(&data).await;
             });
         }
+        // supervisor.py:2297 `_waits_for`: the runs whose plan has a step waiting for this topic (Python caches the
+        // topics per plan revision; each running plan is read here)
         let runs: Vec<String> = self.live().plan_runs.iter().cloned().collect();
         let interested: Vec<String> = runs
             .into_iter()
@@ -2433,13 +2435,66 @@ impl Inner {
             }
         }
         self.record_episode(&tree_id);
-        let me = self.me();
-        let id = tree_id.clone();
-        tokio::spawn(async move {
-            tokio::task::yield_now().await;
-            me.deps.daemon.on_episode(&id).await;
-        });
+        self.capture_after_outcome(&tree_id);
         Ok(final_)
+    }
+
+    /// supervisor.py:4980 `_capture_after_outcome`: the task's episode card runs after the owner has the outcome (L28),
+    /// as a tracked job, one capture at a time; a failure is journaled, never raised. At shutdown it is cancelled
+    /// (`stop_episodes`) or refused (`Deferred`) and journaled as deferred: the hourly pass captures the card again.
+    pub(crate) fn capture_after_outcome(&self, tree_id: &str) {
+        let me = self.me();
+        let id = tree_id.to_string();
+        let job = tokio::spawn(async move {
+            tokio::task::yield_now().await; // the outcome goes out first
+            let lock = me.live().capture_lock.clone();
+            let _one = lock.lock().await;
+            match me.deps.daemon.capture_episode(&id).await {
+                Ok(()) => {}
+                Err(super::EpisodeFault::Deferred) => {
+                    me.journal("memory.episode_deferred", json!({"task_id": id}), None);
+                }
+                Err(super::EpisodeFault::Failed(error)) => {
+                    me.journal(
+                        "memory.episode_hook_failed",
+                        json!({"task_id": id, "error": error}),
+                        None,
+                    );
+                }
+            }
+        });
+        let mut live = self.live();
+        live.episode_jobs.retain(|(_, j)| !j.is_finished());
+        live.episode_jobs.push((tree_id.to_string(), job));
+    }
+
+    /// supervisor.py:5010 `stop_episodes`: the shutdown cancels every pending capture rather than wait for it; each
+    /// is journaled as deferred.
+    pub(crate) async fn stop_episodes(&self) {
+        let jobs = std::mem::take(&mut self.live().episode_jobs);
+        for (tree_id, job) in jobs {
+            if job.is_finished() {
+                continue;
+            }
+            job.abort();
+            let cancelled = job.await.is_err_and(|e| e.is_cancelled());
+            if cancelled {
+                self.journal("memory.episode_deferred", json!({"task_id": tree_id}), None);
+            }
+        }
+    }
+
+    /// supervisor.py:5003 `finish_episodes`: wait for every pending capture (tests); none is cancelled.
+    pub async fn finish_episodes(&self) {
+        loop {
+            let jobs = std::mem::take(&mut self.live().episode_jobs);
+            if jobs.is_empty() {
+                return;
+            }
+            for (_, job) in jobs {
+                let _ = job.await;
+            }
+        }
     }
 
     /// episodes.py `record`: the task's permanent record, composed from its trace.
@@ -2641,6 +2696,7 @@ impl Inner {
         let conditions = st.spec.as_ref().expect("a spec").success_conditions.clone();
         let check_told = st.check_told.clone();
         drop(st);
+        // supervisor.py:6671 `_told_not_done` (ORCH-609)
         let mut told: Vec<String> = Vec::new();
         for r in outcomes {
             if r.met == Some(false) && r.path == "code" && (r.index as usize) < conditions.len() {

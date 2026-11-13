@@ -4,7 +4,8 @@
 
 use std::collections::BTreeSet;
 
-use ferb_sanitize::parity::{hostname, lower};
+use ferb_py::text::lower;
+use ferb_py::url::hostname;
 use serde_json::Value;
 
 use crate::observation::{truthy, Dict};

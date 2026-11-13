@@ -101,7 +101,7 @@ struct Clock<'a>(&'a Inner);
 
 impl ferb_store::spans::Clock for Clock<'_> {
     fn now(&self) -> ferb_py::time::DateTime {
-        ferb_py::time::DateTime::from_isoformat(&self.0.now_iso()).expect("the clock's time")
+        ferb_core::when::to_py(&self.0.now()).expect("the clock's time")
     }
 }
 
@@ -264,7 +264,7 @@ impl Inner {
         made: Option<&str>,
         cost_usd: Option<f64>,
     ) {
-        let started = ferb_py::time::DateTime::from_isoformat(&self.now_iso()).expect("a time");
+        let started = ferb_core::when::to_py(&self.now()).expect("a time");
         let mut span = Span {
             id: span_id.to_string(),
             parent_id: None,

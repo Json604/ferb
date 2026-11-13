@@ -289,7 +289,7 @@ pub type Look = (Option<AxTree>, Option<WebSecrets>);
 /// driver.py:87.
 pub fn same_title(a: &str, b: &str) -> bool {
     let words = |s: &str| {
-        s.split(ferb_sanitize::parity::is_space)
+        s.split(ferb_py::text::is_space)
             .filter(|w| !w.is_empty())
             .collect::<Vec<_>>()
             .join(" ")

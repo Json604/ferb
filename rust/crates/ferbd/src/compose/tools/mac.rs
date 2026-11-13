@@ -378,7 +378,10 @@ impl Mac {
             apps: Arc::new(native::apps::NativeApps::new(handlers.clone())),
             shots: Arc::new(native::capture::NativeShots),
             policy: Arc::new(MacPolicy),
-            time: Arc::new(ferb_mac_hands::driver::RealTime::default()),
+            // one monotonic origin with the previews' clock (a capture's deadline means the same instant to both)
+            time: Arc::new(ferb_mac_hands::driver::RealTime(
+                crate::compose::previews::epoch(),
+            )),
         });
         let c = config.clone();
         d.excluded = Arc::new(move || {
@@ -1010,9 +1013,9 @@ impl ferb_gateway::call_hooks::Evidence for EvidenceKeeper {
     }
 }
 
-/// The real call hooks (`call_hooks.py`) over this daemon's parts: the image sanitizer, the evidence store and the
-/// working app's first picture. Not composed in this build: the disturbance sentinel, the live previews and the
-/// change record (their parts aren't wired), the shadow advisor.
+/// The real call hooks (`call_hooks.py`) over this daemon's parts: the image sanitizer, the evidence store, the
+/// working app's first picture, the disturbance sentinel, the change record and the live previews. Not composed: the
+/// shadow advisor (D23, off).
 pub fn hooks(p: &Parts) -> Arc<dyn ferb_gateway::seams::CallHooks> {
     let events = p.events();
     let journal = p.journal();
@@ -1023,7 +1026,10 @@ pub fn hooks(p: &Parts) -> Arc<dyn ferb_gateway::seams::CallHooks> {
                 Arc::new(crate::compose::desktop::GatewaySentinel(s))
                     as Arc<dyn ferb_gateway::call_hooks::Sentinel>
             }),
-            previews: None,
+            previews: Some(Arc::new(crate::compose::previews::GatewayPreviews(
+                p.previews().clone(),
+            ))
+                as Arc<dyn ferb_gateway::call_hooks::Previews>),
             evidence: Some(Arc::new(EvidenceKeeper { parts: p.clone() })),
             changes: Some(Arc::new(super::ChangeHook(p.changes()))),
             images: mac

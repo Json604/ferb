@@ -179,11 +179,27 @@ fn reindex(d: &Arc<Daemon>, stop: Arc<AtomicBool>) {
         .expect("the re-index thread");
 }
 
+/// The local model held by the embed thread, lent to group A's learning store (its `Rc<dyn Embedder>`).
+struct SharedModel(Arc<ferb_memory::embeddings::StaticEmbedder>);
+
+impl ferb_memory::embeddings::Embedder for SharedModel {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+    fn dimensions(&self) -> usize {
+        self.0.dimensions()
+    }
+    fn encode(&self, text: &str) -> Option<Vec<i8>> {
+        self.0.encode(text)
+    }
+}
+
 /// `_embed_loop` on a thread of its own: the local model once (a failure journaled; search then runs on keywords
 /// and recency), then new text embedded every EMBED_EVERY_S on its own connection; a pass of a batch or more is
 /// journaled with its cost.
 fn embedder(d: &Arc<Daemon>, stop: Arc<AtomicBool>) {
     let root = embedding_root(d);
+    let a = d.a.clone();
     let path = crate::basics::lock(&d.db).path().to_path_buf();
     let (j, r, clock) = (d.journal.clone(), d.redactor.clone(), d.opts.clock.clone());
     std::thread::Builder::new()
@@ -193,7 +209,16 @@ fn embedder(d: &Arc<Daemon>, stop: Arc<AtomicBool>) {
                 &root,
                 &ferb_memory::embeddings::model(),
             ) {
-                Ok(m) => m,
+                Ok(m) => {
+                    // `self.learning.embedder = StaticEmbedder(...)` (`_load_embedder`): the queries' vectors (the
+                    // prompt's memory, chat.history, memory.read, memory.learned) come from the same model, shared
+                    let m = Arc::new(m);
+                    let shared = m.clone();
+                    let _ = a.call_blocking(move |st: std::rc::Rc<ferb_daemon::areas_a::State>| async move {
+                        st.learning.set_embedder(std::rc::Rc::new(SharedModel(shared)));
+                    });
+                    m
+                }
                 Err(e) => {
                     let why: String = r.text(&format!("{e:?}")).chars().take(300).collect();
                     j.note(
@@ -223,7 +248,7 @@ fn embedder(d: &Arc<Daemon>, stop: Arc<AtomicBool>) {
                     );
                     let out = search
                         .embed_pending(
-                            &model,
+                            model.as_ref(),
                             &ferb_learning::notes::search_text,
                             &|| stop.load(Ordering::SeqCst),
                             &mut || std::thread::sleep(Duration::from_secs_f64(EMBED_PAUSE_S)),

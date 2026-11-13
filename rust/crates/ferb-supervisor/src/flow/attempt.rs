@@ -158,6 +158,14 @@ impl Inner {
     }
 
     /// supervisor.py:6852 `_context`.
+    /// supervisor.py:5657 `_wait_cut` (ORCH-633): the latest wait.for of this tree that FERB's restart ended before it
+    /// woke (`wait.ended`, journaled by the daemon), as a plain fact for the step's next run; None when there is none.
+    pub(crate) fn wait_cut(&self, tree_id: &str) -> Option<String> {
+        let rows = self.of_kind("wait.ended", "tree", tree_id, None);
+        let last = rows.last()?;
+        crate::lines::wait_cut(&last.at, &last.data, &self.deps.clock.zone())
+    }
+
     pub async fn context(&self, tree: &Arc<Tree>, learned: bool) -> Flow<Vec<ContextBlock>> {
         let spec = tree.spec();
         let request = self.deps.daemon.request(&tree.worker.request_id);
@@ -250,7 +258,7 @@ impl Inner {
             reports: reports.into_iter().map(Value::Object).collect(),
             task_made: self.task_made(&tree.id),
             unresolved,
-            wait_cut: None,
+            wait_cut: self.wait_cut(&tree.id),
             conditions: spec
                 .success_conditions
                 .iter()
@@ -1878,6 +1886,7 @@ impl Inner {
         }
         self.journal("task.answer_settled", Value::Object(data), None);
         if !done.kept_contradicted.is_empty() {
+            // supervisor.py:6510 `_kept_contradiction` (ORCH-547)
             let mut st = tree.lock();
             st.kept_contradicted = true;
             st.stands_unconfirmed = true;
@@ -1956,6 +1965,7 @@ impl Inner {
         }
         self.journal("task.answer_settled", Value::Object(data), None);
         if !done.kept_contradicted.is_empty() {
+            // supervisor.py:6510 `_kept_contradiction` (ORCH-547)
             let mut st = tree.lock();
             st.kept_contradicted = true;
             st.stands_unconfirmed = true;
@@ -1998,6 +2008,7 @@ impl Inner {
 
     /// supervisor.py:6527 `_keep_fixing`.
     fn keep_fixing(&self, tree: &Arc<Tree>, task: &Task, answer: Option<&str>, findings: &[Value]) {
+        // supervisor.py:6521 `_fixing_step`
         let fixing_step = (task.id == format!("{}.{WORKER}", tree.id)
             || task.id == format!("{}.step.{}", tree.id, tree.step_id))
             && self

@@ -1,0 +1,304 @@
+{
+ "made_by": "rust/fixtures/device/make_persona.py",
+ "apps": "/private/tmp/ferb-device-fx/persona/Apps",
+ "cases": [
+  {
+   "name": "readable",
+   "activity": [
+    {
+     "bundle_id": "com.apple.Safari",
+     "app": "Safari",
+     "focus_events": 4,
+     "last_used": "2026-11-12T08:00:00+00:00"
+    },
+    {
+     "bundle_id": "com.example.web",
+     "app": "Web",
+     "focus_events": 2,
+     "last_used": "2026-11-11T08:00:00+00:00"
+    }
+   ],
+   "excluded": [],
+   "allowed": true,
+   "profiles": [
+    {
+     "browser": "Google Chrome",
+     "name": "Work",
+     "email": "w@example.invalid",
+     "last_used": true
+    },
+    {
+     "browser": "Google Chrome",
+     "name": "Home",
+     "email": "",
+     "last_used": false
+    }
+   ],
+   "mdls": [
+    [
+     "/usr/bin/mdls",
+     "-plist",
+     "-",
+     "-name",
+     "kMDItemPath",
+     "-name",
+     "kMDItemUseCount",
+     "-name",
+     "kMDItemLastUsedDate",
+     "/private/tmp/ferb-device-fx/persona/Apps/Dup.app",
+     "/private/tmp/ferb-device-fx/persona/Apps/Safari.app",
+     "/private/tmp/ferb-device-fx/persona/Apps/Brave.app",
+     "/private/tmp/ferb-device-fx/persona/Apps/Binary.app",
+     "/private/tmp/ferb-device-fx/persona/Apps/Web.app",
+     "/private/tmp/ferb-device-fx/persona/Apps/Chrome.app"
+    ]
+   ],
+   "facts": {
+    "scanned_at": "2026-11-13T09:30:05+00:00",
+    "installed_apps": 6,
+    "apps_with_use": 4,
+    "apps": [
+     {
+      "app": "Web",
+      "bundle_id": "com.example.web",
+      "uses": 14,
+      "last_used": "2026-11-05 08:00:00"
+     },
+     {
+      "app": "Brave",
+      "bundle_id": "com.brave.Browser",
+      "uses": 12,
+      "last_used": "2026-11-03 08:00:00"
+     },
+     {
+      "app": "Dup",
+      "bundle_id": "com.apple.Notes",
+      "uses": 10,
+      "last_used": "2026-11-01 08:00:00"
+     },
+     {
+      "app": "Safari",
+      "bundle_id": "com.apple.Safari",
+      "focus_events": 4,
+      "last_used": "2026-11-12T08:00:00+00:00"
+     }
+    ],
+    "browsers": [
+     "brave",
+     "chrome",
+     "safari",
+     "web"
+    ],
+    "profiles": [
+     {
+      "browser": "Google Chrome",
+      "name": "Work",
+      "email": "w@example.invalid",
+      "last_used": true
+     },
+     {
+      "browser": "Google Chrome",
+      "name": "Home",
+      "email": "",
+      "last_used": false
+     }
+    ],
+    "profiles_read": true
+   },
+   "files": {
+    "device/dev-fx.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.Notes\",\n      \"name\": \"Dup\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Dup.app\",\n      \"scriptable\": false,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.Safari\",\n      \"name\": \"Safari\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Safari.app\",\n      \"scriptable\": false,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.brave.Browser\",\n      \"name\": \"Brave\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Brave.app\",\n      \"scriptable\": false,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.example.binary\",\n      \"name\": \"Binary\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Binary.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.example.web\",\n      \"name\": \"Web\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Web.app\",\n      \"scriptable\": false,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.google.Chrome\",\n      \"name\": \"Google Chrome\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Chrome.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    }\n  ],\n  \"browsers\": [\n    {\n      \"bundle_id\": \"com.brave.Browser\",\n      \"drivers\": {\n        \"ax:brave\": \"Accessibility read fallback\",\n        \"ext:brave\": \"FERB extension, per paired profile (`ferb browsers`)\"\n      },\n      \"name\": \"brave\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Brave.app\"\n    },\n    {\n      \"bundle_id\": \"com.google.Chrome\",\n      \"drivers\": {\n        \"ax:chrome\": \"Accessibility read fallback\",\n        \"ext:chrome\": \"FERB extension, per paired profile (`ferb browsers`)\"\n      },\n      \"name\": \"chrome\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Chrome.app\"\n    },\n    {\n      \"bundle_id\": \"com.apple.Safari\",\n      \"drivers\": {\n        \"applescript_read\": \"watch-only (Block 1), when Automation is granted\"\n      },\n      \"name\": \"safari\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Safari.app\"\n    },\n    {\n      \"bundle_id\": \"com.example.web\",\n      \"drivers\": {\n        \"ax:web\": \"Accessibility read fallback\"\n      },\n      \"name\": \"web\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Web.app\"\n    }\n  ],\n  \"device_id\": \"dev-fx\",\n  \"os\": \"macos\",\n  \"os_version\": \"15.4\",\n  \"scanned_at\": \"2026-11-13T09:30:05+00:00\"\n}\n",
+    "device/history.jsonl": "{\"added\": [\"com.apple.Notes\", \"com.apple.Safari\", \"com.brave.Browser\", \"com.example.binary\", \"com.example.web\", \"com.google.Chrome\"], \"at\": \"2026-11-13T09:30:05+00:00\", \"changed\": [], \"device_id\": \"dev-fx\", \"message\": \"mac profile scan\", \"removed\": []}\n"
+   }
+  },
+  {
+   "name": "no_full_disk_access",
+   "activity": [],
+   "excluded": [],
+   "allowed": false,
+   "profiles": [
+    {
+     "browser": "Google Chrome",
+     "name": "Work",
+     "email": "w@example.invalid",
+     "last_used": true
+    }
+   ],
+   "mdls": [
+    [
+     "/usr/bin/mdls",
+     "-plist",
+     "-",
+     "-name",
+     "kMDItemPath",
+     "-name",
+     "kMDItemUseCount",
+     "-name",
+     "kMDItemLastUsedDate",
+     "/private/tmp/ferb-device-fx/persona/Apps/Dup.app",
+     "/private/tmp/ferb-device-fx/persona/Apps/Safari.app",
+     "/private/tmp/ferb-device-fx/persona/Apps/Brave.app",
+     "/private/tmp/ferb-device-fx/persona/Apps/Binary.app",
+     "/private/tmp/ferb-device-fx/persona/Apps/Web.app",
+     "/private/tmp/ferb-device-fx/persona/Apps/Chrome.app"
+    ]
+   ],
+   "facts": {
+    "scanned_at": "2026-11-13T09:30:05+00:00",
+    "installed_apps": 6,
+    "apps_with_use": 3,
+    "apps": [
+     {
+      "app": "Web",
+      "bundle_id": "com.example.web",
+      "uses": 14,
+      "last_used": "2026-11-05 08:00:00"
+     },
+     {
+      "app": "Brave",
+      "bundle_id": "com.brave.Browser",
+      "uses": 12,
+      "last_used": "2026-11-03 08:00:00"
+     },
+     {
+      "app": "Dup",
+      "bundle_id": "com.apple.Notes",
+      "uses": 10,
+      "last_used": "2026-11-01 08:00:00"
+     }
+    ],
+    "browsers": [
+     "brave",
+     "chrome",
+     "safari",
+     "web"
+    ],
+    "profiles": [],
+    "profiles_read": false
+   },
+   "files": {
+    "device/dev-fx.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.Notes\",\n      \"name\": \"Dup\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Dup.app\",\n      \"scriptable\": false,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.Safari\",\n      \"name\": \"Safari\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Safari.app\",\n      \"scriptable\": false,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.brave.Browser\",\n      \"name\": \"Brave\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Brave.app\",\n      \"scriptable\": false,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.example.binary\",\n      \"name\": \"Binary\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Binary.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.example.web\",\n      \"name\": \"Web\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Web.app\",\n      \"scriptable\": false,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.google.Chrome\",\n      \"name\": \"Google Chrome\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Chrome.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    }\n  ],\n  \"browsers\": [\n    {\n      \"bundle_id\": \"com.brave.Browser\",\n      \"drivers\": {\n        \"ax:brave\": \"Accessibility read fallback\",\n        \"ext:brave\": \"FERB extension, per paired profile (`ferb browsers`)\"\n      },\n      \"name\": \"brave\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Brave.app\"\n    },\n    {\n      \"bundle_id\": \"com.google.Chrome\",\n      \"drivers\": {\n        \"ax:chrome\": \"Accessibility read fallback\",\n        \"ext:chrome\": \"FERB extension, per paired profile (`ferb browsers`)\"\n      },\n      \"name\": \"chrome\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Chrome.app\"\n    },\n    {\n      \"bundle_id\": \"com.apple.Safari\",\n      \"drivers\": {\n        \"applescript_read\": \"watch-only (Block 1), when Automation is granted\"\n      },\n      \"name\": \"safari\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Safari.app\"\n    },\n    {\n      \"bundle_id\": \"com.example.web\",\n      \"drivers\": {\n        \"ax:web\": \"Accessibility read fallback\"\n      },\n      \"name\": \"web\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Web.app\"\n    }\n  ],\n  \"device_id\": \"dev-fx\",\n  \"os\": \"macos\",\n  \"os_version\": \"15.4\",\n  \"scanned_at\": \"2026-11-13T09:30:05+00:00\"\n}\n",
+    "device/history.jsonl": "{\"added\": [\"com.apple.Notes\", \"com.apple.Safari\", \"com.brave.Browser\", \"com.example.binary\", \"com.example.web\", \"com.google.Chrome\"], \"at\": \"2026-11-13T09:30:05+00:00\", \"changed\": [], \"device_id\": \"dev-fx\", \"message\": \"mac profile scan\", \"removed\": []}\n"
+   }
+  },
+  {
+   "name": "excluded_browser_and_app",
+   "activity": [],
+   "excluded": [
+    "com.google.Chrome",
+    "com.apple.Notes"
+   ],
+   "allowed": true,
+   "profiles": [],
+   "mdls": [
+    [
+     "/usr/bin/mdls",
+     "-plist",
+     "-",
+     "-name",
+     "kMDItemPath",
+     "-name",
+     "kMDItemUseCount",
+     "-name",
+     "kMDItemLastUsedDate",
+     "/private/tmp/ferb-device-fx/persona/Apps/Safari.app",
+     "/private/tmp/ferb-device-fx/persona/Apps/Brave.app",
+     "/private/tmp/ferb-device-fx/persona/Apps/Binary.app",
+     "/private/tmp/ferb-device-fx/persona/Apps/Web.app"
+    ]
+   ],
+   "facts": {
+    "scanned_at": "2026-11-13T09:30:05+00:00",
+    "installed_apps": 4,
+    "apps_with_use": 2,
+    "apps": [
+     {
+      "app": "Binary",
+      "bundle_id": "com.example.binary",
+      "uses": 12,
+      "last_used": "2026-11-03 08:00:00"
+     },
+     {
+      "app": "Safari",
+      "bundle_id": "com.apple.Safari",
+      "uses": 10,
+      "last_used": "2026-11-01 08:00:00"
+     }
+    ],
+    "browsers": [
+     "brave",
+     "safari",
+     "web"
+    ],
+    "profiles": [],
+    "profiles_read": true
+   },
+   "files": {
+    "device/dev-fx.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.Notes\",\n      \"name\": \"Dup\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Dup.app\",\n      \"scriptable\": false,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.Safari\",\n      \"name\": \"Safari\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Safari.app\",\n      \"scriptable\": false,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.brave.Browser\",\n      \"name\": \"Brave\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Brave.app\",\n      \"scriptable\": false,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.example.binary\",\n      \"name\": \"Binary\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Binary.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.example.web\",\n      \"name\": \"Web\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Web.app\",\n      \"scriptable\": false,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.google.Chrome\",\n      \"name\": \"Google Chrome\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Chrome.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    }\n  ],\n  \"browsers\": [\n    {\n      \"bundle_id\": \"com.brave.Browser\",\n      \"drivers\": {\n        \"ax:brave\": \"Accessibility read fallback\",\n        \"ext:brave\": \"FERB extension, per paired profile (`ferb browsers`)\"\n      },\n      \"name\": \"brave\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Brave.app\"\n    },\n    {\n      \"bundle_id\": \"com.google.Chrome\",\n      \"drivers\": {\n        \"ax:chrome\": \"Accessibility read fallback\",\n        \"ext:chrome\": \"FERB extension, per paired profile (`ferb browsers`)\"\n      },\n      \"name\": \"chrome\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Chrome.app\"\n    },\n    {\n      \"bundle_id\": \"com.apple.Safari\",\n      \"drivers\": {\n        \"applescript_read\": \"watch-only (Block 1), when Automation is granted\"\n      },\n      \"name\": \"safari\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Safari.app\"\n    },\n    {\n      \"bundle_id\": \"com.example.web\",\n      \"drivers\": {\n        \"ax:web\": \"Accessibility read fallback\"\n      },\n      \"name\": \"web\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Web.app\"\n    }\n  ],\n  \"device_id\": \"dev-fx\",\n  \"os\": \"macos\",\n  \"os_version\": \"15.4\",\n  \"scanned_at\": \"2026-11-13T09:30:05+00:00\"\n}\n",
+    "device/history.jsonl": "{\"added\": [\"com.apple.Notes\", \"com.apple.Safari\", \"com.brave.Browser\", \"com.example.binary\", \"com.example.web\", \"com.google.Chrome\"], \"at\": \"2026-11-13T09:30:05+00:00\", \"changed\": [], \"device_id\": \"dev-fx\", \"message\": \"mac profile scan\", \"removed\": []}\n"
+   }
+  },
+  {
+   "name": "profiles_unreadable",
+   "activity": [],
+   "excluded": [],
+   "allowed": true,
+   "profiles": "raise",
+   "mdls": [
+    [
+     "/usr/bin/mdls",
+     "-plist",
+     "-",
+     "-name",
+     "kMDItemPath",
+     "-name",
+     "kMDItemUseCount",
+     "-name",
+     "kMDItemLastUsedDate",
+     "/private/tmp/ferb-device-fx/persona/Apps/Dup.app",
+     "/private/tmp/ferb-device-fx/persona/Apps/Safari.app",
+     "/private/tmp/ferb-device-fx/persona/Apps/Brave.app",
+     "/private/tmp/ferb-device-fx/persona/Apps/Binary.app",
+     "/private/tmp/ferb-device-fx/persona/Apps/Web.app",
+     "/private/tmp/ferb-device-fx/persona/Apps/Chrome.app"
+    ]
+   ],
+   "facts": {
+    "scanned_at": "2026-11-13T09:30:05+00:00",
+    "installed_apps": 6,
+    "apps_with_use": 3,
+    "apps": [
+     {
+      "app": "Web",
+      "bundle_id": "com.example.web",
+      "uses": 14,
+      "last_used": "2026-11-05 08:00:00"
+     },
+     {
+      "app": "Brave",
+      "bundle_id": "com.brave.Browser",
+      "uses": 12,
+      "last_used": "2026-11-03 08:00:00"
+     },
+     {
+      "app": "Dup",
+      "bundle_id": "com.apple.Notes",
+      "uses": 10,
+      "last_used": "2026-11-01 08:00:00"
+     }
+    ],
+    "browsers": [
+     "brave",
+     "chrome",
+     "safari",
+     "web"
+    ],
+    "profiles": [],
+    "profiles_read": true
+   },
+   "files": {
+    "device/dev-fx.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.Notes\",\n      \"name\": \"Dup\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Dup.app\",\n      \"scriptable\": false,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.Safari\",\n      \"name\": \"Safari\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Safari.app\",\n      \"scriptable\": false,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.brave.Browser\",\n      \"name\": \"Brave\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Brave.app\",\n      \"scriptable\": false,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.example.binary\",\n      \"name\": \"Binary\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Binary.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.example.web\",\n      \"name\": \"Web\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Web.app\",\n      \"scriptable\": false,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.google.Chrome\",\n      \"name\": \"Google Chrome\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Chrome.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    }\n  ],\n  \"browsers\": [\n    {\n      \"bundle_id\": \"com.brave.Browser\",\n      \"drivers\": {\n        \"ax:brave\": \"Accessibility read fallback\",\n        \"ext:brave\": \"FERB extension, per paired profile (`ferb browsers`)\"\n      },\n      \"name\": \"brave\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Brave.app\"\n    },\n    {\n      \"bundle_id\": \"com.google.Chrome\",\n      \"drivers\": {\n        \"ax:chrome\": \"Accessibility read fallback\",\n        \"ext:chrome\": \"FERB extension, per paired profile (`ferb browsers`)\"\n      },\n      \"name\": \"chrome\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Chrome.app\"\n    },\n    {\n      \"bundle_id\": \"com.apple.Safari\",\n      \"drivers\": {\n        \"applescript_read\": \"watch-only (Block 1), when Automation is granted\"\n      },\n      \"name\": \"safari\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Safari.app\"\n    },\n    {\n      \"bundle_id\": \"com.example.web\",\n      \"drivers\": {\n        \"ax:web\": \"Accessibility read fallback\"\n      },\n      \"name\": \"web\",\n      \"path\": \"/private/tmp/ferb-device-fx/persona/Apps/Web.app\"\n    }\n  ],\n  \"device_id\": \"dev-fx\",\n  \"os\": \"macos\",\n  \"os_version\": \"15.4\",\n  \"scanned_at\": \"2026-11-13T09:30:05+00:00\"\n}\n",
+    "device/history.jsonl": "{\"added\": [\"com.apple.Notes\", \"com.apple.Safari\", \"com.brave.Browser\", \"com.example.binary\", \"com.example.web\", \"com.google.Chrome\"], \"at\": \"2026-11-13T09:30:05+00:00\", \"changed\": [], \"device_id\": \"dev-fx\", \"message\": \"mac profile scan\", \"removed\": []}\n"
+   }
+  }
+ ]
+}

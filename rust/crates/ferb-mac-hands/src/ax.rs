@@ -87,7 +87,7 @@ fn action_name(a: &str) -> Option<&'static str> {
 
 /// A text field whose metadata names it a password field: `(?i)passw|pwd` (accessibility.py:57).
 pub fn password_metadata(v: &str) -> bool {
-    let low = ferb_sanitize::parity::lower(v);
+    let low = ferb_py::text::lower(v);
     // (?i) in Python folds ASCII and Unicode simple cases; the needles are ASCII, so lowercasing is enough except
     // for the Kelvin sign and long s, which fold to k and s (no needle letter is either).
     low.contains("passw") || low.contains("pwd")
@@ -1057,7 +1057,7 @@ impl<S: AxSource> Ax<S> {
         } else if let Some(k) = role_kind(role) {
             k.to_string()
         } else if let Some(rest) = role.strip_prefix("AX") {
-            ferb_sanitize::parity::lower(rest)
+            ferb_py::text::lower(rest)
         } else if role.is_empty() {
             "element".into()
         } else {
@@ -1260,13 +1260,13 @@ impl<S: AxSource> Ax<S> {
             }
         }
         let mut matches = vec![];
-        let lower_key = ferb_sanitize::parity::lower(key);
+        let lower_key = ferb_py::text::lower(key);
         while let Some((menu, path)) = stack.pop() {
             for item in self.attr(&menu, "AXChildren").els() {
                 let t = self.title_of(&item);
                 let ch = Self::text(&self.attr(&item, "AXMenuItemCmdChar"));
                 let mods = self.attr(&item, "AXMenuItemCmdModifiers");
-                if !ch.is_empty() && ferb_sanitize::parity::lower(&ch) == lower_key {
+                if !ch.is_empty() && ferb_py::text::lower(&ch) == lower_key {
                     if let Some(m) = int_of(&mods) {
                         if m == want {
                             let enabled = self
@@ -1787,7 +1787,7 @@ pub fn rect_json(r: &Rect) -> Value {
 }
 
 fn is_py_digit(c: char) -> bool {
-    ferb_sanitize::parity::is_digit(c)
+    ferb_py::text::is_digit(c)
 }
 
 fn py_strip(s: &str) -> &str {

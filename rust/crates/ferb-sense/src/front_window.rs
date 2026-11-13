@@ -158,7 +158,7 @@ pub fn ferb_process(
     daemon_pid: i64,
     parent: &dyn Fn(i64) -> Option<i64>,
 ) -> bool {
-    if FERB_APPS.contains(&ferb_sanitize::parity::lower(bundle_id).as_str()) || pid == daemon_pid {
+    if FERB_APPS.contains(&ferb_py::text::lower(bundle_id).as_str()) || pid == daemon_pid {
         return true;
     }
     if !bundle_id.is_empty() {

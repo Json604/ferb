@@ -9,7 +9,7 @@ pub struct InvalidUrl;
 
 /// `urlsplit(url).hostname`.
 pub fn hostname(url: &str) -> Result<Option<String>, InvalidUrl> {
-    ferb_sanitize::parity::hostname(url).map_err(|_| InvalidUrl)
+    ferb_py::url::hostname(url).map_err(|_| InvalidUrl)
 }
 
 /// `urlsplit(url).hostname or None`, where a URL Python can't split counts as none.

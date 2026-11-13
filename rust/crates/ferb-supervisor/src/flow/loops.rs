@@ -206,7 +206,88 @@ impl HeldTabs {
     }
 }
 
+/// A correction's hand-over to a resting loop. Python runs the turn and the loop on one thread: the correction wakes
+/// the loop (`wake_loops`), the woken round runs when the turn next waits, starts its `loop.round` span, and waits in
+/// turn (its change records are read in a thread) while the turn writes its reply; then the round goes on. On several
+/// threads the round and the turn would race, so the turn waits until the round has started (`started`, or the loop
+/// went back to sleep or ended without one) and the round waits until the reply is recorded (`released`).
+#[derive(Default)]
+pub struct SteerHold {
+    started: Wake,
+    released: Wake,
+}
+
+/// The longest a turn waits for a woken loop to start its round (a loop busy elsewhere: the reply goes on).
+const HAND_OVER_S: f64 = 5.0;
+
 impl Inner {
+    /// After a correction is applied (`steering.apply`'s `wake_loops`): each corrected tree's loops are woken; a
+    /// loop resting between rounds is waited for until its round has started (`SteerHold`).
+    pub(crate) async fn hand_over(&self, turn: &Arc<Mutex<super::Turn>>) {
+        let trees = std::mem::take(&mut turn.lock().unwrap().wake_after);
+        for tree_id in trees {
+            if !self.loop_resting_in(&tree_id) || self.live().steer_holds.contains_key(&tree_id) {
+                self.wake_loops(&tree_id);
+                continue;
+            }
+            let hold = Arc::new(SteerHold::default());
+            self.live()
+                .steer_holds
+                .insert(tree_id.clone(), hold.clone());
+            self.wake_loops(&tree_id);
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs_f64(HAND_OVER_S),
+                hold.started.wait(),
+            )
+            .await;
+            turn.lock().unwrap().held.push((tree_id, hold));
+        }
+    }
+
+    /// A loop of this tree rests between rounds in its own sleep (watching or backing off), not waiting for the owner.
+    fn loop_resting_in(&self, tree_id: &str) -> bool {
+        let live = self.live();
+        live.loop_status.iter().any(|((t, step), status)| {
+            t == tree_id
+                && live.resting.contains(&format!("{t}.loop.{step}"))
+                && matches!(
+                    status.get("state").and_then(Value::as_str),
+                    Some("watching" | "backing_off")
+                )
+        })
+    }
+
+    /// The hand-over's round may go on (the turn's reply is recorded).
+    pub(crate) fn release_hold(&self, tree_id: &str, hold: &Arc<SteerHold>) {
+        let mut live = self.live();
+        if live
+            .steer_holds
+            .get(tree_id)
+            .is_some_and(|h| Arc::ptr_eq(h, hold))
+        {
+            live.steer_holds.remove(tree_id);
+        }
+        drop(live);
+        hold.started.set();
+        hold.released.set();
+    }
+
+    /// The woken loop of this tree will start no round now (it sleeps again, or ended): the turn goes on.
+    fn steer_passed(&self, tree_id: &str) {
+        if let Some(hold) = self.live().steer_holds.get(tree_id) {
+            hold.started.set();
+        }
+    }
+
+    /// A round's span is written: under a hand-over, it waits here (Python's thread read) until the reply is.
+    async fn steer_round_started(&self, tree_id: &str) {
+        let hold = self.live().steer_holds.get(tree_id).cloned();
+        if let Some(hold) = hold.filter(|h| !h.started.is_set()) {
+            hold.started.set();
+            hold.released.wait().await;
+        }
+    }
+
     /// supervisor.py:5677 `wake_loops`: a stop, a pause or a plan event for this tree: its loops look now.
     pub fn wake_loops(&self, tree_id: &str) {
         let wakes = self
@@ -851,6 +932,7 @@ impl Inner {
             unknown: AtomicBool::new(false),
             abort: Mutex::new(None),
             aborted: tokio::sync::Notify::new(),
+            wake: std::sync::OnceLock::new(),
         };
         let rows = LoopStoreRows {
             inner: inner.clone(),
@@ -864,6 +946,7 @@ impl Inner {
             cursor,
         );
         let wake: Arc<Wake> = runner.wake.clone();
+        let _ = host.wake.set(wake.clone());
         self.live()
             .loop_wakes
             .entry(tree.id.clone())
@@ -878,6 +961,7 @@ impl Inner {
                 ended = &mut run => Ok(ended),
             }
         };
+        self.steer_passed(&tree.id); // a hand-over waiting for this loop's round gets none
         {
             let mut live = self.live();
             if let Some(wakes) = live.loop_wakes.get_mut(&tree.id) {
@@ -972,7 +1056,9 @@ impl Inner {
         member.lock().calls_since = self.span_cursor(&round_span);
         let stuck = self.deps.daemon.changes_reset(&child.id);
         // Python reads the change records in a thread (`asyncio.to_thread`): the round yields here, and the thread's
-        // answer comes back on a later turn of the event loop (what was ready meanwhile runs first)
+        // answer comes back on a later turn of the event loop (what was ready meanwhile runs first); a correction's
+        // turn that woke this round writes its reply meanwhile (`SteerHold`)
+        self.steer_round_started(&tree.id).await;
         tokio::task::yield_now().await;
         tokio::task::yield_now().await;
         if !stuck.is_empty() {
@@ -1134,6 +1220,8 @@ struct RoundHost {
     /// Why a round ended without a result (a shutdown, a path not ported): the step ends with it.
     abort: Mutex<Option<Failure>>,
     aborted: tokio::sync::Notify,
+    /// The runner's wake (its own sleep, kept as the runner's: `sleep` below).
+    wake: std::sync::OnceLock<Arc<Wake>>,
 }
 
 impl RoundHost {
@@ -1331,6 +1419,21 @@ impl LoopHost for RoundHost {
 
     fn has_event(&self) -> bool {
         self.step.wakes_on().is_some()
+    }
+
+    /// The runner's own wakeable sleep (loops.py `_sleep`: never longer than POLL_S); a loop going back to sleep
+    /// starts no round for a correction that woke it (`SteerHold`).
+    fn sleep(&self, seconds: f64) -> Option<BoxFuture<'_, ()>> {
+        let wake = self.wake.get()?.clone();
+        Some(Box::pin(async move {
+            if !wake.is_set() {
+                self.inner.steer_passed(&self.tree.id);
+            }
+            let wait = seconds.clamp(0.0, loops::POLL_S);
+            let _ =
+                tokio::time::timeout(std::time::Duration::from_secs_f64(wait), wake.wait()).await;
+            wake.clear();
+        }))
     }
 
     fn steers(&self) -> i64 {

@@ -116,7 +116,7 @@ impl Inner {
             // parts.py `_next_seq` reads the wall clock: FERB's clock here
             Arc::new(move || {
                 let now = ferb_clock::py::utc(&clock.now());
-                ferb_py::time::DateTime::from_isoformat(&ferb_clock::py::iso(&now)).expect("a time")
+                ferb_core::when::to_py(&now).expect("a time")
             }),
         );
         Arc::new(TaskCard {

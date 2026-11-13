@@ -56,7 +56,7 @@ fn strip(s: &str) -> &str {
 }
 
 fn words(s: &str) -> usize {
-    s.split(ferb_sanitize::parity::is_space)
+    s.split(ferb_py::text::is_space)
         .filter(|w| !w.is_empty())
         .count()
 }
@@ -84,9 +84,7 @@ pub fn neighbour_spans(lines: &[String]) -> Vec<usize> {
         if secret
             && !b.is_empty()
             && words(b) == 1
-            && (a.ends_with(':')
-                || a.ends_with('=')
-                || b.chars().any(ferb_sanitize::parity::is_digit))
+            && (a.ends_with(':') || a.ends_with('=') || b.chars().any(ferb_py::text::is_digit))
         {
             add(i + 1, &mut out);
         }
@@ -147,7 +145,7 @@ pub fn boxes_to_paint(
         let frame = code_frame && frame_code().is_match(text).unwrap_or(false);
         let squeezed: String = text
             .chars()
-            .filter(|c| !ferb_sanitize::parity::is_space(*c))
+            .filter(|c| !ferb_py::text::is_space(*c))
             .collect();
         let dots = password_dots().is_match(&squeezed).unwrap_or(false);
         if !spans.is_empty() || card || frame || labelled.contains(&i) || dots {

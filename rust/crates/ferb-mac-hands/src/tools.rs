@@ -264,7 +264,7 @@ pub fn normalize_args(tool: &str, args: &mut Value) -> std::result::Result<(), S
         "mac.open" => {
             if let Some(u) = s(args, "url") {
                 let t = ferb_py::value::strip(u).to_string();
-                let lower = ferb_sanitize::parity::lower(&t);
+                let lower = ferb_py::text::lower(&t);
                 if !(lower.starts_with("http://") || lower.starts_with("https://")) {
                     return Err("url takes an http:// or https:// address".into());
                 }
@@ -510,9 +510,7 @@ impl MacTools {
                         .map(|p| open_path(p, &self.home, &self.cwd));
                     ActionSpec {
                         target: Target {
-                            site: Some(ferb_sanitize::parity::lower(
-                                s(args, "bundle_id").unwrap_or(""),
-                            )),
+                            site: Some(ferb_py::text::lower(s(args, "bundle_id").unwrap_or(""))),
                             path,
                             ..Default::default()
                         },
@@ -1151,7 +1149,7 @@ impl MacTools {
         }
         if (d.excluded)()
             .iter()
-            .any(|e| ferb_sanitize::parity::lower(e) == ferb_sanitize::parity::lower(&bid))
+            .any(|e| ferb_py::text::lower(e) == ferb_py::text::lower(&bid))
         {
             return Ok(err(format!("{bid} is on the owner's exclusion list")));
         }
@@ -1428,7 +1426,7 @@ pub fn url_host(url: &str) -> String {
     } else {
         host.split(':').next().unwrap_or("")
     };
-    ferb_sanitize::parity::lower(host)
+    ferb_py::text::lower(host)
 }
 
 /// mac.pointer's described content: the call's remaining fields as Python's dict repr.

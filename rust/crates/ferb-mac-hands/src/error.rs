@@ -51,6 +51,12 @@ pub enum HandError {
     /// Anything else a driver or the OS reported.
     #[error("{0}")]
     Other(String),
+    /// An error another part raised (a browser driver's `DriverError`, `OutcomeUnknown`), under its Python class name.
+    #[error("{message}")]
+    Named {
+        class: &'static str,
+        message: String,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, HandError>;
@@ -71,6 +77,7 @@ impl HandError {
             HandError::Capture { .. } => "CaptureError",
             HandError::Timeout(_) => "TimeoutError",
             HandError::Other(_) => "RuntimeError",
+            HandError::Named { class, .. } => class,
         }
     }
 

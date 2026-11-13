@@ -7,7 +7,7 @@
 use std::sync::{Arc, Mutex};
 
 use ferb_core::interfaces::BoxFuture;
-use ferb_sanitize::parity::hostname;
+use ferb_py::url::hostname;
 use serde_json::Value;
 
 use super::base::{poll, ReadFocused};

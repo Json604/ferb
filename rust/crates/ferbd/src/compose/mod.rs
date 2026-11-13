@@ -16,6 +16,7 @@ pub mod group_c;
 pub mod loops;
 pub mod memory_loops;
 pub mod presence;
+pub mod previews;
 pub mod rpc;
 pub mod runtimes;
 pub mod supervisor;
@@ -327,7 +328,11 @@ impl Daemon {
         for entry in &set_aside {
             journal.note("store.set_aside", Value::Object(entry.clone()));
         }
-        // the resource log: its first window starts here, so start-up's own work is in it (L30)
+        // the resource log: its first window starts here, so start-up's own work is in it (L30); the previews'
+        // counts join it once the tools are built (`hooks.previews.snapshot()`, main.py:399)
+        let preview_counts: Arc<
+            std::sync::OnceLock<ferb_daemon::areas_b::task_preview::TaskPreviews>,
+        > = Arc::new(std::sync::OnceLock::new());
         let resource_log = if opts.resources {
             match crate::resources::MacReadings::new().and_then(|readings| {
                 let d = lock(&db);
@@ -339,9 +344,12 @@ impl Daemon {
                         let r = redactor.clone();
                         Box::new(move |t: &str| r.text(t))
                     },
-                    // perception's batcher is off (Jev is off: notices paused); no live previews without a planner
+                    // perception's batcher is off (Jev is off: notices paused)
                     Box::new(|| (0, std::collections::BTreeMap::new())),
-                    Box::new(Map::new),
+                    {
+                        let counts = preview_counts.clone();
+                        Box::new(move || counts.get().map(|p| p.snapshot()).unwrap_or_default())
+                    },
                     std::process::id() as i32,
                 )
             }) {
@@ -426,6 +434,7 @@ impl Daemon {
         let owner_secrets = Arc::new(areas::owner_secrets(&opts, &home));
         let tool_parts = tools::Parts::new(&opts, &config, &redactor, &db, &journal, &events);
         tool_parts.set_owner_secrets(owner_secrets.clone());
+        let _ = preview_counts.set(tool_parts.previews().clone());
         let registry = tools::registry(&tool_parts);
         // compose.py `_publish` (a task's question names its request), once the supervisor's seam exists
         let publisher: Arc<std::sync::OnceLock<std::sync::Weak<supervisor::SupDaemon>>> =
@@ -631,7 +640,11 @@ impl Daemon {
                 timer_tokens: opts.timer_tokens.clone(),
                 make_runtime: Some(memory_loops::learning_runtime(learning_area.clone())),
                 app_bundle: opts.app_bundle.clone(),
-                persona_scan: None,
+                // `discover_persona` on the Mac (main.py:105): a test daemon (no Mac parts) has none, as Python's
+                // recorder (`setup.persona` answers unavailable)
+                persona_scan: opts
+                    .native
+                    .then(|| crate::persona::scan(&opts.user_home, &opts.browser_support)),
                 tasks: Arc::new(ferb_supervisor::flow::daemon_seams::SupervisorTasks {
                     supervisor: sup.supervisor.clone(),
                     runtime: tokio::runtime::Handle::current(),
@@ -904,6 +917,33 @@ impl Daemon {
                 .name("ferb-vision-warm".into())
                 .spawn(ferb_mac_hands::native::vision::warm_recognition);
         }
+        // main.py:478 `_with_full_disk_access` (DMN-507, DMN-508): once FERB has Full Disk Access, FERB's files in
+        // every installed browser, and the browser part of what FERB saw on this Mac when that was gathered before
+        // access; without it, nothing. In the background: the start doesn't wait for it.
+        if self.opts.native {
+            let cx = self.tools.browsers().and_then(|b| b.area());
+            let a = self.a.clone();
+            tokio::spawn(async move {
+                let Some(cx) = cx else { return };
+                let probe = cx.clone();
+                let readable = tokio::task::spawn_blocking(move || probe.other_app_data())
+                    .await
+                    .unwrap_or(false);
+                if !readable {
+                    return;
+                }
+                let _ = cx.connect_browsers().await;
+                let _ = a
+                    .call(|st| async move {
+                        // `persona_scan is not None and needs_browser_part()`: refresh reads the scan's presence
+                        let needs = st.persona.borrow().needs_browser_part();
+                        if needs {
+                            let _ = areas_a::persona::refresh(&st).await;
+                        }
+                    })
+                    .await;
+            });
+        }
         loops::start(self);
         // main.py:472: the trees a shutdown or crash cut off run again in place, in the background
         self.supervisor.supervisor.start_resume();
@@ -977,17 +1017,41 @@ impl crate::resources::SampleClock for SampleClock {
 impl Daemon {
     /// schedules.py `_mac_started` (ORCH-317): a start in a new login session (a restart, a login) is the Mac coming
     /// back into use, unless it is out of use right now (its unlock is the return then). A start in the same session
-    /// (an update, a crash) is no return: Python then dates the current stretch from the last return journaled
-    /// (`mac.present_since = ...`); ferb-sense's `MacPresence` has no way to set it, so it stays unknown until the next
-    /// return (listed as a seam).
+    /// (an update, a crash) is no return: the current stretch began at the last return journaled (`mac.back_in_use`).
     fn mac_started(&self, new_session: bool) {
         let Some(o) = self.tools.owner() else { return };
-        let mac = &o.presence;
+        self.mac_started_on(&o.presence, new_session);
+    }
+
+    /// `_mac_started` on this presence.
+    pub fn mac_started_on(
+        &self,
+        mac: &ferb_sense::watchers::presence::MacPresence,
+        new_session: bool,
+    ) {
         if !mac.running() {
             return;
         }
-        if new_session && !mac.away() {
-            mac.returned("login");
+        if new_session {
+            if !mac.away() {
+                mac.returned("login");
+            }
+            return;
+        }
+        let last: Option<String> = {
+            let d = lock(&self.db);
+            d.conn()
+                .query_row(
+                    "SELECT at FROM journal WHERE kind = 'mac.back_in_use' ORDER BY seq DESC LIMIT 1",
+                    [],
+                    |r| r.get(0),
+                )
+                .ok()
+        };
+        if let Some(ts) = last.as_deref().and_then(back_in_use_since) {
+            if mac.present_since().is_none() {
+                mac.set_present_since(Some(ts));
+            }
         }
     }
 
@@ -1003,6 +1067,12 @@ impl Daemon {
             self.journal.note("resources.failed", json!({"error": e}));
         }
     }
+}
+
+/// `datetime.fromisoformat(at).timestamp()` of a `mac.back_in_use` row (an aware time; None when it isn't one).
+pub fn back_in_use_since(at: &str) -> Option<f64> {
+    let t = ferb_clock::py::parse(at)?;
+    Some(t.timestamp() as f64 + f64::from(t.timestamp_subsec_micros()) / 1e6)
 }
 
 /// `_apply_privacy`: [privacy] exclude_domains / exclude_apps into the one Redactor everything holds.
@@ -1107,4 +1177,29 @@ fn login_session() -> Option<String> {
             .collect::<String>()[..16]
             .to_string(),
     )
+}
+
+#[cfg(test)]
+mod mac_started_tests {
+    /// schedules.py:80 `_mac_started`, a start in the same login session: the current stretch dates from the last
+    /// `mac.back_in_use` (`datetime.fromisoformat(at).timestamp()`: Python's 1767238200.25 for this row), set only
+    /// when the presence has none, and nothing is told.
+    // decision: ORCH-590
+    #[test]
+    fn a_start_in_the_same_session_dates_the_stretch_from_the_last_return() {
+        assert_eq!(
+            super::back_in_use_since("2026-01-01T09:00:00.250000+05:30"),
+            Some(1767238200.25)
+        );
+        assert_eq!(super::back_in_use_since("not a time"), None);
+        let mac = ferb_sense::watchers::presence::MacPresence::new(
+            || 1800000000.0,
+            ferb_sense::watchers::presence::Session::default,
+            || None,
+            None,
+        );
+        assert_eq!(mac.present_since(), None);
+        mac.set_present_since(super::back_in_use_since("2026-01-01T09:00:00+00:00"));
+        assert_eq!(mac.present_since(), Some(1767258000.0));
+    }
 }

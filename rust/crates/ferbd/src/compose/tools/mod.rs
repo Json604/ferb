@@ -121,6 +121,45 @@ struct Inner {
     owner: Option<super::presence::MacOwner>,
     /// The supervisor, once built: the browser drivers read a loop's rest and a task's pause from it.
     supervisor: OnceLock<ferb_supervisor::flow::Supervisor>,
+    /// A task's live previews (`hooks.previews`): the gateway's hooks declare surfaces, FERB.app asks for frames.
+    previews: OnceLock<ferb_daemon::areas_b::task_preview::TaskPreviews>,
+}
+
+/// `CallHooks.previews` (call_hooks.py:79) over these parts: the gateway's locks once it is attached, the Mac's image
+/// masking, the Screen Recording check, the journal.
+fn previews_of(opts: &Options, p: &Parts) -> ferb_daemon::areas_b::task_preview::TaskPreviews {
+    let me = Arc::downgrade(&p.0);
+    let images: Arc<dyn ferb_gateway::call_hooks::ImageSanitizer> = match p.mac() {
+        Some(m) => m.images.clone(),
+        None => Arc::new(mac::Images {
+            redactor: p.redactor(),
+            native: opts.native,
+        }),
+    };
+    let native = opts.native;
+    let journal = p.journal();
+    super::previews::build(super::previews::Over {
+        locks: Arc::new(move || Some(me.upgrade()?.gateway.get()?.upgrade()?.locks().clone())),
+        images,
+        // `_screen_recording_allowed`: read only when a capture failed, to say why (a daemon without the Mac's
+        // parts can't read it: allowed, as Python's answer when the read raises)
+        screen_recording: Arc::new(move || {
+            !native
+                || ferb_mac_hands::native::permissions::screen_recording()
+                    == ferb_mac_hands::permissions::Status::Granted
+        }),
+        note: Arc::new(move |kind: &str, data: serde_json::Value| journal.note(kind, data)),
+    })
+}
+
+/// [`Parts`] without keeping them alive.
+#[derive(Clone)]
+pub struct WeakParts(Weak<Inner>);
+
+impl WeakParts {
+    pub fn upgrade(&self) -> Option<Parts> {
+        self.0.upgrade().map(Parts)
+    }
 }
 
 /// The change record (L39) behind the gateway's hooks: `Changes.before` for the files a call names.
@@ -260,8 +299,10 @@ impl Parts {
             sentinel: OnceLock::new(),
             owner: mac_owner(opts),
             supervisor: OnceLock::new(),
+            previews: OnceLock::new(),
         }));
         let _ = p.0.mac.set(mac::Mac::build(opts, &p));
+        let _ = p.0.previews.set(previews_of(opts, &p));
         let _ =
             p.0.sentinel
                 .set(super::desktop::sentinel(&p, desktop_read(opts)));
@@ -269,14 +310,29 @@ impl Parts {
         p
     }
 
+    /// A handle that doesn't keep the parts alive (for the parts' own members that call back into them).
+    pub fn downgrade(&self) -> WeakParts {
+        WeakParts(Arc::downgrade(&self.0))
+    }
+
     /// The owner-input tap and the Mac's presence (None when the Mac's parts are off).
     pub fn owner(&self) -> Option<&super::presence::MacOwner> {
         self.0.owner.as_ref()
     }
 
-    /// The supervisor, once built.
+    /// The supervisor, once built: the previews read what each task is doing from it (`preview_status`).
     pub fn set_supervisor(&self, s: ferb_supervisor::flow::Supervisor) {
         let _ = self.0.supervisor.set(s);
+        let me = Arc::downgrade(&self.0);
+        self.previews()
+            .set_status(Arc::new(move |root: &str, worker: &str| {
+                me.upgrade()?.supervisor.get()?.preview_status(root, worker)
+            }));
+    }
+
+    /// A task's live previews (built with the parts).
+    pub fn previews(&self) -> &ferb_daemon::areas_b::task_preview::TaskPreviews {
+        self.0.previews.get().expect("built with the parts")
     }
     pub fn supervisor(&self) -> Option<&ferb_supervisor::flow::Supervisor> {
         self.0.supervisor.get()

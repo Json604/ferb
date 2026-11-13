@@ -273,9 +273,24 @@ pub struct Learning {
     pub generation: Cell<u64>,
     memo: RefCell<Option<HashMap<String, std::result::Result<BTreeSet<String>, Error>>>>,
     removing: RefCell<BTreeSet<String>>,
+    /// The local model once loaded after the store was built (`learning.embedder = ...`, `_load_embedder`).
+    late_embedder: RefCell<Option<Rc<dyn Embedder>>>,
 }
 
 impl Learning {
+    /// memory.py:423 `self.learning.embedder = StaticEmbedder(...)`: the local model, loaded once the store runs
+    /// (search ranks by keywords and recency until it is there).
+    pub fn set_embedder(&self, embedder: Rc<dyn Embedder>) {
+        *self.late_embedder.borrow_mut() = Some(embedder);
+    }
+
+    /// `self.embedder`: the model given when the store was built, else the one set since.
+    pub fn embedder(&self) -> Option<Rc<dyn Embedder>> {
+        self.embedder
+            .clone()
+            .or_else(|| self.late_embedder.borrow().clone())
+    }
+
     pub fn new(
         store: Rc<Store>,
         clock: Rc<dyn Clock>,
@@ -298,6 +313,7 @@ impl Learning {
             generation: Cell::new(0),
             memo: RefCell::new(None),
             removing: RefCell::new(BTreeSet::new()),
+            late_embedder: RefCell::new(None),
         }
     }
 
@@ -1750,11 +1766,7 @@ impl Learning {
             }
             rankings.push(ranking);
         }
-        if let Some(embedder) = self
-            .embedder
-            .as_ref()
-            .filter(|_| !terms.is_empty() && !q.no_embed)
-        {
+        if let Some(embedder) = self.embedder().filter(|_| !terms.is_empty() && !q.no_embed) {
             let vector = q.query_vector.clone().or_else(|| embedder.encode(query));
             if let Some(vector) = vector {
                 match ferb_memory::vectors::nearest(

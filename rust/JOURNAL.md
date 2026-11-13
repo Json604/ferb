@@ -1376,3 +1376,52 @@ which doubled the wait. `kb/gate.toml` no longer has the Python suite as a push 
 commit stay while the Python sources remain.
 
 **Next.** Push, rebuild FERB.app with the finished engine, install it, then setup with the owner present.
+
+## 2026-11-13 · 55 · The first installs; the engine's open list closed; owner browsing wired
+
+**Installs on the owner's Mac (the owner's word: "install it, you can quit/delete the old ferb").**
+- First install: the ad-hoc-signed build. The tour's permissions beat showed Accessibility "Added · turn it on"
+  and three rows "Restart needed". Cause: macOS ties a grant to the code's signature, and an ad-hoc build is a
+  different program from the FERB signed with the release certificate (and from every other ad-hoc build). The
+  coordinator had told the packaging agent not to use the owner's signing identities, which is right for tests and
+  wrong for an installed build.
+- The owner asked why not the Developer ID they already have. Second install: `SIGN_IDENTITY=devid` with the saved
+  notary profile. Apple accepted the bundle on the first submission; Gatekeeper reports "Notarized Developer ID",
+  team 8N7RNGH974; the ticket is stapled. This is T-27's first real Developer ID build. Rebuilds of the team keep
+  the grants.
+- The build script needed one fix first: it looked for `ferbd`'s own lock file after the crate had joined the
+  workspace (9fc1b35e).
+- APP-907 (owner): "also remove the timer from tour". The waiting indicator draws the spinner and no elapsed time.
+
+**The open list of entry 53, closed by one agent.**
+- Live previews over the gateway's locks (`Gateway::try_hold`; 7 scenarios from the Python tests' cases).
+- The memory push and query vectors (`areas_a/candidates.rs`; 7 queries against the real Python memory); the
+  learning store takes its embedder after it is built.
+- The persona scan (4 cases on a fake home with `mdls` stubbed), the start-time step that waits on Full Disk
+  Access, presence's "present since".
+- A correction that wakes a loop: Python's recorded order is the loop round's span, then `chat.reply`, then the
+  round's worker, so a hand-over makes the turn wait until the woken loop has started its round and the round wait
+  until the reply is recorded. 100 of 100 runs through the binary replay.
+- Six new recordings for probes, login sites named in another chat, the displaced question, an inventory walk, a
+  conversation resumed after its task ended, a capture that times out: 33 newer scenarios replay in process and
+  through the binary. Of the ten uncited supervisor methods five were inlined (now cited) and `_wait_cut`,
+  `_capture_after_outcome`, `stop_episodes` and `finish_episodes` are ported.
+- Seams: the window list's missing layer, a Send `probe`, public `question_sites` (so `secrets.list` shows linked
+  sites), file tools on a blocking thread, time conversions through `to_py`/`from_py`, dead adapters removed.
+
+**Found and fixed in the Rust port.**
+- `ferbd`'s owner-browser driver never chose a profile (it always refused "no browser profile is paired") and had
+  no owner input for login codes or secrets: every tool on the owner's own browser refused. It now uses
+  `ferb-browser`'s resolver and the gateway's hidden-input questions. **The installed build predates this.**
+- `hide_code_reply` never applied `asked_only_about` or `displaced_question`.
+- Setup's scan wrote a naive time with microseconds where Python writes a local time with its offset.
+
+**Evidence.** Whole workspace (run by the porting agent): 702 tests pass, 15 ignored; format, clippy and the
+portable check clean. Coordinator: format clean.
+
+**The commit gate's slow check.** `kb check` spends about 125 of 128 s in `symbol_exists` (tools/kb/kb.py:285-304),
+parsing a Python file again for each of 1,185 `file.py::symbol` entries (`supervisor.py` alone 237 times). It is
+not the fixtures. Caching each file's names would bring it to seconds and stop checking nothing; not done here.
+
+**Open.** Unverified on the real Mac: the persona scan, previews of real windows and tabs, the resolver with a
+paired browser. The owner's setup on the Developer ID build is in progress.

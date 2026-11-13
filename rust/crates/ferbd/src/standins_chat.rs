@@ -333,6 +333,14 @@ impl Reads for ScriptReads {
         &'a self,
         request_id: &'a str,
     ) -> Option<BoxFuture<'a, Result<Option<ferb_supervisor::flow::FrontCapture>, String>>> {
+        let stalled = self.0.file["captures"]
+            .as_array()
+            .and_then(|a| a.iter().find(|c| c["request_id"] == request_id))
+            .is_some_and(|c| c["stalled"] == json!(true));
+        if stalled {
+            // the recorder's capture hung (make_more.py `mm_capture_timeout`): the planner's limit ends the wait
+            return Some(Box::pin(std::future::pending()));
+        }
         let got = self.0.file["captures"]
             .as_array()
             .and_then(|a| a.iter().find(|c| c["request_id"] == request_id))

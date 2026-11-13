@@ -1,9 +1,10 @@
 # Fixtures: the gateway as the Rust port must reproduce it (ENG-3)
 
-Made by the two scripts here from the Python build (each writes the same bytes on every run):
+Made by the scripts here from the Python build (each writes the same bytes on every run):
 
     cd <repo> && uv run python rust/fixtures/gateway/make.py
     cd <repo> && uv run python rust/fixtures/gateway/make_hooks.py
+    cd <repo> && uv run python rust/fixtures/gateway/make_locks.py
 
 ## scenarios.json (`make.py`)
 
@@ -57,3 +58,12 @@ redaction (the `Redacted` mark), `_known_from`, a `describe` that raises, a canc
 app-window picture and its masking, the shadow advisor, the event bus). Each case records every call a fake received,
 in order, each op's result, the events and the journaled problems. `HOME` is `/HOME/user` and the workspace
 `/HOME/ferb/workspace`: paths are text there, nothing is read or written.
+
+## locks.json (`make_locks.py`)
+
+7 scenarios of the real `ferb.act.locks.ResourceLocks` (the gateway's locks): calls holding keys (reading or acting),
+a call queued behind a holder, a release that wakes it, a cancelled waiter, and the live preview's `try_hold` with and
+without `during_reads` (DMN-403, DMN-406): what each look answered and who holds each key after. The cases are
+tests/test_hangs_and_previews.py's and tests/test_task_preview.py's lock cases plus edges read from the code (a lock
+just handed to a waking worker is busy, several keys are all taken or none, a read is looked at while the other keys
+are taken, an unknown kind). Replayed by `tests/locks_python.rs` on a single-threaded runtime.

@@ -89,11 +89,21 @@ pub struct Window {
     pub pid: i32,
     pub bounds: Rect,
     pub title: String,
+    /// Its window level (`kCGWindowLayer`): 0 for an app's normal windows; 0 when the window server gave none
+    /// (`_window`'s default), with `layer_known` false.
     pub layer: i64,
     pub alpha: f64,
+    /// The window server gave its layer. Python's filters for normal windows read a missing one as 1 (not normal:
+    /// screenshot.py:62, 93, 108), the window it builds as 0 (`_window`, `window_at`, accessibility.py:301).
+    pub layer_known: bool,
 }
 
 impl Window {
+    /// A normal app window as Python's dictionary filters read it (`kCGWindowLayer` default 1): layer 0, given.
+    pub fn normal_layer(&self) -> bool {
+        self.layer == 0 && self.layer_known
+    }
+
     pub fn new(id: i64, pid: i32, bounds: Rect, title: &str) -> Window {
         Window {
             id,
@@ -102,6 +112,7 @@ impl Window {
             title: title.into(),
             layer: 0,
             alpha: 1.0,
+            layer_known: true,
         }
     }
 }
@@ -548,7 +559,7 @@ fn pastes(parts: &[String]) -> bool {
 }
 
 fn pastes_item(shortcut: Option<(String, i64)>) -> bool {
-    shortcut.is_some_and(|(c, m)| ferb_sanitize::parity::lower(&c) == "v" && m & 8 == 0)
+    shortcut.is_some_and(|(c, m)| ferb_py::text::lower(&c) == "v" && m & 8 == 0)
 }
 
 /// HAND-519: `type` with no element on the foreground route.
@@ -741,10 +752,10 @@ impl MacDriver {
         };
         let ex: Vec<String> = (self.excluded)()
             .iter()
-            .map(|e| ferb_sanitize::parity::lower(e))
+            .map(|e| ferb_py::text::lower(e))
             .collect();
-        if ex.contains(&ferb_sanitize::parity::lower(&a.bundle_id))
-            || ex.contains(&ferb_sanitize::parity::lower(&a.name))
+        if ex.contains(&ferb_py::text::lower(&a.bundle_id))
+            || ex.contains(&ferb_py::text::lower(&a.name))
         {
             return refused(format!("{} is on the owner's exclusion list", a.name));
         }

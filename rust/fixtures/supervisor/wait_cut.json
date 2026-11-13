@@ -1,0 +1,100 @@
+{
+ "made_by": "rust/fixtures/supervisor/make_wait_cut.py",
+ "cases": [
+  {
+   "name": "one_cut",
+   "zone": "UTC",
+   "tree": "t1",
+   "rows": [
+    [
+     "wait.ended",
+     "2026-01-01T09:15:00+00:00",
+     {
+      "tree": "t1",
+      "line": "until the invented parcel arrives"
+     }
+    ]
+   ],
+   "text": "FERB restarted at 09:15 while this task was waiting (wait.for): until the invented parcel arrives. That wait ended without waking: look at what it waited for again, or wait again."
+  },
+  {
+   "name": "latest_of_two_local_time",
+   "zone": "Asia/Kolkata",
+   "tree": "t1",
+   "rows": [
+    [
+     "wait.ended",
+     "2026-01-01T09:15:00+00:00",
+     {
+      "tree": "t1",
+      "line": "the first wait"
+     }
+    ],
+    [
+     "wait.ended",
+     "2026-01-01T22:40:00+00:00",
+     {
+      "tree": "t1",
+      "line": "the second wait"
+     }
+    ]
+   ],
+   "text": "FERB restarted at 04:10 while this task was waiting (wait.for): the second wait. That wait ended without waking: look at what it waited for again, or wait again."
+  },
+  {
+   "name": "no_line",
+   "zone": "UTC",
+   "tree": "t1",
+   "rows": [
+    [
+     "wait.ended",
+     "2026-01-01T09:15:00+00:00",
+     {
+      "tree": "t1",
+      "line": ""
+     }
+    ]
+   ],
+   "text": "FERB restarted at 09:15 while this task was waiting (wait.for): a wait. That wait ended without waking: look at what it waited for again, or wait again."
+  },
+  {
+   "name": "control_characters",
+   "zone": "UTC",
+   "tree": "t1",
+   "rows": [
+    [
+     "wait.ended",
+     "2026-01-01T09:15:00+00:00",
+     {
+      "tree": "t1",
+      "line": "a\u0007 wait with\ttab"
+     }
+    ]
+   ],
+   "text": "FERB restarted at 09:15 while this task was waiting (wait.for): a wait with\ttab. That wait ended without waking: look at what it waited for again, or wait again."
+  },
+  {
+   "name": "another_tree",
+   "zone": "UTC",
+   "tree": "t2",
+   "rows": [
+    [
+     "wait.ended",
+     "2026-01-01T09:15:00+00:00",
+     {
+      "tree": "t1",
+      "line": "not this tree's"
+     }
+    ]
+   ],
+   "text": null
+  },
+  {
+   "name": "none",
+   "zone": "UTC",
+   "tree": "t1",
+   "rows": [],
+   "text": null
+  }
+ ]
+}

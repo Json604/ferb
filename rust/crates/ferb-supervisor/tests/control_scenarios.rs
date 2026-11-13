@@ -10,6 +10,7 @@
 mod common;
 mod support_control;
 
+use serde_json::{json, Value};
 use support_control::{run, world, Report};
 
 fn replay(name: &str) -> Report {
@@ -154,4 +155,118 @@ fn control_fixtures() {
             assert!(r.full(), "{name}: {}", r.verdict());
         }
     }
+}
+
+/// The journal's rows of `kind` after a run (their data).
+fn rows_of(w: &support_control::World, kind: &str) -> Vec<Value> {
+    let db = w.db.lock().unwrap();
+    let mut st = db
+        .conn()
+        .prepare("SELECT data_json FROM journal WHERE kind = ? ORDER BY seq")
+        .unwrap();
+    let rows = st
+        .query_map([kind], |r| r.get::<_, String>(0))
+        .unwrap()
+        .map(|r| serde_json::from_str(&r.unwrap()).unwrap())
+        .collect();
+    rows
+}
+
+/// supervisor.py:4980 `_capture_after_outcome`: a capture the daemon refused because FERB is stopping (`Deferred`) is
+/// journaled as deferred, and one whose hook raised as failed with its error; a task's outcome never waits for either.
+#[test]
+fn an_episode_capture_after_the_outcome_journals_how_it_ended() {
+    let name = "stop_by_chat";
+    let mut w = world(name);
+    *w.daemon.episode_fault.lock().unwrap() = Some(ferb_supervisor::flow::EpisodeFault::Deferred);
+    let _ = run(&mut w, name);
+    let deferred = rows_of(&w, "memory.episode_deferred");
+    assert!(!deferred.is_empty(), "no deferred capture journaled");
+    assert!(deferred.iter().all(|d| d["task_id"].is_string()));
+
+    let mut w = world(name);
+    *w.daemon.episode_fault.lock().unwrap() = Some(ferb_supervisor::flow::EpisodeFault::Failed(
+        "RuntimeError: the card store is closed".into(),
+    ));
+    let _ = run(&mut w, name);
+    let failed = rows_of(&w, "memory.episode_hook_failed");
+    assert!(!failed.is_empty(), "no failed capture journaled");
+    assert_eq!(failed[0]["error"], "RuntimeError: the card store is closed");
+    assert!(rows_of(&w, "memory.episode_deferred").is_empty());
+}
+
+/// supervisor.py:5010 `stop_episodes` (main.py:526): the shutdown cancels a capture still under way rather than
+/// wait for it, and journals it as deferred (the hourly pass captures the card again).
+#[test]
+fn the_shutdown_cancels_a_pending_episode_capture_as_deferred() {
+    let name = "stop_by_chat";
+    let mut w = world(name);
+    w.daemon
+        .episode_hang
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let _ = run(&mut w, name);
+    assert!(rows_of(&w, "memory.episode_deferred").is_empty());
+    let mut w = world(name);
+    w.daemon
+        .episode_hang
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    w.daemon
+        .shut_down_at_end
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let _ = run(&mut w, name);
+    assert!(!rows_of(&w, "memory.episode_deferred").is_empty());
+}
+
+/// supervisor.py:5657 `_wait_cut` against `rust/fixtures/supervisor/wait_cut.json` (made by `make_wait_cut.py`
+/// from the real method on the real journal): the latest `wait.ended` row of the tree, its time in the Mac's zone, its
+/// line made printable; none for another tree's or no row. Each case through the supervisor on a scenario's store
+/// (UTC), and the text for its own zone.
+// decision: ORCH-633
+#[test]
+fn a_wait_a_restart_cut_is_told_as_python_tells_it() {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/supervisor/wait_cut.json");
+    let f: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let cases = f["cases"].as_array().unwrap();
+    for case in cases {
+        let tree = case["tree"].as_str().unwrap();
+        let rows: Vec<&Value> = case["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r[2]["tree"] == tree)
+            .collect();
+        let zone = ferb_clock::zone::Zone::named(case["zone"].as_str().unwrap()).unwrap();
+        let text = rows
+            .last()
+            .and_then(|r| ferb_supervisor::lines::wait_cut(r[1].as_str().unwrap(), &r[2], &zone));
+        assert_eq!(json!(text), case["text"], "{}", case["name"]);
+        if case["zone"] != "UTC" {
+            continue;
+        }
+        let w = world("stop_by_chat");
+        {
+            let db = w.db.lock().unwrap();
+            for (i, r) in case["rows"].as_array().unwrap().iter().enumerate() {
+                db.conn()
+                    .execute(
+                        "INSERT INTO journal (id, at, kind, data_json, origin) VALUES (?, ?, ?, ?, 'ferb')",
+                        rusqlite::params![
+                            format!("wc-{i}"),
+                            r[1].as_str().unwrap(),
+                            r[0].as_str().unwrap(),
+                            ferb_py::json::dumps(&r[2])
+                        ],
+                    )
+                    .unwrap();
+            }
+        }
+        assert_eq!(
+            json!(w.sup.wait_cut(tree)),
+            case["text"],
+            "{} (supervisor)",
+            case["name"]
+        );
+    }
+    println!("{} cases equal", cases.len());
 }

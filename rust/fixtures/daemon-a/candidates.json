@@ -1,0 +1,989 @@
+{
+ "made_by": "rust/fixtures/daemon-a/make_candidates.py",
+ "now": "2026-01-10T09:00:00+00:00",
+ "tables": {
+  "journal": {
+   "columns": [
+    "_rowid",
+    "seq",
+    "id",
+    "at",
+    "kind",
+    "data_json",
+    "origin"
+   ],
+   "rows": [
+    [
+     1,
+     1,
+     "j-1",
+     "2026-01-05T09:00:00+00:00",
+     "chat.message",
+     "{\"session_id\": \"s1\", \"request_id\": \"r-j-1\", \"text\": \"the garden beans go in the north bed\", \"untrusted_parts\": 0}",
+     "owner"
+    ],
+    [
+     2,
+     2,
+     "j-2",
+     "2026-01-05T09:00:00+00:00",
+     "chat.message",
+     "{\"session_id\": \"s1\", \"request_id\": \"r-j-2\", \"text\": \"water the garden twice a week\", \"untrusted_parts\": 0}",
+     "owner"
+    ],
+    [
+     3,
+     3,
+     "j-3",
+     "2026-01-05T09:00:00+00:00",
+     "chat.message",
+     "{\"session_id\": \"s1\", \"request_id\": \"r-j-3\", \"text\": \"my dentist is Dr. Zorblat\", \"untrusted_parts\": 0}",
+     "owner"
+    ],
+    [
+     4,
+     4,
+     "j-4",
+     "2026-01-05T09:00:00+00:00",
+     "chat.message",
+     "{\"session_id\": \"s1\", \"request_id\": \"r-j-4\", \"text\": \"the invented bicycle shop opens at nine\", \"untrusted_parts\": 0}",
+     "web"
+    ]
+   ]
+  },
+  "memory_items": {
+   "columns": [
+    "_rowid",
+    "seq",
+    "id",
+    "kind",
+    "subject",
+    "key",
+    "content",
+    "origin",
+    "status",
+    "confidence",
+    "observed_at",
+    "valid_from",
+    "valid_to",
+    "supersedes",
+    "created_at"
+   ],
+   "rows": [
+    [
+     1,
+     1,
+     "id-000001",
+     "fact",
+     "project:garden",
+     "beans",
+     "The garden  beans go in the\nnorth bed",
+     "owner_stated",
+     "active",
+     1.0,
+     "2026-01-05T09:00:00+00:00",
+     "2026-01-05T09:00:00+00:00",
+     null,
+     null,
+     "2026-01-05T09:00:00+00:00"
+    ],
+    [
+     2,
+     2,
+     "id-000002",
+     "preference",
+     "owner",
+     "watering",
+     "Water the garden twice a week",
+     "owner_stated",
+     "active",
+     1.0,
+     "2026-01-05T10:00:00+00:00",
+     "2026-01-05T10:00:00+00:00",
+     null,
+     null,
+     "2026-01-05T10:00:00+00:00"
+    ],
+    [
+     3,
+     3,
+     "id-000003",
+     "person",
+     "owner",
+     "dentist",
+     "My dentist is Dr. Zorblat",
+     "owner_stated",
+     "active",
+     1.0,
+     "2026-01-05T11:00:00+00:00",
+     "2026-01-05T11:00:00+00:00",
+     null,
+     null,
+     "2026-01-05T11:00:00+00:00"
+    ],
+    [
+     4,
+     4,
+     "id-000004",
+     "fact",
+     "world",
+     "bicycle_shop",
+     "The invented bicycle shop opens at nine",
+     "third_party",
+     "active",
+     0.5,
+     "2026-01-05T11:00:00+00:00",
+     "2026-01-05T11:00:00+00:00",
+     null,
+     null,
+     "2026-01-05T11:00:00+00:00"
+    ],
+    [
+     5,
+     5,
+     "id-000005",
+     "fact",
+     "project:garden",
+     "squash",
+     "Garden squash goes in the south bed",
+     "inferred",
+     "active",
+     0.6,
+     "2026-01-05T11:00:00+00:00",
+     "2026-01-05T11:00:00+00:00",
+     null,
+     null,
+     "2026-01-05T11:00:00+00:00"
+    ],
+    [
+     6,
+     6,
+     "id-000006",
+     "fact",
+     "project:garden",
+     "row_0",
+     "Garden row 0 holds invented beans variety 0",
+     "inferred",
+     "active",
+     0.6,
+     "2026-01-05T11:01:00+00:00",
+     "2026-01-05T11:01:00+00:00",
+     null,
+     null,
+     "2026-01-05T11:01:00+00:00"
+    ],
+    [
+     7,
+     7,
+     "id-000007",
+     "fact",
+     "project:garden",
+     "row_1",
+     "Garden row 1 holds invented beans variety 1",
+     "inferred",
+     "active",
+     0.6,
+     "2026-01-05T11:02:00+00:00",
+     "2026-01-05T11:02:00+00:00",
+     null,
+     null,
+     "2026-01-05T11:02:00+00:00"
+    ],
+    [
+     8,
+     8,
+     "id-000008",
+     "fact",
+     "project:garden",
+     "row_2",
+     "Garden row 2 holds invented beans variety 2",
+     "inferred",
+     "active",
+     0.6,
+     "2026-01-05T11:03:00+00:00",
+     "2026-01-05T11:03:00+00:00",
+     null,
+     null,
+     "2026-01-05T11:03:00+00:00"
+    ],
+    [
+     9,
+     9,
+     "id-000009",
+     "fact",
+     "project:garden",
+     "row_3",
+     "Garden row 3 holds invented beans variety 3",
+     "inferred",
+     "active",
+     0.6,
+     "2026-01-05T11:04:00+00:00",
+     "2026-01-05T11:04:00+00:00",
+     null,
+     null,
+     "2026-01-05T11:04:00+00:00"
+    ],
+    [
+     10,
+     10,
+     "id-000010",
+     "fact",
+     "project:garden",
+     "row_4",
+     "Garden row 4 holds invented beans variety 4",
+     "inferred",
+     "active",
+     0.6,
+     "2026-01-05T11:05:00+00:00",
+     "2026-01-05T11:05:00+00:00",
+     null,
+     null,
+     "2026-01-05T11:05:00+00:00"
+    ],
+    [
+     11,
+     11,
+     "id-000011",
+     "fact",
+     "project:garden",
+     "row_5",
+     "Garden row 5 holds invented beans variety 5",
+     "inferred",
+     "active",
+     0.6,
+     "2026-01-05T11:06:00+00:00",
+     "2026-01-05T11:06:00+00:00",
+     null,
+     null,
+     "2026-01-05T11:06:00+00:00"
+    ],
+    [
+     12,
+     12,
+     "id-000012",
+     "fact",
+     "project:garden",
+     "row_6",
+     "Garden row 6 holds invented beans variety 6",
+     "inferred",
+     "active",
+     0.6,
+     "2026-01-05T11:07:00+00:00",
+     "2026-01-05T11:07:00+00:00",
+     null,
+     null,
+     "2026-01-05T11:07:00+00:00"
+    ],
+    [
+     13,
+     13,
+     "id-000013",
+     "fact",
+     "project:garden",
+     "row_7",
+     "Garden row 7 holds invented beans variety 7",
+     "inferred",
+     "active",
+     0.6,
+     "2026-01-05T11:08:00+00:00",
+     "2026-01-05T11:08:00+00:00",
+     null,
+     null,
+     "2026-01-05T11:08:00+00:00"
+    ],
+    [
+     14,
+     14,
+     "id-000014",
+     "fact",
+     "project:garden",
+     "row_8",
+     "Garden row 8 holds invented beans variety 8",
+     "inferred",
+     "active",
+     0.6,
+     "2026-01-05T11:09:00+00:00",
+     "2026-01-05T11:09:00+00:00",
+     null,
+     null,
+     "2026-01-05T11:09:00+00:00"
+    ],
+    [
+     15,
+     15,
+     "id-000015",
+     "fact",
+     "project:garden",
+     "row_9",
+     "Garden row 9 holds invented beans variety 9",
+     "inferred",
+     "active",
+     0.6,
+     "2026-01-05T11:10:00+00:00",
+     "2026-01-05T11:10:00+00:00",
+     null,
+     null,
+     "2026-01-05T11:10:00+00:00"
+    ],
+    [
+     16,
+     16,
+     "id-000016",
+     "fact",
+     "project:garden",
+     "row_10",
+     "Garden row 10 holds invented beans variety 10",
+     "inferred",
+     "active",
+     0.6,
+     "2026-01-05T11:11:00+00:00",
+     "2026-01-05T11:11:00+00:00",
+     null,
+     null,
+     "2026-01-05T11:11:00+00:00"
+    ],
+    [
+     17,
+     17,
+     "id-000017",
+     "fact",
+     "project:garden",
+     "row_11",
+     "Garden row 11 holds invented beans variety 11",
+     "inferred",
+     "active",
+     0.6,
+     "2026-01-05T11:12:00+00:00",
+     "2026-01-05T11:12:00+00:00",
+     null,
+     null,
+     "2026-01-05T11:12:00+00:00"
+    ]
+   ]
+  },
+  "memory_sources": {
+   "columns": [
+    "_rowid",
+    "item_id",
+    "kind",
+    "source_id",
+    "day",
+    "actor"
+   ],
+   "rows": [
+    [
+     1,
+     "id-000001",
+     "journal",
+     "j-1",
+     "2026-01-05",
+     null
+    ],
+    [
+     2,
+     "id-000002",
+     "journal",
+     "j-2",
+     "2026-01-05",
+     null
+    ],
+    [
+     3,
+     "id-000003",
+     "journal",
+     "j-3",
+     "2026-01-05",
+     null
+    ],
+    [
+     4,
+     "id-000004",
+     "journal",
+     "j-4",
+     "2026-01-05",
+     null
+    ],
+    [
+     5,
+     "id-000005",
+     "journal",
+     "j-1",
+     "2026-01-05",
+     null
+    ],
+    [
+     6,
+     "id-000006",
+     "journal",
+     "j-1",
+     "2026-01-05",
+     null
+    ],
+    [
+     7,
+     "id-000007",
+     "journal",
+     "j-1",
+     "2026-01-05",
+     null
+    ],
+    [
+     8,
+     "id-000008",
+     "journal",
+     "j-1",
+     "2026-01-05",
+     null
+    ],
+    [
+     9,
+     "id-000009",
+     "journal",
+     "j-1",
+     "2026-01-05",
+     null
+    ],
+    [
+     10,
+     "id-000010",
+     "journal",
+     "j-1",
+     "2026-01-05",
+     null
+    ],
+    [
+     11,
+     "id-000011",
+     "journal",
+     "j-1",
+     "2026-01-05",
+     null
+    ],
+    [
+     12,
+     "id-000012",
+     "journal",
+     "j-1",
+     "2026-01-05",
+     null
+    ],
+    [
+     13,
+     "id-000013",
+     "journal",
+     "j-1",
+     "2026-01-05",
+     null
+    ],
+    [
+     14,
+     "id-000014",
+     "journal",
+     "j-1",
+     "2026-01-05",
+     null
+    ],
+    [
+     15,
+     "id-000015",
+     "journal",
+     "j-1",
+     "2026-01-05",
+     null
+    ],
+    [
+     16,
+     "id-000016",
+     "journal",
+     "j-1",
+     "2026-01-05",
+     null
+    ],
+    [
+     17,
+     "id-000017",
+     "journal",
+     "j-1",
+     "2026-01-05",
+     null
+    ]
+   ]
+  },
+  "memory_context": {
+   "columns": [
+    "_rowid",
+    "item_id",
+    "about",
+    "review_at"
+   ],
+   "rows": [
+    [
+     1,
+     "id-000001",
+     "the garden plan",
+     null
+    ]
+   ]
+  },
+  "memory_profile": {
+   "columns": [
+    "_rowid",
+    "item_id",
+    "section",
+    "position",
+    "added_by",
+    "added_at"
+   ],
+   "rows": [
+    [
+     1,
+     "id-000003",
+     "People",
+     0,
+     "owner",
+     "2026-01-05T11:12:00+00:00"
+    ]
+   ]
+  },
+  "memory_set_aside": {
+   "columns": [
+    "_rowid",
+    "item_id",
+    "at",
+    "why"
+   ],
+   "rows": []
+  },
+  "learning_nodes": {
+   "columns": [
+    "_rowid",
+    "id",
+    "kind",
+    "key",
+    "body_json",
+    "origin",
+    "made_by",
+    "recorded_at",
+    "valid_from",
+    "valid_to",
+    "supersedes",
+    "batch_id",
+    "state",
+    "confirmed",
+    "origins_json"
+   ],
+   "rows": [
+    [
+     1,
+     "m-85674ed873a8dcff1e205bf3431b3debdb3091d948739dc832033cf01c5722ad",
+     "episode",
+     "task-7",
+     "{\"ended_at\":\"2026-01-05T12:12:00+00:00\",\"intent\":\"plant the garden beans\",\"status\":\"done\",\"task_id\":\"task-7\",\"verified\":true}",
+     "inferred",
+     "test",
+     "2026-01-05T12:12:00+00:00",
+     "2026-01-05T12:12:00+00:00",
+     null,
+     null,
+     null,
+     "active",
+     0,
+     "[\"inferred\",\"owner\"]"
+    ],
+    [
+     2,
+     "m-789cabb2bbaadba59303650e17a2d89a112bf2c7b1a48f2cb2135ead6cbaa8b1",
+     "playbook",
+     "garden-beans",
+     "{\"goal\":\"plant garden beans\",\"steps\":[\"dig\",\"sow\"],\"tasks\":[\"task-7\"]}",
+     "inferred",
+     "test",
+     "2026-01-05T12:12:00+00:00",
+     "2026-01-05T12:12:00+00:00",
+     null,
+     null,
+     null,
+     "candidate",
+     0,
+     "[\"inferred\",\"owner\"]"
+    ],
+    [
+     3,
+     "m-2d46efc35339d9584ae19c146c9f432f1c639ccb63defafdf938e496907a8497",
+     "activity_summary",
+     "trail.day_summary:2026-01-08",
+     "{\"text\":\"The owner read about garden beans and the invented bicycle shop.\"}",
+     "inferred",
+     "test",
+     "2026-01-05T12:12:00+00:00",
+     "2026-01-05T12:12:00+00:00",
+     null,
+     null,
+     null,
+     "active",
+     0,
+     "[\"inferred\",\"owner\"]"
+    ]
+   ]
+  },
+  "learning_sources": {
+   "columns": [
+    "_rowid",
+    "node_id",
+    "source_ref"
+   ],
+   "rows": [
+    [
+     1,
+     "m-85674ed873a8dcff1e205bf3431b3debdb3091d948739dc832033cf01c5722ad",
+     "journal:j-1"
+    ],
+    [
+     2,
+     "m-789cabb2bbaadba59303650e17a2d89a112bf2c7b1a48f2cb2135ead6cbaa8b1",
+     "journal:j-1"
+    ],
+    [
+     3,
+     "m-2d46efc35339d9584ae19c146c9f432f1c639ccb63defafdf938e496907a8497",
+     "journal:j-2"
+    ]
+   ]
+  },
+  "learning_fts": {
+   "columns": [
+    "_rowid",
+    "id",
+    "text"
+   ],
+   "rows": [
+    [
+     1,
+     "m-85674ed873a8dcff1e205bf3431b3debdb3091d948739dc832033cf01c5722ad",
+     "plant the garden beans done"
+    ],
+    [
+     2,
+     "m-789cabb2bbaadba59303650e17a2d89a112bf2c7b1a48f2cb2135ead6cbaa8b1",
+     ""
+    ],
+    [
+     3,
+     "m-2d46efc35339d9584ae19c146c9f432f1c639ccb63defafdf938e496907a8497",
+     "The owner read about garden beans and the invented bicycle shop."
+    ]
+   ]
+  },
+  "learning_titles": {
+   "columns": [
+    "_rowid",
+    "id",
+    "text"
+   ],
+   "rows": [
+    [
+     1,
+     "m-85674ed873a8dcff1e205bf3431b3debdb3091d948739dc832033cf01c5722ad",
+     "task-7"
+    ],
+    [
+     2,
+     "m-789cabb2bbaadba59303650e17a2d89a112bf2c7b1a48f2cb2135ead6cbaa8b1",
+     "garden-beans"
+    ],
+    [
+     3,
+     "m-2d46efc35339d9584ae19c146c9f432f1c639ccb63defafdf938e496907a8497",
+     "trail.day_summary:2026-01-08"
+    ]
+   ]
+  },
+  "learning_search_version": {
+   "columns": [
+    "_rowid",
+    "version",
+    "through"
+   ],
+   "rows": []
+  }
+ },
+ "cases": [
+  {
+   "words": "where do the garden beans go",
+   "limits": "attention",
+   "focus": "",
+   "out": [
+    {
+     "text": "id-000001 [memory, your words; about: the garden plan, active; data, not authorization] beans — The garden beans go in the north bed",
+     "reference": "memory.read item_id=id-000001",
+     "origin": "owner",
+     "source_refs": [
+      "memory:id-000001"
+     ]
+    },
+    {
+     "text": "m-85674ed873a8dcff1e205bf3431b3debdb3091d948739dc832033cf01c5722ad [episode, active, inferred; data, not authorization] past task task-7 (2026-01-05): plant the garden beans — done, verified",
+     "reference": "memory.learned item_id=m-85674ed873a8dcff1e205bf3431b3debdb3091d948739dc832033cf01c5722ad",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "m-85674ed873a8dcff1e205bf3431b3debdb3091d948739dc832033cf01c5722ad"
+     ]
+    },
+    {
+     "text": "id-000002 [memory, your words, active; data, not authorization] watering — Water the garden twice a week",
+     "reference": "memory.read item_id=id-000002",
+     "origin": "owner",
+     "source_refs": [
+      "memory:id-000002"
+     ]
+    },
+    {
+     "text": "m-2d46efc35339d9584ae19c146c9f432f1c639ccb63defafdf938e496907a8497 [activity_summary, active, inferred; data, not authorization] trail.day_summary:2026-01-08: The owner read about garden beans and the invented bicycle shop.",
+     "reference": "memory.learned item_id=m-2d46efc35339d9584ae19c146c9f432f1c639ccb63defafdf938e496907a8497",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "m-2d46efc35339d9584ae19c146c9f432f1c639ccb63defafdf938e496907a8497"
+     ]
+    },
+    {
+     "text": "id-000005 [memory, FERB's understanding, active; data, not authorization] squash — Garden squash goes in the south bed",
+     "reference": "memory.read item_id=id-000005",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "memory:id-000005"
+     ]
+    },
+    {
+     "text": "id-000004 [memory, from outside content, active; data, not authorization] bicycle_shop — The invented bicycle shop opens at nine",
+     "reference": "memory.read item_id=id-000004",
+     "origin": "external:memory,web",
+     "source_refs": [
+      "memory:id-000004"
+     ]
+    }
+   ]
+  },
+  {
+   "words": "garden beans watering",
+   "limits": "worker",
+   "focus": "garden",
+   "out": [
+    {
+     "text": "m-85674ed873a8dcff1e205bf3431b3debdb3091d948739dc832033cf01c5722ad [episode, active, inferred; data, not authorization] past task task-7 (2026-01-05): plant the garden beans — done, verified",
+     "reference": "memory.learned item_id=m-85674ed873a8dcff1e205bf3431b3debdb3091d948739dc832033cf01c5722ad",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "m-85674ed873a8dcff1e205bf3431b3debdb3091d948739dc832033cf01c5722ad"
+     ]
+    },
+    {
+     "text": "id-000002 [memory, your words, active; data, not authorization] watering — Water the garden twice a week",
+     "reference": "memory.read item_id=id-000002",
+     "origin": "owner",
+     "source_refs": [
+      "memory:id-000002"
+     ]
+    },
+    {
+     "text": "m-2d46efc35339d9584ae19c146c9f432f1c639ccb63defafdf938e496907a8497 [activity_summary, active, inferred; data, not authorization] trail.day_summary:2026-01-08: The owner read about garden beans and the invented bicycle shop.",
+     "reference": "memory.learned item_id=m-2d46efc35339d9584ae19c146c9f432f1c639ccb63defafdf938e496907a8497",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "m-2d46efc35339d9584ae19c146c9f432f1c639ccb63defafdf938e496907a8497"
+     ]
+    }
+   ]
+  },
+  {
+   "words": "the invented bicycle shop",
+   "limits": "worker",
+   "focus": "",
+   "out": [
+    {
+     "text": "m-2d46efc35339d9584ae19c146c9f432f1c639ccb63defafdf938e496907a8497 [activity_summary, active, inferred; data, not authorization] trail.day_summary:2026-01-08: The owner read about garden beans and the invented bicycle shop.",
+     "reference": "memory.learned item_id=m-2d46efc35339d9584ae19c146c9f432f1c639ccb63defafdf938e496907a8497",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "m-2d46efc35339d9584ae19c146c9f432f1c639ccb63defafdf938e496907a8497"
+     ]
+    },
+    {
+     "text": "id-000004 [memory, from outside content, active; data, not authorization] bicycle_shop — The invented bicycle shop opens at nine",
+     "reference": "memory.read item_id=id-000004",
+     "origin": "external:memory,web",
+     "source_refs": [
+      "memory:id-000004"
+     ]
+    },
+    {
+     "text": "id-000001 [memory, your words; about: the garden plan, active; data, not authorization] beans — The garden beans go in the north bed",
+     "reference": "memory.read item_id=id-000001",
+     "origin": "owner",
+     "source_refs": [
+      "memory:id-000001"
+     ]
+    },
+    {
+     "text": "m-85674ed873a8dcff1e205bf3431b3debdb3091d948739dc832033cf01c5722ad [episode, active, inferred; data, not authorization] past task task-7 (2026-01-05): plant the garden beans — done, verified",
+     "reference": "memory.learned item_id=m-85674ed873a8dcff1e205bf3431b3debdb3091d948739dc832033cf01c5722ad",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "m-85674ed873a8dcff1e205bf3431b3debdb3091d948739dc832033cf01c5722ad"
+     ]
+    },
+    {
+     "text": "id-000002 [memory, your words, active; data, not authorization] watering — Water the garden twice a week",
+     "reference": "memory.read item_id=id-000002",
+     "origin": "owner",
+     "source_refs": [
+      "memory:id-000002"
+     ]
+    },
+    {
+     "text": "id-000005 [memory, FERB's understanding, active; data, not authorization] squash — Garden squash goes in the south bed",
+     "reference": "memory.read item_id=id-000005",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "memory:id-000005"
+     ]
+    }
+   ]
+  },
+  {
+   "words": "dentist",
+   "limits": "attention",
+   "focus": "",
+   "out": []
+  },
+  {
+   "words": "   ",
+   "limits": "worker",
+   "focus": "",
+   "out": [
+    {
+     "text": "id-000017 [memory, FERB's understanding, active; data, not authorization] row_11 — Garden row 11 holds invented beans variety 11",
+     "reference": "memory.read item_id=id-000017",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "memory:id-000017"
+     ]
+    },
+    {
+     "text": "id-000016 [memory, FERB's understanding, active; data, not authorization] row_10 — Garden row 10 holds invented beans variety 10",
+     "reference": "memory.read item_id=id-000016",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "memory:id-000016"
+     ]
+    },
+    {
+     "text": "id-000015 [memory, FERB's understanding, active; data, not authorization] row_9 — Garden row 9 holds invented beans variety 9",
+     "reference": "memory.read item_id=id-000015",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "memory:id-000015"
+     ]
+    },
+    {
+     "text": "id-000014 [memory, FERB's understanding, active; data, not authorization] row_8 — Garden row 8 holds invented beans variety 8",
+     "reference": "memory.read item_id=id-000014",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "memory:id-000014"
+     ]
+    },
+    {
+     "text": "id-000013 [memory, FERB's understanding, active; data, not authorization] row_7 — Garden row 7 holds invented beans variety 7",
+     "reference": "memory.read item_id=id-000013",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "memory:id-000013"
+     ]
+    },
+    {
+     "text": "id-000012 [memory, FERB's understanding, active; data, not authorization] row_6 — Garden row 6 holds invented beans variety 6",
+     "reference": "memory.read item_id=id-000012",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "memory:id-000012"
+     ]
+    },
+    {
+     "text": "id-000011 [memory, FERB's understanding, active; data, not authorization] row_5 — Garden row 5 holds invented beans variety 5",
+     "reference": "memory.read item_id=id-000011",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "memory:id-000011"
+     ]
+    },
+    {
+     "text": "id-000010 [memory, FERB's understanding, active; data, not authorization] row_4 — Garden row 4 holds invented beans variety 4",
+     "reference": "memory.read item_id=id-000010",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "memory:id-000010"
+     ]
+    },
+    {
+     "text": "id-000009 [memory, FERB's understanding, active; data, not authorization] row_3 — Garden row 3 holds invented beans variety 3",
+     "reference": "memory.read item_id=id-000009",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "memory:id-000009"
+     ]
+    },
+    {
+     "text": "id-000008 [memory, FERB's understanding, active; data, not authorization] row_2 — Garden row 2 holds invented beans variety 2",
+     "reference": "memory.read item_id=id-000008",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "memory:id-000008"
+     ]
+    },
+    {
+     "text": "(6 more matching memories left out to stay within this prompt's memory limit; memory.read and memory.learned find them.)",
+     "reference": "memory.read; memory.learned",
+     "origin": "ferb",
+     "source_refs": []
+    }
+   ]
+  },
+  {
+   "words": "garden",
+   "limits": "worker",
+   "focus": "beans",
+   "out": [
+    {
+     "text": "m-85674ed873a8dcff1e205bf3431b3debdb3091d948739dc832033cf01c5722ad [episode, active, inferred; data, not authorization] past task task-7 (2026-01-05): plant the garden beans — done, verified",
+     "reference": "memory.learned item_id=m-85674ed873a8dcff1e205bf3431b3debdb3091d948739dc832033cf01c5722ad",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "m-85674ed873a8dcff1e205bf3431b3debdb3091d948739dc832033cf01c5722ad"
+     ]
+    },
+    {
+     "text": "m-789cabb2bbaadba59303650e17a2d89a112bf2c7b1a48f2cb2135ead6cbaa8b1 [playbook, candidate, inferred; data, not authorization] playbook “” (from 1 verified runs): ",
+     "reference": "memory.learned item_id=m-789cabb2bbaadba59303650e17a2d89a112bf2c7b1a48f2cb2135ead6cbaa8b1",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "m-789cabb2bbaadba59303650e17a2d89a112bf2c7b1a48f2cb2135ead6cbaa8b1"
+     ]
+    },
+    {
+     "text": "m-2d46efc35339d9584ae19c146c9f432f1c639ccb63defafdf938e496907a8497 [activity_summary, active, inferred; data, not authorization] trail.day_summary:2026-01-08: The owner read about garden beans and the invented bicycle shop.",
+     "reference": "memory.learned item_id=m-2d46efc35339d9584ae19c146c9f432f1c639ccb63defafdf938e496907a8497",
+     "origin": "inferred,owner",
+     "source_refs": [
+      "m-2d46efc35339d9584ae19c146c9f432f1c639ccb63defafdf938e496907a8497"
+     ]
+    }
+   ]
+  },
+  {
+   "words": "nothing matches zzqx",
+   "limits": "attention",
+   "focus": "",
+   "out": []
+  }
+ ]
+}

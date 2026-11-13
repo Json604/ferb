@@ -498,7 +498,7 @@ pub fn snapshot_facts(out: &Map<String, Value>) -> Map<String, Value> {
 
 /// `host_of(url)`: the URL's host, lowercased; "" when it has none or doesn't parse.
 pub fn host_of(url: Option<&str>) -> String {
-    ferb_sanitize::parity::hostname(url.unwrap_or(""))
+    ferb_py::url::hostname(url.unwrap_or(""))
         .ok()
         .flatten()
         .map(|h| h.to_lowercase())

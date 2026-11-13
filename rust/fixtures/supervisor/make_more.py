@@ -17,7 +17,9 @@ supervisor's composition points while it runs. Added here:
 - `port` records: each call the supervisor makes to a port another part fills (memory's `remember`, `forget_request`),
   its arguments, what it answered and the record ids it took (`ids`: the id counter before and after: the journal rows
   that part wrote in between are its own), so a Rust replay can answer the same, take the same ids and check it was
-  asked the same.
+  asked the same. A loop's probe reads through the gateway (`gateway.probe`) are `probe` port records
+  (`patch_probe`).
+- `write_file` steps: an invented file the owner writes in the scenario's workspace, at the same point in a replay.
 - `seed` steps: journal rows written before the first message (a long earlier conversation), as the daemon's own
   journal writes them; a Rust replay inserts them as it inserts the start's rows (their ids precede the first request).
 
@@ -197,10 +199,46 @@ dm.PREPARE.append(lambda d: None)        # (the supervisor is built at the daemo
 _plain_boot = dm.Scenario._boot
 
 
+def patch_probe(d: Any) -> None:
+    """A loop's probe reads (`gateway.probe`, L31): recorded as a `probe` port record (the grant's task, worker, scopes
+    and identity, the tool, its arguments, the span; the gateway's answer), so a replay can answer each read as the
+    real gateway did without running the tool."""
+    g = d.gateway
+    if g is None or getattr(g.probe, "_recorded", False):
+        return
+    plain = g.probe
+
+    async def probe(grant: Any, name: str, arguments: dict[str, Any], span_id: str) -> Any:
+        ids = d.supervisor.ids
+        before = ids._n
+        got = await plain(grant, name, arguments, span_id)
+        sm.record("port", {"port": "probe", "args": _plain([grant.task_id, grant.worker_id, sorted(grant.scopes),
+                                                            str(getattr(grant.identity, "value", grant.identity)),
+                                                            name, arguments, span_id]),
+                           "kwargs": {}, "answer": _plain(got), "ids": [before, ids._n]})
+        return got
+    probe._recorded = True  # type: ignore[attr-defined]
+    g.probe = probe
+
+
 def _boot(self: Any, ids: str) -> Any:
     h = _plain_boot(self, ids)
     on_loop(h, lambda: patch_ports(h.daemon))
+    on_loop(h, lambda: patch_probe(h.daemon))
     return h
+
+
+def write_file(scn: Any, rel: str, text: str) -> None:
+    """An invented file in the scenario's FERB workspace (written as the owner would), recorded as a step so a replay
+    writes it at the same point."""
+    path = scn.home / "workspace" / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    scn.steps.append({"do": "write_file", "path": f"workspace/{rel}", "text": text})
+
+
+def probe_reads(scn: Any) -> int:
+    return sum(1 for r in sm.CURRENT["records"] or [] if r.get("kind") == "port" and r.get("port") == "probe")
 
 
 dm.Scenario._boot = _boot
@@ -1020,6 +1058,203 @@ def mm_browse_as_corrected() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# 16. A loop's probe (L31): armed, read while watching, a trip; a look-only round's skipped check
+# ---------------------------------------------------------------------------------------------------------------
+
+def mm_probe_watch() -> dict[str, Any]:
+    """A loop round that only looked (fs.read of an invented status file) reports `continue` with a probe on that
+    file's text (`_look_only`: its model check is skipped, the probe's first read is the check); the runner arms it
+    (`_arm`, `arm`: the baseline read through `gateway.probe`, `loop.probe_read`), reads it while it watches
+    (`_watch`), and after the owner changes the file and the probe interval passes the read trips: the next round is
+    told what it observed (`_probe_exposure`: a context exposure carrying the probe read's origins), reports the end,
+    a check confirms it, the loop and its task end."""
+    _Uuids.n = 0
+    probe = {"tool": "fs.read", "args_json": json.dumps({"path": "status.txt"}), "field": "text",
+             "op": "not_equals", "value_json": json.dumps("waiting\n")}
+    spec = plan_task("Watch the invented status file until it says done", name="Status watch",
+                     plan=plan(step("watch", "Watch the invented status file",
+                                    repeat={"end_when": "the status file says done", "event": None,
+                                            "event_match": []})))
+    m = Model([planner("task", "Watching it.", spec)],
+              {"loop.watch.verify": [checker(True), checker(True), checker(True)]})
+    scn = Scenario("probe_watch", "A look-only loop round arms a probe; its reads while watching; a trip starts the "
+                   "next round, told what was observed; the end is checked and the loop ends.",
+                   CHAT + [f"{SUP}:6814 _look_only", f"{SUP}:5831 arm", f"{SUP}:5838 read",
+                           f"{SUP}:5703 _probe_exposure", "ferb/orchestrator/loops.py:386 _arm",
+                           "ferb/orchestrator/loops.py:465 _watch", "ferb/daemon/gateway.py:759 Gateway.probe"], m)
+    write_file(scn, "status.txt", "waiting\n")
+    m.script.workers["loop.watch"] = [
+        dm.acting(scn, "loop.watch", [("fs.read", {"path": "status.txt"})],
+                  worker("done", "The status file says waiting.", loop_action="continue", probe=probe)),
+        loop_round("done", "The status file says done.", "finished")]
+    turn = scn.stream(scn.conn("chat"), "chat.send", {"session_id": "s1", "text": "watch status.txt until it says done"})
+    scn.wait_model("loop.watch")
+    tree = tree_of(scn, "loop.watch")
+    scn.wait("the loop watches", lambda: loop_status(scn, tree, "watch") == "watching")
+    scn.wait("the probe has read 2 times", lambda: probe_reads(scn) >= 2)
+    scn.settle()
+    write_file(scn, "status.txt", "done\n")
+    scn.advance(10)
+    scn.end(turn)
+    return scn.finish()
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# 17. Where a login name may be saved: sites the owner typed in this chat, and only in another (L36 §5)
+# ---------------------------------------------------------------------------------------------------------------
+
+def mm_login_sites() -> dict[str, Any]:
+    """A task started in chat s1 names an invented shop's site the owner typed there. From chat s2 the owner gives
+    their login name for it while correcting that task (control continue): `_turn_sites` finds no site typed in s2
+    (the task is s1's, review m-5) and `_sites_named_elsewhere` finds the one typed in s1; both reach the memory port
+    with the remember entry (`login_origin`), which refuses saving it and says the site was named in another chat."""
+    spec = plan_task("Check the invented orders on shop.example.com", name="Shop orders", sites=["shop.example.com"])
+    m = Model([planner("task", "Checking your orders.", spec)])
+    scn = Scenario("login_sites", "A login name given in another chat than the task's: the sites typed here and "
+                   "elsewhere reach the memory port.",
+                   CHAT + [f"{SUP}:3278 _turn_sites", f"{SUP}:3303 _sites_named_elsewhere",
+                           f"{SUP}:3344 _side_entries"], m)
+    gate = Gate(scn, "worker", worker("done", "You have 2 invented orders."))
+    m.script.workers["worker"] = gate.answer
+    m.script.workers["worker.verify"] = checker(True)
+    turn, tree = dm.stalled_task(scn, "check my orders on shop.example.com")
+    login = remember("robin.gardener", "my login there is robin.gardener",
+                     kind="fact", subject="shop", key="shop_login")
+    login["login_origin"] = "https://shop.example.com"
+    m.script.sup.append(planner("reply", "Using that login name.", control=control(tree, "continue"),
+                                side_entries=side(remember=[login])))
+    chat_turn(scn, "my login there is robin.gardener", session="s2")
+    gate.open(scn)
+    scn.end(turn)
+    return scn.finish()
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# 18. FERB's "which is it?" about an answer, and the planner's question it displaced (rule 14, L36)
+# ---------------------------------------------------------------------------------------------------------------
+
+def mm_displaced_question() -> dict[str, Any]:
+    """A forget waits for the owner's Yes (a memory question) and the planner has just asked its own question (a
+    sign-in password). The owner's "yes" could answer either: FERB asks which one (`_answer`'s WHICH_ONE), naming only
+    the forget, and keeps the planner's question as displaced. The owner's next message is one word: the daemon
+    hides it (`_hide_code_reply`): FERB's which-question names only memory questions (`asked_only_about` is True: its
+    words ask for nothing), but the displaced password question still counts (`displaced_question`)."""
+    m = Model([planner("reply", "Noted.", side_entries=side(remember=[remember(
+        "Prefers tea over coffee", "I prefer tea over coffee", key="drink")]))])
+    scn = Scenario("displaced_question", "FERB's which-question about an answer displaces the planner's password "
+                   "question; the next one-word message is hidden as an answer to it.",
+                   CHAT + [f"{SUP}:3155 _answer", f"{SUP}:3242 asked_only_about", f"{SUP}:3253 displaced_question",
+                           "ferb/daemon/areas/chat.py:24 _hide_code_reply"], m)
+    chat_turn(scn, "remember that I prefer tea over coffee")
+    items = memory_items(scn)
+    item = items[-1] if items else "missing"
+    m.script.sup.append(planner("reply", "I'll forget that once you say yes.", side_entries=side(
+        forget=[{"item_id": item, "quote": "forget that I prefer tea"}])))
+    chat_turn(scn, "forget that I prefer tea")
+    m.script.sup.append(planner("clarify", "What is the sign-in password for the invented shed router?"))
+    chat_turn(scn, "and set up the shed router")
+    ap = pending_approvals(scn)[0].id
+    m.script.sup.append(planner("reply", "", side_entries=side(answer_question={"approval_id": ap, "answer": "Yes"}),
+                                answers_question=True))
+    chat_turn(scn, "yes")
+    m.script.sup.append(planner("reply", "Thanks, I have what I need."))
+    chat_turn(scn, "hunter2")
+    return scn.finish()
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# 19. A plan's inputs walked (ORCH-580, ORCH-625): an absent input sent back for repair
+# ---------------------------------------------------------------------------------------------------------------
+
+def mm_inventory_walk() -> dict[str, Any]:
+    """`_problems` walks a plan's inputs (`walked`, `inventory`, the turn's live line `looking_at`): one step's inputs
+    name a folder of invented receipts (it stands for its files, `resolve_inputs`) and a file that isn't there; the
+    inventory is measured and the absent input told back for repair with the measured inventory (`plan_problems`);
+    the repaired answer is a reply saying so."""
+    s1 = step("sum", "Add up the invented receipts")
+    s1["inputs"] = ["receipts", "receipts/missing.txt"]
+    p = plan(s1)
+    p["input_paths"] = ["receipts"]
+    spec = plan_task("Add up the invented receipts", name="Receipts total", plan=p)
+    m = Model([planner("task", "Adding them up.", spec),
+               planner("reply", "There's no missing.txt among your receipts: the folder holds a.txt and b.txt.")])
+    scn = Scenario("inventory_walk", "A plan's inputs walked: a folder stands for its files, an absent file is told "
+                   "back for repair, and the repaired answer says so.",
+                   CHAT + [f"{SUP}:1545 _problems", "ferb/orchestrator/plans.py inventory, resolve_inputs, problems"],
+                   m)
+    write_file(scn, "receipts/a.txt", "5\n")
+    write_file(scn, "receipts/b.txt", "7\n")
+    chat_turn(scn, "add up my receipts")
+    return scn.finish()
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# 20. Resuming a delegated conversation whose task no longer runs (change_conversation resume)
+# ---------------------------------------------------------------------------------------------------------------
+
+def mm_conversation_resume() -> dict[str, Any]:
+    """A conversation's first turn is under way when the owner stops its task (task.stop): the tree ends. Later the app
+    resumes the conversation (`conversations.change resume`): its tree isn't running, so its step in the saved plan is
+    marked interrupted, the plan suspended and the daemon resumes saved plans (`on_conversation_resume`); the
+    conversation's next turn hands over and the task ends done."""
+    spec = plan_task("Arrange the invented seed swap with Robin", name="Seed swap",
+                     plan=plan(converse("Arrange the seed swap with Robin")))
+    m = Model([planner("task", "I'll chat with Robin once you say yes.", spec)],
+              {"conversation.chat.1": STALL,
+               "conversation.chat.2": worker("done", "Robin can swap seeds on Saturday.",
+                                             conversation_action="handover"),
+               "conversation.chat.2.verify": checker(True)})
+    scn = Scenario("conversation_resume", "A waiting conversation whose task the owner stopped is resumed from the "
+                   "app: its saved plan runs again and the conversation hands over.",
+                   CHAT + [f"{SUP}:5476 change_conversation (resume)",
+                           "ferb/daemon/areas/compose.py:169 _resume_conversation_plans"], m)
+    turn = scn.stream(scn.conn("chat"), "chat.send", {"session_id": "s1",
+                                                      "text": "chat with Robin about the seed swap until she names a day"})
+    scn.wait("an approval is pending", lambda: bool(pending_approvals(scn)))
+    scn.settle()
+    app = scn.conn("app")
+    ap = scn.call(app, "chat.status", {})["result"]["approvals"][0]["approval_id"]
+    scn.call(app, "chat.approve", {"approval_id": ap, "granted": True, "choice": 1})
+    scn.wait_model("conversation.chat.1")
+    tree = tree_of(scn, "conversation.chat.1")
+    ident = f"{tree}:chat"
+    scn.call(app, "task.stop", {"task_ids": [tree]})
+    scn.end(turn)
+    scn.wait("the task ended", lambda: dm.row_status(scn, tree) in ("cancelled", "failed", "done"))
+    scn.settle()
+    scn.call(app, "conversations.change", {"id": ident, "action": "resume", "owner_words": "go on with Robin"})
+    scn.wait_model("conversation.chat.2.verify")
+    scn.wait("the task is done", lambda: dm.row_status(scn, tree) == "done")
+    scn.settle()
+    scn.close(app)
+    return scn.finish()
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# 21. A capture at send that never ends (DMN-520, I4)
+# ---------------------------------------------------------------------------------------------------------------
+
+def mm_capture_timeout() -> dict[str, Any]:
+    """The daemon's capture at send hangs: the planner waits FRONT_WINDOW_WAIT_S (10 s of real time) for it, then
+    gives up (`_screen_at_send`): the capture is stopped, `screen.capture_timeout` journaled, and the turn says the
+    owner's window was not available in time (CAPTURE_LATE)."""
+    m = Model([planner("reply", "Here's what I can tell without your window.")])
+    scn = Scenario("capture_timeout", "A front-window capture at send that never ends: the planner waits its limit, "
+                   "journals the timeout and plans without it.",
+                   CHAT + [f"{SUP}:2671 _screen_at_send (timeout)"], m)
+    captures: list[dict[str, Any]] = []
+
+    async def front(request_id: str, pid: Any) -> Any:
+        captures.append({"request_id": request_id, "stalled": True})
+        await asyncio.sleep(3600)
+    on_loop(scn.host, lambda: setattr(scn.host.daemon, "front_window", front))
+    chat_turn(scn, "what's on my screen?")
+    out = scn.finish()
+    out["captures"] = captures
+    return out
+
+
+# ---------------------------------------------------------------------------------------------------------------
 # Output, as make_control.py writes it
 # ---------------------------------------------------------------------------------------------------------------
 
@@ -1061,7 +1296,8 @@ SCENARIOS = [mm_summary_fold, mm_several_asks, mm_plan_parts_checklist, mm_remem
              mm_last_call_empty, mm_unbacked_part, mm_correct_pending_check, mm_earlier_result,
              mm_loop_steer_finish, mm_loop_pause_stop, mm_mention_paused, mm_owner_closed_tab, mm_reason_findings,
              mm_runtime_switch_tap, mm_event_wait, mm_conversation_handover, mm_conversation_change,
-             mm_stated_scope, mm_front_window, mm_preview_attention, mm_browse_as_corrected]
+             mm_stated_scope, mm_front_window, mm_preview_attention, mm_browse_as_corrected, mm_probe_watch,
+             mm_login_sites, mm_displaced_question, mm_inventory_walk, mm_conversation_resume, mm_capture_timeout]
 
 
 def main() -> None:
@@ -1072,9 +1308,10 @@ def main() -> None:
     out: list[dict[str, Any]] = []
     records: dict[str, Any] = {}
     failed: list[str] = []
-    for fn in SCENARIOS:
+    for index, fn in enumerate(SCENARIOS):
         if only and fn.__name__ not in only:
             continue
+        dm.SCENARIO_N.n = index        # its folder number as a full run gives it (`/FX/NN`), however few are run
         sm.CURRENT["records"] = []
         sm.SENT.clear()
         try:

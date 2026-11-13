@@ -392,6 +392,11 @@ pub struct TestDaemon {
     journal_to: Mutex<Option<std::sync::Weak<ferb_supervisor::flow::Inner>>>,
     asked_kinds: Mutex<HashMap<String, String>>,
     answered: Mutex<BTreeSet<String>>,
+    /// How each episode capture after an outcome ends (None: captured; `hang`: never answers).
+    pub episode_fault: Mutex<Option<ferb_supervisor::flow::EpisodeFault>>,
+    pub episode_hang: AtomicBool,
+    /// The daemon shuts the supervisor down after the scenario's last step (main.py `shutdown`).
+    pub shut_down_at_end: AtomicBool,
 }
 
 pub struct Gate {
@@ -816,6 +821,20 @@ impl Daemon for TestDaemon {
     }
     fn on_episode<'a>(&'a self, _tree_id: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(async {})
+    }
+    fn capture_episode<'a>(
+        &'a self,
+        _tree_id: &'a str,
+    ) -> BoxFuture<'a, Result<(), ferb_supervisor::flow::EpisodeFault>> {
+        Box::pin(async move {
+            if self.episode_hang.load(Ordering::SeqCst) {
+                std::future::pending::<()>().await;
+            }
+            match self.episode_fault.lock().unwrap().clone() {
+                Some(f) => Err(f),
+                None => Ok(()),
+            }
+        })
     }
     fn last_run_origins(&self) -> BTreeSet<String> {
         BTreeSet::new()
@@ -1579,6 +1598,9 @@ pub fn world(name: &str) -> World {
         journal_to: Mutex::default(),
         asked_kinds: Mutex::default(),
         answered: Mutex::default(),
+        episode_fault: Mutex::default(),
+        episode_hang: AtomicBool::new(false),
+        shut_down_at_end: AtomicBool::new(false),
     });
     let clock = Arc::new(
         FakeClock::new(ferb_clock::py::parse("2026-01-01T09:00:00+00:00")).with_zone(Zone::utc()),
@@ -1726,6 +1748,9 @@ pub fn run(w: &mut World, name: &str) -> Report {
         }
         for _ in 0..200 {
             tokio::task::yield_now().await;
+        }
+        if w.daemon.shut_down_at_end.load(Ordering::SeqCst) {
+            w.sup.shut_down().await;
         }
     });
     if let Some(n) = w.daemon.unsupported.lock().unwrap().first() {

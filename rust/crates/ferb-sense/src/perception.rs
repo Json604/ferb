@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use chrono::TimeDelta;
 use ferb_core::interfaces::Clock;
 use ferb_core::when::isoformat;
-use ferb_sanitize::parity::lower;
+use ferb_py::text::lower;
 use ferb_store::retention::TYPED_DAYS;
 use ferb_store::Db;
 use rusqlite::{params, OptionalExtension};

@@ -797,6 +797,17 @@ async fn control(d: &Arc<Daemon>, s: &StandIns, req: &Value) -> Result<Value, St
             );
             Ok(Value::Null)
         }
+        "record_request" => {
+            // the owner's words and targets of a request (what the supervisor records when a task starts)
+            d.gateway.record_request(ferb_policy::small::Request {
+                request_id: req["request_id"].as_str().unwrap_or("req-1").to_string(),
+                words: req["words"].as_str().unwrap_or("").to_string(),
+                targets: ferb_policy::small::Targets::from_json(&req["targets"]),
+                payload: req["words"].as_str().unwrap_or("").to_string(),
+                asked_origins: BTreeSet::new(),
+            });
+            Ok(Value::Null)
+        }
         "attach_identity" => {
             // `use_identity_browser`: FERB's own profile's tools join the registry (the catalog's last 21)
             let mut reg = d.gateway.registry();

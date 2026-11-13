@@ -146,14 +146,39 @@ on the real Python daemon through the daemon recorder's harness (its stand-ins, 
 | front_window | L12: `_screen_at_send` and `front_window_block` in the planner's turn, the image refused once (ORCH-524: run again without it), two messages read together (`_by_window`, two images), the start-of-task screenshot |
 | preview_attention | ORCH-500: `Supervisor.preview` of a two-step plan; L10: `Supervisor.attention` twice on one invented moment (one answer citing its source, one dropped) |
 | browse_as_corrected | APP-777: `_browse_as` (the owner's picked profile, the worker's identity, `task.browses_as_owner`); a correction giving the running worker a new goal and condition, read by its check |
+| probe_watch | L31: a look-only round (`_look_only`: its check skipped) arms a probe on fs.read (`arm`, the runner's `_arm`: a baseline read), the watch's reads (`_watch`), the owner's change and the probe interval (a `clock` step), a trip, the next round told what it observed (`_probe_exposure`), the end checked |
+| login_sites | L36 §5: a login name given in chat s2 while correcting a task of chat s1: `_turn_sites` (none typed in s2) and `_sites_named_elsewhere` (the site typed in s1) reach the memory port |
+| displaced_question | L3, rule 14: a forget waits and the planner asked a password question; "yes" could answer either, so FERB asks which (`_answer`, WHICH_ONE); the next one-word message is hidden (`_hide_code_reply`: `asked_only_about` true for FERB's which-question about a memory question, `displaced_question` the planner's) |
+| inventory_walk | ORCH-580/625: `_problems` walks a plan's inputs (a folder of invented receipts, an absent file): the absent input and the measured inventory told back; the repaired answer is a reply |
+| conversation_resume | F9: a conversation's first turn under way when the owner stops its task; `conversations.change resume` of a conversation whose tree no longer runs (`change_conversation`: its step interrupted, the plan suspended, saved plans resumed); its next turn hands over |
+| capture_timeout | DMN-520, I4: a capture at send that never ends: the planner waits FRONT_WINDOW_WAIT_S (10 s of real time), journals `screen.capture_timeout` and plans without the window (CAPTURE_LATE) |
 
-Steps these add: `mention_paused`, `plan_event` (the supervisor's call on the daemon's loop), `runtime_switch` (with
+A run of some scenarios numbers each one's folder (`/FX/NN`) as a full run does (its place in `SCENARIOS`), so a
+partial run writes the same bytes for them; the merged file keeps the other scenarios as they were and puts the ones
+run at its end (a full run writes them in `SCENARIOS` order).
+
+Steps these add: `write_file` (an invented file the owner writes in the workspace, written by the replay at the
+same point), the waits `the probe has read N times` and `the task is done`, `mention_paused`, `plan_event` (the supervisor's call on the daemon's loop), `runtime_switch` (with
 the offer and the answer recorded), `preview` and `attention` (the supervisor's calls on the daemon's loop, with what
 they answered), and waits `the loop watches`, `the plan waits` and `the conversation waits`. `uuid.uuid4` is a counter (a
 loop notice's id). `port` records also hold memory's `memory_candidates` (the attention check) and the browsers' area
-`browsing` (a task given to FERB). A scenario's `captures` are the front windows the daemon captured at send
+`browsing` (a task given to FERB), and the gateway's loop probe reads (`probe`: the grant's task, worker, scopes and
+identity, the tool, its arguments, the span; the gateway's answer: `patch_probe`), answered by the in-process replay
+(the program's replay runs its real gateway's probe on the real file). A scenario's `captures` are the front windows the daemon captured at send
 (`capture_at_send`, invented: two windows in turn, a few invented bytes as the screenshot).
 
-`tests/replay_more.rs` replays all 27 fully with tests/replay.rs's harness (moved to `tests/replay/harness.rs`). One
+`tests/replay_more.rs` replays all 33 fully with tests/replay.rs's harness (moved to `tests/replay/harness.rs`). One
 deliberate difference is applied to `remember_then_forget`'s recording before it is compared (`FIXES`): Python's reply
-tags the forget question's "FERB deletes:" line, FERB's own words, as "(from the task)"; the port does not.
+tags the forget question's "FERB deletes:" line, FERB's own words, as "(from the task)"; the port does not. The same
+difference is applied to `displaced_question`, whose later planner turns show that reply in their history, so their
+context is 16 bytes shorter and its budget line counts 16 tokens fewer.
+
+## wait_cut.json (`make_wait_cut.py`)
+
+    cd <repo> && uv run python rust/fixtures/supervisor/make_wait_cut.py
+
+supervisor.py:5657 `_wait_cut` (ORCH-633), the real method on the real journal with invented `wait.ended` rows: the
+fact a step's next run gets when FERB's restart ended its tree's wait.for (the latest row of the tree, its time in the
+Mac's zone, its line made printable; none for another tree's or no row), in UTC and Asia/Kolkata. Replayed by
+`ferb-supervisor/tests/control_scenarios.rs` `a_wait_a_restart_cut_is_told_as_python_tells_it`, through the supervisor
+on a scenario's store and as text for each zone.

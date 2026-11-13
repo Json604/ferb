@@ -30,7 +30,7 @@ fn near(a: &Rect, b: &Rect) -> bool {
 }
 
 fn words(s: &str) -> String {
-    s.split(ferb_sanitize::parity::is_space)
+    s.split(ferb_py::text::is_space)
         .filter(|w| !w.is_empty())
         .collect::<Vec<_>>()
         .join(" ")
@@ -54,7 +54,7 @@ pub fn window_on_screen(
         .list(false)
         .unwrap_or_default()
         .into_iter()
-        .filter(|w| w.layer == 0 && w.alpha > 0.0)
+        .filter(|w| w.normal_layer() && w.alpha > 0.0)
         .collect();
     let target = |w: &Window| {
         w.pid == pid
@@ -83,7 +83,7 @@ pub fn front_window(
         .list(true)
         .unwrap_or_default()
         .into_iter()
-        .filter(|w| w.pid == pid && w.layer == 0 && w.alpha > 0.0)
+        .filter(|w| w.pid == pid && w.normal_layer() && w.alpha > 0.0)
         .collect();
     if let Some(l) = like {
         mine.retain(|w| near(&w.bounds, &l));
@@ -105,7 +105,7 @@ pub fn normal_windows(list: &dyn WindowList) -> Vec<Window> {
     list.list(false)
         .unwrap_or_default()
         .into_iter()
-        .filter(|w| w.layer == 0 && w.alpha > 0.0 && w.bounds.2 > 0.0 && w.bounds.3 > 0.0)
+        .filter(|w| w.normal_layer() && w.alpha > 0.0 && w.bounds.2 > 0.0 && w.bounds.3 > 0.0)
         .collect()
 }
 

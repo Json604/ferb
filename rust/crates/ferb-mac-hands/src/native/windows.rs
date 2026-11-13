@@ -86,6 +86,7 @@ impl NativeWindows {
                         title: text(dict_get(d, k_name)).unwrap_or_default(),
                         layer: num(dict_get(d, k_layer)).map(|l| l as i64).unwrap_or(0),
                         alpha: num(dict_get(d, k_alpha)).unwrap_or(1.0),
+                        layer_known: num(dict_get(d, k_layer)).is_some(),
                     },
                     owner_name: text(dict_get(d, k_owner)).unwrap_or_default(),
                 });

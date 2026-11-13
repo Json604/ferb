@@ -395,6 +395,8 @@ impl Inner {
                 self.route(&turn, d.out, emit).await
             }
         };
+        // a correction's woken loops, if no exit woke them (a route that ended in a fault)
+        self.wake_deferred(&turn);
         self.live().turns.remove(lead);
         result
     }
@@ -2804,6 +2806,7 @@ impl Inner {
             let _ = emit.send(json!({"type": kind, "text": text}));
         }
         if resumed.is_none() {
+            // supervisor.py:1503 `_targets`: the spec's targets, its paths normalized
             let targets = &spec.targets;
             let paths: Vec<String> = targets.paths.iter().map(|p| self.normalize(p)).collect();
             self.deps.daemon.record_request(&Request {

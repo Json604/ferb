@@ -421,7 +421,7 @@ impl RecordingManager {
         let path = std::path::absolute(&path).map_err(io_err)?;
         if path
             .extension()
-            .map(|e| ferb_sanitize::parity::lower(&e.to_string_lossy()))
+            .map(|e| ferb_py::text::lower(&e.to_string_lossy()))
             != Some("mp4".into())
         {
             return Err(HandError::Refused(

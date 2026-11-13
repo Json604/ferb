@@ -298,3 +298,39 @@ fn preview_attention() {
 fn browse_as_corrected() {
     full("browse_as_corrected");
 }
+
+// decision: ORCH-505
+// decision: ORCH-506
+#[test]
+fn probe_watch() {
+    full("probe_watch");
+}
+
+#[test]
+fn login_sites() {
+    full("login_sites");
+}
+
+#[test]
+fn displaced_question() {
+    full("displaced_question");
+}
+
+// decision: ORCH-580
+// decision: ORCH-581
+#[test]
+fn inventory_walk() {
+    full("inventory_walk");
+}
+
+// decision: ORCH-301
+#[test]
+fn conversation_resume() {
+    full("conversation_resume");
+}
+
+// decision: DMN-520
+#[test]
+fn capture_timeout() {
+    full("capture_timeout");
+}

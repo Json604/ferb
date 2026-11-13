@@ -496,33 +496,6 @@ pub fn memory_read(m: &MemorySide<'_>, a: &MemoryArgs) -> Result<ToolResult, Too
 /// `MEMORY_LEARNED_MOST`: a query ranks at most this many.
 pub const MEMORY_LEARNED_MOST: usize = 100;
 
-struct SearchClock<'a>(&'a dyn ferb_learning::Clock);
-impl ferb_memory::search::Clock for SearchClock<'_> {
-    fn now(&self) -> ferb_memory::times::DateTime {
-        self.0.now()
-    }
-}
-
-/// `_memory_item_search`: the facts ranked by the one search (keywords and recency: no embedding vector is read in
-/// this build, as Python's when the model isn't loaded yet).
-pub fn memory_item_search(
-    memory: &ferb_learning::items::Memory,
-    query: &str,
-) -> Result<Vec<String>, String> {
-    let db = memory.store.db.clone();
-    let clock = SearchClock(memory.clock.as_ref());
-    let search = ferb_memory::search::MemorySearch::new(db.conn(), &clock, None);
-    let facts = ferb_memory::search::StoreFacts(db.conn());
-    search
-        .facts(&facts, query, None, "", Some(MEMORY_LEARNED_MOST), &[])
-        .map(|hits| {
-            hits.into_iter()
-                .map(|h| h.doc.strip_prefix("memory:").unwrap_or(&h.doc).to_string())
-                .collect()
-        })
-        .map_err(|e| e.to_string())
-}
-
 // ---------------------------------------------------------------------------------------------------------------
 // the tools
 // ---------------------------------------------------------------------------------------------------------------
@@ -677,7 +650,8 @@ pub fn tool_named(p: &Parts, name: &'static str) -> Arc<dyn Tool> {
             Box::pin(async move {
                 let ga = group_a(&p)?;
                 ga.call(move |st: Rc<ferb_daemon::areas_a::State>| async move {
-                    let search = |q: &str| memory_item_search(&st.memory, q);
+                    let search =
+                        |q: &str| ferb_daemon::areas_a::candidates::memory_item_search(&st, q);
                     memory_read(
                         &MemorySide {
                             memory: &st.memory,
@@ -716,9 +690,10 @@ pub fn tool_named(p: &Parts, name: &'static str) -> Arc<dyn Tool> {
                 .map(|o| answer(o.content, o.is_error, o.read_sources).into())
             })
         }),
-        "secrets.list" => Arc::new(move |a, _c| {
+        "secrets.list" => Arc::new(move |a, c| {
             let p = parts.clone();
             let place = s_or(a, "place");
+            let ctx = c.clone();
             Box::pin(async move {
                 let Some(store) = p.owner_secrets() else {
                     return Err(ToolError::failed("FerbError", "daemon not started"));
@@ -744,14 +719,14 @@ pub fn tool_named(p: &Parts, name: &'static str) -> Arc<dyn Tool> {
                     } else {
                         None
                     };
-                    // the task's owner-typed sites (`HiddenInput._question_sites`) are the gateway's and not public in
-                    // this build: none are listed (seam mismatch, listed)
-                    ferb_identity::secret_tools::secrets_list(
-                        &store,
-                        &place,
-                        &|_| Vec::new(),
-                        holding,
-                    )
+                    // the task's owner-typed site for this place, read as a link (`HiddenInput._question_sites`)
+                    let gw = p.gateway();
+                    let sites = |target: &str| {
+                        gw.as_ref()
+                            .map(|g| g.question_sites(&ctx, target))
+                            .unwrap_or_default()
+                    };
+                    ferb_identity::secret_tools::secrets_list(&store, &place, &sites, holding)
                 })
                 .await
                 .map_err(gone)?;
@@ -1059,11 +1034,14 @@ async fn chat_history_run(
     };
     let root = task_root(p, task);
     let sp = p.clone();
-    // `_chat_search`: the conversation's entries by keywords (no embedding vector in this build), only its own
+    // `_chat_search`: the conversation's entries by meaning and keywords, only its own
     let search: ferb_orchestrator::evidence::Search =
         Arc::new(move |root, query, since, until, limit| {
             let p = sp.clone();
-            Box::pin(async move { chat_search(&p, &root, &query, since, until, limit) })
+            Box::pin(async move {
+                let vector = query_vector(&p, &query).await;
+                chat_search(&p, &root, &query, since, until, limit, vector)
+            })
         });
     let home = p.home().join("ferb.db");
     let db = ferb_store::Db::open(&home).map_err(failed)?;
@@ -1074,6 +1052,23 @@ async fn chat_history_run(
     Ok(answer(ans.content, ans.is_error, ans.read_sources).into())
 }
 
+/// `_query_vector(query)` on group A's thread (its learning store holds the local model): the model's name and the
+/// query's vector, None without a model.
+async fn query_vector(p: &Parts, query: &str) -> Option<(String, Option<Vec<i8>>)> {
+    let ga = p.group_a()?;
+    let q = query.to_string();
+    ga.call(move |st: Rc<ferb_daemon::areas_a::State>| async move {
+        let name = st.learning.embedder()?.name().to_string();
+        Some((
+            name,
+            ferb_daemon::areas_a::candidates::query_vector(&st, &q).0,
+        ))
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 fn chat_search(
     p: &Parts,
     root: &str,
@@ -1081,6 +1076,7 @@ fn chat_search(
     since: Option<String>,
     until: Option<String>,
     limit: i64,
+    vector: Option<(String, Option<Vec<i8>>)>,
 ) -> Vec<String> {
     let Ok(db) = ferb_store::Db::open(p.home().join("ferb.db")) else {
         return Vec::new();
@@ -1093,12 +1089,12 @@ fn chat_search(
     struct Now(Arc<dyn ferb_core::interfaces::Clock>);
     impl ferb_memory::search::Clock for Now {
         fn now(&self) -> ferb_memory::times::DateTime {
-            ferb_memory::times::DateTime::from_isoformat(&ferb_core::when::isoformat(&self.0.now()))
-                .expect("an ISO time")
+            ferb_core::when::to_py(&self.0.now()).expect("a clock's time")
         }
     }
     let clock = Now(p.clock());
-    let search = ferb_memory::search::MemorySearch::new(db.conn(), &clock, None);
+    let (model, vector) = vector.map_or((None, None), |(m, v)| (Some(m), v));
+    let search = ferb_memory::search::MemorySearch::new(db.conn(), &clock, model);
     let accept = |row: &ferb_memory::search::ChatRow| {
         c.belongs(
             &conversation,
@@ -1113,7 +1109,7 @@ fn chat_search(
     search
         .chat(
             query,
-            None,
+            vector.as_deref(),
             limit.max(0) as usize,
             &ferb_memory::search::CHAT_KINDS,
             &accept,

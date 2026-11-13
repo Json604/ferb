@@ -580,8 +580,7 @@ fn core_identity(grant: &RunGrant) -> Identity {
 pub struct StoreTime(pub Arc<dyn Clock>);
 impl ferb_store::spans::Clock for StoreTime {
     fn now(&self) -> ferb_py::time::DateTime {
-        ferb_py::time::DateTime::from_isoformat(&when::isoformat(&self.0.now()))
-            .expect("the clock's time is ISO")
+        when::to_py(&self.0.now()).expect("the clock's time is representable")
     }
 }
 pub struct StoreIds(pub Arc<dyn IdSource>);
@@ -642,6 +641,23 @@ impl Gateway {
 
     fn hooks(&self) -> &dyn CallHooks {
         self.d.hooks.as_ref()
+    }
+
+    /// The resource locks every call takes (`self.locks`).
+    pub fn locks(&self) -> &crate::locks::ResourceLocks {
+        &self.locks
+    }
+
+    /// `locks.try_hold(keys, holder, during_reads)` (call_hooks.py:80, DMN-403/406): a bystander (the live preview)
+    /// takes every key only when each is free and nobody waits for it, else none at once; never queued behind a
+    /// call. Checked and taken under one lock of the lock table, so no call slips in between the look and the take.
+    pub fn try_hold(
+        &self,
+        keys: &[String],
+        holder: &str,
+        during_reads: bool,
+    ) -> Result<Option<crate::locks::Held>, String> {
+        self.locks.try_hold(keys, holder, during_reads)
     }
 
     // ---------- the state the daemon and the orchestrator change ----------
@@ -4741,9 +4757,7 @@ impl Gateway {
             )
         })?;
         let seconds = span.ended_at.as_ref().map(|e| {
-            let at = |t: &ferb_py::time::DateTime| {
-                when::parse(&t.isoformat(ferb_py::time::Timespec::Auto))
-            };
+            let at = |t: &ferb_py::time::DateTime| when::from_py(t).ok();
             let d = match (at(e), at(&span.started_at)) {
                 (Some(a), Some(b)) => (a - b).num_microseconds().unwrap_or(0) as f64 / 1e6,
                 _ => 0.0,
@@ -5754,10 +5768,14 @@ impl Gateway {
         if !model_schema.is_object() {
             model_schema = json!({});
         }
-        let hooks = tool.hooks();
-        let mut model = crate::pydantic::Model::of(&model_schema);
-        model.hooks = hooks.as_deref();
-        let args = match model.validate(&Value::Object(arguments.clone())) {
+        // the argument model and its hooks (not `Send`) end before the first await, so the probe's future is `Send`
+        let checked = {
+            let hooks = tool.hooks();
+            let mut model = crate::pydantic::Model::of(&model_schema);
+            model.hooks = hooks.as_deref();
+            model.validate(&Value::Object(arguments.clone()))
+        };
+        let args = match checked {
             Ok(a) => a,
             Err(details) => {
                 let reprs: Vec<String> = details

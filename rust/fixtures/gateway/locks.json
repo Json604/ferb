@@ -1,0 +1,572 @@
+{
+ "made_by": "rust/fixtures/gateway/make_locks.py",
+ "scenarios": [
+  {
+   "name": "looks_alongside_a_read",
+   "from": "test_hangs_and_previews.py::test_the_preview_looks_alongside_a_read",
+   "steps": [
+    {
+     "do": "hold",
+     "id": "w",
+     "keys": [
+      "tab:b/1"
+     ],
+     "holder": "worker",
+     "reading": true
+    },
+    {
+     "do": "try",
+     "keys": [
+      "tab:b/1"
+     ],
+     "holder": "preview",
+     "during_reads": true
+    },
+    {
+     "do": "holders",
+     "keys": [
+      "tab:b/1"
+     ]
+    },
+    {
+     "do": "try",
+     "keys": [
+      "tab:b/1"
+     ],
+     "holder": "preview"
+    },
+    {
+     "do": "hold_bg",
+     "id": "next",
+     "keys": [
+      "tab:b/1"
+     ],
+     "holder": "next"
+    },
+    {
+     "do": "try",
+     "keys": [
+      "tab:b/1"
+     ],
+     "holder": "preview",
+     "during_reads": true
+    },
+    {
+     "do": "cancel",
+     "id": "next"
+    },
+    {
+     "do": "try",
+     "keys": [
+      "tab:b/1"
+     ],
+     "holder": "preview",
+     "during_reads": true
+    },
+    {
+     "do": "release",
+     "id": "w"
+    },
+    {
+     "do": "hold",
+     "id": "act",
+     "keys": [
+      "tab:b/1"
+     ],
+     "holder": "worker"
+    },
+    {
+     "do": "try",
+     "keys": [
+      "tab:b/1"
+     ],
+     "holder": "preview",
+     "during_reads": true
+    },
+    {
+     "do": "release",
+     "id": "act"
+    },
+    {
+     "do": "try_keep",
+     "id": "p",
+     "keys": [
+      "tab:b/1"
+     ],
+     "holder": "preview",
+     "during_reads": true
+    },
+    {
+     "do": "holders",
+     "keys": [
+      "tab:b/1"
+     ]
+    },
+    {
+     "do": "release",
+     "id": "p"
+    },
+    {
+     "do": "holders",
+     "keys": [
+      "tab:b/1"
+     ]
+    }
+   ],
+   "results": [
+    null,
+    true,
+    {
+     "tab:b/1": "worker"
+    },
+    false,
+    null,
+    false,
+    null,
+    true,
+    null,
+    null,
+    false,
+    null,
+    true,
+    {
+     "tab:b/1": "preview"
+    },
+    null,
+    {
+     "tab:b/1": null
+    }
+   ]
+  },
+  {
+   "name": "never_ahead_of_a_waking_worker",
+   "from": "locks.py:26 _waited_for; DMN-403",
+   "steps": [
+    {
+     "do": "hold",
+     "id": "a",
+     "keys": [
+      "app:com.example.Notes"
+     ],
+     "holder": "w1"
+    },
+    {
+     "do": "hold_bg",
+     "id": "b",
+     "keys": [
+      "app:com.example.Notes"
+     ],
+     "holder": "w2"
+    },
+    {
+     "do": "release",
+     "id": "a"
+    },
+    {
+     "do": "try",
+     "keys": [
+      "app:com.example.Notes"
+     ],
+     "holder": "preview",
+     "during_reads": true
+    },
+    {
+     "do": "try",
+     "keys": [
+      "app:com.example.Notes"
+     ],
+     "holder": "preview"
+    },
+    {
+     "do": "run"
+    },
+    {
+     "do": "holders",
+     "keys": [
+      "app:com.example.Notes"
+     ]
+    },
+    {
+     "do": "try",
+     "keys": [
+      "app:com.example.Notes"
+     ],
+     "holder": "preview",
+     "during_reads": true
+    },
+    {
+     "do": "release",
+     "id": "b"
+    },
+    {
+     "do": "try",
+     "keys": [
+      "app:com.example.Notes"
+     ],
+     "holder": "preview"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    null,
+    false,
+    false,
+    null,
+    {
+     "app:com.example.Notes": "w2"
+    },
+    false,
+    null,
+    true
+   ]
+  },
+  {
+   "name": "a_read_with_a_waiter_is_busy",
+   "from": "locks.py:59 try_hold during_reads",
+   "steps": [
+    {
+     "do": "hold",
+     "id": "r",
+     "keys": [
+      "tab:b/1"
+     ],
+     "holder": "reader",
+     "reading": true
+    },
+    {
+     "do": "hold_bg",
+     "id": "q",
+     "keys": [
+      "tab:b/1"
+     ],
+     "holder": "actor"
+    },
+    {
+     "do": "try",
+     "keys": [
+      "tab:b/1"
+     ],
+     "holder": "preview",
+     "during_reads": true
+    },
+    {
+     "do": "release",
+     "id": "r"
+    },
+    {
+     "do": "run"
+    },
+    {
+     "do": "try",
+     "keys": [
+      "tab:b/1"
+     ],
+     "holder": "preview",
+     "during_reads": true
+    },
+    {
+     "do": "holders",
+     "keys": [
+      "tab:b/1"
+     ]
+    },
+    {
+     "do": "release",
+     "id": "q"
+    },
+    {
+     "do": "holders",
+     "keys": [
+      "tab:b/1"
+     ]
+    }
+   ],
+   "results": [
+    null,
+    null,
+    false,
+    null,
+    null,
+    false,
+    {
+     "tab:b/1": "actor"
+    },
+    null,
+    {
+     "tab:b/1": null
+    }
+   ]
+  },
+  {
+   "name": "several_keys_all_or_none",
+   "from": "locks.py:60 every lock only if each is free",
+   "steps": [
+    {
+     "do": "hold",
+     "id": "f",
+     "keys": [
+      "file:/x/a.txt"
+     ],
+     "holder": "worker"
+    },
+    {
+     "do": "try_keep",
+     "id": "p",
+     "keys": [
+      "tab:b/2",
+      "file:/x/a.txt",
+      "app:com.example.A"
+     ],
+     "holder": "preview"
+    },
+    {
+     "do": "holders",
+     "keys": [
+      "tab:b/2",
+      "file:/x/a.txt",
+      "app:com.example.A"
+     ]
+    },
+    {
+     "do": "release",
+     "id": "f"
+    },
+    {
+     "do": "try_keep",
+     "id": "p2",
+     "keys": [
+      "tab:b/2",
+      "file:/x/a.txt",
+      "app:com.example.A",
+      "tab:b/2"
+     ],
+     "holder": "preview"
+    },
+    {
+     "do": "holders",
+     "keys": [
+      "tab:b/2",
+      "file:/x/a.txt",
+      "app:com.example.A"
+     ]
+    },
+    {
+     "do": "try",
+     "keys": [
+      "file:/x/a.txt"
+     ],
+     "holder": "other"
+    },
+    {
+     "do": "release",
+     "id": "p2"
+    },
+    {
+     "do": "holders",
+     "keys": [
+      "tab:b/2",
+      "file:/x/a.txt",
+      "app:com.example.A"
+     ]
+    }
+   ],
+   "results": [
+    null,
+    false,
+    {
+     "tab:b/2": null,
+     "file:/x/a.txt": "worker",
+     "app:com.example.A": null
+    },
+    null,
+    true,
+    {
+     "tab:b/2": "preview",
+     "file:/x/a.txt": "preview",
+     "app:com.example.A": "preview"
+    },
+    false,
+    null,
+    {
+     "tab:b/2": null,
+     "file:/x/a.txt": null,
+     "app:com.example.A": null
+    }
+   ]
+  },
+  {
+   "name": "a_read_is_looked_at_and_the_rest_taken",
+   "from": "locks.py:75 a read holds it: not taken",
+   "steps": [
+    {
+     "do": "hold",
+     "id": "r",
+     "keys": [
+      "tab:b/3"
+     ],
+     "holder": "reader",
+     "reading": true
+    },
+    {
+     "do": "try_keep",
+     "id": "p",
+     "keys": [
+      "tab:b/3",
+      "app:com.example.B"
+     ],
+     "holder": "preview",
+     "during_reads": true
+    },
+    {
+     "do": "holders",
+     "keys": [
+      "tab:b/3",
+      "app:com.example.B"
+     ]
+    },
+    {
+     "do": "release",
+     "id": "r"
+    },
+    {
+     "do": "holders",
+     "keys": [
+      "tab:b/3",
+      "app:com.example.B"
+     ]
+    },
+    {
+     "do": "try",
+     "keys": [
+      "tab:b/3"
+     ],
+     "holder": "other"
+    },
+    {
+     "do": "release",
+     "id": "p"
+    },
+    {
+     "do": "try",
+     "keys": [
+      "app:com.example.B"
+     ],
+     "holder": "other"
+    }
+   ],
+   "results": [
+    null,
+    true,
+    {
+     "tab:b/3": "reader",
+     "app:com.example.B": "preview"
+    },
+    null,
+    {
+     "tab:b/3": null,
+     "app:com.example.B": "preview"
+    },
+    true,
+    null,
+    true
+   ]
+  },
+  {
+   "name": "a_bystander_holds_and_the_worker_waits",
+   "from": "test_task_preview.py never queues; abandoned frees",
+   "steps": [
+    {
+     "do": "try_keep",
+     "id": "p",
+     "keys": [
+      "app:com.example.Notes"
+     ],
+     "holder": "preview:t"
+    },
+    {
+     "do": "hold_bg",
+     "id": "w",
+     "keys": [
+      "app:com.example.Notes"
+     ],
+     "holder": "worker"
+    },
+    {
+     "do": "holders",
+     "keys": [
+      "app:com.example.Notes"
+     ]
+    },
+    {
+     "do": "release",
+     "id": "p"
+    },
+    {
+     "do": "run"
+    },
+    {
+     "do": "holders",
+     "keys": [
+      "app:com.example.Notes"
+     ]
+    },
+    {
+     "do": "release",
+     "id": "w"
+    },
+    {
+     "do": "try",
+     "keys": [
+      "app:com.example.Notes"
+     ],
+     "holder": "preview:t"
+    }
+   ],
+   "results": [
+    true,
+    null,
+    {
+     "app:com.example.Notes": "preview:t"
+    },
+    null,
+    null,
+    {
+     "app:com.example.Notes": "worker"
+    },
+    null,
+    true
+   ]
+  },
+  {
+   "name": "unknown_kind",
+   "from": "locks.py:22",
+   "steps": [
+    {
+     "do": "try",
+     "keys": [
+      "disk:x"
+     ],
+     "holder": "preview"
+    },
+    {
+     "do": "try",
+     "keys": [
+      "tab:ok",
+      "screen:main"
+     ],
+     "holder": "preview",
+     "during_reads": true
+    }
+   ],
+   "results": [
+    {
+     "error": "unknown lock kind in 'disk:x'"
+    },
+    {
+     "error": "unknown lock kind in 'screen:main'"
+    }
+   ]
+  }
+ ]
+}

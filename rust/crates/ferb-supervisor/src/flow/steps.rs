@@ -42,6 +42,11 @@ impl Supervisor {
     pub fn wake_loops(&self, tree_id: &str) {
         self.inner.wake_loops(tree_id)
     }
+
+    /// supervisor.py:5657 `_wait_cut` (ORCH-633): the fact a tree's next run gets about a wait FERB's restart ended.
+    pub fn wait_cut(&self, tree_id: &str) -> Option<String> {
+        self.inner.wait_cut(tree_id)
+    }
 }
 
 impl Supervisor {

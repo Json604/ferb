@@ -11,7 +11,8 @@ use std::sync::Mutex;
 
 use ferb_clock::zone::Zone;
 use ferb_core::when::{isoformat, DateTime};
-use ferb_sanitize::parity::{casefold, is_alnum};
+use ferb_py::text::is_alnum;
+use ferb_sanitize::parity::casefold;
 use serde_json::{Map, Value};
 
 use crate::observation::dumps;

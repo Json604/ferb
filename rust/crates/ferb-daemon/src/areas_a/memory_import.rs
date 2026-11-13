@@ -13,29 +13,9 @@ use serde_json::{json, Value};
 use super::{learning_error, ok, Handler, State};
 use crate::shared::{refusal, text};
 
-/// `MemorySearch.facts` over the memory items, as `_memory_item_search` ranks them (no query vector: the local model
-/// is the embedding loop's, not started here).
+/// `_memory_item_search(query)`: the facts ranked by the one search, by meaning too once the local model is loaded.
 fn similar(st: &State, query: &str) -> Vec<String> {
-    struct Now<'a>(&'a State);
-    impl ferb_memory::search::Clock for Now<'_> {
-        fn now(&self) -> ferb_memory::times::DateTime {
-            super::to_py(&self.0.now())
-        }
-    }
-    let conn = st.db().conn();
-    let clock = Now(st);
-    let search = ferb_memory::search::MemorySearch::new(conn, &clock, None);
-    search
-        .facts(
-            &ferb_memory::search::StoreFacts(conn),
-            query,
-            None,
-            "",
-            Some(super::memory::MEMORY_LEARNED_MOST),
-            &[],
-        )
-        .map(|hits| hits.into_iter().map(|h| h.data.id).collect())
-        .unwrap_or_default()
+    super::candidates::memory_item_search(st, query).unwrap_or_default()
 }
 
 struct Seams(std::rc::Weak<State>);

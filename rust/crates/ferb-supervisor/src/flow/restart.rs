@@ -41,6 +41,13 @@ impl Supervisor {
                 let _ = job.await;
             }
         }
+        // main.py:526: learning captures are cancelled, journaled as deferred
+        self.inner.stop_episodes().await;
+    }
+
+    /// supervisor.py:5003 `finish_episodes`: every pending episode capture, awaited (tests); none is cancelled.
+    pub async fn finish_episodes(&self) {
+        self.inner.finish_episodes().await;
     }
 
     /// supervisor.py:2251 `hold_new_work` (L34 Phase G): FERB stops for an update now; nothing new starts.

@@ -19,10 +19,7 @@ struct SystemClock;
 
 impl ferb_learning::Clock for SystemClock {
     fn now(&self) -> ferb_learning::DateTime {
-        ferb_learning::DateTime::from_isoformat(&ferb_clock::py::iso(
-            &chrono::Local::now().fixed_offset(),
-        ))
-        .expect("an ISO time")
+        ferb_core::when::to_py(&chrono::Local::now().fixed_offset()).expect("a clock's time")
     }
 }
 

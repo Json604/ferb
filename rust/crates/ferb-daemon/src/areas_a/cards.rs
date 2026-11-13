@@ -68,15 +68,24 @@ pub fn app_versions(st: &State) -> Map<String, Value> {
 /// `_capture_learning_episode`: a finished task's card, after its outcome (`Supervisor.on_episode`). Failures are
 /// journaled; a capture deferred by the shutdown is left to the next start's hourly pass.
 pub async fn capture_learning_episode(st: &Rc<State>, task_id: &str) {
+    let _ = capture_learning_episode_deferred(st, task_id).await;
+}
+
+/// `_capture_learning_episode` as the supervisor's hook sees it (memory.py:96): a failure is journaled here
+/// (`memory.episode_failed`); a capture refused because FERB is stopping is passed on (true: deferred), and the
+/// supervisor journals it as deferred (`_capture_after_outcome`).
+pub async fn capture_learning_episode_deferred(st: &Rc<State>, task_id: &str) -> bool {
     let apps = app_versions(st);
     match capture_card(st, task_id, Some(apps), true).await {
-        Ok(_) | Err(CardError::Deferred) => {}
+        Ok(_) => false,
+        Err(CardError::Deferred) => true,
         Err(e) => {
             let _ = st.journal(
                 "memory.episode_failed",
                 json!({"task_id": task_id, "error": st.redact_text(&e.to_string())}),
                 None,
             );
+            false
         }
     }
 }

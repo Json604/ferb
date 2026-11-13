@@ -174,7 +174,8 @@ pub trait Daemon: Send + Sync {
     /// What `_system` reads as it assembles a role's instructions: `facts()`, `live_facts()` when `live`,
     /// `availability().text`, `identity_context()` and both catalogs.
     fn system_inputs(&self, live: bool) -> crate::prompts::SystemInputs;
-    /// `availability().text` (the checker's report).
+    /// `availability().text` (the checker's report). supervisor.py:1270 `_default_availability` (every registered
+    /// scope, no problems) is only the Python tests' stand-in for it; the daemon's is ferb-daemon's environment.
     fn availability(&self) -> String;
     fn worker_types(&self) -> Vec<String>;
     /// `signals()`: when the owner was last active, the last trail event.
@@ -198,6 +199,15 @@ pub trait Daemon: Send + Sync {
         targets: &'a str,
     ) -> BoxFuture<'a, Vec<ContextBlock>>;
     fn on_episode<'a>(&'a self, tree_id: &'a str) -> BoxFuture<'a, ()>;
+    /// `on_episode` with how it ended (supervisor.py:4980 `_capture_after_outcome` journals a refusal at shutdown,
+    /// `Deferred`, as `memory.episode_deferred` and anything else the hook raised as `memory.episode_hook_failed`).
+    /// The default runs `on_episode`, which reports neither.
+    fn capture_episode<'a>(&'a self, tree_id: &'a str) -> BoxFuture<'a, Result<(), EpisodeFault>> {
+        Box::pin(async move {
+            self.on_episode(tree_id).await;
+            Ok(())
+        })
+    }
 
     // --- schedules (SchedulePort) ---
     fn last_run_origins(&self) -> BTreeSet<String>;
@@ -688,6 +698,11 @@ pub struct Turn {
     pub focus: Option<answer::Focus>,
     /// The tree whose question this turn answered (`answered_tree`).
     pub answered_tree: Option<String>,
+    /// Trees whose loops this turn's correction wakes (`wake_loops` in `steering.apply`), handed over once the
+    /// correction is applied (loops.rs `hand_over`).
+    pub wake_after: BTreeSet<String>,
+    /// The hand-overs this turn holds: each woken loop's round waits, after its span, until the reply is recorded.
+    pub held: Vec<(String, Arc<loops::SteerHold>)>,
 }
 
 impl Turn {
@@ -841,6 +856,15 @@ impl Tree {
     }
 }
 
+/// How an episode capture after a task's outcome ended other than done (`_capture_after_outcome`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum EpisodeFault {
+    /// `Deferred`: FERB is stopping; the hourly pass captures the card again.
+    Deferred,
+    /// The hook raised: `"<class>: <message>"`.
+    Failed(String),
+}
+
 /// The supervisor's live state (`_lines`, `_turns`, `_tree_of`, `_step_seq`, the sessions).
 #[derive(Default)]
 pub struct Live {
@@ -880,6 +904,12 @@ pub struct Live {
     pub resting: BTreeSet<String>,
     /// `_answer_checks`: (tree id, step id) -> an answering loop's or conversation's end check of the task's conditions.
     pub answer_checks: Vec<((String, String), Map<String, Value>)>,
+    /// tree id -> a correction's hand-over to its resting loop (loops.rs `SteerHold`).
+    pub steer_holds: HashMap<String, Arc<loops::SteerHold>>,
+    /// `_episode_jobs`: the episode captures after a task's outcome still under way (tree id, job).
+    pub episode_jobs: Vec<(String, tokio::task::JoinHandle<()>)>,
+    /// `_capture_lock`: one capture at a time, so two never race on the same cards.
+    pub capture_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 /// The supervisor. Cheap to clone; every flow runs on a shared [`Inner`].

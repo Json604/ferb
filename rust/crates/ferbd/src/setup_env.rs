@@ -319,7 +319,7 @@ impl RuntimeFacts for Runtimes {
 }
 
 /// browsers.known / pair_key and profiles.BROWSERS, for the device scan.
-struct Catalog;
+pub(crate) struct Catalog;
 
 impl ferb_device::scan::BrowserCatalog for Catalog {
     fn known(&self, bundle_id: &str) -> bool {
@@ -447,13 +447,14 @@ pub fn env(home: &Path, out: Box<dyn Write>) -> Env<'static> {
             "Tokenizer: FERB's pinned copy is in place.".to_string()
         }),
         scan: Box::new(move |id: &str| {
-            let now = ferb_py::time::DateTime::now_local();
+            // scan.py:92 `datetime.now().astimezone().isoformat(timespec="seconds")`: aware, whole seconds (a naive
+            // `now_local` with microseconds was written here before)
             ferb_device::scan::scan(
                 id,
                 &ferb_device::scan::app_roots(&user),
                 &Catalog,
                 &crate::areas_c::macos_version(),
-                &now.isoformat(ferb_py::time::Timespec::Auto),
+                &ferb_device::scan::now_local(),
             )
         }),
         browser_support: None,

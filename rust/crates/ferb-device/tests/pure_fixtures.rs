@@ -673,3 +673,102 @@ fn the_code_hash_is_pythons() {
         p["without_extension"].as_str().unwrap()
     );
 }
+
+/// Spotlight's answer as the fixture's mdls stand-in gives it: every other app (in the order asked) has a use count
+/// of 10 + its place and a last use on the (1 + place)th of November.
+fn mdls_answer(argv: &[String]) -> Vec<u8> {
+    let at = argv
+        .iter()
+        .position(|a| a == "kMDItemLastUsedDate")
+        .unwrap();
+    let mut xml = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\">\n<array>\n",
+    );
+    for (n, path) in argv[at + 1..].iter().enumerate() {
+        if n % 2 == 0 {
+            xml.push_str(&format!(
+                "<dict><key>kMDItemPath</key><string>{path}</string><key>kMDItemUseCount</key><integer>{}</integer>\
+                 <key>kMDItemLastUsedDate</key><date>2026-11-{:02}T08:00:00Z</date></dict>\n",
+                10 + n,
+                1 + n
+            ));
+        }
+    }
+    xml.push_str("</array>\n</plist>\n");
+    xml.into_bytes()
+}
+
+/// persona.py:204 `discover_persona` on a fake home against rust/fixtures/device/persona.json (make_persona.py): the
+/// scan of invented bundles saved to FERB's home, the mdls command asked, Spotlight's counts with the owner's focus
+/// events, the browsers' profiles only with Full Disk Access (DMN-507), a failure reading them as none.
+#[test]
+fn discover_persona_on_a_fake_home_is_pythons() {
+    let f = fixture("persona.json");
+    let p = pure();
+    let base = PathBuf::from("/private/tmp/ferb-device-fx/persona");
+    let _ = std::fs::remove_dir_all(&base);
+    let apps = base.join("Apps");
+    std::fs::create_dir_all(&apps).unwrap();
+    apply(&apps, &p["scan"]["files"], &[]);
+    let catalog = Catalog(p["scan"]["catalog"].clone());
+    let cases = f["cases"].as_array().unwrap();
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let home = base.join(format!("home-{name}"));
+        std::fs::create_dir_all(&home).unwrap();
+        let activity: Vec<Map<String, Value>> = case["activity"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|a| a.as_object().unwrap().clone())
+            .collect();
+        let excluded: std::collections::BTreeSet<String> = case["excluded"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_str().unwrap().to_string())
+            .collect();
+        let asked: RefCell<Vec<Vec<String>>> = RefCell::new(Vec::new());
+        let allowed = case["allowed"].as_bool().unwrap();
+        let facts = persona::discover_persona(
+            &home,
+            &activity,
+            &excluded,
+            persona::Discover {
+                scan: &mut || {
+                    scan::scan(
+                        "dev-fx",
+                        std::slice::from_ref(&apps),
+                        &catalog,
+                        "15.4",
+                        "2026-11-13T09:30:05+00:00",
+                    )
+                },
+                usage: &mut |listed: &[AppInfo]| {
+                    persona::app_usage(listed, &mut |argv: &[String]| {
+                        asked.borrow_mut().push(argv.to_vec());
+                        Ok(mdls_answer(argv))
+                    })
+                },
+                allowed: &mut || allowed,
+                profiles: &mut || match &case["profiles"] {
+                    Value::Array(a) => Ok(a.clone()),
+                    _ => Err("Local State unreadable".into()),
+                },
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            ferb_py::json::dumps(&facts),
+            ferb_py::json::dumps(&case["facts"]),
+            "{name}"
+        );
+        assert_eq!(json!(asked.into_inner()), case["mdls"], "{name}: mdls");
+        for (rel, want) in case["files"].as_object().unwrap() {
+            let got = std::fs::read_to_string(home.join(rel)).unwrap();
+            assert_eq!(got, want.as_str().unwrap(), "{name}: {rel}");
+        }
+    }
+    let _ = std::fs::remove_dir_all(&base);
+    println!("{} cases equal", cases.len());
+}

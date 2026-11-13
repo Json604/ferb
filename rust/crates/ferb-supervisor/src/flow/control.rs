@@ -226,16 +226,25 @@ impl Inner {
                 &[],
                 "",
             )
-            .await
-            .map_err(|e| e.message())?;
+            .await;
+        let steered = match steered {
+            Ok(s) => s,
+            Err(e) => {
+                self.wake_deferred(&turn);
+                return Err(e.message());
+            }
+        };
         let Some((text, _)) = steered else {
+            self.wake_deferred(&turn);
             return Err(CARD_TASK_ENDED.into());
         };
+        self.hand_over(&turn).await;
         self.journal(
             "chat.reply",
             json!({"session_id": session, "request_id": request_id, "text": text}),
             Some(origin::FERB),
         );
+        self.wake_deferred(&turn);
         let state = self
             .deps
             .daemon
@@ -639,6 +648,8 @@ impl Inner {
                     )
                     .await?
                 {
+                    // the woken loop's round starts before this reply is written, as on Python's one thread
+                    self.hand_over(turn).await;
                     if text == JUST_ENDED {
                         // a correction that found its task ending applies none of the turn's entries
                         let mut opts = ExitAs::by(origin::FERB);
@@ -893,6 +904,7 @@ impl Inner {
         };
         let mut asked = self.deps.daemon.asked_origins(&tid);
         asked.extend(asked_outside);
+        // supervisor.py:1503 `_targets`: the spec's targets, its paths normalized
         let targets = &resumed.targets;
         let paths: Vec<String> = targets.paths.iter().map(|p| self.normalize(p)).collect();
         let continued = Request {
@@ -1149,6 +1161,7 @@ impl Inner {
         let updated = Request {
             request_id: prior.request_id.clone(),
             words: new_words,
+            // supervisor.py:1503 `_targets` (steering.py:254)
             targets: [
                 targets.apps.clone(),
                 targets.sites.clone(),
@@ -1193,7 +1206,8 @@ impl Inner {
         let message = self.redact_text(&message);
         state.messages.push(message.clone());
         let revision = state.messages.len();
-        self.wake_loops(&tree.id); // a sleeping loop reads the correction now (L31)
+        // a sleeping loop reads the correction now (L31), once this turn's reply is recorded (`wake_deferred`)
+        turn.lock().unwrap().wake_after.insert(tree.id.clone());
         if let Some(span) = self.task_span(&tree.id) {
             {
                 let db = self.db();
@@ -1446,7 +1460,26 @@ impl Inner {
             event.extend(extra);
         }
         let _ = emit.send(Value::Object(event));
+        self.wake_deferred(turn);
         Ok(())
+    }
+
+    /// This turn's reply is recorded: the rounds it handed over go on, and a correction's loops not handed over (a
+    /// path that ended early) are woken now.
+    pub(crate) fn wake_deferred(&self, turn: &Arc<Mutex<Turn>>) {
+        let (trees, held) = {
+            let mut t = turn.lock().unwrap();
+            (
+                std::mem::take(&mut t.wake_after),
+                std::mem::take(&mut t.held),
+            )
+        };
+        for (tree_id, hold) in held {
+            self.release_hold(&tree_id, &hold);
+        }
+        for tree_id in trees {
+            self.wake_loops(&tree_id);
+        }
     }
 }
 

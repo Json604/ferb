@@ -987,7 +987,7 @@ impl MacDriver {
         holder: &str,
         mechanism: &str,
     ) -> Result<ActionResult> {
-        let direction = ferb_sanitize::parity::lower(action.direction.as_deref().unwrap_or("down"));
+        let direction = ferb_py::text::lower(action.direction.as_deref().unwrap_or("down"));
         if !["up", "down", "left", "right"].contains(&direction.as_str()) {
             return refused("scroll direction must be up, down, left or right");
         }
@@ -1321,7 +1321,7 @@ impl MacDriver {
 
     /// driver.py:2449: a pop-up button's item by exact title.
     async fn select(self: &Arc<Self>, a: &A, n: &AxNode, title: &str) -> Result<ActionResult> {
-        let want = ferb_sanitize::parity::lower(ferb_py::value::strip(title));
+        let want = ferb_py::text::lower(ferb_py::value::strip(title));
         if want.is_empty() {
             return refused("select needs the item's title in text");
         }

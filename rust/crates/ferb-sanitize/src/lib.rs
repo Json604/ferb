@@ -61,10 +61,8 @@ pub fn compile_patterns() -> Result<(), Vec<&'static str>> {
 #[doc(hidden)]
 pub mod parity {
     pub use crate::labels::{entropy_at_least_3, entropy_term};
-    pub use crate::pyurl::hostname;
     pub use crate::pyvalue::{repr, to_str};
     pub use crate::rx::{fail_from, pattern_names, run_pattern, set_backtrack_limit};
-    pub use crate::unicode::{
-        casefold, is_alnum, is_alpha, is_decimal, is_digit, is_space, lower, word_char,
-    };
+    // the helpers that moved to ferb-py (`ferb_py::text`, `ferb_py::url::hostname`, journal 44) are used from there
+    pub use crate::unicode::{casefold, is_alpha, is_decimal, word_char};
 }

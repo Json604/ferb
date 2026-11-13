@@ -165,6 +165,39 @@ fn context_readers_run_through_the_binary() {
     assert!(sl.get("content").is_some(), "{sl}");
     let bad_place = shim.call("secrets.list", json!({"place": "nowhere"}));
     assert_eq!(bad_place["is_error"], true, "{bad_place}");
+    // the task's one owner-typed site is read as a link at a sign-in page elsewhere (`HiddenInput._question_sites`):
+    // the record saved at that site shows as linked (its entry names only, never a value)
+    std::fs::write(
+        run.home.join(ferb_identity::owner_secrets::FILE_NAME),
+        serde_json::to_vec(&json!({"version": 2, "records": {"https://bookslots.example": {
+            "username": null, "sites": [], "entries": {"password": "an invented account"}}}, "unusable": []}))
+        .unwrap(),
+    )
+    .unwrap();
+    run.control(json!({"do": "record_request", "request_id": "req-1",
+                        "words": "book a slot on bookslots.example",
+                        "targets": {"sites": ["bookslots.example"]}}));
+    let linked = shim.call(
+        "secrets.list",
+        json!({"place": "https://login.example.org"}),
+    );
+    assert_eq!(linked["is_error"], false, "{linked}");
+    assert!(
+        linked["content"].to_string().contains("bookslots.example"),
+        "{linked}"
+    );
+
+    // an owner browser tool with no profile paired: the resolver's refusal (areas/browsers.py:260 `Resolver`), not a
+    // fixed stand-in; profiles.json's case "bindings 0, named null" has these words
+    let opened = shim.call("browser.open", json!({"url": "https://shop.example/"}));
+    assert_eq!(opened["is_error"], true, "{opened}");
+    assert!(
+        opened["content"].to_string().contains(
+            "no browser profile is paired with FERB yet: pick the owner's profile from browser_profiles and pair it \
+             with browser_pair (FERB asks the owner once)"
+        ),
+        "{opened}"
+    );
 
     // memory.learned on an empty learning store
     let ml = shim.call("memory.learned", json!({"query": "bicycle"}));

@@ -298,8 +298,11 @@ pub struct TestDaemon {
     ports: Mutex<Vec<Value>>,
     /// The recorded journal rows (a port's own rows are written back from here).
     journal_rows: Vec<Value>,
-    /// The front windows the recorder's daemon captured at send (make_more.py `capture_at_send`), by request.
+    /// The front windows the recorder's daemon captured at send (make_more.py `capture_at_send`), by request; one
+    /// recorded `stalled` never ends (make_more.py `mm_capture_timeout`).
     captures: HashMap<String, Value>,
+    /// The loop probe reads answered from the recording (`probe` port records).
+    probe_reads: AtomicUsize,
     tool_calls: AtomicUsize,
     redactor: Arc<ferb_sanitize::Redactor>,
     clock: Arc<FakeClock>,
@@ -1134,6 +1137,39 @@ impl Daemon for TestDaemon {
         .cloned()
         .unwrap_or_default()
     }
+    /// The registered tool a loop's probe names, with its catalog facts (the daemon's `gateway.caps`).
+    fn probe_cap(&self, tool: &str) -> Option<Arc<dyn ferb_orchestrator::ports::CapFacts>> {
+        let t = self.tools.iter().find(|t| t.name == tool)?;
+        let catalog = catalog_tool(tool)?;
+        Some(Arc::new(CatalogCap {
+            scopes: t.scopes.clone(),
+            identities: t.identities.clone(),
+            observation: t.observation,
+            facts: catalog["facts"].clone(),
+            schema: t.row["input_schema"].clone(),
+        }))
+    }
+    /// A loop's probe read through the gateway (`gateway.probe`), answered as the recorder's gateway answered it
+    /// (make_more.py `patch_probe`: a `probe` port record).
+    #[allow(clippy::too_many_arguments)]
+    fn probe_read<'a>(
+        &'a self,
+        task_id: &'a str,
+        worker_id: &'a str,
+        scopes: &'a BTreeSet<String>,
+        identity: &'a str,
+        tool: &'a str,
+        args: &'a Map<String, Value>,
+        span: &'a str,
+    ) -> BoxFuture<'a, Result<Value, String>> {
+        let scopes: Vec<&String> = scopes.iter().collect();
+        let answer = self.port(
+            "probe",
+            json!({"args": [task_id, worker_id, scopes, identity, tool, args, span], "kwargs": {}}),
+        );
+        self.probe_reads.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async move { Ok(answer) })
+    }
     fn captures_at_send(&self) -> bool {
         !self.captures.is_empty()
     }
@@ -1141,6 +1177,14 @@ impl Daemon for TestDaemon {
         &'a self,
         request_id: &'a str,
     ) -> BoxFuture<'a, Result<Option<ferb_supervisor::flow::FrontCapture>, String>> {
+        if self
+            .captures
+            .get(request_id)
+            .is_some_and(|c| c["stalled"] == json!(true))
+        {
+            // the recorder's capture hung (`asyncio.sleep(3600)`): the planner's limit ends the wait
+            return Box::pin(std::future::pending());
+        }
         let got = self.captures.get(request_id).map(|c| {
             let image_ref = s(&c["image_ref"]);
             ferb_supervisor::flow::FrontCapture {
@@ -1344,6 +1388,36 @@ impl Daemon for TestDaemon {
             "forget_request",
             json!({"args": [item_id, request_id], "kwargs": {}}),
         );
+        // the memory part's question (`_ask_owner`) is in the gateway's one store, as the daemon keeps it: its id
+        // the next of the shared counter, its words the reply's without the closing "Answer Yes or No."
+        if let Some(reason) = answer
+            .as_str()
+            .and_then(|a| a.strip_suffix("\nAnswer Yes or No."))
+        {
+            let (title, rest) = reason.split_once('\n').unwrap_or((reason, ""));
+            let asked = self.gw().ask_own(&ferb_gateway::gateway::OwnQuestion {
+                capability: "memory.forget".into(),
+                reason: reason.to_string(),
+                options: vec!["Yes".into(), "No".into()],
+                request_id: format!("memory-forget-{request_id}"),
+                summary: (!rest.trim().is_empty()).then(|| title.trim().to_string()),
+                detail: (!rest.trim().is_empty())
+                    .then(|| rest.split_whitespace().collect::<Vec<_>>().join(" ")),
+                event: ferb_gateway::gateway::OwnEvent::Quiet,
+                ..Default::default()
+            });
+            let recorded = self.journal_rows.iter().find_map(|row| {
+                let data: Value = serde_json::from_str(&s(&cell(&row[4]))).ok()?;
+                (s(&cell(&row[3])) == "question.asked" && data["capability"] == "memory.forget")
+                    .then(|| s(&data["approval_id"]))
+            });
+            if recorded.as_deref().is_some_and(|r| r != asked.id) {
+                self.tool_diffs.lock().unwrap().push(format!(
+                    "the forget question's id: python {recorded:?}, rust {}",
+                    asked.id
+                ));
+            }
+        }
         answer.as_str().map(str::to_string)
     }
     fn approval(&self, id: &str) -> Option<ferb_gateway::questions::Approval> {
@@ -1990,6 +2064,7 @@ pub fn run_scenario(
             .cloned()
             .unwrap_or_default(),
         tool_calls: AtomicUsize::new(0),
+        probe_reads: AtomicUsize::new(0),
         redactor: redactor.clone(),
         clock: clock.clone(),
         sup: Mutex::new(None),
@@ -2398,6 +2473,36 @@ pub fn run_scenario(
                         }
                     }
                 }
+                // an invented file the owner writes (make_more.py `write_file`), in this run's home
+                "write_file" => {
+                    let path = std::path::Path::new(&ferb_home).join(s(&st["path"]));
+                    if let Some(dir) = path.parent() {
+                        std::fs::create_dir_all(dir).unwrap();
+                    }
+                    std::fs::write(&path, s(&st["text"])).unwrap();
+                }
+                "wait" if s(&st["until"]).starts_with("the probe has read ") => {
+                    let want: usize = s(&st["until"])
+                        .trim_start_matches("the probe has read ")
+                        .trim_end_matches(" times")
+                        .parse()
+                        .unwrap_or(1);
+                    for i in 0..10_000 {
+                        if daemon.probe_reads.load(Ordering::SeqCst) >= want {
+                            break;
+                        }
+                        if i % 100 == 99 {
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        } else {
+                            tokio::task::yield_now().await;
+                        }
+                    }
+                    if daemon.probe_reads.load(Ordering::SeqCst) < want {
+                        report.stopped = Some(format!("a wait for {} (never true here)", s(&st["until"])));
+                        break;
+                    }
+                    settle(&db).await;
+                }
                 "wait" if st["until"] == "the loop watches" => {
                     // make_more.py `loop_status`: the supervisor's `_loop_status` of the loop says watching
                     let watching = || {
@@ -2469,8 +2574,13 @@ pub fn run_scenario(
                         tokio::task::yield_now().await;
                     }
                 }
-                "wait" if st["until"] == "the task is paused" || st["until"] == "the task ended" => {
+                "wait"
+                    if st["until"] == "the task is paused"
+                        || st["until"] == "the task ended"
+                        || st["until"] == "the task is done" =>
+                {
                     let want_paused = st["until"] == "the task is paused";
+                    let want_done = st["until"] == "the task is done";
                     let status = || -> Option<String> {
                         db.lock()
                             .unwrap()
@@ -2485,7 +2595,8 @@ pub fn run_scenario(
                     let reached = |st: Option<String>| match st.as_deref() {
                         Some("paused") => want_paused,
                         Some("running") | Some("planned") | None => false,
-                        Some(_) => !want_paused,
+                        Some("done") => !want_paused,
+                        Some(_) => !want_paused && !want_done,
                     };
                     for i in 0..10_000 {
                         if reached(status()) {
@@ -2665,14 +2776,20 @@ pub fn run_scenario(
                         .filter(|(_, m)| m["key"] == json!(key))
                         .nth(n.saturating_sub(1))
                         .map(|(i, _)| i);
-                    for _ in 0..10_000 {
+                    for i in 0..20_000 {
                         let started = daemon.calls.lock().unwrap().started.iter().any(|c| {
                             at.is_some_and(|i| c["n"] == json!(i))
                         });
                         if started || (at.is_none() && daemon.calls.lock().unwrap().started.len() >= n) {
                             break;
                         }
-                        tokio::task::yield_now().await;
+                        if i >= 10_000 && i % 100 == 99 {
+                            // still not made: what it waits for may look on tokio's clock (an approved scope's turn),
+                            // which moves only while every task is idle
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        } else {
+                            tokio::task::yield_now().await;
+                        }
                         if side().is_some() {
                             // a scheduled run starts on the daemon's loop thread
                             std::thread::sleep(std::time::Duration::from_micros(200));
@@ -2795,7 +2912,10 @@ pub fn run_scenario(
                 .push(format!("call {} ({}) was not made", i + 1, s(&want["key"])));
             break;
         };
-        let parts: Vec<String> = strs(&want["parts"]).iter().map(|p| unhash(p)).collect();
+        let parts: Vec<String> = strs(&want["parts"])
+            .iter()
+            .map(|p| fixed(&name, &unhash(p)))
+            .collect();
         let expected = json!({"runtime_role": want["runtime_role"], "mode": want["mode"], "tools": want["tools"],
             "schema": want["schema"], "effort": want["effort"], "task_id": want["task_id"], "system": want["system"],
             "parts": parts, "cacheable": want["cacheable"], "images": want["images"]});
@@ -2932,7 +3052,7 @@ pub fn run_scenario(
 
 /// The deliberate differences from Python (ENG-6), applied to what the recording expects before it is compared:
 /// (scenario, recorded text, what the port says instead).
-pub const FIXES: [(&str, &str, &str); 2] = [
+pub const FIXES: [(&str, &str, &str); 6] = [
     // GATE-581: Python ends a task the global stop cut with "(from the task) FERB was stopped", marking FERB's own words
     // as the task's; the port says "FERB was stopped" (the outcome frame, the task row, the span, the journal)
     (
@@ -2948,6 +3068,17 @@ pub const FIXES: [(&str, &str, &str); 2] = [
         "(from the task) FERB deletes:",
         "FERB deletes:",
     ),
+    // the same forget question, and the planner's history of it in the later turns
+    (
+        "displaced_question",
+        "(from the task) FERB deletes:",
+        "FERB deletes:",
+    ),
+    // and so those turns' context is 16 bytes shorter: their budget line counts 16 tokens fewer (one per byte of the
+    // tag, `utf8_byte_ceiling`), in the model's parts and the model.turn span's input
+    ("displaced_question", "\": 2715,", "\": 2699,"),
+    ("displaced_question", "\": 3422,", "\": 3406,"),
+    ("displaced_question", "\": 4422,", "\": 4406,"),
 ];
 
 pub fn fixed(scenario: &str, text: &str) -> String {
@@ -3109,5 +3240,69 @@ impl ferb_gateway::seams::QuestionRouter for LateRouter {
                 None => Err("no supervisor".into()),
             }
         })
+    }
+}
+
+/// A tool's entry in the catalog (`rust/fixtures/catalog/tools.json`).
+fn catalog_tool(name: &str) -> Option<Value> {
+    static CATALOG: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    CATALOG
+        .get_or_init(|| read("rust/fixtures/catalog/tools.json"))
+        .get("tools")?
+        .as_array()?
+        .iter()
+        .find(|t| t["name"] == name)
+        .cloned()
+}
+
+/// A registered tool's facts as a loop's probe checks them (`probes.refusal`, `look_only_round`), from the catalog.
+struct CatalogCap {
+    scopes: Vec<String>,
+    identities: Vec<String>,
+    observation: bool,
+    facts: Value,
+    schema: Value,
+}
+
+impl ferb_orchestrator::ports::CapFacts for CatalogCap {
+    fn scopes(&self) -> Vec<String> {
+        self.scopes.clone()
+    }
+    fn identities(&self) -> Vec<String> {
+        self.identities.clone()
+    }
+    fn observation(&self) -> bool {
+        self.observation
+    }
+    fn probe_safe(&self) -> bool {
+        self.facts["probe_safe"].as_bool().unwrap_or(false)
+    }
+    fn moves_view(&self) -> bool {
+        self.facts["moves_view"].as_bool().unwrap_or(false)
+    }
+    fn on_screen(&self) -> bool {
+        self.facts["on_screen"].as_bool().unwrap_or(false)
+    }
+    fn holds_tab(&self) -> bool {
+        self.facts["holds_tab"].as_bool().unwrap_or(false)
+    }
+    fn probe_keys(&self) -> Vec<String> {
+        strs(&self.facts["probe_keys"])
+    }
+    fn validate(&self, args: &Value) -> Result<Map<String, Value>, String> {
+        let schema = if self.schema.is_object() {
+            self.schema.clone()
+        } else {
+            json!({})
+        };
+        let model = ferb_gateway::pydantic::Model::of(&schema);
+        match model.validate(args) {
+            Ok(mut fields) => {
+                let given = args.as_object();
+                fields.retain(|k, _| given.is_some_and(|g| g.contains_key(k)));
+                Ok(fields)
+            }
+            Err(details) => Err(format!("{} validation errors", details.len())),
+        }
     }
 }

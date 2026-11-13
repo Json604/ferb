@@ -603,8 +603,9 @@ impl Gateway {
     }
 
     /// `_login_sites` then `_question_sites` (I14): the task's owner-typed sites a record at `target` lists, only
-    /// when they are exactly one site and `target` is neither an app nor one of them.
-    fn question_sites(&self, ctx: &ToolContext, target: &str) -> Vec<String> {
+    /// when they are exactly one site and `target` is neither an app nor one of them. `secrets.list` reads them too
+    /// (secret_tools.py `sites`), as links before any entry is saved there.
+    pub fn question_sites(&self, ctx: &ToolContext, target: &str) -> Vec<String> {
         let places = self.d.places.as_ref();
         let request = self.request(&ctx.request_id);
         let own = site_host(places, target);

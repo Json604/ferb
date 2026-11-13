@@ -14,8 +14,8 @@
 //! tabs, a loop's rest, notices and probes, the standing permissions and named destinations (ferb-policy's stores on
 //! the daemon's store), the browsing choice (APP-777), what the owner typed behind memory, FERB's own observing calls.
 //!
-//! Not wired: the memory port's candidates (`_learning_candidates`: the attention check's and a worker's memory
-//! answer none) and Tier 1's identity context.
+//! The memory port's candidates (`_learning_candidates`: the attention check's and a worker's memory) come from
+//! group A's stores ([`ferb_daemon::areas_a::candidates`]). Not wired: Tier 1's identity context.
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -71,8 +71,8 @@ pub trait Reads: Send + Sync {
     fn shutdown(&self) {}
     /// `_worker_types()`: the default and each runtime available now.
     fn worker_types(&self) -> Vec<String>;
-    /// supervisor.py:3808 `_memory_blocks` (the attention check's memory): the memory port's candidates, ranked.
-    /// `_learning_candidates` is not ported here: the port answers none (as Python's does when nothing matches).
+    /// supervisor.py:3808 `_memory_blocks` (the attention check's memory): the memory port's candidates, ranked. The
+    /// default answers none (as Python's does when nothing matches); [`RealReads`] searches group A's stores.
     fn memory_blocks<'a>(
         &'a self,
         _message: &'a str,
@@ -102,7 +102,7 @@ pub trait Reads: Send + Sync {
         _query: &'a str,
         _targets: &'a str,
     ) -> BoxFuture<'a, Vec<ContextBlock>> {
-        // the worker's memory search (`_learning_candidates` with memory_search.WORKER): not wired in this build
+        // the default: none; [`RealReads`] runs the worker's memory search
         Box::pin(async { Vec::new() })
     }
     /// `model_limits(make_runtime("worker:" + type, ...))`: a worker type's documented limits, without starting it.
@@ -133,7 +133,62 @@ impl RealReads {
     }
 }
 
+impl RealReads {
+    /// `_learning_candidates(words, limits, focus=)` on group A's thread, as `ranked_memory_blocks` makes them blocks.
+    fn candidates(
+        &self,
+        words: &str,
+        limits: ferb_memory::search::Limits,
+        focus: &str,
+    ) -> BoxFuture<'static, Vec<(ContextBlock, BTreeSet<String>)>> {
+        let ga = self.tools.group_a();
+        let (words, focus) = (words.to_string(), focus.to_string());
+        Box::pin(async move {
+            let Some(ga) = ga else { return Vec::new() };
+            let found = ga
+                .call(
+                    move |st: std::rc::Rc<ferb_daemon::areas_a::State>| async move {
+                        ferb_daemon::areas_a::candidates::learning_candidates(
+                            &st, &words, limits, &focus,
+                        )
+                    },
+                )
+                .await
+                .unwrap_or_default();
+            ferb_orchestrator::context_layers::ranked_memory_blocks(&found)
+        })
+    }
+}
+
 impl Reads for RealReads {
+    /// `memory_candidates=lambda words, focus: self._learning_candidates(words, memory_search.ATTENTION, focus=focus)`
+    /// (compose.py:139), ranked into blocks (`_memory_blocks`).
+    fn memory_blocks<'a>(
+        &'a self,
+        message: &'a str,
+        focus: &'a str,
+    ) -> BoxFuture<'a, Option<Vec<ferb_supervisor::history::Sourced>>> {
+        let found = self.candidates(message, ferb_memory::search::ATTENTION, focus);
+        Box::pin(async move {
+            Some(
+                found
+                    .await
+                    .into_iter()
+                    .map(|(block, origins)| ferb_supervisor::history::Sourced { block, origins })
+                    .collect(),
+            )
+        })
+    }
+    /// `memory_push=lambda words, focus: self._learning_candidates(words, memory_search.WORKER, focus=focus)`
+    /// (compose.py:140), ranked into blocks, kept whole (`_worker_memory`).
+    fn memory_push<'a>(
+        &'a self,
+        query: &'a str,
+        targets: &'a str,
+    ) -> BoxFuture<'a, Vec<ContextBlock>> {
+        let found = self.candidates(query, ferb_memory::search::WORKER, targets);
+        Box::pin(async move { found.await.into_iter().map(|(block, _)| block).collect() })
+    }
     fn environment<'a>(&'a self, words: &'a str) -> BoxFuture<'a, Environment> {
         let (host, seams, words) = (self.host.clone(), self.seams.clone(), words.to_string());
         Box::pin(async move {
@@ -879,6 +934,28 @@ impl Daemon for SupDaemon {
             }
         })
     }
+    /// `on_episode` as `_capture_after_outcome` reads it: a capture refused because FERB is stopping, or group A's
+    /// thread already stopped (the shutdown), is deferred to the next start's hourly pass.
+    fn capture_episode<'a>(
+        &'a self,
+        tree_id: &'a str,
+    ) -> BoxFuture<'a, Result<(), ferb_supervisor::flow::EpisodeFault>> {
+        let a = self.a.get().cloned();
+        let task = tree_id.to_string();
+        Box::pin(async move {
+            let Some(a) = a else { return Ok(()) };
+            let captured = a
+                .call(move |st| async move {
+                    !ferb_daemon::areas_a::cards::capture_learning_episode_deferred(&st, &task)
+                        .await
+                })
+                .await;
+            match captured {
+                Ok(true) => Ok(()),
+                Ok(false) | Err(_) => Err(ferb_supervisor::flow::EpisodeFault::Deferred),
+            }
+        })
+    }
     fn last_run_origins(&self) -> BTreeSet<String> {
         self.a
             .get()
@@ -1025,15 +1102,7 @@ impl Daemon for SupDaemon {
             span.to_string(),
         );
         Box::pin(async move {
-            // `Gateway::probe`'s future is not Send (its argument model's hooks are held across an await): it runs to
-            // its end on a blocking thread of this runtime
-            let handle = tokio::runtime::Handle::current();
-            let read = tokio::task::spawn_blocking(move || {
-                handle.block_on(gw.probe(&grant, &tool, &args, &span))
-            })
-            .await
-            .map_err(|e| format!("the probe's read stopped: {e}"))?;
-            match read {
+            match gw.probe(&grant, &tool, &args, &span).await {
                 Ok(m) => Ok(Value::Object(m)),
                 Err(ferb_gateway::gateway::CallError::Internal(m)) => Err(m),
                 Err(ferb_gateway::gateway::CallError::Cancelled) => {

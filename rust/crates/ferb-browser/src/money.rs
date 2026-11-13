@@ -11,7 +11,8 @@
 //! classes). No branch ever needs to backtrack: after the greedy parts, what a shorter take leaves
 //! next (a digit, a comma, a dot, a space) can't start what follows, so the greedy match is `re`'s.
 
-use ferb_sanitize::parity::{is_alnum, is_decimal, is_space};
+use ferb_py::text::{is_alnum, is_space};
+use ferb_sanitize::parity::is_decimal;
 
 /// `re`'s `\w` on text: `str.isalnum()` or the underscore.
 fn word_char(c: char) -> bool {

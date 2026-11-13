@@ -19,6 +19,7 @@ pub mod host;
 pub mod mainloop;
 #[cfg(target_os = "macos")]
 pub mod native;
+pub mod persona;
 pub mod resources;
 pub mod run;
 pub mod setup_env;

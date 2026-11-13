@@ -274,23 +274,15 @@ struct IntroNarrationView: View {
     }
 }
 
-/// A line that waits on something (APP-665): a small spinner, and past a few seconds the time it has waited, ticking
-/// once a second, so a long wait never looks stuck. Nothing here moves the line or changes its height.
+/// A line that waits on something (APP-665): a small spinner, so a wait never looks stuck. No timer (APP-907, owner):
+/// the tour shows no elapsed time. Nothing here moves the line or changes its height.
 struct IntroWaitIndicator: View {
     let since: Date
 
     var body: some View {
-        HStack(spacing: 6) {
-            ProgressView().controlSize(.mini).scaleEffect(0.8)
-            TimelineView(.periodic(from: since, by: 1)) { context in
-                if let elapsed = IntroLine.elapsed(since: since, now: context.date) {
-                    Text(elapsed).font(.system(size: 10, weight: .medium).monospacedDigit())
-                        .foregroundStyle(Palette.secondary)
-                }
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Working")
+        ProgressView().controlSize(.mini).scaleEffect(0.8)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Working")
     }
 }
 

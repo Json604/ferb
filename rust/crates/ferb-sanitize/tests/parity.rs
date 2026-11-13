@@ -1217,7 +1217,7 @@ fn origins_match_python() {
             }
             "hostname" => {
                 let url = s(&args["s"]);
-                let got = match parity::hostname(&url) {
+                let got = match ferb_py::url::hostname(&url) {
                     Ok(host) => ("ok".to_string(), host),
                     Err(_) => ("err".to_string(), None),
                 };
@@ -1295,7 +1295,7 @@ fn lowercase_and_casefold_match_python() {
         };
         let want = python.get(&cp).cloned().unwrap_or_else(|| ch.to_string());
         assert_eq!(
-            parity::lower(&ch.to_string()),
+            ferb_py::text::lower(&ch.to_string()),
             want,
             "lower() of U+{cp:04X}"
         );
@@ -1304,7 +1304,7 @@ fn lowercase_and_casefold_match_python() {
     assert!(words.len() > 300);
     for pair in words {
         assert_eq!(
-            parity::lower(&s(&pair[0])),
+            ferb_py::text::lower(&s(&pair[0])),
             s(&pair[1]),
             "lower() of {:?}",
             s(&pair[0])

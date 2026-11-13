@@ -633,3 +633,24 @@ pub fn checked_conditions(
     }
     out
 }
+
+/// supervisor.py:5657 `_wait_cut`'s text (ORCH-633) for the latest `wait.ended` row of a tree (its `at` and data):
+/// FERB's restart ended that wait.for before it woke, said as a plain fact in the Mac's local time.
+pub fn wait_cut(
+    at: &str,
+    data: &serde_json::Value,
+    zone: &ferb_clock::zone::Zone,
+) -> Option<String> {
+    let at = ferb_clock::py::parse(at)?;
+    let line = data
+        .get("line")
+        .filter(|v| ferb_py::value::truthy(v))
+        .map(ferb_py::value::py_str)
+        .unwrap_or_else(|| "a wait".to_string());
+    Some(format!(
+        "FERB restarted at {} while this task was waiting (wait.for): {}. That wait ended without waking: look at what \
+         it waited for again, or wait again.",
+        ferb_clock::py::fmt(&zone.local(&at), "%H:%M"),
+        ferb_sanitize::terminal::printable(&line)
+    ))
+}

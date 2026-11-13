@@ -344,6 +344,116 @@ fn driver_tasks(p: &Parts) -> Tasks {
     }
 }
 
+/// `Resolver(self._profiles, self.pairings.all, self._identity_profile, owner_default=self._owner_browsing_profile,
+/// unseen=...)` (areas/browsers.py:260, HAND-2, HAND-407): an owner task's profile, the one it names or the owner's
+/// pick, only among paired ones; anything else is a refusal for the agent (`NeedsOwner`). Read fresh for each choice.
+fn resolver(
+    area: Arc<OnceLock<ferb_daemon::areas_b::browsers::Cx>>,
+    pairings: Arc<Pairings>,
+) -> ferb_browser::driver::Choose {
+    Arc::new(move |named: Option<&str>| {
+        let refused = |m: String| ferb_browser::error::Error::refused(m);
+        let Some(cx) = area.get() else {
+            return Err(refused(
+                "no browser profile is paired with FERB yet: pick the owner's profile from browser_profiles and pair \
+                 it with browser_pair (FERB asks the owner once)"
+                    .into(),
+            ));
+        };
+        let bindings = pairings
+            .all()
+            .map_err(|e| ferb_browser::error::Error::driver(e.0))?
+            .into_iter()
+            .map(|b| ferb_browser::profiles::Paired {
+                owner: b.identity == ferb_core::types::Identity::Owner,
+                browser: b.browser,
+                folder: b.folder,
+            })
+            .collect();
+        let r = ferb_browser::profiles::Resolver {
+            platform: cx.deps.platform.as_ref(),
+            profiles: cx.profiles(),
+            bindings,
+            identity_profile: cx.identity_profile().ok().flatten(),
+            aliases: Vec::new(),
+            owner_default: cx.owner_browsing_profile().ok().flatten(),
+            unseen: (!cx.other_app_data())
+                .then(|| ferb_daemon::areas_b::browsers::PROFILES_UNSEEN.to_string()),
+        };
+        r.choose(named)
+            .map(|c| (c.browser, c.folder))
+            .map_err(refused)
+    })
+}
+
+/// The owner's hidden input for a code or a secret in the owner's browser (`router.ask_code` /
+/// `router.ask_secret`, areas/browsers.py:298): the gateway's questions (D12), with the calling context. A question
+/// the gateway refuses reads as declined here (the driver's seam carries no error).
+struct GatewayInput(super::WeakParts);
+
+impl ferb_browser::driver::OwnerInput for GatewayInput {
+    fn ask_code(
+        &self,
+        _task: &str,
+        _intent: &str,
+        _origin: &str,
+    ) -> BoxFuture<'_, Option<ferb_identity::Secret>> {
+        // every tool asks with its whole context (`ask_code_for`)
+        Box::pin(async { None })
+    }
+    fn ask_secret(
+        &self,
+        _task: &str,
+        _intent: &str,
+        _origin: &str,
+        _ask: ferb_browser::driver::SecretAsk,
+    ) -> BoxFuture<'_, Option<ferb_identity::Secret>> {
+        Box::pin(async { None })
+    }
+    fn ask_code_for<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        _intent: &'a str,
+        origin: &'a str,
+    ) -> BoxFuture<'a, Option<ferb_identity::Secret>> {
+        let (p, ctx, origin) = (self.0.upgrade(), ctx.clone(), origin.to_string());
+        Box::pin(async move {
+            let p = p?;
+            let gw = p.gateway()?;
+            p.on_calls_thread(move || async move {
+                gw.ask_login_code(&ctx, &origin).await.ok().flatten()
+            })
+            .await
+            .flatten()
+        })
+    }
+    fn ask_secret_for<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        _intent: &'a str,
+        origin: &'a str,
+        ask: ferb_browser::driver::SecretAsk,
+    ) -> BoxFuture<'a, Option<ferb_identity::Secret>> {
+        let (p, ctx, origin) = (self.0.upgrade(), ctx.clone(), origin.to_string());
+        let ask = ferb_gateway::gateway::SecretAsk {
+            handle: ask.handle,
+            remember: ask.remember,
+            shown: None,
+            field: ask.field,
+            kind: ask.kind,
+        };
+        Box::pin(async move {
+            let p = p?;
+            let gw = p.gateway()?;
+            p.on_calls_thread(move || async move {
+                gw.ask_secret(&ctx, &origin, ask).await.ok().flatten()
+            })
+            .await
+            .flatten()
+        })
+    }
+}
+
 /// The browser parts, built once.
 pub struct Browsers {
     pub pairings: Arc<Pairings>,
@@ -390,21 +500,17 @@ impl Browsers {
             Arc::new(|_pid| None),
         );
         let tasks = driver_tasks(p);
+        let area: Arc<OnceLock<ferb_daemon::areas_b::browsers::Cx>> = Arc::new(OnceLock::new());
         let router = Driver::new(
             hub.clone(),
             Kind::Owner {
-                choose: Arc::new(|_| {
-                    Err(ferb_browser::error::Error::driver(
-                        "no browser profile is paired with FERB yet (FERB.app → Settings → Browsers)",
-                    ))
-                }),
-                input: None,
+                choose: resolver(area.clone(), pairings.clone()),
+                input: Some(Arc::new(GatewayInput(p.downgrade()))),
             },
             tasks,
             None,
             random.clone(),
         );
-        let area = Arc::new(OnceLock::new());
         let host: Arc<dyn ferb_browser::tools::Host> = Arc::new(BrowserHost {
             home: opts.user_home.to_string_lossy().into_owned(),
             area: area.clone(),
@@ -549,6 +655,28 @@ impl Tool for BrowserTool {
 
     fn ledger_args(&self, args: &Args, hashed: &Args) -> Option<Args> {
         Some(self.tools.ledger_args(&v(args), hashed))
+    }
+
+    /// `preview_target` (browser/tools.py:180): the tab the call names; nothing is looked up until a frame is asked.
+    fn preview_target(
+        &self,
+        args: &Args,
+        owner: &str,
+        observed: Option<&Map<String, Value>>,
+    ) -> Result<Option<ferb_gateway::tool::PreviewTarget>, String> {
+        let Some(t) = self.tools.preview_target(&v(args), observed.is_some()) else {
+            return Ok(None);
+        };
+        let resolve = crate::compose::previews::browser_resolve(
+            self.tools.driver.clone(),
+            t.tab,
+            owner.to_string(),
+        );
+        Ok(Some(ferb_gateway::tool::PreviewTarget {
+            scope: t.scope,
+            label: t.label,
+            capture: Some(crate::compose::previews::capture_of(resolve)),
+        }))
     }
 
     fn run<'a>(

@@ -3,14 +3,11 @@
 //! use directly: `same`, `Refusals` (RUN-427), `stated`, `repair_note`, `unfenced`.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use serde_json::Value;
 
 use crate::pyjson::compact;
-
-/// The way a reshaped answer goes back to the core form (ferb-context's [`ferb_context::shape::Back`]).
-pub type Back = Arc<dyn Fn(&Value) -> Value + Send + Sync>;
 
 /// schema_shape.Shape and SchemaTooComplex: ferb-context's, the verified port of schema_shape.py (one type for every
 /// crate; these paths are kept for the adapters' callers).

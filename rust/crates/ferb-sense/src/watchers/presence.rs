@@ -127,6 +127,12 @@ impl MacPresence {
         self.lock().present_since
     }
 
+    /// `mac.present_since = ...` (schedules.py:81 `_mac_started`): a start in the same login session dates the current
+    /// stretch from the last return FERB recorded. Nothing is told (no return happened).
+    pub fn set_present_since(&self, at: Option<f64>) {
+        self.lock().present_since = at;
+    }
+
     pub fn running(&self) -> bool {
         self.running.load(Ordering::SeqCst)
     }

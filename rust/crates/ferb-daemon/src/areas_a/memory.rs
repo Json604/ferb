@@ -858,7 +858,7 @@ async fn memory_learning(st: Rc<State>, params: Params) -> HandlerResult {
         "embedding" => {
             let (root, fetch) = embedding_root(&st);
             let vectors = le(st.store.count("SELECT COUNT(*) FROM recall_vectors", Vec::new()))?;
-            let active = l.embedder.as_ref().map(|e| e.name().to_owned());
+            let active = l.embedder().map(|e| e.name().to_owned());
             ok(json!({"active": active, "path": root, "fetched_by_ferb": fetch, "vectors": vectors}))
         }
         _ => Err(refused("unknown learning operation")),

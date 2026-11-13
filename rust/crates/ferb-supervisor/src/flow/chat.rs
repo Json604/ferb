@@ -346,7 +346,8 @@ impl Inner {
     /// it: its codes are masked when a worker's question asks for a code, and a one-word reply to a password or PIN
     /// question is hidden whole; the planner's own clarifying question in this chat counts too. FERB's memory
     /// questions never ask for a secret, and a reply that is exactly an option of a waiting question is a choice.
-    /// (FERB's own "which is it?" about an answer, `_answer_focus`, isn't ported: no question is displaced by it.)
+    /// FERB's own "which is it?" about memory questions only asks for nothing (`asked_only_about`, L36); the planner's
+    /// question it displaced still counts (`displaced_question`).
     pub fn hide_code_reply(&self, text: &str, session_id: &str) -> String {
         let redactor = &self.deps.redactor;
         let open_now = self.deps.daemon.approvals();
@@ -378,7 +379,13 @@ impl Inner {
             .map(|a| ferb_py::value::py_str(&a));
         if !open_now.iter().any(|ap| ap.option_for(&choice).is_some()) {
             if let Some(asked) = asked {
-                text = redactor.answer(&text, &asked, true);
+                if !self.asked_only_about(session_id, ferb_orchestrator::steering::MEMORY_ASKS) {
+                    text = redactor.answer(&text, &asked, true);
+                }
+            }
+            let displaced = self.displaced_question(session_id);
+            if !displaced.is_empty() {
+                text = redactor.answer(&text, &displaced, true);
             }
         }
         text

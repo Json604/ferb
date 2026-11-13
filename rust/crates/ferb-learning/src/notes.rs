@@ -98,7 +98,7 @@ fn step_target(args: &Map<String, Value>) -> String {
             continue;
         }
         if key == "url" && value.contains("://") {
-            let host = ferb_sanitize::parity::hostname(value)
+            let host = ferb_py::url::hostname(value)
                 .ok()
                 .flatten()
                 .unwrap_or_default();
