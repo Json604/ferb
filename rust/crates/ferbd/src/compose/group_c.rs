@@ -47,6 +47,9 @@ pub fn deps(p: Parts<'_>) -> Deps {
     // containment: setup's three facts, or doctor's live check (`sandbox.available()` once at start, the proxy probed)
     let egress = opts.egress.clone();
     let shell_ok = p.tools.shells().is_some();
+    // egress.py:62 `_local_reports_status`: whether the kernel's reports of direct local connections are read (None:
+    // no pinned local ports, nothing to read)
+    let reports = p.tools.shells().and_then(|s| s.reports().cloned());
     let containment: areas_c::Containment = Arc::new(move |live: bool| {
         let (contained, why) = egress
             .containment
@@ -68,7 +71,9 @@ pub fn deps(p: Parts<'_>) -> Deps {
             "proxy_alive": get("alive").as_bool().unwrap_or(false),
             "proxy_restarted": get("restarted").as_bool().unwrap_or(false),
             "proxy_last_error": get("last_error"),
-            "local_reports": Value::Null,
+            "local_reports": reports
+                .as_ref()
+                .map_or(Value::Null, |r| json!({"running": r.running(), "stopped": r.ended()})),
         }))
     });
     // `_hearing_status` (voice.py:26, L26): FERB.app installed and signed as recorded, and (probe) its Speech
@@ -248,7 +253,18 @@ pub fn deps(p: Parts<'_>) -> Deps {
         sense_status,
         closed,
         secret_present,
-        session_ok: None,
+        // rpc.py:413 `ferb_identity.session_ok()`: FERB's own account checked through its extension (wakes it)
+        session_ok: p.tools.ferb_driver().map(|d| {
+            Arc::new(move || {
+                let d = d.clone();
+                Box::pin(async move {
+                    d.session_ok()
+                        .await
+                        .map_err(|e| format!("{}: {}", e.class(), e))
+                })
+                    as ferb_core::interfaces::BoxFuture<'static, Result<bool, String>>
+            }) as areas_c::SessionCheck
+        }),
         bus: p.bus,
         relay_default: ferb_daemon::areas_b::reports::RELAY_URL.into(),
         // S1's snapshots (the tools' `Snapshots`, also the gateway's before shell work): on, and the last failure

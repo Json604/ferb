@@ -21,7 +21,9 @@ use core_foundation_sys::number::{
     kCFNumberFloat64Type, kCFNumberSInt64Type, CFBooleanGetTypeID, CFBooleanGetValue,
     CFNumberGetTypeID, CFNumberGetValue, CFNumberIsFloatType,
 };
-use core_foundation_sys::runloop::{kCFRunLoopDefaultMode, CFRunLoopRunInMode};
+use core_foundation_sys::runloop::{
+    kCFRunLoopDefaultMode, CFRunLoopGetCurrent, CFRunLoopRef, CFRunLoopRunInMode, CFRunLoopStop,
+};
 use core_foundation_sys::string::{
     kCFStringEncodingUTF8, CFStringCreateWithBytes, CFStringGetBytes, CFStringGetLength,
     CFStringGetTypeID, CFStringRef,
@@ -154,6 +156,43 @@ pub unsafe fn scalar(v: CFTypeRef) -> Option<Value> {
 /// `interval_s` (where its sources' callbacks run), both inside one autorelease pool; a run loop with nothing to
 /// wait on returns at once, so the rest of the turn is waited out.
 pub fn native_loop(done: &AtomicBool, interval_s: f64, mut step: impl FnMut()) {
+    // this thread's run loop, so its handle can wake it when told to end (a turn waits up to `interval_s`)
+    let key = done as *const AtomicBool as usize;
+    // SAFETY: CFRunLoopGetCurrent returns this thread's run loop (owned by the thread); it is retained while listed.
+    unsafe {
+        let rl = CFRunLoopGetCurrent();
+        core_foundation_sys::base::CFRetain(rl as CFTypeRef);
+        running_loops().insert(key, rl as usize);
+    }
+    native_turns(done, interval_s, &mut step);
+    if let Some(rl) = running_loops().remove(&key) {
+        // SAFETY: the reference retained above, released once.
+        unsafe { CFRelease(rl as CFTypeRef) };
+    }
+}
+
+/// The run loops of the threads inside [`native_loop`] now, by their `done` flag's address.
+fn running_loops() -> std::sync::MutexGuard<'static, std::collections::HashMap<usize, usize>> {
+    static LOOPS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<usize, usize>>> =
+        std::sync::OnceLock::new();
+    LOOPS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Wakes the run loop of the [`native_loop`] whose flag is `done`, so a turn waiting on it ends now.
+fn wake(done: &AtomicBool) {
+    let key = done as *const AtomicBool as usize;
+    let loops = running_loops();
+    if let Some(rl) = loops.get(&key) {
+        // SAFETY: a run loop retained while listed (the lock is held, so it can't be released meanwhile);
+        // CFRunLoopStop may be called from any thread.
+        unsafe { CFRunLoopStop(*rl as CFRunLoopRef) };
+    }
+}
+
+fn native_turns(done: &AtomicBool, interval_s: f64, step: &mut impl FnMut()) {
     while !done.load(Ordering::SeqCst) {
         let started = Instant::now();
         let stop = pool(|| {
@@ -175,7 +214,8 @@ pub fn native_loop(done: &AtomicBool, interval_s: f64, mut step: impl FnMut()) {
     }
 }
 
-/// A thread of FERB's own that ends when its handle is dropped (it is told, then joined within two seconds).
+/// A thread of FERB's own that ends when its handle is dropped (it is told and its run loop woken, then joined if it
+/// ends within 200 ms; otherwise it ends on its own once its step returns).
 pub struct NativeThread {
     pub done: Arc<AtomicBool>,
     handle: Option<std::thread::JoinHandle<()>>,
@@ -196,8 +236,13 @@ impl NativeThread {
 impl Drop for NativeThread {
     fn drop(&mut self) {
         self.done.store(true, Ordering::SeqCst);
+        // its run loop's turn ends now instead of at the turn's end (a stop never waits out a slice)
+        wake(&self.done);
         if let Some(h) = self.handle.take() {
-            let deadline = Instant::now() + Duration::from_secs(2);
+            // Python's threads are never joined (daemon threads that end on their flag); here a thread that ends
+            // within a moment is joined, and one still inside a long step (an Accessibility walk of an app that
+            // answers slowly) is left to end on its flag, so a stop never waits on it
+            let deadline = Instant::now() + Duration::from_millis(200);
             while !h.is_finished() && Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(10));
             }
@@ -205,5 +250,25 @@ impl Drop for NativeThread {
                 let _ = h.join();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod wake_tests {
+    /// A thread turning its run loop in long slices (presence's 5 s) ends at once when its handle is dropped: a
+    /// daemon's stop never waits out a slice (journal 57: the stop took 3 s on presence's and the tap's slices).
+    #[test]
+    fn a_native_thread_ends_at_once_when_dropped() {
+        let t = super::NativeThread::spawn("ferb-test-loop", |done| {
+            super::native_loop(&done, 5.0, || {});
+        });
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let began = std::time::Instant::now();
+        drop(t);
+        let took = began.elapsed();
+        assert!(
+            took < std::time::Duration::from_millis(500),
+            "took {took:?}"
+        );
     }
 }

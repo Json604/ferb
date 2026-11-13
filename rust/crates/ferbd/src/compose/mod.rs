@@ -7,7 +7,9 @@
 
 pub mod areas;
 pub mod checks;
+pub mod consumers;
 pub mod desktop;
+pub mod desktop_seams;
 pub mod egress;
 pub mod env_seams;
 pub mod front;
@@ -114,6 +116,10 @@ pub trait Overrides: Send + Sync {
     }
     /// The supervisor's own deps (a test's tokenizer, wrapper id, chat ids).
     fn supervisor_build(&self, _parts: &mut supervisor::BuildParts) {}
+    /// The owner's banners' desk (osascript, presence): a test's recorder in place of the Mac's.
+    fn desk(&self) -> Option<Arc<dyn ferb_daemon::areas_b::notify::Desk>> {
+        None
+    }
     /// Called once the daemon is built (a test build's hold on the parts it drives).
     fn started(&self, _daemon: &Arc<Daemon>) {}
 }
@@ -345,6 +351,7 @@ impl Daemon {
             },
             clock.clone(),
         );
+        let _ = areas::HELPER_FAILED.set(repeats.clone());
         // a panic is journaled `daemon.unhandled` (Python's `_loop_exception`): handed over a channel, so a panic on
         // a thread that holds the store's lock never waits for it
         {
@@ -375,6 +382,9 @@ impl Daemon {
         let preview_counts: Arc<
             std::sync::OnceLock<ferb_daemon::areas_b::task_preview::TaskPreviews>,
         > = Arc::new(std::sync::OnceLock::new());
+        // perception's batcher counts (`_perception_counts`), once sensing builds perception
+        let perception_counts: Arc<std::sync::OnceLock<loops::Perception>> =
+            Arc::new(std::sync::OnceLock::new());
         let resource_log = if opts.resources {
             match crate::resources::MacReadings::new().and_then(|readings| {
                 let d = lock(&db);
@@ -386,8 +396,10 @@ impl Daemon {
                         let r = redactor.clone();
                         Box::new(move |t: &str| r.text(t))
                     },
-                    // perception's batcher is off (Jev is off: notices paused)
-                    Box::new(|| (0, std::collections::BTreeMap::new())),
+                    {
+                        let pc = perception_counts.clone();
+                        Box::new(move || pc.get().map(|p| p.counts()).unwrap_or_default())
+                    },
                     {
                         let counts = preview_counts.clone();
                         Box::new(move || counts.get().map(|p| p.snapshot()).unwrap_or_default())
@@ -512,6 +524,7 @@ impl Daemon {
             gateway::build(
                 registry,
                 gateway::GatewayParts {
+                    roots: gateway::fs_roots(&config, &home),
                     db: db.clone(),
                     clock: clock.clone(),
                     ids: opts.ids.clone(),
@@ -530,7 +543,7 @@ impl Daemon {
                     device_id: device_id.clone(),
                     protection,
                     owner_secrets: Some(owner_secrets.clone()),
-                    owner_contacts: Box::new(Vec::new),
+                    owner_facts: gateway::OwnerFacts(tool_parts.downgrade()),
                     pay_same_site_forms: Box::new(move || {
                         !matches!(
                             cfg.get("policy", "pay_same_site_forms"),
@@ -609,6 +622,7 @@ impl Daemon {
                 ),
                 support: opts.user_home.join("Library/Application Support"),
                 browser_support: opts.browser_support.clone(),
+                dev_tools: std::sync::Mutex::new(Vec::new()),
             });
             let real: Arc<dyn supervisor::Reads> = Arc::new(supervisor::RealReads {
                 host,
@@ -720,7 +734,8 @@ impl Daemon {
                     gw.clone(),
                 )) as Arc<dyn Questions>,
                 logins: Arc::new(areas::SavedLogins(owner_secrets.clone())) as Arc<dyn Logins>,
-                purges: None,
+                // the retention pass's other stores (the downloads cap's Yes deletes through them)
+                purges: Some(loops::purges(&opts, &tool_parts, &redactor)),
             };
             let mut deps = deps;
             if let Some(o) = &opts.overrides {
@@ -778,6 +793,26 @@ impl Daemon {
                     ferb_daemon::areas_b::runtimes::Runtimes::new(b.deps.host.clone(), r.clone());
             }
         }
+        // the rest of compose.py `_wire_events` (the supervisor's seam registered its three), and the browsers' hooks
+        // and drivers' seams (areas/browsers.py `_build_browsers`, areas/sensing.py:61-64), now that every part exists
+        {
+            let desktop = Arc::new(desktop_seams::DesktopSeams {
+                parts: tool_parts.clone(),
+                tokens: tokens.clone(),
+            });
+            consumers::wire(
+                &events,
+                b.notifier.clone(),
+                sup.supervisor.clone(),
+                sup.daemon.env.clone(),
+                b.deps.host.clone(),
+                device_id.clone(),
+                desktop.clone(),
+            );
+            let helper = matches!(opts.keychain, Keychain::Real)
+                .then(|| Arc::new(areas::helper(&opts, &home)));
+            tools::browser::wire_parts(&tool_parts, desktop, helper);
+        }
         // about.read's document: the About area's, as FERB.app's About page reads it
         if let Some(about) = b.deps.about.clone() {
             let host = b.deps.host.clone();
@@ -798,6 +833,9 @@ impl Daemon {
             let _ = a.spawn(move |st| async move {
                 *st.browsing_answered.borrow_mut() = Some(hook);
             });
+        }
+        if let Some(p) = tool_parts.perception() {
+            let _ = perception_counts.set(p);
         }
         // the runtimes area as registered (its deps after any test's replacement), for the learners
         let _ = learning_area.set(match &b.deps.runtimes {
@@ -926,6 +964,11 @@ impl Daemon {
             self.b.preload_secrets(&self.journal, &self.redactor).await;
             step("FERB's API keys for the redactor", began);
         }
+        // DMN-511 (main.py:453): the developer tools a command would reach only as Apple's stub, read once
+        if self.opts.native {
+            let env = self.supervisor.daemon.env.clone();
+            let _ = tokio::task::spawn_blocking(move || env.read_dev_tools()).await;
+        }
         let began = std::time::Instant::now();
         self.b.prepare_codex().await;
         step("Codex's catalog and version check", began);
@@ -943,6 +986,24 @@ impl Daemon {
                 .await
                 .map_err(|e| e.to_string())?
                 .map_err(|e| e.message)?;
+        // DMN-514 (main.py:455): started by launchd under FERB's label, an edited LaunchAgent is put back
+        {
+            let under_launchd = std::os::unix::process::parent_id() == 1
+                && std::env::var("XPC_SERVICE_NAME").ok().as_deref()
+                    == Some(ferb_device::install::LABEL);
+            let (home, journal) = (self.opts.home.clone(), self.journal.clone());
+            let _ = tokio::task::spawn_blocking(move || {
+                if under_launchd {
+                    restore_service_definition(
+                        &|kind, data| journal.note(kind, data),
+                        &crate::setup_env::installer(&home),
+                    );
+                }
+            })
+            .await;
+        }
+        // DMN-10 (main.py:456): what was set aside because it couldn't be read is told once
+        self.b.notifier.tell_set_aside().await;
         self.mac_started(new_session);
         // L28 (main.py:460-468): an unknown window is said, never guessed
         if let Ok(limits) = self.b.runtimes.runtime_limits() {
@@ -1046,9 +1107,17 @@ impl Daemon {
         lock(&self.loops).push(job);
     }
 
-    /// `shutdown` (main.py:495): producers first, then what they started, then the server and the store.
+    /// `shutdown` (main.py:495): producers first, then what they started, then the server and the store. Each step
+    /// that takes longer than a moment is a log line, so a slow stop says what it waited on.
     pub async fn shutdown(&self) {
+        let step = |what: &str, began: std::time::Instant| {
+            let ms = began.elapsed().as_millis();
+            if ms >= 100 {
+                crate::log::line(&format!("stop: {what} took {ms} ms"));
+            }
+        };
         self.tools.set_shutting_down();
+        let began = std::time::Instant::now();
         let _ = self
             .a
             .call(|st| async move {
@@ -1056,23 +1125,57 @@ impl Daemon {
                 areas_a::memory::settle_forgets(&st).await;
             })
             .await;
-        // main.py:522-524: the supervisor suspends its trees (they resume after the restart), cancels its runs and
-        // drains every chat turn
-        self.supervisor.supervisor.shut_down().await;
-        self.supervisor.daemon.reads.shutdown();
-        // main.py:551: the desktop observer's summaries of the trees it still watches
-        if let Some(s) = self.tools.sentinel() {
-            s.shutdown().await;
-        }
+        step("the forgets settling", began);
+        // main.py:517: the producers (timers, retention, held banners, resources, memory) stop first
         for job in lock(&self.loops).drain(..) {
             job.abort();
         }
         if let Some(s) = self.memory_stop.get() {
             s.store(true, std::sync::atomic::Ordering::SeqCst);
         }
-        self.b.shutdown().await;
+        // main.py:522-524: the supervisor suspends its trees (they resume after the restart), cancels its runs and
+        // drains every chat turn
+        let began = std::time::Instant::now();
+        self.supervisor.supervisor.shut_down().await;
+        step("the supervisor's trees and turns", began);
+        // main.py:543-554: hearing, recordings, FERB's browser then the owner's, the shell's processes
+        let began = std::time::Instant::now();
+        if let Some(m) = self.tools.mac() {
+            m.hearing.shutdown().await;
+            m.recordings.shutdown().await;
+        }
+        step("hearing and recordings", began);
+        let began = std::time::Instant::now();
+        for d in [self.tools.ferb_driver(), self.tools.owner_driver()]
+            .into_iter()
+            .flatten()
+        {
+            d.shutdown().await;
+        }
+        step("the browser drivers", began);
+        let began = std::time::Instant::now();
+        if let Some(s) = self.tools.shells() {
+            s.kill_all().await;
+        }
+        step("the shell's processes", began);
         self.opts.egress.close();
+        // main.py:543: after the proxy's last records went out
+        if let Some(r) = self.tools.shells().and_then(|s| s.reports().cloned()) {
+            r.close();
+        }
+        // main.py:557-561: sensing (its watchers, the owner-input tap), then the desktop observer's summaries
+        let began = std::time::Instant::now();
+        self.b.shutdown().await;
+        step("sensing", began);
+        self.supervisor.daemon.reads.shutdown();
+        let began = std::time::Instant::now();
+        if let Some(s) = self.tools.sentinel() {
+            s.shutdown().await;
+        }
+        step("the desktop observer", began);
+        let began = std::time::Instant::now();
         self.server.close().await;
+        step("the socket's connections", began);
         // the minutes since the last sample (L30)
         self.sample_resources();
         self.repeats.flush();
@@ -1159,6 +1262,26 @@ impl Daemon {
 pub fn back_in_use_since(at: &str) -> Option<f64> {
     let t = ferb_clock::py::parse(at)?;
     Some(t.timestamp() as f64 + f64::from(t.timestamp_subsec_micros()) / 1e6)
+}
+
+/// main.py:341 `_restore_service_definition` (DMN-514, rule 6), for a daemon launchd started under FERB's label: an
+/// existing LaunchAgent that isn't exactly what setup writes is written again and journaled; FERB.app's own
+/// registration has none to put back (the installer's `in_app`). A failure is journaled with its type.
+pub fn restore_service_definition(
+    note: &dyn Fn(&str, Value),
+    inst: &ferb_device::install::Installer,
+) {
+    match inst.restore_definition() {
+        Ok(true) => note(
+            "service.definition_restored",
+            json!({"path": inst.plist_path().to_string_lossy()}),
+        ),
+        Ok(false) => {}
+        Err(e) => note(
+            "service.definition_restore_failed",
+            json!({"error": format!("{}: {e}", e.type_name())}),
+        ),
+    }
 }
 
 /// `_apply_privacy`: [privacy] exclude_domains / exclude_apps into the one Redactor everything holds.
@@ -1263,6 +1386,48 @@ fn login_session() -> Option<String> {
             .collect::<String>()[..16]
             .to_string(),
     )
+}
+
+#[cfg(test)]
+mod restore_tests {
+    use std::sync::Mutex;
+
+    use serde_json::Value;
+
+    /// main.py:341 (DMN-514): an edited LaunchAgent is written back to exactly what setup writes and journaled once;
+    /// one already right, or none at all (FERB.app's own registration has none), is left alone.
+    // decision: DMN-514
+    #[test]
+    fn an_edited_launch_agent_is_put_back() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (home, user) = (tmp.path().join("ferb"), tmp.path().join("user"));
+        std::fs::create_dir_all(user.join("Library/LaunchAgents")).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        let inst = crate::setup_env::installer_at(&home, user.clone());
+        let rows: Mutex<Vec<(String, Value)>> = Mutex::new(Vec::new());
+        let note = |k: &str, v: Value| rows.lock().unwrap().push((k.to_string(), v));
+        // none there: nothing written
+        super::restore_service_definition(&note, &inst);
+        assert!(!inst.plist_path().exists());
+        assert!(rows.lock().unwrap().is_empty());
+        // edited: put back, journaled
+        std::fs::write(inst.plist_path(), b"<plist>edited</plist>").unwrap();
+        super::restore_service_definition(&note, &inst);
+        assert_eq!(
+            std::fs::read(inst.plist_path()).unwrap(),
+            inst.plist_bytes().unwrap()
+        );
+        let got = rows.lock().unwrap().clone();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0, "service.definition_restored");
+        assert_eq!(
+            got[0].1["path"],
+            inst.plist_path().to_string_lossy().as_ref()
+        );
+        // right already: nothing more
+        super::restore_service_definition(&note, &inst);
+        assert_eq!(rows.lock().unwrap().len(), 1);
+    }
 }
 
 #[cfg(test)]

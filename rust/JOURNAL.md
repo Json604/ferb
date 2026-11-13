@@ -1501,3 +1501,86 @@ of mine; FERB.app's `launchctl kickstart`, pid 78147). Left: the final build ins
   `paused`, `on_sound`, `on_tab_closed` stay defaults; `Downloads`/`Uploads` are never built).
 - The new files (`ferbd/src/log.rs`, `ferbd/tests/native_host.rs`, `ServiceSpawnFailureTests.swift`) are untracked:
   kb sees DMN-591's tests once the Swift file is added.
+
+## 2026-11-14 · 57 · Every seam ferbd fills wired or named; one way to run the service; the service loop proven
+
+**What.**
+- The audit's items 4-13 (scratchpad `app-daemon-audit.md`): `chat.status.paused` reads sensing's pause; banners stay
+  off while a `logs.subscribe` stream shows the topic (`areas_c::logs::Watchers`, `_log_subscriptions`) or a chat is
+  attached to the tree, and a task's request is read back (`request_of`); the human-check handoff has the router's tabs,
+  banners and the supervisor's waiting flag (`Supervisor::worker_waiting`); `update.prepare` waits for FERB's running
+  shell processes and a transcription (rpc.py:97, DMN-401) and quits the hearing instances; `chat.attach` starts the
+  Mac scan and `chat.status.persona` reads it; Input Monitoring is asked once with the first request (`AskOnce`); the
+  notch's forget answer has its follow-up line; an edited LaunchAgent is put back at start (DMN-514); data set aside is
+  told once (DMN-10); the Screen Recording probe's window rule is a tested pure function (it already read a missing
+  layer as 0).
+- Browser `Downloads` and `Uploads` built (sweep, finalize_stale) and composed as Python's `_build_browsers` and
+  `_build_sense`: the hub's `on_download`, `on_tab_closed`, `on_tab` (the trail), `paused`, `owned`, `on_sound`; each
+  driver's downloads, uploads, clipboard, Quartz image masking, native secrets/capture/place (through the desktop area),
+  upload files, profiles and FERB's inbox. The drivers had no seams at all before (`set_seams` was never called): a tab
+  picture with a secret field failed ("no image library") and uploads were refused.
+- The sweep (two read-only agents classified every seam; four agents and the coordinator wired them in disjoint files).
+  New: `compose/desktop_seams.rs` (desktop.py's `Seams` over the parts: `_task_end`, `_task_paused`/`_resumed`,
+  `_tree_finished`'s upload copies, the native captures), `compose/consumers.rs` (the rest of `_wire_events`: the day's
+  activity, conversation observation, a question's banner, GATE-562's refused-value notice, ORCH-312), environment
+  facts from the browser area (hub, profiles, profile state, unpaired note, the browsing question, developer tools),
+  the supervisor's `grant_in_force`, `withdraw_lapsed`, `asked_origins`, `resumed_outcome`, `declined`, `ran_cards`,
+  `has_route`, `identity_pending`, `signals`, the core profile in every prompt, `[fs]` owner and untrusted roots
+  (`~/Downloads` and `uploads/outside` were missing), the global stop's browser/hearing/shell hook, secret-helper
+  failures journaled (HAND-410), the owner's fills sealed through the signed helper, perception and its native
+  watchers, files/app-install/scripted-tab watchers, the shared attribution, learner spans and usage, the shell's
+  escape journaling, local refusals and reports, the browser tools' terminal input, point, payment picture and press,
+  tab picture and protected saves, the owner's contacts and username holds.
+- The guard: `tests/seams_wired.rs` reads the composition's source and fails on any placeholder-shaped value outside
+  `crate::off::off("id", …)`, on an off id `seams-off.txt` doesn't list (or one it lists and no code uses), and on a
+  trait default (flow::Daemon, Reads, notify::Listeners and Desk, Tool for BrowserTool and MacTool) neither overridden
+  nor listed with a reason. `seams-off.txt`: 36 off ids, 19 defaults, 22 plain data fields, each with why.
+- DMN-593 (owner): the Rust FERB.app registers its service only through SMAppService; no LaunchAgent fallback, no
+  self-signed migration (APP-902/904/905 superseded; DMN-594 the agent ruling, superseding DMN-591). From FERB.app,
+  `setup --service` never writes `~/Library/LaunchAgents/com.ferb.daemon.plist`.
+- An updated agent's build is read from its bundle (`host.rs` `bundle_build`): an SMAppService job keeps the
+  environment of its first registration across an update, so `FERB_APP_BUILD` stayed 202611131934 on later builds.
+- The stop: sensing's stop took 3 s on every restart (`NativeThread`'s drop waited up to 2 s for presence's 5 s run-loop
+  turn, then the tap's). Its run loop is woken now and a thread still inside a step is left to end on its flag, as
+  Python's daemon threads are; each slow part of a stop is a log line (`stop: … took … ms`).
+
+**Why.** The owner's first setup failed on do-nothing seams no recording exercised; the owner: "FIGURE ALL THIS
+background/ui mismatch and fix it ... ensure its a general fix". DMN-593 is the owner's answer on the service.
+
+**Evidence.** New tests: `tests/wiring.rs` (4, through the binary), `tests/seams_wired.rs` (3), `tests/owner_facts.rs`
+(3), `tests/sensing_wired.rs` (5), a relay-connected stop under 1 s (`native_host.rs`), unit tests for update blockers,
+AskOnce, log watchers, LaunchAgent restore, the window rule, the bundle's build, native-thread and presence stops,
+DMN-593's installer and Swift tests (748 Swift tests, 0 failures). Workspace: see the report; the recorded scenario
+`conversation_handover` differs in about a third of runs since the day's-activity consumer was wired (none of 8 runs
+without it, 3 of 8 with only it): not resolved.
+
+**Ran on the owner's Mac** (01:46-03:20; the app's two disappearances at 01:46 and 02:31 were the owner
+quitting it, not crashes). First in-app registration from a state with no LaunchAgent record: app opened 01:46:10,
+daemon spawned by launchd 01:46:26, every call answered 1.19 s after its start; BTM item `8.com.ferb.daemon`
+(team 8N7RNGH974, generation 1); no plist written. Update 202611131934 → 202611132052 (quit, `rm -rf`, `ditto`, open):
+the same registration (generation 3), the new binary running 6 s after the app opened, no prompt. Five `kickstart -k`:
+back in 1.2, 4.5, 4.5, 4.7, 4.5 s (launchd's ThrottleInterval 5 s spaces respawns); each stop spent ~3 s in
+sensing. Update → 202611132105: back 8 s after open, the daemon logging its own build; five restarts: 0.8, 2.6, 2.5,
+2.5, 2.5 s, sensing's stop ~2.1 s (an Accessibility walk held the thread's drop). Update → 202611132139 with FERB.app
+left open throughout (03:17:58): the new build's daemon 6 s after open; five restarts back in 0.89, 0.74, 0.62, 0.81,
+0.74 s, each stop 250-310 ms (accessibility's thread 120-173 ms of it); `launchctl print`: program
+`Contents/Helpers/FERB.app/Contents/MacOS/FERB`, the job's own environment still the first registration's build;
+`service.json` service "app"; no plist in `~/Library/LaunchAgents`. Permissions before and after the updates unchanged
+(accessibility, input monitoring, clipboard granted; screen recording and Full Disk Access denied as before). Left: the
+202611132139 build installed, FERB.app quit, the service booted out (its registration stays), `~/.ferb` removed, no
+NativeMessagingHosts file of FERB's, nothing of FERB's running.
+
+**Why the in-app registration failed tonight.** At 23:34:43 the first Developer ID build registered while
+`2.com.ferb.FERB`, the background-item record the self-signed builds had made (no team, disposition disabled), was
+still the app's record, and the old app-migration code unregistered and registered the main-app login item first;
+launchd then refused the job every 5 s ("The specified path is not a bundle: Contents/Helpers/FERB.app/…",
+`copy_bundle_path(05D44A95…)`, EX_CONFIG), and after a same-label LaunchAgent had been installed and removed the job's
+record was gone ("record not found"). From a state with no same-label LaunchAgent the same registration worked the
+first time. Which record `05D44A95…` named isn't in the log. A normal install never meets it; an update from a
+self-signed build with its LaunchAgent could, which DMN-593 removes from the product.
+
+**Open.**
+- `conversation_handover` (above).
+- DMN-587's text still says an ad-hoc build keeps the LaunchAgent; DMN-594 registers ad-hoc Rust builds in-app
+  (unverified live). LIVE-943 and LIVE-946 test removed behavior.
+- Not composed by design: Jev (off), FERB.app as the sending client's pid at send.

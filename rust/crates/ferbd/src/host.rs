@@ -335,7 +335,13 @@ fn clean_environment(
 ) -> Result<(), String> {
     let current = current_entries();
     let temp = user_temp_dir();
-    let fresh = environment(account, ferb_home, dev, temp.as_deref(), &current);
+    let mut fresh = environment(account, ferb_home, dev, temp.as_deref(), &current);
+    // The build this agent runs from is its bundle's own: a registered service's definition keeps the environment it
+    // was registered with across an update that replaces the bundle (launchd's job isn't submitted again), so the
+    // definition's FERB_APP_BUILD names the first build for good (seen 2026-11-14). Read from the bundle, it is right.
+    if let Some(build) = crate::home::app_bundle().and_then(|app| bundle_build(&app)) {
+        with_build(&mut fresh, &build);
+    }
     let mut strings = Vec::with_capacity(fresh.len());
     for entry in fresh {
         strings.push(
@@ -356,6 +362,22 @@ fn clean_environment(
     #[cfg(not(target_os = "macos"))]
     let _ = block;
     Ok(())
+}
+
+/// FERB.app's build (its Info.plist's `CFBundleVersion`), None when it can't be read.
+pub fn bundle_build(app: &Path) -> Option<String> {
+    let bytes = std::fs::read(app.join("Contents/Info.plist")).ok()?;
+    let info = ferb_device::plistlib::loads(&bytes)?.into_dictionary()?;
+    info.get("CFBundleVersion")?
+        .as_string()
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// `FERB_APP_BUILD=<build>` in place of any the environment carried.
+pub fn with_build(entries: &mut Vec<Vec<u8>>, build: &str) {
+    entries.retain(|e| !e.starts_with(b"FERB_APP_BUILD="));
+    entries.push(format!("FERB_APP_BUILD={build}").into_bytes());
 }
 
 /// The raw environment entries, read from the block itself (std's `vars_os` skips an entry without `=`).
@@ -537,5 +559,32 @@ mod tests {
         ] {
             assert!(!child.iter().any(|l| l.starts_with(gone)), "{gone}: {text}");
         }
+    }
+}
+
+#[cfg(test)]
+mod build_tests {
+    /// The build an updated FERB.app's agent runs as is its own bundle's, never the one a registered definition kept
+    /// from its first registration (an SMAppService job keeps its environment across an update).
+    // decision: DMN-593
+    #[test]
+    fn the_build_is_the_bundles_own() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app = tmp.path().join("FERB.app");
+        std::fs::create_dir_all(app.join("Contents")).unwrap();
+        std::fs::write(
+            app.join("Contents/Info.plist"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict>\
+             <key>CFBundleVersion</key><string>202611132052</string></dict></plist>\n",
+        )
+        .unwrap();
+        assert_eq!(super::bundle_build(&app).as_deref(), Some("202611132052"));
+        let mut env = vec![b"FERB_APP_BUILD=202611131934".to_vec(), b"LANG=en".to_vec()];
+        super::with_build(&mut env, "202611132052");
+        assert_eq!(
+            env,
+            vec![b"LANG=en".to_vec(), b"FERB_APP_BUILD=202611132052".to_vec()]
+        );
+        assert_eq!(super::bundle_build(tmp.path()), None);
     }
 }

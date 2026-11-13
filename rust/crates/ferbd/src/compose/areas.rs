@@ -48,12 +48,32 @@ impl ferb_identity::helper::Launcher for NoHelper {
     }
 }
 
+/// HAND-410 (browsers.py:293-296): each secret-helper failure journaled with what is known of why, bounded
+/// (`_Repeats`). Python's `secret_helper.on_failure` is the module's one hook for every caller; here the daemon's start
+/// sets it once and every helper this program builds reports to it.
+pub static HELPER_FAILED: std::sync::OnceLock<ferb_daemon::shared::Repeats> =
+    std::sync::OnceLock::new();
+
 /// The signed helper of `home`, or none, as the options say.
 pub fn helper(opts: &Options, home: &Path) -> ferb_identity::Helper {
-    match opts.keychain {
+    let built = match opts.keychain {
         Keychain::Real => ferb_platform_macos::identity::helper(home),
-        Keychain::Refused => ferb_identity::Helper::new(home, Arc::new(NoHelper)),
-    }
+        Keychain::Refused => crate::off::off(
+            "keychain.refused",
+            ferb_identity::Helper::new(home, Arc::new(NoHelper)),
+        ),
+    };
+    built.on_failure(|facts: &ferb_identity::helper::HelperFacts| {
+        let Some(r) = HELPER_FAILED.get() else { return };
+        let data = crate::basics::object(facts.to_json());
+        let why = match (facts.status, facts.found) {
+            (Some(s), _) => s.to_string(),
+            (None, Some(f)) => if f { "True" } else { "False" }.to_string(),
+            (None, None) => "None".to_string(),
+        };
+        let kind = ferb_daemon::areas_b::browsers::HELPER_FAILED;
+        r.record(kind, &[kind, &facts.operation, &why], data);
+    })
 }
 
 /// `/usr/bin/security` finds nothing (the Keychain off): exit 44, "not found".
@@ -349,10 +369,74 @@ impl notify::Desk for MacDesk {
     }
 }
 
-struct NoListeners;
-impl notify::Listeners for NoListeners {
-    fn client_shows(&self, _topic: &str) -> bool {
-        false
+/// Who shows what the notices would banner (notify.py): the open `logs.subscribe` streams (`_client_shows`, L9), the
+/// trees a chat is attached to (`_attached_trees`), and a task's request (`self.tasks.column`); perception's hooks
+/// (areas/notify.py:86-94, 233-238) once sensing builds perception (areas/sensing.py:65).
+pub struct Listeners {
+    pub tools: super::tools::Parts,
+    pub db: SharedDb,
+}
+
+impl notify::Listeners for Listeners {
+    fn client_shows(&self, topic: &str) -> bool {
+        self.tools.log_watchers().wants(topic)
+    }
+    fn attached(&self, tree: &str) -> bool {
+        self.tools
+            .chat()
+            .is_some_and(|c| c.attached_trees().contains(tree))
+    }
+    /// `self.tasks.column(task_id, "request_id")`: None for a task the store doesn't hold.
+    fn request_of(&self, task_id: &str) -> Value {
+        let db = crate::basics::lock(&self.db);
+        db.conn()
+            .query_row(
+                "SELECT request_id FROM tasks WHERE id = ?",
+                [task_id],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .ok()
+            .flatten()
+            .map_or(Value::Null, Value::String)
+    }
+    /// notify.py:86-94 `perception.banner_posted`: FERB knows its own banners (L10), so the Notification Center row
+    /// a posted one becomes is FERB's, not an arrival.
+    fn banner_posted(&self, shown: &Value, poster: &str) -> Option<Value> {
+        let text = |k: &str| shown.get(k).map(ferb_py::value::py_str).unwrap_or_default();
+        let p = self.tools.perception()?;
+        p.banner_posted(&text("title"), &text("body"), poster)
+            .map(|b| super::loops::banner_json(&b))
+    }
+    /// That banner was never posted: no row of it will come back.
+    fn banner_failed(&self, banner: &Value) {
+        if let (Some(p), Some(b)) = (self.tools.perception(), super::loops::banner_of(banner)) {
+            p.banner_failed(b);
+        }
+    }
+    /// notify.py:233-238 `perception.policy.told(...)`: the receipt that FERB told the owner about a notification
+    /// a notice cites (its text redacted).
+    fn told(&self, bundle_id: &str, conversation: &str, row_id: &str, text: &str) {
+        let db = crate::basics::lock(&self.db);
+        let (clock, ids, r) = (self.tools.clock(), self.tools.ids(), self.tools.redactor());
+        let ids = super::tools::IdsRef(ids);
+        let policy = ferb_sense::notifications::NotificationPolicy::new(
+            &db,
+            clock.as_ref(),
+            &ids,
+            r.as_ref(),
+        );
+        let _ = policy.told(bundle_id, conversation, row_id, text);
+    }
+    /// `trail.row(id)`: the row's source and data as stored.
+    fn trail_row(&self, id: &str) -> Option<(String, String)> {
+        let db = crate::basics::lock(&self.db);
+        db.conn()
+            .query_row(
+                "SELECT source, data_json FROM trail WHERE id = ?",
+                [id],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+            )
+            .ok()
     }
 }
 
@@ -361,7 +445,7 @@ struct JevOff;
 
 impl jev::JevSeams for JevOff {
     fn key(&self) -> BoxFuture<'static, Option<String>> {
-        Box::pin(async { None })
+        crate::off::off("jev.key", Box::pin(async { None }))
     }
     fn build(&self, _key: String) -> Arc<dyn jev::Decider> {
         unreachable!("Jev's key is never read in this build, so no decider is built")
@@ -516,37 +600,8 @@ impl runtimes::CheckHost for Checks {
     }
 }
 
-/// FERB's own browser driver as the browser area attaches it: its `ferb_browser.*` tools in the registry.
-struct IdentityTools {
-    tools: super::tools::Parts,
-    gateway: Arc<Gateway>,
-}
-
-impl browsers::IdentityBrowser for IdentityTools {
-    fn ready(&self) -> bool {
-        self.tools.ferb_driver().is_some()
-    }
-    fn attached(&self) -> bool {
-        self.gateway.registry().get("ferb_browser.open").is_some()
-    }
-    fn attach(&self) {
-        let mut reg = self.gateway.registry();
-        for t in self.tools.ferb_browser_tools() {
-            reg.set(t);
-        }
-    }
-    fn detach(&self) {
-        let mut reg = self.gateway.registry();
-        for name in reg.names() {
-            if name.starts_with("ferb_browser.") {
-                reg.remove(&name);
-            }
-        }
-    }
-}
-
 /// `_notify` as the browser area calls it.
-struct BrowserBanners(Arc<notify::Notifier>);
+pub struct BrowserBanners(pub Arc<notify::Notifier>);
 
 impl browsers::Notifier for BrowserBanners {
     fn notify(
@@ -573,7 +628,7 @@ impl browsers::Notifier for BrowserBanners {
 }
 
 /// The router's tabs (`Router.shows`, `show_tab`, `tab_profile`) as the browser area's handoff reads them.
-struct RouterTabs(Arc<ferb_browser::driver::Driver>);
+pub struct RouterTabs(pub Arc<ferb_browser::driver::Driver>);
 
 fn tab_ref(v: &Value) -> Option<ferb_core::types::TabRef> {
     serde_json::from_value(v.clone()).ok()
@@ -627,11 +682,20 @@ pub fn group_b(
     let notifier = Arc::new(notify::Notifier {
         host: host.clone(),
         posters: posters.clone(),
-        desk: Arc::new(MacDesk {
-            native: opts.native,
-            presence: s.tools.owner().map(|o| o.presence.clone()),
+        desk: opts
+            .overrides
+            .as_ref()
+            .and_then(|o| o.desk())
+            .unwrap_or_else(|| {
+                Arc::new(MacDesk {
+                    native: opts.native,
+                    presence: s.tools.owner().map(|o| o.presence.clone()),
+                })
+            }),
+        listeners: Arc::new(Listeners {
+            tools: s.tools.clone(),
+            db: s.db.clone(),
         }),
-        listeners: Arc::new(NoListeners),
         notices: Some(s.db.clone()),
         held: Mutex::new(Vec::new()),
         uid: Arc::new(|| ferb_runtimes::codex::token_hex(6)),
@@ -650,12 +714,23 @@ pub fn group_b(
         poll: Duration::from_millis(100),
     });
     let sense = Arc::new(super::loops::sense(opts, s));
+    s.tools.set_sense(sense.clone());
+    // sensing.py:151-159 `_sense_status`: the tap's state, the watch folders skipped, perception's status
+    let perception = s
+        .tools
+        .perception()
+        .expect("loops::sense builds perception");
     d.sensing = Some(sensing::Deps {
         sense: Some(sense.clone()),
-        owner_input_running: Arc::new(|| false),
-        watch_problems: Arc::new(Mutex::new(vec![])),
-        perception_status: None,
+        owner_input_running: {
+            let owner = s.tools.owner().cloned();
+            Arc::new(move || owner.as_ref().is_some_and(|o| o.input.is_running()))
+        },
+        watch_problems: perception.watch_problems.clone(),
+        perception_status: Some(Arc::new(move || perception.status())),
     });
+    // the intro's reads of group A (below) take their own handle: `about` moves `a_state`
+    let intro_a = a_state.clone();
 
     // about
     let native = opts.native;
@@ -667,8 +742,15 @@ pub fn group_b(
         }
     });
     let shell_ok = s.tools.shells().is_some();
+    // rpc.py:487-491 `_setup_containment`: the containment facts this daemon started with (the sandbox profile
+    // checked once at start, the shell, the proxy), as group C's setup reads them
+    let egress = opts.egress.clone();
     let containment: Arc<dyn Fn() -> Map<String, Value> + Send + Sync> = Arc::new(move || {
-        crate::basics::object(json!({"profile_ok": shell_ok, "shell": shell_ok, "proxy": false}))
+        let contained = egress.containment.get().is_some_and(|(ok, _)| *ok);
+        crate::basics::object(
+            json!({"profile_ok": contained, "shell": shell_ok && contained,
+                                     "proxy": egress.running() && contained}),
+        )
     });
     let db_path = crate::basics::lock(&s.db).path().to_path_buf();
     let gw = s.gateway.clone();
@@ -680,6 +762,7 @@ pub fn group_b(
         containment,
         account: Arc::new(Accounts {
             tools: s.tools.clone(),
+            config: s.config.clone(),
         }),
         store: Some(s.db.clone()),
         store_facts: Arc::new(move || {
@@ -724,14 +807,21 @@ pub fn group_b(
         })),
         tree_of: Arc::new(move |task_id: &str| {
             let db = crate::basics::lock(&tree_db);
-            let tree = ferb_orchestrator::tree::TaskTree::new(Some(&db), Box::new(String::new));
+            // a read: the tree's clock is never asked
+            let tree = ferb_orchestrator::tree::TaskTree::new(
+                Some(&db),
+                crate::off::off("tree.read_clock", Box::new(String::new)),
+            );
             tree.tree_of(task_id).ok().flatten()
         }),
     }));
 
-    // intro: the suggestion needs the Mac profile scan (MEM-13, not started in this build: its state stays
-    // `not_started`, so the model call is never reached); the preview is the supervisor's `preview_events`
-    let shutting = Arc::new(|| false);
+    // intro: the suggestion reads what FERB saw on this Mac (MEM-13, group A's persona) and asks the model on group
+    // A's thread (DMN-500); the preview is the supervisor's `preview_events`
+    let shutting: Arc<dyn Fn() -> bool + Send + Sync> = {
+        let parts = s.tools.downgrade();
+        Arc::new(move || parts.upgrade().is_some_and(|p| p.shutting_down()))
+    };
     let tools = s.tools.clone();
     let preview: intro::PreviewStart = Arc::new(move |session: &str, text: &str| {
         let (tx, rx) = tokio::sync::mpsc::channel(16);
@@ -772,18 +862,47 @@ pub fn group_b(
         rx
     });
     d.intro = Some(Arc::new(intro::Deps {
-        scan: Arc::new(|| json!({"state": "not_started"})),
-        ask: Arc::new(|_system, _ctx| {
-            Box::pin(async {
-                Err(intro::CallFailed(
-                    "no Mac profile scan in this build".to_string(),
-                ))
+        // memory.py:1127-1153 `_mac_profile_service().status()`, on group A's thread where the persona lives
+        scan: {
+            let a = intro_a.clone();
+            Arc::new(move || match a.get().cloned() {
+                Some(a) => a
+                    .call_blocking(|st| async move { st.persona.borrow().status() })
+                    .unwrap_or_else(|_| json!({"state": "closed"})),
+                None => json!({"state": "not_started"}),
             })
-        }),
+        },
+        // intro.py:107-119 `_suggest`'s model call (role intro_suggest)
+        ask: {
+            let a = intro_a;
+            Arc::new(move |system: String, ctx: String| {
+                let a = a.get().cloned();
+                Box::pin(async move {
+                    let a = a.ok_or_else(|| intro::CallFailed("RuntimeError".into()))?;
+                    a.call(move |st| async move {
+                        super::memory_loops::intro_suggest(&st, &system, &ctx).await
+                    })
+                    .await
+                    .map_err(|_| intro::CallFailed("CancelledError".into()))?
+                    .map_err(intro::CallFailed)
+                })
+            })
+        },
+        // intro.py:112-113: `load_prompt("orchestrator/prompts/intro.md", {"capabilities": availability().text})`
         system: {
             let package = opts.package.clone();
+            let tools = s.tools.clone();
             Arc::new(move || {
-                std::fs::read_to_string(package.join("orchestrator/prompts/intro.md"))
+                let capabilities = tools
+                    .supervisor()
+                    .map(|sup| sup.inner().deps.daemon.availability())
+                    .unwrap_or_default();
+                ferb_context::prompts::PromptRoot::new(&package)
+                    .map_err(|e| e.to_string())?
+                    .load(
+                        "orchestrator/prompts/intro.md",
+                        &[("capabilities", capabilities.as_str())],
+                    )
                     .map_err(|e| e.to_string())
             })
         },
@@ -796,7 +915,7 @@ pub fn group_b(
     let helper = Arc::new(helper(opts, &s.home));
     let security: Arc<dyn runtimes::keys::Security> = match opts.keychain {
         Keychain::Real => Arc::new(runtimes::keys::SystemSecurity),
-        Keychain::Refused => Arc::new(NoSecurity),
+        Keychain::Refused => crate::off::off("keychain.refused_security", Arc::new(NoSecurity)),
     };
     let programs = Arc::new(super::runtimes::MacPrograms {
         home: s.home.clone(),
@@ -859,18 +978,6 @@ pub fn group_b(
 
     // browsers
     d.browsers = Some(super::tools::browsers_deps(opts, s, &notifier));
-    if let Some(router) = s.tools.owner_driver() {
-        if let Some(b) = d.browsers.as_mut() {
-            b.tabs = Some(Arc::new(RouterTabs(router)));
-        }
-    }
-    if let Some(b) = d.browsers.as_mut() {
-        b.identity_browser = Arc::new(IdentityTools {
-            tools: s.tools.clone(),
-            gateway: s.gateway.clone(),
-        });
-        b.notifier = Arc::new(BrowserBanners(notifier.clone()));
-    }
 
     GroupB {
         deps: d,
@@ -881,17 +988,25 @@ pub fn group_b(
     }
 }
 
-/// The browser profiles FERB's About reads (`Account`).
+/// The browser facts FERB's About reads (`Account`, about.py:59): the browser area's profiles found now (none before
+/// Full Disk Access, DMN-507) and `_identity_paired()`: FERB's own profile paired as FERB.
 struct Accounts {
     tools: super::tools::Parts,
+    config: Arc<Config>,
 }
 
 impl about::Account for Accounts {
     fn profiles(&self) -> Vec<ferb_browser::profiles::BrowserProfile> {
-        Vec::new()
+        self.tools
+            .browsers()
+            .and_then(|b| b.area())
+            .map(|cx| cx.profiles())
+            .unwrap_or_default()
     }
     fn identity_paired(&self) -> bool {
-        self.tools.ferb_driver().is_some()
+        self.tools
+            .browsers()
+            .is_some_and(|b| b.identity_paired(&self.config))
     }
 }
 
@@ -940,6 +1055,9 @@ impl GroupB {
     pub async fn shutdown(&self) {
         if let Some(s) = &self.sense {
             s.stop().await;
+            for (part, ms) in s.slow_stop() {
+                crate::log::line(&format!("stop: sensing's {part} took {ms} ms"));
+            }
         }
     }
 }

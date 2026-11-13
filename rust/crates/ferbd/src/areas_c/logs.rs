@@ -10,6 +10,44 @@ use serde_json::{json, Map, Value};
 
 use super::Deps;
 
+/// `_log_subscriptions` (main.py:267, L9): the topic filters of the open `logs.subscribe` streams, so a banner stays
+/// off while a connected FERB client receives its topic (notify.py `_client_shows`). A stream is listed from the
+/// moment it opens until it ends, however it ends (the caller left, an overflow).
+#[derive(Default)]
+pub struct Watchers {
+    next: std::sync::atomic::AtomicU64,
+    open: std::sync::Mutex<Vec<(u64, Option<Vec<String>>)>>,
+}
+
+impl Watchers {
+    fn open(&self, topics: Option<Vec<String>>) -> u64 {
+        let id = self.next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        crate::basics::lock(&self.open).push((id, topics));
+        id
+    }
+
+    fn close(&self, id: u64) {
+        crate::basics::lock(&self.open).retain(|(i, _)| *i != id);
+    }
+
+    /// `any(sub.wants(topic) for sub in self._log_subscriptions)` (bus.py:74's `wants`).
+    pub fn wants(&self, topic: &str) -> bool {
+        crate::basics::lock(&self.open)
+            .iter()
+            .any(|(_, topics)| match topics {
+                None => true,
+                Some(t) => t.iter().any(|t| {
+                    topic == t || (t.ends_with(".*") && topic.starts_with(&t[..t.len() - 1]))
+                }),
+            })
+    }
+
+    /// How many streams are open.
+    pub fn count(&self) -> usize {
+        crate::basics::lock(&self.open).len()
+    }
+}
+
 /// `LOG_FILTERS` (rpc.py:26): `ferb logs` filter flags -> bus topic patterns.
 pub const LOG_FILTERS: [(&str, &[&str]); 7] = [
     ("tasks", &["task.*"]),
@@ -44,10 +82,21 @@ struct Logs {
     d: Deps,
     sub: Option<Subscription>,
     refused: Option<HandlerError>,
+    /// This stream's entry in [`Watchers`] (rpc.py:593, 602).
+    watching: Option<u64>,
+}
+
+impl Logs {
+    fn unwatch(&mut self) {
+        if let Some(id) = self.watching.take() {
+            self.d.tools.log_watchers().close(id);
+        }
+    }
 }
 
 impl Drop for Logs {
     fn drop(&mut self) {
+        self.unwatch();
         if let Some(s) = &self.sub {
             s.close();
         }
@@ -70,7 +119,10 @@ impl EventStream for Logs {
                     };
                     Some(Ok(line(&self.d, &ev.topic, &ev.at, class, &ev.data)))
                 }
-                Ok(None) => None,
+                Ok(None) => {
+                    self.unwatch();
+                    None
+                }
                 Err(BusError::Overflow) | Err(BusError::UnknownTopic(_)) => {
                     let mut data = Map::new();
                     data.insert(
@@ -87,6 +139,7 @@ impl EventStream for Logs {
                     if let Some(s) = self.sub.take() {
                         s.close();
                     }
+                    self.unwatch();
                     Some(Ok(out))
                 }
             }
@@ -111,6 +164,7 @@ fn open(d: &Deps, p: &Params) -> Box<dyn EventStream> {
         return Box::new(Logs {
             d: d.clone(),
             sub: None,
+            watching: None,
             refused: Some(HandlerError::refusal(
                 "FerbError",
                 format!(
@@ -138,9 +192,36 @@ fn open(d: &Deps, p: &Params) -> Box<dyn EventStream> {
         },
         maxsize,
     );
+    let watching = d
+        .tools
+        .log_watchers()
+        .open((!wanted.is_empty()).then(|| wanted.iter().map(|s| s.to_string()).collect()));
     Box::new(Logs {
         d: d.clone(),
         sub: Some(sub),
         refused: None,
+        watching: Some(watching),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Watchers;
+
+    /// notify.py:166-170 (L9): a stream with no filter shows every topic, a filtered one only its own; a closed one
+    /// shows nothing.
+    #[test]
+    fn open_streams_say_which_topics_a_client_shows() {
+        let w = Watchers::default();
+        assert!(!w.wants("attention.notice"));
+        let timers = w.open(Some(vec!["timer.*".into()]));
+        assert!(!w.wants("attention.notice"));
+        assert!(w.wants("timer.fired"));
+        let all = w.open(None);
+        assert!(w.wants("attention.notice"));
+        w.close(all);
+        assert!(!w.wants("attention.notice"));
+        w.close(timers);
+        assert_eq!(w.count(), 0);
+    }
 }

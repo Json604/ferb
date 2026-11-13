@@ -44,15 +44,20 @@ pub struct Acting<'a> {
 
 impl Drop for Acting<'_> {
     fn drop(&mut self) {
-        let mut s = self.attribution.lock();
-        if let Some(tasks) = s.acting.get_mut(&self.bundle_id) {
-            if let Some(i) = tasks.iter().position(|t| *t == self.task_id) {
-                tasks.remove(i);
-            }
-            if tasks.is_empty() {
-                s.acting.remove(&self.bundle_id);
-            }
-        }
+        self.attribution.end_acting(&self.bundle_id, &self.task_id);
+    }
+}
+
+/// [`Acting`] that holds its attribution itself: what a caller keeps beyond a borrow (the Mac driver's action).
+pub struct ActingOwned {
+    attribution: std::sync::Arc<Attribution>,
+    bundle_id: String,
+    task_id: Option<String>,
+}
+
+impl Drop for ActingOwned {
+    fn drop(&mut self) {
+        self.attribution.end_acting(&self.bundle_id, &self.task_id);
     }
 }
 
@@ -81,12 +86,42 @@ impl Attribution {
     }
 
     /// trail.py:57: P4, while a FERB action runs in this app, events in it are FERB's.
-    pub fn acting(&self, bundle_id: &str, task_id: Option<&str>) -> Acting<'_> {
+    /// [`Attribution::acting`] as an owned guard.
+    pub fn acting_owned(
+        self: &std::sync::Arc<Self>,
+        bundle_id: &str,
+        task_id: Option<&str>,
+    ) -> ActingOwned {
+        self.begin_acting(bundle_id, task_id);
+        ActingOwned {
+            attribution: self.clone(),
+            bundle_id: bundle_id.to_string(),
+            task_id: task_id.map(str::to_string),
+        }
+    }
+
+    fn end_acting(&self, bundle_id: &str, task_id: &Option<String>) {
+        let mut s = self.lock();
+        if let Some(tasks) = s.acting.get_mut(bundle_id) {
+            if let Some(i) = tasks.iter().position(|t| t == task_id) {
+                tasks.remove(i);
+            }
+            if tasks.is_empty() {
+                s.acting.remove(bundle_id);
+            }
+        }
+    }
+
+    fn begin_acting(&self, bundle_id: &str, task_id: Option<&str>) {
         self.lock()
             .acting
             .entry(bundle_id.to_string())
             .or_default()
             .push(task_id.map(str::to_string));
+    }
+
+    pub fn acting(&self, bundle_id: &str, task_id: Option<&str>) -> Acting<'_> {
+        self.begin_acting(bundle_id, task_id);
         Acting {
             attribution: self,
             bundle_id: bundle_id.to_string(),

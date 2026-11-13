@@ -3589,11 +3589,12 @@ live = ["LIVE-937"]
 title = "On the switch to the Developer ID, FERB clears its own old permission entries once"
 by = "owner"
 date = 2026-11-13
-status = "active"
+status = "superseded"
+superseded_by = "DMN-593"
 words = "FERB resets its own (Recommended)"
 words_source = "The owner's answer to the coordinator's T-27 question about the old permission entries, 2026-11-13."
 rule = "On the switch build only (the first Developer ID launch over a self-signed install), FERB clears macOS's permission entries for its own app IDs once (tccutil reset <service> com.ferb.FERB and com.ferb.daemon, for the services FERB uses), so macOS asks cleanly; nothing of other apps is touched."
-paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift::signerAtLaunch", "ui/mac/FERBNotch/Sources/NotchCore/SignerMove.swift::SignerMove"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift"]
 live = ["LIVE-943"]
 
 [APP-903]
@@ -3611,21 +3612,23 @@ live = ["LIVE-944"]
 title = "FERB.app notices the switch to the Developer ID and moves its service and login item"
 by = "agent"
 date = 2026-11-13
-status = "active"
+status = "superseded"
+superseded_by = "DMN-593"
 supersedes = ["APP-602"]
 rule = "Keeps APP-602 for the LaunchAgent. A team-signed build over a record whose signer differs (or has none) marks a move (signerMove.pending) until the service runs: APP-902 once, the login item moves to SMAppService.mainApp (re-registered; the fallback goes once macOS takes it, an off stays off), a listed registration is unregistered before setup (APP-599's rule, this move only), setup runs with --app-service, then register(); the permission beats say FERB is now signed by its developer. With service = app, set up means listed and no LaunchAgent left."
 why = "Plan developer-id.md §6-8: grants, the launch constraint and the login item all name the old signer; a quit mid-move must resume, and nothing moves on a self-signed build or a new install."
-paths = ["ui/mac/FERBNotch/Sources/NotchCore/SignerMove.swift", "ui/mac/FERBNotch/Sources/NotchCore/AppSetup.swift::AppSetupPlan", "ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/LoginItemController.swift::moveAfterSignerChange", "ui/mac/FERBNotch/Sources/FERBNotch/SetupServices.swift"]
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/AppService.swift", "ui/mac/FERBNotch/Sources/NotchCore/AppSetup.swift::AppSetupPlan", "ui/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/LoginItemController.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupServices.swift"]
 live = ["LIVE-943", "LIVE-946"]
 
 [APP-905]
 title = "macOS's refusal or silence falls back to the LaunchAgent; the owner's Login Items switch is guided"
 by = "agent"
 date = 2026-11-13
-status = "active"
+status = "superseded"
+superseded_by = "DMN-593"
 rule = "For DMN-587. After --app-service, FERB.app calls register() (already registered counts as done) and waits up to 30 s for ping. A throw, a status that stays not registered or not found, or no answer: the registration is unregistered (awaited) and `setup --service --update` writes and loads the LaunchAgent, the service line saying why; the next build tries again. LaunchDeniedByUser or requiresApproval is the owner's Login Items switch: the Login Items guidance (APP-506), never the LaunchAgent around it."
 why = "\"As long as it works\" (DMN-587): FERB must never be left without a daemon by a refusal, yet a switch the owner turned off is theirs to turn on."
-paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::turnOnAppService", "ui/mac/FERBNotch/Sources/NotchCore/SignerMove.swift::AppServicePlan"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::turnOnAppService", "ui/mac/FERBNotch/Sources/NotchCore/AppService.swift::AppServicePlan"]
 
 [APP-906]
 title = "The switch update is Sparkle's major upgrade, asked in the chat, the menu and Settings"

@@ -2,11 +2,12 @@ import XCTest
 @testable import FERBNotch
 import NotchCore
 
-/// launchd can't start FERB's background service (live 2026-11-14): FERB.app's in-app registration (DMN-587) had been
-/// tied to the Background Task Management record of the user LaunchAgent it replaced; once macOS dropped that record,
-/// every start failed (`job state = spawn failed`, `last exit code = 78: EX_CONFIG`) and the tour waited on Input
-/// Monitoring for good after its restart-to-check. These cover the states launchd prints and what FERB.app does in
-/// each: nothing while the job runs or only waits for its throttle; a fresh registration once; then the LaunchAgent.
+/// launchd can't start FERB's background service (live 2026-11-14): FERB.app's in-app registration had been tied to the
+/// Background Task Management record of the user LaunchAgent it replaced; once macOS dropped that record, every start
+/// failed (`job state = spawn failed`, `last exit code = 78: EX_CONFIG`) and the tour waited on Input Monitoring for
+/// good after its restart-to-check. These cover the states launchd prints and what FERB.app does in each: nothing while
+/// the job runs or only waits for its throttle; a fresh registration once; then launchd's words for the owner, with
+/// how to allow it (DMN-593: never a LaunchAgent around it). The Python build installs its LaunchAgent again.
 @MainActor
 final class ServiceSpawnFailureTests: XCTestCase {
     private let failedPrint = """
@@ -21,7 +22,7 @@ final class ServiceSpawnFailureTests: XCTestCase {
         }
         """
 
-    // decision: DMN-591
+    // decision: DMN-594
     func testOnlyAJobLaunchdSaysItCantStartIsAFailure() {
         XCTAssertEqual(LaunchctlPlan.spawnFailure(failedPrint),
                        "launchd couldn't start it (last exit code 78: EX_CONFIG)")
@@ -44,7 +45,7 @@ final class ServiceSpawnFailureTests: XCTestCase {
         return (rig, model)
     }
 
-    // decision: DMN-591
+    // decision: DMN-594
     func testARegistrationLaunchdCantStartIsRegisteredAgainAtOnceAndThenAnswers() async {
         let background = FakeBackgroundService()
         background.spawnFails = "launchd couldn't start it (last exit code 78: EX_CONFIG)"
@@ -60,13 +61,13 @@ final class ServiceSpawnFailureTests: XCTestCase {
         await eventually { result != nil }
         XCTAssertEqual(result, true)
         XCTAssertEqual(background.steps, ["register", "unregister", "register"])
-        XCTAssertNil(model.serviceFallback)
+        XCTAssertNil(model.serviceError)
         XCTAssertEqual(rig.runner.runs.count, 1)                     // no LaunchAgent: the app's own service runs
         XCTAssertLessThan(ContinuousClock.now - began, .seconds(10))
     }
 
-    // decision: DMN-591, DMN-513
-    func testARegistrationLaunchdStillCantStartFallsBackToTheLaunchAgentWithLaunchdsWords() async {
+    // decision: DMN-594, DMN-593
+    func testARegistrationLaunchdStillCantStartIsReportedWithLaunchdsWordsAndNoLaunchAgent() async {
         let background = FakeBackgroundService()
         background.spawnFails = "launchd couldn't start it (last exit code 78: EX_CONFIG)"
         background.failingRegistrations = 99
@@ -77,16 +78,34 @@ final class ServiceSpawnFailureTests: XCTestCase {
         model.runService { result = $0 }
         await eventually { rig.runner.isRunning }
         rig.runner.finish(0)
-        await eventually { rig.runner.runs.count == 2 }
-        XCTAssertEqual(rig.runner.runs.last, ["setup", "--service", "--update"])
-        XCTAssertEqual(model.serviceFallback, "launchd couldn't start it (last exit code 78: EX_CONFIG)")
-        XCTAssertLessThan(ContinuousClock.now - began, .seconds(10))  // not the 20 s wait
-        rig.runner.finish(0)
         await eventually { result != nil }
-        XCTAssertEqual(result, true)
+        XCTAssertEqual(result, false)
+        XCTAssertEqual(rig.runner.runs.count, 1)                     // never `setup --service` without --app-service
+        XCTAssertEqual(background.steps, ["register", "unregister", "register"])    // registered again once only
+        XCTAssertEqual(model.serviceError,
+                       AppServicePlan.refusal("launchd couldn't start it (last exit code 78: EX_CONFIG)"))
+        XCTAssertLessThan(ContinuousClock.now - began, .seconds(10))  // not the 20 s wait
     }
 
-    // decision: DMN-591, APP-662
+    // decision: DMN-594, DMN-593
+    func testARestartLaunchdStillCantStartSaysWhyInsteadOfALaunchAgent() async {
+        let background = FakeBackgroundService()
+        background.registration = .enabled
+        background.status = .enabled
+        let (rig, model) = rig(background)
+        rig.rpc.failures["ping"] = DaemonRPCError.unavailable
+        rig.service.onRestart = {
+            background.spawnFails = "launchd couldn't start it"
+            background.failingRegistrations = 99
+        }
+        await model.restartService()
+        XCTAssertEqual(background.steps, ["unregister", "register"])  // the one fresh registration
+        XCTAssertTrue(rig.runner.runs.isEmpty)
+        XCTAssertEqual(model.serviceError, AppServicePlan.refusal("launchd couldn't start it"))
+        XCTAssertEqual(model.message, model.serviceError)
+    }
+
+    // decision: DMN-594, APP-662
     func testARestartToCheckAGrantThatLaunchdCantStartIsRepairedNotWaitedOn() async {
         let background = FakeBackgroundService()
         background.registration = .enabled
@@ -102,10 +121,10 @@ final class ServiceSpawnFailureTests: XCTestCase {
         XCTAssertEqual(rig.service.restarts, 1)
         XCTAssertEqual(background.steps, ["unregister", "register"])  // registered again, then FERB answered
         XCTAssertNil(model.message)                                  // no "couldn't be restarted"
-        XCTAssertNil(model.serviceFallback)
+        XCTAssertNil(model.serviceError)
     }
 
-    // decision: DMN-591, DMN-513
+    // decision: DMN-594, DMN-513
     func testALaunchAgentLaunchdCantStartIsInstalledAgain() async {
         let background = FakeBackgroundService()                     // nothing registered: the LaunchAgent runs it
         let (rig, model) = rig(background, appService: false)
@@ -121,7 +140,7 @@ final class ServiceSpawnFailureTests: XCTestCase {
         XCTAssertNil(model.message)
     }
 
-    // decision: DMN-591
+    // decision: DMN-594
     func testARestartLaunchdCompletesIsLeftAlone() async {
         let background = FakeBackgroundService()
         background.registration = .enabled

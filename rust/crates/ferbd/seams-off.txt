@@ -1,0 +1,98 @@
+# The seams ferbd deliberately leaves off, each with why (read by tests/seams_wired.rs).
+#
+#   off <id> | <why>                      an `off("id", value)` in the composition
+#   default <Trait>::<method> | <why>     a trait default the named implementation keeps
+#   value <field> | <why>                 a struct field set to `None` that is plain data, never a seam
+#   trait <trait file> <Trait> <impl file> <Type>   a trait whose defaults are checked
+#
+# Paths are relative to rust/crates/. A reason cites the Python line that is also empty there, or says what makes
+# the seam unneeded in this program.
+
+# --- deliberately off ---
+off chat.click_through | ChatDeps' `ui.click_through` handler is replaced by group C's (compose/mod.rs registers areas_c after the chat RPCs; Python chat.py:146 is the same one handler), which reads the Mac driver's report.
+off chat.conversations | ChatDeps.conversations is no longer read: chat.status and conversations.list read the supervisor's own conversation store, as Python's chat.py:118 reads `supervisor.conversations`.
+off keychain.refused | A daemon started with `Keychain::Refused` (the test stand-ins) never reaches the Keychain or the signed helper (TEST-508); the real daemon uses the signed helper.
+off keychain.refused_security | As keychain.refused: `/usr/bin/security` is never run by a daemon started for a test.
+off jev.key | Jev is paid and switched off (owner 2026-10-27: notices paused until a Jev-free decision engine); its key is never read, as Python's areas/jev.py:24-48 with `[jev] on` unset.
+off events.attention_arrived | compose.py:231 hands `perception.attention` to Jev; with Jev off nothing publishes it.
+off tree.read_clock | about's `tree_of` only reads the task tree; a read never asks the tree's clock.
+off notices.read_clock | `attention_notices.unseen()` only reads; its clock is never asked.
+off call.caller_left | An in-process gateway call (a probe read, a check's tool, the model tool bridge's own call) has no RPC caller that could leave; only `tools.call` over the socket carries one.
+off runtime.retried | Codex and Claude retry inside their own programs; only the API loop reports its retries (runtimes/api.py:148-149, 237).
+off browser.ask_without_context | The driver asks for a login code or a secret without a tool context only when no context exists; every gateway call carries one, so `ask_code_for`/`ask_secret_for` are the paths used.
+off browser.peer_elsewhere | Off macOS nothing can tell which app started a native host, so every connection is refused (fails closed); FERB.app runs only on macOS (PROJ-506).
+off browser.data_dirs | `browser_data_dirs` replaces discovery only in Python's tests (main.py:182 passes None in the real daemon).
+off browser.no_wake_page | The wake page couldn't bind 127.0.0.1 (logged at start): no wake address exists; Python's WakeServer always starts, so this happens only on a broken host.
+off desktop.app_window | The gateway's first look at a Mac app runs through the call hooks' AppWindows (tools/mac.rs), the one path; nothing in this program calls the desktop area's `app_window`.
+off front.client | The supervisor's front-window seam carries no sending client's pid; FERB.app is the only client and FERB's own processes are never the front window (`own`), so the window it would skip is never chosen.
+off applescript.sandbox_rest | desktop.py:317 gives AppleScript's sandbox only the apps and the events' socket; the rest of the shell's options stay at their defaults.
+off input.no_tap | Without the Mac's parts there is no owner-input tap, so foreground input is never available (a test daemon); the real daemon reads the tap.
+off hearing.no_capture | Without the Mac's parts no app's sound can be captured (a test daemon); the real daemon captures through ScreenCaptureKit.
+off hooks.shadow | The gateway's shadow advice is Jev's; Jev is off (owner 2026-10-27), as Python's HookParts gets no shadow then.
+off reader.clock | A read-only store (conversation.read, task.evidence) never asks its clock: nothing is written.
+off reader.ids | task.evidence only reads the evidence store: no id is ever made.
+off reader.publish | A read-only store or trail (conversation.read, trail.query) never publishes: nothing is written.
+off reader.device | trail.query only reads: the device id is needed only to record.
+off reader.paused | trail.query only reads: the pause gates recording only.
+off reader.test_task | trail.query only reads: test runs are told apart only when recording.
+off reader.paint | task.evidence only reads stored pictures: nothing is painted.
+off records.conversation_publish | conversations.py:161 publishes only from `observe`; this store applies the owner's changes, which publish nothing.
+
+# --- plain data fields set to None (never a seam) ---
+value error | A span's `Finish`: no error.
+value cost_usd | A span's `Finish`: no model cost.
+value origin | A span's `Finish`: the span keeps its own origin.
+value summary | A span's `Finish`: no summary.
+value deadline | A live task's record: no deadline set.
+value owner_uid | Options::real: None means this process's own user (the real daemon).
+value app_check | Options::real: None means the code-signature check (the real daemon).
+value timer_tokens | Options::real: None means random tokens (the real daemon).
+value overrides | Options::real: None means no test stand-ins (the real daemon).
+value run_tokens | Options::real: None means random run tokens (the real daemon).
+value wrap_id | BuildParts: None means a random wrapper id, as wrap_untrusted makes.
+value new_chat | BuildParts: None means random chat ids.
+value notice_hex | BuildParts: None means random notice ids.
+value loop_thread | group A starts its own loop thread when given none.
+value shown | A secret question's data: no picture shown.
+value kind | A secret question's data: no kind named.
+value state | A capture's web-secrets answer: no state read.
+value tab | A capture's web-secrets answer: no tab named.
+value sub | A refused logs stream holds no subscription.
+value watching | A refused logs stream is not listed as a client.
+value refused | An open logs stream has no refusal.
+value timeout | A program run with no time limit (its own).
+off reader.reversible | SpanStore.task_origins only reads: whether a span's kind is reversible matters only when a span is written.
+off trail.reads_only | The retention pass's trail only purges; `record` never runs there, so its publish, device id, pause and test runs are never reached.
+off evidence.purge_only | The retention pass's evidence store only purges; nothing is stored or painted there.
+off perception.jev | Perception's batcher hands batches to Jev; Jev is off (owner 2026-10-27), so its source answers none.
+off sense.app_focus_on_change | app_focus.py:15's default does nothing and sensing.py:71 keeps it.
+off memory.distill_purge | memory.py:66 builds the Distiller with distill.py's default `purge`, which does nothing.
+off memory.index_summaries_stop | memory.py:204 calls `index_summaries(..., stop=lambda: False)`.
+
+# --- traits whose defaults are checked ---
+trait ferb-supervisor/src/flow/mod.rs Daemon ferbd/src/compose/supervisor.rs SupDaemon
+trait ferbd/src/compose/supervisor.rs Reads ferbd/src/compose/supervisor.rs RealReads
+trait ferb-daemon/src/areas_b/notify.rs Listeners ferbd/src/compose/areas.rs Listeners
+trait ferb-daemon/src/areas_b/notify.rs Desk ferbd/src/compose/areas.rs MacDesk
+trait ferb-gateway/src/tool.rs Tool ferbd/src/compose/tools/browser.rs BrowserTool
+default Daemon::hold_poll_s | gateway.py:619's 0.2 s: Python's daemon passes no other value anywhere.
+default Reads::browsing | None means the supervisor seam's own answer (SupDaemon::browsing, the browser area's); only a recorder's stand-in replaces it.
+default Reads::captures_at_send | None means as this daemon's parts say (the Mac's parts on); only a recorder's stand-in replaces it.
+default Reads::front_capture | None means this daemon's own capture (compose/front.rs); only a recorder's stand-in replaces it.
+default Reads::shutdown | The desktop observer's summaries are written by the daemon's shutdown itself (compose/mod.rs, the sentinel's shutdown), main.py:551.
+trait ferb-gateway/src/tool.rs Tool ferbd/src/compose/tools/mac.rs MacTool
+default Tool::facts | A tool's facts come from the frozen catalog (rust/fixtures/catalog/tools.json), as the models were given them.
+default Tool::scopes | A tool's scopes come from the frozen catalog.
+default Tool::identities | A tool's identities come from the frozen catalog.
+default Tool::description | A tool's description is the frozen catalog's, with its live parts composed (catalog.rs `description`).
+default Tool::input_schema | A tool's schema is the frozen catalog's.
+default Tool::hooks | A tool's validators are the catalog tool's own (validators.rs), as its pydantic model's.
+default Tool::try_describe | The browser and Mac tools' `describe` never raises (ferb/act/browser/tools.py, ferb/act/mac/tools.py).
+default Tool::precheck | ferb/act/browser/tools.py and ferb/act/mac/tools.py define no `precheck`.
+default Tool::recovery_reason | Only the file tools say why a write keeps a copy (ferb/act/fs); the browser and Mac tools don't.
+default Tool::unavailable | GATE-560's facts are the Mac tools' own (`unavailable` on MacTool); the browser tools define none (ferb/act/browser/tools.py).
+default Tool::browser_page | Only the Mac input tools name a browser's own page (ferb/act/mac/tools.py:554, 737, 880); the browser tools act inside the page through the extension.
+default Tool::pay_press | pay_press.py:26 reads a browser tab's amounts only; a Mac tool's press has no page to read (None, as Python's `read` answers for it).
+default Tool::tab_picture | call_hooks.py:194 takes a tab's picture for browser tools only; a Mac tool's picture is the app window's (AppWindows).
+default Tool::real_path | The Mac tools name no file the gateway resolves (ferb/act/mac/tools.py defines no real_path); their files go through `file_paths`.
+off browser.sealer_in_process | A daemon started without the Keychain (a test's) seals the owner's fills with the driver's own seal (the same AES-GCM format, ferb-identity seal.rs) instead of the signed helper's.

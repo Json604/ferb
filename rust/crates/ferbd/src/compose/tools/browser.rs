@@ -113,20 +113,25 @@ impl ferb_browser::tools::Host for BrowserHost {
     fn read(&self, path: &str) -> ferb_browser::error::Result<Vec<u8>> {
         std::fs::read(path).map_err(|e| ferb_browser::error::Error::driver(e.to_string()))
     }
+    /// browser/tools.py:723 `new_file(out, pdf, write_check(ctx))` (fs/files.py:295): a new file inside one opened
+    /// folder the call's protection check passes, never over anything; `PathRefused` is the call's refusal.
     fn new_file(
         &self,
         path: &str,
         data: &[u8],
-        _ctx: &ToolContext,
+        ctx: &ToolContext,
     ) -> ferb_browser::error::Result<()> {
-        use std::io::Write;
-        let mut f = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)
-            .map_err(|e| ferb_browser::error::Error::driver(e.to_string()))?;
-        f.write_all(data)
-            .map_err(|e| ferb_browser::error::Error::driver(e.to_string()))
+        use ferb_browser::error::Error;
+        use ferb_fs::files::Fail;
+        let check = ferb_fs::files::write_check(ctx);
+        let closed: ferb_fs::files::Check =
+            check.as_ref().map(|f| f as &dyn Fn(&str) -> Option<String>);
+        ferb_fs::files::new_file(path, data, closed).map_err(|e| match e {
+            Fail::Refused(m) => Error::refused(m),
+            Fail::Os(e) => Error::driver(e.to_string()),
+            Fail::Raised(m) => Error::driver(m),
+            other => Error::driver(format!("{other:?}")),
+        })
     }
     /// point.py:49: the display holding a rect's centre (the window server's).
     fn display_of(&self, rect: Rect) -> Option<i64> {
@@ -398,8 +403,8 @@ impl ferb_browser::driver::OwnerInput for GatewayInput {
         _intent: &str,
         _origin: &str,
     ) -> BoxFuture<'_, Option<ferb_identity::Secret>> {
-        // every tool asks with its whole context (`ask_code_for`)
-        Box::pin(async { None })
+        // every tool asks with its whole context (`ask_code_for`): the gateway's calls always carry it
+        crate::off::off("browser.ask_without_context", Box::pin(async { None }))
     }
     fn ask_secret(
         &self,
@@ -408,7 +413,7 @@ impl ferb_browser::driver::OwnerInput for GatewayInput {
         _origin: &str,
         _ask: ferb_browser::driver::SecretAsk,
     ) -> BoxFuture<'_, Option<ferb_identity::Secret>> {
-        Box::pin(async { None })
+        crate::off::off("browser.ask_without_context", Box::pin(async { None }))
     }
     fn ask_code_for<'a>(
         &'a self,
@@ -468,6 +473,312 @@ pub struct Browsers {
     /// `WakeServer`: the blank local page a profile with no window is loaded with before its pairing page (None: no
     /// runtime to serve it on, a test's build).
     pub wake: Option<Arc<WakePage>>,
+    /// D35: a download in a task tab becomes a file in the workspace plus facts, never a dialog
+    /// (`downloads.Downloads`, browsers.py:269).
+    pub downloads: Arc<ferb_browser::downloads::Downloads>,
+    /// Rule 17: a file given to a browser to upload is FERB's own copy (`uploads.Uploads`, browsers.py:284).
+    pub uploads: Arc<ferb_browser::staging::Uploads>,
+}
+
+/// `downloads.Downloads(home/workspace/downloads, db, clock.now, config.get, redact, publish)` and what a restart cut
+/// off cleared, each step on its own (browsers.py:269-279).
+fn build_downloads(
+    opts: &Options,
+    p: &Parts,
+    random: Arc<dyn ferb_browser::pairing::Random>,
+) -> Arc<ferb_browser::downloads::Downloads> {
+    use ferb_browser::downloads::{sqlite::SqliteRecords, Downloads, Fault};
+    let conn = rusqlite::Connection::open(opts.home.join("ferb.db"))
+        .expect("the store was opened already");
+    let (config, events, redactor, journal) = (p.config(), p.events(), p.redactor(), p.journal());
+    let dl = Downloads::new(
+        opts.home
+            .join("workspace")
+            .join(ferb_browser::downloads::FOLDER),
+        Arc::new(SqliteRecords::new(conn)),
+        p.clock(),
+        Arc::new(move |section: &str, key: &str| {
+            config
+                .get(section, key)
+                .map_err(|e| Fault::new("ValueError", &e.to_string()))
+        }),
+        Arc::new(move |t: &str| redactor.text(t)),
+        Arc::new(move |topic: &str, data: Map<String, Value>| events.publish(topic, data)),
+        random,
+    );
+    if let Err(e) = dl.sweep() {
+        journal.note(
+            "browser.downloads_startup_failed",
+            serde_json::json!({"step": "sweep", "error": format!("OSError: {e}")}),
+        );
+    }
+    if let Err(e) = dl.finalize_stale() {
+        journal.note(
+            "browser.downloads_startup_failed",
+            serde_json::json!({"step": "finalize_stale", "error": e.typed()}),
+        );
+    }
+    dl
+}
+
+/// `uploads.Uploads(home/workspace/uploads, untrusted roots)` and the copies a restart left behind swept (they belong
+/// to no task now; browsers.py:284-290).
+fn build_uploads(
+    opts: &Options,
+    p: &Parts,
+    random: Arc<dyn ferb_browser::pairing::Random>,
+) -> Arc<ferb_browser::staging::Uploads> {
+    let untrusted = crate::compose::gateway::fs_roots(&p.config(), &opts.home).1;
+    let up = Arc::new(ferb_browser::staging::Uploads::new(
+        &opts
+            .home
+            .join("workspace")
+            .join(ferb_browser::staging::FOLDER)
+            .to_string_lossy(),
+        &opts.user_home.to_string_lossy(),
+        Arc::new(move || untrusted.clone()),
+        random,
+    ));
+    if let Err(e) = up.sweep() {
+        p.journal().note(
+            "browser.uploads_startup_failed",
+            serde_json::json!({"error": format!("{}: {}", e.class, e.message), "left": e.left}),
+        );
+    }
+    up
+}
+
+/// The image library a tab's picture is masked with (`mask.size`, `mask.mask_secret_fields`): Quartz.
+struct QuartzImages;
+
+impl ferb_browser::mask::Images for QuartzImages {
+    fn size(&self, image: &[u8]) -> std::result::Result<(i64, i64), String> {
+        ferb_mac_hands::native::paint::size(image).map_err(|e| e.to_string())
+    }
+    fn mask(
+        &self,
+        image: &[u8],
+        boxes: &[ferb_browser::mask::ImageBox],
+    ) -> std::result::Result<Vec<u8>, String> {
+        ferb_mac_hands::native::paint::mask_secret_fields(image, boxes).map_err(|e| e.to_string())
+    }
+}
+
+/// The profiles the drivers know (`self._profiles`, `known`, `unseen`): the browser area's, read fresh.
+struct AreaProfiles {
+    area: Arc<OnceLock<ferb_daemon::areas_b::browsers::Cx>>,
+    pairings: Arc<Pairings>,
+}
+
+impl ferb_browser::owner::ProfilesView for AreaProfiles {
+    fn discovered(&self) -> Vec<ferb_browser::profiles::BrowserProfile> {
+        self.area.get().map(|cx| cx.profiles()).unwrap_or_default()
+    }
+    fn known(&self) -> Vec<ferb_browser::profiles::BrowserProfile> {
+        let Some(cx) = self.area.get() else {
+            return Vec::new();
+        };
+        let paired: Vec<(String, String)> = self
+            .pairings
+            .all()
+            .map(|all| all.into_iter().map(|b| (b.browser, b.folder)).collect())
+            .unwrap_or_default();
+        ferb_browser::profiles::with_paired(cx.deps.platform.as_ref(), &cx.profiles(), &paired)
+    }
+    fn unseen(&self) -> Option<String> {
+        let cx = self.area.get()?;
+        (!cx.other_app_data()).then(|| ferb_daemon::areas_b::browsers::PROFILES_UNSEEN.to_string())
+    }
+}
+
+/// `_tab_task(br, tab_id)` (sensing.py:97): the task that owns this tab, through either driver.
+fn tab_task(p: &Parts, br: &Arc<ferb_browser::bridge::Bridge>, tab: i64) -> Option<String> {
+    [p.owner_driver(), p.ferb_driver()]
+        .into_iter()
+        .flatten()
+        .find_map(|d| d.owner_of(br, tab).flatten())
+}
+
+/// The rest of `_build_browsers` (browsers.py:269-326) and `_build_sense`'s hub hooks (sensing.py:61-64), once every
+/// part exists: the hub's downloads, closed tabs, tab trail, pause, ownership and sound; each driver's downloads,
+/// uploads, clipboard, image library, native reads, upload files, profiles and (FERB's own) inbox.
+pub fn wire_parts(
+    p: &Parts,
+    desktop: Arc<crate::compose::desktop_seams::DesktopSeams>,
+    helper: Option<Arc<ferb_identity::Helper>>,
+) {
+    let Some(b) = p.browsers() else { return };
+    // browsers.py:297: the owner's browser seals a fill through the signed secrets helper (`helper_seal`); a daemon
+    // without the Keychain (a test's) keeps the driver's own seal of the same format
+    match helper {
+        Some(h) => b.router.set_sealer(Arc::new(
+            move |key: &[u8], value: &ferb_identity::Secret, command: &str, origin: &str| {
+                let derived = ferb_identity::seal::seal_key(key);
+                h.seal(&derived[..], value, command, origin)
+                    .map_err(|_| ferb_identity::seal::SealError::Seal)
+            },
+        )),
+        None => crate::off::off("browser.sealer_in_process", ()),
+    }
+    let weak = p.downgrade();
+    // the downloads keeper's hooks: only a live task's tab holds downloads (D35); budgets per task tree; HAND-211
+    {
+        let mut hooks = b.downloads.hooks();
+        let hub = Arc::downgrade(&b.hub);
+        hooks.task_tab = Arc::new(move |peer: &dyn ferb_browser::downloads::Peer, tab: i64| {
+            hub.upgrade()?.task_tab(&peer.bridge()?, tab)
+        });
+        let w = weak.clone();
+        hooks.task_root = Arc::new(move |task: &str| {
+            w.upgrade()
+                .and_then(|p| p.task(task).and_then(|t| t.tree_id))
+                .unwrap_or_else(|| task.split('.').next().unwrap_or(task).to_string())
+        });
+        let w = weak.clone();
+        hooks.on_over_cap = Arc::new(move || {
+            let Some(a) = w.upgrade().and_then(|p| p.group_a()) else {
+                return;
+            };
+            let _ = a.spawn(|st| async move {
+                if let Some(purges) = st.purges.clone() {
+                    let _ = ferb_daemon::areas_a::retention::downloads_cap(&st, purges.as_ref());
+                }
+            });
+        });
+        b.downloads.set_hooks(hooks);
+    }
+    let mut hooks = b.hub.hooks();
+    hooks.on_download = Some(b.downloads.on_download());
+    // browsers.py:77: a closed tab's upload copies need not stay; a tree that already ended has them collected
+    {
+        let (uploads, journal) = (b.uploads.clone(), p.journal());
+        hooks.on_tab_closed = Arc::new(move |br: &Arc<ferb_browser::bridge::Bridge>, tab: i64| {
+            if !uploads.closed(&ferb_browser::upload::tab_key(&br.name(), tab)) {
+                return None;
+            }
+            let (u, j) = (uploads.clone(), journal.clone());
+            Some(Box::pin(async move {
+                if let Ok(Err(e)) = tokio::task::spawn_blocking(move || u.collect()).await {
+                    j.note(
+                        "browser.uploads_cleanup_failed",
+                        serde_json::json!({"error": format!("{}: {}", e.class, e.message), "left": e.left}),
+                    );
+                }
+            }) as BoxFuture<'static, ()>)
+        });
+    }
+    // sensing.py:118 `_on_tab`: each tab event into the trail (while paused, only FERB's own tabs reach here)
+    {
+        let w = weak.clone();
+        hooks.on_tab = Arc::new(
+            move |br: &Arc<ferb_browser::bridge::Bridge>, e: &ferb_browser::protocol::TabEvent| {
+                let Some(p) = w.upgrade() else { return };
+                let Some(trail) = p.trail() else { return };
+                let task = tab_task(&p, br, e.tab_id);
+                if let Some(o) = ferb_sense::watchers::browser_tabs::tab_observation(
+                    &br.binding.browser,
+                    &br.binding.folder,
+                    br.binding.identity == ferb_core::types::Identity::Ferb,
+                    &e.event,
+                    e.url.as_deref(),
+                    e.title.as_deref(),
+                    e.incognito,
+                    task.as_deref(),
+                ) {
+                    (trail.emit)(o);
+                }
+            },
+        );
+    }
+    // sensing.py:62-63: `ferb pause` stops the owner's tabs from reaching the trail; FERB's own tabs still do
+    {
+        let w = weak.clone();
+        hooks.paused = Arc::new(move || w.upgrade().is_some_and(|p| p.sensing_paused()));
+        let w = weak.clone();
+        hooks.owned = Arc::new(move |br: &Arc<ferb_browser::bridge::Bridge>, tab: i64| {
+            w.upgrade().is_some_and(|p| tab_task(&p, br, tab).is_some())
+        });
+    }
+    // sensing.py:104 `_tab_sound` (HAND-207, HAND-213): a tab that isn't FERB's changed sound or mute, a disturbance
+    // fact when one of FERB's calls was near; a mute the owner changed themselves is left out
+    {
+        let w = weak.clone();
+        hooks.on_sound = Arc::new(
+            move |br: &Arc<ferb_browser::bridge::Bridge>, e: &ferb_browser::protocol::TabEvent| {
+                if e.ferb == Some(true) {
+                    return;
+                }
+                let Some(p) = w.upgrade() else { return };
+                let Some(sentinel) = p.sentinel() else { return };
+                sentinel.sound_changed(&sound_tab(&p, br, e.tab_id), &sound_change(e));
+            },
+        );
+    }
+    b.hub.set_hooks(hooks);
+
+    // each driver's seams (browsers.py:300-321)
+    let native = p.native();
+    let seams = |inbox: Option<ferb_browser::owner::Inbox>| ferb_browser::ops::Seams {
+        downloads: Some(b.downloads.clone() as Arc<dyn ferb_browser::ops::DownloadsView>),
+        uploads: Some(b.uploads.clone() as Arc<dyn ferb_browser::ops::Staging>),
+        clipboard: native.then(|| {
+            Arc::new(|| {
+                ferb_mac_hands::tools::Pasteboard::read(
+                    &ferb_mac_hands::native::pasteboard::NativePasteboard,
+                )
+            }) as ferb_browser::ops::Clipboard
+        }),
+        images: native.then(|| Arc::new(QuartzImages) as Arc<dyn ferb_browser::mask::Images>),
+        native: Some(Arc::new(crate::compose::desktop_seams::BrowserNative(
+            desktop.clone(),
+        )) as Arc<dyn ferb_browser::ops::Native>),
+        files: Some(Arc::new(ferb_browser::upload::unix::UnixFiles {
+            home: p.user_home().to_string_lossy().into_owned(),
+        }) as Arc<dyn ferb_browser::upload::Files>),
+        profiles: Some(Arc::new(AreaProfiles {
+            area: b.area.clone(),
+            pairings: b.pairings.clone(),
+        }) as Arc<dyn ferb_browser::owner::ProfilesView>),
+        inbox,
+    };
+    b.router.set_seams(seams(None));
+    if let Some(identity) = &b.identity {
+        // FerbIdentity's mailbox (browsers.py:304): FERB's own address, read when asked
+        let config = p.config();
+        identity.set_seams(seams(Some(ferb_browser::owner::Inbox {
+            address: Arc::new(move || match config.get("mailbox", "address") {
+                Ok(Some(Value::String(s))) => s,
+                _ => String::new(),
+            }),
+            feed_url: ferb_identity::mailbox::FEED_URL.to_string(),
+        })));
+    }
+}
+
+/// `{"browser": br.name, "tab_id": id}` plus the task that owns it (sensing.py:114).
+fn sound_tab(p: &Parts, br: &Arc<ferb_browser::bridge::Bridge>, tab: i64) -> Value {
+    let mut m = Map::new();
+    m.insert("browser".into(), Value::from(br.name()));
+    m.insert("tab_id".into(), Value::from(tab));
+    if let Some(task) = tab_task(p, br, tab) {
+        m.insert("task".into(), Value::from(task));
+    }
+    Value::Object(m)
+}
+
+/// sensing.py:110-113: each of audible and muted that changed and is known, as {before, after}; a mute the owner
+/// changed themselves (`muted_reason` "user") is not FERB's to record.
+pub fn sound_change(e: &ferb_browser::protocol::TabEvent) -> Map<String, Value> {
+    let owners_mute = e.muted_reason.as_deref() == Some("user");
+    let mut out = Map::new();
+    for (k, v) in [("audible", e.audible), ("muted", e.muted)] {
+        let Some(v) = v else { continue };
+        if !e.changed.iter().any(|c| c == k) || (k == "muted" && owners_mute) {
+            continue;
+        }
+        out.insert(k.into(), serde_json::json!({"before": !v, "after": v}));
+    }
+    out
 }
 
 /// `WakeServer` (ext_bridge.py:809): a unique blank local page per wake (not about:blank: its fragment is dropped, so
@@ -587,7 +898,10 @@ pub fn peer_seams() -> (
     ferb_browser::bridge::native::BrowserPid,
     ferb_browser::bridge::AppOf,
 ) {
-    (Arc::new(|_fd| None), Arc::new(|_pid| None))
+    crate::off::off(
+        "browser.peer_elsewhere",
+        (Arc::new(|_fd| None), Arc::new(|_pid| None)),
+    )
 }
 
 /// HAND-406 (areas/browsers.py:255-259): each refused connection or message journaled
@@ -712,6 +1026,8 @@ impl Browsers {
             policy: Arc::new(BrowserPolicy),
             host,
         });
+        let downloads = build_downloads(opts, p, Arc::new(ferb_browser::pairing::SystemRandom));
+        let uploads = build_uploads(opts, p, Arc::new(ferb_browser::pairing::SystemRandom));
         Browsers {
             pairings,
             hub,
@@ -720,6 +1036,8 @@ impl Browsers {
             owner,
             ferb: Some(ferb),
             area,
+            downloads,
+            uploads,
             wake: match WakePage::start() {
                 Ok(w) => Some(w),
                 Err(e) => {
@@ -842,6 +1160,175 @@ impl Tool for BrowserTool {
         }))
     }
 
+    /// D31 (browser/tools.py:988-997, `BrowserAct.terminal_input`): what this act would put into a terminal in the
+    /// page, from the driver's snapshot facts now; only browser.act has the hook.
+    fn terminal_input<'a>(
+        &'a self,
+        args: &'a Args,
+        _task_id: &'a str,
+    ) -> BoxFuture<'a, Option<ferb_core::types::TerminalInput>> {
+        Box::pin(async move {
+            if self.verb.verb != "act" {
+                return None;
+            }
+            self.tools.terminal_input(&v(args))
+        })
+    }
+
+    /// L33 (browser/tools.py:980-986, 1049-1051): the element the call names, for FERB's cursor; act, login_code and
+    /// secret have the hook, and anything unsure is no point.
+    fn point<'a>(
+        &'a self,
+        args: &'a Args,
+        grant: &'a ferb_rpc::auth::RunGrant,
+    ) -> BoxFuture<'a, Result<Option<ferb_gateway::tool::Point>, String>> {
+        Box::pin(async move {
+            Ok(self
+                .tools
+                .point(self.verb, &v(args), &grant.task_id)
+                .await
+                .map(|p| ferb_gateway::tool::Point {
+                    kind: p.kind.to_string(),
+                    rect: [p.rect.0, p.rect.1, p.rect.2, p.rect.3],
+                    display: p.display,
+                }))
+        })
+    }
+
+    /// GATE-579 (pay_picture.py:55-90 `capture`; the gateway holds the call's locks and the time limit): a task tab's
+    /// owner-only view when its extension has one (HAND-497), else the live preview's capture of the call's tab; a
+    /// failure anywhere is no picture.
+    fn pay_picture<'a>(&'a self, args: &'a Args, owner: &'a str) -> BoxFuture<'a, Option<Vec<u8>>> {
+        Box::pin(async move {
+            let a = v(args);
+            let tab = args
+                .get("tab")
+                .filter(|t| ferb_py::value::truthy(t))
+                .map(ferb_py::value::py_str);
+            let target = self.tools.preview_target(&a, false);
+            if tab.is_none() && target.is_none() {
+                return None;
+            }
+            let driver = self.tools.driver.clone();
+            let take = async move {
+                if let Some(tab) = &tab {
+                    let held = driver.owned_by(tab, owner, true).ok()?;
+                    if driver.owner_view_supported(&held).ok()? {
+                        // GATE-579: unmasked, for the owner's eyes only
+                        return driver
+                            .owner_view(&held)
+                            .await
+                            .ok()
+                            .map(|i| i.jpeg().to_vec());
+                    }
+                }
+                // an older extension: the tab's masked preview frame, used as it is
+                let t = target?;
+                let resolve = crate::compose::previews::browser_resolve(
+                    driver.clone(),
+                    t.tab,
+                    owner.to_string(),
+                );
+                let (_, shoot) = resolve().await.ok()?;
+                shoot().await.ok().map(|(jpeg, _)| jpeg)
+            };
+            // `PREVIEW_DEADLINE`: the capture's own waits fit the picture's limit
+            let ctx = Arc::new(ferb_mac_hands::point::PreviewCtx {
+                deadline: crate::compose::previews::monotonic()
+                    + ferb_gateway::pay_picture::PICTURE_LIMIT_S,
+                phases: std::sync::Mutex::new(std::collections::BTreeMap::new()),
+            });
+            ferb_mac_hands::point::PREVIEW
+                .scope(ctx, take)
+                .await
+                .filter(|b| !b.is_empty())
+        })
+    }
+
+    /// GATE-580 (pay_press.py:26-60 `read`; the gateway holds the call's locks and the time limit): the tab's address
+    /// now (`shows`) and the money amounts on the page's text lines holding the approved amount's last digits
+    /// (`find`, past the latest snapshot's matching elements); a read that fails reads as nothing (both None).
+    fn pay_press<'a>(
+        &'a self,
+        args: &'a Args,
+        owner: &'a str,
+        declared: Option<&'a str>,
+    ) -> BoxFuture<'a, Option<ferb_policy::payments::Pressed>> {
+        use ferb_policy::payments::Pressed;
+        use ferb_py::value::{py_str, truthy};
+        Box::pin(async move {
+            let tab = args.get("tab").filter(|t| truthy(t)).map(py_str)?;
+            let needle = ferb_policy::payments::digits_of(declared);
+            let d = &self.tools.driver;
+            let look = async {
+                let held = d.owned_by(&tab, owner, true).ok()?;
+                let shows = if needle.is_empty() { " " } else { &needle };
+                let now = d.shows(&held, shows).await.ok()?;
+                if !now.get("open").is_some_and(truthy) {
+                    return Some(Pressed::unread());
+                }
+                let mut amounts = Some(Vec::new());
+                if !needle.is_empty() {
+                    let found = d.find(&held, &needle, 0, 1_000_000).await.ok()?;
+                    let hits: Option<Vec<Value>> =
+                        if found.get("next_offset").is_none_or(Value::is_null) {
+                            let text = found.get("text")?.as_str()?;
+                            Some(serde_json::from_str(text).ok()?)
+                        } else {
+                            None
+                        };
+                    // HAND-484: the latest snapshot's matching elements come first (as old as that snapshot): only
+                    // the page's text lines, read now, count
+                    let skip = found
+                        .get("element_matches")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0) as usize;
+                    amounts = hits.map(|hits| {
+                        let lines: Vec<String> = hits
+                            .iter()
+                            .skip(skip)
+                            .map(|h| match h.get("text") {
+                                Some(t) if truthy(t) => py_str(t),
+                                _ => String::new(),
+                            })
+                            .collect();
+                        ferb_browser::money::page_amounts(lines.iter().map(|l| Some(l.as_str())))
+                    });
+                }
+                let url = now.get("url").filter(|u| truthy(u)).map(py_str);
+                Some(Pressed { url, amounts })
+            };
+            Some(look.await.unwrap_or_else(Pressed::unread))
+        })
+    }
+
+    /// D6/D26 (call_hooks.py:194-216): the task tab's picture now, with the page's masking note, for a browser
+    /// snapshot's first picture; its secret fields that couldn't be painted over withhold it (FERB's words).
+    fn tab_picture<'a>(
+        &'a self,
+        args: &'a Args,
+        task: &'a str,
+    ) -> BoxFuture<'a, Result<(Vec<u8>, String), ferb_gateway::tool::Shot>> {
+        use ferb_gateway::tool::Shot;
+        Box::pin(async move {
+            let shot = |e: ferb_browser::error::Error| match e.class() {
+                "NoTarget" => Shot::NoTarget,
+                "Withheld" => Shot::Withheld(e.message()),
+                _ => Shot::Failed,
+            };
+            let tab = args
+                .get("tab")
+                .map(ferb_py::value::py_str)
+                .unwrap_or_default();
+            let d = &self.tools.driver;
+            let held = d.owned_by(&tab, task, true).map_err(shot)?;
+            // the snapshot's own generation: the element ids this call returned stay valid
+            let image = d.screenshot(&held, true).await.map_err(shot)?;
+            let masking = d.masking(&held).map_err(shot)?;
+            Ok((image, masking))
+        })
+    }
+
     fn run<'a>(
         &'a self,
         args: &'a Args,
@@ -864,7 +1351,7 @@ impl Tool for BrowserTool {
 pub fn browsers_deps(
     opts: &Options,
     s: &Shared,
-    _notifier: &Arc<ferb_daemon::areas_b::notify::Notifier>,
+    notifier: &Arc<ferb_daemon::areas_b::notify::Notifier>,
 ) -> ferb_daemon::areas_b::browsers::Deps {
     use ferb_daemon::areas_b::browsers as b;
     let br = s.tools.browsers().expect("built with the tools");
@@ -898,15 +1385,28 @@ pub fn browsers_deps(
         platform: Arc::new(ferb_browser::macos::MacPlatform),
         binaries: Arc::new(ferb_browser::profiles::Binaries::default()),
         browser_support: opts.browser_support.clone(),
-        browser_data_dirs: None,
+        browser_data_dirs: crate::off::off("browser.data_dirs", None),
         launch,
         wake_url: match br.wake.clone() {
             Some(w) => Arc::new(move || w.url()),
-            None => Arc::new(String::new),
+            // no runtime to serve it on (a failed bind is logged at start): no wake page to open
+            None => crate::off::off("browser.no_wake_page", Arc::new(String::new)),
         },
-        tabs: None,
-        notifier: Arc::new(NoBanner),
-        activity: None,
+        // the router's tabs (`self.router.shows`, `show_tab`, `tab_profile`): a human check handed to the owner
+        tabs: Some(Arc::new(crate::compose::areas::RouterTabs(
+            br.router.clone(),
+        ))),
+        // `self._notify` (areas/notify.py)
+        notifier: Arc::new(crate::compose::areas::BrowserBanners(notifier.clone())),
+        // `supervisor.activity.waiting(worker_id, on)` (browsers.py:680): the owner's time never counts as a stall
+        activity: Some({
+            let t = s.tools.clone();
+            Arc::new(move |worker: &str, on: bool| {
+                if let Some(sup) = t.supervisor() {
+                    sup.worker_waiting(worker, on);
+                }
+            })
+        }),
         identity_browser: Arc::new(IdentityAttach {
             registry: {
                 let gw = s.gateway.clone();
@@ -931,21 +1431,6 @@ pub fn browsers_deps(
         pair_timeout_s: 60.0,
         handoff_poll_s: 2.0,
         state: Arc::new(b::State::default()),
-    }
-}
-
-struct NoBanner;
-impl ferb_daemon::areas_b::browsers::Notifier for NoBanner {
-    fn notify(
-        &self,
-        _t: &str,
-        _x: &str,
-        _u: bool,
-        _c: &str,
-        _g: Value,
-        _i: &str,
-    ) -> ferb_daemon::areas_b::browsers::BoxFut<()> {
-        Box::pin(async {})
     }
 }
 
@@ -1142,5 +1627,206 @@ mod identity_tests {
         ferb.detach();
         assert!(!ferb.attached());
         assert_eq!(shared.lock().unwrap().names(), ["browser.open"]);
+    }
+}
+
+#[cfg(test)]
+mod wiring_tests {
+    use std::sync::{Arc, OnceLock};
+
+    use ferb_browser::bridge::Hub;
+    use ferb_browser::driver::{Driver, Kind, Tasks};
+    use ferb_browser::pairing::Pairings;
+    use ferb_browser::tools::{Tools, OWNER_BROWSER};
+    use ferb_core::types::{Identity, PathCheck, ToolContext};
+    use ferb_gateway::tool::{Args, Shot, Tool};
+    use serde_json::{json, Value};
+
+    use super::{BrowserHost, BrowserPolicy, BrowserTool};
+
+    struct NoLedger;
+    impl ferb_browser::bridge::Ledger for NoLedger {
+        fn state(&self, _intent_id: &str) -> Option<String> {
+            None
+        }
+        fn reconcile(&self, _intent_id: &str, _observed: &str, _evidence: Vec<String>) {}
+    }
+
+    fn host() -> Arc<BrowserHost> {
+        Arc::new(BrowserHost {
+            home: "/invented-home".into(),
+            area: Arc::new(OnceLock::new()),
+            recordings: None,
+        })
+    }
+
+    /// One owner-family verb over a driver with no browser connected (no tab is open).
+    fn tool(verb: &str) -> BrowserTool {
+        let random: Arc<dyn ferb_browser::pairing::Random> =
+            Arc::new(ferb_browser::pairing::SystemRandom);
+        let pairings = Arc::new(Pairings::new(
+            Arc::new(ferb_browser::pairing::sqlite::SqliteInstalls::new(
+                rusqlite::Connection::open_in_memory().unwrap(),
+            )),
+            Arc::new(ferb_clock::clock::FakeClock::new(None)),
+            random.clone(),
+        ));
+        let hub = Hub::new(
+            pairings,
+            Arc::new(NoLedger),
+            Arc::new(|_topic, _data| {}),
+            Arc::new(|| "dev-invented".to_string()),
+            random.clone(),
+            Arc::new(super::Apps),
+            super::peer_seams().1,
+        );
+        let driver = Driver::new(
+            hub,
+            Kind::Owner {
+                choose: Arc::new(|_profile: Option<&str>| {
+                    Err(ferb_browser::error::Error::refused("no profile"))
+                }),
+                input: None,
+            },
+            Tasks::default(),
+            None,
+            random,
+        );
+        BrowserTool {
+            name: Box::leak(format!("browser.{verb}").into_boxed_str()),
+            verb: ferb_browser::tools::verb(verb).expect("a browser verb"),
+            tools: Arc::new(Tools {
+                family: OWNER_BROWSER,
+                driver,
+                policy: Arc::new(BrowserPolicy),
+                host: host(),
+            }),
+        }
+    }
+
+    fn args(v: Value) -> Args {
+        v.as_object().cloned().unwrap()
+    }
+
+    fn ctx(workspace: &str, closed: Option<PathCheck>) -> ToolContext {
+        ToolContext {
+            task_id: "t-1".into(),
+            worker_id: "w-1".into(),
+            request_id: "r-1".into(),
+            identity: Identity::Owner,
+            scopes: Default::default(),
+            device_id: "dev-invented".into(),
+            span_id: None,
+            workspace: workspace.into(),
+            owner_roots: vec![],
+            untrusted_roots: vec![],
+            intent_id: None,
+            observe_only: false,
+            probe: false,
+            path_closed: closed,
+            escape: None,
+            terminal: None,
+            folders: vec![],
+        }
+    }
+
+    // decision: GATE-580
+    /// pay_press.py:26-60: a call with no tab has nothing to read (None); a tab that isn't the task's (or a read that
+    /// fails) reads as a page with no address and no amounts, so the press is compared against nothing fresher.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_payment_press_reads_the_named_tab_or_nothing() {
+        let t = tool("act");
+        assert!(t
+            .pay_press(&args(json!({"element": "e1"})), "t-1", Some("$12.50"))
+            .await
+            .is_none());
+        let read = t
+            .pay_press(
+                &args(json!({"tab": "tab-9", "element": "e1", "action": "click"})),
+                "t-1",
+                Some("$12.50"),
+            )
+            .await
+            .expect("a browser tab is read");
+        assert_eq!(read.url, None);
+        assert_eq!(read.amounts, None);
+    }
+
+    // decision: GATE-579
+    /// pay_picture.py:55-90: no tab and no surface is no picture; a tab that isn't the task's is no picture (never
+    /// another tab's).
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_payment_picture_is_only_of_the_tasks_own_tab() {
+        let t = tool("act");
+        assert!(t.pay_picture(&args(json!({})), "t-1").await.is_none());
+        assert!(t
+            .pay_picture(&args(json!({"tab": "tab-9", "element": "e1"})), "t-1")
+            .await
+            .is_none());
+    }
+
+    /// call_hooks.py:194-228 (D6/D26): a snapshot's first picture of a tab that isn't the task's is "unavailable",
+    /// never a picture of something else; L33 (tools.py:980-986): no tab, no point; D31 (tools.py:988-997): only
+    /// browser.act has terminal facts, and a tab the driver doesn't hold has none.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_tab_the_task_doesnt_hold_gives_no_picture_point_or_terminal_input() {
+        let snap = tool("snapshot");
+        assert_eq!(
+            snap.tab_picture(&args(json!({"tab": "tab-9"})), "t-1")
+                .await,
+            Err(Shot::Failed)
+        );
+        let act = tool("act");
+        let a = args(json!({"tab": "tab-9", "element": "e1", "action": "type", "text": "ls\n"}));
+        let grant = ferb_rpc::auth::RunGrant {
+            task_id: "t-1".into(),
+            worker_id: "w-1".into(),
+            scopes: Default::default(),
+            identity: ferb_rpc::auth::Identity::Owner,
+            expires_at: 0.0,
+            observe_only: false,
+            tools: Default::default(),
+            max_calls: 0,
+        };
+        assert_eq!(act.point(&a, &grant).await, Ok(None));
+        assert!(act.terminal_input(&a, "t-1").await.is_none());
+        assert!(snap.terminal_input(&a, "t-1").await.is_none());
+    }
+
+    // decision: HAND-428
+    /// browser/tools.py:723 (fs/files.py:295-307): a PDF FERB makes is a new file the call's protection check
+    /// passes: a closed folder refuses and writes nothing, an existing file is never replaced.
+    #[test]
+    fn a_browser_save_passes_the_protection_lists_and_never_replaces() {
+        use ferb_browser::tools::Host;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let open_dir = root.join("open");
+        let closed_dir = root.join("closed");
+        std::fs::create_dir_all(&open_dir).unwrap();
+        std::fs::create_dir_all(&closed_dir).unwrap();
+        let shut = closed_dir.to_string_lossy().into_owned();
+        let check = PathCheck(Arc::new(move |p: &std::path::Path, access: &str| {
+            (access == "write" && p.starts_with(&shut)).then(|| "a protected folder".to_string())
+        }));
+        let c = ctx(&root.to_string_lossy(), Some(check));
+        let h = host();
+
+        let refused = closed_dir.join("page.pdf");
+        let e = h
+            .new_file(&refused.to_string_lossy(), b"%PDF-1.4", &c)
+            .expect_err("a protected folder refuses");
+        assert_eq!(e.class(), "Refused");
+        assert!(!refused.exists());
+
+        let made = open_dir.join("page.pdf");
+        h.new_file(&made.to_string_lossy(), b"%PDF-1.4", &c)
+            .unwrap();
+        assert_eq!(std::fs::read(&made).unwrap(), b"%PDF-1.4");
+        let again = h
+            .new_file(&made.to_string_lossy(), b"other", &c)
+            .expect_err("never over an existing file");
+        assert_eq!(again.class(), "Refused");
+        assert_eq!(std::fs::read(&made).unwrap(), b"%PDF-1.4");
     }
 }

@@ -6,15 +6,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ferb_core::config::Config;
-use ferb_core::types::{ActionSpec, ToolContext, ToolResult};
+use ferb_core::types::{ActionSpec, EscapeGrant, ToolContext, ToolResult};
 use ferb_gateway::tool::{Args, Tool, ToolError, ToolOutput};
 use ferb_sanitize::redact::Redactor;
-use ferb_shell::manager::{ManagerConfig, ShellManager};
+use ferb_shell::manager::{LocalRefusedFn, ManagerConfig, OnEscape, ShellManager};
 use ferb_shell::protection::{Entry, LocalPort, Protection};
 use ferb_shell::tools as st;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::{Catalogued, Parts};
+use crate::compose::egress::Egress;
 use crate::compose::Options;
 
 /// ferb-policy's protection lists behind ferb-shell's `Protection` seam (no crate implements it: listed).
@@ -171,9 +172,83 @@ pub fn manager(
         cfg.proxy = proxy;
     }
     cfg.on_network = Some(egress.on_network());
+    // manager.py:140 needs `redactor` present for an approved admin command's hidden password; the daemon always
+    // hands its Redactor (desktop.py:333), as this program always has one
+    cfg.admin_ready = true;
+    cfg.on_escape = Some(on_escape(&egress));
+    cfg.local_refused = Some(local_refused(&egress));
+    // desktop.py:327: with pinned local ports, the kernel's reports of direct connections are read while FERB runs
+    if contained.0 && !protection.local_ports().is_empty() {
+        let e = egress.clone();
+        let reports = Arc::new(ferb_shell::local::DirectReports::new(
+            None,
+            Some(Arc::new(move |why: &str| {
+                // `_local_reports_stopped`: told once, from the stream's thread
+                note(&e, "shell.local_reports_stopped", json!({"why": why}))
+            })),
+        ));
+        reports.start();
+        cfg.reports = Some(reports);
+    }
     let shells = ShellManager::new(cfg);
     let _ = egress.shells.set(Arc::downgrade(&shells));
     Some((shells, protection))
+}
+
+/// A journal row through the start's journal (filled once the store is open; nothing is written before).
+fn note(egress: &Egress, kind: &str, data: Value) {
+    if let Some(j) = egress.journal.get() {
+        j.note(kind, data);
+    }
+}
+
+/// desktop.py:334: an approved escape's run is journaled (`escape.used`) with its rule, command, folder and question.
+pub fn on_escape(egress: &Arc<Egress>) -> OnEscape {
+    let e = egress.clone();
+    Arc::new(move |task: &str, grant: &EscapeGrant| {
+        note(
+            &e,
+            "escape.used",
+            json!({
+                "task_id": task, "rule": grant.rule, "command": grant.command,
+                "cwd": grant.cwd, "confirmation": grant.confirmation_id,
+            }),
+        )
+    })
+}
+
+/// egress.py:39 `_local_refused` over the store: the task's tree (`tasks.tree_of`'s stored row; tree.py:84) and the
+/// keys the owner said No to in it. A task FERB can't place, or a store it can't read, counts as refused: its
+/// commands then reach pinned local ports only through the proxy.
+pub fn local_refused(egress: &Arc<Egress>) -> LocalRefusedFn {
+    let e = egress.clone();
+    Arc::new(move |task: &str| {
+        let Some(j) = e.journal.get() else {
+            return true;
+        };
+        let db = crate::basics::lock(&j.db);
+        let root: Option<String> = db
+            .conn()
+            .query_row("SELECT tree_id FROM tasks WHERE id = ?", [task], |r| {
+                r.get::<_, Option<String>>(0)
+            })
+            .ok()
+            .flatten();
+        let Some(root) = root else {
+            return true;
+        };
+        let refused = ferb_policy::stores::Confirmations {
+            db: &db,
+            clock: j.clock.as_ref(),
+            ids: j.ids.as_ref(),
+            redact: j.redactor.as_ref(),
+        }
+        .refused(&root);
+        match refused {
+            Ok(keys) => ferb_daemon::areas_b::egress::local_refused(Some(&root), &keys),
+            Err(_) => true,
+        }
+    })
 }
 
 fn text(a: &Args, k: &str) -> String {
@@ -349,4 +424,99 @@ pub fn tools(p: &Parts) -> Vec<Arc<dyn Tool>> {
             }) as Arc<dyn Tool>
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    fn journal(dir: &Path) -> Arc<crate::basics::Journal> {
+        let db = crate::basics::open_store(&dir.join("ferb.db")).unwrap();
+        Arc::new(crate::basics::Journal {
+            db: Arc::new(Mutex::new(db)),
+            clock: Arc::new(ferb_clock::clock::SystemClock::new(
+                ferb_clock::zone::Zone::utc(),
+            )),
+            ids: Arc::new(ferb_core::ids::SequentialIds::new("j")),
+            redactor: Arc::new(Redactor::new(&[], &[])),
+        })
+    }
+
+    fn task(j: &crate::basics::Journal, id: &str, tree: &str) {
+        crate::basics::lock(&j.db)
+            .conn()
+            .execute(
+                "INSERT INTO tasks (id, tree_id, request_id, goal, identity, role, scopes_json, status, created_at, \
+                 updated_at) VALUES (?1, ?2, 'r', 'g', 'owner', 'mixed', '[]', 'running', 'x', 'x')",
+                [id, tree],
+            )
+            .unwrap();
+    }
+
+    fn no(j: &crate::basics::Journal, tree: &str, host: &str) {
+        let db = crate::basics::lock(&j.db);
+        ferb_policy::stores::Confirmations {
+            db: &db,
+            clock: j.clock.as_ref(),
+            ids: j.ids.as_ref(),
+            redact: j.redactor.as_ref(),
+        }
+        .record(
+            tree,
+            ferb_policy::confirm::SINK_DESTINATION,
+            &ferb_policy::confirm::destination_key(host),
+            false,
+            None,
+        )
+        .unwrap();
+    }
+
+    /// egress.py:39 `_local_refused` as the shell manager asks it (desktop.py:337): a task FERB can't place counts as
+    /// refused; the owner's No to one of this Mac's addresses anywhere in the tree is final for every task in it; a
+    /// No to a remote host isn't one.
+    // decision: HAND-214
+    #[test]
+    fn a_no_to_this_mac_in_the_tree_keeps_pinned_ports_behind_the_proxy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let egress = Arc::new(Egress::default());
+        let refused = local_refused(&egress);
+        assert!(refused("t1"), "no store yet: refused");
+        let j = journal(tmp.path());
+        let _ = egress.journal.set(j.clone());
+        assert!(refused("t1"), "a task FERB can't place");
+        task(&j, "t1", "t1");
+        task(&j, "t1.1", "t1");
+        assert!(!refused("t1"));
+        no(&j, "t1", "example.com");
+        assert!(!refused("t1.1"), "a No to a remote host");
+        no(&j, "t1", "localhost");
+        assert!(refused("t1.1"));
+        assert!(refused("t1"));
+    }
+
+    /// desktop.py:334: an approved escape's run is journaled with its rule, command, folder and question.
+    // decision: STORE-418
+    #[test]
+    fn an_escape_used_is_journaled() {
+        let tmp = tempfile::tempdir().unwrap();
+        let egress = Arc::new(Egress::default());
+        let j = journal(tmp.path());
+        let _ = egress.journal.set(j.clone());
+        let grant = EscapeGrant {
+            rule: "write:~/Library/LaunchAgents".into(),
+            confirmation_id: "c1".into(),
+            command: "touch x".into(),
+            cwd: "/tmp".into(),
+            secret: None,
+        };
+        on_escape(&egress)("t1", &grant);
+        let rows = j.of_kind("escape.used", "", "");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].1,
+            json!({"task_id": "t1", "rule": "write:~/Library/LaunchAgents", "command": "touch x", "cwd": "/tmp",
+                   "confirmation": "c1"})
+        );
+    }
 }

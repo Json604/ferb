@@ -171,13 +171,15 @@ async fn build(st: &Rc<State>, facts: &Value) -> Result<Value, String> {
         .make_runtime
         .clone()
         .ok_or_else(|| "RuntimeError: no model runtime is set up".to_owned())?;
+    let spans = super::memory::LearningSpans::new(st);
     let answer = ferb_learning::mac_profile::interpret(
         &move |a: &str, b: &str, c: &[String], d: &Value| make(a, b, c, d),
         &st.prompts,
         facts,
         &st.device_id(),
-        None,
-        &|_: &str, _: &Value| {},
+        // memory.py:1167: spans and `model.usage` with the role "mac_profile"
+        Some(&spans),
+        &|runtime: &str, data: &Value| spans.usage("mac_profile", runtime, data),
     )
     .await
     .map_err(|e| e.described())?;

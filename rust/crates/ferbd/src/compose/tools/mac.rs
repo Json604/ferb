@@ -106,7 +106,8 @@ impl ferb_mac_hands::applescript::ScriptSandbox for ScriptSandbox {
                 &ferb_shell::sandbox::Options {
                     apps: true,
                     events_to: Some(events_to),
-                    ..Default::default()
+                    // desktop.py:317 gives AppleScript only the apps and the events' socket
+                    ..crate::off::off("applescript.sandbox_rest", Default::default())
                 },
             )
             // a profile that can't be written: the command can't run contained, so it runs nothing at all
@@ -357,7 +358,8 @@ impl Mac {
                 let paused = paused.clone();
                 Arc::new(move || !paused() && t.is_running())
             }
-            None => Arc::new(|| false),
+            // the Mac's parts are off: no owner-input tap, so no foreground input
+            None => crate::off::off("input.no_tap", Arc::new(|| false)),
         };
         input.why_unavailable = Arc::new(move || {
             if paused() {
@@ -366,6 +368,8 @@ impl Mac {
                 ferb_mac_hands::input::UNMONITORED.to_string()
             }
         });
+        // desktop.py:278 `owner_wait`: the owner's time never counts as a stall (the supervisor, once built)
+        input.on_wait = owner_wait(p.downgrade());
         let mut d = ferb_mac_hands::driver::MacDriver::new(ferb_mac_hands::driver::Parts {
             device_id,
             input,
@@ -441,6 +445,16 @@ impl Mac {
         )));
         d.route = native::events::load_route().is_some();
         d.handlers = handlers;
+        // desktop.py:290 `web_secrets=self._web_secrets` (L13): a browser window's capture asks its paired profiles
+        d.web_secrets = Some(web_secrets(p.downgrade()));
+        // sensing.py:58: FERB's app switches and its actions in an app go to the daemon's one attribution
+        let a = p.attribution();
+        d.on_activate =
+            Arc::new(move |bundle: &str, task: Option<&str>| a.ferb_activated(bundle, task));
+        let a = p.attribution();
+        d.acting = Some(Arc::new(move |bundle: &str, task: Option<&str>| {
+            Box::new(a.acting_owned(bundle, task)) as Box<dyn std::any::Any + Send>
+        }));
         let driver = Arc::new(d);
 
         let paint: ferb_mac_hands::driver::PaintFn = Arc::new(|jpeg, masks, bounds, size| {
@@ -449,14 +463,11 @@ impl Mac {
         let mut tools = MacTools::new(driver.clone(), paint);
         tools.home = p.user_home().to_string_lossy().into_owned();
         tools.cwd = p.home().join("workspace").to_string_lossy().into_owned();
-        if let Some(protection) = p.shell_protection() {
-            let sandbox = Arc::new(ferb_shell::sandbox::Sandbox::new(
-                protection,
-                p.home().join("profiles"),
-                Arc::new(|| None),
-                None,
-            ));
-            tools.sandbox = Some(Arc::new(ScriptSandbox(sandbox)));
+        // desktop.py:317,322: AppleScript runs under the shell's own sandbox (its profiles folder swept at start, the
+        // daemon's socket named), and only when that sandbox can run (else mac.applescript says it isn't available)
+        let contained = opts.egress.containment.get().is_some_and(|c| c.0);
+        if let (true, Some(shells)) = (contained, p.shells()) {
+            tools.sandbox = Some(Arc::new(ScriptSandbox(shells.sandbox().clone())));
         }
         tools.automation = Some(ferb_mac_hands::permissions::AutomationChecks::new(
             Arc::new(move |bundle: &str, ask: bool| {
@@ -530,7 +541,7 @@ impl Mac {
                 clock: Arc::new(move || mono.monotonic()),
             })
         } else {
-            Arc::new(NoCapture)
+            crate::off::off("hearing.no_capture", Arc::new(NoCapture))
         };
         let lookup = driver.clone();
         let mono = p.clock();
@@ -569,6 +580,7 @@ impl Mac {
             Some(p.home().join("run").join("recordings")),
         );
         tools.recordings = Some(recordings.clone());
+        sweep(&hearing, &recordings, &p.journal());
         Mac {
             tools: Arc::new(tools),
             hearing,
@@ -577,6 +589,69 @@ impl Mac {
             images,
         }
     }
+}
+
+/// At the daemon's start, before any listen or recording: main.py:432 `recordings.sweep` (frames a restart cut off
+/// belong to no recording now; a failure is journaled, never stops the start) and desktop.py:324 `hearing.sweep`
+/// (sound and answers a restart left behind, L26).
+pub fn sweep(
+    hearing: &ferb_mac_hands::listen::Hearing,
+    recordings: &ferb_mac_hands::recording::RecordingManager,
+    journal: &crate::basics::Journal,
+) {
+    if let Err(e) = recordings.sweep() {
+        journal.note(
+            "recordings.startup_failed",
+            json!({"error": ferb_shell::py_os_error(&e)}),
+        );
+    }
+    hearing.sweep();
+}
+
+/// desktop.py:278 `owner_wait`: while a call waits for the owner (foreground input yielding to them), the worker
+/// counts as waiting, never stalled (`supervisor.activity.waiting`); nothing before the supervisor is built.
+pub fn owner_wait(parts: super::WeakParts) -> OnWait {
+    Arc::new(move |holder: &str, on: bool| {
+        if let Some(p) = parts.upgrade() {
+            if let Some(s) = p.supervisor() {
+                s.worker_waiting(holder, on);
+            }
+        }
+    })
+}
+
+/// RealInput's `on_wait`: (holder, waiting).
+pub type OnWait = Arc<dyn Fn(&str, bool) + Send + Sync>;
+
+/// A browser window's mask state, asked of its paired profiles.
+type WebSecretsFuture = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Option<ferb_mac_hands::mask::WebSecrets>> + Send>,
+>;
+
+/// browsers.py:115 `_web_secrets` (L13) through the browser area, once group B builds it; before that no paired
+/// profile can answer (Python's `hub` is None then: the same words).
+pub fn web_secrets(parts: super::WeakParts) -> ferb_mac_hands::driver::WebSecretsFn {
+    Arc::new(
+        move |browser: String,
+              bounds: ferb_mac_hands::ax::Rect,
+              title: String|
+              -> WebSecretsFuture {
+            let area = parts
+                .upgrade()
+                .and_then(|p| p.browsers().and_then(|b| b.area()));
+            Box::pin(async move {
+                Some(match area {
+                    Some(cx) => cx.web_secrets(&browser, bounds, &title).await,
+                    None => ferb_mac_hands::mask::WebSecrets {
+                        state: None,
+                        why: format!("no paired profile of {browser} is connected"),
+                        late: false,
+                        tab: None,
+                    },
+                })
+            })
+        },
+    )
 }
 
 /// A future the Mac hands make that isn't `Send` (their capture paths borrow a paint callback that isn't `Sync`:
@@ -702,6 +777,34 @@ impl Tool for MacTool {
                     .map(|r| Arc::new(r) as Arc<dyn std::any::Any + Send + Sync>),
             }))
     }
+    /// GATE-579 (pay_picture.py:79-84; the gateway holds the call's locks and the time limit): a Mac app window's
+    /// payment picture is the live preview's capture of the call's window, used as it is; none without a surface.
+    fn pay_picture<'a>(
+        &'a self,
+        args: &'a Args,
+        _owner: &'a str,
+    ) -> BoxFuture<'a, Option<Vec<u8>>> {
+        Box::pin(async move {
+            let resolve = self
+                .tools
+                .preview_target(self.name, &v(args), None)?
+                .resolve?;
+            let take = async move {
+                let (_, shoot) = resolve().await.ok()?;
+                shoot().await.ok().map(|(jpeg, _)| jpeg)
+            };
+            // `PREVIEW_DEADLINE`: the capture's own waits fit the picture's limit
+            let ctx = Arc::new(ferb_mac_hands::point::PreviewCtx {
+                deadline: crate::compose::previews::monotonic()
+                    + ferb_gateway::pay_picture::PICTURE_LIMIT_S,
+                phases: std::sync::Mutex::new(std::collections::BTreeMap::new()),
+            });
+            ferb_mac_hands::point::PREVIEW
+                .scope(ctx, take)
+                .await
+                .filter(|b| !b.is_empty())
+        })
+    }
     fn point<'a>(
         &'a self,
         args: &'a Args,
@@ -731,7 +834,11 @@ impl Tool for MacTool {
                     ));
                 };
                 let text = a.get("text").and_then(Value::as_str).unwrap_or("");
-                return ferb_mac_hands::tools::clipboard_run(board, text, None, ctx)
+                // perception's `bind_clipboard` (sensing.py:66): FERB's own write isn't read back as the owner's copy
+                let mark = |count: i64, task: &str| {
+                    ferb_sense::capture::mark_clipboard_write(count, Some(task))
+                };
+                return ferb_mac_hands::tools::clipboard_run(board, text, Some(&mark), ctx)
                     .await
                     .map(Into::into)
                     .map_err(|e| ToolError::failed("RuntimeError", e));
@@ -870,15 +977,33 @@ impl ferb_mac_hands::listen::TabSource for ListenTabs {
             let bundle = ferb_browser::profiles::browser(&browser)
                 .map(|b| b.bundle_id.to_string())
                 .unwrap_or_default();
-            Ok((url, browser, bundle, None))
+            // listen.py:246: that browser's own process, when the driver knows it
+            let exact = self
+                .driver
+                .browser_pid(&t)
+                .map_err(|e| HandError::Refused(e.message()))?;
+            Ok((url, browser, bundle, exact))
         })
     }
+    /// listen.py:253 (HAND-207): a tab FERB opened is muted; the task needs to hear this one, so it is unmuted for
+    /// the rest of the task (the owner's own tab keeps its setting). The tab was just checked: one gone since is
+    /// said as the sound's error (this seam has no failure of its own).
     fn tab_sound<'a>(
         &'a self,
-        _tab: &'a str,
-        _task: &'a str,
+        tab: &'a str,
+        task: &'a str,
     ) -> ferb_mac_hands::listen::BoxFut<'a, Map<String, Value>> {
-        Box::pin(async { Map::new() })
+        Box::pin(async move {
+            let sound = match self.driver.owned_by(tab, task, true) {
+                Ok(t) => self.driver.tab_sound(&t, true).await,
+                Err(e) => Err(e),
+            };
+            sound.unwrap_or_else(|e| {
+                let mut out = Map::new();
+                out.insert("tab_sound_error".into(), json!(e.message()));
+                out
+            })
+        })
     }
 }
 
@@ -1038,7 +1163,8 @@ pub fn hooks(p: &Parts) -> Arc<dyn ferb_gateway::seams::CallHooks> {
                 Arc::new(AppWindows(m.tools.clone()))
                     as Arc<dyn ferb_gateway::call_hooks::AppWindows>
             }),
-            shadow: None,
+            // Jev's shadow advice: Jev is off
+            shadow: crate::off::off("hooks.shadow", None),
             publish: Arc::new(move |topic: &str, data: Map<String, Value>| {
                 events.publish(topic, data)
             }),
@@ -1049,4 +1175,132 @@ pub fn hooks(p: &Parts) -> Arc<dyn ferb_gateway::seams::CallHooks> {
             home: p.user_home().to_string_lossy().into_owned(),
         },
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct NoWords;
+    impl ferb_mac_hands::listen::Transcribe for NoWords {
+        fn transcribe<'a>(
+            &'a self,
+            _path: &'a std::path::Path,
+            _language: Option<&'a str>,
+            _audio_s: f64,
+            _offset: f64,
+        ) -> ferb_mac_hands::listen::BoxFut<'a, ferb_mac_hands::error::Result<Map<String, Value>>>
+        {
+            Box::pin(async { Ok(Map::new()) })
+        }
+    }
+
+    fn journal(dir: &std::path::Path) -> crate::basics::Journal {
+        let db = crate::basics::open_store(&dir.join("ferb.db")).unwrap();
+        crate::basics::Journal {
+            db: Arc::new(std::sync::Mutex::new(db)),
+            clock: Arc::new(ferb_clock::clock::SystemClock::new(
+                ferb_clock::zone::Zone::utc(),
+            )),
+            ids: Arc::new(ferb_core::ids::SequentialIds::new("j")),
+            redactor: Arc::new(ferb_sanitize::redact::Redactor::new(&[], &[])),
+        }
+    }
+
+    /// main.py:432 and desktop.py:324 (L26): at start a restart's leftover sound files and recording frames go; a
+    /// recording folder that can't be removed is journaled (`recordings.startup_failed`) and the start goes on.
+    // decision: HAND-207
+    #[test]
+    fn the_start_sweeps_what_a_restart_left() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let listen = tmp.path().join("workspace").join("listen");
+        let staging = tmp.path().join("run").join("recordings");
+        std::fs::create_dir_all(&listen).unwrap();
+        std::fs::create_dir_all(staging.join("rec-old")).unwrap();
+        std::fs::write(listen.join("listen-1.caf"), b"x").unwrap();
+        std::fs::write(staging.join("rec-old").join("f1.jpg"), b"x").unwrap();
+        std::fs::write(staging.join("other.txt"), b"x").unwrap();
+        let hearing = ferb_mac_hands::listen::Hearing::new(
+            listen.clone(),
+            Arc::new(NoCapture),
+            Arc::new(NoWords),
+            Arc::new(|t: &str| t.to_string()),
+            None,
+            Arc::new(|| 0.0),
+            Arc::new(|| "id".to_string()),
+        );
+        let recordings = ferb_mac_hands::recording::RecordingManager::new(
+            Arc::new(|b: &[u8]| Ok(b.to_vec())),
+            Arc::new(RecordingFiles {
+                home: tmp.path().to_string_lossy().into_owned(),
+                protection: None,
+            }),
+            Some(hearing.clone()),
+            Some(staging.clone()),
+        );
+        let j = journal(tmp.path());
+        sweep(&hearing, &recordings, &j);
+        assert_eq!(std::fs::read_dir(&listen).unwrap().count(), 0);
+        assert!(!staging.join("rec-old").exists());
+        assert!(
+            staging.join("other.txt").exists(),
+            "only recordings' frames"
+        );
+        assert!(j.of_kind("recordings.startup_failed", "", "").is_empty());
+        // a frame folder that can't be removed: journaled, never a failed start
+        std::fs::create_dir_all(staging.join("rec-stuck")).unwrap();
+        std::fs::write(staging.join("rec-stuck").join("f1.jpg"), b"x").unwrap();
+        std::fs::set_permissions(
+            staging.join("rec-stuck"),
+            std::fs::Permissions::from_mode(0o500),
+        )
+        .unwrap();
+        sweep(&hearing, &recordings, &j);
+        std::fs::set_permissions(
+            staging.join("rec-stuck"),
+            std::fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
+        let rows = j.of_kind("recordings.startup_failed", "", "");
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert!(
+            rows[0].1["error"]
+                .as_str()
+                .unwrap()
+                .starts_with("PermissionError: [Errno 13]"),
+            "{rows:?}"
+        );
+    }
+
+    /// sensing.py:58 `mac.acting = a.acting`: while a FERB action runs in an app, the attribution knows it; the
+    /// driver's owned value ends it when dropped.
+    // decision: DMN-501
+    #[test]
+    fn an_action_in_an_app_is_attributed_while_it_runs() {
+        let a = Arc::new(ferb_sense::attribution::Attribution::new(|| 0.0));
+        let guard = a.acting_owned("com.example.app", Some("t1"));
+        assert_eq!(
+            a.acting_now().get("com.example.app"),
+            Some(&vec![Some("t1".to_string())])
+        );
+        drop(guard);
+        assert!(a.acting_now().is_empty());
+    }
+
+    /// browsers.py:126: before any paired profile can answer (the browser area not built), a browser window's
+    /// capture is told so in Python's words; the owner's waits are nothing before the supervisor exists.
+    // decision: HAND-518
+    #[tokio::test]
+    async fn web_secrets_before_the_browsers_say_no_profile_is_connected() {
+        let gone = super::super::WeakParts(std::sync::Weak::new());
+        let ask = web_secrets(gone.clone());
+        let got = ask("chrome".into(), (0.0, 0.0, 10.0, 10.0), "t".into())
+            .await
+            .unwrap();
+        assert!(got.state.is_none());
+        assert_eq!(got.why, "no paired profile of chrome is connected");
+        assert!(!got.late);
+        owner_wait(gone)("w1", true);
+    }
 }

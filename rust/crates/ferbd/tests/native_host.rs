@@ -19,6 +19,7 @@ const ORIGIN: &str = "chrome-extension://jaclnphefmmgmpofnabffahdkbjjompm/";
 /// native host's hello and prints whatever the daemon writes within 1.5 s.
 const RELAY_C: &str = r#"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -33,7 +34,7 @@ int main(int argc, char **argv) {
         strncpy(a.sun_path, argv[1], sizeof a.sun_path - 1);
         if (connect(s, (struct sockaddr *)&a, sizeof a) != 0) return 2;
         dprintf(s, "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"native_host\", \"origin\": \"%s\"}}\n", argv[2]);
-        struct timeval tv = {1, 500000};
+        struct timeval tv = {argc > 3 ? atoi(argv[3]) : 1, argc > 3 ? 0 : 500000};
         setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
         char buf[4096]; ssize_t n;
         while ((n = read(s, buf, sizeof buf)) > 0) fwrite(buf, 1, n, stdout);
@@ -152,5 +153,38 @@ fn a_browsers_relay_is_taken_and_every_other_one_is_refused_and_journaled() {
     assert_eq!(
         rows[2]["origin"],
         "chrome-extension://abcdefghijklmnopabcdefghijklmnop/"
+    );
+}
+
+/// Journal 56: with a browser's relay connected the daemon took over a second to stop. A stop (SIGTERM, as launchd's
+/// `kickstart -k` of a grant's restart sends) ends the relay's connection and exits promptly, as Python's does
+/// (main.py `shutdown`: the server's close ends the native host's connection with the rest).
+#[test]
+fn a_connected_relay_never_holds_up_a_stop() {
+    let tmp = root();
+    let mut run = Run::start(tmp.path(), "02", json!({}));
+    let apps = tmp.path().join("apps");
+    std::fs::create_dir_all(&apps).unwrap();
+    let chrome = fake_app(&apps, "Google Chrome", "com.google.Chrome");
+    // a relay that stays connected for 20 s
+    let mut relay = Command::new(&chrome)
+        .arg(run.socket())
+        .arg(ORIGIN)
+        .arg("20")
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(800));
+    let began = std::time::Instant::now();
+    let (status, err) = run.stop();
+    let took = began.elapsed();
+    eprintln!("the stop took {took:?}");
+    let _ = relay.kill();
+    let _ = relay.wait();
+    assert_eq!(status.code(), Some(0), "{err}");
+    let slow: Vec<&str> = err.lines().filter(|l| l.contains("stop: ")).collect();
+    assert!(
+        took < std::time::Duration::from_millis(1000),
+        "the stop took {took:?}; slow steps: {slow:?}"
     );
 }

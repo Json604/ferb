@@ -6,8 +6,8 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 289 | 11 | 40 |
-| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 85 | 7 | 7 |
+| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 286 | 11 | 40 |
+| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 86 | 7 | 7 |
 | engine | Rust engine (the rewrite) | `rust` | 7 | 0 | 0 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 97 | 8 | 60 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 137 | 9 | 33 |

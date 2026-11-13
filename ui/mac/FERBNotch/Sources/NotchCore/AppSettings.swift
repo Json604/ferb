@@ -153,8 +153,6 @@ public enum AppSettings {
         "FERBUpdateLastResult": "the last update's result (bookkeeping)",
         "loginItem.defaultApplied": "whether open-at-login's default was applied once (bookkeeping)",
         "loginItem.refusal": "macOS refused open at login (state; the setting itself lives in macOS's Login Items)",
-        "signerMove.pending": "the switch to the Developer ID still moving its service (APP-904, state)",
-        "signerMove.permissionsReset": "the signer FERB last cleared its own permission entries for (APP-902, bookkeeping)",
         "feedback.magneticEnabled": "a removed setting (APP-527), only cleared on upgrade",
         "chatWindow.keepOnTop": "a removed setting (Keep on top, APP-772), only cleared on upgrade",
         "concept.arrivalStyle": "the isolated playground's review switch, never in FERB.app's Settings",

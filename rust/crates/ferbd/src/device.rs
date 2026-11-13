@@ -86,10 +86,11 @@ impl Host for ProgramHost {
         })
         .map_err(|e| CliError::ferb(e.to_string()))
     }
-    fn env(&mut self, _every_browser: bool) -> Result<Env<'_>, CliError> {
+    fn env(&mut self, every_browser: bool) -> Result<Env<'_>, CliError> {
         Ok(crate::setup_env::env(
             &self.home,
             Box::new(std::io::stdout()),
+            every_browser,
         ))
     }
     fn connect(&mut self) -> Result<Box<dyn Rpc>, CliError> {

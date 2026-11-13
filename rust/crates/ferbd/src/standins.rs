@@ -60,6 +60,22 @@ pub struct Stand {
     pub asks: Arc<AtomicU64>,
 }
 
+/// A desk that posts nothing and records each osascript banner.
+struct RecordingDesk(Stand);
+
+impl ferb_daemon::areas_b::notify::Desk for RecordingDesk {
+    fn osascript(
+        &self,
+        script: &str,
+    ) -> ferb_core::interfaces::BoxFuture<'static, Result<(), String>> {
+        self.0.push(json!({"osascript": script}));
+        Box::pin(async { Ok(()) })
+    }
+    fn away(&self) -> bool {
+        false
+    }
+}
+
 impl Stand {
     fn push(&self, v: Value) {
         self.calls.lock().unwrap_or_else(|e| e.into_inner()).push(v);
@@ -306,6 +322,14 @@ impl Overrides for Seams {
     }
 
     fn group_a(&self, d: &mut areas_a::Deps) {
+        // a test's Mac scan: what it saw, at once (`persona_scan: true` in the stand-ins' config)
+        if self.config["persona_scan"] == true {
+            d.persona_scan = Some(Arc::new(
+                |_home: &std::path::Path, _uid: &str, _a: Vec<Value>, _b| {
+                    Ok(json!({"apps": ["Notes"], "profiles_read": false}))
+                },
+            ));
+        }
         if self.group_a {
             d.tasks = Arc::new(self.stand.clone());
             d.owner = Arc::new(self.stand.clone());
@@ -316,6 +340,14 @@ impl Overrides for Seams {
 
     fn group_c(&self, d: &mut crate::areas_c::Deps) {
         crate::standins_c::group_c(&self.config, d);
+    }
+
+    /// `record_banners: true`: each osascript banner is a call the test reads (`calls`), nothing posted.
+    fn desk(&self) -> Option<Arc<dyn ferb_daemon::areas_b::notify::Desk>> {
+        (self.config["record_banners"] == true).then(|| {
+            Arc::new(RecordingDesk(self.stand.clone()))
+                as Arc<dyn ferb_daemon::areas_b::notify::Desk>
+        })
     }
 
     fn group_b(&self, d: &mut areas_b::Deps) {
@@ -575,6 +607,21 @@ async fn control(d: &Arc<Daemon>, s: &StandIns, req: &Value) -> Result<Value, St
                 {
                     Ok(events) => Value::Array(events),
                     Err(e) => json!({"raised": e.class()}),
+                },
+            )
+        }
+        // a FERB notice told to the owner (`_tell_owner`): the banner decision runs as for any notice
+        "notice" => {
+            let n = d.b.notifier.clone();
+            let ident = req["ident"].as_str().unwrap_or("test-notice").to_string();
+            let text = req["text"].as_str().unwrap_or("a notice").to_string();
+            Ok(
+                match n
+                    .tell_owner(&ident, &[], &text, "ferb", "", "", &[], &Value::Null, None)
+                    .await
+                {
+                    Ok(()) => json!(true),
+                    Err(e) => json!({"error": e}),
                 },
             )
         }

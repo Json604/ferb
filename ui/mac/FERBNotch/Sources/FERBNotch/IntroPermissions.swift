@@ -189,7 +189,6 @@ extension IntroController {
         if setup.notificationHint { visit.bannerSince = visit.bannerSince ?? Date() } else { visit.bannerSince = nil }
         return IntroCopy.permissionOverview(rows: setup.setupRows, selected: visit.active, requesting: visit.requesting,
                                             added: visit.added, busy: visit.task != nil, wait: wait,
-                                            confirmed: visit.confirmed, bannerSince: visit.bannerSince,
-                                            signerChanged: setup.signerChanged)
+                                            confirmed: visit.confirmed, bannerSince: visit.bannerSince)
     }
 }

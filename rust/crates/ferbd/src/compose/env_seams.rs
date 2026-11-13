@@ -6,11 +6,9 @@
 //! models, FERB's secrets, the owner's schedules, reminders and time meanings (group A), today's activity
 //! (`activity/today.jsonl`).
 //!
-//! The browser drivers (`router`, `ferb_identity`) are the composition's ([`Tabs`]). Not read in this build, each
-//! answering what Python's daemon answers without that part: the extension hub (`hub`: None, so no live connection
-//! line), the
-//! browser profiles discovered from Local State (`profiles`, `fresh_profiles`: none), FERB's own browser-free route
-//! (`browsing`: not asked), the missing developer tools (none), an unpaired browser's note ("").
+//! The browser drivers (`router`, `ferb_identity`) are the composition's ([`Tabs`]); the extension hub, the profiles
+//! discovered from Local State, a profile's state, an unpaired browser's note and FERB's browsing question are the
+//! browser area's (`Cx`), read once it is built; the missing developer tools are read once at start (DMN-511).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -60,9 +58,10 @@ impl TabDriver for Tabs {
                 .release(task_id)
                 .await
                 .map(|tabs| tabs.into_iter().map(Value::Object).collect())
+                // desktop.py:57: the error's type and words, and each tab left behind (HAND-419)
                 .map_err(|e| ferb_daemon::areas_b::environment::ReleaseError {
-                    error: e.to_string(),
-                    tabs: None,
+                    error: format!("{}: {e}", e.class()),
+                    tabs: e.facts().and_then(|f| f.get("tabs").cloned()),
                 })
         })
     }
@@ -81,6 +80,65 @@ pub struct EnvSeams {
     pub activity: ferb_sense::daily::DailyActivity,
     pub support: PathBuf,
     pub browser_support: PathBuf,
+    /// `missing_dev_tools` (main.py:453, DMN-511): read once at start, cleared once the tools are installed.
+    pub dev_tools: std::sync::Mutex<Vec<String>>,
+}
+
+/// The extension hub as the environment area reads it (`self.hub`): the browser area's.
+struct HubOf(Arc<dyn ferb_daemon::areas_b::browsers::Extensions>);
+
+impl Hub for HubOf {
+    fn bridge(
+        &self,
+        browser: &str,
+        folder: &str,
+    ) -> Option<ferb_daemon::areas_b::environment::Bridge> {
+        self.0
+            .bridge(browser, folder)
+            .map(|b| ferb_daemon::areas_b::environment::Bridge {
+                connected: b.connected,
+                version: b.version,
+            })
+    }
+    fn unpaired(&self) -> Vec<String> {
+        self.0.unpaired()
+    }
+    fn problem(&self, binding: &Binding) -> Option<String> {
+        self.0.problem(binding)
+    }
+}
+
+impl EnvSeams {
+    fn area(&self) -> Option<ferb_daemon::areas_b::browsers::Cx> {
+        self.tools.browsers().and_then(|b| b.area())
+    }
+
+    /// main.py:689 `_missing_developer_tools`: the stubs a FERB terminal command would reach, on the shell's PATH.
+    pub fn read_dev_tools(&self) {
+        let path = ferb_shell::manager::clean_env(false)
+            .into_iter()
+            .find(|(k, _)| k == "PATH")
+            .map(|(_, v)| v)
+            .unwrap_or_default();
+        let mut run = |argv: &[String]| -> Option<ferb_device::install::Output> {
+            let out = std::process::Command::new(&argv[0])
+                .args(&argv[1..])
+                .stdin(std::process::Stdio::null())
+                .output()
+                .ok()?;
+            Some(ferb_device::install::Output {
+                code: out.status.code().unwrap_or(-1),
+                stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+                stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+            })
+        };
+        let missing = ferb_device::devtools::missing_tools(
+            &path,
+            std::path::Path::new(ferb_device::devtools::STUB_FOLDER),
+            &mut run,
+        );
+        *crate::basics::lock(&self.dev_tools) = missing;
+    }
 }
 
 impl EnvSeams {
@@ -114,10 +172,12 @@ impl Seams for EnvSeams {
         Vec::new()
     }
     fn profiles(&self) -> Vec<BrowserProfile> {
-        Vec::new()
+        self.area().map(|cx| cx.profiles()).unwrap_or_default()
     }
     fn fresh_profiles(&self) -> Vec<BrowserProfile> {
-        Vec::new()
+        self.area()
+            .map(|cx| cx.fresh_profiles())
+            .unwrap_or_default()
     }
     fn installed_apps(&self) -> Vec<(String, String)> {
         ferb_daemon::areas_b::desktop::installed_apps(&self.host).unwrap_or_default()
@@ -149,8 +209,11 @@ impl Seams for EnvSeams {
     fn browser_support(&self) -> PathBuf {
         self.browser_support.clone()
     }
-    fn profile_state(&self, _p: &BrowserProfile, extension: Option<&str>) -> String {
-        extension.unwrap_or("missing").to_string()
+    fn profile_state(&self, p: &BrowserProfile, extension: Option<&str>) -> String {
+        self.area()
+            .and_then(|cx| cx.profile_state(p, extension).ok())
+            .map(str::to_string)
+            .unwrap_or_else(|| extension.unwrap_or("missing").to_string())
     }
     fn worker_types(&self) -> Value {
         json!(self
@@ -193,8 +256,19 @@ impl Seams for EnvSeams {
     fn identity_browser(&self) -> bool {
         self.tools.ferb_driver().is_some()
     }
+    /// environment.py:196 `_browsing(False, "")`: FERB's question about browsing, unattended.
     fn browsing(&self) -> Map<String, Value> {
-        Map::new()
+        let (Some(cx), Some(a)) = (self.area(), self.a.get().cloned()) else {
+            return Map::new();
+        };
+        match ferb_daemon::areas_b::browsers::browsing(
+            &cx,
+            &super::areas::GroupAQuestions(a),
+            false,
+        ) {
+            Ok(Value::Object(m)) => m,
+            _ => Map::new(),
+        }
     }
     fn permissions(&self) -> BTreeMap<String, bool> {
         if !self.native {
@@ -239,11 +313,17 @@ impl Seams for EnvSeams {
             .collect()
     }
     fn missing_dev_tools(&self) -> Vec<String> {
-        Vec::new()
+        crate::basics::lock(&self.dev_tools).clone()
     }
-    fn clear_missing_dev_tools(&self) {}
+    fn clear_missing_dev_tools(&self) {
+        crate::basics::lock(&self.dev_tools).clear();
+    }
     fn dev_tools_installed(&self) -> bool {
-        true
+        let folders: Vec<PathBuf> = ferb_device::devtools::INSTALL_FOLDERS
+            .iter()
+            .map(PathBuf::from)
+            .collect();
+        ferb_device::devtools::installed_now(&folders)
     }
     fn time_meanings(&self) -> Vec<(String, String)> {
         self.on_a(ferb_daemon::areas_a::memory::time_meanings)
@@ -260,10 +340,13 @@ impl Seams for EnvSeams {
         self.on_a(ferb_daemon::areas_a::records::reminder_facts)
     }
     fn hub(&self) -> Option<Arc<dyn Hub>> {
-        None
+        self.area()
+            .map(|cx| Arc::new(HubOf(cx.deps.hub.clone())) as Arc<dyn Hub>)
     }
-    fn unpaired_note(&self, _browser: &str) -> String {
-        String::new()
+    fn unpaired_note(&self, browser: &str) -> String {
+        self.area()
+            .and_then(|cx| cx.unpaired_note(browser))
+            .unwrap_or_default()
     }
 }
 

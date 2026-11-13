@@ -56,8 +56,8 @@ final class SetupModel: ObservableObject {
     let system: SystemOpening
     let keys: APIKeyStoring
     let service: DaemonServicing
-    /// macOS's side of the background service (DMN-513): a 2026-11 build's SMAppService registration to retire and
-    /// Login Items' switch; nil in a development build and tests that don't fake it.
+    /// macOS's side of the background service: the Rust build's own registration (DMN-593), the Python build's 2026-11
+    /// registration to retire (DMN-513), and Login Items' switch; nil in a development build and tests that don't fake it.
     let background: BackgroundServiceManaging?
     private var poll: Task<Void, Never>?
 
@@ -216,25 +216,24 @@ final class SetupModel: ObservableObject {
             && allRows.contains { $0.id == "full_disk_access" && $0.status != .granted }
     }
 
-    /// This Developer ID build registers its background service itself (DMN-587); otherwise the LaunchAgent (DMN-513).
+    /// This build registers its background service itself (SMAppService, DMN-593: the Rust build, InAppService); the
+    /// Python build runs the LaunchAgent (DMN-513).
     var appService = false
-    /// This launch is the switch to the Developer ID (APP-904): a registration macOS lists then was left by a
-    /// self-signed build, so it is unregistered before this build registers (APP-599's rule, now for this one move),
-    /// and the permission beats say why macOS asks again.
-    @Published var signerChanged = false
-    /// How long FERB.app waits for the daemon after macOS turned its registration on, before the fallback.
+    /// This build is signed without a Team ID (a developer's ad-hoc Rust build): its registration is made afresh when
+    /// setup runs, since its launch constraint names one exact build (AppServicePlan.registersAfresh). A Developer ID
+    /// build keeps its registration across updates.
+    var registersAfresh = false
+    /// How long FERB.app waits for the daemon after macOS turned its registration on.
     var serviceStartWait: Duration = .seconds(30)
-    /// Why this run's registration fell back to the LaunchAgent (nil: it didn't).
-    @Published private(set) var serviceFallback: String?
 
-    /// `ferb setup --service [--update]`: the background service's LaunchAgent from this app, loaded and answering, no
-    /// questions (DMN-513). A registration a 2026-11 build left is unregistered first, once (it would keep starting
-    /// that build's constrained job under the same label). A Developer ID build (`appService`, DMN-587) runs the
-    /// command with `--app-service` (any LaunchAgent retired, nothing loaded), then registers its own service and
-    /// waits for FERB; a refusal or no answer falls back to the LaunchAgent, saying why. Switched off in Login Items,
-    /// the command (or macOS) says so and the tour guides that one visit (`serviceNeedsApproval`); any other failure
-    /// leaves its last lines (the reason and its fix) in `serviceError`, which the tour's service line shows with Try
-    /// again (APP-685).
+    /// `ferb setup --service [--update]`, no questions. The Rust build (`appService`, DMN-593) runs it with
+    /// `--app-service` (FERB's files set up, any LaunchAgent retired, nothing loaded), then registers its own service and
+    /// waits for FERB; that registration is the only way it runs the service. macOS's refusal, or a job launchd can't
+    /// start even after one fresh registration (DMN-594), leaves the reason and the Login Items guidance in
+    /// `serviceError`; the owner's Login Items switch is guided as one visit (`serviceNeedsApproval`). The Python build
+    /// writes and loads its LaunchAgent (DMN-513), unregistering a registration a 2026-11 build left first, once. Any
+    /// other failure leaves its last lines (the reason and its fix) in `serviceError`, which the tour's service line
+    /// shows with Try again (APP-685).
     func runService(completion: @escaping (Bool) -> Void) {
         let inApp = appService && background != nil
         guard let arguments = AppSetupPlan.serviceArguments(for: serviceAction, appService: inApp) else {
@@ -243,26 +242,44 @@ final class SetupModel: ObservableObject {
         }
         serviceError = nil
         serviceNeedsApproval = false
-        serviceFallback = nil
         serviceLine = "Starting…"
         serviceRunning = true
-        guard let background, background.registration.listed, !inApp || signerChanged else {
+        guard !inApp, let background, background.registration.listed else {
             startServiceCommand(arguments, inApp: inApp, completion: completion)
             return
         }
         Task { @MainActor in
             self.serviceLine = "Turning off the background service an earlier FERB registered…"
             try? await background.unregister()          // `ferb setup` boots out whatever still runs under the label
-            self.startServiceCommand(arguments, inApp: inApp, completion: completion)
+            self.startServiceCommand(arguments, inApp: false, completion: completion)
         }
     }
 
-    /// FERB.app's own registration turned on (DMN-587), then a wait until FERB answers: the owner's Login Items switch
-    /// is guided; a refusal, a status that stays off or no answer within `serviceStartWait` falls back.
+    /// FERB.app's own registration turned on (DMN-593), then a wait until FERB answers. A build without a Team ID
+    /// registers afresh (`registersAfresh`); a Developer ID build's registration is kept.
     private func turnOnAppService(completion: @escaping (Bool) -> Void) async {
         guard let background else { return completion(true) }
         serviceRunning = true
         serviceLine = "Turning on FERB's background service…"
+        if registersAfresh && (background.registration.listed || background.status.listed) {
+            try? await background.unregister()
+        }
+        let why = await registerAndWait(background)
+        serviceRunning = false
+        if let why {
+            serviceError = why
+            completion(false)
+        } else {
+            serviceAction = .none
+            completion(true)
+        }
+    }
+
+    /// `register()` (already registered counts as done), then a wait until FERB answers: nil then, else what the owner
+    /// reads. The owner's Login Items switch is the Login Items guidance (`serviceNeedsApproval`, ServicePlan.approval);
+    /// anything else is macOS's or launchd's reason with how to allow it (AppServicePlan.refusal). Never anything around
+    /// the registration.
+    private func registerAndWait(_ background: BackgroundServiceManaging) async -> String? {
         var failure: String?
         var denied = false
         do { try background.register() } catch is AppServicePlan.DeniedByUser { denied = true } catch {
@@ -270,49 +287,48 @@ final class SetupModel: ObservableObject {
         }
         switch AppServicePlan.afterRegister(error: failure, deniedByUser: denied, status: background.status) {
         case .approval:
-            serviceRunning = false
             serviceNeedsApproval = true
-            serviceError = ServicePlan.approval
-            completion(false)
+            return ServicePlan.approval
+        case .refused(let why):
+            NSLog("FERB service: macOS refused the registration: %@", why)
+            return AppServicePlan.refusal(why)
         case .waitForFERB:
-            if let why = await waitForAppService(background, registeredAgain: false) {
-                await fallBack(why, completion: completion)
-            } else {
-                serviceRunning = false
-                serviceAction = .none
-                completion(true)
-            }
-        case .fallback(let why):
-            await fallBack(why, completion: completion)
+            return await waitForAppService(background)
         }
     }
 
     /// How often a wait for the background service reads it (tests shorten it).
     var serviceWaitPoll: Duration = .milliseconds(500)
 
-    /// Waits until FERB.app's registered service answers (DMN-587): nil then, else why not. When launchd says it can't
-    /// start the job (`spawnFailure`; live 2026-11-14: the registration had been tied to the Background Task Management
-    /// record of the user LaunchAgent it replaced, and once macOS dropped that record every start failed with
-    /// EX_CONFIG), the job is registered once more at once, a fresh record, instead of waiting out `serviceStartWait`;
-    /// failing again, launchd's words are the reason.
-    private func waitForAppService(_ background: BackgroundServiceManaging, registeredAgain: Bool) async -> String? {
-        var again = registeredAgain
+    /// Waits until FERB.app's registered service answers (DMN-593): nil then, else what the owner reads. When launchd
+    /// says it can't start the job (`spawnFailure`; live 2026-11-14: the registration had been tied to the Background
+    /// Task Management record of the user LaunchAgent it replaced, and once macOS dropped that record every start failed
+    /// with EX_CONFIG), the job is registered once more at once, a fresh record, instead of waiting out
+    /// `serviceStartWait` (DMN-594); failing again, launchd's words are the reason.
+    private func waitForAppService(_ background: BackgroundServiceManaging) async -> String? {
+        var again = false
         let end = ContinuousClock.now + serviceStartWait
         while ContinuousClock.now < end {
             if await serviceAnswers() { return nil }
             if let why = background.spawnFailure() {
-                if again { return why }
+                if again {
+                    NSLog("FERB service: %@ after registering it again", why)
+                    return AppServicePlan.refusal(why)
+                }
                 again = true
                 serviceLine = "Registering FERB's background service again…"
                 NSLog("FERB service: %@; registering it again", why)
                 try? await background.unregister()
-                do { try background.register() } catch { return why }
+                do { try background.register() } catch is AppServicePlan.DeniedByUser {
+                    serviceNeedsApproval = true
+                    return ServicePlan.approval
+                } catch { return AppServicePlan.refusal(why) }
                 try? await Task.sleep(for: serviceWaitPoll * 2)    // launchd's first attempt for the new job
                 continue
             }
             try? await Task.sleep(for: serviceWaitPoll)
         }
-        return AppServicePlan.notStarted
+        return AppServicePlan.refusal(AppServicePlan.notStarted)
     }
 
     /// After FERB.app restarted or started the background service (a grant's restart-to-check, a silence, the menu's
@@ -331,31 +347,29 @@ final class SetupModel: ObservableObject {
         return nil
     }
 
-    /// launchd can't start FERB's background service: a Developer ID build's registration is made again once
-    /// (DMN-587), and if launchd still can't start it, or the service is the LaunchAgent, setup installs the LaunchAgent
-    /// again (`fallBack`, DMN-513), so FERB runs again instead of the tour waiting on a service that never comes.
-    /// True when FERB answers afterwards.
+    /// launchd can't start FERB's background service. The Rust build's registration is made again once (DMN-594) and,
+    /// if launchd still can't start it, the owner reads why and how to allow it (`serviceError`, DMN-593); nothing runs
+    /// around it. The Python build installs its LaunchAgent again (DMN-513). True when FERB answers afterwards.
     func repairService(_ why: String) async -> Bool {
         serviceRunning = true
-        if let background, appService, background.registration.listed || background.status.listed {
-            if await waitForAppService(background, registeredAgain: false) == nil {
-                serviceRunning = false
-                return true
+        if appService, let background {
+            serviceError = nil
+            serviceNeedsApproval = false
+            NSLog("FERB service: %@", why)
+            // the wait sees launchd's failure and registers once more; a registration macOS dropped is made again
+            let listed = background.registration.listed || background.status.listed
+            let failure = listed ? await waitForAppService(background) : await registerAndWait(background)
+            serviceRunning = false
+            serviceError = failure
+            return failure == nil
+        }
+        serviceLine = "launchd couldn't start FERB's background service (\(why)), so FERB sets it up again."
+        NSLog("FERB service: %@", serviceLine)
+        return await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            Task { @MainActor in
+                self.startServiceCommand(["setup", "--service", "--update"], inApp: false) { done.resume(returning: $0) }
             }
         }
-        return await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-            Task { @MainActor in await self.fallBack(why) { ok in done.resume(returning: ok) } }
-        }
-    }
-
-    /// The LaunchAgent instead (T-29's path, DMN-513): whatever macOS registered goes first, since one label can't
-    /// run twice; the record then says launch_agent, and the next build tries the registration again.
-    private func fallBack(_ why: String, completion: @escaping (Bool) -> Void) async {
-        try? await background?.unregister()
-        serviceFallback = why
-        serviceLine = AppServicePlan.fallbackLine(why)
-        NSLog("FERB service: %@", serviceLine)
-        startServiceCommand(["setup", "--service", "--update"], inApp: false, completion: completion)
     }
 
     private func startServiceCommand(_ arguments: [String], inApp: Bool, completion: @escaping (Bool) -> Void) {
@@ -699,7 +713,7 @@ final class SetupModel: ObservableObject {
         var ok = await service.restart()
         if let why = await serviceSpawnFailure(within: serviceCheckAfterStart) { ok = await repairService(why) }
         restarting = false
-        message = ok ? nil : "FERB's background service couldn't be restarted."
+        message = ok ? nil : serviceError ?? "FERB's background service couldn't be restarted."
         if ok { askedRestart.removeAll() }
         moveGrant(.checking)
         await refreshPermissions()

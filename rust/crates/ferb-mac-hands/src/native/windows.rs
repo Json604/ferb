@@ -155,8 +155,15 @@ pub fn screen_off() -> Option<String> {
 
 /// permissions.py:52: another process's window title is listed only with Screen Recording.
 pub fn other_app_window_title_readable(me: i32) -> Option<bool> {
+    title_readable_in(me, &NativeWindows.listed(true).unwrap_or_default())
+}
+
+/// permissions.py:52-62 over a window list: true when another app's normal window shows a title, false when such
+/// windows exist and none has one, None when there is none to judge by. A window the window server lists without a
+/// layer counts as layer 0, as Python's `w.get("kCGWindowLayer", 0)` does.
+pub fn title_readable_in(me: i32, windows: &[Listed]) -> Option<bool> {
     let mut seen = false;
-    for w in NativeWindows.listed(true).unwrap_or_default() {
+    for w in windows {
         if w.window.pid == me
             || w.owner_name == "Dock"
             || w.owner_name == "WindowServer"
@@ -178,4 +185,50 @@ pub fn other_app_window_title_readable(me: i32) -> Option<bool> {
 
 pub fn preflight_screen_capture() -> bool {
     CGPreflightScreenCaptureAccess()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{title_readable_in, Listed};
+    use crate::driver::Window;
+
+    fn w(pid: i32, owner: &str, title: &str, layer: Option<i64>) -> Listed {
+        Listed {
+            window: Window {
+                id: 1,
+                pid,
+                bounds: (0.0, 0.0, 10.0, 10.0),
+                title: title.into(),
+                layer: layer.unwrap_or(0),
+                alpha: 1.0,
+                layer_known: layer.is_some(),
+            },
+            owner_name: owner.into(),
+        }
+    }
+
+    /// permissions.py:52-62: a window the window server lists without a layer is judged as a normal one (Python's
+    /// `kCGWindowLayer` default 0); FERB's own, the Dock's, WindowServer's and status items are never judged.
+    #[test]
+    fn a_window_with_no_layer_counts_as_normal() {
+        assert_eq!(
+            title_readable_in(7, &[w(9, "Notes", "", None)]),
+            Some(false)
+        );
+        assert_eq!(
+            title_readable_in(7, &[w(9, "Notes", "Shopping", None)]),
+            Some(true)
+        );
+        assert_eq!(
+            title_readable_in(
+                7,
+                &[
+                    w(7, "FERB", "mine", Some(0)),
+                    w(9, "Dock", "Dock", Some(0)),
+                    w(9, "Clock", "status", Some(25)),
+                ]
+            ),
+            None
+        );
+    }
 }

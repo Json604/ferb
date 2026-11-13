@@ -299,9 +299,13 @@ pub async fn memory_pass(
     let fail = |kind: &str, e: ferb_learning::Error| {
         journal.note(kind, json!({"error": format!("{}: {e}", e.class())}));
     };
+    // the learners' model calls as spans, their usage as `model.usage` spans naming each learner's role
+    // (memory.py:66-68, 763-769, 805-808)
+    let spans = Rc::new(areas_a::memory::LearningSpans::new(st));
     // distill: every past day not done yet, then the summarized days purged
     {
         let w = Rc::downgrade(st);
+        let usage = spans.clone();
         let distiller = ferb_learning::distill::Distiller {
             store: st.store.clone(),
             journal: st.journal.clone(),
@@ -311,10 +315,12 @@ pub async fn memory_pass(
             zone: st.learning.zone.clone(),
             prompts: st.prompts.clone(),
             summary: Rc::new(SummarySeams),
-            purge: Box::new(|| {}),
+            // memory.py:66-68 builds the Distiller with distill.py's default `purge` (it does nothing): the trail's
+            // summarized days go in the hourly retention pass
+            purge: crate::off::off("memory.distill_purge", Box::new(|| {})),
             device_id: device.to_string(),
-            record_usage: Box::new(|_, _| {}),
-            spans: None,
+            record_usage: Box::new(move |runtime, data| usage.usage("distill", runtime, data)),
+            spans: Some(spans.clone() as Rc<dyn ferb_learning::calls::Spans>),
             tell: Box::new(move |n| {
                 if let Some(st) = w.upgrade() {
                     let fut = st
@@ -345,9 +351,9 @@ pub async fn memory_pass(
                 &st.prompts,
                 Some(&model),
                 device,
-                None,
+                Some(spans.as_ref()),
                 &move |kind: &str, data: Value| j.append(kind, Some(data), None).map(|_| ()),
-                &|_, _| {},
+                &|runtime: &str, data: &Value| spans.usage("playbook", runtime, data),
             )
             .await;
             if let Err(e) = merged {
@@ -364,6 +370,39 @@ pub async fn memory_pass(
     if let Err(e) = areas_a::persona::refresh(st).await {
         journal.note("memory.mac_profile_failed", json!({"error": e}));
     }
+}
+
+/// intro.py:107-119 `_suggest`'s model call, on group A's thread: one tool-less call on the orchestrator's runtime
+/// with SUGGEST_SCHEMA (role intro_suggest, DMN-500), its span and usage recorded as the other learners' are. The
+/// answer text, or the failure's type name (Python journals `type(exc).__name__`).
+pub async fn intro_suggest(st: &Rc<State>, system: &str, ctx: &str) -> Result<String, String> {
+    let make = st
+        .make_runtime
+        .clone()
+        .ok_or_else(|| "RuntimeError".to_string())?;
+    let schema = ferb_context::schemas::suggest_schema();
+    let made =
+        make("orchestrator", "supervisor", &[], &schema).map_err(|e| e.class().to_string())?;
+    let task = ferb_learning::calls::learning_task(
+        &format!("intro-suggest-{}", ferb_clock::py::iso(&st.now())),
+        "first tasks to show the owner",
+        &st.device_id(),
+        "intro-suggest",
+    );
+    let spans = areas_a::memory::LearningSpans::new(st);
+    ferb_learning::calls::learning_call(
+        &made,
+        &task,
+        system,
+        ctx,
+        "what FERB saw on this Mac",
+        &schema,
+        "intro_suggest",
+        Some(&spans),
+        &|runtime: &str, data: &Value| spans.usage("intro_suggest", runtime, data),
+    )
+    .await
+    .map_err(|e| e.class().to_string())
 }
 
 /// `_refresh_cards`: each card to read is captured again (`_capture_card`: its reads off the loop), one at a time and
@@ -423,5 +462,10 @@ async fn refresh_cards(
         }
         tokio::task::yield_now().await;
     }
-    ferb_learning::learning::index_summaries(l, &SummarySeams, &mut || false)
+    // memory.py:204: `index_summaries(own, stop=lambda: False)`: the pass indexes every day summary
+    ferb_learning::learning::index_summaries(
+        l,
+        &SummarySeams,
+        &mut crate::off::off("memory.index_summaries_stop", || false),
+    )
 }

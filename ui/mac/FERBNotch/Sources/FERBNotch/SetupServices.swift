@@ -48,38 +48,41 @@ protocol DaemonServicing: AnyObject {
     func start() async -> Bool
 }
 
-/// FERB's background service as macOS knows it (DMN-513): a user LaunchAgent that `ferb setup --service` writes and
-/// loads, listed under Login Items → Allow in the Background, where the owner can switch it off; plus any SMAppService
-/// registration a 2026-11 build left, which FERB.app unregisters once before setup (macOS would keep starting that
-/// build's job, and without a Team ID its launch constraint kills every later build's daemon).
-/// A Developer ID FERB.app registers the service itself instead (SMAppService, DMN-587), with the LaunchAgent as its
-/// fallback.
+/// FERB's background service as macOS knows it. The Rust build registers it itself (SMAppService, DMN-593) and in no
+/// other way; it is listed under Login Items → Allow in the Background, where the owner can switch it off. The Python
+/// build's is a user LaunchAgent that `ferb setup --service` writes and loads (DMN-513), and any SMAppService
+/// registration a 2026-11 build left is unregistered once before its setup.
 @MainActor
 protocol BackgroundServiceManaging: AnyObject {
     /// An SMAppService registration of FERB's plist, as macOS lists it, unless launchd runs FERB's LaunchAgent under
-    /// the label (APP-683): a 2026-11 build's, or a Developer ID build's own.
+    /// the label (APP-683).
     var registration: ServiceStatus { get }
-    /// macOS's status for FERB.app's own registration, as reported (DMN-587).
+    /// macOS's status for FERB.app's own registration, as reported (DMN-593).
     var status: ServiceStatus { get }
     /// FERB.app's bundled definition registered (already registered counts as done); the owner's Login Items switch
     /// throws AppServicePlan.DeniedByUser, anything else its error.
     func register() throws
     /// That registration removed, waited for; nothing when macOS lists none.
     func unregister() async throws
-    /// The owner switched FERB's LaunchAgent off (launchd lists com.ferb.daemon as disabled).
+    /// The owner switched FERB's service off in Login Items: launchd lists com.ferb.daemon as disabled, or FERB.app's
+    /// own registration waits for the owner's OK.
     func switchedOff() async -> Bool
     func openLoginItems()
     /// launchd can't start FERB's job (`LaunchctlPlan.spawnFailure` of `launchctl print`): its words, nil otherwise.
     func spawnFailure() -> String?
 }
 
-/// SMAppService.agent for Contents/Library/LaunchAgents/com.ferb.daemon.plist (a Developer ID build registers it,
-/// DMN-587; any build unregisters a 2026-11 self-signed build's) and launchd's list of switched-off services.
+/// SMAppService.agent for Contents/Library/LaunchAgents/com.ferb.daemon.plist (the Rust build registers it, DMN-593;
+/// the Python build unregisters a 2026-11 build's) and launchd's list of switched-off services.
 @MainActor
 final class LaunchAgentService: BackgroundServiceManaging {
     private let service = SMAppService.agent(plistName: ServicePlan.plistName)
     private let launchAgent = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/LaunchAgents/\(ServicePlan.plistName)").path
+    /// This app registers the service itself (InAppService.thisApp).
+    private let inApp: Bool
+
+    init(inApp: Bool = InAppService.thisApp) { self.inApp = inApp }
 
     var status: ServiceStatus {
         switch service.status {
@@ -138,6 +141,7 @@ final class LaunchAgentService: BackgroundServiceManaging {
 
     /// `launchctl print-disabled gui/<uid>` only reads launchd's state.
     func switchedOff() async -> Bool {
+        if inApp && service.status == .requiresApproval { return true }
         let output: String = await Task.detached {
             let launchctl = Process()
             launchctl.executableURL = URL(fileURLWithPath: "/bin/launchctl")
@@ -157,8 +161,8 @@ final class LaunchAgentService: BackgroundServiceManaging {
 }
 
 extension BackgroundServiceManaging {
-    /// Uninstall's first step: a 2026-11 build's registration unregistered from macOS, waited for and checked (`ferb
-    /// uninstall` then boots the LaunchAgent out and deletes it). Nil when macOS lists none, else why not (`ferb
+    /// Uninstall's first step: FERB's registration unregistered from macOS, waited for and checked (`ferb uninstall`
+    /// then removes the rest). Nil when macOS lists none, else why not (`ferb
     /// uninstall` then doesn't run: macOS would keep starting FERB).
     func unregisterForUninstall() async -> String? {
         do { try await unregister() } catch {
@@ -190,23 +194,26 @@ enum OwnSignature {
     }
 }
 
-/// `/usr/bin/tccutil` with these arguments, off the main thread: its exit status (-1 when it couldn't start).
-func runTCCUtil(_ arguments: [String]) async -> Int32 {
-    await Task.detached {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
-        process.arguments = arguments
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return -1 }
-        process.waitUntilExit()
-        return process.terminationStatus
-    }.value
-}
-
 enum AppBundle {
     /// Only an app bundle has a notification center (a `swift run` build has none).
     static var isApp: Bool { Bundle.main.bundleURL.pathExtension == "app" && Bundle.main.bundleIdentifier != nil }
+}
+
+/// Whether this FERB.app registers its own background service (AppServicePlan.registersInApp, DMN-593), read from
+/// what the bundle holds: a packaged FERB.app (its `ferb` program and the agent app) with no Python inside is the Rust
+/// build, whoever signed it. Read once.
+enum InAppService {
+    static let thisApp: Bool = holds(Bundle.main.bundleURL.resolvingSymlinksInPath())
+
+    static func holds(_ bundle: URL) -> Bool {
+        let files = FileManager.default
+        let packaged = bundle.pathExtension == "app"
+            && files.isExecutableFile(atPath: bundle.appendingPathComponent("Contents/Resources/bin/ferb").path)
+            && files.isExecutableFile(atPath: bundle.appendingPathComponent(
+                "Contents/Helpers/FERB.app/Contents/MacOS/FERB").path)
+        let python = files.fileExists(atPath: bundle.appendingPathComponent("Contents/Resources/python").path)
+        return AppServicePlan.registersInApp(packaged: packaged, holdsPython: python)
+    }
 }
 
 /// The bundled `ferb` command, run from FERB.app's own Python. Quitting FERB stops it; `ferb setup` finishes
@@ -388,17 +395,22 @@ struct DaemonAPIKeyStore: APIKeyStoring {
 }
 
 /// FERB's background service through launchd (`LaunchctlPlan`): restarted after a Screen Recording or Full Disk Access
-/// grant (macOS applies those to a new process), and by the menu's Restart (Phase D). Running tasks stop. The service is
-/// the user LaunchAgent (DMN-513), loaded again from its plist when launchd has no job to restart.
+/// grant (macOS applies those to a new process), and by the menu's Restart (Phase D). Running tasks stop. FERB.app's own
+/// registration (the Rust build, DMN-593) is only kickstarted; a job launchd lacks or can't start is registered again
+/// by the app (SetupModel.repairService), never loaded from a plist. The Python build's LaunchAgent (DMN-513) is loaded
+/// again from its plist when launchd has no job to restart.
 @MainActor
 final class DaemonService: DaemonServicing {
     private let plist = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/LaunchAgents/com.ferb.daemon.plist")
+    private let inApp: Bool
+
+    init(inApp: Bool = InAppService.thisApp) { self.inApp = inApp }
 
     func restart() async -> Bool {
-        let commands = LaunchctlPlan.restart(uid: getuid(), plist: plist.path,
-                                             plistExists: FileManager.default.fileExists(atPath: plist.path))
-        for command in commands where await Self.launchctl(command) == 0 { return true }
+        let launchAgent = !inApp && FileManager.default.fileExists(atPath: plist.path) ? plist.path : nil
+        for command in LaunchctlPlan.restart(uid: getuid(), launchAgent: launchAgent)
+        where await Self.launchctl(command) == 0 { return true }
         return false
     }
 

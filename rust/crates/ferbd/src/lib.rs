@@ -8,6 +8,7 @@
 //! - [`compose`]: [`compose::Daemon::start`] and `shutdown`, the gateway and its tools, the handler areas' seams,
 //!   the runtime factory, the background loops.
 //! - [`log`]: what the daemon writes to its own output (logs/daemon.err.log): its start and stop, refusals, panics.
+//! - [`off`]: the seams deliberately left off, each named in `seams-off.txt` with why (the wiring guard).
 //! - [`run`]: the program's modes (`daemon`, `mcp`, the internal commands).
 
 pub mod areas_c;
@@ -21,6 +22,7 @@ pub mod log;
 pub mod mainloop;
 #[cfg(target_os = "macos")]
 pub mod native;
+pub mod off;
 pub mod persona;
 pub mod resources;
 pub mod run;

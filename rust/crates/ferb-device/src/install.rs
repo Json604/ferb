@@ -1,5 +1,6 @@
 //! The background service's definition and FERB's own files on the Mac (ferb/device/install.py): the user
-//! LaunchAgent (DMN-513) or FERB.app's own registration (DMN-589), `service.json`, the native-messaging host's
+//! LaunchAgent (DMN-513; a checkout's) or FERB.app's own registration (DMN-589; always, for the Rust build's FERB.app,
+//! DMN-593), `service.json`, the native-messaging host's
 //! launcher and manifests, the secret helper and its pin, the pinned Codex, the `ferb` link, uninstall and purge.
 //!
 //! Everything that would touch the machine goes through a seam: every external program (`launchctl`, `codesign`,
@@ -11,7 +12,8 @@
 //! The one named difference from Python is [`Programs`]: with [`Programs::Python`] every file is byte for byte what
 //! ferb/device/install.py writes (the fixtures' mode); with [`Programs::Rust`] the daemon is the `ferbd` binary and
 //! the native host is the `ferb-native-host` binary, run directly where Python writes its interpreter and `-m`
-//! arguments. Nothing else changes.
+//! arguments, and an install from FERB.app is always FERB.app's own registration ([`Installer::in_app`], DMN-593): it
+//! never writes or loads the LaunchAgent. Nothing else changes.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -580,7 +582,8 @@ pub struct Installer {
     pub extension_ids: Vec<String>,
     /// The FERB.app to install from; None: from a checkout.
     pub bundle: Option<PathBuf>,
-    /// FERB.app registers the service itself (`setup --service --app-service`); None: as setup last recorded.
+    /// FERB.app registers the service itself (`setup --service --app-service`); None: as setup last recorded. The Rust
+    /// build's FERB.app always does (DMN-593): this is read only with [`Programs::Python`].
     pub app_service: Option<bool>,
     pub cli_dir: Option<PathBuf>,
     pub read_only: Box<dyn Fn(&Path) -> bool>,
@@ -680,10 +683,16 @@ impl Installer {
         self.home.join(EMBEDDING_MODEL_FOLDER)
     }
 
-    /// The background service is FERB.app's own registration (DMN-589), not a user LaunchAgent.
+    /// The background service is FERB.app's own registration (DMN-589), not a user LaunchAgent. With the Rust programs
+    /// every install from FERB.app is (DMN-593: FERB.app registers it with SMAppService and in no other way, so the
+    /// LaunchAgent is never written or loaded, whatever `--app-service` says, and any one found is retired); a checkout
+    /// keeps its LaunchAgent. [`Programs::Python`] replays install.py, which follows the flag, else the record.
     pub fn in_app(&self) -> bool {
         if self.bundle.is_none() {
             return false;
+        }
+        if matches!(self.programs, Programs::Rust(_)) {
+            return true;
         }
         if let Some(app_service) = self.app_service {
             return app_service;
@@ -1315,11 +1324,18 @@ impl Installer {
         (Path::new(&path) != self.plist_path()).then_some(path)
     }
 
+    /// DMN-516: a checkout never takes over FERB.app's registration. The Rust build's FERB.app keeps it (DMN-593), so
+    /// only turning it off in FERB.app frees the label; install.py's words (`Programs::Python`) name the old move.
     pub fn check_not_foreign(&mut self, then: &str) -> Result<()> {
         if let Some(refusal) = self.foreign_service() {
-            return Err(InstallError::Install(format!(
-                "FERB.app's background service is registered ({refusal}); open FERB.app once (it moves it to a LaunchAgent) or turn it off in FERB.app (Settings → Advanced → Uninstall FERB…) {then}"
-            )));
+            return Err(InstallError::Install(match self.programs {
+                Programs::Python => format!(
+                    "FERB.app's background service is registered ({refusal}); open FERB.app once (it moves it to a LaunchAgent) or turn it off in FERB.app (Settings → Advanced → Uninstall FERB…) {then}"
+                ),
+                Programs::Rust(_) => format!(
+                    "FERB.app's background service is registered ({refusal}); turn it off in FERB.app (Settings → Advanced → Uninstall FERB…) {then}"
+                ),
+            }));
         }
         Ok(())
     }
@@ -1438,7 +1454,7 @@ impl Installer {
         r.ok().then_some(pid)
     }
 
-    /// install.py:702.
+    /// install.py:702. The Rust build's FERB.app registration is only kickstarted: no plist is loaded for it (DMN-593).
     pub fn restart(&mut self) -> Result<()> {
         let target = self.target();
         let r = self.cmd(&["launchctl", "kickstart", "-k", &target]);
@@ -1446,6 +1462,11 @@ impl Installer {
             return Ok(());
         }
         let kicked = launchctl_words(&r);
+        if self.in_app() && matches!(self.programs, Programs::Rust(_)) {
+            return Err(InstallError::Install(format!(
+                "restarting the daemon failed: {kicked}"
+            )));
+        }
         match self.load() {
             Ok(()) => Ok(()),
             Err(InstallError::Install(e)) => Err(InstallError::Install(format!(

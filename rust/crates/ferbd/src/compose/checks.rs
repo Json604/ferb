@@ -119,3 +119,18 @@ pub fn run(parts: &Parts, index: i64, condition: &Condition, task_id: &str) -> C
         ),
     }
 }
+
+/// verify.py:224 `Checks.declined`: a condition the owner declined (its question answered No) is unmet by code, with
+/// that No as its evidence; None when nothing was declined or the store can't be read.
+pub fn declined(
+    parts: &Parts,
+    index: i64,
+    condition: &Condition,
+    task_id: &str,
+) -> Option<ConditionResult> {
+    let h = host(parts)?;
+    Checks { host: &h }
+        .declined(index, condition, task_id)
+        .ok()
+        .flatten()
+}

@@ -669,3 +669,28 @@ impl Watcher for AccessibilityWatcher {
         })
     }
 }
+
+#[cfg(test)]
+mod stop_tests {
+    use super::PresenceNative;
+
+    /// The presence thread (its 5 s turns) ends at once when told to: a daemon's stop doesn't wait on it.
+    #[test]
+    fn the_presence_thread_ends_at_once() {
+        let p = crate::watchers::presence::MacPresence::new(
+            || 1800000000.0,
+            crate::watchers::presence::Session::default,
+            || None,
+            None,
+        );
+        let handle = super::MacPresenceNative.watch(p).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        let began = std::time::Instant::now();
+        drop(handle);
+        let took = began.elapsed();
+        assert!(
+            took < std::time::Duration::from_millis(500),
+            "took {took:?}"
+        );
+    }
+}

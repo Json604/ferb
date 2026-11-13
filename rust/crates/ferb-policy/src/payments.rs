@@ -212,6 +212,16 @@ pub struct Pressed {
     pub amounts: Option<Vec<String>>,
 }
 
+impl Pressed {
+    /// `Pressed(None, None)` (pay_press.py:44, 59): the tab is gone or the read failed, so nothing fresher is known.
+    pub fn unread() -> Pressed {
+        Pressed {
+            url: None,
+            amounts: None,
+        }
+    }
+}
+
 /// `page_key`: a page's address without its fragment; Err where urlsplit raises.
 pub fn page_key(url: Option<&str>) -> Result<Option<String>, pyurl::InvalidUrl> {
     let Some(url) = url.filter(|u| !u.is_empty()) else {

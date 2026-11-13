@@ -453,7 +453,7 @@ def test_a_2026_11_builds_registered_job_is_booted_out_and_the_launch_agent_load
     assert not r.ran("launchctl", "kickstart")
 
 
-# decision: DMN-517, DMN-513, APP-904
+# decision: DMN-517, DMN-513
 def test_a_registered_job_macos_submits_again_after_the_bootout_is_retried_until_the_launch_agent_loads(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Live 2026-11-02 (the owner's Mac): FERB.app asked macOS to unregister a 2026-11 build's SMAppService job, but

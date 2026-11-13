@@ -935,7 +935,8 @@ paths = ["ferb/device/install.py::Installer._swap_helper"]
 title = "A background service launchd can't start is registered again once, then runs as the LaunchAgent"
 by = "agent"
 date = 2026-11-14
-status = "active"
+status = "superseded"
+superseded_by = "DMN-594"
 rule = "Refines DMN-587. FERB.app reads launchctl print for FERB's job (LaunchctlPlan.spawnFailure: job state = spawn failed, no pid). At setup's wait for its registration and after every restart or start it makes (a grant's restart-to-check, a silent service, the menu's Restart), when launchd says it can't start the job, the registration is made again once at once; if launchd still can't, or the service is the LaunchAgent, setup installs the LaunchAgent with launchd's words as the reason. A running or throttled job is left alone."
 why = "Live 2026-11-14: the in-app job resolved its program through the Background Task Management record of the user LaunchAgent it replaced; once macOS dropped that record every start failed (EX_CONFIG) after kickstart said yes, and the tour hung. Any Mac that ran a LaunchAgent build has such a record."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::SetupModel.repairService", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift::LaunchctlPlan.spawnFailure"]
@@ -948,3 +949,26 @@ status = "active"
 rule = "Beyond DMN-14's redirect, the Rust daemon writes timestamped, redacted lines to stderr (logs/daemon.err.log under launchd): its start (pid, version, build, who started it), when its socket serves and when every call is answered (ms since the process started) with slow steps' durations, its stop, FERB.app-only verdicts (the first app accepted, every caller refused), each bounded journal problem (_Repeats, e.g. browser.connection_refused), and a panic with place, redacted message and backtrace, journaled daemon.unhandled."
 why = "The first live run of the Rust build left both log files empty: Python wrote only redacted tracebacks there and relied on the journal, so nothing showed whether the daemon started, how fast, or whether FERB.app's calls were refused."
 paths = ["rust/crates/ferbd/src/compose/mod.rs", "rust/crates/ferbd/src/run.rs"]
+
+[DMN-593]
+title = "The Rust build has one way to run its service; no carrying over from the old build"
+by = "owner"
+date = 2026-11-14
+status = "active"
+words = "if it makes you feel better, its just one friend and me who use this now. so dw about tehold build nto migrating correctly etcect. THE CURRENT ONE taht youre building shoudl worka dn should work for future updates n eveyrhign for all teh users"
+words_source = "Answer on 2026-11-14 after the first live setup hung: the in-app service and the LaunchAgent fallback share a label, and the agent asked what an update from the self-signed build would do."
+rule = "FERB's Rust build, signed with the Developer ID, registers its background service through the app (SMAppService) and in no other way: no LaunchAgent fallback with the same label, and no code that moves a self-signed install's service, login item or permission entries. When macOS refuses the registration, FERB says why and how to allow it. An update from one Developer ID build to the next keeps the service and the permissions. For the Rust build this takes the place of DMN-587's fallback and of APP-902, APP-904 and APP-905."
+why = "Only the owner and one friend have the old build, and both install fresh (STORE-421). Two mechanisms under one label left a stale background-item record that launchd could not start, which hung the first live setup."
+supersedes = ["APP-902", "APP-904", "APP-905"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupServices.swift"]
+untestable = "A service design; the app's setup tests and the owner's live check of an install and an update cover it."
+
+[DMN-594]
+title = "Every Rust FERB.app registers its own service; launchd's refusal is told, never worked around"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "For DMN-593. A packaged FERB.app with no Python inside (the Rust build) registers its own service whoever signed it, ad-hoc too: from FERB.app the Rust installer is always the app's service (Installer::in_app; service = app, a LaunchAgent found retired, nothing loaded). Without a Team ID it registers afresh at each setup (APP-599). A restart only kickstarts. A job launchd can't start is registered again once; then, or on a refusal or 30 s of silence, the service line says why and to check Login Items, with Try again. The Python build keeps its LaunchAgent."
+why = "DMN-593: one mechanism under the label; the Rust commands never write the LaunchAgent from FERB.app, so an ad-hoc build can only run in-app. Live 2026-11-14: kickstart says yes before launchd tries, and a fresh registration cleared a broken Background Task Management record."
+supersedes = ["DMN-591"]
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::SetupModel.repairService", "ui/mac/FERBNotch/Sources/NotchCore/AppService.swift::AppServicePlan", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift::LaunchctlPlan.spawnFailure", "rust/crates/ferb-device/src/install.rs::Installer.in_app"]

@@ -590,7 +590,11 @@ fn conversations<'a>(
         db,
         Arc::new(move || ferb_core::when::isoformat(&c.now())),
         Arc::new(move |v: &Value| r.value(v)),
-        Arc::new(|_t: &str, _d: Value| {}),
+        // conversations.py:161 publishes only from `observe`, which this store (the owner's changes) never runs
+        crate::off::off(
+            "records.conversation_publish",
+            Arc::new(|_t: &str, _d: Value| {}),
+        ),
     )
 }
 

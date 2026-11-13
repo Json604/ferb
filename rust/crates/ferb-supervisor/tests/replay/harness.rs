@@ -876,6 +876,8 @@ impl Daemon for TestDaemon {
                 home: self.user_home.clone(),
                 workspace: self.workspace.clone(),
                 blocking: true,
+                worker_label: Arc::new(|k: &str| k.to_string()),
+                browsing: None,
             },
         ))
     }

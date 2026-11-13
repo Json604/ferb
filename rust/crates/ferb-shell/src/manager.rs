@@ -244,6 +244,16 @@ impl ShellManager {
         *self.on_received.lock().unwrap_or_else(|e| e.into_inner()) = f;
     }
 
+    /// The sandbox its commands run under (desktop.py hands the same one to mac.applescript).
+    pub fn sandbox(&self) -> &Arc<Sandbox> {
+        &self.cfg.sandbox
+    }
+
+    /// The kernel's reports of direct local connections it was given (`_local_reports_status`, shutdown's close).
+    pub fn reports(&self) -> Option<&Arc<DirectReports>> {
+        self.cfg.reports.as_ref()
+    }
+
     fn env(&self, proc_id: &str) -> Vec<(String, String)> {
         let mut env = clean_env(true);
         if let Some(proxy) = &self.cfg.proxy {

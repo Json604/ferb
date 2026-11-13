@@ -381,6 +381,11 @@ pub struct DaemonSchedules {
     /// Wait on the loop thread without yielding (a caller whose runtime must not run anything meanwhile: a replay on
     /// a paused clock); the daemon program awaits.
     pub blocking: bool,
+    /// `runtimes.catalog.label` (orchestrator/schedules.py:85): a worker type as the owner reads it.
+    pub worker_label: Arc<dyn Fn(&str) -> String + Send + Sync>,
+    /// APP-777 (areas/schedules.py:317-336): a schedule whose runs browse as FERB, with no profile of FERB's own; None:
+    /// no browsers in this daemon.
+    pub browsing: Option<Arc<dyn super::schedules_chat::Browsing + Send + Sync>>,
 }
 
 impl DaemonSchedules {
@@ -401,13 +406,16 @@ impl DaemonSchedules {
     }
 }
 
-/// The worker type's name as the owner reads it (`scope_said`): the runtime catalog's label, else the type itself.
-fn worker_label(kind: &str) -> String {
-    kind.to_string()
-}
-
-/// A [`Ctx`] on group A's state: its timer and schedule stores, journal, `_book` and `_typed_behind_memory`.
-pub fn with_ctx<R>(st: &State, home: &str, workspace: &str, f: impl FnOnce(&Ctx<'_>) -> R) -> R {
+/// A [`Ctx`] on group A's state: its timer and schedule stores, journal, `_book` and `_typed_behind_memory`, with
+/// the worker label and the browsing question as given (the daemon's: [`DaemonSchedules`]).
+pub fn with_ctx_of<R>(
+    st: &State,
+    home: &str,
+    workspace: &str,
+    worker_label: &dyn Fn(&str) -> String,
+    browsing: Option<&dyn super::schedules_chat::Browsing>,
+    f: impl FnOnce(&Ctx<'_>) -> R,
+) -> R {
     let timers = st.timers();
     let schedules = st.schedules();
     let ids = st.ids.clone();
@@ -430,10 +438,16 @@ pub fn with_ctx<R>(st: &State, home: &str, workspace: &str, f: impl FnOnce(&Ctx<
         typed_behind_memory: &typed,
         home,
         workspace,
-        worker_label: &worker_label,
-        browsing: None,
+        worker_label,
+        browsing,
     };
     f(&ctx)
+}
+
+/// [`with_ctx_of`] with a worker type said as its own name and no browsing question (a caller without the
+/// runtimes' catalog or browsers).
+pub fn with_ctx<R>(st: &State, home: &str, workspace: &str, f: impl FnOnce(&Ctx<'_>) -> R) -> R {
+    with_ctx_of(st, home, workspace, &|k: &str| k.to_string(), None, f)
 }
 
 /// areas/schedules.py:397 `_typed_behind_memory`: what the owner typed behind each active owner-stated memory item
@@ -515,11 +529,23 @@ impl SchedulesChat for DaemonSchedules {
             origins.clone(),
             request_origins.clone(),
         );
-        let (home, ws) = (self.home.clone(), self.workspace.clone());
+        let (home, ws, label, browsing) = (
+            self.home.clone(),
+            self.workspace.clone(),
+            self.worker_label.clone(),
+            self.browsing.clone(),
+        );
         let run = self.on(move |st| {
-            with_ctx(&st, &home, &ws, |ctx| {
-                super::schedules_chat::create(ctx, &spec, &own, &rid, &o, &ro)
-            })
+            with_ctx_of(
+                &st,
+                &home,
+                &ws,
+                &*label,
+                browsing
+                    .as_deref()
+                    .map(|b| b as &dyn super::schedules_chat::Browsing),
+                |ctx| super::schedules_chat::create(ctx, &spec, &own, &rid, &o, &ro),
+            )
         });
         Box::pin(async move { run.await.unwrap_or_else(|| (GONE.into(), None)) })
     }
@@ -539,11 +565,23 @@ impl SchedulesChat for DaemonSchedules {
             origins.clone(),
             request_origins.clone(),
         );
-        let (home, ws) = (self.home.clone(), self.workspace.clone());
+        let (home, ws, label, browsing) = (
+            self.home.clone(),
+            self.workspace.clone(),
+            self.worker_label.clone(),
+            self.browsing.clone(),
+        );
         let run = self.on(move |st| {
-            with_ctx(&st, &home, &ws, |ctx| {
-                super::schedules_chat::edit(ctx, &ch, &own, &rid, &o, &ro)
-            })
+            with_ctx_of(
+                &st,
+                &home,
+                &ws,
+                &*label,
+                browsing
+                    .as_deref()
+                    .map(|b| b as &dyn super::schedules_chat::Browsing),
+                |ctx| super::schedules_chat::edit(ctx, &ch, &own, &rid, &o, &ro),
+            )
         });
         Box::pin(async move { run.await.unwrap_or_else(|| (GONE.into(), None)) })
     }
@@ -592,11 +630,23 @@ impl SchedulesChat for DaemonSchedules {
     }
 
     fn problems<'a>(&'a self, entry: Entry) -> BoxFuture<'a, Vec<String>> {
-        let (home, ws) = (self.home.clone(), self.workspace.clone());
+        let (home, ws, label, browsing) = (
+            self.home.clone(),
+            self.workspace.clone(),
+            self.worker_label.clone(),
+            self.browsing.clone(),
+        );
         let run = self.on(move |st| {
-            with_ctx(&st, &home, &ws, |ctx| {
-                super::schedules_chat::problems(ctx, &entry)
-            })
+            with_ctx_of(
+                &st,
+                &home,
+                &ws,
+                &*label,
+                browsing
+                    .as_deref()
+                    .map(|b| b as &dyn super::schedules_chat::Browsing),
+                |ctx| super::schedules_chat::problems(ctx, &entry),
+            )
         });
         Box::pin(async move { run.await.unwrap_or_default() })
     }

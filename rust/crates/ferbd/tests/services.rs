@@ -236,6 +236,7 @@ fn ferbd(root: &std::path::Path, args: &[&str]) -> (i32, String, String, Vec<Vec
     )
 }
 
+// decision: DMN-593
 #[test]
 fn setup_service_uninstall_and_doctor_run_with_a_recording_launchctl() {
     let tmp = root();
@@ -290,19 +291,19 @@ fn setup_service_uninstall_and_doctor_run_with_a_recording_launchctl() {
     .unwrap();
     let (code, out, err, ran) = ferbd(r, &["setup", "--service"]);
     eprintln!("setup --service: {code}\n{out}\n{err}\n{ran:?}");
-    // the service definition names this program as `ferbd daemon`, in the temporary HOME's LaunchAgents
+    // DMN-593: from FERB.app the service is the app's own registration: no LaunchAgent is written or loaded, and
+    // the record says so
     let plist = r.join("user/Library/LaunchAgents/com.ferb.daemon.plist");
-    let text = std::fs::read_to_string(&plist).expect("the definition is written");
-    // the program FERB.app carries (its agent: this program inside the bundle), with `daemon`
-    let agent = app.join("Contents/Helpers/FERB.app/Contents/MacOS/FERB");
+    assert!(!plist.exists(), "no LaunchAgent from FERB.app");
+    let record: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(r.join("home/service.json")).unwrap())
+            .unwrap();
+    assert_eq!(record["service"], "app", "{record}");
     assert!(
-        text.contains(&format!(
-            "<string>{}</string>\n\t\t<string>daemon</string>",
-            agent.display()
-        )),
-        "{text}"
+        !ran.iter()
+            .any(|a| a.iter().any(|w| w == "bootstrap" || w == "load")),
+        "nothing loaded: {ran:?}"
     );
-    assert!(r.join("home/service.json").exists());
     // launchctl was only recorded
     assert!(
         ran.iter()
@@ -316,7 +317,7 @@ fn setup_service_uninstall_and_doctor_run_with_a_recording_launchctl() {
     let (code, out, err, ran) = ferbd(r, &["uninstall"]);
     eprintln!("uninstall: {code}\n{out}\n{err}\n{ran:?}");
     assert_eq!(code, 0, "{out}{err}");
-    assert!(!plist.exists(), "the definition is removed");
+    assert!(!plist.exists(), "no definition is left");
 }
 
 #[test]

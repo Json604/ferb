@@ -186,4 +186,21 @@ final class UpdateCoordinatorTests: XCTestCase {
         XCTAssertFalse(UpdatePlan.abortIsFailure(domain: "SUSparkleErrorDomain", code: 4007))
         XCTAssertTrue(UpdatePlan.abortIsFailure(domain: "SUSparkleErrorDomain", code: 3001))
     }
+
+    // decision: APP-903, APP-906
+    func testTheSwitchUpdateAsksFirstEvenWithAutomaticUpdatesOn() {
+        let updates = UpdateCoordinator(rpc: ScriptedRPC())
+        updates.automatic = true
+        updates.found(version: "0.28.0")
+        XCTAssertEqual(updates.status, .quiet)                       // an ordinary update installs by itself
+        XCTAssertNil(updates.offer)
+        updates.found(version: "0.28.0", asksFirst: true)            // Sparkle's major upgrade: the signer switch
+        XCTAssertEqual(updates.status, .asking("0.28.0"))
+        XCTAssertEqual(updates.offer?.version, "0.28.0")
+        XCTAssertEqual(updates.offer?.asks, true)
+        XCTAssertEqual(updates.status.line, UpdatePlan.askLine(version: "0.28.0"))
+        let menu = StatusMenu.entries(state: .ready, paused: false, stopped: false, appName: "FERB", canSetUp: true,
+                                      hasWindow: true, updateOffer: "0.28.0", updateAsks: true)
+        XCTAssertTrue(menu.contains { if case .item(_, .installUpdate, _) = $0 { return true }; return false })
+    }
 }

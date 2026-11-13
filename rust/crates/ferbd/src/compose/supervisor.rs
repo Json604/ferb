@@ -229,8 +229,18 @@ impl Reads for RealReads {
                 String::new()
             },
             capabilities: self.availability_now(),
-            // Tier 1 (memory's core profile, `_core_profile_text`): not wired in this build
-            identity_context: String::new(),
+            // Tier 1: memory's core profile (`_core_profile_text`, memory.py:212, compose.py:143)
+            identity_context: self
+                .seams
+                .a
+                .get()
+                .and_then(|a| {
+                    a.call_blocking(|st| async move {
+                        ferb_daemon::areas_a::memory::core_profile_text(&st)
+                    })
+                    .ok()
+                })
+                .unwrap_or_default(),
             skills_line: ferb_supervisor::prompts::catalog_line(&skills),
             abilities_line: ferb_supervisor::prompts::catalog_line(&abilities),
         }
@@ -327,6 +337,53 @@ impl Reads for RealReads {
 // ---------------------------------------------------------------------------------------------------------------
 
 /// Everything the supervisor reads from, or hands to, the rest of this daemon.
+/// APP-777 for a schedule whose runs browse as FERB with no profile of FERB's own (areas/schedules.py:317-336): the
+/// owner's chosen profile, said by its name, and the question asked now while the owner is here. Called on group A's
+/// thread: the question is asked from another thread (it waits on group A).
+pub struct ScheduleBrowsing(pub super::tools::Parts);
+
+impl ferb_supervisor::flow::schedules_chat::Browsing for ScheduleBrowsing {
+    fn as_owner(&self, _request_id: &str) -> Option<String> {
+        let cx = self.0.browsers()?.area()?;
+        let chosen = cx.owner_browsing_profile().ok().flatten()?;
+        let a = self.0.group_a()?;
+        // unattended: `browsing` reads no question here
+        let said =
+            ferb_daemon::areas_b::browsers::browsing(&cx, &super::areas::GroupAQuestions(a), false)
+                .ok()?;
+        if !said.get("as_owner").is_some_and(ferb_py::value::truthy) {
+            return None;
+        }
+        let known = cx.browsing_profiles().ok()?;
+        Some(ferb_browser::profiles::named(&known, &chosen.0, &chosen.1).display_name)
+    }
+    fn ask(&self, _request_id: &str) {
+        let (Some(cx), Some(a)) = (self.0.browsers().and_then(|b| b.area()), self.0.group_a())
+        else {
+            return;
+        };
+        let _ = std::thread::Builder::new()
+            .name("ferb-browsing-question".into())
+            .spawn(move || {
+                let _ = ferb_daemon::areas_b::browsers::browsing(
+                    &cx,
+                    &super::areas::GroupAQuestions(a),
+                    true,
+                );
+            });
+    }
+}
+
+impl SupDaemon {
+    /// The desktop area's seams over the same parts (compose/desktop_seams.rs).
+    fn desktop(&self) -> super::desktop_seams::DesktopSeams {
+        super::desktop_seams::DesktopSeams {
+            parts: self.tools.clone(),
+            tokens: self.tokens.clone(),
+        }
+    }
+}
+
 pub struct SupDaemon {
     pub me: std::sync::Weak<SupDaemon>,
     pub gateway: Arc<Gateway>,
@@ -764,6 +821,79 @@ impl Daemon for SupDaemon {
             .collect()
     }
     /// `standing.grant(tree_id, scopes, approval_id)`.
+    /// supervisor.py:2373 `_grant_in_force` (D30): a schedule's grant holds only while that schedule may still run.
+    fn grant_in_force(&self, approval_id: &str) -> bool {
+        let Some(sid) = approval_id.strip_prefix(ferb_policy::standing::SCHEDULE_GRANT) else {
+            return true;
+        };
+        let sid = sid.to_string();
+        self.a
+            .get()
+            .and_then(|a| {
+                a.call_blocking(move |st| async move {
+                    ferb_daemon::areas_a::schedules::schedule_live(&st, &sid).unwrap_or(false)
+                })
+                .ok()
+            })
+            .unwrap_or(false)
+    }
+    /// supervisor.py:2377 `_withdraw_lapsed`: before a suspended tree resumes, a scope it holds from a schedule
+    /// cancelled or paused meanwhile is withdrawn from every task holding it, and journaled.
+    fn withdraw_lapsed(&self, tree_id: &str) {
+        let approvals = {
+            let db = lock(&self.db);
+            ferb_policy::stores::StandingPermissions { db: &db }
+                .approvals(tree_id)
+                .unwrap_or_default()
+        };
+        for approval in approvals {
+            if self.grant_in_force(&approval) {
+                continue;
+            }
+            let tasks = {
+                let db = lock(&self.db);
+                ferb_policy::stores::StandingPermissions { db: &db }
+                    .revoke_approval(&approval)
+                    .unwrap_or_default()
+            };
+            self.journal.note(
+                "standing.revoked",
+                json!({"approval_id": approval, "task_ids": tasks,
+                       "reason": "schedule no longer active"}),
+            );
+        }
+    }
+    /// supervisor.py:2337 `spans.asked_origins(tree_id)`: a resumed tree's request keeps the origins it answered.
+    fn asked_origins(&self, tree_id: &str) -> BTreeSet<String> {
+        let db = lock(&self.db);
+        let r = self.redactor.clone();
+        let spans = ferb_store::spans::SpanStore::new(
+            &db,
+            Box::new(ferb_gateway::gateway::StoreTime(self.clock.clone())),
+            Box::new(ferb_gateway::gateway::StoreIds(self.ids.clone())),
+            Box::new(move |v: &Value| r.value(v)),
+            Box::new(|kind: &str| ferb_policy::rules::REVERSIBLE.contains(&kind)),
+        );
+        let found = spans.asked_origins(tree_id).unwrap_or_default();
+        drop(spans);
+        found
+    }
+    /// schedules.py:697 `_resumed_outcome` (compose.py:168): a resumed scheduled run's result goes through its
+    /// schedule's bookkeeping; any other is the supervisor's own result.
+    fn resumed_outcome<'a>(&'a self, event: &'a Value) -> BoxFuture<'a, bool> {
+        Box::pin(async move {
+            let (Some(Value::Object(_)), Some(a)) = (event.get("schedule"), self.a.get()) else {
+                return false;
+            };
+            let ev = crate::basics::object(event.clone());
+            let _ = a
+                .call(move |st| async move {
+                    ferb_daemon::areas_a::schedules::resumed_outcome(&st, ev).await
+                })
+                .await;
+            true
+        })
+    }
     fn standing_grant(&self, tree_id: &str, scopes: &[Value], approval_id: &str) {
         let scopes: Vec<ferb_policy::standing::SendScope> = scopes
             .iter()
@@ -862,9 +992,21 @@ impl Daemon for SupDaemon {
     fn worker_types(&self) -> Vec<String> {
         self.reads.worker_types()
     }
+    /// sensing.py:137 `signals`: the owner last active (the owner-input tap, in the Mac's zone) and the trail's last
+    /// event, for the time header.
     fn signals(&self) -> (Option<ferb_clock::py::Time>, Option<ferb_clock::py::Time>) {
-        // the owner-input tap and the trail's last event: neither runs in this build
-        (None, None)
+        let owner = self
+            .tools
+            .owner()
+            .and_then(|o| o.input.last_owner_wall())
+            .filter(|w| *w != 0.0)
+            .and_then(|w| {
+                let secs = w.floor();
+                chrono::DateTime::from_timestamp(secs as i64, ((w - secs) * 1e9) as u32)
+            })
+            .map(|t| self.zone.local(&t.fixed_offset()));
+        let trail = self.tools.trail().and_then(|t| *lock(&t.last_event));
+        (owner, trail)
     }
     fn relevant_context(&self, words: &str) -> Activity {
         self.reads.relevant_context(words)
@@ -896,11 +1038,21 @@ impl Daemon for SupDaemon {
             json!({"runtime": runtime, "detail": text}),
         );
     }
+    /// worker.py:95 (sense/network.py:35): whether this Mac has a route to the internet now.
     fn has_route(&self) -> Option<bool> {
-        None
+        ferb_sense::network::has_route()
     }
+    /// memory.py:217 `_identity_pending` (compose.py:143): the core profile's entries waiting to be settled.
     fn identity_pending(&self) -> String {
-        String::new()
+        self.a
+            .get()
+            .and_then(|a| {
+                a.call_blocking(|st| async move {
+                    ferb_daemon::areas_a::memory::core_profile_pending(&st)
+                })
+                .ok()
+            })
+            .unwrap_or_default()
     }
     fn settle(&self) -> BoxFuture<'_, ()> {
         Box::pin(async move {
@@ -980,22 +1132,24 @@ impl Daemon for SupDaemon {
             if !stuck.is_empty() {
                 self.journal.note(
                     "changes.cleanup_failed",
-                    json!({"at": "tree", "paths": stuck.len()}),
+                    json!({"task_id": tree_id, "paths": stuck.len()}),
                 );
             }
+            // rule 17: FERB's upload copies for it go, except those a tab that outlives the tree still shows
+            use ferb_daemon::areas_b::desktop::Seams as _;
+            self.desktop().clean_uploads(tree_id).await;
         })
     }
     fn disturbance_context(&self, tree_id: &str) -> String {
         self.reads.disturbance_context(tree_id)
     }
-    fn on_task_end<'a>(
-        &'a self,
-        _task_id: &'a str,
-        _span_id: &'a str,
-    ) -> BoxFuture<'a, Vec<Value>> {
-        // desktop.py `_task_end`: hearing, recordings, launched apps and the browsers' tabs end with the task; none
-        // of those is held for a task by this build's composition
-        Box::pin(async { Vec::new() })
+    /// desktop.py `_task_end`: listening, recordings, the apps it launched, its tabs (FERB's browser, then the
+    /// owner's), its downloads' facts and its shell processes end with the task; what was left is named.
+    fn on_task_end<'a>(&'a self, task_id: &'a str, _span_id: &'a str) -> BoxFuture<'a, Vec<Value>> {
+        Box::pin(async move {
+            let desktop = self.desktop();
+            ferb_daemon::areas_b::desktop::task_end(&desktop, task_id).await
+        })
     }
     fn changes(&self, task_id: &str, tree_id: &str) -> Option<Result<Vec<Change>, String>> {
         let changes = self.tools.changes();
@@ -1012,12 +1166,9 @@ impl Daemon for SupDaemon {
             })
             .collect()))
     }
+    /// `gateway.roots.untrusted_roots` (compose.py:100).
     fn untrusted_roots(&self) -> Vec<String> {
-        let downloads = std::path::Path::new(&self.workspace).join("downloads");
-        vec![std::fs::canonicalize(&downloads)
-            .unwrap_or(downloads)
-            .to_string_lossy()
-            .into_owned()]
+        self.gateway.untrusted_roots()
     }
     fn browser_context(&self, task_id: &str) -> String {
         ferb_daemon::areas_b::environment::browser_context(&self.host(), self.env.as_ref(), task_id)
@@ -1140,13 +1291,14 @@ impl Daemon for SupDaemon {
     ) -> BoxFuture<'a, ConditionResult> {
         Box::pin(async move { super::checks::run(&self.tools, index, condition, task_id) })
     }
+    /// verify.py:224 `Checks.declined`.
     fn declined(
         &self,
-        _index: i64,
-        _condition: &Condition,
-        _task_id: &str,
+        index: i64,
+        condition: &Condition,
+        task_id: &str,
     ) -> Option<ConditionResult> {
-        None
+        super::checks::declined(&self.tools, index, condition, task_id)
     }
     fn sites_contacted(&self, tree_id: &str) -> Vec<String> {
         let db = lock(&self.db);
@@ -1173,8 +1325,14 @@ impl Daemon for SupDaemon {
     fn left_running(&self, resources: &[Value]) -> Vec<String> {
         ferb_mac_hands::launched::left_running(resources)
     }
-    fn ran_cards(&self, _tree_id: &str) -> Vec<Value> {
-        Vec::new()
+    /// supervisor.py:4709 `_result_cards`' ran part: each payment the owner said Yes to that ran, then each send.
+    fn ran_cards(&self, tree_id: &str) -> Vec<Value> {
+        let db = lock(&self.db);
+        let mut out =
+            ferb_orchestrator::cards::payments(&db, &super::gateway::PolicyWords, tree_id)
+                .unwrap_or_default();
+        out.extend(ferb_orchestrator::cards::sends(&db, tree_id).unwrap_or_default());
+        out
     }
     fn write_notes(&self, path: &str, text: &str) -> Result<(), String> {
         let p = std::path::Path::new(path);
@@ -1260,7 +1418,8 @@ impl Daemon for SupDaemon {
                     Arc::new(grant),
                     tool.to_string(),
                     args.clone(),
-                    Arc::new(|| false),
+                    // an in-process call: no RPC caller can leave it
+                    crate::off::off("call.caller_left", Arc::new(|| false)),
                 )
                 .await
                 .map(|r| r.to_json())
@@ -1274,7 +1433,7 @@ impl Daemon for SupDaemon {
     /// arrived, waited for at most `FRONT_WINDOW_WAIT_S`.
     fn front_window<'a>(&'a self, request_id: &'a str) -> BoxFuture<'a, Option<FrontSeen>> {
         Box::pin(async move {
-            super::front::at_send(&self.tools, request_id)
+            super::front::at_send(&self.tools, &self.tokens, request_id)
                 .await
                 .map(|c| FrontSeen {
                     facts: c.window.facts,
@@ -1295,7 +1454,9 @@ impl Daemon for SupDaemon {
         if let Some(recorded) = self.reads.front_capture(request_id) {
             return recorded;
         }
-        Box::pin(async move { Ok(super::front::at_send(&self.tools, request_id).await) })
+        Box::pin(
+            async move { Ok(super::front::at_send(&self.tools, &self.tokens, request_id).await) },
+        )
     }
     fn make_runtime(
         &self,
@@ -1344,6 +1505,8 @@ impl Daemon for SupDaemon {
                 home: self.user_home.clone(),
                 workspace: self.workspace.clone(),
                 blocking: false,
+                worker_label: Arc::new(|k: &str| ferb_runtimes::catalog::label(k).to_string()),
+                browsing: Some(Arc::new(ScheduleBrowsing(self.tools.clone()))),
             },
         ))
     }
@@ -1621,7 +1784,8 @@ impl ferb_supervisor::flow::chat_rpc::ChatGateway for ChatGw {
                     Arc::new(grant.clone()),
                     name.to_string(),
                     arguments.clone(),
-                    Arc::new(|| false),
+                    // an in-process call: no RPC caller can leave it
+                    crate::off::off("call.caller_left", Arc::new(|| false)),
                 )
                 .await
                 .map(|r| r.to_json())
@@ -1746,17 +1910,51 @@ pub fn build(daemon: Arc<SupDaemon>, p: BuildParts) -> Built {
         ferb_supervisor::flow::chat_rpc::ChatRpc::new(ferb_supervisor::flow::chat_rpc::ChatDeps {
             supervisor: supervisor.clone(),
             gateway: daemon.chat_gateway(),
-            persona: None,
-            prepare_persona: Arc::new(|| {}),
+            // `persona.status()` (chat.py:65) on group A's thread, once registered
+            persona: Some({
+                let d = daemon.clone();
+                Arc::new(move || {
+                    let not_started = || {
+                        let mut m = Map::new();
+                        m.insert("state".into(), json!("not_started"));
+                        m
+                    };
+                    let Some(a) = d.a.get() else {
+                        return not_started();
+                    };
+                    a.call_blocking(|st| async move { st.persona.borrow().status() })
+                        .ok()
+                        .and_then(|v| match v {
+                            Value::Object(m) => Some(m),
+                            _ => None,
+                        })
+                        .unwrap_or_else(not_started)
+                })
+            }),
+            // `_prepare_persona()` at chat.attach (chat.py:165, MEM-13): the Mac scan starts once, in the background,
+            // whatever beat of the tour the owner skipped; nothing while the daemon shuts down
+            prepare_persona: {
+                let d = daemon.clone();
+                Arc::new(move || {
+                    if let Some(a) = d.a.get() {
+                        let _ = a.spawn(|st| async move {
+                            if !st.shutting_down.get() {
+                                ferb_daemon::areas_a::persona::start(&st, false, "chat");
+                            }
+                        });
+                    }
+                })
+            },
             // `attention_notices.unseen()`: the notices no FERB client has shown yet (a loop's pause, an always-on fact)
             notices: Some({
                 let d = daemon.clone();
                 Arc::new(move || {
                     let db = lock(&d.db);
                     let r = d.redactor.clone();
+                    // `unseen()` only reads: its clock is never asked
                     let notices = ferb_orchestrator::attention::AttentionNotices {
                         db: &db,
-                        now: Box::new(String::new),
+                        now: crate::off::off("notices.read_clock", Box::new(String::new)),
                         redact: Arc::new(move |v: &Value| r.value(v)),
                     };
                     let unseen = notices.unseen().unwrap_or_default();
@@ -1764,34 +1962,100 @@ pub fn build(daemon: Arc<SupDaemon>, p: BuildParts) -> Built {
                     unseen
                 })
             }),
-            conversations: {
-                let d = daemon.clone();
-                Arc::new(move || {
-                    let db = lock(&d.db);
-                    let r = d.redactor.clone();
-                    ferb_orchestrator::conversations::ConversationStore::new(
-                        &db,
-                        Arc::new(String::new),
-                        Arc::new(move |v: &Value| r.value(v)),
-                        Arc::new(|_: &str, _: Value| {}),
-                    )
-                    .list(None)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(Value::Object)
-                    .collect()
-                })
+            // chat_rpc reads the supervisor's own conversation store (group C's `conversations.*` take these RPCs'
+            // place): this field is no longer read
+            conversations: crate::off::off("chat.conversations", Arc::new(Vec::new)),
+            // `sense.paused` (chat.py:116, L34 D: the menu bar's state)
+            sensing_paused: {
+                let t = daemon.tools.clone();
+                Arc::new(move || t.sensing_paused())
             },
-            sensing_paused: Arc::new(|| false),
             shutting_down: p.shutting_down,
-            question_answered: Arc::new(|_ap| String::new()),
-            ask_input_monitoring: Arc::new(|| {}),
-            click_through: None,
+            // `_question_answered(ap)` (chat.py:274, I2): a forget answered with the notch's buttons says what went
+            question_answered: {
+                let d = daemon.clone();
+                Arc::new(move |ap| ferb_supervisor::flow::Daemon::question_answered(d.as_ref(), ap))
+            },
+            // `_ask_input_monitoring()` (chat.py:311): macOS's own prompt, once, with the owner's first request
+            ask_input_monitoring: {
+                let ask = Arc::new(AskOnce::input_monitoring(
+                    daemon.tools.native(),
+                    daemon.journal.clone(),
+                ));
+                Arc::new(move || ask.ask())
+            },
+            // ui.click_through is group C's handler (it takes this one's place: compose/mod.rs)
+            click_through: crate::off::off("chat.click_through", None),
         });
+    daemon.tools.set_chat(rpc.clone());
     Built {
         supervisor,
         daemon,
         rpc,
+    }
+}
+
+/// `_ask_input_monitoring` (chat.py:311-320): macOS's own Input Monitoring prompt, once per daemon, only while macOS
+/// has no answer for FERB yet (`NOT_DETERMINED`), journaled `permission.asked`, the prompt itself off the caller's
+/// thread. A daemon without the Mac's parts asks nothing.
+pub struct AskOnce {
+    asked: std::sync::atomic::AtomicBool,
+    status: Box<dyn Fn() -> ferb_mac_hands::permissions::Status + Send + Sync>,
+    request: Arc<dyn Fn() + Send + Sync>,
+    journal: Box<dyn Fn() + Send + Sync>,
+}
+
+impl AskOnce {
+    pub fn new(
+        status: impl Fn() -> ferb_mac_hands::permissions::Status + Send + Sync + 'static,
+        request: impl Fn() + Send + Sync + 'static,
+        journal: impl Fn() + Send + Sync + 'static,
+    ) -> AskOnce {
+        AskOnce {
+            asked: std::sync::atomic::AtomicBool::new(false),
+            status: Box::new(status),
+            request: Arc::new(request),
+            journal: Box::new(journal),
+        }
+    }
+
+    /// The real one: the TCC read and the prompt (`permission_request("input_monitoring")`).
+    pub fn input_monitoring(native: bool, journal: Arc<crate::basics::Journal>) -> AskOnce {
+        AskOnce::new(
+            move || {
+                if native {
+                    ferb_mac_hands::native::permissions::input_monitoring()
+                } else {
+                    ferb_mac_hands::permissions::Status::Unknown
+                }
+            },
+            || {
+                let _ = ferb_mac_hands::native::permissions::request("input_monitoring");
+            },
+            move || {
+                journal.note(
+                    "permission.asked",
+                    json!({"permission": "input_monitoring", "when": "first request"}),
+                )
+            },
+        )
+    }
+
+    pub fn ask(&self) {
+        use std::sync::atomic::Ordering;
+        if self.asked.load(Ordering::SeqCst)
+            || (self.status)() != ferb_mac_hands::permissions::Status::NotDetermined
+        {
+            return;
+        }
+        if self.asked.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        (self.journal)();
+        let request = self.request.clone();
+        let _ = std::thread::Builder::new()
+            .name("ferb-input-monitoring".into())
+            .spawn(move || request());
     }
 }
 
@@ -1906,4 +2170,48 @@ fn validation_text(title: &str, details: &[ferb_gateway::pydantic::Detail]) -> S
         ));
     }
     out
+}
+
+#[cfg(test)]
+mod ask_tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    use ferb_mac_hands::permissions::Status;
+
+    use super::AskOnce;
+
+    /// chat.py:311-320: Input Monitoring is asked with the owner's first request, once, only while macOS has no
+    /// answer for FERB, journaled; later requests ask nothing.
+    #[test]
+    fn input_monitoring_is_asked_once_with_the_first_request() {
+        let status = Arc::new(Mutex::new(Status::NotDetermined));
+        let (asked, noted) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        let (s, a, n) = (status.clone(), asked.clone(), noted.clone());
+        let once = AskOnce::new(
+            move || *s.lock().unwrap(),
+            move || {
+                a.fetch_add(1, Ordering::SeqCst);
+            },
+            move || {
+                n.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+        once.ask();
+        once.ask();
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while asked.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < until {
+            std::thread::yield_now();
+        }
+        assert_eq!(asked.load(Ordering::SeqCst), 1);
+        assert_eq!(noted.load(Ordering::SeqCst), 1);
+
+        // already answered: never asked
+        let quiet = AskOnce::new(
+            || Status::Denied,
+            || panic!("asked"),
+            || panic!("journaled"),
+        );
+        quiet.ask();
+    }
 }

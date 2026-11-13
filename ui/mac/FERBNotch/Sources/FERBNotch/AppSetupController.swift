@@ -8,11 +8,12 @@ enum AppName {
 }
 
 /// FERB.app's setup (L27, L34 C, kb area app). A first launch runs the first-run intro (IntroController): its
-/// Meet sets the background service up from this app (`ferb setup --service`, no questions: it writes and loads the
-/// user LaunchAgent, DMN-513), and every later beat reads and acts through the daemon. After the app is replaced by a
-/// new build, an older install's LaunchAgent or a 2026-11 build's SMAppService registration is found, the LaunchAgent
-/// differs from what setup wrote (DMN-514) or launchd doesn't have FERB running, launch updates the service quietly
-/// (`ferb setup --service --update`) and runs only the intro's beats for a required grant that's missing. Setup and its
+/// Meet sets the background service up from this app (`ferb setup --service`, no questions; the Rust build then
+/// registers its own service, DMN-593, the Python build's command writes and loads the user LaunchAgent, DMN-513), and
+/// every later beat reads and acts through the daemon. After the app is replaced by a new build, the service isn't
+/// what this build set up (another record, a LaunchAgent left, the Python build's LaunchAgent changed, DMN-514) or
+/// launchd doesn't have FERB running, launch updates the service quietly (`ferb setup --service --update`) and runs
+/// only the intro's beats for a required grant that's missing. Setup and its
 /// errors live in the notch tour only (APP-685, owner 2026-11-04): a failed service install or update is the tour's
 /// service line with its reason and Try again, and a launch with setup unfinished resumes the tour at its saved beat;
 /// there is no setup window. A skipped intro (or a grant still off at its end) comes back as the tour at the next
@@ -56,7 +57,7 @@ final class AppSetupController: NSObject {
 
     private var agentExecutable: URL { bundle.appendingPathComponent("Contents/Helpers/FERB.app/Contents/MacOS/FERB") }
     private var launcher: URL { bundle.appendingPathComponent("Contents/Resources/bin/ferb") }
-    /// The background service's user LaunchAgent (this app's, an older install's or a checkout's; DMN-513).
+    /// The background service's user LaunchAgent (the Python build's, an older install's or a checkout's; DMN-513).
     private var agentPlist: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents/com.ferb.daemon.plist")
     }
@@ -66,7 +67,9 @@ final class AppSetupController: NSObject {
     }
     /// Made on first use: a setup with an injected model (tests, the intro playground) never touches SMAppService or
     /// launchd.
-    lazy var background = LaunchAgentService()
+    lazy var background = LaunchAgentService(inApp: inAppService)
+    /// This FERB.app registers its own background service (the Rust build, DMN-593), read from the bundle once.
+    lazy var inAppService: Bool = InAppService.holds(bundle)
     /// The first-launch entrance a first run's tour draws over the clip (APP-618); the playground picks its own.
     var makeArrival: () -> IntroArrivalShowing? = { StartupArrival() }
 
@@ -74,7 +77,8 @@ final class AppSetupController: NSObject {
         if let injectedModel { return injectedModel }
         let rpc = DaemonRPC()
         return SetupModel(rpc: rpc, runner: SetupCommand(launcher: launcher), app: SystemAppPermissions(),
-                          system: SystemOpener(), keys: DaemonAPIKeyStore(rpc: rpc), service: DaemonService(),
+                          system: SystemOpener(), keys: DaemonAPIKeyStore(rpc: rpc),
+                          service: DaemonService(inApp: inAppService),
                           background: isPackaged ? background : nil)
     }()
 
@@ -87,45 +91,23 @@ final class AppSetupController: NSObject {
 
     /// Who signed this app (T-27): read once from its own signature.
     lazy var ownSigner: String = OwnSignature.signer(of: bundle)
-    /// The login item's move at the switch to the Developer ID (AppDelegate: LoginItemController's).
-    var onSignerMove: (() -> Void)?
-    /// `tccutil` (tests fake it): its exit status.
-    var tccutil: @MainActor ([String]) async -> Int32 = { await runTCCUtil($0) }
 
     func startAtLaunch() {
         guard isPackaged else { return }
         Task { @MainActor in
-            await self.signerAtLaunch(record: self.readRecord())
+            self.serviceAtLaunch()
             let action = self.currentAction()
             self.watchServiceSetup(pending: action != .none)
             await self.decideAtLaunch(action)
         }
     }
 
-    /// This build's signer against the one setup last ran under (APP-904). A Developer ID build registers its own
-    /// service (DMN-587). The first launch of one over a self-signed install (or a move a quit cut short) clears macOS's
-    /// permission entries for FERB's own two app IDs, once (APP-902: so macOS asks cleanly instead of keeping inert
-    /// switches for the old signer), moves the login item, and marks the move so the service moves too and the
-    /// permission beats say why macOS asks again. Nothing happens on a self-signed or ad-hoc build, or a new install.
-    func signerAtLaunch(record: [String: Any]?) async {
-        let own = ownSigner
-        model.appService = Signer.isTeam(own)
-        if SignerMove.starts(record: record, own: own) { defaults.set(own, forKey: SignerMove.pendingKey) }
-        guard Signer.isTeam(own), defaults.string(forKey: SignerMove.pendingKey) == own else { return }
-        model.signerChanged = true
-        if defaults.string(forKey: SignerMove.permissionsResetKey) != own {
-            for arguments in SignerMove.permissionResets() {
-                let status = await tccutil(arguments)
-                if status != 0 { NSLog("FERB: tccutil %@ exited %d", arguments.joined(separator: " "), status) }
-            }
-            defaults.set(own, forKey: SignerMove.permissionsResetKey)
-        }
-        onSignerMove?()
-    }
-
-    /// The service runs under the new signer: the move is done (its copy stays for this launch's beats).
-    private func finishSignerMove() {
-        if model.signerChanged { defaults.removeObject(forKey: SignerMove.pendingKey) }
+    /// How this build runs its background service (DMN-593): the Rust build registers it itself, whoever signed it, and
+    /// a build without a Team ID registers afresh each time setup runs; the Python build runs the LaunchAgent. Nothing
+    /// of an older build's service, login item or permissions is moved.
+    func serviceAtLaunch() {
+        model.appService = inAppService
+        model.registersAfresh = inAppService && AppServicePlan.registersAfresh(signer: ownSigner)
     }
 
     private var serviceSetupWatch: AnyCancellable?
@@ -187,7 +169,6 @@ final class AppSetupController: NSObject {
             self.orb = nil
             self.sound = nil
             if repaired {
-                self.finishSignerMove()
                 Task { @MainActor in await self.afterQuietUpdate(update: update) }
             }
         }
@@ -310,8 +291,7 @@ final class AppSetupController: NSObject {
         return AppSetupPlan.decide(launchAgent: agent, launchAgentDigest: agent == nil ? nil : data.map(AppSetupPlan.digest),
                                    registration: background.registration, record: readRecord(),
                                    agentExecutable: agentExecutable.path, appPath: bundle.path, build: build,
-                                   daemonRunning: daemonRunning(), appService: model.appService,
-                                   signerMoving: defaults.string(forKey: SignerMove.pendingKey) == ownSigner)
+                                   daemonRunning: daemonRunning(), appService: model.appService)
     }
 
     /// What `ferb setup --service` last recorded (~/.ferb/service.json), nil when there is none.
@@ -319,8 +299,8 @@ final class AppSetupController: NSObject {
         (try? Data(contentsOf: serviceRecord)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
     }
 
-    /// Uninstall: a 2026-11 build's SMAppService registration unregistered from macOS, before `ferb uninstall` boots
-    /// the LaunchAgent out and deletes it. Nil when macOS lists none, else why not.
+    /// Uninstall: FERB's SMAppService registration unregistered from macOS (the Rust build's own, or a 2026-11 build's),
+    /// before `ferb uninstall` removes the rest. Nil when macOS lists none, else why not.
     func unregisterService() async -> String? {
         guard isPackaged else { return nil }
         return await background.unregisterForUninstall()
@@ -334,7 +314,6 @@ final class AppSetupController: NSObject {
         model.runService { [weak self] ok in
             guard let self else { return }
             guard ok else { self.startRepair(update: true); return }
-            self.finishSignerMove()
             Task { @MainActor in await self.afterQuietUpdate(update: true) }
         }
     }

@@ -123,6 +123,30 @@ struct Inner {
     supervisor: OnceLock<ferb_supervisor::flow::Supervisor>,
     /// A task's live previews (`hooks.previews`): the gateway's hooks declare surfaces, FERB.app asks for frames.
     previews: OnceLock<ferb_daemon::areas_b::task_preview::TaskPreviews>,
+    /// The open `logs.subscribe` streams' filters (`_log_subscriptions`): a banner stays off while a client shows it.
+    log_watchers: Arc<crate::areas_c::logs::Watchers>,
+    /// The sensing loop (`self.sense`), once group B builds it: its pause is the menu bar's state and the hub's.
+    sense: OnceLock<Arc<ferb_sense::manager::Sense>>,
+    /// The chat RPCs' own state (`_attached_trees`), once the supervisor is built.
+    chat: OnceLock<Arc<ferb_supervisor::flow::chat_rpc::ChatRpc>>,
+    /// `self.attribution` (main.py:223): one for the daemon, shared by the trail, the gateway's file hook and the Mac
+    /// driver (which app FERB brought forward, which paths it touched, FERB's commands' folders).
+    attribution: Arc<ferb_sense::attribution::Attribution>,
+    /// The daemon's one trail, once sensing builds it: observations in, and its last event (`signals`).
+    trail: OnceLock<TrailHandle>,
+    /// desktop.py's Automation state (`_automation_cache`, `_automation_checks`, `_tab_granted`): a browser's front
+    /// tab read through AppleScript only once the owner granted Automation for it.
+    automation: Arc<ferb_daemon::areas_b::desktop::Automation>,
+    /// Perception (areas/sensing.py:65), once sensing builds it on the trail's thread.
+    perception: OnceLock<super::loops::Perception>,
+}
+
+/// The daemon's one trail (it lives on its own thread): what records an observation, and when it last recorded one
+/// (`trail.last_event_at`, the time header's second signal).
+#[derive(Clone)]
+pub struct TrailHandle {
+    pub emit: ferb_sense::manager::Emit,
+    pub last_event: Arc<Mutex<Option<ferb_core::when::DateTime>>>,
 }
 
 /// `CallHooks.previews` (call_hooks.py:79) over these parts: the gateway's locks once it is attached, the Mac's image
@@ -292,7 +316,7 @@ impl Parts {
             snapshots: OnceLock::new(),
             changes: Arc::new(ferb_fs::changes::Changes::new(
                 &opts.home.join("changes").to_string_lossy(),
-                None,
+                Some(crate::compose::gateway::change_reads_closed(opts, config)),
                 &opts.user_home.to_string_lossy(),
             )),
             waits: OnceLock::new(),
@@ -300,6 +324,18 @@ impl Parts {
             owner: mac_owner(opts),
             supervisor: OnceLock::new(),
             previews: OnceLock::new(),
+            log_watchers: Arc::default(),
+            sense: OnceLock::new(),
+            chat: OnceLock::new(),
+            attribution: {
+                let c = opts.clock.clone();
+                Arc::new(ferb_sense::attribution::Attribution::new(move || {
+                    c.monotonic()
+                }))
+            },
+            trail: OnceLock::new(),
+            automation: Arc::default(),
+            perception: OnceLock::new(),
         }));
         let _ = p.0.mac.set(mac::Mac::build(opts, &p));
         let _ = p.0.previews.set(previews_of(opts, &p));
@@ -336,6 +372,58 @@ impl Parts {
     }
     pub fn supervisor(&self) -> Option<&ferb_supervisor::flow::Supervisor> {
         self.0.supervisor.get()
+    }
+
+    /// The open `logs.subscribe` streams (`_log_subscriptions`).
+    pub fn log_watchers(&self) -> Arc<crate::areas_c::logs::Watchers> {
+        self.0.log_watchers.clone()
+    }
+
+    /// The sensing loop, once group B builds it.
+    pub fn set_sense(&self, sense: Arc<ferb_sense::manager::Sense>) {
+        let _ = self.0.sense.set(sense);
+    }
+
+    /// `self.sense is not None and self.sense.paused` (main.py:210, chat.py:116).
+    pub fn sensing_paused(&self) -> bool {
+        self.0.sense.get().is_some_and(|s| s.paused())
+    }
+
+    /// The daemon's one attribution (main.py:223).
+    pub fn attribution(&self) -> Arc<ferb_sense::attribution::Attribution> {
+        self.0.attribution.clone()
+    }
+
+    /// desktop.py's Automation state, for the front tab at send.
+    pub fn automation(&self) -> Arc<ferb_daemon::areas_b::desktop::Automation> {
+        self.0.automation.clone()
+    }
+
+    /// The daemon's trail, once sensing builds it.
+    pub fn set_trail(&self, trail: TrailHandle) {
+        let _ = self.0.trail.set(trail);
+    }
+
+    pub fn trail(&self) -> Option<TrailHandle> {
+        self.0.trail.get().cloned()
+    }
+
+    /// Perception, once sensing builds it.
+    pub fn set_perception(&self, p: super::loops::Perception) {
+        let _ = self.0.perception.set(p);
+    }
+
+    pub fn perception(&self) -> Option<super::loops::Perception> {
+        self.0.perception.get().cloned()
+    }
+
+    /// The chat RPCs, once built (their attached trees).
+    pub fn set_chat(&self, chat: Arc<ferb_supervisor::flow::chat_rpc::ChatRpc>) {
+        let _ = self.0.chat.set(chat);
+    }
+
+    pub fn chat(&self) -> Option<Arc<ferb_supervisor::flow::chat_rpc::ChatRpc>> {
+        self.0.chat.get().cloned()
     }
 
     /// The disturbance sentinel (built with the parts).
@@ -521,7 +609,11 @@ impl Parts {
         }
         ferb_gateway::catalog::Live {
             secrets,
-            downloads_total_bytes: None,
+            // tools.py:1149: browser.download_total_gb as the download tool's description says it
+            downloads_total_bytes: self
+                .browsers()
+                .and_then(|b| b.downloads.limits().ok())
+                .map(|l| l.total_bytes.max(0) as u64),
         }
     }
 }

@@ -7,10 +7,10 @@
 //! `FRONT_WINDOW_WAIT_S` (ferb-supervisor's wait); a capture it stops waiting for is journaled
 //! `screen.capture_stalled` with its step.
 //!
-//! Not read here: the browser window's active tab through AppleScript (`_front_tab`: only once the owner granted
-//! Automation, which this build doesn't check): a browser's tab comes only from the extension's naming of the captured
-//! window. The sending CLI's process (`client_pid`) isn't known to the supervisor's seam, so the window of the app
-//! hosting it isn't skipped.
+//! A browser window's active tab comes from AppleScript once the owner granted Automation for that browser
+//! (desktop.py `_front_tab`, the desktop area's Automation state), else from the extension's naming of the captured
+//! window. The sending client's process isn't carried by the supervisor's seam: FERB.app is the only client, and
+//! FERB's own processes are never the front window (`own`).
 
 use std::sync::{Arc, Mutex};
 
@@ -29,6 +29,7 @@ struct Sources {
     request_id: String,
     exclusions: ferb_sense::exclusions::Exclusions,
     daemon_pid: i64,
+    tokens: Arc<ferb_rpc::RunTokens>,
 }
 
 impl fw::Sources for Sources {
@@ -44,13 +45,23 @@ impl fw::Sources for Sources {
     fn excluded(&self, bundle: &str, name: &str, url: Option<&str>) -> bool {
         self.exclusions.app(Some(bundle), Some(name)) || self.exclusions.url(url)
     }
+    /// desktop.py:245 `_front_tab`.
     fn tab(
         &self,
-        _bundle: &str,
-        _w: &Window,
-        _after_shot: bool,
+        bundle: &str,
+        w: &Window,
+        after_shot: bool,
     ) -> Result<Option<(String, String)>, TabLookup> {
-        Ok(None)
+        if !self.parts.native() {
+            return Ok(None);
+        }
+        let desktop = super::desktop_seams::DesktopSeams {
+            parts: self.parts.clone(),
+            tokens: self.tokens.clone(),
+        };
+        self.parts
+            .automation()
+            .front_tab(&desktop.host(), &desktop, bundle, w, after_shot)
     }
     fn shoot<'a>(&'a self, w: &'a Window) -> BoxFuture<'a, Result<Shot, ShotError>> {
         let mac = self.parts.mac().map(|m| m.tools.clone());
@@ -120,7 +131,7 @@ impl fw::Sources for Sources {
         })
     }
     fn client(&self) -> Option<i64> {
-        None
+        crate::off::off("front.client", None)
     }
     fn parent(&self, pid: i64) -> Option<i64> {
         parent_pid(pid)
@@ -149,7 +160,11 @@ fn hand_kind(e: &ferb_mac_hands::error::HandError) -> String {
 /// `_front_window(request_id)`: the window the planner is given, the redacted picture as the planner's and the worker's
 /// image; None when the Mac's parts are off, sensing is paused, nothing but FERB is in front, or the capture failed
 /// (journaled).
-pub async fn at_send(parts: &Parts, request_id: &str) -> Option<FrontCapture> {
+pub async fn at_send(
+    parts: &Parts,
+    tokens: &Arc<ferb_rpc::RunTokens>,
+    request_id: &str,
+) -> Option<FrontCapture> {
     parts.mac()?;
     if parts.home().join("PAUSED").exists() {
         return None;
@@ -178,6 +193,7 @@ pub async fn at_send(parts: &Parts, request_id: &str) -> Option<FrontCapture> {
         request_id: request_id.to_string(),
         exclusions,
         daemon_pid: i64::from(std::process::id()),
+        tokens: tokens.clone(),
     });
     let stage = Arc::new(Mutex::new(Vec::<String>::new()));
     // the planner stops waiting by dropping this future (DMN-520): the step the capture was on is journaled

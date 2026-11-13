@@ -977,6 +977,12 @@ impl Supervisor {
         &self.inner
     }
 
+    /// `supervisor.activity.waiting(worker_id, on)` (guards.py:31): a wait on the owner (a human check handed to
+    /// them, browsers.py:652) pauses that worker's stall timer while it lasts.
+    pub fn worker_waiting(&self, worker: &str, on: bool) {
+        self.inner.activity.waiting(worker, on);
+    }
+
     /// supervisor.py:2422 `preview`: kept for its earlier callers (its signature carries no request); the intro's
     /// plan-only turn is [`Supervisor::preview_events`] (preview.rs).
     pub fn preview(&self) -> Result<(), NotPorted> {

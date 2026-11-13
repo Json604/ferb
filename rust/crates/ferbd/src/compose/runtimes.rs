@@ -203,7 +203,8 @@ impl ferb_runtimes::api::Bridge for GatewayBridge {
                 grant,
                 name.to_string(),
                 args,
-                Arc::new(|| false),
+                // the model's tool bridge waits on its own run: no RPC caller can leave it
+                crate::off::off("call.caller_left", Arc::new(|| false)),
             );
             match call.await {
                 Ok(reply) => Ok(reply.to_json()),
@@ -227,7 +228,11 @@ impl Factory for RealFactory {
     fn build(&self, b: &Build) -> Result<Built, RuntimeError> {
         let r = self.redactor.clone();
         let redact: ferb_runtimes::codex::Redact = Arc::new(move |s: &str| r.text(s));
-        let none = || -> Arc<dyn Fn() -> Vec<Value> + Send + Sync> { Arc::new(Vec::new) };
+        // Codex and Claude retry inside their own programs: nothing to read back (api.py:148-149, 237 has it only for
+        // the API loop)
+        let none = || -> Arc<dyn Fn() -> Vec<Value> + Send + Sync> {
+            crate::off::off("runtime.retried", Arc::new(Vec::new))
+        };
         let output_schema = (!b.schema.is_null()).then(|| b.schema.clone());
         match b.name.as_str() {
             "codex" => {

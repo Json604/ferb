@@ -140,6 +140,8 @@ pub struct Sense {
     stop: Mutex<Option<Stop>>,
     tasks: Mutex<Vec<(String, JoinHandle<()>)>>,
     tap_task: Mutex<Option<JoinHandle<()>>>,
+    /// What the last stop waited on longer than a moment: (part, milliseconds).
+    slow_stop: Mutex<Vec<(String, u128)>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -196,6 +198,7 @@ impl Sense {
             stop: Mutex::new(None),
             tasks: Mutex::new(Vec::new()),
             tap_task: Mutex::new(None),
+            slow_stop: Mutex::new(Vec::new()),
         }
     }
 
@@ -286,25 +289,46 @@ impl Sense {
         if let Some(s) = lock(&self.stop).take() {
             s.set();
         }
+        let mut slow = Vec::new();
+        let mut timed = |part: &str, began: std::time::Instant| {
+            let ms = began.elapsed().as_millis();
+            if ms >= 100 {
+                slow.push((part.to_string(), ms));
+            }
+        };
         let tasks: Vec<(String, JoinHandle<()>)> = std::mem::take(&mut *lock(&self.tasks));
-        for (_, mut t) in tasks {
+        for (source, mut t) in tasks {
+            let began = std::time::Instant::now();
             if tokio::time::timeout(Duration::from_secs(5), &mut t)
                 .await
                 .is_err()
             {
                 t.abort();
             }
+            timed(&source, began);
         }
         let tap = lock(&self.tap_task).take();
         if let Some(t) = tap {
+            let began = std::time::Instant::now();
             let _ = t.await; // a check under way ends first
+            timed("owner input check", began);
         }
         if let Some(oi) = &self.owner_input {
+            let began = std::time::Instant::now();
             oi.stop();
+            timed("owner input", began);
         }
         if let Some(p) = &self.presence {
+            let began = std::time::Instant::now();
             p.stop();
+            timed("presence", began);
         }
+        *lock(&self.slow_stop) = slow;
+    }
+
+    /// What the last stop waited on for 100 ms or more, in order: (watcher or part, milliseconds).
+    pub fn slow_stop(&self) -> Vec<(String, u128)> {
+        lock(&self.slow_stop).clone()
     }
 
     /// manager.py:136.

@@ -349,12 +349,182 @@ pub fn protection(
     .map_err(|e| e.0)
 }
 
+/// compose.py:111 `Changes(..., closed=lambda path: protection.read_denied(path) is not None)`: L39's change record
+/// reads exactly what the shell's sandbox may read (FERB's state and the never-read stores closed), whatever the file
+/// tools may. Lists that can't be read close every path (the daemon doesn't start then anyway).
+pub fn change_reads_closed(
+    opts: &crate::compose::Options,
+    config: &ferb_core::config::Config,
+) -> ferb_fs::Closed {
+    match protection(
+        config,
+        &opts.user_home,
+        &opts.home,
+        opts.app_bundle.as_deref(),
+    ) {
+        Ok(p) => reads_closed(p),
+        Err(_) => Arc::new(|_: &Path| true),
+    }
+}
+
+/// `protection.read_denied(path) is not None` as the change record's check.
+pub fn reads_closed(p: ferb_policy::protection::Protection<'static>) -> ferb_fs::Closed {
+    let lists = SyncProtection(p);
+    Arc::new(move |path: &Path| {
+        let lists: &SyncProtection = &lists;
+        lists.0.read_denied(&path.to_string_lossy()).is_some()
+    })
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// what the gateway reads about the owner when it asks (the browser area and group A, built after it)
+// ---------------------------------------------------------------------------------------------------------------
+
+/// compose.py:121-127's `profile_name`, `profile_account`, `username_sources`, `owner_contacts` and `on_path`, read
+/// (or noted) at use through the tools' parts: the browser area and group A are attached after the gateway is built.
+pub struct OwnerFacts(pub crate::compose::tools::WeakParts);
+
+impl OwnerFacts {
+    /// compose.py:127 `on_path=self.attribution.ferb_touched`: a path a call of this task touched, so the owner's
+    /// trail doesn't count FERB's own change as the owner's.
+    pub fn ferb_touched(&self, path: &str, task: &str) {
+        if let Some(parts) = self.0.upgrade() {
+            parts.attribution().ferb_touched(path, Some(task));
+        }
+    }
+
+    fn area(&self) -> Option<ferb_daemon::areas_b::browsers::Cx> {
+        self.0.upgrade()?.browsers()?.area()
+    }
+
+    /// browsers.py:642 `_profile_display_name`: the profile's name as discovered, else its folder.
+    pub fn profile_name(&self, browser: &str, folder: &str) -> String {
+        match self.area() {
+            Some(cx) => cx.profile_display_name(browser, folder),
+            None => folder.to_string(),
+        }
+    }
+
+    /// browsers.py:646 `_profile_account` (HAND-424): the account the profile is signed in to, read fresh.
+    pub fn profile_account(&self, browser: &str, folder: &str) -> String {
+        self.area()
+            .map(|cx| cx.profile_account(browser, folder))
+            .unwrap_or_default()
+    }
+
+    /// Group A's answer on its loop thread (directly when already there); None while it isn't running.
+    fn on_a<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&ferb_daemon::areas_a::State) -> T + Send + 'static,
+    ) -> Option<T> {
+        let a = self.0.upgrade()?.group_a()?;
+        if let Some(st) = a.here() {
+            return Some(f(&st));
+        }
+        a.call_blocking(move |st| async move { f(&st) }).ok()
+    }
+
+    /// memory.py:494 `_username_sources` (L36 §6): whether a saved username's source still holds: the owner's own
+    /// memory items that hold now; any source while memory isn't running (Python's None).
+    pub fn username_holds(&self, source: &str) -> bool {
+        let current = self.on_a(|st| st.memory.current_ids(Some("owner_stated")).ok());
+        source_holds(current.as_ref().map(|c| c.as_ref()), source)
+    }
+
+    /// memory.py:502-515 `_owner_contacts` (GATE-538): the owner's own email addresses and phone numbers, by shape:
+    /// the accounts their paired owner profiles are signed in to, and what they wrote about themselves in memory.
+    pub fn owner_contacts(&self) -> Vec<String> {
+        let accounts: Vec<String> = match self.0.upgrade() {
+            Some(parts) => {
+                let paired = parts
+                    .browsers()
+                    .and_then(|b| b.pairings.all().ok())
+                    .unwrap_or_default();
+                paired
+                    .into_iter()
+                    .filter(|b| b.identity == ferb_core::types::Identity::Owner)
+                    .map(|b| self.profile_account(&b.browser, &b.folder))
+                    .collect()
+            }
+            None => Vec::new(),
+        };
+        let items: Vec<(String, String)> = self
+            .on_a(|st| {
+                st.memory
+                    .items(Some("active"), Some("owner"), true)
+                    .map(|items| {
+                        items
+                            .into_iter()
+                            .map(|i| (i.origin, i.content))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default();
+        contacts_of(&accounts, &items)
+    }
+}
+
+/// `source in username_sources()`: a source holds while its memory item does; with no memory, any source holds.
+pub fn source_holds(
+    current: Option<Option<&std::collections::BTreeSet<String>>>,
+    source: &str,
+) -> bool {
+    match current {
+        // memory isn't running: `None`, any source
+        None => true,
+        Some(ids) => match (ids, source.strip_prefix("memory:")) {
+            (Some(ids), Some(id)) => ids.contains(id),
+            _ => false,
+        },
+    }
+}
+
+/// GATE-538's set (`contacts_in` over each account, and over each owner-stated item about the owner), sorted.
+pub fn contacts_of(accounts: &[String], items: &[(String, String)]) -> Vec<String> {
+    let mut found: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for a in accounts {
+        found.extend(ferb_policy::confirm::contacts_in(a));
+    }
+    for (origin, content) in items {
+        if origin == "owner_stated" {
+            found.extend(ferb_policy::confirm::contacts_in(content));
+        }
+    }
+    found.into_iter().collect()
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // the gateway
 // ---------------------------------------------------------------------------------------------------------------
 
 /// What [`build`] takes.
+/// compose.py:99-100: `[fs] owner_roots` and the untrusted roots, `downloads.untrusted_roots([fs] untrusted_roots
+/// (default ["~/Downloads"]), workspace)`: the gateway's `roots`, read once at start as Python does. The same list
+/// is the supervisor's and the upload copies' (rule 17).
+pub fn fs_roots(
+    config: &ferb_core::config::Config,
+    home: &std::path::Path,
+) -> (Vec<String>, Vec<String>) {
+    let list = |key: &str, default: &[&str]| -> Vec<String> {
+        match config.get("fs", key) {
+            Ok(Some(Value::Array(a))) => a.iter().map(ferb_py::value::py_str).collect(),
+            _ => default.iter().map(|s| s.to_string()).collect(),
+        }
+    };
+    let workspace = home.join("workspace").to_string_lossy().into_owned();
+    (
+        list("owner_roots", &[]),
+        ferb_browser::downloads::untrusted_roots(
+            &list("untrusted_roots", &["~/Downloads"]),
+            &workspace,
+        ),
+    )
+}
+
 pub struct GatewayParts {
+    /// `[fs]`'s owner and untrusted roots ([`fs_roots`]).
+    pub roots: (Vec<String>, Vec<String>),
     pub db: SharedDb,
     pub clock: Arc<dyn Clock>,
     pub ids: Arc<dyn IdSource>,
@@ -367,7 +537,8 @@ pub struct GatewayParts {
     pub device_id: String,
     pub protection: ferb_policy::protection::Protection<'static>,
     pub owner_secrets: Option<Arc<ferb_identity::owner_secrets::OwnerSecrets>>,
-    pub owner_contacts: Box<dyn Fn() -> Vec<String> + Send + Sync>,
+    /// The owner's profiles' names and accounts, saved usernames' sources and own contacts, read at use.
+    pub owner_facts: OwnerFacts,
     pub pay_same_site_forms: Box<dyn Fn() -> bool + Send + Sync>,
     pub native: bool,
     pub hooks: Arc<dyn ferb_gateway::seams::CallHooks>,
@@ -420,6 +591,7 @@ pub fn build(registry: Registry, p: GatewayParts) -> Arc<Gateway> {
         root: p.home.join("recovery").to_string_lossy().into_owned(),
     });
     let excluded = p.redactor.clone();
+    let facts = Arc::new(p.owner_facts);
     let deps = Deps {
         db: p.db,
         clock: p.clock,
@@ -429,12 +601,8 @@ pub fn build(registry: Registry, p: GatewayParts) -> Arc<Gateway> {
         publish: p.publish,
         roots: FsRoots {
             workspace: p.home.join("workspace").to_string_lossy().into_owned(),
-            owner_roots: vec![],
-            untrusted_roots: vec![p
-                .home
-                .join("workspace/downloads")
-                .to_string_lossy()
-                .into_owned()],
+            owner_roots: p.roots.0,
+            untrusted_roots: p.roots.1,
             home: p.user_home.to_string_lossy().into_owned(),
             protection: Arc::new(SyncProtection(p.protection)),
         },
@@ -445,11 +613,25 @@ pub fn build(registry: Registry, p: GatewayParts) -> Arc<Gateway> {
         apps: Arc::new(MacApps { native: p.native }),
         describe: Arc::new(Words { native: p.native }),
         journal_problem: p.journal_problem,
-        profile_name: Box::new(|_b, f| f.to_string()),
-        profile_account: Box::new(|_b, _f| String::new()),
-        owner_contacts: p.owner_contacts,
+        // browser_pair's question names the profile and its signed-in account (compose.py:121-122)
+        profile_name: {
+            let f = facts.clone();
+            Box::new(move |b, folder| f.profile_name(b, folder))
+        },
+        profile_account: {
+            let f = facts.clone();
+            Box::new(move |b, folder| f.profile_account(b, folder))
+        },
+        // GATE-538 (compose.py:124)
+        owner_contacts: {
+            let f = facts.clone();
+            Box::new(move || f.owner_contacts())
+        },
         pay_same_site_forms: p.pay_same_site_forms,
-        on_path: Box::new(|_p, _t| {}),
+        on_path: {
+            let f = facts.clone();
+            Box::new(move |path, task| f.ferb_touched(path, task))
+        },
         proc_task: p.proc_task,
         route_question: p.route_question.clone(),
         hooks: p.hooks,
@@ -462,7 +644,8 @@ pub fn build(registry: Registry, p: GatewayParts) -> Arc<Gateway> {
         excluded_host: Some(Box::new(move |h: &str| excluded.excluded_host(h))),
         owner_secrets: p.owner_secrets,
         places: Arc::new(BrowserPlaces),
-        username_holds: None,
+        // L36 §6 (compose.py:124 `username_sources`)
+        username_holds: Some(Box::new(move |source: &str| facts.username_holds(source))),
     };
     let ids = p.question_ids;
     Arc::new(Gateway::new(registry, deps, move || ids()))

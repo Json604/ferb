@@ -2083,8 +2083,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             guard let self else { return }
             if await self.service.restart() {
                 self.model.daemonLink.restarting()
-                // kickstart answers before launchd's attempt: a job launchd can't start is set up again (DMN-587's
-                // registration once more, else the LaunchAgent) instead of "restarting" for good (live 2026-11-14)
+                // kickstart answers before launchd's attempt: a job launchd can't start is set up again in the notch
+                // (FERB.app's registration once more, DMN-594, else why and how to allow it, DMN-593) instead of
+                // "restarting" for good (live 2026-11-14)
                 try? await Task.sleep(for: .seconds(3))
                 if self.serviceSpawnFailure() != nil, let repair = self.onRepair { repair() }
             } else if let repair = self.onRepair {

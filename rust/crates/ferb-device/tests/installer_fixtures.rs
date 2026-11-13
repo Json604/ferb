@@ -513,99 +513,230 @@ fn a_checkout_installs_the_rust_programs_it_built() {
     assert!(work_ran);
 }
 
+/// The Mac a Rust FERB.app is installed on, as the runner answers: launchd (FERB's label loaded from the LaunchAgent
+/// an older build left, until it is booted out), the process that ran it gone at once, and FERB.app signed with a
+/// Developer ID whose seal pins the secrets helper by its code hash. Records every command; never runs anything.
+struct RustApp {
+    seen: std::rc::Rc<std::cell::RefCell<Vec<Vec<String>>>>,
+    loaded_from: std::rc::Rc<std::cell::RefCell<Option<String>>>,
+    kickstart: i32,
+}
+
+const HELPER_CDHASH: &str = "00112233445566778899aabbccddeeff00112233";
+
+impl ferb_device::install::Runner for RustApp {
+    fn run(&mut self, argv: &[String]) -> ferb_device::install::Output {
+        self.seen.borrow_mut().push(argv.to_vec());
+        let a: Vec<&str> = argv.iter().map(String::as_str).collect();
+        let out = |code: i32, stdout: &str, stderr: &str| ferb_device::install::Output {
+            code,
+            stdout: stdout.into(),
+            stderr: stderr.into(),
+        };
+        match a.as_slice() {
+            ["launchctl", "print", ..] => match self.loaded_from.borrow().as_ref() {
+                Some(path) => out(0, &format!("\tpath = {path}\n\tpid = 4242\n"), ""),
+                None => out(113, "", "Could not find service"),
+            },
+            ["launchctl", "bootout", ..] => {
+                *self.loaded_from.borrow_mut() = None;
+                out(0, "", "")
+            }
+            ["launchctl", "kickstart", ..] => out(self.kickstart, "", "Could not find service"),
+            ["/bin/kill", "-0", ..] => out(1, "", "No such process"),
+            ["/usr/bin/codesign", "-dv", "--verbose=4", ..] => {
+                out(0, "", &format!("CDHash={HELPER_CDHASH}\n"))
+            }
+            ["/usr/bin/codesign", "-d", "-r-", ..] => out(
+                0,
+                &format!("designated => cdhash H\"{HELPER_CDHASH}\"\n"),
+                "",
+            ),
+            ["/usr/bin/codesign", "-dv", _] => out(0, "", "TeamIdentifier=TEAM123456\n"),
+            _ => out(0, "", ""),
+        }
+    }
+}
+
 #[test]
-fn the_bundled_rust_install_replays_pythons_with_only_the_programs_changed() {
-    // decision: DMN-14
-    let fx = fixture("installer.json");
-    let codex = CodexPin {
-        version: fx["constants"]["codex_version"].as_str().unwrap().into(),
-        native_bin: PathBuf::from(fx["constants"]["native_bin"].as_str().unwrap()),
-    };
-    let sc = fx["scenarios"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|s| s["name"] == "bundle_install")
-        .unwrap();
-    let root = PathBuf::from(sc["root"].as_str().unwrap());
-    materialize(&root, &sc["initial"]);
-    let world = World {
-        script: Shared::default(),
-        clock: Stepped::default(),
-        root: root.clone(),
-        user_home: PathBuf::from(sc["user_home"].as_str().unwrap()),
-        codex,
-    };
-    world.script.borrow_mut().root = root.clone();
-    let steps = sc["steps"].as_array().unwrap();
-    assert_eq!(
-        (steps[0]["op"].as_str(), steps[1]["op"].as_str()),
-        (Some("configure"), Some("install"))
-    );
-    let mut inst = world.installer(&steps[0]["args"]);
-    inst.programs = Programs::Rust(RustPrograms::ferbd(Path::new("/unused")));
-    let bundle = inst.bundle.clone().unwrap();
+fn a_rust_ferb_app_install_never_writes_or_loads_the_launch_agent() {
+    // decision: DMN-593, DMN-594
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join(".ferb");
+    let agents = dir.path().join("LaunchAgents");
+    let app = dir.path().join("Applications/FERB.app");
+    for part in [
+        ferb_device::install::BUNDLE_AGENT,
+        ferb_device::install::BUNDLE_RUST_NATIVE_HOST,
+        ferb_device::install::BUNDLE_SECRET_HELPER,
+    ] {
+        let p = app.join(part);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, b"invented program").unwrap();
+    }
     std::fs::write(
-        bundle.join(ferb_device::install::BUNDLE_RUST_NATIVE_HOST),
-        b"",
+        app.join("Contents/Info.plist"),
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict>\
+         <key>CFBundleVersion</key><string>202611140000</string></dict></plist>\n",
     )
     .unwrap();
-    let step = &steps[1];
-    apply(&root, &step["edits"], &[]);
-    {
-        let mut s = world.script.borrow_mut();
-        s.events = step["events"].as_array().unwrap().iter().cloned().collect();
-        s.context = "bundle_install (Rust programs)".into();
-    }
-    let before = snap(&root);
-    inst.install(step["args"]["update_only"].as_bool().unwrap(), None)
-        .unwrap();
-    assert!(
-        world.script.borrow().events.is_empty(),
-        "the same commands as Python's"
-    );
-    let got = changes(&before, &snap(&root));
-    let want = expected_changes(&step["changes"]);
-    assert_eq!(
-        got.keys().collect::<Vec<_>>(),
-        want.keys().collect::<Vec<_>>(),
-        "the same files"
-    );
-    let daemon = bundle
-        .join(ferb_device::install::BUNDLE_AGENT)
-        .to_string_lossy()
-        .into_owned();
-    let host = bundle
-        .join(ferb_device::install::BUNDLE_RUST_NATIVE_HOST)
-        .to_string_lossy()
-        .into_owned();
-    let mut differ = 0;
-    for (path, entry) in &got {
-        if *entry == want[path] {
-            continue;
-        }
-        differ += 1;
-        let text = entry["text"].as_str().unwrap_or_default();
-        if path.ends_with("service.json") {
-            // the record of the definition: only its hash differs (the definition names other programs)
-            let mut a: Value = serde_json::from_str(text).unwrap();
-            let mut b: Value = serde_json::from_str(want[path]["text"].as_str().unwrap()).unwrap();
-            a.as_object_mut().unwrap().remove("definition");
-            b.as_object_mut().unwrap().remove("definition");
-            assert_eq!(a, b, "{path}");
-            continue;
-        }
-        assert!(
-            (path.ends_with(".plist")
-                && text.contains(&daemon)
-                && text.contains("<string>daemon</string>"))
-                || text.contains(&format!("exec {host}")),
-            "{path}: differs beyond the programs: {text}"
+    std::fs::create_dir_all(app.join("Contents/_CodeSignature")).unwrap();
+    std::fs::write(
+        app.join("Contents/_CodeSignature/CodeResources"),
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict><key>files2</key><dict>\
+         <key>Helpers/ferb-secrets</key><dict><key>cdhash</key><data>ABEiM0RVZneImaq7zN3u/wARIjM=</data>\
+         </dict></dict></dict></plist>\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.path().join("extension")).unwrap();
+    std::fs::write(
+        dir.path().join("extension/manifest.json"),
+        r#"{"name": "FERB", "version": "0.0.1"}"#,
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("extension/background.js"), "// invented\n").unwrap();
+    // no role uses Codex: nothing is linked for it
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(
+        home.join("config.toml"),
+        "[runtimes]\norchestrator = \"claude\"\nworker = \"claude\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::set_permissions(
+        home.join("config.toml"),
+        std::fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    // the LaunchAgent an older build left, loaded under FERB's label
+    std::fs::create_dir_all(&agents).unwrap();
+    let plist = agents.join("com.ferb.daemon.plist");
+    std::fs::write(
+        &plist,
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict>\
+         <key>Label</key><string>com.ferb.daemon</string></dict></plist>\n",
+    )
+    .unwrap();
+    let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let loaded_from = std::rc::Rc::new(std::cell::RefCell::new(Some(
+        plist.to_string_lossy().into_owned(),
+    )));
+    let make = |kickstart: i32| {
+        let mut i = Installer::new(
+            home.clone(),
+            agents.clone(),
+            Box::new(RustApp {
+                seen: seen.clone(),
+                loaded_from: loaded_from.clone(),
+                kickstart,
+            }),
+            Box::new(Stepped::default()),
+            dir.path().to_path_buf(),
+            CodexPin {
+                version: "0".into(),
+                native_bin: "x".into(),
+            },
+            Sources {
+                repo_root: dir.path().to_path_buf(),
+                helper_source: dir.path().join("secret_helper.swift"),
+                extension: dir.path().join("extension"),
+            },
         );
+        i.uid = UID;
+        i.bundle = Some(app.clone());
+        i.programs = Programs::Rust(RustPrograms::ferbd(Path::new("/unused")));
+        i
+    };
+    // `setup --service` from FERB.app, even without --app-service: FERB.app's own registration
+    for flag in [Some(false), None, Some(true)] {
+        let mut i = make(0);
+        i.app_service = flag;
+        assert!(i.in_app(), "{flag:?}");
     }
+    let mut i = make(0);
+    i.app_service = Some(false);
+    i.install(false, None).unwrap();
+    assert!(!plist.exists(), "the LaunchAgent found is retired");
+    let record: Value =
+        serde_json::from_str(&std::fs::read_to_string(home.join("service.json")).unwrap()).unwrap();
+    assert_eq!(record["service"], "app");
+    assert_eq!(record["signer"], "team:TEAM123456");
+    assert!(record.get("definition").is_none(), "{record}");
+    let cmds: Vec<String> = seen.borrow().iter().map(|a| a.join(" ")).collect();
     assert!(
-        differ >= 2,
-        "the definition and the native host's launcher name the Rust programs"
+        cmds.iter()
+            .any(|c| c.starts_with("launchctl bootout gui/4321/")),
+        "{cmds:?}"
     );
-    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        !cmds.iter().any(|c| c.contains("bootstrap")),
+        "nothing is loaded: {cmds:?}"
+    );
+    // an update, and a daemon start: still nothing written or loaded
+    seen.borrow_mut().clear();
+    let mut work_ran = false;
+    let mut work = || -> Result<(), ferb_device::install::InstallError> {
+        work_ran = true;
+        Ok(())
+    };
+    make(0).install(true, Some(&mut work)).unwrap();
+    assert!(work_ran);
+    assert!(!make(0).restore_definition().unwrap());
+    assert!(!plist.exists());
+    // a restart launchd can't do is FERB.app's to repair (it registers again), never a plist loaded
+    let err = make(113).restart().unwrap_err();
+    assert!(err.to_string().contains("Could not find service"), "{err}");
+    let cmds: Vec<String> = seen.borrow().iter().map(|a| a.join(" ")).collect();
+    assert!(
+        !cmds.iter().any(|c| c.contains("bootstrap")),
+        "nothing is loaded: {cmds:?}"
+    );
+    assert!(!plist.exists() && !agents.join(".com.ferb.daemon.plist.new").exists());
+}
+
+#[test]
+fn a_checkout_still_refuses_while_ferb_apps_registration_runs() {
+    // decision: DMN-516, DMN-593
+    let dir = tempfile::tempdir().unwrap();
+    let built = dir.path().join("target/release");
+    std::fs::create_dir_all(&built).unwrap();
+    for bin in ["ferbd", "ferb-native-host"] {
+        std::fs::write(built.join(bin), b"#!/bin/sh\n").unwrap();
+    }
+    let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let registered = "/Applications/FERB.app/Contents/Library/LaunchAgents/com.ferb.daemon.plist";
+    let mut i = Installer::new(
+        dir.path().join(".ferb"),
+        dir.path().join("LaunchAgents"),
+        Box::new(RustApp {
+            seen: seen.clone(),
+            loaded_from: std::rc::Rc::new(std::cell::RefCell::new(Some(registered.into()))),
+            kickstart: 0,
+        }),
+        Box::new(Stepped::default()),
+        dir.path().to_path_buf(),
+        CodexPin {
+            version: "0".into(),
+            native_bin: "x".into(),
+        },
+        Sources {
+            repo_root: dir.path().to_path_buf(),
+            helper_source: dir.path().join("secret_helper.swift"),
+            extension: dir.path().join("extension"),
+        },
+    );
+    i.uid = UID;
+    i.programs = Programs::Rust(RustPrograms::ferbd(&built));
+    assert!(!i.in_app(), "a checkout keeps its LaunchAgent");
+    let err = i.install(false, None).unwrap_err();
+    assert!(err.to_string().contains(registered), "{err}");
+    assert!(
+        !dir.path().join(".ferb").exists(),
+        "refused before anything changed"
+    );
+    assert!(!dir
+        .path()
+        .join("LaunchAgents/com.ferb.daemon.plist")
+        .exists());
 }

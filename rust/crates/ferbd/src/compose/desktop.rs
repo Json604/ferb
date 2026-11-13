@@ -50,6 +50,22 @@ pub fn sentinel(p: &Parts, read: Arc<dyn DesktopRead>) -> Arc<DisturbanceSentine
         // main.py:206-208: the owner-input tap's facts
         seams.owner_input = Arc::new(move || Ok(o.input_facts()));
     }
+    if let Some(shells) = p.shells() {
+        // desktop.py:133-139 `_running_processes` (main.py:208): FERB-started processes running now, commands
+        // redacted; facts only (DMN-501)
+        let r = p.redactor();
+        seams.processes = Arc::new(move || {
+            Ok(shells
+                .list()
+                .into_iter()
+                .filter(|x| x.running)
+                .map(|x| {
+                    json!({"id": x.id, "task": x.owner_task, "command": r.text(&x.command),
+                           "background": x.long_lived})
+                })
+                .collect())
+        });
+    }
     let marker = p.home().join("PAUSED");
     // `sense.paused` (the menu bar's Pause FERB): the sense manager's marker in FERB's home
     seams.paused = Arc::new(move || marker.exists());

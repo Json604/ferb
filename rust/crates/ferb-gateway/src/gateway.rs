@@ -662,6 +662,11 @@ impl Gateway {
 
     // ---------- the state the daemon and the orchestrator change ----------
 
+    /// `roots.untrusted_roots`: where outside content lands (the supervisor's and the upload copies' list).
+    pub fn untrusted_roots(&self) -> Vec<String> {
+        self.d.roots.untrusted_roots.clone()
+    }
+
     /// The registry (tools are added and removed as browsers attach).
     pub fn registry(&self) -> MutexGuard<'_, Registry> {
         lock(&self.registry)

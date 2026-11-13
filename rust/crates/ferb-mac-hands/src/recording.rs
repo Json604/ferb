@@ -368,6 +368,24 @@ impl RecordingManager {
         failed.map_or(Ok(()), Err)
     }
 
+    /// recording.py:412 `shutdown`: every owner's recordings end as at its task's end.
+    pub async fn shutdown(self: &Arc<Self>) {
+        let owners: std::collections::BTreeSet<String> = self.owners().into_iter().collect();
+        for owner in owners {
+            self.end_task(&owner).await;
+        }
+    }
+
+    /// The owners of the recordings running now (desktop.py `_task_paused`: a paused task's recordings stop).
+    pub fn owners(&self) -> Vec<String> {
+        self.owners
+            .lock()
+            .expect("lock")
+            .values()
+            .cloned()
+            .collect()
+    }
+
     fn get(&self, rid: &str, owner: &str) -> Result<Arc<tokio::sync::Mutex<Rec>>> {
         let rec = self
             .records

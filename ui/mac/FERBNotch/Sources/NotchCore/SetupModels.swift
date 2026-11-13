@@ -660,14 +660,16 @@ public struct LineSplitter {
     }
 }
 
-/// Restarting FERB's background service (`com.ferb.daemon`): kickstart it when launchd has it; load it when it is
-/// installed but not loaded.
+/// Restarting FERB's background service (`com.ferb.daemon`): kickstart it when launchd has it. Only the Python build's
+/// LaunchAgent is loaded from its plist when launchd has no job (DMN-513); FERB.app's own registration (the Rust build,
+/// DMN-593) is never loaded from a plist: a job launchd lacks or can't start is registered again by the app.
 public enum LaunchctlPlan {
     public static let label = "com.ferb.daemon"
 
-    public static func restart(uid: uid_t, plist: String, plistExists: Bool) -> [[String]] {
+    /// `launchAgent`: the Python build's LaunchAgent when it exists; nil for FERB.app's own registration.
+    public static func restart(uid: uid_t, launchAgent: String?) -> [[String]] {
         var commands = [["kickstart", "-k", "gui/\(uid)/\(label)"]]
-        if plistExists { commands.append(["bootstrap", "gui/\(uid)", plist]) }
+        if let launchAgent { commands.append(["bootstrap", "gui/\(uid)", launchAgent]) }
         return commands
     }
 

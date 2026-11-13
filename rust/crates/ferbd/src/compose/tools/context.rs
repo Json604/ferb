@@ -543,7 +543,8 @@ fn continuity<'a>(
                 Box::new(ferb_gateway::gateway::StoreTime(clock.clone())),
                 Box::new(ferb_gateway::gateway::StoreIds(ids.clone())),
                 Box::new(move |v: &Value| r.value(v)),
-                Box::new(|_k: &str| false),
+                // task_origins only reads: whether a kind is reversible matters only when a span is written
+                crate::off::off("reader.reversible", Box::new(|_k: &str| false)),
             );
             s.task_origins(root).unwrap_or_default()
         }),
@@ -757,11 +758,12 @@ pub fn tool_named(p: &Parts, name: &'static str) -> Arc<dyn Tool> {
                 let db = p.db();
                 let d = crate::basics::lock(&db);
                 let r = p.redactor();
+                // conversation.read only reads: the store's clock and publish are never reached
                 let store = ferb_orchestrator::conversations::ConversationStore::new(
                     &d,
-                    Arc::new(String::new),
+                    crate::off::off("reader.clock", Arc::new(String::new)),
                     Arc::new(move |v: &Value| r.value(v)),
-                    Arc::new(|_t: &str, _d: Value| {}),
+                    crate::off::off("reader.publish", Arc::new(|_t: &str, _d: Value| {})),
                 );
                 let now = String::new;
                 let tree = ferb_orchestrator::tree::TaskTree::new(Some(&d), Box::new(now));
@@ -783,12 +785,13 @@ fn trail_run(p: &Parts, name: &str, a: &Args) -> Result<ferb_gateway::tool::Tool
     let ids = super::IdsRef(p.ids());
     let r = p.redactor();
     let zoned = p.zoned();
+    // trail.query only reads the trail: recording (its publish, device, pause, test runs) is never reached
     let seams = ferb_sense::trail::Seams {
         exclusions: Box::new(ferb_sense::exclusions::Exclusions::defaults),
-        publish: Box::new(|_, _| {}),
-        device_id: Box::new(String::new),
-        paused: Box::new(|| false),
-        test_task: Box::new(|_| false),
+        publish: crate::off::off("reader.publish", Box::new(|_, _| {})),
+        device_id: crate::off::off("reader.device", Box::new(String::new)),
+        paused: crate::off::off("reader.paused", Box::new(|| false)),
+        test_task: crate::off::off("reader.test_task", Box::new(|_| false)),
         is_browser: Box::new(ferb_mac_hands::apps::known),
     };
     let trail = ferb_sense::trail::Trail::new(
@@ -797,7 +800,7 @@ fn trail_run(p: &Parts, name: &str, a: &Args) -> Result<ferb_gateway::tool::Tool
         &ids,
         r.as_ref(),
         seams,
-        Arc::new(ferb_sense::attribution::Attribution::new(|| 0.0)),
+        p.attribution(),
     );
     let terr = |e: ferb_sense::trail::Error| match e {
         ferb_sense::trail::Error::Value(m) => ToolError::failed("ValueError", m),
@@ -977,10 +980,11 @@ fn evidence_run(
             let r = r.clone();
             let Ok(store) = ferb_mac_hands::evidence::EvidenceStore::new(
                 &captures_home,
-                Arc::new(|| (String::new(), String::new())),
-                Arc::new(String::new),
+                // task.evidence only reads the evidence store: its clock, ids and painter are never reached
+                crate::off::off("reader.clock", Arc::new(|| (String::new(), String::new()))),
+                crate::off::off("reader.ids", Arc::new(String::new)),
                 Arc::new(move |v: &Value| r.value(v)),
-                Arc::new(super::mac::NoPaint),
+                crate::off::off("reader.paint", Arc::new(super::mac::NoPaint)),
             ) else {
                 return Vec::new();
             };

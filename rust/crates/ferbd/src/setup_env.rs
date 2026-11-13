@@ -7,14 +7,19 @@
 //! there as one JSON line and answered as a success, and the waits are skipped, so a test never runs `launchctl` and
 //! never writes outside its temporary HOME.
 //!
-//! Not composed: a checkout's per-browser steps (DMN-508: FERB.app's setup lists no browser folder), downloading the
-//! embedding model (FERB.app ships it).
+//! The browser steps are a checkout's only (DMN-507, DMN-508): FERB.app's setup lists no browser folder and reads no
+//! profile (its background service connects the browsers once it has Full Disk Access); uninstall lists every known
+//! browser's native-host folder; doctor, a developer's command, looks at each installed browser's. Not composed:
+//! downloading the embedding model (FERB.app ships it).
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use ferb_device::cli::setup::{Env, PermissionFacts, RunOpts, RuntimeFacts, StoreFacts};
-use ferb_device::cli::{CliError, NoSignals, Rpc};
+use ferb_browser::profiles::Platform;
+use ferb_device::cli::setup::{
+    BrowserSetup, Env, PermissionFacts, RunOpts, RuntimeFacts, StoreFacts,
+};
+use ferb_device::cli::{CliError, Rpc};
 use ferb_device::install::{
     CodexPin, Installer, Output, Programs, Runner, RustPrograms, Sources, SystemClock,
 };
@@ -367,7 +372,11 @@ fn user_home() -> PathBuf {
 /// The installer for FERB's home `home`: this program as the service (`ferbd daemon`), from FERB.app when it runs
 /// from one, else from where it was built.
 pub fn installer(home: &Path) -> Installer {
-    let user = user_home();
+    installer_at(home, user_home())
+}
+
+/// [`installer`] for the account home `user` (its LaunchAgents folder).
+pub fn installer_at(home: &Path, user: PathBuf) -> Installer {
     // the real path: `ferb` may run through the `setup --cli` link
     let exe = crate::host::real_exe().unwrap_or_default();
     let beside = exe.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -409,9 +418,152 @@ pub fn installer(home: &Path) -> Installer {
     inst
 }
 
-/// `Env(...)` for `home`, printing to `out`.
-pub fn env(home: &Path, out: Box<dyn Write>) -> Env<'static> {
-    let inst = installer(home);
+/// setup.py:85 `installer(home, SUPPORT, every_browser)`'s browser folders: none from FERB.app (DMN-507, DMN-508:
+/// nothing looks at another app's data before the service has Full Disk Access); a checkout's, each installed
+/// browser's; uninstall's (`every_browser`), every known browser's.
+pub fn native_hosts_dirs(
+    platform: &dyn Platform,
+    support: &Path,
+    from_app: bool,
+    every_browser: bool,
+) -> Vec<PathBuf> {
+    if from_app && !every_browser {
+        return Vec::new();
+    }
+    let browsers: Vec<&str> = if every_browser {
+        ferb_browser::profiles::BROWSERS
+            .iter()
+            .map(|b| b.key)
+            .collect()
+    } else {
+        ferb_browser::profiles::installed(platform, support)
+    };
+    ferb_browser::autoinstall::native_host_dirs(support, &browsers)
+}
+
+/// A checkout's per-browser steps (setup.py:107 `extension_setup`, :1007 uninstall's requests, :899 doctor's
+/// native-host folders) over ferb-browser's autoinstall. The only browser files FERB ever deletes are its own: the
+/// install requests it recorded (External Extensions/<id>.json) and its native-host manifest; it never removes,
+/// disables or uninstalls an extension any other way.
+pub struct Browsers<P: Platform> {
+    pub platform: P,
+}
+
+impl<P: Platform> BrowserSetup for Browsers<P> {
+    fn setup_lines(
+        &mut self,
+        home: &Path,
+        support: &Path,
+        paired: Option<Vec<(String, String)>>,
+    ) -> Vec<String> {
+        use ferb_browser::autoinstall as a;
+        let config = ferb_core::config::Config::new(home);
+        let read = config.get("browser", "store_extension_id").and_then(|s| {
+            config
+                .get("browser", "extension_ids")
+                .map(|ids| (a::store_extension_id(s.as_ref()), ids))
+        });
+        let (store, ids) = match read {
+            Ok((store, ids)) => {
+                let ids = a::accepted_extension_ids(ids.as_ref(), &store);
+                (store, ids)
+            }
+            Err(ferb_core::config::ConfigError::Insecure(e)) => {
+                return vec![format!(
+                    "Browser extension: not set up, config.toml can't be trusted ({e}); `ferb doctor` shows the fix."
+                )]
+            }
+            Err(e) => {
+                eprintln!("ferb: {e}");
+                return Vec::new();
+            }
+        };
+        // requests FERB wrote for another id (changed, cleared, mistyped) go before the current one is written
+        let keep = if a::valid_id(&store) {
+            store.as_str()
+        } else {
+            ""
+        };
+        let withdrawn = a::withdraw(home, keep).unwrap_or_else(|e| {
+            eprintln!("ferb: {}", ferb_shell::py_os_error(&e));
+            Vec::new()
+        });
+        let id_refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let states = match a::prepare(
+            &self.platform,
+            support,
+            &store,
+            &id_refs,
+            paired.as_deref(),
+            Some(home),
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("ferb: {}", ferb_shell::py_os_error(&e));
+                return Vec::new();
+            }
+        };
+        let unsupported: Vec<String> = ferb_browser::profiles::unsupported(&self.platform)
+            .into_iter()
+            .map(|u| u.app)
+            .collect();
+        a::describe(
+            &states,
+            &store,
+            &ferb_device::extensions::extension_path(home),
+            &withdrawn,
+            &unsupported,
+        )
+    }
+
+    fn remove_requests(&mut self, home: &Path, support: &Path) -> Vec<PathBuf> {
+        use ferb_browser::autoinstall as a;
+        // an untrusted config: no current id (the record in FERB's home still lists every request FERB wrote)
+        let store = match ferb_core::config::Config::new(home).get("browser", "store_extension_id")
+        {
+            Ok(v) => a::store_extension_id(v.as_ref()),
+            Err(_) => String::new(),
+        };
+        a::remove_requests(home, support, &store).unwrap_or_else(|e| {
+            eprintln!("ferb: {}", ferb_shell::py_os_error(&e));
+            Vec::new()
+        })
+    }
+
+    fn native_host_dirs(&mut self, support: &Path) -> Vec<PathBuf> {
+        let installed = ferb_browser::profiles::installed(&self.platform, support);
+        ferb_browser::autoinstall::native_host_dirs(support, &installed)
+    }
+}
+
+/// setup.py:827 `code_hash(ferb package)`, for this build: the hash of the `ferbd` a checkout's service runs (the
+/// daemon reports its own executable's, areas_c `code_hash`); None from FERB.app (doctor compares only a checkout's).
+fn checkout_code_hash(inst: &Installer) -> Option<String> {
+    if inst.bundle.is_some() {
+        return None;
+    }
+    match &inst.programs {
+        Programs::Rust(r) => Some(crate::areas_c::code_hash(
+            &r.checkout_daemon.to_string_lossy(),
+        ))
+        .filter(|h| !h.is_empty()),
+        Programs::Python => None,
+    }
+}
+
+/// `Env(...)` for `home`, printing to `out`; `every_browser`: uninstall's (cli/__init__.py:234).
+pub fn env(home: &Path, out: Box<dyn Write>, every_browser: bool) -> Env<'static> {
+    let user = user_home();
+    let support = user.join("Library").join("Application Support"); // profiles.py:17 SUPPORT
+    let mut inst = installer_at(home, user.clone());
+    inst.native_hosts_dirs = native_hosts_dirs(
+        &ferb_browser::macos::MacPlatform,
+        &support,
+        inst.bundle.is_some(),
+        every_browser,
+    );
+    inst.cli_dir = Some(user.join(".local").join("bin")); // where FERB.app links `ferb`
+    let code_hash = checkout_code_hash(&inst);
     let socket = ferb_core::paths::socket_path(home);
     let bundle = inst.bundle.clone();
     let (h1, h2, h3, h4) = (
@@ -420,7 +572,6 @@ pub fn env(home: &Path, out: Box<dyn Write>) -> Env<'static> {
         home.to_path_buf(),
         home.to_path_buf(),
     );
-    let user = user_home();
     Env {
         inst,
         connect: Box::new(move || {
@@ -457,8 +608,10 @@ pub fn env(home: &Path, out: Box<dyn Write>) -> Env<'static> {
                 &ferb_device::scan::now_local(),
             )
         }),
-        browser_support: None,
-        browsers: None,
+        browser_support: Some(support),
+        browsers: Some(Box::new(Browsers {
+            platform: ferb_browser::macos::MacPlatform,
+        })),
         permissions: Box::new(Permissions),
         store: Box::new(Store),
         runtimes: Box::new(Runtimes {
@@ -491,7 +644,133 @@ pub fn env(home: &Path, out: Box<dyn Write>) -> Env<'static> {
             .claude_cli()
             .map_err(|e| e.to_string())
         }),
-        checkout_code_hash: None,
-        signals: Box::new(NoSignals),
+        checkout_code_hash: code_hash,
+        // setup.py:150 `_finish_install` (DMN-537): a stop while the service is reinstalled waits until it is loaded
+        signals: Box::new(ferb_device::cli::signals::Held::default()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Launch Services knows only Google Chrome.
+    struct OnlyChrome;
+    impl Platform for OnlyChrome {
+        fn has_app(&self, bundle_id: &str) -> bool {
+            bundle_id == "com.google.Chrome"
+        }
+    }
+
+    fn chrome(support: &Path) -> PathBuf {
+        let data = support.join("Google/Chrome");
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(data.join("Local State"), b"{}").unwrap();
+        data
+    }
+
+    /// setup.py:85: FERB.app's setup lists no browser folder (DMN-507, DMN-508); a checkout's lists each installed
+    /// browser's; uninstall lists every known browser's.
+    // decision: DMN-508
+    #[test]
+    fn only_a_checkout_or_uninstall_lists_browser_folders() {
+        let tmp = tempfile::tempdir().unwrap();
+        let support = tmp.path().join("Application Support");
+        let data = chrome(&support);
+        assert!(native_hosts_dirs(&OnlyChrome, &support, true, false).is_empty());
+        assert_eq!(
+            native_hosts_dirs(&OnlyChrome, &support, false, false),
+            vec![data.join("NativeMessagingHosts")]
+        );
+        let every = native_hosts_dirs(&OnlyChrome, &support, true, true);
+        assert!(every.contains(&data.join("NativeMessagingHosts")));
+        assert!(every.len() >= ferb_browser::profiles::BROWSERS.len());
+    }
+
+    /// setup.py:1007: uninstall deletes only FERB's own install requests (External Extensions/<FERB's id>.json);
+    /// another extension's request and the installed extensions themselves are never touched.
+    // decision: DMN-508
+    #[test]
+    fn uninstall_removes_only_ferbs_own_request() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (home, support) = (tmp.path().join("ferb"), tmp.path().join("support"));
+        std::fs::create_dir_all(&home).unwrap();
+        let data = chrome(&support);
+        let requests = data.join("External Extensions");
+        std::fs::create_dir_all(&requests).unwrap();
+        let store = ferb_browser::autoinstall::STORE_EXTENSION_ID;
+        let other = "abcdefghijklmnopabcdefghijklmnop";
+        std::fs::write(requests.join(format!("{store}.json")), b"{}").unwrap();
+        std::fs::write(requests.join(format!("{other}.json")), b"{}").unwrap();
+        let installed = data.join("Default/Extensions").join(store);
+        std::fs::create_dir_all(&installed).unwrap();
+        let mut b = Browsers {
+            platform: OnlyChrome,
+        };
+        let removed = b.remove_requests(&home, &support);
+        assert_eq!(removed, vec![requests.join(format!("{store}.json"))]);
+        assert!(requests.join(format!("{other}.json")).exists());
+        assert!(installed.exists());
+    }
+
+    /// setup.py:107: a checkout's browser step writes FERB's Web Store request into each installed browser and
+    /// says so; a config.toml others can read is named instead (InsecureConfig), and nothing is written.
+    // decision: DMN-508
+    #[test]
+    fn a_checkouts_browser_step_requests_ferb_from_the_store() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let (home, support) = (tmp.path().join("ferb"), tmp.path().join("support"));
+        std::fs::create_dir_all(&home).unwrap();
+        let data = chrome(&support);
+        let mut b = Browsers {
+            platform: OnlyChrome,
+        };
+        let lines = b.setup_lines(&home, &support, None);
+        let request = data.join(format!(
+            "External Extensions/{}.json",
+            ferb_browser::autoinstall::STORE_EXTENSION_ID
+        ));
+        assert!(request.is_file(), "{lines:?}");
+        assert!(
+            lines.iter().any(|l| l.contains("Google Chrome")),
+            "{lines:?}"
+        );
+        std::fs::remove_file(&request).unwrap();
+        let config = home.join("config.toml");
+        std::fs::write(&config, "[browser]\n").unwrap();
+        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let lines = b.setup_lines(&home, &support, None);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines[0].starts_with("Browser extension: not set up, config.toml can't be trusted ("),
+            "{lines:?}"
+        );
+        assert!(!request.exists());
+    }
+
+    /// setup.py:827: a checkout compares the daemon's code with the `ferbd` its service runs; FERB.app doesn't.
+    // decision: DMN-509
+    #[test]
+    fn a_checkouts_code_hash_is_its_built_daemons() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (home, user, built) = (
+            tmp.path().join("ferb"),
+            tmp.path().join("user"),
+            tmp.path().join("built"),
+        );
+        std::fs::create_dir_all(&built).unwrap();
+        std::fs::write(built.join("ferbd"), b"invented build").unwrap();
+        let mut inst = installer_at(&home, user);
+        inst.programs = Programs::Rust(RustPrograms::ferbd(&built));
+        inst.bundle = None;
+        assert_eq!(
+            checkout_code_hash(&inst),
+            Some(crate::areas_c::code_hash(
+                &built.join("ferbd").to_string_lossy()
+            ))
+        );
+        inst.bundle = Some(tmp.path().join("FERB.app"));
+        assert_eq!(checkout_code_hash(&inst), None);
     }
 }

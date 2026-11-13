@@ -91,7 +91,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 loginItems.removeForUninstall()
                 return await appSetup.unregisterService()  // macOS stops listing FERB's background service
             }
-            appSetup.onSignerMove = { [loginItems] in loginItems.moveAfterSignerChange() }   // APP-904
             appSetup.onSettled = { [loginItems, weak coordinator] in
                 loginItems.applyDefaultAfterSetup()
                 coordinator?.model.noteUpdate()               // "Updated to <version>", once per new build

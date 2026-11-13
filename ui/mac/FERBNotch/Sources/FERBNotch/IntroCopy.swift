@@ -89,12 +89,10 @@ enum IntroCopy {
 
     /// The permission beat's line: what FERB is doing for the grant in flight (`wait`), live (APP-665, APP-679), or the
     /// checklist at rest; `confirmed` names a grant macOS just confirmed; `bannerSince`: Notifications' banner is up.
-    /// A row ticks only when the system reports it on (APP-510), whatever the wait says. `signerChanged`: this launch is
-    /// the switch to the Developer ID (APP-904), so the line at rest says why macOS asks for everything again.
+    /// A row ticks only when the system reports it on (APP-510), whatever the wait says.
     @MainActor static func permissionOverview(rows: [PermissionRow], selected: String?, requesting: Bool,
                                               added: Bool, busy: Bool, wait: GrantWait? = nil,
-                                              confirmed: String? = nil, bannerSince: Date? = nil,
-                                              signerChanged: Bool = false) -> IntroLine {
+                                              confirmed: String? = nil, bannerSince: Date? = nil) -> IntroLine {
         let pending = SetupModel.allowAllOrder(rows)
         let quick = SetupModel.quickPermissionOrder(rows)
         let choices: [IntroChoice]
@@ -117,11 +115,6 @@ enum IntroCopy {
         } else if let confirmed, rows.contains(where: { $0.id == confirmed && $0.status == .granted }) {
             line = IntroLine(text: "\(PermissionCopy.label(confirmed)) is on. macOS confirmed it.",
                              detail: "\(count) Pick any permission, or follow along below.", choices: choices)
-        } else if signerChanged {
-            line = IntroLine(text: "macOS asks for FERB's permissions once more.",
-                             detail: "FERB is now signed by its developer, so macOS treats it as a new app. \(count) " +
-                                 "Pick any permission, or follow along below.", choices: choices)
-            line.since = bannerSince
         } else {
             line = IntroLine(text: "A few permissions, one step at a time.",
                              detail: "\(count) Pick any permission, or follow along below.", choices: choices)
