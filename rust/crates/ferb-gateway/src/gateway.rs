@@ -56,7 +56,7 @@ use crate::words::*;
 mod hidden;
 mod own;
 pub use hidden::{HiddenError, SecretAsk};
-pub use own::OwnQuestion;
+pub use own::{OwnEvent, OwnQuestion};
 
 // ---------------------------------------------------------------------------------------------------------------
 // FERB's own words, marked (Python's `Redacted`)

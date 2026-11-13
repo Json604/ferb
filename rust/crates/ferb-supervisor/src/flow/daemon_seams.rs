@@ -152,6 +152,7 @@ impl Questions for GatewayQuestions {
             summary: ask.summary,
             detail: ask.detail,
             labels,
+            ..Default::default()
         });
         Ok(ap.id)
     }
@@ -162,6 +163,62 @@ impl Questions for GatewayQuestions {
 
     fn waiting(&self, approval_id: &str) -> bool {
         self.0.waiting(approval_id)
+    }
+}
+
+/// The supervisor's own task questions (a plan's ask step, a checker's ask, the check-in, a runtime offer, a paused
+/// loop) in the gateway's one question store, as Python keeps them in `state.approvals`: one store holds every
+/// question and one id counter numbers them. The gateway publishes nothing for them (`OwnEvent::Quiet`): the
+/// supervisor publishes its own `approval.requested`, with `question_kind` and the offer.
+pub struct GatewayTaskQuestions(pub Arc<ferb_gateway::gateway::Gateway>);
+
+impl super::owner_wait::Questions for GatewayTaskQuestions {
+    fn ask(&self, ask: &super::owner_wait::Ask) -> String {
+        self.0
+            .ask_own(&ferb_gateway::gateway::OwnQuestion {
+                capability: ask.capability.clone(),
+                reason: ask.question.clone(),
+                options: ask.options.clone(),
+                request_id: ask.request_id.clone(),
+                approval_id: None,
+                summary: Some(ask.summary.clone()),
+                detail: Some(ask.detail.clone()),
+                labels: ask.labels.clone(),
+                task_id: ask.task_id.clone(),
+                part: ask.part.clone(),
+                runtime_switch: ask
+                    .runtime_switch
+                    .as_ref()
+                    .and_then(|v| v.as_object().cloned()),
+                options_only: ask.options_only,
+                from_task: ask.from_task,
+                corrects: ask.corrects,
+                exact: ask.exact.clone(),
+                event: ferb_gateway::gateway::OwnEvent::Quiet,
+            })
+            .id
+    }
+    fn get(&self, id: &str) -> Option<super::owner_wait::Asked> {
+        self.0
+            .approval(id)
+            .as_ref()
+            .map(super::owner_wait::asked_of)
+    }
+    fn supersede(&self, id: &str) -> bool {
+        self.0.supersede(id).is_some()
+    }
+    fn pending(&self) -> Vec<super::owner_wait::Asked> {
+        self.0
+            .pending()
+            .iter()
+            .map(super::owner_wait::asked_of)
+            .collect()
+    }
+    fn answer(&self, id: &str, words: &str) {
+        let _ = self.0.resolve(id, true, None, Some(words));
+    }
+    fn card(&self, id: &str) -> Map<String, Value> {
+        self.0.question_card(id)
     }
 }
 

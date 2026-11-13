@@ -133,5 +133,18 @@ on the real Python daemon through the daemon recorder's harness (its stand-ins, 
 | unbacked_part | `_unbacked_parts`: a direct "" part no entry quotes goes back for repair |
 | correct_pending_check | chat.correct on a pending confirmation (GATE-510, ORCH-538): the check set aside, the task steered |
 | earlier_result | ORCH-619: `_result_problems`, `_earlier`, `_worker_room`, `_result_blocks` |
+| loop_steer_finish | L31: `_loop_step` on LoopRunner, a round that carries on, the loop watching, the owner's correction read at the loop's next look (`wake_loops` from steering), `_loop_facts` and `preview_status` in the planner's task state, a round that reports the end, `_loop_end_reached`, `_judged` |
+| loop_pause_stop | a round that needs the owner: the loop pauses, its notice (`_loop_notice`: an attention notice), `_pause_question` with Stop, `loop_statuses` in chat.status, Stop ends it |
+| mention_paused | ORCH-312: `mention_paused`, `_mention_pause` the next day (a `clock` step), Stop |
+| owner_closed_tab | HAND-201: `notify_plan_event('browser.owner_stopped')`, `owner_stopped_part`, Stop |
+| reason_findings | ORCH-562: findings on a not-done report's reason, settled by code after the fix turn |
+| runtime_switch_tap | ORCH-315: the worker's usage limit, `runtime_offer`, `answer_runtime_switch` (the app's one tap) |
+| event_wait | a plan's wait step on an event: `notify_plan_event`, the plan's wake, the next step |
 
-`tests/replay_more.rs` replays all 14 fully with tests/replay.rs's harness (moved to `tests/replay/harness.rs`).
+Steps these add: `mention_paused`, `plan_event` (the supervisor's call on the daemon's loop), `runtime_switch` (with
+the offer and the answer recorded), and waits `the loop watches` and `the plan waits`. `uuid.uuid4` is a counter (a
+loop notice's id).
+
+`tests/replay_more.rs` replays all 21 fully with tests/replay.rs's harness (moved to `tests/replay/harness.rs`). One
+deliberate difference is applied to `remember_then_forget`'s recording before it is compared (`FIXES`): Python's reply
+tags the forget question's "FERB deletes:" line, FERB's own words, as "(from the task)"; the port does not.

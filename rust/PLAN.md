@@ -280,3 +280,5 @@ also worth fixing in the Python build on `main`, since that build is installed t
 | about 20 RPC handlers | Bad parameters answer an internal error instead of a refusal | fixed in Rust for 71 methods (40); the chat and task handlers remain |
 | global stop | Tags FERB's own words "(from the task)" | fixed in Rust (43) |
 | `ferb/act/shell/proxy.py` | A bare-LF head is forwarded with `Connection: close` after the body bytes | open: mirrored in `ferb-shell` (20) |
+| forget question in chat | FERB's own heading tagged "(from the task)" | fixed in Rust (50) |
+| `ferb/act/mac/tools.py:348` | A launched app looked for once, too early, goes unrecorded | fixed in Rust (47) |

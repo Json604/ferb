@@ -1,7 +1,8 @@
 //! The supervisor's paths no earlier recording reached, replayed against the recordings
 //! rust/fixtures/supervisor/make_more.py made from the real Python daemon (more_scenarios.json): the running
 //! summary's fold, several asks and their card, the checklist, memory and forget side entries, an answer routed in
-//! chat, and the rest named in that script. The harness is tests/replay.rs's (tests/replay/harness.rs): every frame,
+//! chat, loops, the paused task's mention, a closed tab, findings on a reason, a runtime switch, an event wait, and
+//! the rest named in that script. The harness is tests/replay.rs's (tests/replay/harness.rs): every frame,
 //! every model call, every tool call's reply, the chat RPCs' replies and every table but those another part owns.
 
 mod common;
@@ -210,4 +211,48 @@ fn correct_pending_check() {
 #[test]
 fn earlier_result() {
     full("earlier_result");
+}
+
+// decision: ORCH-505
+// decision: ORCH-322
+#[test]
+fn loop_steer_finish() {
+    full("loop_steer_finish");
+}
+
+// decision: ORCH-323
+// decision: ORCH-536
+#[test]
+fn loop_pause_stop() {
+    full("loop_pause_stop");
+}
+
+// decision: ORCH-312
+#[test]
+fn mention_paused() {
+    full("mention_paused");
+}
+
+// decision: ORCH-536
+#[test]
+fn owner_closed_tab() {
+    full("owner_closed_tab");
+}
+
+// decision: ORCH-562
+#[test]
+fn reason_findings() {
+    full("reason_findings");
+}
+
+// decision: ORCH-315
+#[test]
+fn runtime_switch_tap() {
+    full("runtime_switch_tap");
+}
+
+// decision: ORCH-322
+#[test]
+fn event_wait() {
+    full("event_wait");
 }

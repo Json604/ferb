@@ -24,7 +24,6 @@ use super::tree::{status_of, WORKER};
 use super::{Failure, Flow, Inner, Tree};
 use crate::words::*;
 use crate::worker_context::{self, ContextReads, SourceBlocks, SourceCall, VerifierReads};
-use crate::NotPorted;
 
 /// supervisor.py:7676 `_RuntimeDown`: the checker's run ended on an account fact; carried as a raised class.
 const RUNTIME_DOWN: &str = "_RuntimeDown";
@@ -324,6 +323,10 @@ impl Inner {
         st.part_updates.clear();
         st.watch_met = None;
         st.answer_settled = false;
+        st.unchecked.clear();
+        st.conversation_action = None;
+        st.loop_action = None;
+        st.probe = None;
     }
 
     /// supervisor.py:6324 `_steered`.
@@ -363,19 +366,15 @@ impl Inner {
             && root
                 .as_ref()
                 .is_some_and(|r| r.lock().schedule_id.is_some());
-        if step.contains_key("loop") || step.contains_key("conversation") {
-            return Err(NotPorted(
-                "Supervisor._report_roles (a loop round or a conversation turn)",
-            )
-            .into());
-        }
+        let conversation = step.contains_key("conversation");
+        let looping = step.contains_key("loop");
         let parts = is_step && root.as_ref().is_some_and(|r| r.lock().card.is_some());
         let flags = ferb_context::schemas::WorkerFlags {
             inputs,
             proposals,
-            conversation: false,
+            conversation,
             watch,
-            loop_: false,
+            loop_: looping,
             parts,
         };
         let mut roles = Vec::new();
@@ -385,7 +384,9 @@ impl Inner {
         for (name, on) in [
             ("inputs", inputs),
             ("proposals", proposals),
+            ("converse", conversation),
             ("watch", watch),
+            ("loop", looping),
             ("parts", parts),
             ("scheduled", scheduled),
         ] {
@@ -482,13 +483,31 @@ impl Inner {
                         {
                             self.settle_findings(tree, &task, &next.findings, span)
                                 .await;
-                            if out.status != OutcomeStatus::Done && !tree.lock().reason.is_empty() {
-                                return Err(
-                                    NotPorted("Supervisor._worker (findings on a reason)").into()
-                                );
+                            let said = tree.lock().reason.clone();
+                            let mut next = next;
+                            if out.status != OutcomeStatus::Done && !said.is_empty() {
+                                // ORCH-562: its reason's quoted sentences, by code
+                                let quoted: Vec<(String, String)> = next
+                                    .findings
+                                    .iter()
+                                    .filter(|f| {
+                                        !ferb_orchestrator::py::strip(&f.quote).is_empty()
+                                            && said.contains(&f.quote)
+                                    })
+                                    .map(|f| (f.quote.clone(), f.kind.clone()))
+                                    .collect();
+                                let settled =
+                                    ferb_orchestrator::answer_marks::settle(&said, &quoted).answer;
+                                tree.lock().reason = settled.clone();
+                                if next.reason == said {
+                                    // the fail carried the worker's own reason
+                                    next.reason = settled;
+                                }
                             }
+                            choice = Some(next);
+                        } else {
+                            choice = Some(next);
                         }
-                        choice = Some(next);
                     }
                     // the checker's runtime hit the same kind of account fact
                     Err(e @ Failure::Raised { .. }) if e.class() == RUNTIME_DOWN => {
@@ -537,7 +556,8 @@ impl Inner {
                 .as_ref()
                 .is_some_and(|c| c.action == "accept" || c.action == "accept_unconfirmed")
                 && !self.stopped(tree);
-            if accepted {
+            // a loop round's resources stay the loop's until the loop ends (L31): released once, by the loop step
+            if accepted && !tree.lock().hold_resources {
                 let mine = self
                     .live()
                     .tree_of
@@ -673,6 +693,9 @@ impl Inner {
         st.input_notes = w.input_notes.iter().map(Py::to_value).collect();
         st.conversation_proposals = w.conversation_proposals.iter().map(Py::to_value).collect();
         st.watch_met = w.watch_met;
+        st.conversation_action = w.conversation_action.clone();
+        st.loop_action = w.loop_action.clone();
+        st.probe = w.probe.clone();
         st.part_updates = w
             .part_updates
             .iter()
@@ -751,6 +774,28 @@ impl Inner {
             });
             next.reason = reason;
             return Ok(next);
+        }
+        if out.status == OutcomeStatus::Done {
+            let skip = self.look_only(tree);
+            if !skip.is_empty() {
+                // owner 2026-10-25: the probe's first read is this round's check (L31)
+                tree.lock().unchecked = skip.clone();
+                let skipped = self.span_start(
+                    "verify.skipped",
+                    Some(&tree.worker.id),
+                    Some(span),
+                    None,
+                    json!({"reason": skip}),
+                );
+                self.span_finish(
+                    &skipped,
+                    Some(json!({"checker": "not run"})),
+                    None,
+                    None,
+                    None,
+                );
+                return Ok(Next::of("accept"));
+            }
         }
         let verdict = match self.verify(tree, span).await {
             Ok((results, verdict)) => {
@@ -1074,6 +1119,26 @@ impl Inner {
         Ok((merged, verdict))
     }
 
+    /// `verify` for another flow (a loop's end check, `_judged`).
+    pub(crate) async fn verify_tree(
+        &self,
+        tree: &Arc<Tree>,
+        span: &str,
+    ) -> Flow<(Vec<ConditionResult>, Option<CheckerOutcome>)> {
+        self.verify(tree, span).await
+    }
+
+    /// `_settle_findings` for another flow (a loop's end check, `_judged`).
+    pub(crate) async fn settle_findings_of(
+        &self,
+        tree: &Arc<Tree>,
+        task: &Task,
+        findings: &[Finding],
+        span: &str,
+    ) {
+        self.settle_findings(tree, task, findings, span).await
+    }
+
     /// supervisor.py:7116 `_carry`.
     fn carry(&self, tree: &Arc<Tree>, results: Vec<ConditionResult>) -> Vec<ConditionResult> {
         let mut st = tree.lock();
@@ -1154,13 +1219,18 @@ impl Inner {
                     worker_types: self.deps.daemon.worker_types(),
                     availability: self.deps.daemon.availability(),
                     observations,
-                    calls_since: 0,
+                    calls_since: st.calls_since,
                     began: None,
                 },
-                0i64,
+                st.calls_since,
             )
         };
-        let began = self.request_began(&tree.id, &task.request_id, &task.id);
+        // a loop round: its own calls only; earlier rounds share the task id (L31)
+        let began = if calls_since != 0 {
+            None
+        } else {
+            self.request_began(&tree.id, &task.request_id, &task.id)
+        };
         let mut reads = reads;
         reads.began = began.as_ref().map(|b| b.0.clone());
         let report = worker_context::verifier_report(&reads, &|t| self.wrap(t));

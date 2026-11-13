@@ -480,9 +480,17 @@ impl Wake {
 }
 
 /// loops.py:245 `LoopRunner`.
-pub struct LoopRunner<'a> {
-    pub rows: &'a dyn LoopRows,
-    pub host: &'a dyn LoopHost,
+///
+/// `LoopRunner<'a>` holds its rows and host as plain trait objects. A runner over a `Sync` rows and host (concrete
+/// types, or [`LoopRunnerShared`]) runs as a `Send` future, so a loop step can live inside a task that moves between
+/// threads (the supervisor's).
+pub struct LoopRunner<
+    'a,
+    R: ?Sized + LoopRows + 'a = dyn LoopRows + 'a,
+    H: ?Sized + LoopHost + 'a = dyn LoopHost + 'a,
+> {
+    pub rows: &'a R,
+    pub host: &'a H,
     pub task_id: String,
     pub step: Step,
     pub wake: Arc<Wake>,
@@ -497,14 +505,18 @@ fn int_of(v: Option<&Value>) -> i64 {
 /// What a loop ends with (Python's result dict).
 pub type Ended = Map<String, Value>;
 
-impl<'a> LoopRunner<'a> {
+/// A runner whose rows and host are shared between threads: its `run()` is a `Send` future.
+pub type LoopRunnerShared<'a> =
+    LoopRunner<'a, dyn LoopRows + Send + Sync + 'a, dyn LoopHost + Send + Sync + 'a>;
+
+impl<'a, R: ?Sized + LoopRows + 'a, H: ?Sized + LoopHost + 'a> LoopRunner<'a, R, H> {
     pub fn new(
-        rows: &'a dyn LoopRows,
-        host: &'a dyn LoopHost,
+        rows: &'a R,
+        host: &'a H,
         task_id: &str,
         step: Step,
         event_cursor: i64,
-    ) -> LoopRunner<'a> {
+    ) -> LoopRunner<'a, R, H> {
         let row = rows.load(task_id, &step.id, host.steers(), event_cursor);
         let mut runner = LoopRunner {
             rows,

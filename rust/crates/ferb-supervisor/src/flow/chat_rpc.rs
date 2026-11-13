@@ -271,7 +271,10 @@ impl ChatRpc {
             "delegated_conversations".into(),
             Value::Array((self.deps.conversations)()),
         );
-        out.insert("loops".into(), Value::Array(Vec::new())); // loops aren't ported: none runs
+        out.insert(
+            "loops".into(),
+            Value::Array(self.deps.supervisor.loop_statuses()),
+        );
         out.insert("paused".into(), json!((self.deps.sensing_paused)()));
         out.insert("stopped".into(), json!(self.deps.gateway.stopped()));
         out

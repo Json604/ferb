@@ -441,8 +441,15 @@ impl Inner {
                 return Err(NotPorted("Supervisor._plan_statement").into());
             }
             if plan.steps.iter().any(Step::loops) {
-                self.forget_tree_now(&tree, request_id);
-                return Err(NotPorted("Supervisor.run_tree (loops)").into());
+                // how each loop ends (L31)
+                let lines: Vec<String> = plan
+                    .steps
+                    .iter()
+                    .filter(|s| s.loops())
+                    .map(ferb_orchestrator::loops::loop_line)
+                    .collect();
+                stated.push('\n');
+                stated.push_str(&self.redact_text(&lines.join("\n")));
             }
         }
         if !spec.folders.is_empty() {
@@ -1295,7 +1302,23 @@ impl Inner {
             ));
         }
         if step.kind == "converse" || step.loops() {
-            return Err(NotPorted("Supervisor._execute_plan (a conversation or a loop)").into());
+            // a loop or a conversation that answers: its end check also judges the task's conditions it answers
+            let spec = tree.spec();
+            let answering = answer_steps(spec.plan.as_ref(), &spec.parts);
+            let answers = self.answer_conditions(&spec, &step.id, &answering);
+            let result = if step.kind == "converse" {
+                return Err(NotPorted("Supervisor._conversation_steps").into());
+            } else {
+                self.loop_step(tree, step, span, prior, answers).await?
+            };
+            let result = self.with_answer_check(&tree.id, &step.id, result);
+            let status = result
+                .get("status")
+                .filter(|s| ferb_py::value::truthy(s))
+                .map(ferb_py::value::py_str)
+                .unwrap_or_else(|| "failed".into());
+            self.post_part(tree, &step.id, None, &status, &result);
+            return Ok(Value::Object(result));
         }
         let previous = prior
             .get("previous_attempt")
@@ -1626,6 +1649,14 @@ impl Inner {
     /// supervisor.py:2307 `notify_plan_event`: an event a running plan's wait step (or loop) waits for is stored
     /// (`plan_events`) and wakes that plan. `data` comes redacted.
     pub fn notify_plan_event(&self, topic: &str, data: &Value) {
+        if topic == "browser.owner_stopped" {
+            // HAND-201: the owner closed a tab FERB holds for a task, or its whole group
+            let me = self.me();
+            let data = data.clone();
+            tokio::spawn(async move {
+                me.owner_stopped_part(&data).await;
+            });
+        }
         let runs: Vec<String> = self.live().plan_runs.iter().cloned().collect();
         let interested: Vec<String> = runs
             .into_iter()
@@ -1641,7 +1672,84 @@ impl Inner {
         let _ = self.plans(|p| p.event(topic, data));
         for key in interested {
             self.plan_wake(&key).notify_waiters();
+            self.wake_loops(&key); // a loop step waiting on this event looks now (L31)
         }
+    }
+
+    /// supervisor.py:2072 `owner_stopped_part` (HAND-201): the owner closed a tab FERB holds for a task, or its whole
+    /// group: that counts as the owner stopping that part: the task pauses and FERB asks whether to continue (a loop:
+    /// whether to stop it, Stop / Keep watching).
+    pub async fn owner_stopped_part(&self, data: &Value) -> bool {
+        let task_id = data
+            .get("task_id")
+            .filter(|v| ferb_py::value::truthy(v))
+            .map(ferb_py::value::py_str)
+            .unwrap_or_default();
+        let tree = self.live().tree_of.get(&task_id).cloned();
+        let Some(tree) = tree.filter(|t| t.lock().stop.is_empty()) else {
+            return false;
+        };
+        let group = data.get("part").and_then(Value::as_str) == Some("group");
+        let what = if group {
+            "the task's tab group"
+        } else {
+            "a tab I was using"
+        };
+        let goal = ferb_orchestrator::names::short_label(&tree.spec().goal, 60);
+        let (question, options, capability): (String, Vec<&str>, &str) = if task_id
+            .contains(".loop.")
+        {
+            // a loop holding the owner's own tab names its site, as the loop's own closed-tab question does (L31)
+            let wanted = data
+                .get("tab")
+                .map(ferb_py::value::py_str)
+                .unwrap_or_default();
+            let tab = self
+                .deps
+                .daemon
+                .task_tabs(&task_id)
+                .into_iter()
+                .find(|t| t.get("tab").map(ferb_py::value::py_str) == Some(wanted.clone()))
+                .unwrap_or(Value::Null);
+            let taken = tab
+                .get("taken_over_from")
+                .filter(|v| ferb_py::value::truthy(v));
+            let question = match taken {
+                Some(from) => {
+                    let page = from
+                        .get("url")
+                        .filter(|u| ferb_py::value::truthy(u))
+                        .map(ferb_py::value::py_str)
+                        .unwrap_or_default();
+                    let host = if page.is_empty() {
+                        String::new()
+                    } else {
+                        ferb_py::url::hostname(&page)
+                            .ok()
+                            .flatten()
+                            .unwrap_or_default()
+                    };
+                    format!("The {host} tab you asked me to keep going was closed. Stop this task?")
+                        .replace("The  tab", "The tab")
+                }
+                None => format!("You closed {what} for this: {goal}. Stop this task?"),
+            };
+            (question, vec![LOOP_STOP, LOOP_KEEP], LOOP_ASK)
+        } else {
+            (
+                format!("You closed {what} for this: {goal}. Should I continue?"),
+                vec![CONTINUE, STOP],
+                TASK_ASK,
+            )
+        };
+        self.journal(
+            "task.owner_stopped",
+            json!({"task_id": tree.id, "part": if group { "group" } else { "tab" },
+                   "borrowed": data.get("borrowed").is_some_and(ferb_py::value::truthy)}),
+            None,
+        );
+        self.pause_tree(&tree.id, &question, &options, origin::FERB, capability)
+            .await
     }
 
     /// supervisor.py:5039 `_plan_question`: a plan's ask step (or a delegated conversation's scope approval), through
@@ -2068,47 +2176,54 @@ impl Inner {
 
     /// supervisor.py:6038 `_release_resources`.
     pub async fn release_resources(&self, tree: &Arc<Tree>, parent_span: &str) -> bool {
-        let mut ids = vec![tree.worker.id.clone(), format!("{}.verify", tree.worker.id)];
-        for extra in ["fix", "recheck"] {
-            let tid = format!("{}.{extra}", tree.worker.id);
-            if self.task_known(&tid) {
-                ids.push(tid);
-            }
-        }
+        let mut ids = vec![tree.worker.id.clone()];
+        ids.extend(self.helper_ids(&tree.worker.id));
         let mut observed = false;
         for tid in ids {
-            let span = self.span_start(
-                "task.cleanup",
-                Some(&tid),
-                Some(parent_span),
-                None,
-                json!({"operation": "release task resources"}),
-            );
-            let resources = self.deps.daemon.on_task_end(&tid, &span).await;
-            let errors: Vec<String> = resources
-                .iter()
-                .filter_map(|r| {
-                    r.get("error")
-                        .filter(|e| ferb_py::value::truthy(e))
-                        .map(ferb_py::value::py_str)
-                })
-                .collect();
-            {
-                let mut st = tree.lock();
-                st.resources.extend(resources.clone());
-                st.cleanup_errors.extend(errors.clone());
-            }
-            let error = errors.join("; ");
-            self.span_finish(
-                &span,
-                Some(json!({"resources": resources})),
-                if error.is_empty() { None } else { Some(&error) },
-                None,
-                None,
-            );
-            observed = observed || !resources.is_empty();
+            let released = self.release_task(tree, &tid, parent_span).await;
+            observed = observed || released;
         }
         observed
+    }
+
+    /// supervisor.py:6013 `_release_task`: one task id's resources released, recorded in `tree`'s resources and
+    /// cleanup errors: whether any were observed.
+    pub(crate) async fn release_task(
+        &self,
+        tree: &Arc<Tree>,
+        tid: &str,
+        parent_span: &str,
+    ) -> bool {
+        let span = self.span_start(
+            "task.cleanup",
+            Some(tid),
+            Some(parent_span),
+            None,
+            json!({"operation": "release task resources"}),
+        );
+        let resources = self.deps.daemon.on_task_end(tid, &span).await;
+        let errors: Vec<String> = resources
+            .iter()
+            .filter_map(|r| {
+                r.get("error")
+                    .filter(|e| ferb_py::value::truthy(e))
+                    .map(ferb_py::value::py_str)
+            })
+            .collect();
+        {
+            let mut st = tree.lock();
+            st.resources.extend(resources.clone());
+            st.cleanup_errors.extend(errors.clone());
+        }
+        let error = errors.join("; ");
+        self.span_finish(
+            &span,
+            Some(json!({"resources": resources})),
+            if error.is_empty() { None } else { Some(&error) },
+            None,
+            None,
+        );
+        !resources.is_empty()
     }
 
     /// supervisor.py:5018 `_record_planner_reads`.

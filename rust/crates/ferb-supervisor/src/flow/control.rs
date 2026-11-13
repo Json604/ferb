@@ -337,7 +337,8 @@ impl Inner {
         for member in members {
             member.lock().stop = stop.clone();
         }
-        // (the plan runner and any loop see the stop words at their next look)
+        // (the plan runner sees the stop words at its next look; the tree's loops look now)
+        self.wake_loops(&tree.id);
         self.interrupt(tree, true);
     }
 
@@ -383,6 +384,10 @@ impl Inner {
                     "FERB was stopped".into()
                 };
             }
+        }
+        let looping: Vec<String> = self.live().loop_wakes.keys().cloned().collect();
+        for tree_id in looping {
+            self.wake_loops(&tree_id);
         }
     }
 
@@ -434,6 +439,7 @@ impl Inner {
             self.deps.daemon.publish("task.paused", Value::Object(data));
         }
         self.interrupt(&tree, false);
+        self.wake_loops(tree_id);
         true
     }
 
@@ -1165,7 +1171,7 @@ impl Inner {
         let message = self.redact_text(&message);
         state.messages.push(message.clone());
         let revision = state.messages.len();
-        // (a sleeping loop would read the correction now: loops are not part of this port)
+        self.wake_loops(&tree.id); // a sleeping loop reads the correction now (L31)
         if let Some(span) = self.task_span(&tree.id) {
             {
                 let db = self.db();
@@ -1258,6 +1264,11 @@ impl Inner {
                    "name": ferb_orchestrator::names::shown_name(Some(&tree_spec.name), &tree_spec.goal)}),
         );
         drop(state);
+        if self.live().loop_wakes.contains_key(&tree.id) {
+            // the turn goes on after a suspension point of Python's (its side entries, the reply's record), so a
+            // loop woken above reads the correction and starts its round first, as Python's event loop runs it
+            tokio::task::yield_now().await;
+        }
         let delivered = !active.is_empty() && accepted.iter().all(|a| *a);
         Ok(Some(acknowledgement(
             self.deps.policy.as_ref(),

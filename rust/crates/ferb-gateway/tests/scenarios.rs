@@ -2254,6 +2254,68 @@ fn bare_gateway(events: Arc<Mutex<Vec<(String, Value)>>>) -> (Gateway, tempfile:
     (gw, dir)
 }
 
+/// A task's question in the one store (the supervisor's `_ask_and_wait`): its task, part and flags kept on it; the
+/// published event extended or left to the caller; the same id counter as every other question.
+#[test]
+fn a_tasks_question_lives_in_the_gateways_store() {
+    use ferb_gateway::gateway::{OwnEvent, OwnQuestion};
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let (gw, _dir) = bare_gateway(events.clone());
+    let mut extra = serde_json::Map::new();
+    extra.insert("question_kind".into(), json!("check_in"));
+    let ap = gw.ask_own(&OwnQuestion {
+        capability: "plan.ask".into(),
+        reason: "(from the task) Which file?".into(),
+        options: vec!["a.txt".into(), "b.txt".into()],
+        request_id: "req-1".into(),
+        task_id: "t1".into(),
+        part: "p2".into(),
+        from_task: true,
+        corrects: true,
+        exact: "a.txt".into(),
+        event: OwnEvent::Extend(extra),
+        ..OwnQuestion::default()
+    });
+    assert_eq!(ap.id, "ap-1");
+    assert_eq!((ap.task_id.as_str(), ap.part.as_str()), ("t1", "p2"));
+    assert!(ap.from_task && ap.corrects && !ap.options_only);
+    {
+        let ev = events.lock().unwrap();
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].1["task_id"], "t1");
+        assert_eq!(ev[0].1["question_kind"], "check_in");
+    }
+    let mut switch = serde_json::Map::new();
+    switch.insert("runtime".into(), json!("claude"));
+    let quiet = gw.ask_own(&OwnQuestion {
+        capability: "task.check_in".into(),
+        reason: "Switch?".into(),
+        options: vec!["Yes".into(), "No".into()],
+        request_id: "req-1".into(),
+        task_id: "t1".into(),
+        options_only: true,
+        runtime_switch: Some(switch.clone()),
+        event: OwnEvent::Quiet,
+        ..OwnQuestion::default()
+    });
+    assert_eq!(quiet.id, "ap-2");
+    assert_eq!(
+        events.lock().unwrap().len(),
+        1,
+        "a quiet question publishes nothing"
+    );
+    assert_eq!(gw.approval("ap-2").unwrap().runtime_switch, Some(switch));
+    assert_eq!(gw.question_card("ap-2")["options_only"], json!(true));
+    assert_eq!(gw.pending().len(), 2);
+    gw.resolve("ap-1", true, None, Some("my words")).unwrap();
+    assert!(gw.set_hidden("ap-1", &["password".into()]));
+    assert_eq!(
+        gw.approval("ap-1").unwrap().hidden,
+        vec!["password".to_string()]
+    );
+    assert!(!gw.set_hidden("ap-9", &[]));
+}
+
 #[test]
 fn ferbs_own_questions_are_asked_answered_and_set_aside() {
     use ferb_gateway::gateway::OwnQuestion;
@@ -2268,6 +2330,7 @@ fn ferbs_own_questions_are_asked_answered_and_set_aside() {
         summary: Some("Forget for good?".into()),
         detail: Some("The note about the invented plant.".into()),
         labels: vec!["Forget".into(), "Keep".into()],
+        ..OwnQuestion::default()
     };
     let ap = gw.ask_own(&q);
     assert_eq!(ap.id, "ap-1");

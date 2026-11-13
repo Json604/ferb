@@ -45,7 +45,7 @@ the phone apps share; they reach the Mac's own parts only through traits.
 | Model runtimes: Codex, Claude, APIs, tool bridge | `ferb/runtimes`, `ferb/cli/mcp.py` | 4,876 | `ferb-runtimes` | verified against scripted programs and servers (journal 24); sign-in, keys, checks not started |
 | Orchestration: answer models, plans, ledger, loops, steering, evidence, cards | `ferb/orchestrator` (not supervisor, worker), `ferb/decide` | ~7,300 | `ferb-orchestrator` | verified (journal 33) |
 | Orchestration: the worker and checker | `ferb/orchestrator/worker.py` | 796 | `ferb-worker` | verified (journal 37) |
-| Orchestration: the supervisor | `ferb/orchestrator/supervisor.py` | 7,681 | `ferb-supervisor` | 52 recorded scenarios replay fully (journal 46, 48); about 45 of 282 methods (loops, delegated conversations, attention, preview) not ported |
+| Orchestration: the supervisor | `ferb/orchestrator/supervisor.py` | 7,681 | `ferb-supervisor` | 59 recorded scenarios replay fully (journal 46, 48, 50); about 14 of 282 methods (delegated conversations, plan statements, attention, intro preview) not ported |
 | Time: timers, schedules, waits | `ferb/clock`, `orchestrator/schedules.py` | ~2,000 | `ferb-clock` | verified (journal 19); tz database to settle |
 | Memory: embeddings, search, import parsers | `ferb/memory` (4 files) | ~1,770 | `ferb-memory` | verified (journal 22); needs SQLite 3.53.4+ for trigram tables |
 | Memory: items, profile, learning, distill, playbooks, import job | `ferb/memory` (rest) | ~4,300 | `ferb-learning` | verified (journal 32); card reader process not ported |

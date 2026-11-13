@@ -115,9 +115,22 @@ class _PartsClock:
         return getattr(real.datetime, name)
 
 
+class _Uuids:
+    """`uuid.uuid4()` as a counter (a loop's notice id, notify.py `_loop_notice`), so two runs write the same bytes."""
+
+    n = 0
+
+    def __call__(self) -> Any:
+        import uuid
+        _Uuids.n += 1
+        return uuid.UUID(int=_Uuids.n)
+
+
 def install_stubs() -> None:
+    import uuid
     import ferb.orchestrator.parts as parts_mod
     dm.stub(parts_mod, "datetime", _PartsClock(), "a card row's seq reads the scenario's FakeClock, not the wall clock")
+    dm.stub(uuid, "uuid4", _Uuids(), "a loop notice's id: a counter")
 
 
 def install_tripwire() -> None:
@@ -572,6 +585,182 @@ def mm_earlier_result() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# 9. Loops (L31, ORCH-505, ORCH-322)
+# ---------------------------------------------------------------------------------------------------------------
+
+def loop_round(status: str, answer: str, action: str, **k: Any) -> str:
+    return worker(status, answer, loop_action=action, probe=None, **k)
+
+
+def loop_status(scn: Any, tree: str, step_id: str) -> str:
+    return str(on_loop(scn.host, lambda: scn.host.daemon.supervisor._loop_status.get((tree, step_id), {})).get(
+        "state", ""))
+
+
+def mm_loop_steer_finish() -> dict[str, Any]:
+    """A loop step (`_loop_step` on LoopRunner): its first round carries on and the loop watches (no probe: it waits
+    for a backup check, a correction or an event). The owner's correction in chat (control continue) wakes it
+    (`wake_loops`): the planner's task state shows the running loop (`_loop_facts`); the second round reports the end
+    condition met, a separate check confirms it (`_loop_end_reached`, `_judged`) and the loop, then the task, ends
+    done. Its plan line says how the loop ends (`loop_line`)."""
+    _Uuids.n = 0
+    spec = plan_task("Keep the invented radio playing until the song ends", name="Radio",
+                     plan=plan(step("keep", "Keep the invented radio playing",
+                                    repeat={"end_when": "the invented song ends", "event": None, "event_match": []})))
+    m = Model([planner("task", "Keeping it playing.", spec)],
+              {"loop.keep": [loop_round("done", "Playing.", "continue"),
+                             loop_round("done", "The song ended.", "finished")],
+               "loop.keep.verify": [checker(True), checker(True), checker(True)]})
+    scn = Scenario("loop_steer_finish", "A loop round carries on; the owner's correction wakes the loop; the next "
+                   "round reports the end, a check confirms it, the loop ends done.",
+                   CHAT + [f"{SUP}:5735 _loop_step", f"{SUP}:5677 wake_loops", f"{SUP}:2224 _loop_facts",
+                           f"{SUP}:5956 _loop_end_reached", f"{SUP}:5992 _judged"], m)
+    turn = scn.stream(scn.conn("chat"), "chat.send", {"session_id": "s1", "text": "keep the radio playing"})
+    scn.wait_model("loop.keep")
+    tree = tree_of(scn, "loop.keep")
+    scn.wait("the loop watches", lambda: loop_status(scn, tree, "keep") == "watching")
+    scn.settle()
+    m.script.sup.append(planner("reply", "Checking it again now.", control=control(tree, "continue")))
+    chat_turn(scn, "is it still playing?")
+    scn.end(turn)
+    return scn.finish()
+
+
+def mm_loop_pause_stop() -> dict[str, Any]:
+    """A loop round that needs the owner (its check asks): the loop pauses (`_loop_step`'s wait_owner), says so in a
+    notice (`on_loop_notice`), and asks the round's own question with Stop (`_pause_question`, LOOP_ASK). chat.status
+    shows the paused loop (`loop_statuses`); the owner's Stop ends the loop and its task (`stop_tree`)."""
+    _Uuids.n = 0
+    spec = plan_task("Keep the invented radio playing", name="Radio",
+                     plan=plan(step("keep", "Keep the invented radio playing", repeat={"end_when": "", "event": None, "event_match": []})))
+    m = Model([planner("task", "Keeping it playing.", spec)],
+              {"loop.keep": loop_round("not_done", "", "blocked", reason="The radio tab closed.",
+                                       question="The radio tab closed. Open it again?"),
+               "loop.keep.verify": checker(None, next="ask", question="The radio tab closed. Open it again?")})
+    scn = Scenario("loop_pause_stop", "A loop round needs the owner: the loop pauses, asks with Stop, and the owner's "
+                   "Stop ends it.", CHAT + [f"{SUP}:2205 _pause_question", f"{SUP}:5682 loop_statuses"], m)
+    turn = scn.stream(scn.conn("chat"), "chat.send", {"session_id": "s1", "text": "keep the radio playing"})
+    scn.wait("an approval is pending", lambda: bool(pending_approvals(scn)))
+    scn.settle()
+    app = scn.conn("app")
+    ap = scn.call(app, "chat.status", {})["result"]["approvals"][0]["approval_id"]
+    scn.call(app, "chat.approve", {"approval_id": ap, "granted": True, "choice": 1})
+    scn.end(turn)
+    scn.close(app)
+    return scn.finish()
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# 10. A paused task mentioned the next day, a tab the owner closed, findings on a reason
+# ---------------------------------------------------------------------------------------------------------------
+
+def mm_mention_paused() -> dict[str, Any]:
+    """ORCH-312: a task the owner paused yesterday is mentioned once when they're back (`mention_paused`,
+    `_mention_pause`): Resume / Stop on the pause's one wait; their Stop stops it."""
+    m = Model([planner("task", "On it.", plan_task("Tidy the invented notes", name="Tidy notes"))],
+              {"worker": STALL})
+    scn = Scenario("mention_paused", "A task paused yesterday is mentioned once when the owner is back; Stop "
+                   "stops it.", CHAT + [f"{SUP}:1840 mention_paused", f"{SUP}:1863 _mention_pause"], m)
+    turn, tree = dm.stalled_task(scn, "tidy my notes")
+    m.script.sup.append(planner("reply", "Paused.", control=control(tree, "pause")))
+    chat_turn(scn, "hold on")
+    scn.wait("the task is paused", lambda: dm.row_status(scn, tree) == "paused")
+    scn.settle()
+    scn.advance(90000)
+    on_loop(scn.host, lambda: asyncio.ensure_future(scn.host.daemon.supervisor.mention_paused()))
+    scn.steps.append({"do": "mention_paused"})
+    scn.wait("an approval is pending", lambda: bool(pending_approvals(scn)))
+    scn.settle()
+    app = scn.conn("app")
+    ap = scn.call(app, "chat.status", {})["result"]["approvals"][0]["approval_id"]
+    scn.call(app, "chat.approve", {"approval_id": ap, "granted": True, "choice": 2})
+    scn.end(turn)
+    scn.close(app)
+    return scn.finish()
+
+
+def mm_owner_closed_tab() -> dict[str, Any]:
+    """HAND-201: the owner closed a tab FERB held for a task (`browser.owner_stopped`, `notify_plan_event` ->
+    `owner_stopped_part`): the task pauses and FERB asks whether to continue; their Stop stops it."""
+    m = Model([planner("task", "On it.", plan_task("Read the invented recipe page", name="Recipe"))],
+              {"worker": STALL})
+    scn = Scenario("owner_closed_tab", "The owner closes a tab the task held: it pauses and asks; Stop stops it.",
+                   CHAT + [f"{SUP}:2072 owner_stopped_part", f"{SUP}:2307 notify_plan_event"], m)
+    turn, tree = dm.stalled_task(scn, "read the recipe page")
+    data = {"task_id": tree, "tab": "t1", "part": "tab", "borrowed": False}
+    on_loop(scn.host, lambda: scn.host.daemon.supervisor.notify_plan_event("browser.owner_stopped", data))
+    scn.steps.append({"do": "plan_event", "topic": "browser.owner_stopped", "data": data})
+    scn.wait("an approval is pending", lambda: bool(pending_approvals(scn)))
+    scn.settle()
+    app = scn.conn("app")
+    ap = scn.call(app, "chat.status", {})["result"]["approvals"][0]["approval_id"]
+    scn.call(app, "chat.approve", {"approval_id": ap, "granted": True, "choice": 2})
+    scn.end(turn)
+    scn.close(app)
+    return scn.finish()
+
+
+def mm_reason_findings() -> dict[str, Any]:
+    """ORCH-562: the worker reports not done with a reason; the checker fails it with a finding quoting a sentence of
+    that reason: code marks or removes the quoted sentence of the reason (`_worker`'s findings on a reason)."""
+    reason = "The invented shop's page didn't load. The shop closed for good last year."
+    m = Model([planner("task", "On it.", plan_task("Find the invented shop's opening hours", name="Shop hours"))],
+              {"worker": worker("not_done", "", reason=reason),
+               "worker.verify": checker(None, next="fail", reason=reason, findings=[
+                   ("The shop closed for good last year.", "unsupported", "Nothing read says it closed.")]),
+               "worker.fix": json.dumps({"answer": ""}), "worker.recheck": json.dumps({"findings": []})})
+    scn = Scenario("reason_findings", "A not-done report's reason with a finding: code settles the quoted sentence.",
+                   CHAT + [f"{SUP}:6135 _worker (ORCH-562)"], m)
+    chat_turn(scn, "find the shop's opening hours")
+    return scn.finish()
+
+
+def mm_runtime_switch_tap() -> dict[str, Any]:
+    """ORCH-315: the worker's runtime reports its usage limit; FERB offers the other signed-in runtimes in place
+    (`_service_down`, `runtime_offer`); the app's one tap answers it (`answer_runtime_switch`, the daemon's
+    `runtimes.switch_task`) and the task carries on with that runtime."""
+    m = Model([planner("task", "On it.", plan_task("Count the invented files", name="File count"))],
+              {"worker": [usage_limit(), worker("done", "There are 3 files.")], "worker.verify": checker(True)})
+    scn = Scenario("runtime_switch_tap", "The worker's runtime hits its usage limit; the app's one tap switches the "
+                   "task's runtime and it carries on.", CHAT + [f"{SUP}:6727 runtime_offer",
+                                                              f"{SUP}:6733 answer_runtime_switch"], m)
+    turn = scn.stream(scn.conn("chat"), "chat.send", {"session_id": "s1", "text": "count my files"})
+    scn.wait("an approval is pending", lambda: bool(pending_approvals(scn)))
+    scn.settle()
+    tree = tree_of(scn, "worker")
+    sup = scn.host.daemon.supervisor
+    offer = on_loop(scn.host, lambda: sup.runtime_offer(tree))
+    runtime = str((offer or {}).get("choices", ["none"])[0])
+    answered = on_loop(scn.host, lambda: sup.answer_runtime_switch(tree, runtime))
+    scn.steps.append({"do": "runtime_switch", "task_id": tree, "runtime": runtime, "offer": offer,
+                      "answered": answered})
+    scn.end(turn)
+    return scn.finish()
+
+
+def mm_event_wait() -> dict[str, Any]:
+    """A plan's wait step for an event (plan_executor `_wait` on `wakes_on`): the event reaches the supervisor
+    (`notify_plan_event`: stored for the plan that waits on it, which wakes), the step ends and the next runs."""
+    s1 = step("hold", "Wait for the invented download to finish", kind="wait")
+    s1["event"] = "browser.download_finished"
+    spec = plan_task("Wait for the invented download then open it", name="Download",
+                     plan=plan(s1, step("open", "Open the downloaded file", depends_on=["hold"])))
+    m = Model([planner("task", "Waiting for the download.", spec)],
+              {"step.open": worker("done", "Opened it."), "step.open.verify": checker(True)})
+    scn = Scenario("event_wait", "A plan's wait step for an event; the event wakes it and the next step runs.",
+                   CHAT + [f"{SUP}:2307 notify_plan_event", "ferb/orchestrator/plan_executor.py:47 _wait"], m)
+    turn = scn.stream(scn.conn("chat"), "chat.send", {"session_id": "s1", "text": "open the download when it's done"})
+    scn.wait("the plan waits", lambda: bool(on_loop(scn.host, lambda: list(
+        scn.host.daemon.supervisor._plan_runs))))
+    scn.settle()
+    data = {"download_id": "d1", "file": "invented.pdf"}
+    on_loop(scn.host, lambda: scn.host.daemon.supervisor.notify_plan_event("browser.download_finished", data))
+    scn.steps.append({"do": "plan_event", "topic": "browser.download_finished", "data": data})
+    scn.end(turn)
+    return scn.finish()
+
+
+# ---------------------------------------------------------------------------------------------------------------
 # Output, as make_control.py writes it
 # ---------------------------------------------------------------------------------------------------------------
 
@@ -610,7 +799,9 @@ def write(name: str, value: Any) -> int:
 
 SCENARIOS = [mm_summary_fold, mm_several_asks, mm_plan_parts_checklist, mm_remember_then_forget, mm_answer_in_chat,
              mm_checklist_single, mm_ask_step, mm_wait_step, mm_route_question, mm_checker_runtime_down,
-             mm_last_call_empty, mm_unbacked_part, mm_correct_pending_check, mm_earlier_result]
+             mm_last_call_empty, mm_unbacked_part, mm_correct_pending_check, mm_earlier_result,
+             mm_loop_steer_finish, mm_loop_pause_stop, mm_mention_paused, mm_owner_closed_tab, mm_reason_findings,
+             mm_runtime_switch_tap, mm_event_wait]
 
 
 def main() -> None:

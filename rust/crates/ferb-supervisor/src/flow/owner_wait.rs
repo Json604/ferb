@@ -76,6 +76,24 @@ impl std::fmt::Debug for Asked {
     }
 }
 
+/// A gateway question as the waiting step reads it back.
+pub fn asked_of(ap: &ferb_gateway::questions::Approval) -> Asked {
+    Asked {
+        id: ap.id.clone(),
+        capability: ap.capability.clone(),
+        kind: ap.kind.clone(),
+        request_id: ap.request_id.clone(),
+        task_id: ap.task_id.clone(),
+        state: ap.state.as_str().into(),
+        options: ap.options.clone(),
+        choice: ap.choice.clone(),
+        answer: ap.answer.clone(),
+        hidden: ap.hidden.clone(),
+        options_only: ap.options_only,
+        corrects: ap.corrects,
+    }
+}
+
 /// The gateway's questions for the owner (`state.approvals`), as the supervisor uses them.
 pub trait Questions: Send + Sync {
     /// `approvals.question(...)` with the fields of `ask` set: the new question's id.

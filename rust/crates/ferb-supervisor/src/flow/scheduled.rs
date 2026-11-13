@@ -21,8 +21,10 @@ use ferb_sanitize::origin;
 use rusqlite::types::Value as Sql;
 use serde_json::{json, Map, Value};
 
-use super::{Failure, Flow, Inner, Request, Turn};
-use crate::words::{NO_OUTCOME, SCHEDULE_MESSAGES};
+use super::{Failure, Flow, Inner, Request, Tree, Turn};
+use crate::words::{
+    NO_OUTCOME, PAUSED_MENTION, PAUSED_SINCE, RESUME, SCHEDULE_MESSAGES, STOP, STOP_LABEL, TASK_ASK,
+};
 use crate::NotPorted;
 
 /// Python's `t.overdue_s or 0` (areas/schedules.py:153): a timer due now carries the int 0, a late one its float.
@@ -541,9 +543,134 @@ impl Inner {
             .any(|j| !j.is_finished())
     }
 
-    /// supervisor.py:1840 `mention_paused` (ORCH-312): not ported (the day's paused-task mentions).
+    /// supervisor.py:1840 `mention_paused` (ORCH-312): when the owner is back at the Mac, each task they paused on an
+    /// earlier day, not mentioned yet today, is mentioned once on its pause's one wait (Resume / Stop). At most once a
+    /// day per task (journaled `task.pause_mentioned`); an unanswered mention is replaced, never stacked. A pause that
+    /// already asks something, or a tree with another open question, is shown already.
     pub async fn mention_paused(&self) -> Result<(), NotPorted> {
-        Err(NotPorted("Supervisor.mention_paused"))
+        let zone = self.deps.clock.zone();
+        let now = self.now();
+        let today = zone.date(&now);
+        let pauses: Vec<(String, Arc<super::owner_wait::Wait>)> = self
+            .live()
+            .pauses
+            .iter()
+            .map(|(k, w)| (k.clone(), w.clone()))
+            .collect();
+        for (tree_id, wait) in pauses {
+            let tree = self.live().tree_of.get(&tree_id).cloned();
+            let Some(tree) = tree else { continue };
+            let opened = wait.lock().opened;
+            if !tree.lock().stop.is_empty()
+                || !wait.question.is_empty()
+                || !opened
+                || self.live().suspending
+            {
+                continue;
+            }
+            let mentioned = wait.lock().extra.get("mention").map(ferb_py::value::py_str);
+            let asked = self.live().questions.get(&tree_id).cloned();
+            if asked.as_ref().is_some_and(|q| !q.is_empty()) && asked != mentioned {
+                continue; // another question of this task is open: it shows
+            }
+            let marks: Vec<ferb_clock::py::Time> = ["task.paused", "task.pause_mentioned"]
+                .iter()
+                .flat_map(|k| self.of_kind(k, "task_id", &tree_id, None))
+                .filter_map(|e| ferb_clock::py::parse(&e.at))
+                .collect();
+            let Some(last) = marks.iter().max() else {
+                continue;
+            };
+            if zone.date(last) >= today {
+                continue; // paused today, or already mentioned today
+            }
+            self.mention_pause(&tree, &wait);
+        }
+        Ok(())
+    }
+
+    /// supervisor.py:1863 `_mention_pause`: ask on a paused tree's wait whether to resume, replacing an earlier
+    /// unanswered mention (the new question goes on the wait first).
+    fn mention_pause(&self, tree: &Arc<Tree>, wait: &Arc<super::owner_wait::Wait>) {
+        let Some(questions) = self.deps.daemon.questions() else {
+            return;
+        };
+        let task = &tree.worker;
+        let goal = tree.spec().goal;
+        let question =
+            PAUSED_MENTION.replace("{goal}", &ferb_orchestrator::names::short_label(&goal, 60));
+        let options: Vec<String> = [RESUME, STOP]
+            .iter()
+            .map(|o| ferb_policy::confirm::from_task(o))
+            .collect();
+        let paused: Vec<ferb_clock::py::Time> = self
+            .of_kind("task.paused", "task_id", &tree.id, None)
+            .iter()
+            .filter_map(|e| ferb_clock::py::parse(&e.at))
+            .collect();
+        let detail = paused
+            .iter()
+            .max()
+            .map(|at| {
+                PAUSED_SINCE.replace(
+                    "{day}",
+                    &crate::lines::day(at, &self.now(), &self.deps.clock.zone()),
+                )
+            })
+            .unwrap_or_default();
+        let row = self.part_of(&tree.id, &tree.step_id);
+        let ask = super::owner_wait::Ask {
+            capability: TASK_ASK.into(),
+            task_id: task.id.clone(),
+            request_id: task.request_id.clone(),
+            question: question.clone(),
+            options: options.clone(),
+            part: row.as_ref().map(|(_, p)| p.id.clone()).unwrap_or_default(),
+            options_only: true, // ORCH-536: Resume or Stop, never typed words
+            detail,
+            labels: vec![RESUME.into(), STOP_LABEL.into()],
+            ..super::owner_wait::Ask::default()
+        };
+        let id = questions.ask(&ask);
+        let earlier = {
+            let mut st = wait.lock();
+            st.extra.insert("mention".into(), json!(question));
+            st.approval.replace(id.clone())
+        };
+        self.live()
+            .questions
+            .insert(tree.id.clone(), question.clone());
+        if let Some(earlier) = earlier {
+            if questions.supersede(&earlier) {
+                self.deps.daemon.publish(
+                    "approval.resolved",
+                    json!({"approval_id": earlier, "state": "superseded"}),
+                );
+            }
+        }
+        self.journal(
+            "task.pause_mentioned",
+            json!({"task_id": tree.id, "approval_id": id, "question": question}),
+            Some(origin::FERB),
+        );
+        let mut data = obj(
+            json!({"approval_id": id, "capability": TASK_ASK, "kind": "owner_question",
+            "reason": question, "options": options, "task_id": task.id, "request_id": task.request_id,
+            "question_kind": "paused"}),
+        );
+        data.extend(questions.card(&id));
+        if let Some((_, part)) = &row {
+            data.insert("part".into(), json!(part.id));
+        }
+        self.deps
+            .daemon
+            .publish("approval.requested", Value::Object(data));
+        if let Some((card, part)) = &row {
+            let shown = json!({"approval_id": id, "text": question, "options": options});
+            self.with_card(&tree.id, card, |c| {
+                c.show(part, "asks", vec![("question", shown)])
+            });
+        }
     }
 
     /// supervisor.py:4294 `forget_pending`: a chat whose pending clarifying question still holds a forgotten item's

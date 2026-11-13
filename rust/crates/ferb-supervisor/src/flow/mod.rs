@@ -16,13 +16,15 @@
 //!
 //! Also: the running summary's fold ([`fold`]), several asks and their card ([`card`]), an answer routed to an open
 //! question and a worker's question routed by the orchestrator ([`answer`]), the memory and forget side entries
-//! ([`memory_side`]), earlier results ([`results`]); in [`tree`] the ask and wait steps, `notify_plan_event`; in
-//! [`attempt`] the checker's runtime trouble; in [`turn`] the planner's last call and `_unbacked_parts`.
+//! ([`memory_side`]), earlier results ([`results`]), loops ([`loops`]: the round, pacing, pause and stop, statuses,
+//! waking on events); in [`tree`] the ask and wait steps, `notify_plan_event`, `owner_stopped_part`; in [`attempt`]
+//! the checker's runtime trouble and the findings round on a not-done reason; in [`turn`] the planner's last call and
+//! `_unbacked_parts`; in [`scheduled`] `mention_paused`; in [`steps`] `preview_status`.
 //!
 //! Not ported here (each answers [`crate::NotPorted`] by its Python name): plans that state a big job or standing
-//! sends, loops, delegated conversations (and conversation changes), the image-refused rerun, the front window at
-//! send, `_browse_as`, inventory walks, the intro preview, `mention_paused`, a revised standing scope in a
-//! correction, the start-of-task screenshot, the findings round on a not-done reason.
+//! sends and a revised standing scope in a correction, delegated conversations (and conversation changes), the
+//! image-refused rerun, the front window at send and `_by_window`, the start-of-task screenshot, `_browse_as`,
+//! inventory walks, the intro preview.
 
 pub mod answer;
 pub mod attempt;
@@ -30,6 +32,7 @@ pub mod card;
 pub mod chat;
 pub mod fold;
 pub mod host;
+pub mod loops;
 pub mod memory_side;
 pub mod store;
 pub mod tree;
@@ -381,6 +384,53 @@ pub trait Daemon: Send + Sync {
     fn question_answered(&self, _approval: &ferb_gateway::questions::Approval) -> String {
         String::new()
     }
+
+    // --- loops (loops.rs, L31) ---
+    /// The browser drivers' `on_loop_rest(task_id, resting)`: a loop's round starts (false) or ends (true), so the
+    /// owner's held tab is FERB's during a round and theirs between rounds. An error is journaled, never fatal.
+    fn loop_rest<'a>(
+        &'a self,
+        _task_id: &'a str,
+        _resting: bool,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+    /// notify.py `_loop_notice(tree_id, step_id, text, origin)`: a loop's pause or back-off notice in the owner's chat
+    /// (`_tell_owner`: an attention notice journaled `chat.notice` and published, a banner while the notch isn't
+    /// showing it). An error is journaled, never fatal.
+    fn loop_notice<'a>(
+        &'a self,
+        _tree_id: &'a str,
+        _step_id: &'a str,
+        _text: &'a str,
+        _origin: &'a str,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+    /// `gateway.caps.get(tool)` as a probe's checks read it (`probes.refusal`); None: not a FERB tool here.
+    fn probe_cap(&self, _tool: &str) -> Option<Arc<dyn ferb_orchestrator::ports::CapFacts>> {
+        None
+    }
+    /// `gateway.probe(RunGrant(task_id, worker_id, scopes, identity, inf, observe_only=True), tool, args, span)`: a
+    /// loop's probe read without a model, `{is_error, content, origins}`; Err: the read raised (its words).
+    #[allow(clippy::too_many_arguments)]
+    fn probe_read<'a>(
+        &'a self,
+        _task_id: &'a str,
+        _worker_id: &'a str,
+        _scopes: &'a BTreeSet<String>,
+        _identity: &'a str,
+        _tool: &'a str,
+        _args: &'a Map<String, Value>,
+        _span: &'a str,
+    ) -> BoxFuture<'a, Result<Value, String>> {
+        Box::pin(async { Err("no probe reads here".to_string()) })
+    }
+    /// `changes.reset(task_id)` (L39): a loop round's check reads only the files this round changed; the paths whose
+    /// records couldn't be cleared.
+    fn changes_reset(&self, _task_id: &str) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// Where a subscribed bus event goes: (topic, data).
@@ -520,7 +570,7 @@ pub struct Start {
 
 /// One task tree or plan step as its attempt loop runs it (supervisor.py:892 `_Tree`): the fields the forward path
 /// reads and writes.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct TreeState {
     pub spec: Option<TaskSpec>,
     pub outcome: Option<Outcome>,
@@ -588,6 +638,18 @@ pub struct TreeState {
     pub restored_wait: Map<String, Value>,
     /// A restart came during the step's fix round (ORCH-545): what the plan row kept (`restored_fix`).
     pub restored_fix: Map<String, Value>,
+    /// A loop round's worker: continue / finished / blocked (L31).
+    pub loop_action: Option<String>,
+    /// A loop round's probe, as its worker reported it.
+    pub probe: Option<ferb_orchestrator::models::Probe>,
+    /// A delegated conversation's turn: its worker's action.
+    pub conversation_action: Option<String>,
+    /// A loop round: what it starts stays the loop's until the loop ends (L31).
+    pub hold_resources: bool,
+    /// A loop round: its check reads only the calls recorded after this span cursor (a rowid).
+    pub calls_since: i64,
+    /// A loop round that only looked (`_look_only`): why its model check was skipped (L31).
+    pub unchecked: String,
 }
 
 /// A tree (or a plan step's member tree): its ids, its state and the corrections it shares with its root.
@@ -642,6 +704,14 @@ pub struct Live {
     pub plan_wakes: HashMap<String, Arc<tokio::sync::Notify>>,
     /// `_answer_focus`: chat -> what FERB itself just asked it about an answer (answer.rs).
     pub answer_focus: HashMap<String, answer::Focus>,
+    /// `_loops`: tree id -> the wakes of its running loops (loops.rs).
+    pub loop_wakes: HashMap<String, Vec<Arc<ferb_orchestrator::loops::Wake>>>,
+    /// `_loop_status`: (tree id, step id) -> its last `loop.status`, in the order the loops first reported.
+    pub loop_status: Vec<((String, String), Map<String, Value>)>,
+    /// `_resting`: loop task ids between rounds (L31).
+    pub resting: BTreeSet<String>,
+    /// `_answer_checks`: (tree id, step id) -> an answering loop's or conversation's end check of the task's conditions.
+    pub answer_checks: Vec<((String, String), Map<String, Value>)>,
 }
 
 /// The supervisor. Cheap to clone; every flow runs on a shared [`Inner`].

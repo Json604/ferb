@@ -12,8 +12,9 @@
 //! - [`flow`] (feature `store`): the forward path a chat message takes, from its arrival to its result: intake and
 //!   the planner's decision, routing (a reply, a question, a task), the plan run, the worker and checker round and the
 //!   task's end, on FERB's store, reaching the worker (ferb-worker), the runtimes and the rest of FERB through
-//!   [`flow::Daemon`]. Control of running work, suspend and resume, restart recovery, scheduled runs, waits for the
-//!   owner, loops, conversations and the side entries answer [`NotPorted`] by their Python names.
+//!   [`flow::Daemon`]: control of running work, suspend and resume, restart recovery, scheduled runs, waits for the
+//!   owner, loops and the side entries. What is not ported (delegated conversations among it) answers [`NotPorted`]
+//!   by its Python name.
 //!
 //! The composition is portable and touches no store; the flows read and write the Mac's SQLite store through
 //! ferb-orchestrator's stores, as the Python supervisor does.

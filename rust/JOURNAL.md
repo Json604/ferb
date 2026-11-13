@@ -1224,3 +1224,28 @@ agent killed itself (its own processes) and whose homes it removed. Checked by t
 the store clean-up preview, the hearing probe. Not started: `_remember`, the disturbance sentinel, the front
 window at send, the memory push, literal checks, the task-browser tab drivers' composition, standing permissions
 (the gateway exposes no public store for them). `ferb-rpc`'s `RunTokens` cannot take an injected token source.
+
+## 2026-11-13 · 50 · The supervisor's loops; one question store
+
+**What.** Loops in the supervisor (`flow/loops.rs`: pacing, rounds, pause and stop, statuses, waking on events) on
+a thread-safe form of `ferb-orchestrator`'s runner (`LoopRunner<'a, R, H>` with default type parameters, so the
+old name is unchanged, and `LoopRunnerShared`). FERB's own task questions moved out of the supervisor's second
+store into the gateway's (`OwnQuestion` gained the task question's fields and an `OwnEvent`), so one store holds
+every question and no id counter is shared by hand. Also `mention_paused`, `owner_stopped_part`,
+`preview_status`, findings on a not-done reason, the runtime offer and its answer, the event-wait step.
+
+**Evidence.** 7 new recordings from the Python daemon replay fully (loop_steer_finish, loop_pause_stop,
+mention_paused, owner_closed_tab, reason_findings, runtime_switch_tap, event_wait): 59 scenarios in all. Two
+recorder runs wrote the same bytes. Format, clippy and the iOS check pass for the supervisor and
+`ferb-orchestrator`; `ferb-gateway`'s tests pass (run by the porting agent).
+
+**Fixed against Python.** The forget question in chat said "(from the task) FERB deletes:"; FERB's own heading is
+no longer tagged as the task's (the same kind as GATE-581).
+
+**Open.** About 14 of 282 methods still answer `NotPorted`: delegated conversations (they need the same
+thread-safe form `run_conversation` lacks), a big job's plan statement and standing scope, `_browse_as`, the
+front window at send, the start-of-task screenshot, the image-refused rerun, inventory walks, the intro's
+preview, attention, a correction updating the worker's goal. About 6 ported but unverified (probes, `_look_only`,
+sites named elsewhere). `ferbd` must implement the new seams (`loop_rest`, `loop_notice`, `probe_cap`,
+`probe_read`, `changes_reset`) and switch to the gateway's question store. The method counts were made by hand.
+The fixture folder is 5.6 MB.

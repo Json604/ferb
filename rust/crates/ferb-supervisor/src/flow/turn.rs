@@ -110,8 +110,40 @@ struct Decided {
 struct Side {
     events: Vec<Value>,
     lines: Vec<String>,
+    /// The places in `lines` of lines FERB wrote whole (see [`own_tagged`]).
+    own: Vec<usize>,
     refused: Vec<(String, String)>,
     cards: Vec<Value>,
+}
+
+/// Code's lines under a reply as the owner reads them: a line that reads like FERB's own check is marked as the
+/// task's (`confirm.from_task_lines`, D33), except FERB's own heading of a line it wrote whole (`own`: a forget's
+/// question, whose "FERB deletes: ..." is code's words, not the task's). `redacted` is `lines` joined and redacted;
+/// when redaction changed how many lines there are, every line is tagged as before.
+///
+/// Fixed against Python (GATE-581's kind): supervisor.py `_exit` tagged every code line, so the forget question said
+/// "(from the task) FERB deletes:", marking FERB's own words as the task's.
+fn own_tagged(redacted: &str, lines: &[String], own: &[usize]) -> String {
+    let shown: Vec<&str> = redacted.split('\n').collect();
+    let counts: Vec<usize> = lines.iter().map(|l| l.split('\n').count()).collect();
+    if counts.iter().sum::<usize>() != shown.len() {
+        return ferb_policy::confirm::from_task_lines(redacted);
+    }
+    let mut out = Vec::with_capacity(shown.len());
+    let mut at = 0;
+    for (i, n) in counts.into_iter().enumerate() {
+        for (k, line) in shown[at..at + n].iter().enumerate() {
+            // the second line of a forget's question is code's heading of what goes ("FERB deletes: “…”"); the
+            // memory's own words sit inside its quotes, never at the line's start
+            if own.contains(&i) && k == 1 && line.starts_with("FERB deletes: ") {
+                out.push(line.to_string());
+            } else {
+                out.push(ferb_policy::confirm::from_task(line));
+            }
+        }
+        at += n;
+    }
+    out.join("\n")
 }
 
 /// supervisor.py:427 `_carries_more`: whether a planner turn carries anything besides an answer.
@@ -1833,6 +1865,9 @@ impl Inner {
                 })
                 .collect();
             let (paused, question) = self.paused_view(&tree.id); // owner_wait.rs
+            let loops = self.loop_facts(&tree.id);
+            let asleep = self.live().sleeping.get(&tree.id).cloned();
+            let preview = self.preview_status(&tree.id, "");
             let st = tree.lock();
             let spec = st.spec.clone().expect("a spec");
             let steps = if spec.plan.is_some() {
@@ -1854,13 +1889,13 @@ impl Inner {
                 reports: st.reports.len(),
                 last_report: st.reports.last().cloned(),
                 steps,
-                loops: Vec::new(),
+                loops,
                 paused,
                 question,
                 cards,
                 last_step: self.runs.last_step(&tree.id),
-                asleep: None,
-                preview: None,
+                asleep,
+                preview,
                 goals: spec.plan.as_ref().map(|p| {
                     p.steps
                         .iter()
@@ -2293,6 +2328,7 @@ impl Inner {
         }
         refused.extend(memory.stopped);
         refused.extend(timers.stopped);
+        let own = memory.own;
         let mut lines = memory.saved;
         lines.extend(changed);
         lines.extend(timers.set_lines);
@@ -2300,6 +2336,7 @@ impl Inner {
         Ok(Side {
             events,
             lines,
+            own,
             refused,
             cards,
         })
@@ -2436,8 +2473,11 @@ impl Inner {
         }
         let mut code_lines = String::new();
         if !effects.lines.is_empty() {
-            code_lines =
-                ferb_policy::confirm::from_task_lines(&self.redact_text(&effects.lines.join("\n")));
+            code_lines = own_tagged(
+                &self.redact_text(&effects.lines.join("\n")),
+                &effects.lines,
+                &effects.own,
+            );
             said = format!("{}\n{code_lines}", said.trim_end());
         }
         let written = if let Some(made) = made {

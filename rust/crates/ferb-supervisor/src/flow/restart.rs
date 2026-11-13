@@ -246,7 +246,15 @@ impl Inner {
             {
                 continue;
             }
-            // (a loop resting between rounds is restart-safe too: loops are not part of this port)
+            // a loop resting between rounds is restart-safe too (L31)
+            if step.is_some_and(|s| s.loops())
+                && self
+                    .live()
+                    .resting
+                    .contains(&format!("{tree_id}.loop.{key}"))
+            {
+                continue;
+            }
             return false;
         }
         true

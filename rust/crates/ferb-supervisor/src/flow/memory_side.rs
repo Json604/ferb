@@ -30,6 +30,9 @@ pub(crate) struct MemorySide {
     pub events: Vec<Value>,
     /// code's lines: what was saved, and each forget's line, in the order they were made
     pub saved: Vec<String>,
+    /// The places in `saved` of lines FERB wrote whole (a forget's question): its own words are never tagged as the
+    /// task's (GATE-581's kind; fixed against Python, which tagged "FERB deletes:").
+    pub own: Vec<usize>,
     pub cards: Vec<Value>,
     pub unsaved: Vec<(String, String)>,
     pub stopped: Vec<(String, String)>,
@@ -394,6 +397,7 @@ impl Inner {
                 )
             };
             side.events.push(json!({"type": "memory", "text": line}));
+            side.own.push(side.saved.len());
             side.saved.push(line);
         }
         Ok(side)

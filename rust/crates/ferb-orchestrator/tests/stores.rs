@@ -976,10 +976,27 @@ fn parts_case(w: &World, c: &mut Check, sc: &Value) {
     }
 }
 
-/// The `loop_state` store (loops.py `LoopStore`) on the scenario's store.
-struct LoopRows {
-    db: &'static Db,
+/// The `loop_state` store (loops.py `LoopStore`) on the scenario's store: through the scenario's own connection, or
+/// (the shared runner, which needs rows it can reach from any thread) a second connection to the same file.
+struct LoopRows<D: LoopDb = &'static Db> {
+    db: D,
     now: Arc<dyn Fn() -> String + Send + Sync>,
+}
+
+trait LoopDb {
+    fn with<T>(&self, f: impl FnOnce(&rusqlite::Connection) -> T) -> T;
+}
+
+impl LoopDb for &'static Db {
+    fn with<T>(&self, f: impl FnOnce(&rusqlite::Connection) -> T) -> T {
+        f(self.conn())
+    }
+}
+
+impl LoopDb for Mutex<Db> {
+    fn with<T>(&self, f: impl FnOnce(&rusqlite::Connection) -> T) -> T {
+        f(self.lock().unwrap().conn())
+    }
 }
 
 const LOOP_FIELDS: &[&str] = &[
@@ -995,22 +1012,22 @@ const LOOP_FIELDS: &[&str] = &[
     "steer_seen",
 ];
 
-impl loops::LoopRows for LoopRows {
+impl<D: LoopDb> loops::LoopRows for LoopRows<D> {
     fn load(&self, task_id: &str, step_id: &str, steers: i64, cursor: i64) -> Map<String, Value> {
-        self.db
-            .conn()
-            .execute(
+        self.db.with(|conn| {
+            conn.execute(
                 "INSERT OR IGNORE INTO loop_state(task_id,step_id,steer_seen,event_cursor,updated_at) VALUES(?,?,?,?,?)",
                 rusqlite::params![task_id, step_id, steers, cursor, (self.now)()],
             )
             .unwrap();
-        sql::row(
-            self.db.conn(),
-            "SELECT * FROM loop_state WHERE task_id=? AND step_id=?",
-            &[Sql::Text(task_id.into()), Sql::Text(step_id.into())],
-        )
-        .unwrap()
-        .unwrap()
+            sql::row(
+                conn,
+                "SELECT * FROM loop_state WHERE task_id=? AND step_id=?",
+                &[Sql::Text(task_id.into()), Sql::Text(step_id.into())],
+            )
+            .unwrap()
+            .unwrap()
+        })
     }
     fn save(&self, task_id: &str, step_id: &str, values: &[(&str, Value)]) {
         assert!(values.iter().all(|(k, _)| LOOP_FIELDS.contains(k)));
@@ -1019,23 +1036,30 @@ impl loops::LoopRows for LoopRows {
         params.push(Sql::Text((self.now)()));
         params.push(Sql::Text(task_id.into()));
         params.push(Sql::Text(step_id.into()));
-        sql::exec(
-            self.db.conn(),
-            &format!(
-                "UPDATE loop_state SET {}, updated_at=? WHERE task_id=? AND step_id=?",
-                sets.join(", ")
-            ),
-            &params,
-        )
-        .unwrap();
+        self.db
+            .with(|conn| {
+                sql::exec(
+                    conn,
+                    &format!(
+                        "UPDATE loop_state SET {}, updated_at=? WHERE task_id=? AND step_id=?",
+                        sets.join(", ")
+                    ),
+                    &params,
+                )
+            })
+            .unwrap();
     }
     fn texts(&self, task_id: &str, step_id: &str) -> (String, String) {
-        match sql::row(
-            self.db.conn(),
-            "SELECT recent_json, note FROM loop_state WHERE task_id=? AND step_id=?",
-            &[Sql::Text(task_id.into()), Sql::Text(step_id.into())],
-        )
-        .unwrap()
+        match self
+            .db
+            .with(|conn| {
+                sql::row(
+                    conn,
+                    "SELECT recent_json, note FROM loop_state WHERE task_id=? AND step_id=?",
+                    &[Sql::Text(task_id.into()), Sql::Text(step_id.into())],
+                )
+            })
+            .unwrap()
         {
             Some(r) => (sql::col(&r, "recent_json"), sql::col(&r, "note")),
             None => ("[]".into(), String::new()),
@@ -1175,9 +1199,18 @@ impl loops::LoopHost for LoopHost {
     }
 }
 
-fn loops_case(w: &World, c: &mut Check, sc: &Value) {
+/// The runner's future must be `Send` for a loop to run inside a task that moves between threads.
+fn sendable<F: std::future::Future + Send>(f: F) -> F {
+    f
+}
+
+fn loops_case(w: &World, c: &mut Check, sc: &Value, shared: bool) {
     let rows = LoopRows {
         db: w.db,
+        now: w.now_fn(),
+    };
+    let shared_rows = LoopRows {
+        db: Mutex::new(Db::open(w.db.path()).unwrap()),
         now: w.now_fn(),
     };
     let probe = Probe {
@@ -1256,8 +1289,25 @@ fn loops_case(w: &World, c: &mut Check, sc: &Value) {
         let a = &st["args"];
         let got = match st["op"].as_str().unwrap() {
             "run" => {
-                let mut runner = loops::LoopRunner::new(&rows, &host, "t1", step.clone(), 4);
-                Value::Object(rt.block_on(runner.run()))
+                if shared {
+                    let mut runner = loops::LoopRunnerShared::new(
+                        &shared_rows as &(dyn loops::LoopRows + Send + Sync),
+                        &host as &(dyn loops::LoopHost + Send + Sync),
+                        "t1",
+                        step.clone(),
+                        4,
+                    );
+                    Value::Object(rt.block_on(sendable(runner.run())))
+                } else {
+                    let mut runner = loops::LoopRunner::new(
+                        &rows as &dyn loops::LoopRows,
+                        &host as &dyn loops::LoopHost,
+                        "t1",
+                        step.clone(),
+                        4,
+                    );
+                    Value::Object(rt.block_on(runner.run()))
+                }
             }
             "log" => Value::Array(host.log.lock().unwrap().clone()),
             "texts" => {
@@ -2203,6 +2253,29 @@ fn chat_history_case(w: &World, c: &mut Check, sc: &Value) {
     }
 }
 
+/// The loop scenario again through `LoopRunnerShared` (its rows and host shared between threads, its run a `Send`
+/// future): the same rounds, reads, notices and rows.
+#[test]
+fn loops_match_python_through_the_shared_runner() {
+    let all = fixture("stores.json");
+    let scenario = all
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["name"] == "loops")
+        .unwrap();
+    let (_dir, w) = open_world(scenario);
+    let mut c = Check {
+        name: "loops (shared)".into(),
+        differ: vec![],
+        count: 0,
+    };
+    loops_case(&w, &mut c, scenario, true);
+    c.tables(scenario, w.db, &w.root);
+    assert!(c.count > 0);
+    assert!(c.differ.is_empty(), "{}", c.differ.join("\n"));
+}
+
 #[test]
 fn stores_match_python() {
     let all = fixture("stores.json");
@@ -2224,7 +2297,7 @@ fn stores_match_python() {
             "conversations" => conversations_case(&w, &mut c, scenario),
             "conversation_runner" => runner_case(&w, &mut c, scenario),
             "parts" => parts_case(&w, &mut c, scenario),
-            "loops" => loops_case(&w, &mut c, scenario),
+            "loops" => loops_case(&w, &mut c, scenario, false),
             "plan_executor" => executor_case(&w, &mut c, scenario),
             "attention" => attention_case(&w, &mut c, scenario),
             "cards" => cards_case(&w, &mut c, scenario),

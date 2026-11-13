@@ -306,8 +306,6 @@ pub struct TestDaemon {
     /// compose.py `_asked_kinds`, `_answered_ids`.
     asked_kinds: Mutex<HashMap<String, String>>,
     answered_ids: Mutex<BTreeSet<String>>,
-    /// The supervisor's own questions (see [`OwnQuestions`]); in memory, so a restart starts a new store.
-    own: Mutex<Arc<OwnQuestions>>,
     /// The recorded desktop-observer rows already written (each is written once).
     spans_used: Mutex<BTreeSet<usize>>,
     /// The trees the desktop observer watches now (a baseline taken, no summary yet).
@@ -317,6 +315,8 @@ pub struct TestDaemon {
     side: Mutex<Option<Arc<daemon_side::DaemonSide>>>,
     /// `state.approvals.unattended`.
     unattended: Mutex<BTreeSet<String>>,
+    /// The recorder's `uuid.uuid4()` counter (make_more.py `_Uuids`): a loop notice's id.
+    notice_ids: AtomicUsize,
     /// `state.stopped`: the global stop is engaged (`stop.engage`).
     stopped: Arc<AtomicBool>,
     /// FERB's workspace and the owner's home (the schedules port normalizes paths as a task's).
@@ -346,19 +346,13 @@ impl TestDaemon {
             .expect("the scenario's gateway")
     }
 
-    fn own(&self) -> Arc<OwnQuestions> {
-        self.own.lock().unwrap().clone()
-    }
-
     fn sup(&self) -> Option<Supervisor> {
         self.sup.lock().unwrap().clone()
     }
 
-    /// A question of the gateway's or the supervisor's own, by id.
+    /// A question of the gateway's one store (the supervisor's own included), by id.
     fn approval(&self, id: &str) -> Option<ferb_gateway::questions::Approval> {
-        self.gw()
-            .approval(id)
-            .or_else(|| self.own().store.lock().unwrap().get(id).cloned())
+        self.gw().approval(id)
     }
 
     /// A recorded port call: its arguments compared (a difference is reported with the tool calls'), the ids the
@@ -418,7 +412,7 @@ impl TestDaemon {
 
     /// Every pending question, in asking order.
     fn pending(&self) -> Vec<ferb_gateway::questions::Approval> {
-        ChatGw(self.gw(), self.own(), self.stopped.clone()).all_pending()
+        self.gw().pending()
     }
 
     /// compose.py `_publish` and the consumers `_wire_events` installs, in their order, as far as a chat scenario
@@ -1115,6 +1109,57 @@ impl Daemon for TestDaemon {
     fn publish(&self, topic: &str, data: Value) {
         self.events(topic, ferb_sanitize::Py::from(&data));
     }
+    fn loop_notice<'a>(
+        &'a self,
+        tree_id: &'a str,
+        step_id: &'a str,
+        text: &'a str,
+        made: &'a str,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        // notify.py `_loop_notice` -> `_tell_owner` -> `_post_notice`: the notice stored once, journaled chat.notice
+        // and published (no FERB.app poster is connected in a recording: no banner)
+        Box::pin(OneThread(async move {
+            let n = self.notice_ids.fetch_add(1, Ordering::SeqCst) + 1;
+            let ident = format!("loop-{step_id}-{}", &format!("{n:032x}")[..12]);
+            let now = ferb_clock::py::iso(&ferb_clock::clock::Clock::now(self.clock.as_ref()));
+            let row = {
+                let db = self.db.lock().unwrap();
+                let redactor = self.redactor.clone();
+                let notices = ferb_orchestrator::attention::AttentionNotices {
+                    db: &db,
+                    now: Box::new(move || now.clone()),
+                    redact: Arc::new(move |v: &Value| redactor.value(v)),
+                };
+                let added = notices.add(
+                    &ident,
+                    &[format!("task:{tree_id}")],
+                    text,
+                    &Value::Null,
+                    &[],
+                    None,
+                    Some(made),
+                    &[],
+                );
+                drop(notices);
+                added.map_err(|e| e.to_string())?
+            };
+            let Some(row) = row else { return Ok(()) };
+            let view = ferb_orchestrator::attention::AttentionNotices::view(&row)
+                .map_err(|e| e.to_string())?;
+            let mut data = Map::new();
+            for k in ["id", "text", "quotes", "cards"] {
+                if let Some(v) = view.get(k) {
+                    data.insert(k.into(), v.clone());
+                }
+            }
+            if let Some(sup) = self.sup() {
+                sup.inner()
+                    .journal("chat.notice", Value::Object(data), Some(&s(&row["origin"])));
+            }
+            self.publish("attention.notice", view);
+            Ok(())
+        }))
+    }
     fn cancel_tasks(&self, ids: &BTreeSet<String>) {
         self.gw().cancel_tasks(ids)
     }
@@ -1172,7 +1217,7 @@ impl Daemon for TestDaemon {
     }
     fn approval(&self, id: &str) -> Option<ferb_gateway::questions::Approval> {
         use ferb_supervisor::flow::chat_rpc::ChatGateway;
-        ChatGw(self.gw(), self.own(), self.stopped.clone()).approval(id)
+        ChatGw(self.gw(), self.stopped.clone()).approval(id)
     }
     fn worker_limits(&self, _worker_type: &str) -> Option<ModelLimits> {
         // the scripted runtime's (a runtime made only to read its limits is never started, never recorded)
@@ -1186,10 +1231,7 @@ impl Daemon for TestDaemon {
         })
     }
     fn supersede_question(&self, id: &str) -> bool {
-        if self.gw().approval(id).is_some() {
-            return self.gw().supersede(id).is_some();
-        }
-        self.own().store.lock().unwrap().supersede(id).is_some()
+        self.gw().supersede(id).is_some()
     }
     fn resolve_question(
         &self,
@@ -1199,12 +1241,14 @@ impl Daemon for TestDaemon {
         text: Option<&str>,
     ) -> Option<ferb_gateway::questions::Approval> {
         use ferb_supervisor::flow::chat_rpc::ChatGateway;
-        ChatGw(self.gw(), self.own(), self.stopped.clone())
+        ChatGw(self.gw(), self.stopped.clone())
             .resolve(id, granted, choice, text, &[])
             .ok()
     }
     fn questions(&self) -> Option<Arc<dyn ferb_supervisor::flow::owner_wait::Questions>> {
-        let q: Arc<dyn ferb_supervisor::flow::owner_wait::Questions> = self.own();
+        let q: Arc<dyn ferb_supervisor::flow::owner_wait::Questions> = Arc::new(
+            ferb_supervisor::flow::daemon_seams::GatewayTaskQuestions(self.gw()),
+        );
         Some(q)
     }
     fn subscribe(&self, topics: &[&str], sink: BusSink) -> Option<Unsubscribe> {
@@ -1409,116 +1453,15 @@ impl ScriptEvents {
     }
 }
 
-/// The supervisor's own questions (a plan's ask step, a checker's ask, the check-in, a runtime switch): Python keeps
-/// them in the gateway's one `state.approvals`; ferb-gateway's `Gateway` offers no way to add one, so they are a
-/// second `Approvals` sharing the gateway's id counter, and the chat RPCs read both.
-pub struct OwnQuestions {
-    store: Mutex<ferb_gateway::questions::Approvals>,
-}
-
-pub fn asked_of(
-    ap: &ferb_gateway::questions::Approval,
-) -> ferb_supervisor::flow::owner_wait::Asked {
-    ferb_supervisor::flow::owner_wait::Asked {
-        id: ap.id.clone(),
-        capability: ap.capability.clone(),
-        kind: ap.kind.clone(),
-        request_id: ap.request_id.clone(),
-        task_id: ap.task_id.clone(),
-        state: ap.state.as_str().into(),
-        options: ap.options.clone(),
-        choice: ap.choice.clone(),
-        answer: ap.answer.clone(),
-        hidden: ap.hidden.clone(),
-        options_only: ap.options_only,
-        corrects: ap.corrects,
-    }
-}
-
-impl ferb_supervisor::flow::owner_wait::Questions for OwnQuestions {
-    fn ask(&self, ask: &ferb_supervisor::flow::owner_wait::Ask) -> String {
-        let mut store = self.store.lock().unwrap();
-        let ap = store.question(
-            &ferb_gateway::questions::Asker {
-                capability: &ask.capability,
-                task_id: &ask.task_id,
-                request_id: &ask.request_id,
-            },
-            &ask.question,
-            &ask.options,
-            None,
-        );
-        ap.part = ask.part.clone();
-        ap.runtime_switch = ask
-            .runtime_switch
-            .as_ref()
-            .and_then(|v| v.as_object().cloned());
-        ap.from_task = ask.from_task;
-        ap.options_only = ask.options_only;
-        ap.corrects = ask.corrects;
-        ap.summary = ask.summary.clone();
-        ap.detail = ask.detail.clone();
-        ap.exact = ask.exact.clone();
-        ap.labels = ask.labels.clone();
-        ap.id.clone()
-    }
-    fn get(&self, id: &str) -> Option<ferb_supervisor::flow::owner_wait::Asked> {
-        self.store.lock().unwrap().get(id).map(asked_of)
-    }
-    fn supersede(&self, id: &str) -> bool {
-        self.store.lock().unwrap().supersede(id).is_some()
-    }
-    fn pending(&self) -> Vec<ferb_supervisor::flow::owner_wait::Asked> {
-        self.store
-            .lock()
-            .unwrap()
-            .pending()
-            .into_iter()
-            .map(asked_of)
-            .collect()
-    }
-    fn answer(&self, id: &str, words: &str) {
-        let _ = self
-            .store
-            .lock()
-            .unwrap()
-            .resolve(id, true, None, Some(words));
-    }
-    fn card(&self, id: &str) -> Map<String, Value> {
-        let store = self.store.lock().unwrap();
-        let Some(ap) = store.get(id) else {
-            return Map::new();
-        };
-        let mut m = ferb_gateway::questions::card_parts(ap);
-        m.extend(ferb_gateway::questions::card_flags(ap));
-        m
-    }
-}
-
-/// The chat RPCs' view of the scenario's gateway (and the supervisor's own questions, in asking order).
-pub struct ChatGw(
-    Arc<ferb_gateway::gateway::Gateway>,
-    Arc<OwnQuestions>,
-    Arc<AtomicBool>,
-);
-
-impl ChatGw {
-    fn all_pending(&self) -> Vec<ferb_gateway::questions::Approval> {
-        let mut all = self.0.pending();
-        all.extend(self.1.store.lock().unwrap().pending().into_iter().cloned());
-        all.sort_by(|a, b| a.id.cmp(&b.id));
-        all
-    }
-}
+/// The chat RPCs' view of the scenario's gateway (its one question store holds the supervisor's own questions too).
+pub struct ChatGw(Arc<ferb_gateway::gateway::Gateway>, Arc<AtomicBool>);
 
 impl ferb_supervisor::flow::chat_rpc::ChatGateway for ChatGw {
     fn pending(&self) -> Vec<ferb_gateway::questions::Approval> {
-        self.all_pending()
+        self.0.pending()
     }
     fn approval(&self, id: &str) -> Option<ferb_gateway::questions::Approval> {
-        self.0
-            .approval(id)
-            .or_else(|| self.1.store.lock().unwrap().get(id).cloned())
+        self.0.approval(id)
     }
     fn resolve(
         &self,
@@ -1528,13 +1471,9 @@ impl ferb_supervisor::flow::chat_rpc::ChatGateway for ChatGw {
         text: Option<&str>,
         hidden: &[String],
     ) -> Result<ferb_gateway::questions::Approval, ferb_gateway::questions::ResolveError> {
-        if self.0.approval(id).is_some() {
-            return self.0.resolve(id, granted, choice, text);
-        }
-        let mut store = self.1.store.lock().unwrap();
-        let ap = store.resolve(id, granted, choice, text)?.clone();
-        if let Some(held) = store.get_mut(id) {
-            held.hidden = hidden.to_vec();
+        let ap = self.0.resolve(id, granted, choice, text)?;
+        if !hidden.is_empty() {
+            self.0.set_hidden(id, hidden);
         }
         Ok(ap)
     }
@@ -1556,7 +1495,7 @@ impl ferb_supervisor::flow::chat_rpc::ChatGateway for ChatGw {
         }))
     }
     fn stopped(&self) -> bool {
-        self.2.load(Ordering::SeqCst)
+        self.1.load(Ordering::SeqCst)
     }
 }
 
@@ -1873,17 +1812,6 @@ pub fn run_scenario(
         }
     }
     let question_ids = Arc::new(AtomicUsize::new(0));
-    let new_own = {
-        let question_ids = question_ids.clone();
-        move || {
-            Arc::new(OwnQuestions {
-                store: Mutex::new(ferb_gateway::questions::Approvals::new({
-                    let ids = question_ids.clone();
-                    move || format!("ap-a{:011}", ids.fetch_add(1, Ordering::SeqCst) + 1)
-                })),
-            })
-        }
-    };
     let daemon = Arc::new_cyclic(|me| TestDaemon {
         me: me.clone(),
         db: db.clone(),
@@ -1932,11 +1860,11 @@ pub fn run_scenario(
         sup: Mutex::new(None),
         asked_kinds: Mutex::default(),
         answered_ids: Mutex::default(),
-        own: Mutex::new(new_own()),
         spans_used: Mutex::default(),
         watching: Mutex::default(),
         side: Mutex::new(None),
         unattended: Mutex::default(),
+        notice_ids: AtomicUsize::new(0),
         stopped: Arc::new(AtomicBool::new(false)),
         workspace: workspace.clone(),
         user_home: home.clone(),
@@ -2010,14 +1938,26 @@ pub fn run_scenario(
         let rpc = ferb_supervisor::flow::chat_rpc::ChatRpc::new(
             ferb_supervisor::flow::chat_rpc::ChatDeps {
                 supervisor: sup.clone(),
-                gateway: Arc::new(ChatGw(
-                    gateway.clone(),
-                    daemon.own(),
-                    daemon.stopped.clone(),
-                )),
+                gateway: Arc::new(ChatGw(gateway.clone(), daemon.stopped.clone())),
                 persona: None,
                 prepare_persona: Arc::new(|| {}),
-                notices: Some(Arc::new(Vec::new)),
+                notices: Some({
+                    // `attention_notices.unseen()`
+                    let db = db.clone();
+                    let redactor = daemon.redactor.clone();
+                    Arc::new(move || {
+                        let db = db.lock().unwrap();
+                        let redactor = redactor.clone();
+                        let notices = ferb_orchestrator::attention::AttentionNotices {
+                            db: &db,
+                            now: Box::new(String::new),
+                            redact: Arc::new(move |v: &Value| redactor.value(v)),
+                        };
+                        let unseen = notices.unseen().unwrap_or_default();
+                        drop(notices);
+                        unseen
+                    })
+                }),
                 conversations: Arc::new(Vec::new),
                 sensing_paused: Arc::new(|| false),
                 shutting_down: Arc::new(|| false),
@@ -2253,7 +2193,6 @@ pub fn run_scenario(
                     // a new daemon on the same home: its in-memory state starts empty, ids under the new prefix
                     let prefix = s(&st["ids_prefix"]);
                     daemon.restart();
-                    *daemon.own.lock().unwrap() = new_own();
                     ids.restart(&prefix);
                     (sup, rpc) = start();
                     // main.py's start: what was running is interrupted, then the daemon's own rows (as recorded),
@@ -2318,6 +2257,29 @@ pub fn run_scenario(
                         }
                     }
                 }
+                "wait" if st["until"] == "the loop watches" => {
+                    // make_more.py `loop_status`: the supervisor's `_loop_status` of the loop says watching
+                    let watching = || {
+                        sup.loop_statuses()
+                            .iter()
+                            .any(|v| v["state"] == "watching")
+                    };
+                    for i in 0..10_000 {
+                        if watching() {
+                            break;
+                        }
+                        if i % 100 == 99 {
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        } else {
+                            tokio::task::yield_now().await;
+                        }
+                    }
+                    if !watching() {
+                        report.stopped = Some("a wait for the loop watches (never true here)".into());
+                        break;
+                    }
+                    settle(&db).await;
+                }
                 "wait" if s(&st["until"]).starts_with("an approval is pending") => {
                     for _ in 0..10_000 {
                         if !daemon.pending().is_empty() {
@@ -2377,6 +2339,57 @@ pub fn run_scenario(
                         if waiting.load(Ordering::SeqCst) {
                             break;
                         }
+                        tokio::task::yield_now().await;
+                    }
+                }
+                // make_more.py: the app's one tap on a runtime offer (`runtime_offer`, `answer_runtime_switch`)
+                "runtime_switch" => {
+                    let inner = sup.inner().clone();
+                    let task = s(&st["task_id"]);
+                    let offer = inner.runtime_offer(&task).unwrap_or(Value::Null);
+                    let answered = inner
+                        .answer_runtime_switch(&task, &s(&st["runtime"]))
+                        .unwrap_or_else(|e| json!({"error": e}));
+                    report.checked += 2;
+                    if offer != st["offer"] {
+                        report.frames.push(format!("runtime_offer {offer}, recorded {}", st["offer"]));
+                    }
+                    if answered != st["answered"] {
+                        report
+                            .frames
+                            .push(format!("answer_runtime_switch {answered}, recorded {}", st["answered"]));
+                    }
+                    for _ in 0..100 {
+                        tokio::task::yield_now().await;
+                    }
+                }
+                "wait" if st["until"] == "the plan waits" => {
+                    for i in 0..10_000 {
+                        if !sup.inner().live().plan_runs.is_empty() {
+                            break;
+                        }
+                        if i % 100 == 99 {
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        } else {
+                            tokio::task::yield_now().await;
+                        }
+                    }
+                    settle(&db).await;
+                }
+                // make_more.py: the owner is back (`mention_paused`, a task of its own on the daemon's loop)
+                "mention_paused" => {
+                    let inner = sup.inner().clone();
+                    tokio::spawn(async move {
+                        let _ = inner.mention_paused().await;
+                    });
+                    for _ in 0..100 {
+                        tokio::task::yield_now().await;
+                    }
+                }
+                // make_more.py: an event reaches the supervisor (`notify_plan_event`, on the daemon's loop)
+                "plan_event" => {
+                    sup.inner().notify_plan_event(&s(&st["topic"]), &st["data"]);
+                    for _ in 0..100 {
                         tokio::task::yield_now().await;
                     }
                 }
@@ -2720,13 +2733,21 @@ pub fn run_scenario(
 
 /// The deliberate differences from Python (ENG-6), applied to what the recording expects before it is compared:
 /// (scenario, recorded text, what the port says instead).
-pub const FIXES: [(&str, &str, &str); 1] = [
+pub const FIXES: [(&str, &str, &str); 2] = [
     // GATE-581: Python ends a task the global stop cut with "(from the task) FERB was stopped", marking FERB's own words
     // as the task's; the port says "FERB was stopped" (the outcome frame, the task row, the span, the journal)
     (
         "global_stop",
         "(from the task) FERB was stopped",
         "FERB was stopped",
+    ),
+    // GATE-581's kind: Python's reply tags every code line that reads like FERB's own check as the task's, so the
+    // forget question FERB wrote whole says "(from the task) FERB deletes:"; the port leaves FERB's own heading
+    // untagged (turn.rs `own_tagged`) in the reply frame, the chat.reply row and its `lines`
+    (
+        "remember_then_forget",
+        "(from the task) FERB deletes:",
+        "FERB deletes:",
     ),
 ];
 
