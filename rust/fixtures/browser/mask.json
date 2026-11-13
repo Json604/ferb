@@ -1,0 +1,1835 @@
+{
+ "parse": [
+  {
+   "raw": null,
+   "state": null
+  },
+  {
+   "raw": [],
+   "state": null
+  },
+  {
+   "raw": {},
+   "state": null
+  },
+  {
+   "raw": {
+    "top": "doc"
+   },
+   "state": null
+  },
+  {
+   "raw": {
+    "top": 1,
+    "viewport": [
+     0,
+     0,
+     1,
+     1
+    ],
+    "items": []
+   },
+   "state": null
+  },
+  {
+   "raw": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": []
+   },
+   "state": {
+    "top": "doc",
+    "viewport": [
+     0.0,
+     0.0,
+     1280.0,
+     900.0
+    ],
+    "items": []
+   }
+  },
+  {
+   "raw": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     0,
+     900
+    ],
+    "items": []
+   },
+   "state": null
+  },
+  {
+   "raw": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     10
+    ],
+    "items": []
+   },
+   "state": null
+  },
+  {
+   "raw": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     10,
+     true
+    ],
+    "items": []
+   },
+   "state": null
+  },
+  {
+   "raw": {
+    "top": "doc",
+    "viewport": [
+     1.5,
+     2,
+     3.25,
+     4
+    ],
+    "items": []
+   },
+   "state": {
+    "top": "doc",
+    "viewport": [
+     1.5,
+     2.0,
+     3.25,
+     4.0
+    ],
+    "items": []
+   }
+  },
+  {
+   "raw": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "field|doc|0",
+      "rect": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "paint": true
+     }
+    ]
+   },
+   "state": {
+    "top": "doc",
+    "viewport": [
+     0.0,
+     0.0,
+     1280.0,
+     900.0
+    ],
+    "items": [
+     {
+      "key": "field|doc|0",
+      "rect": [
+       1.0,
+       2.0,
+       3.0,
+       4.0
+      ],
+      "paint": true,
+      "child": null
+     }
+    ]
+   }
+  },
+  {
+   "raw": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "k",
+      "rect": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "paint": 1
+     }
+    ]
+   },
+   "state": null
+  },
+  {
+   "raw": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "k",
+      "rect": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "paint": true,
+      "child": 5
+     }
+    ]
+   },
+   "state": null
+  },
+  {
+   "raw": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "k",
+      "rect": [
+       1,
+       2,
+       3
+      ],
+      "paint": true
+     }
+    ]
+   },
+   "state": null
+  },
+  {
+   "raw": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     "x"
+    ]
+   },
+   "state": null
+  },
+  {
+   "raw": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "frame|doc|1",
+      "rect": [
+       0,
+       0,
+       100,
+       100
+      ],
+      "paint": false,
+      "child": "child-doc"
+     }
+    ]
+   },
+   "state": {
+    "top": "doc",
+    "viewport": [
+     0.0,
+     0.0,
+     1280.0,
+     900.0
+    ],
+    "items": [
+     {
+      "key": "frame|doc|1",
+      "rect": [
+       0.0,
+       0.0,
+       100.0,
+       100.0
+      ],
+      "paint": false,
+      "child": "child-doc"
+     }
+    ]
+   }
+  }
+ ],
+ "page_masks": [
+  {
+   "before": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": []
+   },
+   "after": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": []
+   },
+   "out": {
+    "rects": [],
+    "viewport": [
+     0.0,
+     0.0,
+     1280.0,
+     900.0
+    ]
+   }
+  },
+  {
+   "before": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "f|1",
+      "rect": [
+       10,
+       10,
+       50,
+       20
+      ],
+      "paint": true
+     }
+    ]
+   },
+   "after": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "f|1",
+      "rect": [
+       10,
+       10,
+       50,
+       20
+      ],
+      "paint": true
+     }
+    ]
+   },
+   "out": {
+    "rects": [
+     [
+      10.0,
+      10.0,
+      50.0,
+      20.0
+     ]
+    ],
+    "viewport": [
+     0.0,
+     0.0,
+     1280.0,
+     900.0
+    ]
+   }
+  },
+  {
+   "before": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": []
+   },
+   "after": {
+    "top": "doc2",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": []
+   },
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: the page changed during capture"
+   }
+  },
+  {
+   "before": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": []
+   },
+   "after": {
+    "top": "doc",
+    "viewport": [
+     0,
+     1,
+     1280,
+     900
+    ],
+    "items": []
+   },
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: the page changed during capture"
+   }
+  },
+  {
+   "before": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "f|1",
+      "rect": [
+       10,
+       10,
+       50,
+       20
+      ],
+      "paint": true
+     }
+    ]
+   },
+   "after": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "f|1",
+      "rect": [
+       11,
+       10,
+       50,
+       20
+      ],
+      "paint": true
+     }
+    ]
+   },
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: a secret field or frame moved during capture"
+   }
+  },
+  {
+   "before": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "f|1",
+      "rect": [
+       10,
+       10,
+       50,
+       20
+      ],
+      "paint": false
+     }
+    ]
+   },
+   "after": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "f|1",
+      "rect": [
+       10,
+       10,
+       50,
+       20
+      ],
+      "paint": false
+     }
+    ]
+   },
+   "out": {
+    "rects": [],
+    "viewport": [
+     0.0,
+     0.0,
+     1280.0,
+     900.0
+    ]
+   }
+  },
+  {
+   "before": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "f|1",
+      "rect": [
+       10,
+       10,
+       50,
+       20
+      ],
+      "paint": false,
+      "child": "x"
+     }
+    ]
+   },
+   "after": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "f|1",
+      "rect": [
+       10,
+       10,
+       50,
+       20
+      ],
+      "paint": false,
+      "child": "y"
+     }
+    ]
+   },
+   "out": {
+    "rects": [
+     [
+      10.0,
+      10.0,
+      50.0,
+      20.0
+     ]
+    ],
+    "viewport": [
+     0.0,
+     0.0,
+     1280.0,
+     900.0
+    ]
+   }
+  },
+  {
+   "before": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "f|1",
+      "rect": [
+       10,
+       10,
+       50,
+       20
+      ],
+      "paint": false
+     }
+    ]
+   },
+   "after": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "f|1",
+      "rect": [
+       10,
+       10,
+       50,
+       20
+      ],
+      "paint": true
+     }
+    ]
+   },
+   "out": {
+    "rects": [
+     [
+      10.0,
+      10.0,
+      50.0,
+      20.0
+     ]
+    ],
+    "viewport": [
+     0.0,
+     0.0,
+     1280.0,
+     900.0
+    ]
+   }
+  },
+  {
+   "before": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "fr|1",
+      "rect": [
+       0,
+       0,
+       200,
+       200
+      ],
+      "paint": true
+     },
+     {
+      "key": "f|2",
+      "rect": [
+       20,
+       15,
+       5,
+       5
+      ],
+      "paint": true
+     }
+    ]
+   },
+   "after": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "fr|1",
+      "rect": [
+       0,
+       0,
+       200,
+       200
+      ],
+      "paint": true
+     }
+    ]
+   },
+   "out": {
+    "rects": [
+     [
+      0.0,
+      0.0,
+      200.0,
+      200.0
+     ],
+     [
+      20.0,
+      15.0,
+      5.0,
+      5.0
+     ]
+    ],
+    "viewport": [
+     0.0,
+     0.0,
+     1280.0,
+     900.0
+    ]
+   }
+  },
+  {
+   "before": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "f|2",
+      "rect": [
+       20,
+       15,
+       5,
+       5
+      ],
+      "paint": true
+     }
+    ]
+   },
+   "after": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": []
+   },
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: a secret field appeared or went during capture"
+   }
+  },
+  {
+   "before": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": []
+   },
+   "after": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "f|2",
+      "rect": [
+       20,
+       15,
+       5,
+       5
+      ],
+      "paint": false
+     }
+    ]
+   },
+   "out": {
+    "rects": [],
+    "viewport": [
+     0.0,
+     0.0,
+     1280.0,
+     900.0
+    ]
+   }
+  },
+  {
+   "before": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "b|1",
+      "rect": [
+       0,
+       0,
+       200,
+       200
+      ],
+      "paint": true
+     },
+     {
+      "key": "a|1",
+      "rect": [
+       10,
+       10,
+       50,
+       20
+      ],
+      "paint": true
+     }
+    ]
+   },
+   "after": {
+    "top": "doc",
+    "viewport": [
+     0,
+     0,
+     1280,
+     900
+    ],
+    "items": [
+     {
+      "key": "a|1",
+      "rect": [
+       10,
+       10,
+       50,
+       20
+      ],
+      "paint": true
+     },
+     {
+      "key": "b|1",
+      "rect": [
+       0,
+       0,
+       200,
+       200
+      ],
+      "paint": true
+     }
+    ]
+   },
+   "out": {
+    "rects": [
+     [
+      10.0,
+      10.0,
+      50.0,
+      20.0
+     ],
+     [
+      0.0,
+      0.0,
+      200.0,
+      200.0
+     ]
+    ],
+    "viewport": [
+     0.0,
+     0.0,
+     1280.0,
+     900.0
+    ]
+   }
+  }
+ ],
+ "to_image_boxes": [
+  {
+   "rects": [
+    [
+     10,
+     10,
+     50,
+     20
+    ],
+    [
+     0,
+     0,
+     200,
+     200
+    ],
+    [
+     20,
+     15,
+     5,
+     5
+    ]
+   ],
+   "bounds": [
+    0,
+    0,
+    1280,
+    900
+   ],
+   "size": [
+    2560,
+    1800
+   ],
+   "boxes": [
+    [
+     20,
+     20,
+     100,
+     40
+    ],
+    [
+     0,
+     0,
+     400,
+     400
+    ],
+    [
+     40,
+     30,
+     10,
+     10
+    ]
+   ]
+  },
+  {
+   "rects": [
+    [
+     10,
+     10,
+     50,
+     20
+    ]
+   ],
+   "bounds": [
+    5,
+    5,
+    0,
+    10
+   ],
+   "size": [
+    100,
+    100
+   ],
+   "boxes": []
+  },
+  {
+   "rects": [
+    [
+     -5,
+     -5,
+     10,
+     10
+    ],
+    [
+     1275,
+     895,
+     10,
+     10
+    ],
+    [
+     0,
+     0,
+     0,
+     5
+    ]
+   ],
+   "bounds": [
+    0,
+    0,
+    1280,
+    900
+   ],
+   "size": [
+    1280,
+    900
+   ],
+   "boxes": [
+    [
+     0,
+     0,
+     5,
+     5
+    ],
+    [
+     1275,
+     895,
+     5,
+     5
+    ]
+   ]
+  },
+  {
+   "rects": [
+    [
+     0.3,
+     0.7,
+     10.2,
+     3.3
+    ]
+   ],
+   "bounds": [
+    0.1,
+    0.2,
+    333.3,
+    222.2
+   ],
+   "size": [
+    1000,
+    667
+   ],
+   "boxes": [
+    [
+     0,
+     1,
+     32,
+     11
+    ]
+   ]
+  },
+  {
+   "rects": [
+    [
+     100,
+     100,
+     5,
+     5
+    ]
+   ],
+   "bounds": [
+    0,
+    0,
+    50,
+    50
+   ],
+   "size": [
+    10,
+    10
+   ],
+   "boxes": []
+  }
+ ],
+ "painted": [
+  {
+   "image": "jpeg",
+   "reply": {
+    "withheld": "the page is a PDF"
+   },
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: the page is a PDF"
+   },
+   "calls": []
+  },
+  {
+   "image": "jpeg",
+   "reply": {},
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: the extension didn't say where the page's secret fields are"
+   },
+   "calls": []
+  },
+  {
+   "image": "jpeg",
+   "reply": {
+    "mask": "x"
+   },
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: the extension didn't say where the page's secret fields are"
+   },
+   "calls": []
+  },
+  {
+   "image": "jpeg",
+   "reply": {
+    "mask": {
+     "before": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": []
+     }
+    }
+   },
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: the extension didn't say where the page's secret fields are"
+   },
+   "calls": []
+  },
+  {
+   "image": "jpeg",
+   "reply": {
+    "mask": {
+     "before": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": []
+     },
+     "after": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": []
+     }
+    }
+   },
+   "out": {
+    "ok": "jpeg"
+   },
+   "calls": []
+  },
+  {
+   "image": "jpeg",
+   "reply": {
+    "mask": {
+     "before": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": [
+       {
+        "key": "f|1",
+        "rect": [
+         10,
+         10,
+         50,
+         20
+        ],
+        "paint": true
+       }
+      ]
+     },
+     "after": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": [
+       {
+        "key": "f|1",
+        "rect": [
+         10,
+         10,
+         50,
+         20
+        ],
+        "paint": true
+       }
+      ]
+     }
+    }
+   },
+   "out": {
+    "ok": "painted:jpeg"
+   },
+   "calls": [
+    [
+     "jpeg",
+     [
+      [
+       20,
+       20,
+       100,
+       40
+      ]
+     ]
+    ]
+   ]
+  },
+  {
+   "image": "jpeg",
+   "reply": {
+    "mask": {
+     "before": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": [
+       {
+        "key": "f|1",
+        "rect": [
+         10,
+         10,
+         50,
+         20
+        ],
+        "paint": true
+       }
+      ]
+     },
+     "after": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": [
+       {
+        "key": "f|1",
+        "rect": [
+         20,
+         15,
+         5,
+         5
+        ],
+        "paint": true
+       }
+      ]
+     }
+    }
+   },
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: a secret field or frame moved during capture"
+   },
+   "calls": []
+  },
+  {
+   "image": "jpeg",
+   "reply": {
+    "mask": {
+     "before": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": [
+       {
+        "key": "f|1",
+        "rect": [
+         2000,
+         2000,
+         5,
+         5
+        ],
+        "paint": true
+       }
+      ]
+     },
+     "after": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": [
+       {
+        "key": "f|1",
+        "rect": [
+         2000,
+         2000,
+         5,
+         5
+        ],
+        "paint": true
+       }
+      ]
+     }
+    }
+   },
+   "out": {
+    "ok": "jpeg"
+   },
+   "calls": []
+  },
+  {
+   "image": "bad",
+   "reply": {
+    "withheld": "the page is a PDF"
+   },
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: the page is a PDF"
+   },
+   "calls": []
+  },
+  {
+   "image": "bad",
+   "reply": {},
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: the extension didn't say where the page's secret fields are"
+   },
+   "calls": []
+  },
+  {
+   "image": "bad",
+   "reply": {
+    "mask": "x"
+   },
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: the extension didn't say where the page's secret fields are"
+   },
+   "calls": []
+  },
+  {
+   "image": "bad",
+   "reply": {
+    "mask": {
+     "before": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": []
+     }
+    }
+   },
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: the extension didn't say where the page's secret fields are"
+   },
+   "calls": []
+  },
+  {
+   "image": "bad",
+   "reply": {
+    "mask": {
+     "before": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": []
+     },
+     "after": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": []
+     }
+    }
+   },
+   "out": {
+    "ok": "bad"
+   },
+   "calls": []
+  },
+  {
+   "image": "bad",
+   "reply": {
+    "mask": {
+     "before": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": [
+       {
+        "key": "f|1",
+        "rect": [
+         10,
+         10,
+         50,
+         20
+        ],
+        "paint": true
+       }
+      ]
+     },
+     "after": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": [
+       {
+        "key": "f|1",
+        "rect": [
+         10,
+         10,
+         50,
+         20
+        ],
+        "paint": true
+       }
+      ]
+     }
+    }
+   },
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: the capture couldn't be painted over"
+   },
+   "calls": []
+  },
+  {
+   "image": "bad",
+   "reply": {
+    "mask": {
+     "before": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": [
+       {
+        "key": "f|1",
+        "rect": [
+         10,
+         10,
+         50,
+         20
+        ],
+        "paint": true
+       }
+      ]
+     },
+     "after": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": [
+       {
+        "key": "f|1",
+        "rect": [
+         20,
+         15,
+         5,
+         5
+        ],
+        "paint": true
+       }
+      ]
+     }
+    }
+   },
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: a secret field or frame moved during capture"
+   },
+   "calls": []
+  },
+  {
+   "image": "bad",
+   "reply": {
+    "mask": {
+     "before": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": [
+       {
+        "key": "f|1",
+        "rect": [
+         2000,
+         2000,
+         5,
+         5
+        ],
+        "paint": true
+       }
+      ]
+     },
+     "after": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": [
+       {
+        "key": "f|1",
+        "rect": [
+         2000,
+         2000,
+         5,
+         5
+        ],
+        "paint": true
+       }
+      ]
+     }
+    }
+   },
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: the capture couldn't be painted over"
+   },
+   "calls": []
+  },
+  {
+   "image": "unpaintable",
+   "reply": {
+    "withheld": "the page is a PDF"
+   },
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: the page is a PDF"
+   },
+   "calls": []
+  },
+  {
+   "image": "unpaintable",
+   "reply": {},
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: the extension didn't say where the page's secret fields are"
+   },
+   "calls": []
+  },
+  {
+   "image": "unpaintable",
+   "reply": {
+    "mask": "x"
+   },
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: the extension didn't say where the page's secret fields are"
+   },
+   "calls": []
+  },
+  {
+   "image": "unpaintable",
+   "reply": {
+    "mask": {
+     "before": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": []
+     }
+    }
+   },
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: the extension didn't say where the page's secret fields are"
+   },
+   "calls": []
+  },
+  {
+   "image": "unpaintable",
+   "reply": {
+    "mask": {
+     "before": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": []
+     },
+     "after": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": []
+     }
+    }
+   },
+   "out": {
+    "ok": "unpaintable"
+   },
+   "calls": []
+  },
+  {
+   "image": "unpaintable",
+   "reply": {
+    "mask": {
+     "before": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": [
+       {
+        "key": "f|1",
+        "rect": [
+         10,
+         10,
+         50,
+         20
+        ],
+        "paint": true
+       }
+      ]
+     },
+     "after": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": [
+       {
+        "key": "f|1",
+        "rect": [
+         10,
+         10,
+         50,
+         20
+        ],
+        "paint": true
+       }
+      ]
+     }
+    }
+   },
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: the capture couldn't be painted over"
+   },
+   "calls": [
+    [
+     "unpaintable",
+     [
+      [
+       20,
+       20,
+       100,
+       40
+      ]
+     ]
+    ]
+   ]
+  },
+  {
+   "image": "unpaintable",
+   "reply": {
+    "mask": {
+     "before": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": [
+       {
+        "key": "f|1",
+        "rect": [
+         10,
+         10,
+         50,
+         20
+        ],
+        "paint": true
+       }
+      ]
+     },
+     "after": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": [
+       {
+        "key": "f|1",
+        "rect": [
+         20,
+         15,
+         5,
+         5
+        ],
+        "paint": true
+       }
+      ]
+     }
+    }
+   },
+   "out": {
+    "error": "Withheld",
+    "message": "pixels withheld: a secret field or frame moved during capture"
+   },
+   "calls": []
+  },
+  {
+   "image": "unpaintable",
+   "reply": {
+    "mask": {
+     "before": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": [
+       {
+        "key": "f|1",
+        "rect": [
+         2000,
+         2000,
+         5,
+         5
+        ],
+        "paint": true
+       }
+      ]
+     },
+     "after": {
+      "top": "doc",
+      "viewport": [
+       0,
+       0,
+       1280,
+       900
+      ],
+      "items": [
+       {
+        "key": "f|1",
+        "rect": [
+         2000,
+         2000,
+         5,
+         5
+        ],
+        "paint": true
+       }
+      ]
+     }
+    }
+   },
+   "out": {
+    "ok": "unpaintable"
+   },
+   "calls": []
+  }
+ ]
+}

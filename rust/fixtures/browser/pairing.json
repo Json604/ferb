@@ -1,0 +1,1569 @@
+{
+ "start": "2026-03-04T05:06:07.890123+00:00",
+ "monotonic_start": 1000.0,
+ "steps": [
+  {
+   "op": "issue_token",
+   "args": {
+    "browser": "chrome",
+    "folder": "Profile 1",
+    "identity": "owner"
+   },
+   "rows": [],
+   "value": "TfxELFW1m8IYF9dtO-78EAaPzgfcpMcB"
+  },
+  {
+   "op": "pending",
+   "args": {
+    "browser": "chrome",
+    "folder": "Profile 1"
+   },
+   "rows": [],
+   "value": true
+  },
+  {
+   "op": "pending",
+   "args": {
+    "browser": "chrome",
+    "folder": "Default"
+   },
+   "rows": [],
+   "value": false
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "type": "hello",
+     "body_json": "{\"version\": \"0.19.10\", \"protocol\": 21, \"browser\": \"chrome\"}"
+    }
+   },
+   "rows": [],
+   "verdict": {
+    "accepted": true,
+    "reason": "unpaired_hello",
+    "reply": null,
+    "binding": null
+   }
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "type": "tab_event",
+     "body_json": "{\"event\": \"created\", \"tab_id\": 1}"
+    }
+   },
+   "rows": [],
+   "verdict": {
+    "accepted": false,
+    "reason": "unpaired_install",
+    "reply": null,
+    "binding": null
+   }
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "type": "pair",
+     "body_json": "[]"
+    }
+   },
+   "rows": [],
+   "verdict": {
+    "accepted": false,
+    "reason": "malformed",
+    "reply": null,
+    "binding": null
+   }
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "type": "pair",
+     "body_json": "{"
+    }
+   },
+   "rows": [],
+   "verdict": {
+    "accepted": false,
+    "reason": "malformed",
+    "reply": null,
+    "binding": null
+   }
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "type": "pair",
+     "body_json": "{\"token\": 5}"
+    }
+   },
+   "rows": [],
+   "verdict": {
+    "accepted": false,
+    "reason": "unknown_token",
+    "reply": null,
+    "binding": null
+   }
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "type": "pair",
+     "body_json": "{\"token\": \"nope\"}"
+    }
+   },
+   "rows": [],
+   "verdict": {
+    "accepted": false,
+    "reason": "unknown_token",
+    "reply": null,
+    "binding": null
+   }
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "type": "pair",
+     "body_json": "{\"token\": \"TfxELFW1m8IYF9dtO-78EAaPzgfcpMcB\"}"
+    }
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "verdict": {
+    "accepted": true,
+    "reason": "paired",
+    "reply": {
+     "type": "paired",
+     "key": "SPLzVkpMY20dJnU11ZtOTSma39S9/DP7b9hsiIDpryA="
+    },
+    "binding": {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner"
+    }
+   }
+  },
+  {
+   "op": "pending",
+   "args": {
+    "browser": "chrome",
+    "folder": "Profile 1"
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "value": false
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "type": "pair",
+     "body_json": "{\"token\": \"TfxELFW1m8IYF9dtO-78EAaPzgfcpMcB\"}"
+    }
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "verdict": {
+    "accepted": false,
+    "reason": "unknown_token",
+    "reply": null,
+    "binding": null
+   }
+  },
+  {
+   "op": "key",
+   "args": {
+    "install_id": "inst-aaaaaaaaaaaa"
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "bytes": "48f2f3564a4c636d1d267535d59b4e4d299adfd4bdfc33fb6fd86c8880e9af20"
+  },
+  {
+   "op": "key",
+   "args": {
+    "install_id": "inst-nosuchinstall"
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "value": null
+  },
+  {
+   "op": "version",
+   "args": {
+    "install_id": "inst-aaaaaaaaaaaa"
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "value": ""
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "type": "hello",
+     "body_json": "{\"version\": \"0.19.10\", \"protocol\": 21}",
+     "seq": 1,
+     "mac": "xyckD5zZ6ZVeNCqjb+sqMHwnjp0D+nHNYnckwXi1LWI="
+    }
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 1,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "verdict": {
+    "accepted": true,
+    "reason": "ok",
+    "reply": null,
+    "binding": {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner"
+    }
+   }
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "type": "hello",
+     "body_json": "{\"version\": \"0.19.10\", \"protocol\": 21}",
+     "seq": 1,
+     "mac": "xyckD5zZ6ZVeNCqjb+sqMHwnjp0D+nHNYnckwXi1LWI="
+    }
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 1,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "verdict": {
+    "accepted": false,
+    "reason": "replay",
+    "reply": null,
+    "binding": null
+   }
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "type": "tab_event",
+     "body_json": "{\"event\": \"created\", \"tab_id\": 1}",
+     "seq": 0,
+     "mac": "Uu/EfEXawUFNoFbHYPSNUIZMfDQNTMdIIQ2kLATxOrA="
+    }
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 1,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "verdict": {
+    "accepted": false,
+    "reason": "replay",
+    "reply": null,
+    "binding": null
+   }
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "type": "tab_event",
+     "body_json": "{\"event\": \"created\", \"tab_id\": 1}",
+     "seq": 2,
+     "mac": "SlOExgGEUD6sVhszOqgEfxyThFphxP0BI0lH1oUs+CQ="
+    }
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 1,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "verdict": {
+    "accepted": false,
+    "reason": "bad_mac",
+    "reply": null,
+    "binding": null
+   }
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "type": "tab_event",
+     "body_json": "{\"event\": \"created\", \"tab_id\": 1}",
+     "seq": 2
+    }
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 1,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "verdict": {
+    "accepted": false,
+    "reason": "bad_mac",
+    "reply": null,
+    "binding": null
+   }
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "type": "tab_event",
+     "body_json": "{\"event\": \"created\", \"tab_id\": 1}"
+    }
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 1,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "verdict": {
+    "accepted": false,
+    "reason": "bad_mac",
+    "reply": null,
+    "binding": null
+   }
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "type": "result",
+     "body_json": "{\"id\": \"c\", \"gen\": 1, \"status\": \"ok\"}",
+     "seq": 7,
+     "mac": "XtbTz/BwzUS7uDFDFuQ/8xqHcfcME2UpX0p1IAo36LQ="
+    }
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "verdict": {
+    "accepted": true,
+    "reason": "ok",
+    "reply": null,
+    "binding": {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner"
+    }
+   }
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "type": "event",
+     "body_json": "{\"event\": \"taken\", \"tab_id\": 1}",
+     "seq": 6,
+     "mac": "bJfnYdp5LYbNH+yqLgq8Xo+p6li08SvTR3x0Y5VphL0="
+    }
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "verdict": {
+    "accepted": false,
+    "reason": "replay",
+    "reply": null,
+    "binding": null
+   }
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "type": "pair",
+     "body_json": "{\"token\": \"whatever\"}",
+     "seq": 8,
+     "mac": "eFJgDpdY4bPfpuxsqgahopemg3iBY00+En9agvYWS4Q="
+    }
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "verdict": {
+    "accepted": false,
+    "reason": "unknown_token",
+    "reply": null,
+    "binding": null
+   }
+  },
+  {
+   "op": "record_version",
+   "args": {
+    "install_id": "inst-aaaaaaaaaaaa",
+    "version": "0.18.2"
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": "0.18.2"
+    }
+   ],
+   "value": null
+  },
+  {
+   "op": "record_version",
+   "args": {
+    "install_id": "inst-aaaaaaaaaaaa",
+    "version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    }
+   ],
+   "value": null
+  },
+  {
+   "op": "record_version",
+   "args": {
+    "install_id": "inst-nosuchinstall",
+    "version": "1"
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    }
+   ],
+   "value": null
+  },
+  {
+   "op": "version",
+   "args": {
+    "install_id": "inst-aaaaaaaaaaaa"
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    }
+   ],
+   "value": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+  },
+  {
+   "op": "issue_token",
+   "args": {
+    "browser": "brave",
+    "folder": "Default",
+    "identity": "ferb"
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    }
+   ],
+   "value": "89BdkkStA8EWIya_OHbxwKKkBPHZGnIx"
+  },
+  {
+   "op": "advance",
+   "args": {
+    "seconds": 300
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    }
+   ]
+  },
+  {
+   "op": "pending",
+   "args": {
+    "browser": "brave",
+    "folder": "Default"
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    }
+   ],
+   "value": true
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "type": "pair",
+     "body_json": "{\"token\": \"89BdkkStA8EWIya_OHbxwKKkBPHZGnIx\"}"
+    }
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    },
+    {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb",
+     "key": "2B129A85503C97786842E088B6A750606792D52D611E1A7C9154A7AE14282B97",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:11:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "verdict": {
+    "accepted": true,
+    "reason": "paired",
+    "reply": {
+     "type": "paired",
+     "key": "KxKahVA8l3hoQuCItqdQYGeS1S1hHhp8kVSnrhQoK5c="
+    },
+    "binding": {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb"
+    }
+   }
+  },
+  {
+   "op": "issue_token",
+   "args": {
+    "browser": "chrome",
+    "folder": "Profile 2",
+    "identity": "owner"
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    },
+    {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb",
+     "key": "2B129A85503C97786842E088B6A750606792D52D611E1A7C9154A7AE14282B97",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:11:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "value": "tTwAIzHqv5KdQXN4L4KSOY-TYdXdxQvj"
+  },
+  {
+   "op": "advance",
+   "args": {
+    "seconds": 300.5
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    },
+    {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb",
+     "key": "2B129A85503C97786842E088B6A750606792D52D611E1A7C9154A7AE14282B97",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:11:07.890123+00:00",
+     "ext_version": ""
+    }
+   ]
+  },
+  {
+   "op": "pending",
+   "args": {
+    "browser": "chrome",
+    "folder": "Profile 2"
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    },
+    {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb",
+     "key": "2B129A85503C97786842E088B6A750606792D52D611E1A7C9154A7AE14282B97",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:11:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "value": false
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-cccccccccccc",
+     "type": "pair",
+     "body_json": "{\"token\": \"tTwAIzHqv5KdQXN4L4KSOY-TYdXdxQvj\"}"
+    }
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    },
+    {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb",
+     "key": "2B129A85503C97786842E088B6A750606792D52D611E1A7C9154A7AE14282B97",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:11:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "verdict": {
+    "accepted": false,
+    "reason": "expired_token",
+    "reply": null,
+    "binding": null
+   }
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-cccccccccccc",
+     "type": "pair",
+     "body_json": "{\"token\": \"tTwAIzHqv5KdQXN4L4KSOY-TYdXdxQvj\"}"
+    }
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    },
+    {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb",
+     "key": "2B129A85503C97786842E088B6A750606792D52D611E1A7C9154A7AE14282B97",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:11:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "verdict": {
+    "accepted": false,
+    "reason": "unknown_token",
+    "reply": null,
+    "binding": null
+   }
+  },
+  {
+   "op": "issue_token",
+   "args": {
+    "browser": "chrome",
+    "folder": "Profile 1",
+    "identity": "owner"
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    },
+    {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb",
+     "key": "2B129A85503C97786842E088B6A750606792D52D611E1A7C9154A7AE14282B97",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:11:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "value": "ahgNsz8h5-Vmsw_L13sYHzVKFjU1-HKH"
+  },
+  {
+   "op": "revoke",
+   "args": {
+    "token": "ahgNsz8h5-Vmsw_L13sYHzVKFjU1-HKH"
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    },
+    {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb",
+     "key": "2B129A85503C97786842E088B6A750606792D52D611E1A7C9154A7AE14282B97",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:11:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "value": null
+  },
+  {
+   "op": "revoke",
+   "args": {
+    "token": "never-issued"
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    },
+    {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb",
+     "key": "2B129A85503C97786842E088B6A750606792D52D611E1A7C9154A7AE14282B97",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:11:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "value": null
+  },
+  {
+   "op": "pending",
+   "args": {
+    "browser": "chrome",
+    "folder": "Profile 1"
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    },
+    {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb",
+     "key": "2B129A85503C97786842E088B6A750606792D52D611E1A7C9154A7AE14282B97",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:11:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "value": false
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-cccccccccccc",
+     "type": "pair",
+     "body_json": "{\"token\": \"ahgNsz8h5-Vmsw_L13sYHzVKFjU1-HKH\"}"
+    }
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    },
+    {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb",
+     "key": "2B129A85503C97786842E088B6A750606792D52D611E1A7C9154A7AE14282B97",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:11:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "verdict": {
+    "accepted": false,
+    "reason": "unknown_token",
+    "reply": null,
+    "binding": null
+   }
+  },
+  {
+   "op": "issue_token",
+   "args": {
+    "browser": "chrome",
+    "folder": "Profile 1",
+    "identity": "owner"
+   },
+   "rows": [
+    {
+     "install_id": "inst-aaaaaaaaaaaa",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "48F2F3564A4C636D1D267535D59B4E4D299ADFD4BDFC33FB6FD86C8880E9AF20",
+     "key_type": "blob",
+     "last_seq": 7,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:06:07.890123+00:00",
+     "ext_version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    },
+    {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb",
+     "key": "2B129A85503C97786842E088B6A750606792D52D611E1A7C9154A7AE14282B97",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:11:07.890123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "value": "U6UsZaPl6XKemA5sg7VDeCSckZlM3D_e"
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-cccccccccccc",
+     "type": "pair",
+     "body_json": "{\"token\": \"U6UsZaPl6XKemA5sg7VDeCSckZlM3D_e\"}",
+     "seq": 1,
+     "mac": "I3R3Rhs4w82xnDtpT4HI9dXDpxhykoL6zHtN1dE2QKw="
+    }
+   },
+   "rows": [
+    {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb",
+     "key": "2B129A85503C97786842E088B6A750606792D52D611E1A7C9154A7AE14282B97",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:11:07.890123+00:00",
+     "ext_version": ""
+    },
+    {
+     "install_id": "inst-cccccccccccc",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "B3309C4B0FD569ABCCCEFB7FE95FA58250A92D95ACDBE2FFCD8C706983D670EE",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:16:08.390123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "verdict": {
+    "accepted": true,
+    "reason": "paired",
+    "reply": {
+     "type": "paired",
+     "key": "szCcSw/VaavMzvt/6V+lglCpLZWs2+L/zYxwaYPWcO4="
+    },
+    "binding": {
+     "install_id": "inst-cccccccccccc",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner"
+    }
+   }
+  },
+  {
+   "op": "issue_token",
+   "args": {
+    "browser": "chrome",
+    "folder": "Profile 3",
+    "identity": "owner"
+   },
+   "rows": [
+    {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb",
+     "key": "2B129A85503C97786842E088B6A750606792D52D611E1A7C9154A7AE14282B97",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:11:07.890123+00:00",
+     "ext_version": ""
+    },
+    {
+     "install_id": "inst-cccccccccccc",
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "identity": "owner",
+     "key": "B3309C4B0FD569ABCCCEFB7FE95FA58250A92D95ACDBE2FFCD8C706983D670EE",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:16:08.390123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "value": "W2ePok8bVYyfAOCyms1jEjf_d_Ite9Lm"
+  },
+  {
+   "op": "handle",
+   "args": {
+    "raw": {
+     "install_id": "inst-cccccccccccc",
+     "type": "pair",
+     "body_json": "{\"token\": \"W2ePok8bVYyfAOCyms1jEjf_d_Ite9Lm\"}"
+    }
+   },
+   "rows": [
+    {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb",
+     "key": "2B129A85503C97786842E088B6A750606792D52D611E1A7C9154A7AE14282B97",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:11:07.890123+00:00",
+     "ext_version": ""
+    },
+    {
+     "install_id": "inst-cccccccccccc",
+     "browser": "chrome",
+     "folder": "Profile 3",
+     "identity": "owner",
+     "key": "4C88784CC083DF162FB608BA83D27BCEE4F10122CA34E76FE098B51168A91AAC",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:16:08.390123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "verdict": {
+    "accepted": true,
+    "reason": "paired",
+    "reply": {
+     "type": "paired",
+     "key": "TIh4TMCD3xYvtgi6g9J7zuTxASLKNOdv4Ji1EWipGqw="
+    },
+    "binding": {
+     "install_id": "inst-cccccccccccc",
+     "browser": "chrome",
+     "folder": "Profile 3",
+     "identity": "owner"
+    }
+   }
+  },
+  {
+   "op": "binding",
+   "args": {
+    "install_id": "inst-cccccccccccc"
+   },
+   "rows": [
+    {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb",
+     "key": "2B129A85503C97786842E088B6A750606792D52D611E1A7C9154A7AE14282B97",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:11:07.890123+00:00",
+     "ext_version": ""
+    },
+    {
+     "install_id": "inst-cccccccccccc",
+     "browser": "chrome",
+     "folder": "Profile 3",
+     "identity": "owner",
+     "key": "4C88784CC083DF162FB608BA83D27BCEE4F10122CA34E76FE098B51168A91AAC",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:16:08.390123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "binding": {
+    "install_id": "inst-cccccccccccc",
+    "browser": "chrome",
+    "folder": "Profile 3",
+    "identity": "owner"
+   }
+  },
+  {
+   "op": "for_profile",
+   "args": {
+    "browser": "brave",
+    "folder": "Default"
+   },
+   "rows": [
+    {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb",
+     "key": "2B129A85503C97786842E088B6A750606792D52D611E1A7C9154A7AE14282B97",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:11:07.890123+00:00",
+     "ext_version": ""
+    },
+    {
+     "install_id": "inst-cccccccccccc",
+     "browser": "chrome",
+     "folder": "Profile 3",
+     "identity": "owner",
+     "key": "4C88784CC083DF162FB608BA83D27BCEE4F10122CA34E76FE098B51168A91AAC",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:16:08.390123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "binding": {
+    "install_id": "inst-bbbbbbbbbbbb",
+    "browser": "brave",
+    "folder": "Default",
+    "identity": "ferb"
+   }
+  },
+  {
+   "op": "for_profile",
+   "args": {
+    "browser": "chrome",
+    "folder": "Profile 1"
+   },
+   "rows": [
+    {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb",
+     "key": "2B129A85503C97786842E088B6A750606792D52D611E1A7C9154A7AE14282B97",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:11:07.890123+00:00",
+     "ext_version": ""
+    },
+    {
+     "install_id": "inst-cccccccccccc",
+     "browser": "chrome",
+     "folder": "Profile 3",
+     "identity": "owner",
+     "key": "4C88784CC083DF162FB608BA83D27BCEE4F10122CA34E76FE098B51168A91AAC",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:16:08.390123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "value": null
+  },
+  {
+   "op": "all",
+   "args": {},
+   "rows": [
+    {
+     "install_id": "inst-bbbbbbbbbbbb",
+     "browser": "brave",
+     "folder": "Default",
+     "identity": "ferb",
+     "key": "2B129A85503C97786842E088B6A750606792D52D611E1A7C9154A7AE14282B97",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:11:07.890123+00:00",
+     "ext_version": ""
+    },
+    {
+     "install_id": "inst-cccccccccccc",
+     "browser": "chrome",
+     "folder": "Profile 3",
+     "identity": "owner",
+     "key": "4C88784CC083DF162FB608BA83D27BCEE4F10122CA34E76FE098B51168A91AAC",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:16:08.390123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "bindings": [
+    [
+     "inst-bbbbbbbbbbbb",
+     "brave",
+     "Default",
+     "ferb"
+    ],
+    [
+     "inst-cccccccccccc",
+     "chrome",
+     "Profile 3",
+     "owner"
+    ]
+   ]
+  },
+  {
+   "op": "unpair",
+   "args": {
+    "browser": "brave",
+    "folder": "Default"
+   },
+   "rows": [
+    {
+     "install_id": "inst-cccccccccccc",
+     "browser": "chrome",
+     "folder": "Profile 3",
+     "identity": "owner",
+     "key": "4C88784CC083DF162FB608BA83D27BCEE4F10122CA34E76FE098B51168A91AAC",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:16:08.390123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "value": true
+  },
+  {
+   "op": "unpair",
+   "args": {
+    "browser": "brave",
+    "folder": "Default"
+   },
+   "rows": [
+    {
+     "install_id": "inst-cccccccccccc",
+     "browser": "chrome",
+     "folder": "Profile 3",
+     "identity": "owner",
+     "key": "4C88784CC083DF162FB608BA83D27BCEE4F10122CA34E76FE098B51168A91AAC",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:16:08.390123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "value": false
+  },
+  {
+   "op": "all",
+   "args": {},
+   "rows": [
+    {
+     "install_id": "inst-cccccccccccc",
+     "browser": "chrome",
+     "folder": "Profile 3",
+     "identity": "owner",
+     "key": "4C88784CC083DF162FB608BA83D27BCEE4F10122CA34E76FE098B51168A91AAC",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:16:08.390123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "bindings": [
+    [
+     "inst-cccccccccccc",
+     "chrome",
+     "Profile 3",
+     "owner"
+    ]
+   ]
+  },
+  {
+   "op": "paired",
+   "args": {},
+   "rows": [
+    {
+     "install_id": "inst-cccccccccccc",
+     "browser": "chrome",
+     "folder": "Profile 3",
+     "identity": "owner",
+     "key": "4C88784CC083DF162FB608BA83D27BCEE4F10122CA34E76FE098B51168A91AAC",
+     "key_type": "blob",
+     "last_seq": 0,
+     "seq_type": "integer",
+     "paired_at": "2026-03-04T05:16:08.390123+00:00",
+     "ext_version": ""
+    }
+   ],
+   "value": [
+    "89BdkkStA8EWIya_OHbxwKKkBPHZGnIx",
+    "TfxELFW1m8IYF9dtO-78EAaPzgfcpMcB",
+    "U6UsZaPl6XKemA5sg7VDeCSckZlM3D_e",
+    "W2ePok8bVYyfAOCyms1jEjf_d_Ite9Lm"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,46 @@
+[package]
+name = "ferb-browser"
+version = "0.28.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.100"
+publish = false
+description = "FERB's browser hands: the extension protocol, pairing, the bridge and the browser tools (ferb/act/browser)"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[dependencies]
+ferb-core = { path = "../ferb-core" }
+ferb-identity = { path = "../ferb-identity" }
+ferb-py = { path = "../ferb-py" }
+ferb-sanitize = { path = "../ferb-sanitize" }
+aes-gcm = "0.10"
+getrandom = "0.3"
+hmac = "0.12"
+indexmap = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "macros", "sync", "time", "io-util", "net"] }
+zeroize = "1"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+
+# The ext_installs table (pairing records) lives in the Mac's SQLite store, which is Mac-side (STATUS.md).
+[target.'cfg(target_os = "macos")'.dependencies]
+rusqlite = { version = "0.42", features = ["bundled"] }
+
+# The native host's connection arrives through ferb-rpc's Unix-socket server.
+[target.'cfg(unix)'.dependencies]
+ferb-rpc = { path = "../ferb-rpc" }
+libc = "0.2"
+
+[dev-dependencies]
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+tempfile = "3"
+tokio = { version = "1", features = ["rt", "macros", "sync", "time", "io-util", "test-util"] }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+ferb-store = { path = "../ferb-store" }
+rusqlite = { version = "0.42", features = ["bundled"] }

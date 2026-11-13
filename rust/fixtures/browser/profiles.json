@@ -1,0 +1,1745 @@
+{
+ "tree": {
+  "support/Google/Chrome/Local State": "{\"profile\": {\"last_used\": \"Profile 1\", \"info_cache\": {\"Default\": {\"name\": \"Person 1\", \"user_name\": \"A@Example.TEST\"}, \"Profile 1\": {\"name\": \"Work\", \"user_name\": \"work@example.test\"}, \"Profile 3\": {\"name\": \"Home\"}, \"Profile 4\": {\"name\": \"Work\", \"user_name\": \"other@example.test\"}}}}",
+  "support/Google/Chrome/Default/Secure Preferences": "{\"extensions\": {\"settings\": {\"jaclnphefmmgmpofnabffahdkbjjompm\": {\"location\": 4, \"path\": \"/x/ext\"}}}}",
+  "support/Google/Chrome/Default/Preferences": "{\"extensions\": {\"settings\": {\"jaclnphefmmgmpofnabffahdkbjjompm\": {\"manifest\": {\"version\": \"0.19.10\"}}}}}",
+  "support/Google/Chrome/Profile 1/Preferences": "{\"extensions\": {\"settings\": {\"plbfkifcmgkgnlfgikdeaaglgncdhkma\": {\"location\": 1, \"path\": \"plbfkifcmgkgnlfgikdeaaglgncdhkma/0.19.9_0\", \"disable_reasons\": [1, 8192, true, -3]}}}}",
+  "support/Google/Chrome/Profile 3/Preferences": "{\"extensions\": {\"settings\": {\"plbfkifcmgkgnlfgikdeaaglgncdhkma\": {\"location\": 1, \"path\": \"plbfkifcmgkgnlfgikdeaaglgncdhkma/x_0\", \"state\": 0}}, \"external_uninstalls\": []}}",
+  "support/Google/Chrome/Profile 3/Extensions/plbfkifcmgkgnlfgikdeaaglgncdhkma/0.19.8_0/manifest.json": "{}",
+  "support/Google/Chrome/Profile 3/Extensions/plbfkifcmgkgnlfgikdeaaglgncdhkma/0.19.10_0/manifest.json": "{}",
+  "support/Google/Chrome/Profile 3/Extensions/plbfkifcmgkgnlfgikdeaaglgncdhkma/junk/manifest.json": "{}",
+  "support/Google/Chrome/Profile 4/Preferences": "{\"extensions\": {\"settings\": {\"plbfkifcmgkgnlfgikdeaaglgncdhkma\": {\"state\": 2, \"location\": 1, \"path\": \"p\"}}, \"external_uninstalls\": [\"plbfkifcmgkgnlfgikdeaaglgncdhkma\"]}}",
+  "support/BraveSoftware/Brave-Browser/Local State": "{\"profile\": {\"info_cache\": {\"Default\": {\"name\": \"Brave Main\"}}}}",
+  "support/BraveSoftware/Brave-Browser/Default/Preferences": "{\"extensions\": {\"settings\": {\"jaclnphefmmgmpofnabffahdkbjjompm\": {\"location\": true, \"path\": \"p\"}, \"plbfkifcmgkgnlfgikdeaaglgncdhkma\": {\"location\": 1, \"path\": \"q\", \"disable_reasons\": 6}}}}",
+  "support/Microsoft Edge/Local State": "{\"profile\": {\"info_cache\": {\"Default\": {\"name\": \"Edge\"}}}}",
+  "home/extension-requests.json": "[\"/not/a/request.json\", \"$ROOT/support/Vivaldi/External Extensions/plbfkifcmgkgnlfgikdeaaglgncdhkma.json\"]",
+  "ext/manifest.json": "{\"name\": \"FERB\", \"version\": \"0.19.10\", \"description\": \"d\", \"key\": \"dev-key\", \"manifest_version\": 3, \"permissions\": [\"tabs\", \"\\u00e9\"]}",
+  "ext/background.js": "// worker\n",
+  "ext/README.md": "notes\n",
+  "ext/a.x": "a\n",
+  "ext/a/b.js": "b\n",
+  "ext/.hidden/x.js": "hidden\n",
+  "ext/icons/.DS_Store": "x",
+  "ext/icons/i.png": "png"
+ },
+ "store": "plbfkifcmgkgnlfgikdeaaglgncdhkma",
+ "unpacked": "jaclnphefmmgmpofnabffahdkbjjompm",
+ "installed": [
+  "chrome",
+  "brave"
+ ],
+ "discover": {
+  "chrome": [
+   {
+    "browser": "chrome",
+    "folder": "Default",
+    "display_name": "Person 1",
+    "email": "a@example.test"
+   },
+   {
+    "browser": "chrome",
+    "folder": "Profile 1",
+    "display_name": "Work",
+    "email": "work@example.test"
+   },
+   {
+    "browser": "chrome",
+    "folder": "Profile 3",
+    "display_name": "Home",
+    "email": ""
+   },
+   {
+    "browser": "chrome",
+    "folder": "Profile 4",
+    "display_name": "Work",
+    "email": "other@example.test"
+   }
+  ],
+  "brave": [
+   {
+    "browser": "brave",
+    "folder": "Default",
+    "display_name": "Brave Main",
+    "email": ""
+   }
+  ],
+  "edge": [
+   {
+    "browser": "edge",
+    "folder": "Default",
+    "display_name": "Edge",
+    "email": ""
+   }
+  ],
+  "opera": []
+ },
+ "last_used": {
+  "chrome": "Profile 1",
+  "brave": "Default",
+  "opera": null
+ },
+ "with_paired": [
+  {
+   "browser": "chrome",
+   "folder": "Default",
+   "display_name": "Person 1",
+   "email": "a@example.test"
+  },
+  {
+   "browser": "chrome",
+   "folder": "Profile 1",
+   "display_name": "Work",
+   "email": "work@example.test"
+  },
+  {
+   "browser": "chrome",
+   "folder": "Profile 3",
+   "display_name": "Home",
+   "email": ""
+  },
+  {
+   "browser": "chrome",
+   "folder": "Profile 4",
+   "display_name": "Work",
+   "email": "other@example.test"
+  },
+  {
+   "browser": "brave",
+   "folder": "Profile 7",
+   "display_name": "Profile 7",
+   "email": ""
+  }
+ ],
+ "entries": [
+  {
+   "profile": [
+    "chrome",
+    "Default"
+   ],
+   "entry": [
+    "jaclnphefmmgmpofnabffahdkbjjompm",
+    {
+     "location": 4,
+     "path": "/x/ext",
+     "manifest": {
+      "version": "0.19.10"
+     }
+    }
+   ],
+   "state": "on",
+   "version": "0.19.10",
+   "reasons": []
+  },
+  {
+   "profile": [
+    "chrome",
+    "Profile 1"
+   ],
+   "entry": [
+    "plbfkifcmgkgnlfgikdeaaglgncdhkma",
+    {
+     "location": 1,
+     "path": "plbfkifcmgkgnlfgikdeaaglgncdhkma/0.19.9_0",
+     "disable_reasons": [
+      1,
+      8192,
+      true,
+      -3
+     ]
+    }
+   ],
+   "state": "off",
+   "version": "0.19.9",
+   "reasons": [
+    1,
+    8192
+   ]
+  },
+  {
+   "profile": [
+    "chrome",
+    "Profile 3"
+   ],
+   "entry": [
+    "plbfkifcmgkgnlfgikdeaaglgncdhkma",
+    {
+     "location": 1,
+     "path": "plbfkifcmgkgnlfgikdeaaglgncdhkma/x_0",
+     "state": 0
+    }
+   ],
+   "state": "off",
+   "version": "0.19.10",
+   "reasons": [
+    1
+   ]
+  },
+  {
+   "profile": [
+    "chrome",
+    "Profile 4"
+   ],
+   "entry": null,
+   "state": "missing",
+   "version": "",
+   "reasons": []
+  },
+  {
+   "profile": [
+    "brave",
+    "Default"
+   ],
+   "entry": [
+    "plbfkifcmgkgnlfgikdeaaglgncdhkma",
+    {
+     "location": 1,
+     "path": "q",
+     "disable_reasons": 6
+    }
+   ],
+   "state": "off",
+   "version": "",
+   "reasons": [
+    2,
+    4
+   ]
+  },
+  {
+   "profile": [
+    "edge",
+    "Default"
+   ],
+   "entry": null,
+   "state": "missing",
+   "version": "",
+   "reasons": []
+  }
+ ],
+ "resolve": [
+  {
+   "spoken": "Work",
+   "browser": null,
+   "r": {
+    "kind": "ambiguous",
+    "step": "display_name,email",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": "work@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 4",
+      "display_name": "Work",
+      "email": "other@example.test"
+     }
+    ]
+   },
+   "message": "'Work' matches several profiles: chrome/Profile 1 (name='Work', account=work@example.test), chrome/Profile 4 (name='Work', account=other@example.test)"
+  },
+  {
+   "spoken": "Work",
+   "browser": "chrome",
+   "r": {
+    "kind": "ambiguous",
+    "step": "display_name,email",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": "work@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 4",
+      "display_name": "Work",
+      "email": "other@example.test"
+     }
+    ]
+   },
+   "message": "'Work' matches several profiles: chrome/Profile 1 (name='Work', account=work@example.test), chrome/Profile 4 (name='Work', account=other@example.test)"
+  },
+  {
+   "spoken": "work",
+   "browser": null,
+   "r": {
+    "kind": "ambiguous",
+    "step": "display_name,email",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": "work@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 4",
+      "display_name": "Work",
+      "email": "other@example.test"
+     }
+    ]
+   },
+   "message": "'work' matches several profiles: chrome/Profile 1 (name='Work', account=work@example.test), chrome/Profile 4 (name='Work', account=other@example.test)"
+  },
+  {
+   "spoken": "work",
+   "browser": "chrome",
+   "r": {
+    "kind": "ambiguous",
+    "step": "display_name,email",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": "work@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 4",
+      "display_name": "Work",
+      "email": "other@example.test"
+     }
+    ]
+   },
+   "message": "'work' matches several profiles: chrome/Profile 1 (name='Work', account=work@example.test), chrome/Profile 4 (name='Work', account=other@example.test)"
+  },
+  {
+   "spoken": " “Work” ",
+   "browser": null,
+   "r": {
+    "kind": "ambiguous",
+    "step": "display_name,email",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": "work@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 4",
+      "display_name": "Work",
+      "email": "other@example.test"
+     }
+    ]
+   },
+   "message": "' “Work” ' matches several profiles: chrome/Profile 1 (name='Work', account=work@example.test), chrome/Profile 4 (name='Work', account=other@example.test)"
+  },
+  {
+   "spoken": " “Work” ",
+   "browser": "chrome",
+   "r": {
+    "kind": "ambiguous",
+    "step": "display_name,email",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": "work@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 4",
+      "display_name": "Work",
+      "email": "other@example.test"
+     }
+    ]
+   },
+   "message": "' “Work” ' matches several profiles: chrome/Profile 1 (name='Work', account=work@example.test), chrome/Profile 4 (name='Work', account=other@example.test)"
+  },
+  {
+   "spoken": "chrome work",
+   "browser": null,
+   "r": {
+    "kind": "ambiguous",
+    "step": "profile_id",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": "work@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 4",
+      "display_name": "Work",
+      "email": "other@example.test"
+     }
+    ]
+   },
+   "message": "'chrome work' matches several profiles: chrome/Profile 1 (name='Work', account=work@example.test), chrome/Profile 4 (name='Work', account=other@example.test)"
+  },
+  {
+   "spoken": "chrome work",
+   "browser": "chrome",
+   "r": {
+    "kind": "ambiguous",
+    "step": "profile_id",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": "work@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 4",
+      "display_name": "Work",
+      "email": "other@example.test"
+     }
+    ]
+   },
+   "message": "'chrome work' matches several profiles: chrome/Profile 1 (name='Work', account=work@example.test), chrome/Profile 4 (name='Work', account=other@example.test)"
+  },
+  {
+   "spoken": "chrome:Profile 1",
+   "browser": null,
+   "r": {
+    "kind": "one",
+    "step": "profile_id",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": "work@example.test"
+     }
+    ]
+   },
+   "message": "chrome/Profile 1"
+  },
+  {
+   "spoken": "chrome:Profile 1",
+   "browser": "chrome",
+   "r": {
+    "kind": "one",
+    "step": "profile_id",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": "work@example.test"
+     }
+    ]
+   },
+   "message": "chrome/Profile 1"
+  },
+  {
+   "spoken": "Google Chrome/Home",
+   "browser": null,
+   "r": {
+    "kind": "one",
+    "step": "profile_id",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "Home",
+      "email": ""
+     }
+    ]
+   },
+   "message": "chrome/Profile 3"
+  },
+  {
+   "spoken": "Google Chrome/Home",
+   "browser": "chrome",
+   "r": {
+    "kind": "one",
+    "step": "profile_id",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "Home",
+      "email": ""
+     }
+    ]
+   },
+   "message": "chrome/Profile 3"
+  },
+  {
+   "spoken": "chrome “Home”",
+   "browser": null,
+   "r": {
+    "kind": "one",
+    "step": "profile_id",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "Home",
+      "email": ""
+     }
+    ]
+   },
+   "message": "chrome/Profile 3"
+  },
+  {
+   "spoken": "chrome “Home”",
+   "browser": "chrome",
+   "r": {
+    "kind": "one",
+    "step": "profile_id",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "Home",
+      "email": ""
+     }
+    ]
+   },
+   "message": "chrome/Profile 3"
+  },
+  {
+   "spoken": "home",
+   "browser": null,
+   "r": {
+    "kind": "one",
+    "step": "display_name",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "Home",
+      "email": ""
+     }
+    ]
+   },
+   "message": "chrome/Profile 3"
+  },
+  {
+   "spoken": "home",
+   "browser": "chrome",
+   "r": {
+    "kind": "one",
+    "step": "display_name",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "Home",
+      "email": ""
+     }
+    ]
+   },
+   "message": "chrome/Profile 3"
+  },
+  {
+   "spoken": "work@example.test",
+   "browser": null,
+   "r": {
+    "kind": "one",
+    "step": "email",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": "work@example.test"
+     }
+    ]
+   },
+   "message": "chrome/Profile 1"
+  },
+  {
+   "spoken": "work@example.test",
+   "browser": "chrome",
+   "r": {
+    "kind": "one",
+    "step": "email",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": "work@example.test"
+     }
+    ]
+   },
+   "message": "chrome/Profile 1"
+  },
+  {
+   "spoken": "work",
+   "browser": null,
+   "r": {
+    "kind": "ambiguous",
+    "step": "display_name,email",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": "work@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 4",
+      "display_name": "Work",
+      "email": "other@example.test"
+     }
+    ]
+   },
+   "message": "'work' matches several profiles: chrome/Profile 1 (name='Work', account=work@example.test), chrome/Profile 4 (name='Work', account=other@example.test)"
+  },
+  {
+   "spoken": "work",
+   "browser": "chrome",
+   "r": {
+    "kind": "ambiguous",
+    "step": "display_name,email",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": "work@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 4",
+      "display_name": "Work",
+      "email": "other@example.test"
+     }
+    ]
+   },
+   "message": "'work' matches several profiles: chrome/Profile 1 (name='Work', account=work@example.test), chrome/Profile 4 (name='Work', account=other@example.test)"
+  },
+  {
+   "spoken": "Person 1",
+   "browser": null,
+   "r": {
+    "kind": "one",
+    "step": "display_name",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Person 1",
+      "email": "a@example.test"
+     }
+    ]
+   },
+   "message": "chrome/Default"
+  },
+  {
+   "spoken": "Person 1",
+   "browser": "chrome",
+   "r": {
+    "kind": "one",
+    "step": "display_name",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Person 1",
+      "email": "a@example.test"
+     }
+    ]
+   },
+   "message": "chrome/Default"
+  },
+  {
+   "spoken": "a@example.test",
+   "browser": null,
+   "r": {
+    "kind": "one",
+    "step": "email",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Person 1",
+      "email": "a@example.test"
+     }
+    ]
+   },
+   "message": "chrome/Default"
+  },
+  {
+   "spoken": "a@example.test",
+   "browser": "chrome",
+   "r": {
+    "kind": "one",
+    "step": "email",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Person 1",
+      "email": "a@example.test"
+     }
+    ]
+   },
+   "message": "chrome/Default"
+  },
+  {
+   "spoken": "a",
+   "browser": null,
+   "r": {
+    "kind": "one",
+    "step": "email",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Person 1",
+      "email": "a@example.test"
+     }
+    ]
+   },
+   "message": "chrome/Default"
+  },
+  {
+   "spoken": "a",
+   "browser": "chrome",
+   "r": {
+    "kind": "one",
+    "step": "email",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Person 1",
+      "email": "a@example.test"
+     }
+    ]
+   },
+   "message": "chrome/Default"
+  },
+  {
+   "spoken": "chrome",
+   "browser": null,
+   "r": {
+    "kind": "ambiguous",
+    "step": "browser",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Person 1",
+      "email": "a@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": "work@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "Home",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 4",
+      "display_name": "Work",
+      "email": "other@example.test"
+     }
+    ]
+   },
+   "message": "'chrome' matches several profiles: chrome/Default (name='Person 1', account=a@example.test), chrome/Profile 1 (name='Work', account=work@example.test), chrome/Profile 3 (name='Home', account=unknown), chrome/Profile 4 (name='Work', account=other@example.test)"
+  },
+  {
+   "spoken": "chrome",
+   "browser": "chrome",
+   "r": {
+    "kind": "ambiguous",
+    "step": "browser",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Person 1",
+      "email": "a@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": "work@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "Home",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 4",
+      "display_name": "Work",
+      "email": "other@example.test"
+     }
+    ]
+   },
+   "message": "'chrome' matches several profiles: chrome/Default (name='Person 1', account=a@example.test), chrome/Profile 1 (name='Work', account=work@example.test), chrome/Profile 3 (name='Home', account=unknown), chrome/Profile 4 (name='Work', account=other@example.test)"
+  },
+  {
+   "spoken": "brave",
+   "browser": null,
+   "r": {
+    "kind": "one",
+    "step": "browser",
+    "candidates": [
+     {
+      "browser": "brave",
+      "folder": "Default",
+      "display_name": "Brave Main",
+      "email": ""
+     }
+    ]
+   },
+   "message": "brave/Default"
+  },
+  {
+   "spoken": "brave",
+   "browser": "chrome",
+   "r": {
+    "kind": "none",
+    "step": "",
+    "candidates": []
+   },
+   "message": "no profile called 'brave'; found: chrome/Person 1 (a@example.test), chrome/Work (work@example.test), chrome/Home, chrome/Work (other@example.test), brave/Brave Main, edge/Edge"
+  },
+  {
+   "spoken": "Brave Browser",
+   "browser": null,
+   "r": {
+    "kind": "one",
+    "step": "browser",
+    "candidates": [
+     {
+      "browser": "brave",
+      "folder": "Default",
+      "display_name": "Brave Main",
+      "email": ""
+     }
+    ]
+   },
+   "message": "brave/Default"
+  },
+  {
+   "spoken": "Brave Browser",
+   "browser": "chrome",
+   "r": {
+    "kind": "none",
+    "step": "",
+    "candidates": []
+   },
+   "message": "no profile called 'Brave Browser'; found: chrome/Person 1 (a@example.test), chrome/Work (work@example.test), chrome/Home, chrome/Work (other@example.test), brave/Brave Main, edge/Edge"
+  },
+  {
+   "spoken": "brave main",
+   "browser": null,
+   "r": {
+    "kind": "one",
+    "step": "display_name",
+    "candidates": [
+     {
+      "browser": "brave",
+      "folder": "Default",
+      "display_name": "Brave Main",
+      "email": ""
+     }
+    ]
+   },
+   "message": "brave/Default"
+  },
+  {
+   "spoken": "brave main",
+   "browser": "chrome",
+   "r": {
+    "kind": "none",
+    "step": "",
+    "candidates": []
+   },
+   "message": "no profile called 'brave main'; found: chrome/Person 1 (a@example.test), chrome/Work (work@example.test), chrome/Home, chrome/Work (other@example.test), brave/Brave Main, edge/Edge"
+  },
+  {
+   "spoken": "nope",
+   "browser": null,
+   "r": {
+    "kind": "none",
+    "step": "",
+    "candidates": []
+   },
+   "message": "no profile called 'nope'; found: chrome/Person 1 (a@example.test), chrome/Work (work@example.test), chrome/Home, chrome/Work (other@example.test), brave/Brave Main, edge/Edge"
+  },
+  {
+   "spoken": "nope",
+   "browser": "chrome",
+   "r": {
+    "kind": "none",
+    "step": "",
+    "candidates": []
+   },
+   "message": "no profile called 'nope'; found: chrome/Person 1 (a@example.test), chrome/Work (work@example.test), chrome/Home, chrome/Work (other@example.test), brave/Brave Main, edge/Edge"
+  },
+  {
+   "spoken": "",
+   "browser": null,
+   "r": {
+    "kind": "none",
+    "step": "",
+    "candidates": []
+   },
+   "message": "no profile called ''; found: chrome/Person 1 (a@example.test), chrome/Work (work@example.test), chrome/Home, chrome/Work (other@example.test), brave/Brave Main, edge/Edge"
+  },
+  {
+   "spoken": "",
+   "browser": "chrome",
+   "r": {
+    "kind": "none",
+    "step": "",
+    "candidates": []
+   },
+   "message": "no profile called ''; found: chrome/Person 1 (a@example.test), chrome/Work (work@example.test), chrome/Home, chrome/Work (other@example.test), brave/Brave Main, edge/Edge"
+  },
+  {
+   "spoken": "Profile 3",
+   "browser": null,
+   "r": {
+    "kind": "none",
+    "step": "",
+    "candidates": []
+   },
+   "message": "no profile called 'Profile 3'; found: chrome/Person 1 (a@example.test), chrome/Work (work@example.test), chrome/Home, chrome/Work (other@example.test), brave/Brave Main, edge/Edge"
+  },
+  {
+   "spoken": "Profile 3",
+   "browser": "chrome",
+   "r": {
+    "kind": "none",
+    "step": "",
+    "candidates": []
+   },
+   "message": "no profile called 'Profile 3'; found: chrome/Person 1 (a@example.test), chrome/Work (work@example.test), chrome/Home, chrome/Work (other@example.test), brave/Brave Main, edge/Edge"
+  },
+  {
+   "spoken": "​Work​",
+   "browser": null,
+   "r": {
+    "kind": "ambiguous",
+    "step": "display_name,email",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": "work@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 4",
+      "display_name": "Work",
+      "email": "other@example.test"
+     }
+    ]
+   },
+   "message": "'​Work​' matches several profiles: chrome/Profile 1 (name='Work', account=work@example.test), chrome/Profile 4 (name='Work', account=other@example.test)"
+  },
+  {
+   "spoken": "​Work​",
+   "browser": "chrome",
+   "r": {
+    "kind": "ambiguous",
+    "step": "display_name,email",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": "work@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 4",
+      "display_name": "Work",
+      "email": "other@example.test"
+     }
+    ]
+   },
+   "message": "'​Work​' matches several profiles: chrome/Profile 1 (name='Work', account=work@example.test), chrome/Profile 4 (name='Work', account=other@example.test)"
+  },
+  {
+   "spoken": "my alias",
+   "browser": null,
+   "r": {
+    "kind": "one",
+    "step": "alias",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "Home",
+      "email": ""
+     }
+    ]
+   },
+   "message": "chrome/Profile 3"
+  },
+  {
+   "spoken": "my alias",
+   "browser": "chrome",
+   "r": {
+    "kind": "one",
+    "step": "alias",
+    "candidates": [
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "Home",
+      "email": ""
+     }
+    ]
+   },
+   "message": "chrome/Profile 3"
+  },
+  {
+   "spoken": "chrome/Profile 9",
+   "browser": null,
+   "r": {
+    "kind": "none",
+    "step": "",
+    "candidates": []
+   },
+   "message": "no profile called 'chrome/Profile 9'; found: chrome/Person 1 (a@example.test), chrome/Work (work@example.test), chrome/Home, chrome/Work (other@example.test), brave/Brave Main, edge/Edge"
+  },
+  {
+   "spoken": "chrome/Profile 9",
+   "browser": "chrome",
+   "r": {
+    "kind": "none",
+    "step": "",
+    "candidates": []
+   },
+   "message": "no profile called 'chrome/Profile 9'; found: chrome/Person 1 (a@example.test), chrome/Work (work@example.test), chrome/Home, chrome/Work (other@example.test), brave/Brave Main, edge/Edge"
+  }
+ ],
+ "shown": [
+  "Google Chrome “Person 1” (a@example.test)",
+  "“Person 1” (a@example.test)",
+  "Chrome “Person 1” (a@example.test)",
+  "Google Chrome “Work” (work@example.test)",
+  "“Work” (work@example.test)",
+  "Chrome “Work” (work@example.test)",
+  "Google Chrome “Home”",
+  "“Home”",
+  "Chrome “Home”",
+  "Google Chrome “Work” (other@example.test)",
+  "“Work” (other@example.test)",
+  "Chrome “Work” (other@example.test)",
+  "Brave “Brave Main”",
+  "“Brave Main”",
+  "Chrome “Brave Main”",
+  "Microsoft Edge “Edge”",
+  "“Edge”",
+  "Chrome “Edge”"
+ ],
+ "named": [
+  {
+   "browser": "chrome",
+   "folder": "Profile 1",
+   "display_name": "Work",
+   "email": "work@example.test"
+  },
+  {
+   "browser": "chrome",
+   "folder": "Gone",
+   "display_name": "Gone",
+   "email": ""
+  }
+ ],
+ "open_command": [
+  {
+   "args": [
+    "chrome",
+    "Profile 1",
+    null,
+    true,
+    true,
+    false
+   ],
+   "binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+   "out": {
+    "ok": [
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+     "--profile-directory=Profile 1",
+     "--no-startup-window"
+    ]
+   }
+  },
+  {
+   "args": [
+    "chrome",
+    "Profile 1",
+    null,
+    true,
+    false,
+    false
+   ],
+   "binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+   "out": {
+    "ok": [
+     "open",
+     "-g",
+     "-b",
+     "com.google.Chrome",
+     "--args",
+     "--profile-directory=Profile 1",
+     "--no-startup-window"
+    ]
+   }
+  },
+  {
+   "args": [
+    "chrome",
+    "Profile 1",
+    "https://x/",
+    true,
+    false,
+    false
+   ],
+   "binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+   "out": {
+    "error": "needs_foreground: URL launch requires an explicit foreground setup step"
+   }
+  },
+  {
+   "args": [
+    "chrome",
+    "Profile 1",
+    "https://x/",
+    false,
+    false,
+    false
+   ],
+   "binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+   "out": {
+    "ok": [
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+     "--profile-directory=Profile 1",
+     "https://x/"
+    ]
+   }
+  },
+  {
+   "args": [
+    "chrome",
+    "Profile 1",
+    null,
+    true,
+    false,
+    true
+   ],
+   "binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+   "out": {
+    "ok": [
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+     "--profile-directory=Profile 1"
+    ]
+   }
+  },
+  {
+   "args": [
+    "chrome",
+    "Nope",
+    null,
+    true,
+    false,
+    false
+   ],
+   "binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+   "out": {
+    "error": "chrome/Nope isn't a discovered profile; refusing to create one"
+   }
+  }
+ ],
+ "choose": [
+  {
+   "identity": [
+    "chrome",
+    "Profile 2"
+   ],
+   "default": null,
+   "unseen": null,
+   "profiles": true,
+   "bindings": 3,
+   "named": null,
+   "out": {
+    "error": "NeedsOwner",
+    "message": "select a profile from the task context; available: brave/Brave Main, chrome/Work (work@example.test). Use ferb_browser for ordinary browsing in FERB's own profile."
+   }
+  },
+  {
+   "identity": [
+    "chrome",
+    "Profile 2"
+   ],
+   "default": null,
+   "unseen": null,
+   "profiles": true,
+   "bindings": 3,
+   "named": "Work",
+   "out": {
+    "error": "NeedsOwner",
+    "message": "'Work' matches several profiles: chrome/Profile 1 (name='Work', account=work@example.test), chrome/Profile 4 (name='Work', account=other@example.test)"
+   }
+  },
+  {
+   "identity": [
+    "chrome",
+    "Profile 2"
+   ],
+   "default": null,
+   "unseen": null,
+   "profiles": true,
+   "bindings": 3,
+   "named": "work",
+   "out": {
+    "error": "NeedsOwner",
+    "message": "'work' matches several profiles: chrome/Profile 1 (name='Work', account=work@example.test), chrome/Profile 4 (name='Work', account=other@example.test)"
+   }
+  },
+  {
+   "identity": [
+    "chrome",
+    "Profile 2"
+   ],
+   "default": null,
+   "unseen": null,
+   "profiles": true,
+   "bindings": 3,
+   "named": "Home",
+   "out": {
+    "error": "NeedsOwner",
+    "message": "chrome profile 'Home' (chrome/Profile 3) isn't paired with FERB yet: pair it with browser_pair profile=chrome/Profile 3 (FERB asks the owner once)"
+   }
+  },
+  {
+   "identity": [
+    "chrome",
+    "Profile 2"
+   ],
+   "default": null,
+   "unseen": null,
+   "profiles": true,
+   "bindings": 3,
+   "named": "brave",
+   "out": {
+    "ok": {
+     "browser": "brave",
+     "folder": "Default",
+     "reason": "named: brave"
+    }
+   }
+  },
+  {
+   "identity": [
+    "chrome",
+    "Profile 2"
+   ],
+   "default": null,
+   "unseen": null,
+   "profiles": true,
+   "bindings": 3,
+   "named": "nope",
+   "out": {
+    "error": "NeedsOwner",
+    "message": "no profile called 'nope'; found: chrome/Person 1 (a@example.test), chrome/Work (work@example.test), chrome/Home, chrome/Work (other@example.test), brave/Brave Main, edge/Edge"
+   }
+  },
+  {
+   "identity": [
+    "chrome",
+    "Profile 2"
+   ],
+   "default": null,
+   "unseen": null,
+   "profiles": true,
+   "bindings": 3,
+   "named": "Profile 2",
+   "out": {
+    "error": "NeedsOwner",
+    "message": "no profile called 'Profile 2'; found: chrome/Person 1 (a@example.test), chrome/Work (work@example.test), chrome/Home, chrome/Work (other@example.test), brave/Brave Main, edge/Edge"
+   }
+  },
+  {
+   "identity": [
+    "chrome",
+    "Profile 2"
+   ],
+   "default": null,
+   "unseen": null,
+   "profiles": true,
+   "bindings": 3,
+   "named": "my alias",
+   "out": {
+    "error": "NeedsOwner",
+    "message": "chrome profile 'Home' (chrome/Profile 3) isn't paired with FERB yet: pair it with browser_pair profile=chrome/Profile 3 (FERB asks the owner once)"
+   }
+  },
+  {
+   "identity": null,
+   "default": [
+    "chrome",
+    "Profile 1"
+   ],
+   "unseen": null,
+   "profiles": true,
+   "bindings": 3,
+   "named": null,
+   "out": {
+    "ok": {
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "reason": "the owner's chosen profile for browsing (FERB has no profile of its own)"
+    }
+   }
+  },
+  {
+   "identity": null,
+   "default": [
+    "chrome",
+    "Profile 3"
+   ],
+   "unseen": null,
+   "profiles": true,
+   "bindings": 3,
+   "named": null,
+   "out": {
+    "error": "NeedsOwner",
+    "message": "the owner picked chrome profile 'Home' (chrome/Profile 3) for FERB's web work and it isn't paired with FERB yet: pair it with browser_pair profile=chrome/Profile 3 (FERB asks the owner once)"
+   }
+  },
+  {
+   "identity": null,
+   "default": [
+    "chrome",
+    "Gone"
+   ],
+   "unseen": null,
+   "profiles": true,
+   "bindings": 3,
+   "named": null,
+   "out": {
+    "error": "NeedsOwner",
+    "message": "select a profile from the task context; available: brave/Brave Main, chrome/Work (work@example.test). Use ferb_browser for ordinary browsing in FERB's own profile."
+   }
+  },
+  {
+   "identity": null,
+   "default": null,
+   "unseen": "Full Disk Access is off",
+   "profiles": false,
+   "bindings": 3,
+   "named": "Work",
+   "out": {
+    "error": "NeedsOwner",
+    "message": "no profile called 'Work'; found: chrome/Profile 1, chrome/Profile 2, brave/Default (Full Disk Access is off)"
+   }
+  },
+  {
+   "identity": null,
+   "default": null,
+   "unseen": "Full Disk Access is off",
+   "profiles": false,
+   "bindings": 0,
+   "named": null,
+   "out": {
+    "error": "NeedsOwner",
+    "message": "no browser profile is paired with FERB yet: pick the owner's profile from browser_profiles and pair it with browser_pair (FERB asks the owner once)"
+   }
+  },
+  {
+   "identity": null,
+   "default": null,
+   "unseen": null,
+   "profiles": true,
+   "bindings": 0,
+   "named": "Work",
+   "out": {
+    "error": "NeedsOwner",
+    "message": "'Work' matches several profiles: chrome/Profile 1 (name='Work', account=work@example.test), chrome/Profile 4 (name='Work', account=other@example.test)"
+   }
+  }
+ ],
+ "valid_id": {
+  "plbfkifcmgkgnlfgikdeaaglgncdhkma": true,
+  "jaclnphefmmgmpofnabffahdkbjjompm": true,
+  "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": false,
+  "PLBFKIFCMGKGNLFGIKDEAAGLGNCDHKMA": false,
+  "plbfkifcmgkgnlfgikdeaaglgncdhkmaa": false
+ },
+ "native_host_dirs": [
+  "$ROOT/support/Google/Chrome/NativeMessagingHosts",
+  "$ROOT/support/BraveSoftware/Brave-Browser/NativeMessagingHosts",
+  "$ROOT/support/com.operasoftware.Opera/NativeMessagingHosts"
+ ],
+ "read_states_before": [
+  {
+   "browser": "chrome",
+   "request": null,
+   "profiles": [
+    {
+     "browser": "chrome",
+     "folder": "Default",
+     "name": "Person 1",
+     "extension_id": "jaclnphefmmgmpofnabffahdkbjjompm",
+     "enabled": true,
+     "removed": false,
+     "paired": false,
+     "version": "0.19.10",
+     "disabled_for": [],
+     "email": "a@example.test"
+    },
+    {
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "name": "Work",
+     "extension_id": "plbfkifcmgkgnlfgikdeaaglgncdhkma",
+     "enabled": false,
+     "removed": false,
+     "paired": true,
+     "version": "0.19.9",
+     "disabled_for": [
+      1,
+      8192
+     ],
+     "email": "work@example.test"
+    },
+    {
+     "browser": "chrome",
+     "folder": "Profile 3",
+     "name": "Home",
+     "extension_id": "plbfkifcmgkgnlfgikdeaaglgncdhkma",
+     "enabled": false,
+     "removed": false,
+     "paired": false,
+     "version": "0.19.10",
+     "disabled_for": [
+      1
+     ],
+     "email": ""
+    },
+    {
+     "browser": "chrome",
+     "folder": "Profile 4",
+     "name": "Work",
+     "extension_id": "",
+     "enabled": false,
+     "removed": true,
+     "paired": false,
+     "version": "",
+     "disabled_for": [],
+     "email": "other@example.test"
+    }
+   ],
+   "error": ""
+  },
+  {
+   "browser": "brave",
+   "request": null,
+   "profiles": [
+    {
+     "browser": "brave",
+     "folder": "Default",
+     "name": "Brave Main",
+     "extension_id": "plbfkifcmgkgnlfgikdeaaglgncdhkma",
+     "enabled": false,
+     "removed": false,
+     "paired": false,
+     "version": "",
+     "disabled_for": [
+      2,
+      4
+     ],
+     "email": ""
+    }
+   ],
+   "error": ""
+  }
+ ],
+ "prepare": [
+  {
+   "browser": "chrome",
+   "request": "$ROOT/support/Google/Chrome/External Extensions/plbfkifcmgkgnlfgikdeaaglgncdhkma.json",
+   "profiles": [
+    {
+     "browser": "chrome",
+     "folder": "Default",
+     "name": "Person 1",
+     "extension_id": "jaclnphefmmgmpofnabffahdkbjjompm",
+     "enabled": true,
+     "removed": false,
+     "paired": false,
+     "version": "0.19.10",
+     "disabled_for": [],
+     "email": "a@example.test"
+    },
+    {
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "name": "Work",
+     "extension_id": "plbfkifcmgkgnlfgikdeaaglgncdhkma",
+     "enabled": false,
+     "removed": false,
+     "paired": true,
+     "version": "0.19.9",
+     "disabled_for": [
+      1,
+      8192
+     ],
+     "email": "work@example.test"
+    },
+    {
+     "browser": "chrome",
+     "folder": "Profile 3",
+     "name": "Home",
+     "extension_id": "plbfkifcmgkgnlfgikdeaaglgncdhkma",
+     "enabled": false,
+     "removed": false,
+     "paired": false,
+     "version": "0.19.10",
+     "disabled_for": [
+      1
+     ],
+     "email": ""
+    },
+    {
+     "browser": "chrome",
+     "folder": "Profile 4",
+     "name": "Work",
+     "extension_id": "",
+     "enabled": false,
+     "removed": true,
+     "paired": false,
+     "version": "",
+     "disabled_for": [],
+     "email": "other@example.test"
+    }
+   ],
+   "error": ""
+  },
+  {
+   "browser": "brave",
+   "request": "$ROOT/support/BraveSoftware/Brave-Browser/External Extensions/plbfkifcmgkgnlfgikdeaaglgncdhkma.json",
+   "profiles": [
+    {
+     "browser": "brave",
+     "folder": "Default",
+     "name": "Brave Main",
+     "extension_id": "plbfkifcmgkgnlfgikdeaaglgncdhkma",
+     "enabled": false,
+     "removed": false,
+     "paired": false,
+     "version": "",
+     "disabled_for": [
+      2,
+      4
+     ],
+     "email": ""
+    }
+   ],
+   "error": ""
+  }
+ ],
+ "record": [
+  "/not/a/request.json",
+  "$ROOT/support/BraveSoftware/Brave-Browser/External Extensions/plbfkifcmgkgnlfgikdeaaglgncdhkma.json",
+  "$ROOT/support/Google/Chrome/External Extensions/plbfkifcmgkgnlfgikdeaaglgncdhkma.json",
+  "$ROOT/support/Vivaldi/External Extensions/plbfkifcmgkgnlfgikdeaaglgncdhkma.json"
+ ],
+ "request_text": "{\n  \"external_update_url\": \"https://clients2.google.com/service/update2/crx\"\n}\n",
+ "read_states": [
+  {
+   "browser": "chrome",
+   "request": "$ROOT/support/Google/Chrome/External Extensions/plbfkifcmgkgnlfgikdeaaglgncdhkma.json",
+   "profiles": [
+    {
+     "browser": "chrome",
+     "folder": "Default",
+     "name": "Person 1",
+     "extension_id": "jaclnphefmmgmpofnabffahdkbjjompm",
+     "enabled": true,
+     "removed": false,
+     "paired": null,
+     "version": "0.19.10",
+     "disabled_for": [],
+     "email": "a@example.test"
+    },
+    {
+     "browser": "chrome",
+     "folder": "Profile 1",
+     "name": "Work",
+     "extension_id": "plbfkifcmgkgnlfgikdeaaglgncdhkma",
+     "enabled": false,
+     "removed": false,
+     "paired": null,
+     "version": "0.19.9",
+     "disabled_for": [
+      1,
+      8192
+     ],
+     "email": "work@example.test"
+    },
+    {
+     "browser": "chrome",
+     "folder": "Profile 3",
+     "name": "Home",
+     "extension_id": "plbfkifcmgkgnlfgikdeaaglgncdhkma",
+     "enabled": false,
+     "removed": false,
+     "paired": null,
+     "version": "0.19.10",
+     "disabled_for": [
+      1
+     ],
+     "email": ""
+    },
+    {
+     "browser": "chrome",
+     "folder": "Profile 4",
+     "name": "Work",
+     "extension_id": "",
+     "enabled": false,
+     "removed": true,
+     "paired": null,
+     "version": "",
+     "disabled_for": [],
+     "email": "other@example.test"
+    }
+   ],
+   "error": ""
+  },
+  {
+   "browser": "brave",
+   "request": "$ROOT/support/BraveSoftware/Brave-Browser/External Extensions/plbfkifcmgkgnlfgikdeaaglgncdhkma.json",
+   "profiles": [
+    {
+     "browser": "brave",
+     "folder": "Default",
+     "name": "Brave Main",
+     "extension_id": "plbfkifcmgkgnlfgikdeaaglgncdhkma",
+     "enabled": false,
+     "removed": false,
+     "paired": null,
+     "version": "",
+     "disabled_for": [
+      2,
+      4
+     ],
+     "email": ""
+    }
+   ],
+   "error": ""
+  }
+ ],
+ "describe": [
+  [
+   "Browser extension: FERB asked Google Chrome, Brave to install it from the Chrome Web Store. Each installs it at its next start, for all its profiles, and asks you to turn it on in each profile. FERB never restarts a browser or answers its prompts.",
+   "  Google Chrome: install requested",
+   "    “Person 1” (a@example.test, Default): installed unpacked, enabled, pairing not checked (FERB isn't running)",
+   "    “Work” (work@example.test, Profile 1): installed from the Web Store, waiting for you to turn it on",
+   "    “Home” (Profile 3): installed from the Web Store, waiting for you to turn it on",
+   "    “Work” (other@example.test, Profile 4): removed earlier, so the browser won't add it again: add it from https://chromewebstore.google.com/detail/plbfkifcmgkgnlfgikdeaaglgncdhkma",
+   "  Brave: install requested (unconfirmed: Brave doesn't document this folder; it loads extensions as Chromium does; if FERB isn't offered after you reopen it, add it from https://chromewebstore.google.com/detail/plbfkifcmgkgnlfgikdeaaglgncdhkma)",
+   "    “Brave Main” (Default): installed from the Web Store, waiting for you to turn it on",
+   "  To pair a profile with FERB turned on: Pair all or Pair in FERB's Settings → Browsers, or `ferb browsers pair --browser <browser> \"<profile>\"`."
+  ],
+  [
+   "Browser extension: [browser] store_extension_id 'bad' in config.toml isn't a Chrome extension id (32 letters a-p), so no browser was asked to install FERB.",
+   "  Google Chrome",
+   "    “Person 1” (a@example.test, Default): installed unpacked, enabled, pairing not checked (FERB isn't running)",
+   "    “Work” (work@example.test, Profile 1): installed unpacked, waiting for you to turn it on",
+   "    “Home” (Profile 3): installed unpacked, waiting for you to turn it on",
+   "    “Work” (other@example.test, Profile 4): removed earlier, so the browser won't add it again: add it from https://chromewebstore.google.com/detail/bad",
+   "  Brave",
+   "    “Brave Main” (Default): installed unpacked, waiting for you to turn it on",
+   "  Load unpacked, once per profile: open the browser's extensions page, turn on Developer mode, click “Load unpacked” and choose $ROOT/ext",
+   "  To pair a profile with FERB turned on: Pair all or Pair in FERB's Settings → Browsers, or `ferb browsers pair --browser <browser> \"<profile>\"`.",
+   "  Arc isn't supported by FERB yet."
+  ],
+  [
+   "Browser extension: the Chrome Web Store listing is pending, so browsers can't be asked to install FERB yet.",
+   "  Google Chrome",
+   "    “Person 1” (a@example.test, Default): installed unpacked, enabled, pairing not checked (FERB isn't running)",
+   "    “Work” (work@example.test, Profile 1): installed unpacked, waiting for you to turn it on",
+   "    “Home” (Profile 3): installed unpacked, waiting for you to turn it on",
+   "    “Work” (other@example.test, Profile 4): removed earlier, so the browser won't add it again: add it from https://chromewebstore.google.com/detail/",
+   "  Brave",
+   "    “Brave Main” (Default): installed unpacked, waiting for you to turn it on",
+   "  Load unpacked, once per profile: open the browser's extensions page, turn on Developer mode, click “Load unpacked” and choose $ROOT/ext",
+   "  To pair a profile with FERB turned on: Pair all or Pair in FERB's Settings → Browsers, or `ferb browsers pair --browser <browser> \"<profile>\"`.",
+   "  Removed FERB's earlier install request $ROOT/x.json"
+  ],
+  [
+   "Browser extension: no Chromium-family browser has been started on this Mac yet; FERB sets it up the next time it updates after you start one.",
+   "  Comet isn't supported by FERB yet."
+  ],
+  [
+   "Browser extension: FERB asked Google Chrome, Brave to install it from the Chrome Web Store. Each installs it at its next start, for all its profiles, and asks you to turn it on in each profile. FERB never restarts a browser or answers its prompts.",
+   "  Google Chrome: install requested",
+   "    “Person 1” (a@example.test, Default): installed unpacked, enabled, paired",
+   "    “Work” (work@example.test, Profile 1): installed from the Web Store, waiting for you to turn it on",
+   "    “Home” (Profile 3): installed from the Web Store, waiting for you to turn it on",
+   "    “Work” (other@example.test, Profile 4): removed earlier, so the browser won't add it again: add it from https://chromewebstore.google.com/detail/plbfkifcmgkgnlfgikdeaaglgncdhkma",
+   "  Brave: install requested (unconfirmed: Brave doesn't document this folder; it loads extensions as Chromium does; if FERB isn't offered after you reopen it, add it from https://chromewebstore.google.com/detail/plbfkifcmgkgnlfgikdeaaglgncdhkma)",
+   "    “Brave Main” (Default): installed from the Web Store, waiting for you to turn it on",
+   "  To pair a profile with FERB turned on: Pair all or Pair in FERB's Settings → Browsers, or `ferb browsers pair --browser <browser> \"<profile>\"`."
+  ]
+ ],
+ "withdraw_keep": [],
+ "record_after": [
+  "$ROOT/support/BraveSoftware/Brave-Browser/External Extensions/plbfkifcmgkgnlfgikdeaaglgncdhkma.json",
+  "$ROOT/support/Google/Chrome/External Extensions/plbfkifcmgkgnlfgikdeaaglgncdhkma.json",
+  "$ROOT/support/Vivaldi/External Extensions/plbfkifcmgkgnlfgikdeaaglgncdhkma.json"
+ ],
+ "remove_requests": [
+  "$ROOT/support/BraveSoftware/Brave-Browser/External Extensions/plbfkifcmgkgnlfgikdeaaglgncdhkma.json",
+  "$ROOT/support/Google/Chrome/External Extensions/plbfkifcmgkgnlfgikdeaaglgncdhkma.json"
+ ],
+ "record_gone": false,
+ "package": {
+  "zip": "$ROOT/out/ferb-extension-0.19.10.zip",
+  "notes": [
+   "manifest.json has no icons; the Chrome Web Store asks for them (at least a 128x128 PNG)"
+  ],
+  "files": [
+   {
+    "name": "a/b.js",
+    "text": "b\n"
+   },
+   {
+    "name": "a.x",
+    "text": "a\n"
+   },
+   {
+    "name": "background.js",
+    "text": "// worker\n"
+   },
+   {
+    "name": "icons/i.png",
+    "text": "png"
+   },
+   {
+    "name": "manifest.json",
+    "text": "{\n  \"name\": \"FERB\",\n  \"version\": \"0.19.10\",\n  \"description\": \"d\",\n  \"manifest_version\": 3,\n  \"permissions\": [\n    \"tabs\",\n    \"\\u00e9\"\n  ]\n}\n"
+   }
+  ]
+ }
+}

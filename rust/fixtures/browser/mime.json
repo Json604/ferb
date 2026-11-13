@@ -1,0 +1,287 @@
+{
+ "file": "# comment line\napplication/x-invented\tinv invx\n\napplication/vnd.openxmlformats-officedocument.wordprocessingml.document\tdocx\ntext/x-override pdf # a comment after\nbad-line-without-suffixes\nimage/x-two\tjpg\t# trailing\n  text/indented   md  \n#text/x-hidden hid\nx/y z#notcomment\n",
+ "defaults": [
+  {
+   "name": "a.pdf",
+   "type": "application/pdf"
+  },
+  {
+   "name": "A.PDF",
+   "type": "application/pdf"
+  },
+  {
+   "name": "x.tar.gz",
+   "type": "application/x-tar"
+  },
+  {
+   "name": "x.tgz",
+   "type": "application/x-tar"
+  },
+  {
+   "name": "x.svgz",
+   "type": "image/svg+xml"
+  },
+  {
+   "name": "x.gz",
+   "type": null
+  },
+  {
+   "name": "x.GZ",
+   "type": null
+  },
+  {
+   "name": ".pdf",
+   "type": null
+  },
+  {
+   "name": "noext",
+   "type": null
+  },
+  {
+   "name": "a.b.json",
+   "type": "application/json"
+  },
+  {
+   "name": "a.",
+   "type": null
+  },
+  {
+   "name": "résumé.docx",
+   "type": null
+  },
+  {
+   "name": "photo.JPG",
+   "type": "image/jpeg"
+  },
+  {
+   "name": "clip.mp4",
+   "type": "video/mp4"
+  },
+  {
+   "name": "data.csv",
+   "type": "text/csv"
+  },
+  {
+   "name": "x.unknownext",
+   "type": null
+  },
+  {
+   "name": "x.Z",
+   "type": null
+  },
+  {
+   "name": "x.tar.Z",
+   "type": "application/x-tar"
+  },
+  {
+   "name": "a:b.txt",
+   "type": "text/plain"
+  },
+  {
+   "name": "data:text/plain,hi",
+   "type": "text/plain"
+  },
+  {
+   "name": "x.br",
+   "type": null
+  },
+  {
+   "name": "x.tbz2",
+   "type": "application/x-tar"
+  },
+  {
+   "name": "notes.md",
+   "type": "text/markdown"
+  },
+  {
+   "name": "page.html",
+   "type": "text/html"
+  },
+  {
+   "name": "a.mjs",
+   "type": "text/javascript"
+  },
+  {
+   "name": "a.webp",
+   "type": null
+  },
+  {
+   "name": "a.heic",
+   "type": "image/heic"
+  },
+  {
+   "name": "..",
+   "type": null
+  },
+  {
+   "name": "a.txt.gz.gz",
+   "type": null
+  },
+  {
+   "name": "a.inv",
+   "type": null
+  },
+  {
+   "name": "a.INVX",
+   "type": null
+  },
+  {
+   "name": "a.hid",
+   "type": null
+  },
+  {
+   "name": "a.z",
+   "type": null
+  },
+  {
+   "name": "a.z#notcomment",
+   "type": null
+  },
+  {
+   "name": "a.zz",
+   "type": null
+  }
+ ],
+ "with_file": [
+  {
+   "name": "a.pdf",
+   "type": "text/x-override"
+  },
+  {
+   "name": "A.PDF",
+   "type": "text/x-override"
+  },
+  {
+   "name": "x.tar.gz",
+   "type": "application/x-tar"
+  },
+  {
+   "name": "x.tgz",
+   "type": "application/x-tar"
+  },
+  {
+   "name": "x.svgz",
+   "type": "image/svg+xml"
+  },
+  {
+   "name": "x.gz",
+   "type": null
+  },
+  {
+   "name": "x.GZ",
+   "type": null
+  },
+  {
+   "name": ".pdf",
+   "type": null
+  },
+  {
+   "name": "noext",
+   "type": null
+  },
+  {
+   "name": "a.b.json",
+   "type": "application/json"
+  },
+  {
+   "name": "a.",
+   "type": null
+  },
+  {
+   "name": "résumé.docx",
+   "type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  },
+  {
+   "name": "photo.JPG",
+   "type": "image/x-two"
+  },
+  {
+   "name": "clip.mp4",
+   "type": "video/mp4"
+  },
+  {
+   "name": "data.csv",
+   "type": "text/csv"
+  },
+  {
+   "name": "x.unknownext",
+   "type": null
+  },
+  {
+   "name": "x.Z",
+   "type": null
+  },
+  {
+   "name": "x.tar.Z",
+   "type": "application/x-tar"
+  },
+  {
+   "name": "a:b.txt",
+   "type": "text/plain"
+  },
+  {
+   "name": "data:text/plain,hi",
+   "type": "text/plain"
+  },
+  {
+   "name": "x.br",
+   "type": null
+  },
+  {
+   "name": "x.tbz2",
+   "type": "application/x-tar"
+  },
+  {
+   "name": "notes.md",
+   "type": "text/indented"
+  },
+  {
+   "name": "page.html",
+   "type": "text/html"
+  },
+  {
+   "name": "a.mjs",
+   "type": "text/javascript"
+  },
+  {
+   "name": "a.webp",
+   "type": null
+  },
+  {
+   "name": "a.heic",
+   "type": "image/heic"
+  },
+  {
+   "name": "..",
+   "type": null
+  },
+  {
+   "name": "a.txt.gz.gz",
+   "type": null
+  },
+  {
+   "name": "a.inv",
+   "type": "application/x-invented"
+  },
+  {
+   "name": "a.INVX",
+   "type": "application/x-invented"
+  },
+  {
+   "name": "a.hid",
+   "type": null
+  },
+  {
+   "name": "a.z",
+   "type": null
+  },
+  {
+   "name": "a.z#notcomment",
+   "type": "x/y"
+  },
+  {
+   "name": "a.zz",
+   "type": null
+  }
+ ]
+}

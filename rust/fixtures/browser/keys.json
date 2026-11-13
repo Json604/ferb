@@ -1,0 +1,10209 @@
+[
+ {
+  "spec": null,
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": " ",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "text": " ",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "+",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "++",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "a+",
+  "event": {
+   "key": "a",
+   "code": "KeyA",
+   "keyCode": 65,
+   "text": "a",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": false
+ },
+ {
+  "spec": "+a",
+  "event": {
+   "key": "a",
+   "code": "KeyA",
+   "keyCode": 65,
+   "text": "a",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "a++",
+  "event": {
+   "key": "a",
+   "code": "KeyA",
+   "keyCode": 65,
+   "text": "a",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": false
+ },
+ {
+  "spec": "cmd++",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+ +v",
+  "event": {
+   "key": "v",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 4,
+   "commands": [
+    "paste"
+   ]
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": " cmd + v ",
+  "event": {
+   "key": "v",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 4,
+   "commands": [
+    "paste"
+   ]
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "﻿a",
+  "event": {
+   "key": "a",
+   "code": "KeyA",
+   "keyCode": 65,
+   "text": "a",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": false
+ },
+ {
+  "spec": "a﻿",
+  "event": {
+   "key": "a",
+   "code": "KeyA",
+   "keyCode": 65,
+   "text": "a",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": false
+ },
+ {
+  "spec": " a",
+  "event": {
+   "key": "a",
+   "code": "KeyA",
+   "keyCode": 65,
+   "text": "a",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "a\u001c",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "\u001ca",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "　cmd+v",
+  "event": {
+   "key": "v",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 4,
+   "commands": [
+    "paste"
+   ]
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "cmd +v",
+  "event": {
+   "key": "v",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 4,
+   "commands": [
+    "paste"
+   ]
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "cmd+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "+cmd",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+V",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "cmd+shift+v",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+a",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+a",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "aaa",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+Space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "text": " ",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "cmd+Space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+Enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "text": "\r",
+   "modifiers": 8
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+Enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+a",
+  "event": {
+   "key": "a",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 4,
+   "commands": [
+    "selectAll"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+z",
+  "event": {
+   "key": "Z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 12,
+   "commands": [
+    "redo"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+Backspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 1,
+   "commands": [
+    "deleteWordBackward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+ArrowUp",
+  "event": {
+   "key": "ArrowUp",
+   "code": "ArrowUp",
+   "keyCode": 38,
+   "modifiers": 4,
+   "commands": [
+    "moveToBeginningOfDocument"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+ArrowLeft",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 8,
+   "commands": [
+    "moveLeftAndModifySelection"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+shift+ArrowLeft",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 9,
+   "commands": [
+    "moveWordLeftAndModifySelection"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Escape",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 0,
+   "commands": [
+    "cancelOperation"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "\t",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "\n",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "\r",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "İ",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "cmd+İ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Σ",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "ctrl+control+v",
+  "event": {
+   "key": "v",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "meta+command+v",
+  "event": {
+   "key": "v",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 4,
+   "commands": [
+    "paste"
+   ]
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "a",
+  "event": {
+   "key": "a",
+   "code": "KeyA",
+   "keyCode": 65,
+   "text": "a",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "A",
+  "event": {
+   "key": "A",
+   "code": "KeyA",
+   "keyCode": 65,
+   "text": "A",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "v",
+  "event": {
+   "key": "v",
+   "code": "KeyV",
+   "keyCode": 86,
+   "text": "v",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "V",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "text": "V",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "z",
+  "event": {
+   "key": "z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "text": "z",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "Z",
+  "event": {
+   "key": "Z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "text": "Z",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "1",
+  "event": {
+   "key": "1",
+   "code": "Digit1",
+   "keyCode": 49,
+   "text": "1",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "!",
+  "event": {
+   "key": "!",
+   "code": "Digit1",
+   "keyCode": 49,
+   "text": "!",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "é",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "É",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "ß",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "text": "\r",
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "text": "\r",
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "RETURN",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "text": "\r",
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "text": " ",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "text": " ",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": " ",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "text": " ",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "Tab",
+  "event": {
+   "key": "Tab",
+   "code": "Tab",
+   "keyCode": 9,
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Backspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 0,
+   "commands": [
+    "deleteBackward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "delete",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 0,
+   "commands": [
+    "deleteForward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Del",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 0,
+   "commands": [
+    "deleteForward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ArrowLeft",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 0,
+   "commands": [
+    "moveLeft"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "left",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 0,
+   "commands": [
+    "moveLeft"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Up",
+  "event": {
+   "key": "ArrowUp",
+   "code": "ArrowUp",
+   "keyCode": 38,
+   "modifiers": 0,
+   "commands": [
+    "moveUp"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "F5",
+  "event": {
+   "key": "F5",
+   "code": "F5",
+   "keyCode": 116,
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "f5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "-",
+  "event": {
+   "key": "-",
+   "code": "Minus",
+   "keyCode": 189,
+   "text": "-",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "_",
+  "event": {
+   "key": "_",
+   "code": "Minus",
+   "keyCode": 189,
+   "text": "_",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "+",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": ".",
+  "event": {
+   "key": ".",
+   "code": "Period",
+   "keyCode": 190,
+   "text": ".",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "`",
+  "event": {
+   "key": "`",
+   "code": "Backquote",
+   "keyCode": 192,
+   "text": "`",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "~",
+  "event": {
+   "key": "~",
+   "code": "Backquote",
+   "keyCode": 192,
+   "text": "~",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "€",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "😀",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "ab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": " ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "K",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "bacKspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 0,
+   "commands": [
+    "deleteBackward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "Constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "__proto__",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "toString",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "valueOf",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "hasOwnProperty",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "TOSTRING",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "@",
+  "event": {
+   "key": "@",
+   "code": "Digit2",
+   "keyCode": 50,
+   "text": "@",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "#",
+  "event": {
+   "key": "#",
+   "code": "Digit3",
+   "keyCode": 51,
+   "text": "#",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "|",
+  "event": {
+   "key": "|",
+   "code": "Backslash",
+   "keyCode": 220,
+   "text": "|",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "\\",
+  "event": {
+   "key": "\\",
+   "code": "Backslash",
+   "keyCode": 220,
+   "text": "\\",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "'",
+  "event": {
+   "key": "'",
+   "code": "Quote",
+   "keyCode": 222,
+   "text": "'",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "\"",
+  "event": {
+   "key": "\"",
+   "code": "Quote",
+   "keyCode": 222,
+   "text": "\"",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "Escape",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 0,
+   "commands": [
+    "cancelOperation"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "esc",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 0,
+   "commands": [
+    "cancelOperation"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Home",
+  "event": {
+   "key": "Home",
+   "code": "Home",
+   "keyCode": 36,
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "pageup",
+  "event": {
+   "key": "PageUp",
+   "code": "PageUp",
+   "keyCode": 33,
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Insert",
+  "event": {
+   "key": "Insert",
+   "code": "Insert",
+   "keyCode": 45,
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "F12",
+  "event": {
+   "key": "F12",
+   "code": "F12",
+   "keyCode": 123,
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+a",
+  "event": {
+   "key": "A",
+   "code": "KeyA",
+   "keyCode": 65,
+   "text": "a",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+A",
+  "event": {
+   "key": "A",
+   "code": "KeyA",
+   "keyCode": 65,
+   "text": "A",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+v",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "text": "v",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+V",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "text": "V",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+z",
+  "event": {
+   "key": "Z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "text": "z",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+Z",
+  "event": {
+   "key": "Z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "text": "Z",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+1",
+  "event": {
+   "key": "1",
+   "code": "Digit1",
+   "keyCode": 49,
+   "text": "1",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+!",
+  "event": {
+   "key": "!",
+   "code": "Digit1",
+   "keyCode": 49,
+   "text": "!",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+é",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "shift+É",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "shift+ß",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "shift+Enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "text": "\r",
+   "modifiers": 8
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "text": "\r",
+   "modifiers": 8
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+RETURN",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "text": "\r",
+   "modifiers": 8
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+Space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "text": " ",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "text": " ",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+Tab",
+  "event": {
+   "key": "Tab",
+   "code": "Tab",
+   "keyCode": 9,
+   "modifiers": 8
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+Backspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 8
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+delete",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 8
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+Del",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 8
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+ArrowLeft",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 8,
+   "commands": [
+    "moveLeftAndModifySelection"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+left",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 8,
+   "commands": [
+    "moveLeftAndModifySelection"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+Up",
+  "event": {
+   "key": "ArrowUp",
+   "code": "ArrowUp",
+   "keyCode": 38,
+   "modifiers": 8,
+   "commands": [
+    "moveUpAndModifySelection"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+F5",
+  "event": {
+   "key": "F5",
+   "code": "F5",
+   "keyCode": 116,
+   "modifiers": 8
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+f5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+-",
+  "event": {
+   "key": "-",
+   "code": "Minus",
+   "keyCode": 189,
+   "text": "-",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+_",
+  "event": {
+   "key": "_",
+   "code": "Minus",
+   "keyCode": 189,
+   "text": "_",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift++",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+.",
+  "event": {
+   "key": ".",
+   "code": "Period",
+   "keyCode": 190,
+   "text": ".",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+`",
+  "event": {
+   "key": "`",
+   "code": "Backquote",
+   "keyCode": 192,
+   "text": "`",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+~",
+  "event": {
+   "key": "~",
+   "code": "Backquote",
+   "keyCode": 192,
+   "text": "~",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+€",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "shift+😀",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "shift+ab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+K",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "shift+bacKspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 8
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "shift+Constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "shift+__proto__",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "shift+toString",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "shift+valueOf",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "shift+hasOwnProperty",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "shift+TOSTRING",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+@",
+  "event": {
+   "key": "@",
+   "code": "Digit2",
+   "keyCode": 50,
+   "text": "@",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+#",
+  "event": {
+   "key": "#",
+   "code": "Digit3",
+   "keyCode": 51,
+   "text": "#",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+|",
+  "event": {
+   "key": "|",
+   "code": "Backslash",
+   "keyCode": 220,
+   "text": "|",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+\\",
+  "event": {
+   "key": "\\",
+   "code": "Backslash",
+   "keyCode": 220,
+   "text": "\\",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+'",
+  "event": {
+   "key": "'",
+   "code": "Quote",
+   "keyCode": 222,
+   "text": "'",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+\"",
+  "event": {
+   "key": "\"",
+   "code": "Quote",
+   "keyCode": 222,
+   "text": "\"",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "shift+Escape",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 8
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+esc",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 8
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+Home",
+  "event": {
+   "key": "Home",
+   "code": "Home",
+   "keyCode": 36,
+   "modifiers": 8
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+pageup",
+  "event": {
+   "key": "PageUp",
+   "code": "PageUp",
+   "keyCode": 33,
+   "modifiers": 8
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+Insert",
+  "event": {
+   "key": "Insert",
+   "code": "Insert",
+   "keyCode": 45,
+   "modifiers": 8
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "shift+F12",
+  "event": {
+   "key": "F12",
+   "code": "F12",
+   "keyCode": 123,
+   "modifiers": 8
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+a",
+  "event": {
+   "key": "a",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 4,
+   "commands": [
+    "selectAll"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+A",
+  "event": {
+   "key": "A",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+v",
+  "event": {
+   "key": "v",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 4,
+   "commands": [
+    "paste"
+   ]
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "cmd+V",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "cmd+z",
+  "event": {
+   "key": "z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 4,
+   "commands": [
+    "undo"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+Z",
+  "event": {
+   "key": "Z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 12,
+   "commands": [
+    "redo"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+1",
+  "event": {
+   "key": "1",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+!",
+  "event": {
+   "key": "!",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+é",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+É",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+ß",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+Enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+RETURN",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+Space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+Tab",
+  "event": {
+   "key": "Tab",
+   "code": "Tab",
+   "keyCode": 9,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+Backspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 4,
+   "commands": [
+    "deleteToBeginningOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+delete",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 4,
+   "commands": [
+    "deleteToEndOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+Del",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 4,
+   "commands": [
+    "deleteToEndOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+ArrowLeft",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 4,
+   "commands": [
+    "moveToBeginningOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+left",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 4,
+   "commands": [
+    "moveToBeginningOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+Up",
+  "event": {
+   "key": "ArrowUp",
+   "code": "ArrowUp",
+   "keyCode": 38,
+   "modifiers": 4,
+   "commands": [
+    "moveToBeginningOfDocument"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+F5",
+  "event": {
+   "key": "F5",
+   "code": "F5",
+   "keyCode": 116,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+f5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+-",
+  "event": {
+   "key": "-",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+_",
+  "event": {
+   "key": "_",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd++",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+.",
+  "event": {
+   "key": ".",
+   "code": "Period",
+   "keyCode": 190,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+`",
+  "event": {
+   "key": "`",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+~",
+  "event": {
+   "key": "~",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+€",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+😀",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+ab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+K",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+bacKspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 4,
+   "commands": [
+    "deleteToBeginningOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "cmd+Constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "cmd+__proto__",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "cmd+toString",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "cmd+valueOf",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "cmd+hasOwnProperty",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "cmd+TOSTRING",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+@",
+  "event": {
+   "key": "@",
+   "code": "Digit2",
+   "keyCode": 50,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+#",
+  "event": {
+   "key": "#",
+   "code": "Digit3",
+   "keyCode": 51,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+|",
+  "event": {
+   "key": "|",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+\\",
+  "event": {
+   "key": "\\",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+'",
+  "event": {
+   "key": "'",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+\"",
+  "event": {
+   "key": "\"",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+Escape",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+esc",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+Home",
+  "event": {
+   "key": "Home",
+   "code": "Home",
+   "keyCode": 36,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+pageup",
+  "event": {
+   "key": "PageUp",
+   "code": "PageUp",
+   "keyCode": 33,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+Insert",
+  "event": {
+   "key": "Insert",
+   "code": "Insert",
+   "keyCode": 45,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+F12",
+  "event": {
+   "key": "F12",
+   "code": "F12",
+   "keyCode": 123,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+a",
+  "event": {
+   "key": "a",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 4,
+   "commands": [
+    "selectAll"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+A",
+  "event": {
+   "key": "A",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+v",
+  "event": {
+   "key": "v",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 4,
+   "commands": [
+    "paste"
+   ]
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "Cmd+V",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Cmd+z",
+  "event": {
+   "key": "z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 4,
+   "commands": [
+    "undo"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+Z",
+  "event": {
+   "key": "Z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 12,
+   "commands": [
+    "redo"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+1",
+  "event": {
+   "key": "1",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+!",
+  "event": {
+   "key": "!",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+é",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+É",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+ß",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+Enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+RETURN",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+Space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+Tab",
+  "event": {
+   "key": "Tab",
+   "code": "Tab",
+   "keyCode": 9,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+Backspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 4,
+   "commands": [
+    "deleteToBeginningOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+delete",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 4,
+   "commands": [
+    "deleteToEndOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+Del",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 4,
+   "commands": [
+    "deleteToEndOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+ArrowLeft",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 4,
+   "commands": [
+    "moveToBeginningOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+left",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 4,
+   "commands": [
+    "moveToBeginningOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+Up",
+  "event": {
+   "key": "ArrowUp",
+   "code": "ArrowUp",
+   "keyCode": 38,
+   "modifiers": 4,
+   "commands": [
+    "moveToBeginningOfDocument"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+F5",
+  "event": {
+   "key": "F5",
+   "code": "F5",
+   "keyCode": 116,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+f5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+-",
+  "event": {
+   "key": "-",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+_",
+  "event": {
+   "key": "_",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd++",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+.",
+  "event": {
+   "key": ".",
+   "code": "Period",
+   "keyCode": 190,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+`",
+  "event": {
+   "key": "`",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+~",
+  "event": {
+   "key": "~",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+€",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+😀",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+ab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+K",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+bacKspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 4,
+   "commands": [
+    "deleteToBeginningOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "Cmd+Constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "Cmd+__proto__",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "Cmd+toString",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "Cmd+valueOf",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "Cmd+hasOwnProperty",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "Cmd+TOSTRING",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+@",
+  "event": {
+   "key": "@",
+   "code": "Digit2",
+   "keyCode": 50,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+#",
+  "event": {
+   "key": "#",
+   "code": "Digit3",
+   "keyCode": 51,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+|",
+  "event": {
+   "key": "|",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+\\",
+  "event": {
+   "key": "\\",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+'",
+  "event": {
+   "key": "'",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+\"",
+  "event": {
+   "key": "\"",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+Escape",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+esc",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+Home",
+  "event": {
+   "key": "Home",
+   "code": "Home",
+   "keyCode": 36,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+pageup",
+  "event": {
+   "key": "PageUp",
+   "code": "PageUp",
+   "keyCode": 33,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+Insert",
+  "event": {
+   "key": "Insert",
+   "code": "Insert",
+   "keyCode": 45,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Cmd+F12",
+  "event": {
+   "key": "F12",
+   "code": "F12",
+   "keyCode": 123,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+a",
+  "event": {
+   "key": "a",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 4,
+   "commands": [
+    "selectAll"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+A",
+  "event": {
+   "key": "A",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+v",
+  "event": {
+   "key": "v",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 4,
+   "commands": [
+    "paste"
+   ]
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "META+V",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "META+z",
+  "event": {
+   "key": "z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 4,
+   "commands": [
+    "undo"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+Z",
+  "event": {
+   "key": "Z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 12,
+   "commands": [
+    "redo"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+1",
+  "event": {
+   "key": "1",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+!",
+  "event": {
+   "key": "!",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+é",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+É",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+ß",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+Enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+RETURN",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+Space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+Tab",
+  "event": {
+   "key": "Tab",
+   "code": "Tab",
+   "keyCode": 9,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+Backspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 4,
+   "commands": [
+    "deleteToBeginningOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+delete",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 4,
+   "commands": [
+    "deleteToEndOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+Del",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 4,
+   "commands": [
+    "deleteToEndOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+ArrowLeft",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 4,
+   "commands": [
+    "moveToBeginningOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+left",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 4,
+   "commands": [
+    "moveToBeginningOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+Up",
+  "event": {
+   "key": "ArrowUp",
+   "code": "ArrowUp",
+   "keyCode": 38,
+   "modifiers": 4,
+   "commands": [
+    "moveToBeginningOfDocument"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+F5",
+  "event": {
+   "key": "F5",
+   "code": "F5",
+   "keyCode": 116,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+f5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+-",
+  "event": {
+   "key": "-",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+_",
+  "event": {
+   "key": "_",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META++",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+.",
+  "event": {
+   "key": ".",
+   "code": "Period",
+   "keyCode": 190,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+`",
+  "event": {
+   "key": "`",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+~",
+  "event": {
+   "key": "~",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+€",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+😀",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+ab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+K",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+bacKspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 4,
+   "commands": [
+    "deleteToBeginningOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "META+Constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "META+__proto__",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "META+toString",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "META+valueOf",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "META+hasOwnProperty",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "META+TOSTRING",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+@",
+  "event": {
+   "key": "@",
+   "code": "Digit2",
+   "keyCode": 50,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+#",
+  "event": {
+   "key": "#",
+   "code": "Digit3",
+   "keyCode": 51,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+|",
+  "event": {
+   "key": "|",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+\\",
+  "event": {
+   "key": "\\",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+'",
+  "event": {
+   "key": "'",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+\"",
+  "event": {
+   "key": "\"",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+Escape",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+esc",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+Home",
+  "event": {
+   "key": "Home",
+   "code": "Home",
+   "keyCode": 36,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+pageup",
+  "event": {
+   "key": "PageUp",
+   "code": "PageUp",
+   "keyCode": 33,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+Insert",
+  "event": {
+   "key": "Insert",
+   "code": "Insert",
+   "keyCode": 45,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "META+F12",
+  "event": {
+   "key": "F12",
+   "code": "F12",
+   "keyCode": 123,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+a",
+  "event": {
+   "key": "a",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+A",
+  "event": {
+   "key": "A",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+v",
+  "event": {
+   "key": "v",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+V",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+z",
+  "event": {
+   "key": "z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+Z",
+  "event": {
+   "key": "Z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+1",
+  "event": {
+   "key": "1",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+!",
+  "event": {
+   "key": "!",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+é",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+É",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+ß",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+Enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+RETURN",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+Space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+Tab",
+  "event": {
+   "key": "Tab",
+   "code": "Tab",
+   "keyCode": 9,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+Backspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+delete",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+Del",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+ArrowLeft",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+left",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+Up",
+  "event": {
+   "key": "ArrowUp",
+   "code": "ArrowUp",
+   "keyCode": 38,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+F5",
+  "event": {
+   "key": "F5",
+   "code": "F5",
+   "keyCode": 116,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+f5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+-",
+  "event": {
+   "key": "-",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+_",
+  "event": {
+   "key": "_",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl++",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+.",
+  "event": {
+   "key": ".",
+   "code": "Period",
+   "keyCode": 190,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+`",
+  "event": {
+   "key": "`",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+~",
+  "event": {
+   "key": "~",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+€",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+😀",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+ab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+K",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+bacKspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "ctrl+Constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "ctrl+__proto__",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "ctrl+toString",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "ctrl+valueOf",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "ctrl+hasOwnProperty",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "ctrl+TOSTRING",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+@",
+  "event": {
+   "key": "@",
+   "code": "Digit2",
+   "keyCode": 50,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+#",
+  "event": {
+   "key": "#",
+   "code": "Digit3",
+   "keyCode": 51,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+|",
+  "event": {
+   "key": "|",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+\\",
+  "event": {
+   "key": "\\",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+'",
+  "event": {
+   "key": "'",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+\"",
+  "event": {
+   "key": "\"",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+Escape",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+esc",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+Home",
+  "event": {
+   "key": "Home",
+   "code": "Home",
+   "keyCode": 36,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+pageup",
+  "event": {
+   "key": "PageUp",
+   "code": "PageUp",
+   "keyCode": 33,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+Insert",
+  "event": {
+   "key": "Insert",
+   "code": "Insert",
+   "keyCode": 45,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "ctrl+F12",
+  "event": {
+   "key": "F12",
+   "code": "F12",
+   "keyCode": 123,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+a",
+  "event": {
+   "key": "a",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+A",
+  "event": {
+   "key": "A",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+v",
+  "event": {
+   "key": "v",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+V",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+z",
+  "event": {
+   "key": "z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+Z",
+  "event": {
+   "key": "Z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+1",
+  "event": {
+   "key": "1",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+!",
+  "event": {
+   "key": "!",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+é",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+É",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+ß",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+Enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+RETURN",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+Space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+Tab",
+  "event": {
+   "key": "Tab",
+   "code": "Tab",
+   "keyCode": 9,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+Backspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 1,
+   "commands": [
+    "deleteWordBackward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+delete",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 1,
+   "commands": [
+    "deleteWordForward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+Del",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 1,
+   "commands": [
+    "deleteWordForward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+ArrowLeft",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 1,
+   "commands": [
+    "moveWordLeft"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+left",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 1,
+   "commands": [
+    "moveWordLeft"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+Up",
+  "event": {
+   "key": "ArrowUp",
+   "code": "ArrowUp",
+   "keyCode": 38,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+F5",
+  "event": {
+   "key": "F5",
+   "code": "F5",
+   "keyCode": 116,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+f5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+-",
+  "event": {
+   "key": "-",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+_",
+  "event": {
+   "key": "_",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt++",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+.",
+  "event": {
+   "key": ".",
+   "code": "Period",
+   "keyCode": 190,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+`",
+  "event": {
+   "key": "`",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+~",
+  "event": {
+   "key": "~",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+€",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+😀",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+ab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+K",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+bacKspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 1,
+   "commands": [
+    "deleteWordBackward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "alt+Constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "alt+__proto__",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "alt+toString",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "alt+valueOf",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "alt+hasOwnProperty",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "alt+TOSTRING",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+@",
+  "event": {
+   "key": "@",
+   "code": "Digit2",
+   "keyCode": 50,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+#",
+  "event": {
+   "key": "#",
+   "code": "Digit3",
+   "keyCode": 51,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+|",
+  "event": {
+   "key": "|",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+\\",
+  "event": {
+   "key": "\\",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+'",
+  "event": {
+   "key": "'",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+\"",
+  "event": {
+   "key": "\"",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+Escape",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+esc",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+Home",
+  "event": {
+   "key": "Home",
+   "code": "Home",
+   "keyCode": 36,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+pageup",
+  "event": {
+   "key": "PageUp",
+   "code": "PageUp",
+   "keyCode": 33,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+Insert",
+  "event": {
+   "key": "Insert",
+   "code": "Insert",
+   "keyCode": 45,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "alt+F12",
+  "event": {
+   "key": "F12",
+   "code": "F12",
+   "keyCode": 123,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+a",
+  "event": {
+   "key": "a",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+A",
+  "event": {
+   "key": "A",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+v",
+  "event": {
+   "key": "v",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+V",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+z",
+  "event": {
+   "key": "z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+Z",
+  "event": {
+   "key": "Z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+1",
+  "event": {
+   "key": "1",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+!",
+  "event": {
+   "key": "!",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+é",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+É",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+ß",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+Enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+RETURN",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+Space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+Tab",
+  "event": {
+   "key": "Tab",
+   "code": "Tab",
+   "keyCode": 9,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+Backspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 1,
+   "commands": [
+    "deleteWordBackward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+delete",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 1,
+   "commands": [
+    "deleteWordForward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+Del",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 1,
+   "commands": [
+    "deleteWordForward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+ArrowLeft",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 1,
+   "commands": [
+    "moveWordLeft"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+left",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 1,
+   "commands": [
+    "moveWordLeft"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+Up",
+  "event": {
+   "key": "ArrowUp",
+   "code": "ArrowUp",
+   "keyCode": 38,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+F5",
+  "event": {
+   "key": "F5",
+   "code": "F5",
+   "keyCode": 116,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+f5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+-",
+  "event": {
+   "key": "-",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+_",
+  "event": {
+   "key": "_",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt++",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+.",
+  "event": {
+   "key": ".",
+   "code": "Period",
+   "keyCode": 190,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+`",
+  "event": {
+   "key": "`",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+~",
+  "event": {
+   "key": "~",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+€",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+😀",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+ab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+K",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+bacKspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 1,
+   "commands": [
+    "deleteWordBackward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "opt+Constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "opt+__proto__",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "opt+toString",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "opt+valueOf",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "opt+hasOwnProperty",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "opt+TOSTRING",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+@",
+  "event": {
+   "key": "@",
+   "code": "Digit2",
+   "keyCode": 50,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+#",
+  "event": {
+   "key": "#",
+   "code": "Digit3",
+   "keyCode": 51,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+|",
+  "event": {
+   "key": "|",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+\\",
+  "event": {
+   "key": "\\",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+'",
+  "event": {
+   "key": "'",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+\"",
+  "event": {
+   "key": "\"",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+Escape",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+esc",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+Home",
+  "event": {
+   "key": "Home",
+   "code": "Home",
+   "keyCode": 36,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+pageup",
+  "event": {
+   "key": "PageUp",
+   "code": "PageUp",
+   "keyCode": 33,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+Insert",
+  "event": {
+   "key": "Insert",
+   "code": "Insert",
+   "keyCode": 45,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "opt+F12",
+  "event": {
+   "key": "F12",
+   "code": "F12",
+   "keyCode": 123,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+a",
+  "event": {
+   "key": "a",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+A",
+  "event": {
+   "key": "A",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+v",
+  "event": {
+   "key": "v",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+V",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+z",
+  "event": {
+   "key": "z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+Z",
+  "event": {
+   "key": "Z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+1",
+  "event": {
+   "key": "1",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+!",
+  "event": {
+   "key": "!",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+é",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+É",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+ß",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+Enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+RETURN",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+Space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+Tab",
+  "event": {
+   "key": "Tab",
+   "code": "Tab",
+   "keyCode": 9,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+Backspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 1,
+   "commands": [
+    "deleteWordBackward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+delete",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 1,
+   "commands": [
+    "deleteWordForward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+Del",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 1,
+   "commands": [
+    "deleteWordForward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+ArrowLeft",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 1,
+   "commands": [
+    "moveWordLeft"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+left",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 1,
+   "commands": [
+    "moveWordLeft"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+Up",
+  "event": {
+   "key": "ArrowUp",
+   "code": "ArrowUp",
+   "keyCode": 38,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+F5",
+  "event": {
+   "key": "F5",
+   "code": "F5",
+   "keyCode": 116,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+f5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+-",
+  "event": {
+   "key": "-",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+_",
+  "event": {
+   "key": "_",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option++",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+.",
+  "event": {
+   "key": ".",
+   "code": "Period",
+   "keyCode": 190,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+`",
+  "event": {
+   "key": "`",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+~",
+  "event": {
+   "key": "~",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+€",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+😀",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+ab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+K",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+bacKspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 1,
+   "commands": [
+    "deleteWordBackward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "option+Constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "option+__proto__",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "option+toString",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "option+valueOf",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "option+hasOwnProperty",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "option+TOSTRING",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+@",
+  "event": {
+   "key": "@",
+   "code": "Digit2",
+   "keyCode": 50,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+#",
+  "event": {
+   "key": "#",
+   "code": "Digit3",
+   "keyCode": 51,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+|",
+  "event": {
+   "key": "|",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+\\",
+  "event": {
+   "key": "\\",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+'",
+  "event": {
+   "key": "'",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+\"",
+  "event": {
+   "key": "\"",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 9
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+Escape",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+esc",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+Home",
+  "event": {
+   "key": "Home",
+   "code": "Home",
+   "keyCode": 36,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+pageup",
+  "event": {
+   "key": "PageUp",
+   "code": "PageUp",
+   "keyCode": 33,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+Insert",
+  "event": {
+   "key": "Insert",
+   "code": "Insert",
+   "keyCode": 45,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "option+F12",
+  "event": {
+   "key": "F12",
+   "code": "F12",
+   "keyCode": 123,
+   "modifiers": 1
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+a",
+  "event": {
+   "key": "a",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+A",
+  "event": {
+   "key": "A",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+v",
+  "event": {
+   "key": "v",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+V",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+z",
+  "event": {
+   "key": "z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+Z",
+  "event": {
+   "key": "Z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+1",
+  "event": {
+   "key": "1",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+!",
+  "event": {
+   "key": "!",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+é",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+É",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+ß",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+Enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+RETURN",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+Space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+Tab",
+  "event": {
+   "key": "Tab",
+   "code": "Tab",
+   "keyCode": 9,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+Backspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+delete",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+Del",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+ArrowLeft",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+left",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+Up",
+  "event": {
+   "key": "ArrowUp",
+   "code": "ArrowUp",
+   "keyCode": 38,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+F5",
+  "event": {
+   "key": "F5",
+   "code": "F5",
+   "keyCode": 116,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+f5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+-",
+  "event": {
+   "key": "-",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+_",
+  "event": {
+   "key": "_",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control++",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+.",
+  "event": {
+   "key": ".",
+   "code": "Period",
+   "keyCode": 190,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+`",
+  "event": {
+   "key": "`",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+~",
+  "event": {
+   "key": "~",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+€",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+😀",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+ab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+K",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+bacKspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "control+Constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "control+__proto__",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "control+toString",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "control+valueOf",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "control+hasOwnProperty",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "control+TOSTRING",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+@",
+  "event": {
+   "key": "@",
+   "code": "Digit2",
+   "keyCode": 50,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+#",
+  "event": {
+   "key": "#",
+   "code": "Digit3",
+   "keyCode": 51,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+|",
+  "event": {
+   "key": "|",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+\\",
+  "event": {
+   "key": "\\",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+'",
+  "event": {
+   "key": "'",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+\"",
+  "event": {
+   "key": "\"",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 10
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+Escape",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+esc",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+Home",
+  "event": {
+   "key": "Home",
+   "code": "Home",
+   "keyCode": 36,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+pageup",
+  "event": {
+   "key": "PageUp",
+   "code": "PageUp",
+   "keyCode": 33,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+Insert",
+  "event": {
+   "key": "Insert",
+   "code": "Insert",
+   "keyCode": 45,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "control+F12",
+  "event": {
+   "key": "F12",
+   "code": "F12",
+   "keyCode": 123,
+   "modifiers": 2
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+a",
+  "event": {
+   "key": "a",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 4,
+   "commands": [
+    "selectAll"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+A",
+  "event": {
+   "key": "A",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+v",
+  "event": {
+   "key": "v",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 4,
+   "commands": [
+    "paste"
+   ]
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "command+V",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "command+z",
+  "event": {
+   "key": "z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 4,
+   "commands": [
+    "undo"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+Z",
+  "event": {
+   "key": "Z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 12,
+   "commands": [
+    "redo"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+1",
+  "event": {
+   "key": "1",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+!",
+  "event": {
+   "key": "!",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+é",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+É",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+ß",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+Enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+RETURN",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+Space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+Tab",
+  "event": {
+   "key": "Tab",
+   "code": "Tab",
+   "keyCode": 9,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+Backspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 4,
+   "commands": [
+    "deleteToBeginningOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+delete",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 4,
+   "commands": [
+    "deleteToEndOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+Del",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 4,
+   "commands": [
+    "deleteToEndOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+ArrowLeft",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 4,
+   "commands": [
+    "moveToBeginningOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+left",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 4,
+   "commands": [
+    "moveToBeginningOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+Up",
+  "event": {
+   "key": "ArrowUp",
+   "code": "ArrowUp",
+   "keyCode": 38,
+   "modifiers": 4,
+   "commands": [
+    "moveToBeginningOfDocument"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+F5",
+  "event": {
+   "key": "F5",
+   "code": "F5",
+   "keyCode": 116,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+f5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+-",
+  "event": {
+   "key": "-",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+_",
+  "event": {
+   "key": "_",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command++",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+.",
+  "event": {
+   "key": ".",
+   "code": "Period",
+   "keyCode": 190,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+`",
+  "event": {
+   "key": "`",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+~",
+  "event": {
+   "key": "~",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+€",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+😀",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+ab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+K",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+bacKspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 4,
+   "commands": [
+    "deleteToBeginningOfLine"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "command+Constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "command+__proto__",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "command+toString",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "command+valueOf",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "command+hasOwnProperty",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "command+TOSTRING",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+@",
+  "event": {
+   "key": "@",
+   "code": "Digit2",
+   "keyCode": 50,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+#",
+  "event": {
+   "key": "#",
+   "code": "Digit3",
+   "keyCode": 51,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+|",
+  "event": {
+   "key": "|",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+\\",
+  "event": {
+   "key": "\\",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+'",
+  "event": {
+   "key": "'",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+\"",
+  "event": {
+   "key": "\"",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+Escape",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+esc",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+Home",
+  "event": {
+   "key": "Home",
+   "code": "Home",
+   "keyCode": 36,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+pageup",
+  "event": {
+   "key": "PageUp",
+   "code": "PageUp",
+   "keyCode": 33,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+Insert",
+  "event": {
+   "key": "Insert",
+   "code": "Insert",
+   "keyCode": 45,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "command+F12",
+  "event": {
+   "key": "F12",
+   "code": "F12",
+   "keyCode": 123,
+   "modifiers": 4
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+a",
+  "event": {
+   "key": "A",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+A",
+  "event": {
+   "key": "A",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+v",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "cmd+shift+V",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "cmd+shift+z",
+  "event": {
+   "key": "Z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 12,
+   "commands": [
+    "redo"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+Z",
+  "event": {
+   "key": "Z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 12,
+   "commands": [
+    "redo"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+1",
+  "event": {
+   "key": "1",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+!",
+  "event": {
+   "key": "!",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+é",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+É",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+ß",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+Enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+RETURN",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+Space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+Tab",
+  "event": {
+   "key": "Tab",
+   "code": "Tab",
+   "keyCode": 9,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+Backspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+delete",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+Del",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+ArrowLeft",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 12,
+   "commands": [
+    "moveToBeginningOfLineAndModifySelection"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+left",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 12,
+   "commands": [
+    "moveToBeginningOfLineAndModifySelection"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+Up",
+  "event": {
+   "key": "ArrowUp",
+   "code": "ArrowUp",
+   "keyCode": 38,
+   "modifiers": 12,
+   "commands": [
+    "moveToBeginningOfDocumentAndModifySelection"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+F5",
+  "event": {
+   "key": "F5",
+   "code": "F5",
+   "keyCode": 116,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+f5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+-",
+  "event": {
+   "key": "-",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+_",
+  "event": {
+   "key": "_",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift++",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+.",
+  "event": {
+   "key": ".",
+   "code": "Period",
+   "keyCode": 190,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+`",
+  "event": {
+   "key": "`",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+~",
+  "event": {
+   "key": "~",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+€",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+😀",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+ab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+K",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+bacKspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+Constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+__proto__",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+toString",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+valueOf",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+hasOwnProperty",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+TOSTRING",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+@",
+  "event": {
+   "key": "@",
+   "code": "Digit2",
+   "keyCode": 50,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+#",
+  "event": {
+   "key": "#",
+   "code": "Digit3",
+   "keyCode": 51,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+|",
+  "event": {
+   "key": "|",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+\\",
+  "event": {
+   "key": "\\",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+'",
+  "event": {
+   "key": "'",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+\"",
+  "event": {
+   "key": "\"",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+Escape",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+esc",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+Home",
+  "event": {
+   "key": "Home",
+   "code": "Home",
+   "keyCode": 36,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+pageup",
+  "event": {
+   "key": "PageUp",
+   "code": "PageUp",
+   "keyCode": 33,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+Insert",
+  "event": {
+   "key": "Insert",
+   "code": "Insert",
+   "keyCode": 45,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "cmd+shift+F12",
+  "event": {
+   "key": "F12",
+   "code": "F12",
+   "keyCode": 123,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+a",
+  "event": {
+   "key": "A",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+A",
+  "event": {
+   "key": "A",
+   "code": "KeyA",
+   "keyCode": 65,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+v",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Shift+Cmd+V",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Shift+Cmd+z",
+  "event": {
+   "key": "Z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 12,
+   "commands": [
+    "redo"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+Z",
+  "event": {
+   "key": "Z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "modifiers": 12,
+   "commands": [
+    "redo"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+1",
+  "event": {
+   "key": "1",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+!",
+  "event": {
+   "key": "!",
+   "code": "Digit1",
+   "keyCode": 49,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+é",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+É",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+ß",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+Enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+RETURN",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+Space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+Tab",
+  "event": {
+   "key": "Tab",
+   "code": "Tab",
+   "keyCode": 9,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+Backspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+delete",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+Del",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+ArrowLeft",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 12,
+   "commands": [
+    "moveToBeginningOfLineAndModifySelection"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+left",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 12,
+   "commands": [
+    "moveToBeginningOfLineAndModifySelection"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+Up",
+  "event": {
+   "key": "ArrowUp",
+   "code": "ArrowUp",
+   "keyCode": 38,
+   "modifiers": 12,
+   "commands": [
+    "moveToBeginningOfDocumentAndModifySelection"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+F5",
+  "event": {
+   "key": "F5",
+   "code": "F5",
+   "keyCode": 116,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+f5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+-",
+  "event": {
+   "key": "-",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+_",
+  "event": {
+   "key": "_",
+   "code": "Minus",
+   "keyCode": 189,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd++",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+.",
+  "event": {
+   "key": ".",
+   "code": "Period",
+   "keyCode": 190,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+`",
+  "event": {
+   "key": "`",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+~",
+  "event": {
+   "key": "~",
+   "code": "Backquote",
+   "keyCode": 192,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+€",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+😀",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+ab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+K",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+bacKspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+Constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+__proto__",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+toString",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+valueOf",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+hasOwnProperty",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+TOSTRING",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+@",
+  "event": {
+   "key": "@",
+   "code": "Digit2",
+   "keyCode": 50,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+#",
+  "event": {
+   "key": "#",
+   "code": "Digit3",
+   "keyCode": 51,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+|",
+  "event": {
+   "key": "|",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+\\",
+  "event": {
+   "key": "\\",
+   "code": "Backslash",
+   "keyCode": 220,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+'",
+  "event": {
+   "key": "'",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+\"",
+  "event": {
+   "key": "\"",
+   "code": "Quote",
+   "keyCode": 222,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+Escape",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+esc",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+Home",
+  "event": {
+   "key": "Home",
+   "code": "Home",
+   "keyCode": 36,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+pageup",
+  "event": {
+   "key": "PageUp",
+   "code": "PageUp",
+   "keyCode": 33,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+Insert",
+  "event": {
+   "key": "Insert",
+   "code": "Insert",
+   "keyCode": 45,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Shift+Cmd+F12",
+  "event": {
+   "key": "F12",
+   "code": "F12",
+   "keyCode": 123,
+   "modifiers": 12
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+a",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+A",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+v",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+V",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+z",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+Z",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+1",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+!",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+é",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+É",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+ß",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+Enter",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+enter",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+RETURN",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+Space",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+space",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+Tab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+Backspace",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+delete",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+Del",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+ArrowLeft",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+left",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+Up",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+F5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+f5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+-",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+_",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper++",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+.",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+`",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+~",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+€",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+😀",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+ab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+K",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+bacKspace",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+constructor",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+Constructor",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+__proto__",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+toString",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+valueOf",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+hasOwnProperty",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+TOSTRING",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+@",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+#",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+|",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+\\",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+'",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+\"",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "hyper+Escape",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+esc",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+Home",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+pageup",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+Insert",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "hyper+F12",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+a",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+A",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+v",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+V",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+z",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+Z",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+1",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+!",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+é",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+É",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+ß",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+Enter",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+enter",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+RETURN",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+Space",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+space",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+ ",
+  "event": {
+   "key": "x",
+   "code": "KeyX",
+   "keyCode": 88,
+   "text": "x",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": false
+ },
+ {
+  "spec": "x+Tab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+Backspace",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+delete",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+Del",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+ArrowLeft",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+left",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+Up",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+F5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+f5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+-",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+_",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x++",
+  "event": {
+   "key": "x",
+   "code": "KeyX",
+   "keyCode": 88,
+   "text": "x",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": false
+ },
+ {
+  "spec": "x+.",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+`",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+~",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+€",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+😀",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+ab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+ ",
+  "event": {
+   "key": "x",
+   "code": "KeyX",
+   "keyCode": 88,
+   "text": "x",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": false
+ },
+ {
+  "spec": "x+K",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+bacKspace",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+constructor",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+Constructor",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+__proto__",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+toString",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+valueOf",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+hasOwnProperty",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+TOSTRING",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+@",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+#",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+|",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+\\",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+'",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+\"",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "x+Escape",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+esc",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+Home",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+pageup",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+Insert",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "x+F12",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+a",
+  "event": {
+   "key": "a",
+   "code": "KeyA",
+   "keyCode": 65,
+   "text": "a",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+A",
+  "event": {
+   "key": "A",
+   "code": "KeyA",
+   "keyCode": 65,
+   "text": "A",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+v",
+  "event": {
+   "key": "v",
+   "code": "KeyV",
+   "keyCode": 86,
+   "text": "v",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+V",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "text": "V",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+z",
+  "event": {
+   "key": "z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "text": "z",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+Z",
+  "event": {
+   "key": "Z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "text": "Z",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+1",
+  "event": {
+   "key": "1",
+   "code": "Digit1",
+   "keyCode": 49,
+   "text": "1",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+!",
+  "event": {
+   "key": "!",
+   "code": "Digit1",
+   "keyCode": 49,
+   "text": "!",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+é",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "constructor+É",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "constructor+ß",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "constructor+Enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "text": "\r",
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "text": "\r",
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+RETURN",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "text": "\r",
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+Space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "text": " ",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "text": " ",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+ ",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "constructor+Tab",
+  "event": {
+   "key": "Tab",
+   "code": "Tab",
+   "keyCode": 9,
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+Backspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 0,
+   "commands": [
+    "deleteBackward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+delete",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 0,
+   "commands": [
+    "deleteForward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+Del",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 0,
+   "commands": [
+    "deleteForward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+ArrowLeft",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 0,
+   "commands": [
+    "moveLeft"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+left",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 0,
+   "commands": [
+    "moveLeft"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+Up",
+  "event": {
+   "key": "ArrowUp",
+   "code": "ArrowUp",
+   "keyCode": 38,
+   "modifiers": 0,
+   "commands": [
+    "moveUp"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+F5",
+  "event": {
+   "key": "F5",
+   "code": "F5",
+   "keyCode": 116,
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+f5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+-",
+  "event": {
+   "key": "-",
+   "code": "Minus",
+   "keyCode": 189,
+   "text": "-",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+_",
+  "event": {
+   "key": "_",
+   "code": "Minus",
+   "keyCode": 189,
+   "text": "_",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor++",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "constructor+.",
+  "event": {
+   "key": ".",
+   "code": "Period",
+   "keyCode": 190,
+   "text": ".",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+`",
+  "event": {
+   "key": "`",
+   "code": "Backquote",
+   "keyCode": 192,
+   "text": "`",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+~",
+  "event": {
+   "key": "~",
+   "code": "Backquote",
+   "keyCode": 192,
+   "text": "~",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+€",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "constructor+😀",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "constructor+ab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+ ",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "constructor+K",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "constructor+bacKspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 0,
+   "commands": [
+    "deleteBackward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "constructor+Constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "constructor+__proto__",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "constructor+toString",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "constructor+valueOf",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "constructor+hasOwnProperty",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "constructor+TOSTRING",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+@",
+  "event": {
+   "key": "@",
+   "code": "Digit2",
+   "keyCode": 50,
+   "text": "@",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+#",
+  "event": {
+   "key": "#",
+   "code": "Digit3",
+   "keyCode": 51,
+   "text": "#",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+|",
+  "event": {
+   "key": "|",
+   "code": "Backslash",
+   "keyCode": 220,
+   "text": "|",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+\\",
+  "event": {
+   "key": "\\",
+   "code": "Backslash",
+   "keyCode": 220,
+   "text": "\\",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+'",
+  "event": {
+   "key": "'",
+   "code": "Quote",
+   "keyCode": 222,
+   "text": "'",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+\"",
+  "event": {
+   "key": "\"",
+   "code": "Quote",
+   "keyCode": 222,
+   "text": "\"",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "constructor+Escape",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 0,
+   "commands": [
+    "cancelOperation"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+esc",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 0,
+   "commands": [
+    "cancelOperation"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+Home",
+  "event": {
+   "key": "Home",
+   "code": "Home",
+   "keyCode": 36,
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+pageup",
+  "event": {
+   "key": "PageUp",
+   "code": "PageUp",
+   "keyCode": 33,
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+Insert",
+  "event": {
+   "key": "Insert",
+   "code": "Insert",
+   "keyCode": 45,
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "constructor+F12",
+  "event": {
+   "key": "F12",
+   "code": "F12",
+   "keyCode": 123,
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+a",
+  "event": {
+   "key": "a",
+   "code": "KeyA",
+   "keyCode": 65,
+   "text": "a",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+A",
+  "event": {
+   "key": "A",
+   "code": "KeyA",
+   "keyCode": 65,
+   "text": "A",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+v",
+  "event": {
+   "key": "v",
+   "code": "KeyV",
+   "keyCode": 86,
+   "text": "v",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+V",
+  "event": {
+   "key": "V",
+   "code": "KeyV",
+   "keyCode": 86,
+   "text": "V",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+z",
+  "event": {
+   "key": "z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "text": "z",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+Z",
+  "event": {
+   "key": "Z",
+   "code": "KeyZ",
+   "keyCode": 90,
+   "text": "Z",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+1",
+  "event": {
+   "key": "1",
+   "code": "Digit1",
+   "keyCode": 49,
+   "text": "1",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+!",
+  "event": {
+   "key": "!",
+   "code": "Digit1",
+   "keyCode": 49,
+   "text": "!",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+é",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "__proto__+É",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "__proto__+ß",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "__proto__+Enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "text": "\r",
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+enter",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "text": "\r",
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+RETURN",
+  "event": {
+   "key": "Enter",
+   "code": "Enter",
+   "keyCode": 13,
+   "text": "\r",
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+Space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "text": " ",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+space",
+  "event": {
+   "key": " ",
+   "code": "Space",
+   "keyCode": 32,
+   "text": " ",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+ ",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "__proto__+Tab",
+  "event": {
+   "key": "Tab",
+   "code": "Tab",
+   "keyCode": 9,
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+Backspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 0,
+   "commands": [
+    "deleteBackward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+delete",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 0,
+   "commands": [
+    "deleteForward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+Del",
+  "event": {
+   "key": "Delete",
+   "code": "Delete",
+   "keyCode": 46,
+   "modifiers": 0,
+   "commands": [
+    "deleteForward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+ArrowLeft",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 0,
+   "commands": [
+    "moveLeft"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+left",
+  "event": {
+   "key": "ArrowLeft",
+   "code": "ArrowLeft",
+   "keyCode": 37,
+   "modifiers": 0,
+   "commands": [
+    "moveLeft"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+Up",
+  "event": {
+   "key": "ArrowUp",
+   "code": "ArrowUp",
+   "keyCode": 38,
+   "modifiers": 0,
+   "commands": [
+    "moveUp"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+F5",
+  "event": {
+   "key": "F5",
+   "code": "F5",
+   "keyCode": 116,
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+f5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+-",
+  "event": {
+   "key": "-",
+   "code": "Minus",
+   "keyCode": 189,
+   "text": "-",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+_",
+  "event": {
+   "key": "_",
+   "code": "Minus",
+   "keyCode": 189,
+   "text": "_",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__++",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "__proto__+.",
+  "event": {
+   "key": ".",
+   "code": "Period",
+   "keyCode": 190,
+   "text": ".",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+`",
+  "event": {
+   "key": "`",
+   "code": "Backquote",
+   "keyCode": 192,
+   "text": "`",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+~",
+  "event": {
+   "key": "~",
+   "code": "Backquote",
+   "keyCode": 192,
+   "text": "~",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+€",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "__proto__+😀",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "__proto__+ab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+ ",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "__proto__+K",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "__proto__+bacKspace",
+  "event": {
+   "key": "Backspace",
+   "code": "Backspace",
+   "keyCode": 8,
+   "modifiers": 0,
+   "commands": [
+    "deleteBackward"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "__proto__+Constructor",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "__proto__+__proto__",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "__proto__+toString",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "__proto__+valueOf",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "__proto__+hasOwnProperty",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "__proto__+TOSTRING",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+@",
+  "event": {
+   "key": "@",
+   "code": "Digit2",
+   "keyCode": 50,
+   "text": "@",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+#",
+  "event": {
+   "key": "#",
+   "code": "Digit3",
+   "keyCode": 51,
+   "text": "#",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+|",
+  "event": {
+   "key": "|",
+   "code": "Backslash",
+   "keyCode": 220,
+   "text": "|",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+\\",
+  "event": {
+   "key": "\\",
+   "code": "Backslash",
+   "keyCode": 220,
+   "text": "\\",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+'",
+  "event": {
+   "key": "'",
+   "code": "Quote",
+   "keyCode": 222,
+   "text": "'",
+   "modifiers": 0
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+\"",
+  "event": {
+   "key": "\"",
+   "code": "Quote",
+   "keyCode": 222,
+   "text": "\"",
+   "modifiers": 8
+  },
+  "enters": true,
+  "python": true
+ },
+ {
+  "spec": "__proto__+Escape",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 0,
+   "commands": [
+    "cancelOperation"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+esc",
+  "event": {
+   "key": "Escape",
+   "code": "Escape",
+   "keyCode": 27,
+   "modifiers": 0,
+   "commands": [
+    "cancelOperation"
+   ]
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+Home",
+  "event": {
+   "key": "Home",
+   "code": "Home",
+   "keyCode": 36,
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+pageup",
+  "event": {
+   "key": "PageUp",
+   "code": "PageUp",
+   "keyCode": 33,
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+Insert",
+  "event": {
+   "key": "Insert",
+   "code": "Insert",
+   "keyCode": 45,
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "__proto__+F12",
+  "event": {
+   "key": "F12",
+   "code": "F12",
+   "keyCode": 123,
+   "modifiers": 0
+  },
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+a",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+A",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+v",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+V",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+z",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+Z",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+1",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+!",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+é",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+É",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+ß",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+Enter",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+enter",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+RETURN",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+Space",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+space",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+ ",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "toString+Tab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+Backspace",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+delete",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+Del",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+ArrowLeft",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+left",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+Up",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+F5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+f5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+-",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+_",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString++",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "toString+.",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+`",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+~",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+€",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+😀",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+ab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+ ",
+  "throws": "TypeError",
+  "python": false
+ },
+ {
+  "spec": "toString+K",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+bacKspace",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+constructor",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+Constructor",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+__proto__",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+toString",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+valueOf",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+hasOwnProperty",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+TOSTRING",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+@",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+#",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+|",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+\\",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+'",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+\"",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "toString+Escape",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+esc",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+Home",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+pageup",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+Insert",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "toString+F12",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+a",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+A",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+v",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+V",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+z",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+Z",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+1",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+!",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+é",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+É",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+ß",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+Enter",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+enter",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+RETURN",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+Space",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+space",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+Tab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+Backspace",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+delete",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+Del",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+ArrowLeft",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+left",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+Up",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+F5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+f5",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+-",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+_",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key++",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+.",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+`",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+~",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+€",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+😀",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+ab",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+ ",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+K",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+bacKspace",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+constructor",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+Constructor",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+__proto__",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+toString",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+valueOf",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+hasOwnProperty",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+TOSTRING",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+@",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+#",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+|",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+\\",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+'",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+\"",
+  "event": null,
+  "enters": false,
+  "python": true
+ },
+ {
+  "spec": "Key+Escape",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+esc",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+Home",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+pageup",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+Insert",
+  "event": null,
+  "enters": false,
+  "python": false
+ },
+ {
+  "spec": "Key+F12",
+  "event": null,
+  "enters": false,
+  "python": false
+ }
+]

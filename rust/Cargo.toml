@@ -20,6 +20,7 @@ members = [
     "crates/ferb-runtimes",
     "crates/ferb-policy",
     "crates/ferb-trace",
+    "crates/ferb-browser",
 ]
 exclude = [
     "crates/ferb-gateway",
@@ -28,7 +29,6 @@ exclude = [
     "crates/ferb-orchestrator",
     "crates/ferb-mac-hands",
     "crates/ferb-learning",
-    "crates/ferb-browser",
 ]
 
 [workspace.package]

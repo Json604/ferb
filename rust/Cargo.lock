@@ -372,6 +372,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
+name = "ferb-browser"
+version = "0.28.0"
+dependencies = [
+ "aes-gcm",
+ "chrono",
+ "ferb-core",
+ "ferb-identity",
+ "ferb-py",
+ "ferb-rpc",
+ "ferb-sanitize",
+ "ferb-store",
+ "getrandom 0.3.4",
+ "hmac",
+ "indexmap",
+ "libc",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "zeroize",
+ "zip",
+]
+
+[[package]]
 name = "ferb-clock"
 version = "0.28.0"
 dependencies = [

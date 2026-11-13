@@ -558,3 +558,32 @@ such as a cost can read back one digit off from what Python reads.
 
 **Open.** A time that cannot be parsed shows `--:--:--` where Python raises; integers beyond 64 bits and NaN inside
 a planner's result text are not read as Python reads them.
+
+## 2026-11-13 · 28 · Browser hands, second half: the page operations and both tool families
+
+**What.** `ferb-browser` is now a workspace member. Added to entry 21's protocol, pairing and bridge: every driver
+operation (act with its structural facts, find, html, scroll, media, wait, web terminals, screenshots and their
+masking, pdf, owner view, both upload routes, the OTP inbox, open tabs, cleanup leftovers), all 46 tools of
+`browser.*` and `ferb_browser.*` with typed arguments and what each declares to the gateway, profiles, the
+resolver and the install requests.
+
+**Evidence.** New fixtures: 11 operation scenarios (303 results, 281 daemon frames), 1,130 key specs run through
+the unchanged extension's `protocol.js` under node, money, mask and mime cases. Every tool is checked against the
+frozen catalog (name, description including the ones that append saved secret names, scopes, facts). 27 tests
+pass, re-run by the coordinator; nothing differs from Python except the three fixes below.
+
+**Fixed against Python.**
+- An older connection ending no longer publishes `browser.disconnected` while the profile's newer one is up.
+- A hello with a version such as "0.19.²" is refused as too old instead of ending the connection.
+- `enters_text` follows the extension, the unchanged other end: Python disagreed with it on 155 of 1,130 key specs
+  (for example `Cmd+V`, `a+`, `é`).
+
+**Open.**
+- Not started: `downloads.py`'s `Downloads` (transfers, budgets, the disk floor, the over-cap question, sweep) and
+  `uploads.py`'s staging; the macOS parts of `profiles.py`. They reach the drivers only through seams.
+- Unverified tool runs: pdf (both routes), record, the success paths of pair and handoff, the `point` tool's
+  display mapping.
+- The upload package's zip bytes change between Python runs (a timestamp), so names, order and contents are
+  compared instead of bytes.
+- `ferb-identity`'s mailbox draws its tokens from system randomness, which a test cannot inject.
+- Never run against a real browser.
