@@ -1,0 +1,22 @@
+[package]
+name = "ferb-trace"
+version = "0.28.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.100"
+publish = false
+description = "Traces: a task's recorded spans composed into the story, the span tree and the timing breakdown a developer reads (ferb trace)"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[dependencies]
+ferb-py = { path = "../ferb-py" }
+ferb-sanitize = { path = "../ferb-sanitize" }
+# float_roundtrip: a recorded cost or duration reads back as the exact float Python wrote
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+regex = "1"
+
+[dev-dependencies]
+sha2 = "0.10"
+hex = "0.4"

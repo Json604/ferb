@@ -538,3 +538,23 @@ and what it never covers. 16 test groups pass, re-run by the coordinator.
   strings.
 - Differences that fail closed or are listed: NaN amounts give text where Python raises; a regex backtrack stop
   reads as no further match; a redactor that cannot read its text counts as a hit.
+
+## 2026-11-13 · 27 · Traces
+
+**What.** `ferb-trace` ports `ferb/trace` (compose, lines, render, timing) and the trace output of
+`ferb/cli/admin.py` (the span tree, `--full`, `--json`, the story). It is pure and portable: it takes the
+`trace.get` shape as decoded JSON, which `ferb-store`'s `SpanStore::tree_json` produces.
+
+**Evidence.** `rust/fixtures/trace/make.py` builds trees through the real Python span store and adds the 28
+recorded chat scenarios: 71 trace cases, 59 story cases, 997 helper cases; 1,681 comparisons, byte-exact, none
+differ. Whole workspace after it joined, run by the coordinator: 340 tests pass, 4 ignored; clippy clean; the
+portable check passes.
+
+**Fixed against Python.** `ferb trace` raised AttributeError (`admin.py:80`) on a span result that is JSON but not
+an object (a number, a list, null, a string); Rust shows it as plain text.
+
+**Also.** `serde_json`'s `float_roundtrip` feature is now on for the whole workspace: without it a recorded float
+such as a cost can read back one digit off from what Python reads.
+
+**Open.** A time that cannot be parsed shows `--:--:--` where Python raises; integers beyond 64 bits and NaN inside
+a planner's result text are not read as Python reads them.

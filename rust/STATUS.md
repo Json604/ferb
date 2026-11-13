@@ -50,7 +50,7 @@ the phone apps share; they reach the Mac's own parts only through traits.
 | Perception | `ferb/sense` | 3,817 | - | not started |
 | Device: install, permissions, service | `ferb/device` | 2,276 | - | not started |
 | Internal commands the app calls, toolbox | `ferb/cli` | 2,442 | - | not started |
-| Traces | `ferb/trace` | 759 | - | not started |
+| Traces | `ferb/trace`, trace output of `ferb/cli/admin.py` | 759 | `ferb-trace` | verified (journal 27) |
 | Daemon host in FERB.app | `ui/mac/FERBAgent/main.c` | - | `ferbd` | not started |
 | Build, sign, package without Python | `scripts/` | - | - | not started |
 

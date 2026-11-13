@@ -607,6 +607,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferb-trace"
+version = "0.28.0"
+dependencies = [
+ "ferb-py",
+ "ferb-sanitize",
+ "hex",
+ "regex",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "ferbd"
 version = "0.28.0"
 
