@@ -1,0 +1,45 @@
+[package]
+name = "ferb-supervisor"
+version = "0.28.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.100"
+publish = false
+description = "The planner (ferb/orchestrator/supervisor.py): its prompt composition, the owner-facing lines it writes, the chat line's arrival order, and the flows a chat message takes from arrival to result (intake, the planner's decision and its routing, the plan run, the worker and checker round, the task's end), reaching the worker, the runtimes, the gateway and the other parts through seams"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[features]
+default = ["store"]
+# The flows (intake to result): they read and write the Mac's SQLite store through ferb-orchestrator's stores, as the
+# Python supervisor does. Without it the crate is the composition alone (prompts, history, planner blocks, lines).
+store = ["dep:ferb-store", "dep:rusqlite", "dep:ferb-worker", "dep:ferb-trace", "dep:ferb-policy", "dep:ferb-fs", "dep:ferb-learning", "dep:ferb-memory", "dep:futures-util", "ferb-orchestrator/store"]
+
+[dependencies]
+chrono = { version = "0.4.42", default-features = false, features = ["std", "clock"] }
+ferb-clock = { path = "../ferb-clock", default-features = false }
+ferb-context = { path = "../ferb-context" }
+ferb-core = { path = "../ferb-core" }
+ferb-fs = { path = "../ferb-fs", optional = true }
+ferb-learning = { path = "../ferb-learning", default-features = false, optional = true }
+ferb-memory = { path = "../ferb-memory", default-features = false, optional = true }
+ferb-orchestrator = { path = "../ferb-orchestrator", default-features = false }
+ferb-policy = { path = "../ferb-policy", optional = true }
+ferb-py = { path = "../ferb-py" }
+ferb-sanitize = { path = "../ferb-sanitize" }
+ferb-store = { path = "../ferb-store", optional = true }
+ferb-trace = { path = "../ferb-trace", optional = true }
+ferb-worker = { path = "../ferb-worker", optional = true }
+# The same version ferb-store names (the workspace's), so one bundled SQLite is linked.
+rusqlite = { version = "0.42", features = ["bundled"], optional = true }
+regex = "1.13"
+futures-util = { version = "0.3.34", default-features = false, features = ["std"], optional = true }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+sha2 = "0.10.9"
+hex = "0.4"
+tokio = { version = "1.54.1", features = ["sync", "time", "rt", "macros"] }
+
+[dev-dependencies]
+tempfile = "3.20.0"
+tokio = { version = "1.54.1", features = ["sync", "time", "rt", "macros", "test-util"] }

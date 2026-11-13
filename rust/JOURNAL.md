@@ -900,3 +900,35 @@ reported.
   from chat, the hourly memory loops, sleep and wait glue, the resource sampler.
 - Verified only on refusal paths: `ps.*`, `secrets.saved`/`delete`, the notifications stream's delivery.
 - Unverified: retention pass, persona with a real scan, the relay over https.
+
+## 2026-11-13 · 41 · The supervisor's forward path (not yet a workspace member)
+
+**What.** `ferb-supervisor::flow`: a message's path from arrival to result, on the real store and `ferb-worker`.
+Intake with `ack` first, the planner call and its repair, routing (reply, clarify and its answer, a merged
+message, one task, a plan), the plan event and step states, the worker attempt loop, the checker with accept,
+fail, and findings with fix and re-check, the task's end, its episode record and result row.
+
+**Evidence.** A replay harness runs all 28 recorded chat scenarios on a temporary store with a scripted runtime
+and gateway: 1,964 comparisons. **9 replay fully** (every frame, model call and compared table matches the Python
+daemon): plain_reply, clarify_then_answer, one_step_task, multi_step_plan, plan_repair, checker_rejects,
+checker_findings_fix, second_message_merged, attachment_and_bad_params. Run by the porting agent; the crate stays
+outside the workspace while the remaining paths are ported.
+
+**The other 19 stop here.**
+- At tool calls through the bridge to the gateway (5): one_step_with_tools, checker_skips_change_records,
+  tool_failure_then_retry, wait_for_time. The gateway's records and `tool.called` frames are not replayed, so ids
+  drift.
+- At a question or approval for the owner (4): confirm_yes, confirm_no, confirm_stop_pending,
+  worker_question_answered.
+- At paths not ported (10): check_in_after_five; pause_steer_resume, steer_running_task, stop_by_chat,
+  stop_plus_new_task; stop_by_task_stop, global_stop; restart_mid_task, restart_with_open_question;
+  timer_set_and_fired.
+- At the daemon's own RPCs (1): schedule_created_and_fired.
+
+**Fixed against Python.** A malformed legacy planner answer whose validator raised TypeError (a `map` step whose
+`inputs` or `batches` is not a list; a legacy `schedule` beside a non-list `schedules`) failed the whole turn; it
+is now repaired like any invalid answer.
+
+**Open.** Control (pause, steer, stop), waits for the owner, check-in, service-down, side entries, the summary
+fold, several asks (the card), loops, conversations, wait and ask steps, scheduled runs, resume, restart: each
+answers `NotPorted` by its Python name. Bus events the daemon merges into a stream are not merged here.
