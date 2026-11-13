@@ -26,6 +26,9 @@ use crate::words::*;
 use crate::worker_context::{self, ContextReads, SourceBlocks, SourceCall, VerifierReads};
 use crate::NotPorted;
 
+/// supervisor.py:7676 `_RuntimeDown`: the checker's run ended on an account fact; carried as a raised class.
+const RUNTIME_DOWN: &str = "_RuntimeDown";
+
 fn obj(v: Value) -> Map<String, Value> {
     match v {
         Value::Object(m) => m,
@@ -185,9 +188,7 @@ impl Inner {
             Some(sid) => self.schedule_messages(sid),
             None => String::new(),
         };
-        if !spec.earlier_results.is_empty() {
-            return Err(NotPorted("Supervisor._result_blocks").into());
-        }
+        let results = self.result_blocks(tree, &spec);
         let memory = if learned {
             self.worker_memory(tree, &request.words, &parent_goal, &spec)
                 .await
@@ -264,14 +265,14 @@ impl Inner {
             ],
             folders: spec.folders.clone(),
             workspace: self.deps.workspace.clone(),
-            posted: Vec::new(),
+            posted: self.posted_answers(&tree.id),
             plan_steps,
             saved_plan,
             owner_questions: self.owner_questions(&tree.id),
             reopened: self.reopened_answers(&tree.id),
             confirmations,
             memory,
-            results: Vec::new(),
+            results,
         };
         Ok(worker_context::worker_context(
             &reads,
@@ -368,13 +369,14 @@ impl Inner {
             )
             .into());
         }
+        let parts = is_step && root.as_ref().is_some_and(|r| r.lock().card.is_some());
         let flags = ferb_context::schemas::WorkerFlags {
             inputs,
             proposals,
             conversation: false,
             watch,
             loop_: false,
-            parts: false,
+            parts,
         };
         let mut roles = Vec::new();
         if is_step {
@@ -384,6 +386,7 @@ impl Inner {
             ("inputs", inputs),
             ("proposals", proposals),
             ("watch", watch),
+            ("parts", parts),
             ("scheduled", scheduled),
         ] {
             if on {
@@ -468,17 +471,46 @@ impl Inner {
             }
             let out = self.read_report(tree, &task, &raw);
             let mut choice: Option<Next> = None;
+            let mut down: Option<Value> = None;
             if !self.steered(tree).await && !self.stopped(tree) {
                 self.attempt_state(tree, "checking");
-                let next = self.judge(tree, &out, span).await?;
-                if !next.findings.is_empty() && !self.stopped(tree) && !self.steered(tree).await {
-                    self.settle_findings(tree, &task, &next.findings, span)
-                        .await;
-                    if out.status != OutcomeStatus::Done && !tree.lock().reason.is_empty() {
-                        return Err(NotPorted("Supervisor._worker (findings on a reason)").into());
+                match self.judge(tree, &out, span).await {
+                    Ok(next) => {
+                        if !next.findings.is_empty()
+                            && !self.stopped(tree)
+                            && !self.steered(tree).await
+                        {
+                            self.settle_findings(tree, &task, &next.findings, span)
+                                .await;
+                            if out.status != OutcomeStatus::Done && !tree.lock().reason.is_empty() {
+                                return Err(
+                                    NotPorted("Supervisor._worker (findings on a reason)").into()
+                                );
+                            }
+                        }
+                        choice = Some(next);
                     }
+                    // the checker's runtime hit the same kind of account fact
+                    Err(e @ Failure::Raised { .. }) if e.class() == RUNTIME_DOWN => {
+                        down = serde_json::from_str(&e.message()).ok();
+                    }
+                    Err(e) => return Err(e),
                 }
-                choice = Some(next);
+            }
+            if let Some(d) = down.filter(|_| !self.stopped(tree)) {
+                let text = |k: &str| d[k].as_str().unwrap_or("").to_string();
+                let failed = outcome(&text("task_id"), "failed", &text("summary"), Vec::new());
+                match self
+                    .service_down_step(tree, &task, &failed, &text("runtime"), &text("problem"))
+                    .await
+                {
+                    Ok(more) => {
+                        instructions = more;
+                        continue;
+                    }
+                    Err(None) => break,
+                    Err(Some(failed)) => return Ok(failed),
+                }
             }
             let (worker_type, answer, reason) = {
                 let st = tree.lock();
@@ -726,6 +758,8 @@ impl Inner {
                 verdict
             }
             Err(Failure::NotPorted(n)) => return Err(Failure::NotPorted(n)),
+            // the checker's runtime hit an account fact: the attempt loop offers another runtime
+            Err(e @ Failure::Raised { .. }) if e.class() == RUNTIME_DOWN => return Err(e),
             Err(e) => {
                 self.journal(
                     "task.inspection_failed",
@@ -1443,9 +1477,15 @@ impl Inner {
                         "failed",
                         Some(&json!({"summary": o.outcome.summary})),
                     );
-                    return Err(
-                        NotPorted("Supervisor._service_down (the checker's runtime)").into(),
-                    );
+                    // `_RuntimeDown(raw)`: the attempt loop offers another runtime (`_service_down`)
+                    let OutcomeKind::ServiceDown { runtime, problem } = &o.kind else {
+                        unreachable!()
+                    };
+                    return Err(Failure::raised(
+                        RUNTIME_DOWN,
+                        ferb_py::json::dumps(&json!({"task_id": o.outcome.task_id,
+                            "runtime": runtime, "problem": problem, "summary": o.outcome.summary})),
+                    ));
                 }
                 let status = if o.outcome.status == OutcomeStatus::Cancelled {
                     "cancelled"

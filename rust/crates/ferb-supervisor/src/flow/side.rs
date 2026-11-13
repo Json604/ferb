@@ -26,6 +26,11 @@ pub struct TimersSide {
     pub lines: Vec<String>,
     pub refused: Vec<(String, String)>,
     pub cards: Vec<Value>,
+    /// `lines` in parts, as `_side_entries` orders them among the memory's: the set reminders' lines, the refusals
+    /// that aren't the quote check's (not set, already set), the quote check's refusals.
+    pub set_lines: Vec<String>,
+    pub not_set: Vec<(String, String)>,
+    pub stopped: Vec<(String, String)>,
 }
 
 /// One owner message as a reminder's quote check reads it: (its request id, its words).
@@ -405,6 +410,12 @@ impl Inner {
             .chain(existing.iter().map(|t| already_set(&facts(t), &zone)))
             .filter(|l| !l.is_empty())
             .map(|l| ("timer".to_string(), l))
+            .collect();
+        side.not_set = refused.clone();
+        side.stopped = stopped.clone();
+        side.set_lines = set
+            .iter()
+            .map(|t| reminder_line(&facts(t), active(t), Some(&now), &zone))
             .collect();
         refused.extend(stopped);
         side.lines = set

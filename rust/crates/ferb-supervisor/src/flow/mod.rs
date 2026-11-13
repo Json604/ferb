@@ -14,15 +14,23 @@
 //! recovery and resume) and [`scheduled`] (a schedule's run); a schedule made or changed from chat in
 //! [`schedules_chat`]; the daemon's seams for the supervisor in `daemon_seams` (feature `daemon`).
 //!
-//! Not ported here (each answers [`crate::NotPorted`] by its Python name): several asks in one answer (the card),
-//! plans that state a big job or standing sends, loops, delegated conversations, wait and ask steps, the memory and
-//! forget side entries, the running summary's fold, the planner's lookups' last call, the image-refused rerun, the
-//! front window at send, `_browse_as`, `_result_problems`, inventory walks, the intro preview, `route_question`,
-//! `mention_paused`.
+//! Also: the running summary's fold ([`fold`]), several asks and their card ([`card`]), an answer routed to an open
+//! question and a worker's question routed by the orchestrator ([`answer`]), the memory and forget side entries
+//! ([`memory_side`]), earlier results ([`results`]); in [`tree`] the ask and wait steps, `notify_plan_event`; in
+//! [`attempt`] the checker's runtime trouble; in [`turn`] the planner's last call and `_unbacked_parts`.
+//!
+//! Not ported here (each answers [`crate::NotPorted`] by its Python name): plans that state a big job or standing
+//! sends, loops, delegated conversations (and conversation changes), the image-refused rerun, the front window at
+//! send, `_browse_as`, inventory walks, the intro preview, `mention_paused`, a revised standing scope in a
+//! correction, the start-of-task screenshot, the findings round on a not-done reason.
 
+pub mod answer;
 pub mod attempt;
+pub mod card;
 pub mod chat;
+pub mod fold;
 pub mod host;
+pub mod memory_side;
 pub mod store;
 pub mod tree;
 pub mod turn;
@@ -31,6 +39,7 @@ pub mod turn;
 pub mod control;
 pub mod owner_wait;
 pub mod restart;
+pub mod results;
 pub mod scheduled;
 // the forward path's joins to the daemon: the gateway's observer (`_Watch`), the chat RPCs (areas/chat.py)
 pub mod chat_rpc;
@@ -310,6 +319,68 @@ pub trait Daemon: Send + Sync {
     fn approvals(&self) -> Vec<ferb_gateway::questions::Approval> {
         Vec::new()
     }
+
+    // --- the paths make_more.py records (fold.rs, card.rs, memory side entries, ...) ---
+    /// memory's `settle_identity(why)` (MEM-429): the owner's core profile settles what moved into its block.
+    fn settle_identity(&self, _why: &str) {}
+    /// `state.approvals.get(id)`: any question of the gateway's or the supervisor's own, pending or not.
+    fn approval(&self, id: &str) -> Option<ferb_gateway::questions::Approval> {
+        self.approvals().into_iter().find(|a| a.id == id)
+    }
+    /// `state.approvals.resolve(id, granted, choice=, text=)`: the question as resolved, None when unknown.
+    fn resolve_question(
+        &self,
+        _id: &str,
+        _granted: bool,
+        _choice: Option<usize>,
+        _text: Option<&str>,
+    ) -> Option<ferb_gateway::questions::Approval> {
+        None
+    }
+    /// `model_limits(make_runtime("worker:" + worker_type, mode="worker", ...))`: the documented limits of the
+    /// runtime a worker of this type runs on, read without starting it (`_worker_room`); None when unknown.
+    fn worker_limits(&self, worker_type: &str) -> Option<ferb_core::types::ModelLimits> {
+        let schema =
+            ferb_context::schemas::worker_schema(ferb_context::schemas::WorkerFlags::default());
+        self.make_runtime(
+            &format!("worker:{worker_type}"),
+            "worker",
+            &[],
+            &schema,
+            None,
+        )
+        .ok()
+        .and_then(|rt| rt.limits().ok())
+    }
+    /// `state.approvals.supersede(id)` on whichever store holds the question (the gateway's or the supervisor's own):
+    /// whether it was pending and is now superseded.
+    fn supersede_question(&self, id: &str) -> bool {
+        self.questions().is_some_and(|q| q.supersede(id))
+    }
+    /// The memory port's `remember(items, words, source, sites, elsewhere, about=)`: each item's answer (`receipt`,
+    /// `line`, `card`; or `guard` / `refused`). None: no memory port here.
+    #[allow(clippy::too_many_arguments)]
+    fn remember<'a>(
+        &'a self,
+        _items: &'a [Value],
+        _words: &'a str,
+        _source: &'a str,
+        _sites: &'a [String],
+        _elsewhere: &'a [String],
+        _about: &'a str,
+    ) -> BoxFuture<'a, Option<Vec<Value>>> {
+        Box::pin(async { None })
+    }
+    /// The memory port's `forget_request(item_id, request_id)`: code's line (a forget asks the owner first, I2). None:
+    /// no memory port here.
+    fn forget_memory(&self, _item_id: &str, _request_id: &str) -> Option<String> {
+        None
+    }
+    /// The memory port's `question_answered(ap)`: what follows an answered question (e.g. a forget the owner just said
+    /// Yes to); "" for nothing.
+    fn question_answered(&self, _approval: &ferb_gateway::questions::Approval) -> String {
+        String::new()
+    }
 }
 
 /// Where a subscribed bus event goes: (topic, data).
@@ -419,6 +490,10 @@ pub struct Turn {
     pub request_origins: BTreeSet<String>,
     /// A scheduled run's previous run that left an answer (`schedule_previous`).
     pub schedule_previous: Option<scheduled::Previous>,
+    /// What FERB itself asked this chat about an answer last turn (`_Focus`, answer.rs).
+    pub focus: Option<answer::Focus>,
+    /// The tree whose question this turn answered (`answered_tree`).
+    pub answered_tree: Option<String>,
 }
 
 impl Turn {
@@ -439,6 +514,8 @@ pub struct Start {
     pub asked_outside: BTreeSet<String>,
     pub carried: Vec<store::Entry>,
     pub paths: Vec<String>,
+    /// `_answer_focus.pop(session)`: what FERB itself asked this chat about an answer (answer.rs).
+    pub focus: Option<answer::Focus>,
 }
 
 /// One task tree or plan step as its attempt loop runs it (supervisor.py:892 `_Tree`): the fields the forward path
@@ -496,6 +573,8 @@ pub struct TreeState {
     pub schedule_facts: Map<String, Value>,
     /// The root's: each step's latest live state (ORCH-531).
     pub step_states: Map<String, Value>,
+    /// The root's, when the task asks several things (ORCH-319): its card (card.rs).
+    pub card: Option<Arc<card::TaskCard>>,
     pub attempt: usize,
     /// The root's: each answer step's tree and each step's tree, as they ran here (ORCH-319, ORCH-627).
     pub answers: Vec<(String, Arc<Tree>)>,
@@ -557,6 +636,12 @@ pub struct Live {
     pub suspending: bool,
     /// `_plan_runs`' keys: the trees whose plan runner runs now.
     pub plan_runs: BTreeSet<String>,
+    /// `_summarizing`' keys: the chats whose running summary is being folded now (fold.rs).
+    pub summarizing: BTreeSet<String>,
+    /// Each running plan's wake (`PlanExecutor.wake`): a wait step's or a loop's look now.
+    pub plan_wakes: HashMap<String, Arc<tokio::sync::Notify>>,
+    /// `_answer_focus`: chat -> what FERB itself just asked it about an answer (answer.rs).
+    pub answer_focus: HashMap<String, answer::Focus>,
 }
 
 /// The supervisor. Cheap to clone; every flow runs on a shared [`Inner`].
@@ -627,9 +712,13 @@ impl Supervisor {
     // control and recovery's entry points: `stop_task`, `pause_task`, `correct_from_card` (control.rs), `shut_down`,
     // `resume_saved_plans` (restart.rs), `run_scheduled_rest` (scheduled.rs)
 
-    /// supervisor.py:7054 `route_question`.
+    /// supervisor.py:7054 `route_question`: kept for its earlier callers; the router is
+    /// [`Inner::route_worker_question`], and `Supervisor` implements ferb-gateway's `QuestionRouter` with it
+    /// (answer.rs).
     pub fn route_question(&self) -> Result<(), NotPorted> {
-        Err(NotPorted("Supervisor.route_question"))
+        Err(NotPorted(
+            "Supervisor.route_question (use route_worker_question)",
+        ))
     }
 }
 

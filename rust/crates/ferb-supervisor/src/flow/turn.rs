@@ -105,12 +105,27 @@ struct Decided {
     out: SupervisorOutcome,
 }
 
-/// supervisor.py:1005 `OwnerReply`-free: what `_side_entries` did (none are ported: an empty set of effects).
+/// supervisor.py:437 `_Side`: what `_side_entries` did.
+#[derive(Default)]
 struct Side {
     events: Vec<Value>,
     lines: Vec<String>,
     refused: Vec<(String, String)>,
     cards: Vec<Value>,
+}
+
+/// supervisor.py:427 `_carries_more`: whether a planner turn carries anything besides an answer.
+fn carries_more(out: &SupervisorOutcome) -> bool {
+    out.control.is_some()
+        || (out.kind == "task" && out.task.is_some())
+        || !out.remember.is_empty()
+        || !out.forget.is_empty()
+        || !out.timers.is_empty()
+        || !out.schedules.is_empty()
+        || !out.schedule_changes.is_empty()
+        || out.show_schedules
+        || !out.reminder_cancels.is_empty()
+        || !out.conversation_changes.is_empty()
 }
 
 fn obj(v: Value) -> Map<String, Value> {
@@ -168,7 +183,7 @@ pub fn shown_records(
         .collect()
 }
 
-struct Reads<'a>(&'a Inner);
+pub(crate) struct Reads<'a>(pub(crate) &'a Inner);
 
 impl TimelineReads for Reads<'_> {
     fn outcome_json(&self, task_id: &str) -> Option<String> {
@@ -343,8 +358,8 @@ impl Inner {
         let result = match decided {
             Err(failure) => self.failed(&turn, &failure, emit).await,
             Ok(d) => {
-                // the fold runs in the background after the reply in Python; not ported (`keep_recent`'s NotPorted)
-                let _ = self.keep_recent(session_id);
+                // the running summary's fold, in the background (fold.rs)
+                self.start_keep_recent(session_id);
                 self.route(&turn, d.out, emit).await
             }
         };
@@ -477,6 +492,7 @@ impl Inner {
                 pending,
                 asked: asked.clone(),
                 payload,
+                focus: self.live().answer_focus.remove(session_id),
             };
             if let Some(line) = self.live().lines.get_mut(session_id) {
                 line.start = Some(start);
@@ -636,6 +652,7 @@ impl Inner {
                 Vec::new()
             },
             clarified: start.asked.clone(),
+            focus: start.focus.clone(),
             open: if start.asked.is_empty() {
                 None
             } else {
@@ -996,18 +1013,10 @@ impl Inner {
                 ));
             }
         }
+        problems.extend(self.unbacked_parts(turn, candidate));
         if let Some(task) = &candidate.task {
-            if task.parts.iter().any(|p| p.direct.as_deref() == Some("")) {
-                return Err(NotPorted("Supervisor._unbacked_parts").into());
-            }
-            let named = !task.earlier_results.is_empty()
-                || task
-                    .plan
-                    .as_ref()
-                    .is_some_and(|p| p.steps.iter().any(|s| !s.earlier_results.is_empty()));
-            if named {
-                return Err(NotPorted("Supervisor._result_problems").into());
-            }
+            // ORCH-619: the earlier results it names are shown here and fit its workers
+            problems.extend(self.result_problems(turn, task));
         }
         let input_paths = turn.lock().unwrap().input_paths.clone();
         if let Some(plan) = candidate.task.as_mut().and_then(|t| t.plan.as_mut()) {
@@ -1056,16 +1065,8 @@ impl Inner {
         turn: &Arc<Mutex<Turn>>,
         out: &SupervisorOutcome,
     ) -> Flow<Vec<String>> {
-        if !out.remember.is_empty()
-            || !out.forget.is_empty()
-            || !out.conversation_changes.is_empty()
-        {
-            return Err(NotPorted(
-                "Supervisor._side_quote_problems (memory, forgets, conversations)",
-            )
-            .into());
-        }
-        let mut problems = self.timer_quote_problems(turn, out);
+        let mut problems = self.memory_quote_problems(turn, out);
+        problems.extend(self.timer_quote_problems(turn, out));
         let tell = |what: &str, quote: &str| {
             format!(
                 "{what}: its quote isn't the owner's exact words from this message or their recent messages in this \
@@ -1106,6 +1107,12 @@ impl Inner {
             (
                 format!("reminder_cancels {}", repr(&rc.id)),
                 rc.quote.clone(),
+            )
+        }));
+        quotes.extend(out.conversation_changes.iter().map(|c| {
+            (
+                format!("conversation_changes {}", repr(&c.id)),
+                c.quote.clone(),
             )
         }));
         for (what, quote) in quotes {
@@ -1424,9 +1431,26 @@ impl Inner {
                 !looker.is_empty() && self.deps.daemon.lookups_made(&looker) >= PLANNER_LOOKUPS;
             let missing = matches!(we, ferb_worker::Error::AnswerMissing(_));
             if last_call.is_empty() && (spent || missing) {
-                return Err(Repairable::Not(
-                    NotPorted("Supervisor._supervise (the last call)").into(),
-                ));
+                // ORCH-557/558: one last call without tools, given what the lookups found
+                let why = if spent {
+                    "spent"
+                } else if matches!(we, ferb_worker::Error::AnswerMissing(m)
+                    if matches!(m.kind, ferb_worker::errors::MissingKind::ToolLoop { .. }))
+                {
+                    "tool_loop"
+                } else {
+                    "empty"
+                };
+                if why == "spent" {
+                    self.journal("planner.lookups_spent", json!({"request_id": rid}), None);
+                } else {
+                    self.journal(
+                        "planner.last_call",
+                        json!({"request_id": rid, "why": why}),
+                        None,
+                    );
+                }
+                return Box::pin(self.supervise(turn, repair, emit, why, cancel)).await;
             }
             if matches!(we, ferb_worker::Error::Service(s) if matches!(s.kind, ferb_worker::errors::ServiceKind::Image))
                 && turn
@@ -1570,9 +1594,16 @@ impl Inner {
                 .map_err(|e| Failure::raised("FileNotFoundError", e.to_string()))?,
             None => String::new(),
         };
-        if !last_call.is_empty() {
-            return Err(NotPorted("Supervisor._supervise (the last call)").into());
-        }
+        // ORCH-557/558: what this request's planner looked up, for its last call
+        let found: Vec<crate::planner::Found> = if last_call.is_empty() {
+            Vec::new()
+        } else {
+            let rid = turn.lock().unwrap().request_id.clone();
+            self.tool_outputs(&format!("{rid}{LOOKUPS}"))
+                .into_iter()
+                .map(|(_, made, text)| (made, text))
+                .collect()
+        };
         let t = turn.lock().unwrap();
         let open = t.open.as_ref().map(|s| crate::planner::OpenAsk {
             asked: s.asked.clone(),
@@ -1636,7 +1667,7 @@ impl Inner {
             previous_run,
             questions,
             repair: repair.map(|r| (repair_prompt.as_str(), r)),
-            last_call: None,
+            last_call: (!last_call.is_empty()).then_some((last_call, found.as_slice())),
             open: open.as_ref(),
             entries: &entry_ids,
             payload: &t.payload,
@@ -1777,8 +1808,30 @@ impl Inner {
             }
             seen
         };
+        let open_cards = self.deps.daemon.approvals();
+        let zone = self.deps.clock.zone();
         let mut views = Vec::new();
         for tree in trees {
+            // ORCH-595: every open card of it, whoever asked
+            let cards: Vec<Map<String, Value>> = open_cards
+                .iter()
+                .filter(|ap| self.question_root(&ap.task_id) == tree.id)
+                .map(|ap| {
+                    let asked = self
+                        .of_kind("question.asked", "approval_id", &ap.id, None)
+                        .last()
+                        .and_then(|e| ferb_clock::py::parse(&e.at));
+                    crate::planner::card_row(
+                        &ap.kind,
+                        &ap.capability,
+                        &ap.summary,
+                        &ap.reason,
+                        asked.as_ref(),
+                        crate::planner::routable(&ap.kind, &ap.capability, &FERB_CHECKS),
+                        &zone,
+                    )
+                })
+                .collect();
             let (paused, question) = self.paused_view(&tree.id); // owner_wait.rs
             let st = tree.lock();
             let spec = st.spec.clone().expect("a spec");
@@ -1804,7 +1857,7 @@ impl Inner {
                 loops: Vec::new(),
                 paused,
                 question,
-                cards: Vec::new(),
+                cards,
                 last_step: self.runs.last_step(&tree.id),
                 asleep: None,
                 preview: None,
@@ -2003,69 +2056,74 @@ impl Inner {
         crate::planner::questions_block(&pending, &conversations, &FERB_CHECKS, &|t| self.wrap(t))
     }
 
-    /// supervisor.py:4186 `_keep_recent`: whether the conversation beyond the last 20 exchanges has gathered a chunk
-    /// to fold. The fold itself (`_summarize`, a background model call) is not ported: a chat that reaches it answers
-    /// `NotPorted`, and its planner keeps reading the whole tail.
+    /// supervisor.py:4186 `_keep_recent`: starts the running summary's fold when the tail has gathered a chunk
+    /// (fold.rs `start_keep_recent`; kept for callers of the earlier signature).
     pub fn keep_recent(&self, session: &str) -> Result<(), NotPorted> {
-        let summary = self
-            .of_kind(SUMMARY_KIND, "session_id", session, None)
-            .last()
-            .cloned();
-        let covered: BTreeSet<String> = summary
-            .iter()
-            .flat_map(|s| {
-                s.get("covered")
-                    .and_then(Value::as_array)
-                    .map(|a| a.iter().map(ferb_py::value::py_str).collect::<Vec<_>>())
-                    .unwrap_or_default()
-            })
-            .collect();
-        let mut kinds_read: Vec<&str> = CONVERSATION_KINDS.to_vec();
-        kinds_read.extend(SELF_POSTS);
-        let rows: Vec<JournalRow> = self
-            .entries_of(&kinds_read)
-            .iter()
-            .map(Entry::row)
-            .collect();
-        let task_ids = self.continuity(|c| c.task_ids(session)).unwrap_or_default();
-        let current = BTreeSet::from([String::new()]);
-        let zone = self.deps.clock.zone();
-        let (entries, _) = timeline(&Timeline {
-            current: &current,
-            conversation: Some(session),
-            rows: &rows,
-            task_ids: Some(&task_ids),
-            covered: &covered,
-            reads: &Reads(self),
-            zone: &zone,
-        });
-        let recent = crate::history::recent_entries(&entries);
-        let count = entries.len() - recent.len();
-        let tokens = self.deps.tokenizer;
-        let excess: usize = entries[..count].iter().map(|e| tokens.count(&e.text)).sum();
-        let total = excess
-            + entries[count..]
-                .iter()
-                .map(|e| tokens.count(&e.text))
-                .sum::<usize>();
-        if count == 0
-            || (excess < FOLD_CHUNK_TOKENS
-                && total <= RECENT_CONVERSATION_TOKENS + FOLD_CHUNK_TOKENS)
-        {
-            return Ok(());
-        }
-        Err(NotPorted("Supervisor._summarize"))
+        self.start_keep_recent(session);
+        Ok(())
     }
 
     /// supervisor.py:2703 `_route`.
     async fn route(
         &self,
         turn: &Arc<Mutex<Turn>>,
-        out: SupervisorOutcome,
+        mut out: SupervisorOutcome,
         emit: &Emit,
     ) -> Flow<()> {
-        if out.answer_question.is_some() {
-            return Err(NotPorted("Supervisor._answer").into());
+        if let Some(routed) = out.answer_question.take() {
+            // the answer is recorded first; the rest of the turn then runs as in any turn. When FERB has to ask which
+            // question the answer is for, nothing else in the message runs now
+            let (kind, mut said) = self.answer(turn, &routed);
+            if kind == "clarify" {
+                let made = origin_set(&[origin::FERB, origin::INFERRED]);
+                return self
+                    .exit_with(
+                        turn,
+                        &out,
+                        "clarify",
+                        &said,
+                        origin::FERB,
+                        false,
+                        Some(&made),
+                        emit,
+                    )
+                    .await;
+            }
+            let ends_in_reply =
+                out.control.is_none() && !(out.kind == "task" && out.task.is_some());
+            let alone = ends_in_reply
+                && ferb_orchestrator::py::strip(&out.text).is_empty()
+                && !carries_more(&out);
+            let joined = turn.lock().unwrap().joined;
+            if said == NO_QUESTION && joined {
+                // ORCH-621: a routing that names no open question says nothing when the message answered FERB's own
+                // question (its answer was taken); recorded, never shown
+                let rid = turn.lock().unwrap().request_id.clone();
+                self.journal(
+                    "question.routing_unused",
+                    json!({"request_id": rid, "approval_id": routed.approval_id, "joined": joined}),
+                    None,
+                );
+                said = String::new();
+            } else if alone {
+                return self
+                    .exit_with(turn, &out, "reply", &said, origin::FERB, false, None, emit)
+                    .await;
+            }
+            if said.is_empty() {
+            } else if ends_in_reply && !ferb_orchestrator::py::strip(&out.text).is_empty() {
+                // one message: FERB's word on the answer opens the planner's reply
+                turn.lock().unwrap().acknowledged = said;
+            } else {
+                // a stop, correction or task follows: its own line first
+                self.record_reply(turn, "reply", &said, &origin_set(&[origin::FERB]), "", None)
+                    .await;
+                if out.new_task().is_some() {
+                    turn.lock().unwrap().said_first = said;
+                } else {
+                    let _ = emit.send(json!({"type": "reply", "text": said}));
+                }
+            }
         }
         if out.control.is_some() {
             return self.control(turn, out, emit).await;
@@ -2089,9 +2147,37 @@ impl Inner {
     /// their changes and the schedules card (schedules_chat.rs, through the daemon's schedules port), each with the one
     /// quote check. Memory, forgets and conversation changes are not ported: refused by name.
     async fn side_entries(&self, turn: &Arc<Mutex<Turn>>, out: &SupervisorOutcome) -> Flow<Side> {
-        if has_unported_side_entries(out) {
-            return Err(NotPorted("Supervisor._side_entries").into());
+        self.side_entries_named(turn, out, &BTreeSet::new()).await
+    }
+
+    /// `_side_entries(turn, out, named)`: `named`, the sites a steered task named before the steer restated it.
+    async fn side_entries_named(
+        &self,
+        turn: &Arc<Mutex<Turn>>,
+        out: &SupervisorOutcome,
+        named: &BTreeSet<String>,
+    ) -> Flow<Side> {
+        if !out.conversation_changes.is_empty() {
+            return Err(NotPorted("Supervisor._side_entries (conversation changes)").into());
         }
+        let mut out = out.clone();
+        let rid = turn.lock().unwrap().request_id.clone();
+        if (!out.remember.is_empty() || !out.forget.is_empty())
+            && ferb_orchestrator::test_runs::TestRuns::new(&self.db())
+                .request(Some(&rid))
+                .unwrap_or(false)
+        {
+            // GATE-550: a test run learns nothing and changes none of the owner's memory
+            self.journal(
+                "test_run.memory_skipped",
+                json!({"request_id": rid, "remember": out.remember.len(), "forget": out.forget.len()}),
+                None,
+            );
+            out.remember.clear();
+            out.forget.clear();
+        }
+        let out = &out;
+        let memory = self.memory_side(turn, out, named).await?;
         let scheduled = !out.schedules.is_empty()
             || !out.schedule_changes.is_empty()
             || !out.reminder_cancels.is_empty()
@@ -2101,10 +2187,9 @@ impl Inner {
             return Err(NotPorted("Supervisor._side_entries (no schedules port)").into());
         }
         let recent = blocked::NOT_IN_RECENT;
-        let mut events: Vec<Value> = Vec::new();
+        let mut events: Vec<Value> = memory.events;
         let mut changed: Vec<String> = Vec::new();
-        let mut cards: Vec<Value> = Vec::new();
-        let rid = turn.lock().unwrap().request_id.clone();
+        let mut cards: Vec<Value> = memory.cards;
         if let Some(port) = &port {
             for rc in &out.reminder_cancels {
                 let line = match self.owner_said(turn, &rc.quote) {
@@ -2199,12 +2284,23 @@ impl Inner {
                 }
             }
         }
-        let mut lines = changed;
-        lines.extend(timers.lines);
+        // code's lines: what was saved, what changed, the reminders set, then each refusal (the reminders' not set
+        // and already set, the memory not saved, the quote check's)
+        let mut refused: Vec<(String, String)> = timers.not_set;
+        let not_saved = crate::lines::not_saved(&memory.unsaved);
+        if !not_saved.is_empty() {
+            refused.push(("memory".into(), not_saved));
+        }
+        refused.extend(memory.stopped);
+        refused.extend(timers.stopped);
+        let mut lines = memory.saved;
+        lines.extend(changed);
+        lines.extend(timers.set_lines);
+        lines.extend(refused.iter().map(|(_, l)| l.clone()));
         Ok(Side {
             events,
             lines,
-            refused: timers.refused,
+            refused,
             cards,
         })
     }
@@ -2265,7 +2361,7 @@ impl Inner {
 
     /// supervisor.py:4691 `_said_cards`: cards as the owner is shown them, redacted like the text beside them, each
     /// card's `line` exactly as that text carries it.
-    fn said_cards(&self, cards: &[Value], marked: bool) -> Vec<Value> {
+    pub(crate) fn said_cards(&self, cards: &[Value], marked: bool) -> Vec<Value> {
         cards
             .iter()
             .map(|card| {
@@ -2295,7 +2391,28 @@ impl Inner {
         by: &str,
         emit: &Emit,
     ) -> Flow<()> {
-        let effects = self.side_entries(turn, out).await?;
+        self.exit_with(turn, out, kind, text, by, true, None, emit)
+            .await
+    }
+
+    /// `_exit` with its `side` (apply the turn's side entries) and `made` (the reply's origins) arguments.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn exit_with(
+        &self,
+        turn: &Arc<Mutex<Turn>>,
+        out: &SupervisorOutcome,
+        kind: &str,
+        text: &str,
+        by: &str,
+        side: bool,
+        made: Option<&BTreeSet<String>>,
+        emit: &Emit,
+    ) -> Flow<()> {
+        let effects = if side {
+            self.side_entries(turn, out).await?
+        } else {
+            Side::default()
+        };
         for ev in &effects.events {
             let _ = emit.send(ev.clone());
         }
@@ -2323,7 +2440,9 @@ impl Inner {
                 ferb_policy::confirm::from_task_lines(&self.redact_text(&effects.lines.join("\n")));
             said = format!("{}\n{code_lines}", said.trim_end());
         }
-        let written = if by == origin::FERB && effects.lines.is_empty() {
+        let written = if let Some(made) = made {
+            made.clone()
+        } else if by == origin::FERB && effects.lines.is_empty() {
             origin_set(&[origin::FERB])
         } else {
             let mut w = turn.lock().unwrap().turn_origins.clone();
@@ -2596,7 +2715,7 @@ pub fn origin_set(items: &[&str]) -> BTreeSet<String> {
 /// `_carries_more`'s side outputs: anything besides an answer, a control or a task.
 /// A side entry other than a reminder or timer (side.rs ports those).
 pub fn has_unported_side_entries(out: &SupervisorOutcome) -> bool {
-    !out.remember.is_empty() || !out.forget.is_empty() || !out.conversation_changes.is_empty()
+    !out.conversation_changes.is_empty()
 }
 
 pub fn has_side_entries(out: &SupervisorOutcome) -> bool {

@@ -62,7 +62,7 @@ fn obj(v: Value) -> Map<String, Value> {
     }
 }
 
-fn outcome(
+pub(crate) fn outcome(
     task_id: &str,
     status: &str,
     summary: &str,
@@ -396,9 +396,9 @@ impl Inner {
         self.runs.set_tree(&tree_id, tree.clone());
         self.runs.set_tree(&worker.id, tree.clone());
         if spec.parts.len() > 1 {
-            // (the tree is registered: its end below takes it out again)
-            self.forget_tree_now(&tree, request_id);
-            return Err(NotPorted("Supervisor.run_tree (several asks: the card)").into());
+            // ORCH-319: several asks, one card; its events go on the task's line and the bus
+            let card = self.new_card(&tree_id, request_id, spec.parts.clone());
+            tree.lock().card = Some(card);
         }
         self.deps.daemon.task_folders(&tree_id, Some(&spec.folders));
         if spec.keep_tabs_open {
@@ -590,6 +590,20 @@ impl Inner {
         restored: bool,
     ) -> Map<String, Value> {
         let spec = tree.spec();
+        let card = tree.lock().card.clone();
+        let mut text = text.to_string();
+        if card.is_some() {
+            for part in &spec.parts {
+                if let Some(answer) = part
+                    .direct
+                    .as_ref()
+                    .filter(|d| !ferb_orchestrator::py::strip(d).is_empty())
+                {
+                    text = crate::lines::without_whole(&text, answer);
+                }
+            }
+        }
+        let text = text.as_str();
         let plan_line = ferb_policy::confirm::from_task_lines(text);
         let lines: Vec<Value> = stated
             .split('\n')
@@ -613,7 +627,55 @@ impl Inner {
         if restored {
             event.insert("resumed".into(), json!(true));
         }
-        event.extend(self.checklist(tree, None));
+        let Some(card) = card else {
+            event.extend(self.checklist(tree, None));
+            return self.said_first(tree, event);
+        };
+        let said: Vec<Value> = if restored {
+            Vec::new()
+        } else {
+            self.with_card(&tree.id, &card, |c| c.say_direct())
+        };
+        let direct: Vec<Value> = said
+            .into_iter()
+            .map(|mut d| {
+                let t = d["text"].as_str().unwrap_or("").to_string();
+                d["text"] = json!(ferb_policy::confirm::from_task_lines(&self.redact_text(&t)));
+                d
+            })
+            .collect();
+        let (side_lines, side_cards) = {
+            let mut st = tree.lock();
+            (
+                std::mem::take(&mut st.side_lines),
+                std::mem::take(&mut st.side_cards),
+            )
+        };
+        let receipts: Vec<String> = if restored {
+            Vec::new()
+        } else {
+            side_lines
+                .iter()
+                .map(|l| ferb_policy::confirm::from_task_lines(&self.redact_text(l)))
+                .collect()
+        };
+        let said_cards = if restored {
+            Vec::new()
+        } else {
+            self.said_cards(&side_cards, true)
+        };
+        let before = event["text"].as_str().unwrap_or("").to_string();
+        let joined: Vec<String> = [receipts.join("\n"), before]
+            .into_iter()
+            .filter(|p| !ferb_orchestrator::py::strip(p).is_empty())
+            .collect();
+        event.insert("text".into(), json!(joined.join("\n\n")));
+        event.insert("direct".into(), Value::Array(direct));
+        event.insert("receipts".into(), json!(receipts));
+        event.insert("card".into(), Value::Object(self.card_payload(tree, &card)));
+        if !said_cards.is_empty() {
+            event.insert("cards".into(), Value::Array(said_cards));
+        }
         self.said_first(tree, event)
     }
 
@@ -664,7 +726,7 @@ impl Inner {
     }
 
     /// supervisor.py:4724 `_plan_lines`.
-    fn plan_lines(&self, tree_id: &str) -> Vec<Value> {
+    pub(crate) fn plan_lines(&self, tree_id: &str) -> Vec<Value> {
         let Ok(loaded) = self.plans(|p| p.load(tree_id)) else {
             return Vec::new();
         };
@@ -709,6 +771,9 @@ impl Inner {
     }
 
     fn checklist(&self, tree: &Arc<Tree>, ended: Option<&str>) -> Map<String, Value> {
+        if tree.lock().card.is_some() {
+            return Map::new();
+        }
         let lines = self.plan_lines(&tree.id);
         if lines.len() < CHECKLIST_STEPS {
             return Map::new();
@@ -738,7 +803,7 @@ impl Inner {
     }
 
     /// supervisor.py:4829 `_step_payload`.
-    fn step_payload(&self, tree: &Arc<Tree>) -> Map<String, Value> {
+    pub(crate) fn step_payload(&self, tree: &Arc<Tree>) -> Map<String, Value> {
         let Ok(loaded) = self.plans(|p| p.load(&tree.id)) else {
             return Map::new();
         };
@@ -859,6 +924,10 @@ impl Inner {
             json!({"status": status, "waits_on": waits_on, "attempt": attempt,
             "started_at": started, "ended_at": ended, "seq": stamp}),
         );
+        let row = self.part_of(tree_id, step_id);
+        if let Some((_, part)) = &row {
+            state.insert("part".into(), json!(part.id));
+        }
         if facts.get("loop").is_some_and(ferb_py::value::truthy)
             || before.get("loop").is_some_and(ferb_py::value::truthy)
         {
@@ -872,7 +941,13 @@ impl Inner {
         root.lock()
             .step_states
             .insert(step_id.to_string(), Value::Object(state.clone()));
-        let request = root.worker.request_id.clone();
+        let request = match &row {
+            Some((card, _)) => card.lock().request_id.clone(),
+            None => match root.lock().card.clone() {
+                Some(card) => card.lock().request_id.clone(),
+                None => root.worker.request_id.clone(),
+            },
+        };
         let mut event = obj(
             json!({"type": "step", "task_id": tree_id, "request_id": request, "step": step_id,
             "step_task_id": step_task(tree_id, step_id)}),
@@ -880,6 +955,10 @@ impl Inner {
         event.extend(state);
         self.tell_tree(tree_id, event.clone());
         self.deps.daemon.publish("task.step", Value::Object(event));
+        if status == "wont_run" && row.is_some() {
+            // ORCH-532: a row whose step can never run is settled at once
+            self.settle_wont_run(&root, step_id);
+        }
     }
 
     /// supervisor.py:4780 `_attempt_state`.
@@ -1169,7 +1248,13 @@ impl Inner {
         };
         tell("starting");
         let result = if step.kind == "wait" {
-            return Err(NotPorted("Supervisor._execute_plan (a wait step)").into());
+            match self.wait_step(tree, &step).await {
+                Ok(v) => v,
+                Err(Failure::Cancelled) => return Err(Failure::Cancelled),
+                Err(e) => {
+                    json!({"status": "failed", "summary": format!("{}: {}", e.class(), e.message())})
+                }
+            }
         } else {
             match self
                 .execute_step(tree, &step, step.inputs.clone(), prior, span)
@@ -1202,7 +1287,12 @@ impl Inner {
         span: &str,
     ) -> Flow<Value> {
         if step.kind == "ask" {
-            return Err(NotPorted("Supervisor._plan_question").into());
+            let card = self.ask_card(step, &prior);
+            let options: Vec<&str> = step.options.iter().map(String::as_str).collect();
+            return Ok(Value::Object(
+                self.plan_question(tree, &step.question, &options, TASK_ASK, &step.id, card)
+                    .await,
+            ));
         }
         if step.kind == "converse" || step.loops() {
             return Err(NotPorted("Supervisor._execute_plan (a conversation or a loop)").into());
@@ -1285,6 +1375,7 @@ impl Inner {
             if out.status == OutcomeStatus::NeedsUser {
                 output.insert("question".into(), json!(question));
             }
+            self.post_part(tree, &step.id, Some(tree), &status, &output);
             return Ok(Value::Object(output));
         }
         let answering = answer_steps(spec.plan.as_ref(), &spec.parts);
@@ -1443,6 +1534,7 @@ impl Inner {
                 data.extend(output.clone());
                 let made = self.task_made(&tree.id);
                 self.journal("plan.step", Value::Object(data), Some(&made));
+                self.post_part(tree, &step.id, Some(&member), &status, &output);
                 self.subtask(
                     &tree.id,
                     json!({"type": "subtask", "id": step.id, "task_id": child.id, "status": status,
@@ -1460,6 +1552,181 @@ impl Inner {
         st.resources.extend(resources);
         st.cleanup_errors.extend(errors);
         result
+    }
+
+    /// plan_executor.py:47 `_wait`: a wait step, until its time (on the wall clock, looked at again at least every
+    /// POLL_S) or its plan event after the step began (`notify_plan_event` wakes it); a stop ends it.
+    async fn wait_step(&self, tree: &Arc<Tree>, step: &Step) -> Flow<Value> {
+        let saved = self
+            .plans(|p| p.steps(&tree.id))?
+            .into_iter()
+            .find(|(k, _)| *k == step.id)
+            .map(|(_, s)| s.output)
+            .unwrap_or(Value::Null);
+        let cursor = match saved.get("event_cursor").and_then(Value::as_i64) {
+            Some(c) => c,
+            None => self.plans(|p| p.event_cursor())?,
+        };
+        self.plans(|p| {
+            p.finish(
+                &tree.id,
+                &step.id,
+                &json!({"status": "waiting", "event_cursor": cursor}),
+            )
+        })?;
+        let mut facts = obj(json!({"loop": step.loops()}));
+        match &step.event {
+            Some(e) => facts.insert("event".into(), json!(e)),
+            None => facts.insert("until".into(), json!(step.until)),
+        };
+        self.step_state(&tree.id, &step.id, "waiting", facts);
+        let wake = self.plan_wake(&tree.id);
+        while !self.stopped(tree) {
+            if let Some(event) = &step.event {
+                let found = self.plans(|p| p.event_after(event, cursor, &step.event_match))?;
+                if let Some(payload) = found {
+                    return Ok(json!({"status": "done", "summary": step.goal, "event": payload}));
+                }
+                wake.notified().await;
+            } else {
+                let until = step.until.clone().unwrap_or_default();
+                let at = ferb_clock::py::parse(&until.replace('Z', "+00:00")).ok_or_else(|| {
+                    Failure::raised(
+                        "ValueError",
+                        format!(
+                            "Invalid isoformat string: {}",
+                            ferb_py::text::str_repr(&until)
+                        ),
+                    )
+                })?;
+                let now = self.now();
+                if at <= now {
+                    return Ok(json!({"status": "done", "summary": step.goal}));
+                }
+                let left = (at - now).num_milliseconds().max(0) as f64 / 1000.0;
+                let wait = left.min(ferb_clock::timers::POLL_S);
+                tokio::select! {
+                    _ = wake.notified() => {}
+                    _ = tokio::time::sleep(std::time::Duration::from_secs_f64(wait)) => {}
+                }
+            }
+        }
+        Ok(json!({"status": "cancelled", "summary": "stopped by you"}))
+    }
+
+    /// The plan run's wake (plan_executor.py `PlanExecutor.wake`): a plan event, a steer or a stop for this tree.
+    pub(crate) fn plan_wake(&self, tree_id: &str) -> Arc<tokio::sync::Notify> {
+        self.live()
+            .plan_wakes
+            .entry(tree_id.to_string())
+            .or_insert_with(|| Arc::new(tokio::sync::Notify::new()))
+            .clone()
+    }
+
+    /// supervisor.py:2307 `notify_plan_event`: an event a running plan's wait step (or loop) waits for is stored
+    /// (`plan_events`) and wakes that plan. `data` comes redacted.
+    pub fn notify_plan_event(&self, topic: &str, data: &Value) {
+        let runs: Vec<String> = self.live().plan_runs.iter().cloned().collect();
+        let interested: Vec<String> = runs
+            .into_iter()
+            .filter(|key| {
+                self.plans(|p| p.load(key))
+                    .map(|l| l.plan.steps.iter().any(|s| s.wakes_on() == Some(topic)))
+                    .unwrap_or(false)
+            })
+            .collect();
+        if interested.is_empty() {
+            return;
+        }
+        let _ = self.plans(|p| p.event(topic, data));
+        for key in interested {
+            self.plan_wake(&key).notify_waiters();
+        }
+    }
+
+    /// supervisor.py:5039 `_plan_question`: a plan's ask step (or a delegated conversation's scope approval), through
+    /// the one wait for the owner; a run nobody attends can't be asked and reports it at once; a stop closes it as
+    /// superseded, never a No.
+    pub(crate) async fn plan_question(
+        &self,
+        tree: &Arc<Tree>,
+        question: &str,
+        options: &[&str],
+        capability: &str,
+        step_id: &str,
+        card: Map<String, Value>,
+    ) -> Map<String, Value> {
+        let task = tree.worker.clone();
+        let (reply, wait) = loop {
+            let mut wait = super::owner_wait::Wait::new(
+                &tree.id,
+                question,
+                options,
+                origin::INFERRED,
+                capability,
+            );
+            wait.card = card.clone();
+            wait.lock().extra.insert(
+                "question_kind".into(),
+                json!(
+                    if capability == ferb_orchestrator::steering::CONVERSATION_ASK {
+                        "conversation_scope"
+                    } else {
+                        "task"
+                    }
+                ),
+            );
+            let wait = Arc::new(wait);
+            let reply = self
+                .wait_for_owner(tree, &task, &wait, step_id, false, true)
+                .await;
+            // set aside by the owner's correction (ORCH-538): the step's question is asked again, never skipped
+            if reply.kind != "steer" || !tree.lock().stop.is_empty() {
+                break (reply, wait);
+            }
+        };
+        if reply.kind == "declined" {
+            return obj(json!({"status": "needs_user",
+                "summary": format!("You need to answer this before I continue: {question}"), "question": question}));
+        }
+        let approval = wait.lock().approval.clone();
+        match approval {
+            Some(id) if reply.kind == "answer" => {
+                obj(json!({"status": "done", "summary": reply.words,
+                "answer": reply.words, "approval_id": id}))
+            }
+            _ => obj(
+                json!({"status": "blocked", "summary": "I need your answer before I continue."}),
+            ),
+        }
+    }
+
+    /// supervisor.py:5061 `_ask_card` (ORCH-623): an ask step's card shows the checked answers of the steps it depends
+    /// on, whole, in its depends_on order; {} when those answered nothing.
+    fn ask_card(&self, step: &Step, prior: &Map<String, Value>) -> Map<String, Value> {
+        let said: Vec<String> = step
+            .depends_on
+            .iter()
+            .map(|d| {
+                prior
+                    .get(d)
+                    .and_then(|p| p.get("answer"))
+                    .filter(|a| ferb_py::value::truthy(a))
+                    .map(ferb_py::value::py_str)
+                    .map(|a| ferb_orchestrator::py::strip(&a).to_string())
+                    .unwrap_or_default()
+            })
+            .collect();
+        let shown = said
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        if shown.is_empty() {
+            Map::new()
+        } else {
+            obj(json!({"detail": self.redact_text(&shown)}))
+        }
     }
 
     /// supervisor.py:5359 `_adopt_saved`: the answer of answer steps that ended before this run (a restart), from
@@ -1555,10 +1822,19 @@ impl Inner {
         if !answering.contains(&step.id) {
             return Map::new();
         }
-        // a part's own wording ("the answer to this part of their request: “…”") needs the card of several asks,
-        // which run_tree refuses before any step runs (NotPorted)
-        let _ = spec;
-        let said = "the task's answer";
+        let part = spec
+            .parts
+            .iter()
+            .find(|p| p.answer_step.as_deref() == Some(step.id.as_str()));
+        let said = match part {
+            Some(p) if tree.lock().card.is_some() => {
+                format!(
+                    "the answer to this part of their request: \u{201c}{}\u{201d}",
+                    p.quote
+                )
+            }
+            _ => "the task's answer".to_string(),
+        };
         let mut context = obj(json!({"answers": format!(
             "Your checked answer goes to the owner as it is, on its own, as {said}. Write it for them, answer first; \
              nothing sums it up afterwards.")}));
@@ -1631,8 +1907,10 @@ impl Inner {
         let result = ran?;
         let states = self.plans(|p| p.steps(&tree.id))?;
         let state = |id: &str| states.iter().find(|(k, _)| k == id).map(|(_, s)| s.clone());
+        self.close_rows(tree, &states);
+        let card = tree.lock().card.clone();
 
-        if single {
+        if single && card.is_none() {
             let ran = tree.lock().single_ran.clone();
             if let Some(out) = ran {
                 return Ok(out);
@@ -1669,11 +1947,14 @@ impl Inner {
                 strings(saved.get("evidence")),
             ));
         }
-        let outputs: Vec<Value> = plan
-            .steps
-            .iter()
-            .filter_map(|s| state(&s.id).map(|st| st.output))
-            .collect();
+        let outputs: Vec<Value> = if single {
+            vec![state(SINGLE).map(|s| s.output).unwrap_or(json!({}))]
+        } else {
+            plan.steps
+                .iter()
+                .filter_map(|s| state(&s.id).map(|st| st.output))
+                .collect()
+        };
         let mut artifacts: Vec<String> = Vec::new();
         for o in &outputs {
             for a in strings(o.get("artifacts")) {
@@ -1686,6 +1967,10 @@ impl Inner {
             .iter()
             .flat_map(|o| strings(o.get("evidence")))
             .collect();
+        if let Some(card) = card {
+            // several asks: the rows are the answer (`_final_card`)
+            return Ok(self.card_outcome(tree, &card, artifacts, evidence));
+        }
         let status = result["status"].as_str().unwrap_or("").to_string();
         if status == "done" {
             let members: Vec<Option<Arc<Tree>>> = answering
@@ -2267,6 +2552,10 @@ impl Inner {
 
     /// supervisor.py:7406 `_final`.
     pub fn final_(&self, tree: &Arc<Tree>) -> Flow<Map<String, Value>> {
+        let card = tree.lock().card.clone();
+        if let Some(card) = card {
+            return Ok(self.final_card(tree, &card));
+        }
         let src = tree
             .lock()
             .answering
@@ -2469,7 +2758,12 @@ impl Inner {
     }
 
     /// supervisor.py:4704 `_result_cards`.
-    fn result_cards(&self, tree: &Arc<Tree>, artifacts: &[String], sites: &[String]) -> Vec<Value> {
+    pub(crate) fn result_cards(
+        &self,
+        tree: &Arc<Tree>,
+        artifacts: &[String],
+        sites: &[String],
+    ) -> Vec<Value> {
         let side = tree.lock().side_cards.clone();
         let mut out: Vec<Value> = side.iter().map(|c| self.redact(c)).collect();
         out.extend(self.deps.daemon.ran_cards(&tree.id));
@@ -2484,7 +2778,7 @@ impl Inner {
     }
 
     /// supervisor.py:7544 `_code_lines`.
-    fn code_lines(&self, tree: &Arc<Tree>, sites: &[String]) -> Vec<String> {
+    pub(crate) fn code_lines(&self, tree: &Arc<Tree>, sites: &[String]) -> Vec<String> {
         let (mut lines, resources, errors) = {
             let st = tree.lock();
             (

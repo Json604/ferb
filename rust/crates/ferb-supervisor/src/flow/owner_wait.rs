@@ -431,14 +431,15 @@ impl Inner {
                             .unwrap_or_default()
                     };
                     let runtime_switch = wait.extra("runtime_switch").filter(|v| !v.is_null());
+                    // ORCH-319: the question sits in its part's row (kept on the question, so chat.status lists it)
+                    let row = self.part_of(&tree.id, step_id);
                     let ask = Ask {
                         capability: wait.capability.clone(),
                         task_id: task.id.clone(),
                         request_id: task.request_id.clone(),
                         question: question.clone(),
                         options: options.clone(),
-                        // ORCH-319's card rows are the cards' part (not here): no row
-                        part: String::new(),
+                        part: row.as_ref().map(|(_, p)| p.id.clone()).unwrap_or_default(),
                         runtime_switch,
                         from_task,
                         options_only: !from_task && !options.is_empty(),
@@ -467,6 +468,9 @@ impl Inner {
                     let mut data = obj(json!({"approval_id": id, "capability": wait.capability,
                         "kind": "owner_question", "reason": question, "options": options, "task_id": task.id,
                         "request_id": task.request_id}));
+                    if let Some((_, part)) = &row {
+                        data.insert("part".into(), json!(part.id));
+                    }
                     if from_task {
                         data.insert("from_task".into(), json!(true));
                     }
@@ -478,6 +482,28 @@ impl Inner {
                     self.deps
                         .daemon
                         .publish("approval.requested", Value::Object(data));
+                    if let Some((card, part)) = &row {
+                        // the other rows keep going; a check-in shows its row paused with why
+                        let check_in = wait
+                            .extra("question_kind")
+                            .and_then(|v| v.as_str().map(str::to_string))
+                            == Some("check_in".to_string());
+                        let reason = if check_in {
+                            let r = tree.lock().reason.clone();
+                            self.said(&r)
+                        } else {
+                            String::new()
+                        };
+                        let shown =
+                            json!({"approval_id": id, "text": question, "options": options});
+                        self.with_card(&tree.id, card, |c| {
+                            c.show(
+                                part,
+                                if check_in { "paused" } else { "asks" },
+                                vec![("question", shown), ("text", json!(reason))],
+                            )
+                        });
+                    }
                 }
             }
         }
@@ -564,7 +590,26 @@ impl Inner {
             st.reply = Some(reply.clone());
             st.done = true;
         }
-        // (a question's card row shows working again here: the cards' rows are not part of this port)
+        let mention = wait
+            .extra("mention")
+            .is_some_and(|v| ferb_py::value::truthy(&v));
+        if (!question.is_empty() || mention)
+            && !suspending
+            && !self.stopped(tree)
+            && reply.kind != "stopped"
+        {
+            if let Some((card, part)) = self.part_of(&tree.id, step_id) {
+                let chosen = reply
+                    .choice
+                    .as_deref()
+                    .filter(|c| !c.is_empty())
+                    .map(ferb_policy::confirm::from_task)
+                    .unwrap_or_default();
+                self.with_card(&tree.id, &card, |c| {
+                    c.show(&part, "working", vec![("chosen", json!(chosen))])
+                });
+            }
+        }
         reply
     }
 

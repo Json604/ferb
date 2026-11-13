@@ -358,6 +358,8 @@ type Sinks = Vec<(usize, Vec<String>, BusSink)>;
 
 pub struct TestDaemon {
     me: std::sync::Weak<TestDaemon>,
+    /// The scenario's supervisor (its open questions as the planner reads them, `pending_questions`).
+    sup: Mutex<Option<Supervisor>>,
     db: Arc<Mutex<Db>>,
     ids: Arc<Ids>,
     root: String,
@@ -730,7 +732,8 @@ impl Daemon for TestDaemon {
         self.unattended.lock().unwrap().contains(request_id)
     }
     fn pending_questions(&self) -> Vec<OpenQuestion> {
-        Vec::new()
+        let sup = self.sup.lock().unwrap().clone();
+        sup.map(|s| s.inner().open_questions()).unwrap_or_default()
     }
     fn environment<'a>(&'a self, _words: &'a str) -> BoxFuture<'a, Environment> {
         Box::pin(async move {
@@ -963,6 +966,16 @@ impl Daemon for TestDaemon {
     fn questions(&self) -> Option<Arc<dyn Questions>> {
         let q: Arc<dyn Questions> = self.questions.lock().unwrap().clone();
         Some(q)
+    }
+    fn approvals(&self) -> Vec<ferb_gateway::questions::Approval> {
+        let q = self.questions.lock().unwrap().clone();
+        let store = q.store.lock().unwrap();
+        store.pending().into_iter().cloned().collect()
+    }
+    fn approval(&self, id: &str) -> Option<ferb_gateway::questions::Approval> {
+        let q = self.questions.lock().unwrap().clone();
+        let store = q.store.lock().unwrap();
+        store.get(id).cloned()
     }
     fn set_unattended(&self, request_id: &str) {
         self.unattended
@@ -1364,7 +1377,7 @@ fn new_supervisor(
     workspace: &str,
     home: &str,
 ) -> Supervisor {
-    {
+    let sup = {
         Supervisor::new(Deps {
             db: db.clone(),
             clock: clock.clone(),
@@ -1382,7 +1395,9 @@ fn new_supervisor(
             stall_s: 180.0,
             heartbeat_poll_s: 5.0,
         })
-    }
+    };
+    *daemon.sup.lock().unwrap() = Some(sup.clone());
+    sup
 }
 
 /// The journal rows the daemon's start wrote (seq ≥ `from` up to the first row of `upto`'s id range), inserted as
@@ -1554,6 +1569,7 @@ pub fn world(name: &str) -> World {
         span_columns: strs(&tables["spans"]["columns"]),
         gates: Mutex::new(gates),
         questions: Mutex::new(Arc::new(TestQuestions::new(question_ids.clone()))),
+        sup: Mutex::new(None),
         stopped: AtomicBool::new(false),
         unattended: Mutex::default(),
         sinks: Mutex::default(),

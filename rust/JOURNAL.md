@@ -1161,3 +1161,33 @@ reported both to the owner as bugs from one run.
 **Open.** `ferbd` does not wire the front-window capture at send (L12: no `NativeFront` implementation). Vision's
 error text is dropped in both builds, so the one failure at 51 s is unexplained. Python treats a window's missing
 layer as 1, Rust as 0. Never run for real: pointer routes, foreground input, recordings, audio.
+
+## 2026-11-13 · 48 · The supervisor's fourth pass: the summary, cards, the checklist, memory side entries
+
+**What.** `ferb-supervisor::flow` gains `fold.rs` (the running summary of the conversation), `card.rs` (several
+asks in one answer and their card, parts, the checklist), `answer.rs` (answers routed in chat, `route_question`),
+`memory_side.rs` (the memory and forget side entries) and `results.rs` (earlier results, unbacked parts); ask and
+wait steps; the checker's runtime trouble; the planner's last call. New `Daemon` seam methods, all with defaults.
+
+**Evidence.** `rust/fixtures/supervisor/make_more.py` records 14 new scenarios from the real Python daemon, with a
+tripwire on every way Python starts a program (only FERB's own card reader may start) and two runs writing the
+same bytes. All 14 replay fully in `tests/replay_more.rs`, on a harness shared with `replay.rs`. The earlier 28
+and 10 still replay. Format, clippy and the iOS check pass (run by the porting agent).
+
+**Bugs in the earlier Rust port, fixed here.** A correction typed on a confirmation's card was refused and the
+gateway's open checks were never set aside (it looked only in the supervisor's own question store); `keep_recent`
+read only the latest summary's covered entries.
+
+**Found in Python, not fixed yet.** The forget question in chat says "(from the task) FERB deletes:", marking
+FERB's own words as the task's (the same kind as GATE-581).
+
+**Open.**
+- About 45 of 282 methods still answer `NotPorted`: loops (about 25: `ferb-orchestrator`'s `LoopRunner` holds its
+  host and store as plain references, so a loop cannot run inside the supervisor's tasks, which move between
+  threads), delegated conversations, attention, the preview, `mention_paused`, big-job statements and standing
+  scopes, `_browse_as`, the front window at send, the image-refused rerun, inventory walks.
+- About 8 ported but unverified, among them `runtime_offer` and `answer_runtime_switch`.
+- The supervisor's own task questions stay in a second store: `OwnQuestion` lacks `task_id`, `part`,
+  `runtime_switch`, `options_only`, `from_task`, `corrects`, `exact`.
+- A card row's `seq` read the real wall clock in Python; the recorder and the Rust card take the injected clock.
+- The fixture folder is 5.1 MB.

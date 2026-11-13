@@ -28,6 +28,8 @@ fn bodies() -> &'static HashMap<String, String> {
         for rel in [
             "rust/fixtures/daemon/bodies.json",
             "rust/fixtures/supervisor/bodies.json",
+            "rust/fixtures/supervisor/more_bodies.json",
+            "rust/fixtures/supervisor/control_bodies.json",
         ] {
             if let Value::Object(map) = read(rel) {
                 for (k, v) in map {

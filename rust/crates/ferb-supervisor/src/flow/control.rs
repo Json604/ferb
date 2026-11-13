@@ -165,9 +165,9 @@ impl Inner {
         words: &str,
         hidden: &[String],
     ) -> Result<Value, String> {
-        let questions = self.deps.daemon.questions();
-        let ap = questions.as_ref().and_then(|q| q.get(approval_id));
-        let Some(ap) = ap.filter(|a| a.state == "pending") else {
+        // any open question of the task's: the gateway's (a confirmation, a retry) or the supervisor's own
+        let ap = self.deps.daemon.approval(approval_id);
+        let Some(ap) = ap.filter(|a| a.state.as_str() == "pending") else {
             return Err(CARD_NOT_WAITING.into());
         };
         let root = if ap.task_id.is_empty() {
@@ -237,9 +237,11 @@ impl Inner {
             json!({"session_id": session, "request_id": request_id, "text": text}),
             Some(origin::FERB),
         );
-        let state = questions
-            .and_then(|q| q.get(approval_id))
-            .map(|a| a.state)
+        let state = self
+            .deps
+            .daemon
+            .approval(approval_id)
+            .map(|a| a.state.as_str().to_string())
             .unwrap_or_else(|| "gone".into());
         Ok(json!({"task_id": tree.id, "request_id": request_id, "text": text, "state": state}))
     }
@@ -1274,10 +1276,9 @@ impl Inner {
         supersedes: &[String],
         tree_id: Option<&str>,
     ) {
-        let Some(questions) = self.deps.daemon.questions() else {
-            return;
-        };
-        for q in questions.pending() {
+        // every open question, the gateway's (a confirmation, a P19 retry) and the supervisor's own
+        let daemon = &self.deps.daemon;
+        for q in daemon.approvals() {
             let belongs = q.request_id == request_id
                 || (tree_id.is_some()
                     && !q.task_id.is_empty()
@@ -1286,7 +1287,7 @@ impl Inner {
                 continue;
             }
             if TASK_CHECKS.contains(&q.capability.as_str()) && q.kind == "owner_question" {
-                questions.supersede(&q.id);
+                daemon.supersede_question(&q.id);
             } else if !supersedes.contains(&q.id) {
                 continue;
             } else if q.kind == "owner_question"
@@ -1294,11 +1295,21 @@ impl Inner {
                 && !q.options_only
                 && !ferb_orchestrator::py::strip(words).is_empty()
             {
-                questions.answer(&q.id, words);
+                if daemon
+                    .resolve_question(&q.id, true, None, Some(words))
+                    .is_none()
+                {
+                    if let Some(own) = daemon.questions() {
+                        own.answer(&q.id, words);
+                    }
+                }
             } else {
-                questions.supersede(&q.id);
+                daemon.supersede_question(&q.id);
             }
-            let state = questions.get(&q.id).map(|a| a.state).unwrap_or_default();
+            let state = daemon
+                .approval(&q.id)
+                .map(|a| a.state.as_str().to_string())
+                .unwrap_or_default();
             let event = json!({"approval_id": q.id, "state": state, "capability": q.capability});
             self.journal("approval.resolved", event.clone(), None);
             self.deps.daemon.publish("approval.resolved", event);

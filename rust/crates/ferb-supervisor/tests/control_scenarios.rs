@@ -99,7 +99,7 @@ fn global_stop_with_the_stop_words_as_ferbs_own() {
 // decision: ORCH-308
 #[test]
 fn partly_up_to_the_paths_they_still_need() {
-    let cases: [(&str, &str, &str); 7] = [
+    let cases: [(&str, &str, &str); 6] = [
         // the resumed attempt's file write goes through the gateway's tool bridge (the forward path's join)
         ("pause_steer_resume", "frames", "chat line 9"),
         // the protected write that asks is a tool call through the gateway (the forward path's join)
@@ -117,12 +117,6 @@ fn partly_up_to_the_paths_they_still_need() {
         // (restart_mid_task and restart_with_open_question replay fully in tests/replay.rs, on the real gateway)
         // this harness has no daemon side (group A's schedules and timer loop): tests/replay.rs replays it fully
         ("schedule_created_and_fired", "frames", "app#2 line 1"),
-        // the planner's task state shows the open check-in's card row (`_task_state`'s cards, turn.rs)
-        (
-            "steer_during_check_in",
-            "calls",
-            "call 12 (supervisor) parts: part 5",
-        ),
         // two trees' step lines interleave as Python's threads scheduled them (its model answered from a thread)
         ("pause_plus_new_task", "frames", "app line 5"),
     ];
@@ -151,7 +145,9 @@ fn control_fixtures() {
         .iter()
         .map(|s| s["name"].as_str().unwrap().to_string())
         .collect();
-    let partly = ["steer_during_check_in", "pause_plus_new_task"];
+    // (steer_during_check_in replays fully since the planner's task state shows the open check-in's card row and the
+    // open questions block lists it: `_task_state`'s cards, `open_questions`)
+    let partly = ["pause_plus_new_task"];
     for name in names {
         let r = replay(&name);
         if !partly.contains(&name.as_str()) {

@@ -404,6 +404,8 @@ pub struct Parts {
     /// The approvals' id counter (`"ap-" + token_hex(6)` scripted), shared with the supervisor's own questions.
     pub question_ids: Arc<std::sync::atomic::AtomicUsize>,
     pub device_id: String,
+    /// The supervisor's question router (`route_question`), bound once the supervisor is built.
+    pub route_question: Option<Arc<dyn ferb_gateway::seams::QuestionRouter>>,
 }
 
 /// The daemon's gateway for one scenario.
@@ -497,7 +499,7 @@ pub fn build(p: Parts) -> Gateway {
         pay_same_site_forms: Box::new(|| true),
         on_path: Box::new(|_p, _t| {}),
         proc_task: Box::new(|_p| None),
-        route_question: None,
+        route_question: p.route_question.clone(),
         hooks: Arc::new(RealHooks::new(HookParts {
             sentinel: None,
             previews: None,

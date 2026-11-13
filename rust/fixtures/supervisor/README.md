@@ -95,3 +95,43 @@ GATE-581, `global_stop`'s "(from the task) FERB was stopped" is "FERB was stoppe
 `tests/rpc_server.rs` replays 20 recorded chat and task request lines of `rpc_transcripts.json` through
 `chat_rpc::register` on a real ferb-rpc server (one deliberate difference: `conversations.list {id}` of an unknown
 conversation is refused in plain words, where Python answered an internal error).
+
+## more_scenarios.json: the paths no earlier recording reached (`make_more.py`)
+
+    cd <repo> && uv run python rust/fixtures/supervisor/make_more.py [mm_<name> …]   # all (about 4 minutes), or some
+
+Same shape as `control_scenarios.json` (`scenarios`, `records`, `inputs`, `catalogs`); texts of 2,048 characters or
+more that no other bodies file holds are in `more_bodies.json`. Two full runs give identical bytes. Each scenario runs
+on the real Python daemon through the daemon recorder's harness (its stand-ins, its guard against launching a browser,
+`/FX`), plus:
+
+- **a tripwire** on `subprocess.Popen`, `asyncio.create_subprocess_exec`/`_shell`, `os.system`, `os.posix_spawn[p]`:
+  only FERB's own episode-card reader (`python -I -m ferb.memory.card_reader` on the temp home) may start; the run
+  prints every launch and fails on anything else;
+- **a card row's seq** (parts.py `_next_seq`, the wall clock) reads the scenario's FakeClock; the Rust replay injects
+  its clock the same way;
+- **`port` records**: memory's `remember` and `forget_request` with their arguments, their answer and the ids the
+  memory part took (`ids`: the counter before and after); the replay answers the same, takes those ids, writes the
+  journal rows the memory part wrote in between and leaves the `memory_*` tables to that part;
+- **`seed` steps**: journal rows written before the first message (a long earlier chat), inserted by the replay as
+  the start's rows are;
+- **`context.memory`**: the blocks the memory port gave each worker context (`_worker_memory`).
+
+| Scenario | Path (supervisor.py) |
+|---|---|
+| summary_fold | `_keep_recent`, `_summarize`, `_fold`, `_foldable`, `_summary`, `_covered`: two summary calls, then a turn reading the summary |
+| several_asks | the card (ORCH-319): a direct part and a step's part, `_post_part`, `_part_event`, `_final_card`, `card_state` |
+| plan_parts_checklist | a three-step plan with two parts: the middle step fails, the last never runs (`_never_ran`, `_close_rows`, `_couldnt_do`) |
+| remember_then_forget | the memory side entries: `_quote_source`, `_remember_about`, the memory port, a forget's question |
+| answer_in_chat | `_answer`: a step's question answered in chat by id; `_task_state`'s cards, the questions block's task label |
+| checklist_single | `_checklist` of a single ask with a three-step plan |
+| ask_step | `_plan_question`, `_ask_card` |
+| wait_step | plan_executor `_wait` (a time already come) |
+| route_question | a worker's owner.ask routed through `route_question` (`worker.question`), then asked |
+| checker_runtime_down | the checker's usage limit: `_RuntimeDown`, `_service_down` (role checker), the owner's pick |
+| last_call_empty | ORCH-558: a planner call without an answer gets one last call with no tools |
+| unbacked_part | `_unbacked_parts`: a direct "" part no entry quotes goes back for repair |
+| correct_pending_check | chat.correct on a pending confirmation (GATE-510, ORCH-538): the check set aside, the task steered |
+| earlier_result | ORCH-619: `_result_problems`, `_earlier`, `_worker_room`, `_result_blocks` |
+
+`tests/replay_more.rs` replays all 14 fully with tests/replay.rs's harness (moved to `tests/replay/harness.rs`).
