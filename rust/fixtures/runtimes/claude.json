@@ -1,0 +1,5845 @@
+{
+ "base_env": {
+  "PATH": "/usr/bin:/bin",
+  "LANG": "en_US.UTF-8",
+  "OPENAI_API_KEY": "placeholder-not-a-key",
+  "CODEX_HOME": "/elsewhere/codex",
+  "CLAUDECODE": "1",
+  "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+  "FERB_FIXTURE": "kept"
+ },
+ "today": "2026-11-13",
+ "forms": {
+  "anthropic": [
+   [
+    {
+     "type": "object",
+     "properties": {
+      "text": {
+       "type": "string"
+      },
+      "n": {
+       "type": "integer"
+      }
+     },
+     "required": [
+      "text",
+      "n"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "additionalProperties": false,
+     "properties": {
+      "text": {
+       "type": "string"
+      },
+      "n": {
+       "type": "integer"
+      }
+     },
+     "required": [
+      "text",
+      "n"
+     ]
+    }
+   ]
+  ],
+  "gemini": [],
+  "checks": [
+   [
+    "{\"text\": \"hi\", \"n\": 2}",
+    {
+     "type": "object",
+     "properties": {
+      "text": {
+       "type": "string"
+      },
+      "n": {
+       "type": "integer"
+      }
+     },
+     "required": [
+      "text",
+      "n"
+     ],
+     "additionalProperties": false
+    },
+    null
+   ],
+   [
+    "{\"text\": \"hi\"}",
+    {
+     "type": "object",
+     "properties": {
+      "text": {
+       "type": "string"
+      },
+      "n": {
+       "type": "integer"
+      }
+     },
+     "required": [
+      "text",
+      "n"
+     ],
+     "additionalProperties": false
+    },
+    "the answer doesn't match the schema at the top level: 'n' is a required property"
+   ]
+  ]
+ },
+ "cases": [
+  {
+   "scenario": {
+    "name": "a worker calls FERB's tool, reports, and answers",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": [
+      "/opt/ferb/bin/ferb",
+      "mcp"
+     ],
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": [
+      "mcp__ferb__mac_read"
+     ]
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "out": {
+            "type": "assistant",
+            "message": {
+             "model": "claude-opus-5-5",
+             "id": "msg",
+             "content": [
+              {
+               "type": "tool_use",
+               "id": "tu1",
+               "name": "mcp__ferb__mac_read",
+               "input": {
+                "path": "/x"
+               }
+              }
+             ],
+             "stop_reason": null
+            },
+            "session_id": "s",
+            "uuid": "ua",
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "user",
+            "message": {
+             "role": "user",
+             "content": [
+              {
+               "type": "tool_result",
+               "tool_use_id": "tu1",
+               "content": "ok"
+              }
+             ]
+            },
+            "session_id": "s",
+            "uuid": "ur",
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "assistant",
+            "message": {
+             "model": "claude-opus-5-5",
+             "id": "msg",
+             "content": [
+              {
+               "type": "thinking",
+               "thinking": "hm",
+               "signature": "sig"
+              },
+              {
+               "type": "text",
+               "text": "Found it."
+              }
+             ],
+             "stop_reason": null
+            },
+            "session_id": "s",
+            "uuid": "ua",
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": false,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "done",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn"
+           }
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "a worker calls FERB's tool, reports, and answers",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--allowedTools",
+       "mcp__ferb__mac_read",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--mcp-config",
+       "{\"mcpServers\": {\"ferb\": {\"type\": \"stdio\", \"command\": \"/opt/ferb/bin/ferb\", \"args\": [\"mcp\"], \"env\": {\"FERB_RUN_TOKEN_FILE\": \"$TMP/ferb-claude-run-X/run-token\", \"FERB_HOME\": \"$FERB\"}}}}",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": ""
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"tool_call\", \"data\": {\"tool\": \"mcp__ferb__mac_read\", \"arguments\": {\"path\": \"/x\"}}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"progress\", \"data\": {}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"message\", \"data\": {\"text\": \"Found it.\"}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0125, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"stop\": \"end_turn\", \"blocks\": [\"tool_use\", \"thinking\", \"text\"]}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"final\", \"data\": {\"text\": \"done\", \"tools_seen\": [\"mcp__ferb__mac_read\"]}}"
+     },
+     {
+      "op": "end"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "a tool the run wasn't given counts as a wrong call",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": [
+      "/opt/ferb/bin/ferb",
+      "mcp"
+     ],
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "out": {
+            "type": "assistant",
+            "message": {
+             "model": "claude-opus-5-5",
+             "id": "msg",
+             "content": [
+              {
+               "type": "tool_use",
+               "id": "tu1",
+               "name": "Bash",
+               "input": {
+                "command": "id"
+               }
+              }
+             ],
+             "stop_reason": null
+            },
+            "session_id": "s",
+            "uuid": "ua",
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": false,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "ok",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn"
+           }
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "a tool the run wasn't given counts as a wrong call",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--allowedTools",
+       "mcp__ferb__mac_read",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--mcp-config",
+       "{\"mcpServers\": {\"ferb\": {\"type\": \"stdio\", \"command\": \"/opt/ferb/bin/ferb\", \"args\": [\"mcp\"], \"env\": {\"FERB_RUN_TOKEN_FILE\": \"$TMP/ferb-claude-run-X/run-token\", \"FERB_HOME\": \"$FERB\"}}}}",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": ""
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"tool_call\", \"data\": {\"tool\": \"Bash\", \"arguments\": {\"command\": \"id\"}, \"offered\": false}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0125, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"stop\": \"end_turn\", \"blocks\": [\"tool_use\"]}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"final\", \"data\": {\"text\": \"ok\", \"tools_seen\": []}}"
+     },
+     {
+      "op": "end"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "a typed answer streams only the StructuredOutput payload",
+    "runtime": {
+     "mode": "supervisor",
+     "model": "claude-opus-5-5",
+     "output_schema": {
+      "type": "object",
+      "properties": {
+       "text": {
+        "type": "string"
+       },
+       "n": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "text",
+       "n"
+      ],
+      "additionalProperties": false
+     },
+     "tool_names": [],
+     "shim_cmd": null,
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "out": {
+            "type": "stream_event",
+            "uuid": "us",
+            "session_id": "s",
+            "event": {
+             "type": "message_start",
+             "message": {}
+            },
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "stream_event",
+            "uuid": "us",
+            "session_id": "s",
+            "event": {
+             "type": "content_block_start",
+             "index": 0,
+             "content_block": {
+              "type": "thinking"
+             }
+            },
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "stream_event",
+            "uuid": "us",
+            "session_id": "s",
+            "event": {
+             "type": "content_block_delta",
+             "index": 0,
+             "delta": {
+              "type": "thinking_delta",
+              "thinking": "x"
+             }
+            },
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "stream_event",
+            "uuid": "us",
+            "session_id": "s",
+            "event": {
+             "type": "content_block_stop",
+             "index": 0
+            },
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "stream_event",
+            "uuid": "us",
+            "session_id": "s",
+            "event": {
+             "type": "content_block_start",
+             "index": 1,
+             "content_block": {
+              "type": "tool_use",
+              "name": "StructuredOutput"
+             }
+            },
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "stream_event",
+            "uuid": "us",
+            "session_id": "s",
+            "event": {
+             "type": "content_block_delta",
+             "index": 1,
+             "delta": {
+              "type": "input_json_delta",
+              "partial_json": "{\"text\": \"h"
+             }
+            },
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "stream_event",
+            "uuid": "us",
+            "session_id": "s",
+            "event": {
+             "type": "content_block_delta",
+             "index": 1,
+             "delta": {
+              "type": "input_json_delta",
+              "partial_json": "i\", \"n\": 2}"
+             }
+            },
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "stream_event",
+            "uuid": "us",
+            "session_id": "s",
+            "event": {
+             "type": "content_block_delta",
+             "index": 1,
+             "delta": {
+              "type": "input_json_delta",
+              "partial_json": ""
+             }
+            },
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "stream_event",
+            "uuid": "us",
+            "session_id": "s",
+            "event": {
+             "type": "content_block_stop",
+             "index": 1
+            },
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "stream_event",
+            "uuid": "us",
+            "session_id": "s",
+            "event": {
+             "type": "content_block_start",
+             "index": 2,
+             "content_block": {
+              "type": "text"
+             }
+            },
+            "parent_tool_use_id": "sub"
+           }
+          },
+          {
+           "out": {
+            "type": "assistant",
+            "message": {
+             "model": "claude-opus-5-5",
+             "id": "msg",
+             "content": [
+              {
+               "type": "tool_use",
+               "id": "tu1",
+               "name": "StructuredOutput",
+               "input": {
+                "text": "hi",
+                "n": 2
+               }
+              }
+             ],
+             "stop_reason": null
+            },
+            "session_id": "s",
+            "uuid": "ua",
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": false,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn",
+            "structured_output": {
+             "text": "hi",
+             "n": 2
+            }
+           }
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "run_token": "",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "a typed answer streams only the StructuredOutput payload",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--include-partial-messages",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--json-schema",
+       "{\"type\": \"object\", \"additionalProperties\": false, \"properties\": {\"text\": {\"type\": \"string\"}, \"n\": {\"type\": \"integer\"}}, \"required\": [\"text\", \"n\"]}",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": "strict"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"progress\", \"data\": {}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"progress\", \"data\": {}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"progress\", \"data\": {}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"progress\", \"data\": {}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"progress\", \"data\": {}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"text_delta\", \"data\": {\"text\": \"{\\\"text\\\": \\\"h\"}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"text_delta\", \"data\": {\"text\": \"i\\\", \\\"n\\\": 2}\"}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"progress\", \"data\": {}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"progress\", \"data\": {}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0125, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"typed\": \"strict\", \"stop\": \"end_turn\", \"blocks\": [\"tool_use\"]}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"final\", \"data\": {\"text\": \"{\\\"text\\\": \\\"hi\\\", \\\"n\\\": 2}\", \"tools_seen\": []}}"
+     },
+     {
+      "op": "end"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "an API key source is refused",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": [
+      "/opt/ferb/bin/ferb",
+      "mcp"
+     ],
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "ANTHROPIC_API_KEY",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": false,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "x",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn"
+           }
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "an API key source is refused",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--allowedTools",
+       "mcp__ferb__mac_read",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--mcp-config",
+       "{\"mcpServers\": {\"ferb\": {\"type\": \"stdio\", \"command\": \"/opt/ferb/bin/ferb\", \"args\": [\"mcp\"], \"env\": {\"FERB_RUN_TOKEN_FILE\": \"$TMP/ferb-claude-run-X/run-token\", \"FERB_HOME\": \"$FERB\"}}}}",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": ""
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"violation\", \"data\": {\"auth\": \"API key source 'ANTHROPIC_API_KEY'; only the subscription login is allowed\"}}"
+     },
+     {
+      "op": "end"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "a correction waits for its own result, past a stale one",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": [
+      "/opt/ferb/bin/ferb",
+      "mcp"
+     ],
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          }
+         ],
+         [
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": false,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "stale",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn"
+           }
+          },
+          {
+           "out": {
+            "type": "user",
+            "message": {
+             "role": "user",
+             "content": "Keep it under 300"
+            },
+            "uuid": "$UUID",
+            "session_id": "s",
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": false,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "updated",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn"
+           }
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "steer",
+      "text": "Keep it under 300"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "steer",
+      "text": "late"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "a correction waits for its own result, past a stale one",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--allowedTools",
+       "mcp__ferb__mac_read",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--mcp-config",
+       "{\"mcpServers\": {\"ferb\": {\"type\": \"stdio\", \"command\": \"/opt/ferb/bin/ferb\", \"args\": [\"mcp\"], \"env\": {\"FERB_RUN_TOKEN_FILE\": \"$TMP/ferb-claude-run-X/run-token\", \"FERB_HOME\": \"$FERB\"}}}}",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n",
+     "{\"type\": \"user\", \"message\": {\"role\": \"user\", \"content\": \"Keep it under 300\"}, \"parent_tool_use_id\": null, \"uuid\": \"00000000-0000-0000-0000-000000000001\", \"session_id\": \"default\"}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": ""
+     },
+     {
+      "op": "steer",
+      "ok": true
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0125, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"stop\": \"end_turn\", \"blocks\": []}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"stop\": \"end_turn\", \"blocks\": []}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"final\", \"data\": {\"text\": \"updated\", \"tools_seen\": []}}"
+     },
+     {
+      "op": "end"
+     },
+     {
+      "op": "steer",
+      "raised": [
+       "Unsupported",
+       "the Claude run has already ended"
+      ]
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "two corrections in a row need one final",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": [
+      "/opt/ferb/bin/ferb",
+      "mcp"
+     ],
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          }
+         ],
+         [
+          {
+           "out": {
+            "type": "user",
+            "message": {
+             "role": "user",
+             "content": "$TEXT"
+            },
+            "uuid": "$UUID",
+            "session_id": "s",
+            "parent_tool_use_id": null
+           }
+          }
+         ],
+         [
+          {
+           "out": {
+            "type": "user",
+            "message": {
+             "role": "user",
+             "content": "$TEXT"
+            },
+            "uuid": "$UUID",
+            "session_id": "s",
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": false,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "both",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn"
+           }
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "steer",
+      "text": "one"
+     },
+     {
+      "op": "steer",
+      "text": "two"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "two corrections in a row need one final",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--allowedTools",
+       "mcp__ferb__mac_read",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--mcp-config",
+       "{\"mcpServers\": {\"ferb\": {\"type\": \"stdio\", \"command\": \"/opt/ferb/bin/ferb\", \"args\": [\"mcp\"], \"env\": {\"FERB_RUN_TOKEN_FILE\": \"$TMP/ferb-claude-run-X/run-token\", \"FERB_HOME\": \"$FERB\"}}}}",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n",
+     "{\"type\": \"user\", \"message\": {\"role\": \"user\", \"content\": \"one\"}, \"parent_tool_use_id\": null, \"uuid\": \"00000000-0000-0000-0000-000000000001\", \"session_id\": \"default\"}\n",
+     "{\"type\": \"user\", \"message\": {\"role\": \"user\", \"content\": \"two\"}, \"parent_tool_use_id\": null, \"uuid\": \"00000000-0000-0000-0000-000000000002\", \"session_id\": \"default\"}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": ""
+     },
+     {
+      "op": "steer",
+      "ok": true
+     },
+     {
+      "op": "steer",
+      "ok": true
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0125, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"stop\": \"end_turn\", \"blocks\": []}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"final\", \"data\": {\"text\": \"both\", \"tools_seen\": []}}"
+     },
+     {
+      "op": "end"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "an empty answer is asked once and then answers",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": [
+      "/opt/ferb/bin/ferb",
+      "mcp"
+     ],
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": false,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn"
+           }
+          }
+         ],
+         [
+          {
+           "out": {
+            "type": "user",
+            "message": {
+             "role": "user",
+             "content": "$TEXT"
+            },
+            "uuid": "$UUID",
+            "session_id": "s",
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": false,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "now done",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn"
+           }
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "an empty answer is asked once and then answers",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--allowedTools",
+       "mcp__ferb__mac_read",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--mcp-config",
+       "{\"mcpServers\": {\"ferb\": {\"type\": \"stdio\", \"command\": \"/opt/ferb/bin/ferb\", \"args\": [\"mcp\"], \"env\": {\"FERB_RUN_TOKEN_FILE\": \"$TMP/ferb-claude-run-X/run-token\", \"FERB_HOME\": \"$FERB\"}}}}",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n",
+     "{\"type\": \"user\", \"message\": {\"role\": \"user\", \"content\": \"You ended without an answer. Give your final answer now.\"}, \"parent_tool_use_id\": null, \"uuid\": \"00000000-0000-0000-0000-000000000001\", \"session_id\": \"default\"}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": ""
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0125, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"stop\": \"end_turn\", \"blocks\": [], \"follow_up\": \"asked\"}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"stop\": \"end_turn\", \"blocks\": [], \"follow_up\": \"fixed\"}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"final\", \"data\": {\"text\": \"now done\", \"tools_seen\": []}}"
+     },
+     {
+      "op": "end"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "an empty answer twice ends the run marked empty",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": [
+      "/opt/ferb/bin/ferb",
+      "mcp"
+     ],
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": false,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "  ",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn"
+           }
+          }
+         ],
+         [
+          {
+           "out": {
+            "type": "user",
+            "message": {
+             "role": "user",
+             "content": "$TEXT"
+            },
+            "uuid": "$UUID",
+            "session_id": "s",
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": false,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn"
+           }
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "an empty answer twice ends the run marked empty",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--allowedTools",
+       "mcp__ferb__mac_read",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--mcp-config",
+       "{\"mcpServers\": {\"ferb\": {\"type\": \"stdio\", \"command\": \"/opt/ferb/bin/ferb\", \"args\": [\"mcp\"], \"env\": {\"FERB_RUN_TOKEN_FILE\": \"$TMP/ferb-claude-run-X/run-token\", \"FERB_HOME\": \"$FERB\"}}}}",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n",
+     "{\"type\": \"user\", \"message\": {\"role\": \"user\", \"content\": \"You ended without an answer. Give your final answer now.\"}, \"parent_tool_use_id\": null, \"uuid\": \"00000000-0000-0000-0000-000000000001\", \"session_id\": \"default\"}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": ""
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0125, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"stop\": \"end_turn\", \"blocks\": [], \"follow_up\": \"asked\"}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"stop\": \"end_turn\", \"blocks\": [], \"follow_up\": \"failed\"}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"error\", \"data\": {\"message\": \"claude: the model ended without an answer twice\", \"empty\": true}}"
+     },
+     {
+      "op": "end"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "a refused typed format starts again stated",
+    "runtime": {
+     "mode": "supervisor",
+     "model": "claude-opus-5-5",
+     "output_schema": {
+      "type": "object",
+      "properties": {
+       "text": {
+        "type": "string"
+       },
+       "n": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "text",
+       "n"
+      ],
+      "additionalProperties": false
+     },
+     "tool_names": [],
+     "shim_cmd": null,
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": true,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "API Error: 400 The compiled grammar is too large",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn",
+            "api_error_status": 400
+           }
+          }
+         ]
+        ]
+       }
+      },
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "out": {
+            "type": "assistant",
+            "message": {
+             "model": "claude-opus-5-5",
+             "id": "msg",
+             "content": [
+              {
+               "type": "text",
+               "text": "{\"text\": \"hi\", \"n\": 2}"
+              }
+             ],
+             "stop_reason": null
+            },
+            "session_id": "s",
+            "uuid": "ua",
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": false,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "```json\n{\"text\": \"hi\", \"n\": 2}\n```",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn"
+           }
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "run_token": "",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "a refused typed format starts again stated",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--include-partial-messages",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--json-schema",
+       "{\"type\": \"object\", \"additionalProperties\": false, \"properties\": {\"text\": {\"type\": \"string\"}, \"n\": {\"type\": \"integer\"}}, \"required\": [\"text\", \"n\"]}",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--include-partial-messages",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n",
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\\n\\nFERB's answer format (required): your final answer is one JSON object that matches this JSON Schema, with nothing before or after it and no code fence. Include every property; use null where the schema allows it for a value that doesn't apply.\\n{\\\"type\\\":\\\"object\\\",\\\"properties\\\":{\\\"text\\\":{\\\"type\\\":\\\"string\\\"},\\\"n\\\":{\\\"type\\\":\\\"integer\\\"}},\\\"required\\\":[\\\"text\\\",\\\"n\\\"],\\\"additionalProperties\\\":false}\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": "strict"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0125, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"typed\": \"strict\", \"stop\": \"end_turn\", \"blocks\": []}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"message\", \"data\": {\"text\": \"{\\\"text\\\": \\\"hi\\\", \\\"n\\\": 2}\"}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"typed\": \"stated_after_refusal\", \"stop\": \"end_turn\", \"blocks\": [\"text\"]}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"final\", \"data\": {\"text\": \"{\\\"text\\\": \\\"hi\\\", \\\"n\\\": 2}\", \"tools_seen\": []}}"
+     },
+     {
+      "op": "end"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "a stated answer outside the form is told back once",
+    "runtime": {
+     "mode": "supervisor",
+     "model": "claude-opus-5-5",
+     "output_schema": {
+      "type": "object",
+      "properties": {
+       "text": {
+        "type": "string"
+       },
+       "n": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "text",
+       "n"
+      ],
+      "additionalProperties": false
+     },
+     "tool_names": [],
+     "shim_cmd": null,
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": true,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "API Error: 400",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn",
+            "api_error_status": 400
+           }
+          }
+         ]
+        ]
+       }
+      },
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": false,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "{\"text\": \"hi\"}",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn"
+           }
+          }
+         ],
+         [
+          {
+           "out": {
+            "type": "user",
+            "message": {
+             "role": "user",
+             "content": "$TEXT"
+            },
+            "uuid": "$UUID",
+            "session_id": "s",
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": false,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "{\"text\": \"hi\", \"n\": 2}",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn"
+           }
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "run_token": "",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "a stated answer outside the form is told back once",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--include-partial-messages",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--json-schema",
+       "{\"type\": \"object\", \"additionalProperties\": false, \"properties\": {\"text\": {\"type\": \"string\"}, \"n\": {\"type\": \"integer\"}}, \"required\": [\"text\", \"n\"]}",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--include-partial-messages",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n",
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\\n\\nFERB's answer format (required): your final answer is one JSON object that matches this JSON Schema, with nothing before or after it and no code fence. Include every property; use null where the schema allows it for a value that doesn't apply.\\n{\\\"type\\\":\\\"object\\\",\\\"properties\\\":{\\\"text\\\":{\\\"type\\\":\\\"string\\\"},\\\"n\\\":{\\\"type\\\":\\\"integer\\\"}},\\\"required\\\":[\\\"text\\\",\\\"n\\\"],\\\"additionalProperties\\\":false}\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n",
+     "{\"type\": \"user\", \"message\": {\"role\": \"user\", \"content\": \"That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'n' is a required property). Reply again with only the corrected JSON object.\"}, \"parent_tool_use_id\": null, \"uuid\": \"00000000-0000-0000-0000-000000000001\", \"session_id\": \"default\"}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": "strict"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0125, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"typed\": \"strict\", \"stop\": \"end_turn\", \"blocks\": []}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"typed\": \"stated_after_refusal\", \"repair\": \"asked\", \"stop\": \"end_turn\", \"blocks\": []}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"typed\": \"stated_after_refusal\", \"repair\": \"fixed\", \"stop\": \"end_turn\", \"blocks\": []}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"final\", \"data\": {\"text\": \"{\\\"text\\\": \\\"hi\\\", \\\"n\\\": 2}\", \"tools_seen\": []}}"
+     },
+     {
+      "op": "end"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "an error result carries the account fact",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": [
+      "/opt/ferb/bin/ferb",
+      "mcp"
+     ],
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "out": {
+            "type": "assistant",
+            "message": {
+             "model": "claude-opus-5-5",
+             "id": "msg",
+             "content": [
+              {
+               "type": "text",
+               "text": "x"
+              }
+             ],
+             "stop_reason": null
+            },
+            "session_id": "s",
+            "uuid": "ua",
+            "parent_tool_use_id": null,
+            "error": "rate_limit"
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": true,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "API Error: 429",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn",
+            "api_error_status": 429
+           }
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "an error result carries the account fact",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--allowedTools",
+       "mcp__ferb__mac_read",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--mcp-config",
+       "{\"mcpServers\": {\"ferb\": {\"type\": \"stdio\", \"command\": \"/opt/ferb/bin/ferb\", \"args\": [\"mcp\"], \"env\": {\"FERB_RUN_TOKEN_FILE\": \"$TMP/ferb-claude-run-X/run-token\", \"FERB_HOME\": \"$FERB\"}}}}",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": ""
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"message\", \"data\": {\"text\": \"x\"}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0125, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"stop\": \"end_turn\", \"blocks\": [\"text\"]}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"error\", \"data\": {\"message\": \"API Error: 429\", \"account\": \"usage_limit\"}}"
+     },
+     {
+      "op": "end"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "an error result with no words says its errors",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": [
+      "/opt/ferb/bin/ferb",
+      "mcp"
+     ],
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "error_during_execution",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": true,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": null,
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn",
+            "errors": [
+             "boom",
+             "it's"
+            ]
+           }
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "an error result with no words says its errors",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--allowedTools",
+       "mcp__ferb__mac_read",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--mcp-config",
+       "{\"mcpServers\": {\"ferb\": {\"type\": \"stdio\", \"command\": \"/opt/ferb/bin/ferb\", \"args\": [\"mcp\"], \"env\": {\"FERB_RUN_TOKEN_FILE\": \"$TMP/ferb-claude-run-X/run-token\", \"FERB_HOME\": \"$FERB\"}}}}",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": ""
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0125, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"stop\": \"end_turn\", \"blocks\": []}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"error\", \"data\": {\"message\": \"['boom', \\\"it's\\\"]\"}}"
+     },
+     {
+      "op": "end"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "answers never within the schema are a format repair",
+    "runtime": {
+     "mode": "supervisor",
+     "model": "claude-opus-5-5",
+     "output_schema": {
+      "type": "object",
+      "properties": {
+       "text": {
+        "type": "string"
+       },
+       "n": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "text",
+       "n"
+      ],
+      "additionalProperties": false
+     },
+     "tool_names": [],
+     "shim_cmd": null,
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "error_max_structured_output_retries",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": true,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": null,
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn"
+           }
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "run_token": "",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "answers never within the schema are a format repair",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--include-partial-messages",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--json-schema",
+       "{\"type\": \"object\", \"additionalProperties\": false, \"properties\": {\"text\": {\"type\": \"string\"}, \"n\": {\"type\": \"integer\"}}, \"required\": [\"text\", \"n\"]}",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": "strict"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0125, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"typed\": \"strict\", \"stop\": \"end_turn\", \"blocks\": []}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"invalid_answer\", \"data\": {\"message\": \"None\"}}"
+     },
+     {
+      "op": "end"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "a tool outside the run's list in the API request stops it",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": [
+      "/opt/ferb/bin/ferb",
+      "mcp"
+     ],
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": [
+      "mcp__ferb__mac_read",
+      "Bash"
+     ]
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": false,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "ok",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn"
+           }
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "a tool outside the run's list in the API request stops it",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--allowedTools",
+       "mcp__ferb__mac_read",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--mcp-config",
+       "{\"mcpServers\": {\"ferb\": {\"type\": \"stdio\", \"command\": \"/opt/ferb/bin/ferb\", \"args\": [\"mcp\"], \"env\": {\"FERB_RUN_TOKEN_FILE\": \"$TMP/ferb-claude-run-X/run-token\", \"FERB_HOME\": \"$FERB\"}}}}",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": ""
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0125, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"stop\": \"end_turn\", \"blocks\": []}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"violation\", \"data\": {\"unexpected_tools\": [\"Bash\"]}}"
+     },
+     {
+      "op": "end"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "not signed in: nothing starts",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": [
+      "/opt/ferb/bin/ferb",
+      "mcp"
+     ],
+     "effort": null,
+     "limit_s": null,
+     "signed_in": false,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": []
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "not signed in: nothing starts",
+    "spawns": [],
+    "stdin": [],
+    "log": [
+     {
+      "op": "start",
+      "raised": [
+       "Unsupported",
+       "Claude isn't signed in for FERB: sign in to Claude in Settings → AI"
+      ]
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "no bundled Claude Code: nothing starts",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": [
+      "/opt/ferb/bin/ferb",
+      "mcp"
+     ],
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": false,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": []
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "no bundled Claude Code: nothing starts",
+    "spawns": [],
+    "stdin": [],
+    "log": [
+     {
+      "op": "start",
+      "raised": [
+       "Unsupported",
+       "the Claude Agent SDK's bundled Claude Code is missing"
+      ]
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "a worker without the shim can't start",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": null,
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": []
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "a worker without the shim can't start",
+    "spawns": [],
+    "stdin": [],
+    "log": [
+     {
+      "op": "start",
+      "raised": [
+       "ValueError",
+       "worker mode needs the ferb mcp shim"
+      ]
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "a stalled start ends at the call's limit",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": [
+      "/opt/ferb/bin/ferb",
+      "mcp"
+     ],
+     "effort": null,
+     "limit_s": 0.2,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         []
+        ],
+        "user": []
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "a stalled start ends at the call's limit",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--allowedTools",
+       "mcp__ferb__mac_read",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--mcp-config",
+       "{\"mcpServers\": {\"ferb\": {\"type\": \"stdio\", \"command\": \"/opt/ferb/bin/ferb\", \"args\": [\"mcp\"], \"env\": {\"FERB_RUN_TOKEN_FILE\": \"$TMP/ferb-claude-run-X/run-token\", \"FERB_HOME\": \"$FERB\"}}}}",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "raised": [
+       "TimeoutError",
+       ""
+      ]
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "an initialize the program refuses",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": [
+      "/opt/ferb/bin/ferb",
+      "mcp"
+     ],
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "error",
+             "request_id": "$ID",
+             "error": "bad init"
+            }
+           }
+          }
+         ]
+        ],
+        "user": []
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "an initialize the program refuses",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--allowedTools",
+       "mcp__ferb__mac_read",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--mcp-config",
+       "{\"mcpServers\": {\"ferb\": {\"type\": \"stdio\", \"command\": \"/opt/ferb/bin/ferb\", \"args\": [\"mcp\"], \"env\": {\"FERB_RUN_TOKEN_FILE\": \"$TMP/ferb-claude-run-X/run-token\", \"FERB_HOME\": \"$FERB\"}}}}",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "raised": [
+       "Exception",
+       "bad init"
+      ]
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "cancel mid-stream ends the run",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": [
+      "/opt/ferb/bin/ferb",
+      "mcp"
+     ],
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "out": {
+            "type": "assistant",
+            "message": {
+             "model": "claude-opus-5-5",
+             "id": "msg",
+             "content": [
+              {
+               "type": "text",
+               "text": "working"
+              }
+             ],
+             "stop_reason": null
+            },
+            "session_id": "s",
+            "uuid": "ua",
+            "parent_tool_use_id": null
+           }
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "events",
+      "n": 1
+     },
+     {
+      "op": "cancel"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "steer",
+      "text": "x"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "cancel mid-stream ends the run",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--allowedTools",
+       "mcp__ferb__mac_read",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--mcp-config",
+       "{\"mcpServers\": {\"ferb\": {\"type\": \"stdio\", \"command\": \"/opt/ferb/bin/ferb\", \"args\": [\"mcp\"], \"env\": {\"FERB_RUN_TOKEN_FILE\": \"$TMP/ferb-claude-run-X/run-token\", \"FERB_HOME\": \"$FERB\"}}}}",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": ""
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"message\", \"data\": {\"text\": \"working\"}}"
+     },
+     {
+      "op": "cancel"
+     },
+     {
+      "op": "raised",
+      "raised": [
+       "ClosedResourceError",
+       ""
+      ]
+     },
+     {
+      "op": "steer",
+      "raised": [
+       "Unsupported",
+       "the Claude run has already ended"
+      ]
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "the program's own control requests are answered with errors",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": [
+      "/opt/ferb/bin/ferb",
+      "mcp"
+     ],
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "control_request",
+            "request_id": "c1",
+            "request": {
+             "subtype": "can_use_tool",
+             "tool_name": "Bash",
+             "input": {}
+            }
+           }
+          },
+          {
+           "out": {
+            "type": "control_request",
+            "request_id": "c2",
+            "request": {
+             "subtype": "mcp_message",
+             "server_name": "x",
+             "message": {
+              "id": 4
+             }
+            }
+           }
+          },
+          {
+           "out": {
+            "type": "control_request",
+            "request_id": "c3",
+            "request": {
+             "subtype": "other"
+            }
+           }
+          },
+          {
+           "out": {
+            "type": "system",
+            "subtype": "session_state_changed",
+            "state": "idle",
+            "sdk_host_only": true
+           }
+          },
+          {
+           "out": {
+            "type": "rate_limit_event",
+            "rate_limit_info": {
+             "status": "allowed"
+            },
+            "uuid": "x",
+            "session_id": "s"
+           }
+          },
+          {
+           "raw": "[SandboxDebug] not JSON\n"
+          },
+          {
+           "out": {
+            "type": "mystery"
+           }
+          },
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": false,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "fine",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn"
+           }
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "the program's own control requests are answered with errors",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--allowedTools",
+       "mcp__ferb__mac_read",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--mcp-config",
+       "{\"mcpServers\": {\"ferb\": {\"type\": \"stdio\", \"command\": \"/opt/ferb/bin/ferb\", \"args\": [\"mcp\"], \"env\": {\"FERB_RUN_TOKEN_FILE\": \"$TMP/ferb-claude-run-X/run-token\", \"FERB_HOME\": \"$FERB\"}}}}",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n",
+     "{\"type\": \"control_response\", \"response\": {\"subtype\": \"error\", \"request_id\": \"c1\", \"error\": \"canUseTool callback is not provided\"}}\n",
+     "{\"type\": \"control_response\", \"response\": {\"subtype\": \"success\", \"request_id\": \"c2\", \"response\": {\"mcp_response\": {\"jsonrpc\": \"2.0\", \"id\": 4, \"error\": {\"code\": -32601, \"message\": \"Server 'x' not found\"}}}}}\n",
+     "{\"type\": \"control_response\", \"response\": {\"subtype\": \"error\", \"request_id\": \"c3\", \"error\": \"Unsupported control request subtype: other\"}}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": ""
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"claude-opus-5-5\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0125, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"stop\": \"end_turn\", \"blocks\": []}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"final\", \"data\": {\"text\": \"fine\", \"tools_seen\": []}}"
+     },
+     {
+      "op": "end"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "the program ending with an error status mid-run",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": [
+      "/opt/ferb/bin/ferb",
+      "mcp"
+     ],
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "exit": 1
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "the program ending with an error status mid-run",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--allowedTools",
+       "mcp__ferb__mac_read",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--mcp-config",
+       "{\"mcpServers\": {\"ferb\": {\"type\": \"stdio\", \"command\": \"/opt/ferb/bin/ferb\", \"args\": [\"mcp\"], \"env\": {\"FERB_RUN_TOKEN_FILE\": \"$TMP/ferb-claude-run-X/run-token\", \"FERB_HOME\": \"$FERB\"}}}}",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": ""
+     },
+     {
+      "op": "raised",
+      "raised": [
+       "ProcessError",
+       "Command failed with exit code 1 (exit code: 1)\nError output: Check stderr output for details"
+      ]
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "an assistant message without its model",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": [
+      "/opt/ferb/bin/ferb",
+      "mcp"
+     ],
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "out": {
+            "type": "assistant",
+            "message": {
+             "content": []
+            }
+           }
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "an assistant message without its model",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--allowedTools",
+       "mcp__ferb__mac_read",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--mcp-config",
+       "{\"mcpServers\": {\"ferb\": {\"type\": \"stdio\", \"command\": \"/opt/ferb/bin/ferb\", \"args\": [\"mcp\"], \"env\": {\"FERB_RUN_TOKEN_FILE\": \"$TMP/ferb-claude-run-X/run-token\", \"FERB_HOME\": \"$FERB\"}}}}",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": ""
+     },
+     {
+      "op": "raised",
+      "raised": [
+       "MessageParseError",
+       "Missing required field in assistant message: 'model'"
+      ]
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "a line that isn't JSON though it looks like it",
+    "runtime": {
+     "mode": "worker",
+     "model": "claude-opus-5-5",
+     "output_schema": null,
+     "tool_names": [
+      "mac.read"
+     ],
+     "shim_cmd": [
+      "/opt/ferb/bin/ferb",
+      "mcp"
+     ],
+     "effort": null,
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "raw": "{broken\n"
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "FERB instructions",
+     "parts": [
+      "stable",
+      "changing"
+     ],
+     "cacheable": 1
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "a line that isn't JSON though it looks like it",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--allowedTools",
+       "mcp__ferb__mac_read",
+       "--model",
+       "claude-opus-5-5",
+       "--permission-mode",
+       "dontAsk",
+       "--mcp-config",
+       "{\"mcpServers\": {\"ferb\": {\"type\": \"stdio\", \"command\": \"/opt/ferb/bin/ferb\", \"args\": [\"mcp\"], \"env\": {\"FERB_RUN_TOKEN_FILE\": \"$TMP/ferb-claude-run-X/run-token\", \"FERB_HOME\": \"$FERB\"}}}}",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"FERB instructions\"}, {\"type\": \"text\", \"text\": \"stable\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"changing\"}]}, \"session_id\": \"default\"}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": ""
+     },
+     {
+      "op": "raised",
+      "raised": [
+       "CLIJSONDecodeError",
+       "Failed to decode JSON: {broken..."
+      ]
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  },
+  {
+   "scenario": {
+    "name": "a planner turn with lookups, images, an alias and an effort",
+    "runtime": {
+     "mode": "supervisor",
+     "model": "opus",
+     "output_schema": {
+      "type": "object",
+      "properties": {
+       "text": {
+        "type": "string"
+       },
+       "n": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "text",
+       "n"
+      ],
+      "additionalProperties": false
+     },
+     "tool_names": [
+      "chat.history"
+     ],
+     "shim_cmd": [
+      "/f",
+      "mcp"
+     ],
+     "effort": "low",
+     "limit_s": null,
+     "signed_in": true,
+     "cli": true,
+     "seen": []
+    },
+    "fake": {
+     "apps": [
+      {
+       "on": {
+        "control:initialize": [
+         [
+          {
+           "out": {
+            "type": "control_response",
+            "response": {
+             "subtype": "success",
+             "request_id": "$ID",
+             "response": {
+              "commands": []
+             }
+            }
+           }
+          }
+         ]
+        ],
+        "user": [
+         [
+          {
+           "out": {
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "none",
+            "session_id": "s",
+            "uuid": "u0",
+            "tools": [
+             "mcp__ferb__mac_read"
+            ]
+           }
+          },
+          {
+           "out": {
+            "type": "assistant",
+            "message": {
+             "model": "claude-opus-5-5",
+             "id": "msg",
+             "content": [
+              {
+               "type": "tool_use",
+               "id": "tu1",
+               "name": "StructuredOutput",
+               "input": {
+                "text": "x",
+                "n": 1
+               }
+              }
+             ],
+             "stop_reason": null
+            },
+            "session_id": "s",
+            "uuid": "ua",
+            "parent_tool_use_id": null
+           }
+          },
+          {
+           "out": {
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": false,
+            "num_turns": 1,
+            "session_id": "s",
+            "result": "",
+            "total_cost_usd": 0.0125,
+            "usage": {
+             "input_tokens": 10,
+             "output_tokens": 5,
+             "cache_read_input_tokens": 2,
+             "cache_creation_input_tokens": 3,
+             "cache_creation": {
+              "ephemeral_1h_input_tokens": 3
+             }
+            },
+            "stop_reason": "end_turn",
+            "structured_output": null
+           }
+          }
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    "ops": [
+     {
+      "op": "start"
+     },
+     {
+      "op": "events"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "run_token": "tok",
+    "request": {
+     "system": "",
+     "parts": [
+      "a",
+      "",
+      "c"
+     ],
+     "cacheable": 2,
+     "images": [
+      {
+       "data_b64": "aW1n",
+       "ref": "r",
+       "mime": "image/png"
+      }
+     ]
+    },
+    "version": "2.1.310 (Claude Code)\n"
+   },
+   "python": {
+    "name": "a planner turn with lookups, images, an alias and an effort",
+    "spawns": [
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "-v"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "placeholder-not-a-key",
+       "CLAUDECODE": "1",
+       "CODEX_HOME": "/elsewhere/codex",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     },
+     {
+      "argv": [
+       "/opt/ferb/claude",
+       "--output-format",
+       "stream-json",
+       "--verbose",
+       "--system-prompt",
+       "",
+       "--tools",
+       "",
+       "--allowedTools",
+       "mcp__ferb__chat_history",
+       "--model",
+       "opus",
+       "--permission-mode",
+       "dontAsk",
+       "--mcp-config",
+       "{\"mcpServers\": {\"ferb\": {\"type\": \"stdio\", \"command\": \"/f\", \"args\": [\"mcp\"], \"env\": {\"FERB_RUN_TOKEN_FILE\": \"$TMP/ferb-claude-run-X/run-token\", \"FERB_HOME\": \"$FERB\"}}}}",
+       "--include-partial-messages",
+       "--strict-mcp-config",
+       "--setting-sources=",
+       "--no-session-persistence",
+       "--replay-user-messages",
+       "--effort",
+       "low",
+       "--json-schema",
+       "{\"type\": \"object\", \"additionalProperties\": false, \"properties\": {\"text\": {\"type\": \"string\"}, \"n\": {\"type\": \"integer\"}}, \"required\": [\"text\", \"n\"]}",
+       "--input-format",
+       "stream-json"
+      ],
+      "env": {
+       "ANTHROPIC_API_KEY": "",
+       "ANTHROPIC_AUTH_TOKEN": "",
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/run/run-000000000001/fixed-secret",
+       "CLAUDE_AGENT_SDK_VERSION": "0.2.174",
+       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+       "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+       "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+       "CLAUDE_CODE_OAUTH_TOKEN": "",
+       "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+       "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
+       "CLAUDE_CONFIG_DIR": "$FERB/claude-home",
+       "CODEX_HOME": "/elsewhere/codex",
+       "DISABLE_ERROR_REPORTING": "1",
+       "DISABLE_TELEMETRY": "1",
+       "ENABLE_TOOL_SEARCH": "false",
+       "FERB_FIXTURE": "kept",
+       "LANG": "en_US.UTF-8",
+       "OPENAI_API_KEY": "placeholder-not-a-key",
+       "PATH": "/usr/bin:/bin"
+      },
+      "cwd": null
+     }
+    ],
+    "stdin": [
+     "{\"type\": \"control_request\", \"request_id\": \"req_1_abcdef01\", \"request\": {\"subtype\": \"initialize\", \"hooks\": null}}\n",
+     "{\"type\": \"user\", \"parent_tool_use_id\": null, \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"a\", \"cache_control\": {\"type\": \"ephemeral\", \"ttl\": \"1h\"}}, {\"type\": \"text\", \"text\": \"c\"}, {\"type\": \"image\", \"source\": {\"type\": \"base64\", \"media_type\": \"image/png\", \"data\": \"aW1n\"}}]}, \"session_id\": \"default\"}\n"
+    ],
+    "log": [
+     {
+      "op": "start",
+      "start_steps": {
+       "options": 0,
+       "connect": 0,
+       "query": 0
+      },
+      "typed": "strict"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"usage\", \"data\": {\"model\": \"opus\", \"input_tokens\": 15, \"cached_input_tokens\": 2, \"cache_write_tokens\": 3, \"output_tokens\": 5, \"reasoning_tokens\": 0, \"cost_usd\": 0.0125, \"cost_basis\": \"provider\", \"billing\": \"subscription\", \"cache_write_5m_tokens\": 0, \"cache_write_1h_tokens\": 3, \"cache_write_reported\": true, \"timing\": {\"by\": \"runtime\", \"ttft_ms\": 0, \"generate_ms\": 0, \"tail_ms\": 0, \"total_ms\": 0}, \"typed\": \"strict\", \"stop\": \"end_turn\", \"blocks\": [\"tool_use\"]}}"
+     },
+     {
+      "op": "event",
+      "event": "{\"kind\": \"final\", \"data\": {\"text\": \"{\\\"text\\\": \\\"x\\\", \\\"n\\\": 1}\", \"tools_seen\": []}}"
+     },
+     {
+      "op": "end"
+     },
+     {
+      "op": "cancel"
+     }
+    ],
+    "notes": [
+     [
+      "forget",
+      "run-000000000001"
+     ]
+    ],
+    "after": {
+     "token_folders": []
+    }
+   }
+  }
+ ]
+}

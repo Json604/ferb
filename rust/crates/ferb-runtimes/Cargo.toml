@@ -1,0 +1,32 @@
+[package]
+name = "ferb-runtimes"
+version = "0.28.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.100"
+publish = false
+
+[dependencies]
+ferb-core = { path = "../ferb-core" }
+ferb-py = { path = "../ferb-py" }
+ferb-sanitize = { path = "../ferb-sanitize" }
+ferb-identity = { path = "../ferb-identity" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "sync", "time", "process", "fs"] }
+fancy-regex = "0.14"
+regex = "1"
+uuid = { version = "1", features = ["v4", "v5"] }
+getrandom = "0.3"
+libc = "0.2"
+tempfile = "3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+futures-util = "0.3"
+bytes = "1"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+base64 = "0.22"
+uuid = "1"
+tempfile = "3"

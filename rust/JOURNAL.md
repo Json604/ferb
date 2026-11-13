@@ -466,3 +466,31 @@ and the same prompts to the models.
   redacted as a card number when it passes the Luhn check, about one time in ten (`act/fs/files.py:51`); about 15
   handlers answer bad parameters with an internal error; the global stop tags FERB's own words "(from the task)";
   the trace stores a redacted copy of the system prompt, not what was sent.
+
+## 2026-11-13 · 24 · Model runtimes and the tool bridge
+
+**What.** `ferb-runtimes` ports `ferb/runtimes` (except `schema_shape`, which is in `ferb-context`) and
+`ferb/cli/mcp.py`: Codex over its `app-server` JSON-RPC, Claude without the Python SDK (ENG-2: the same argv,
+environment, `initialize` request, control answers and steering by uuid replay that the SDK and `claude_sdk.py`
+write together), the Anthropic, OpenAI and Gemini API loop with SSE parsing and retries, the MCP tool bridge with
+its token held as a `Secret`, and the runtime catalog.
+
+**Evidence.** `rust/fixtures/runtimes/make.py` drove the Python adapters against scripted programs and local
+servers through 619 cases (63 Codex, 25 Claude, 7 bridge, 100 API, about 425 table rows): every byte written and
+every event yielded matches; API request bodies are byte-identical. A test with a shell-script `claude` and a
+proxy test pass. 8 test groups pass.
+
+**Fixed against Python.** None in the port. Decided here, to apply in the daemon: Python removes only the API key
+from a provider's error words before keeping them; the Rust daemon also runs the redactor on them (rule 7). The
+hook exists and is off by default so the fixture comparison stays exact.
+
+**Open.**
+- Not started: `keys.py`, the Claude sign-in flow (`claude_login.py`), `check.py`, the catalog factories.
+- The `claude` program needs its own pin once the SDK is gone (for example the npm package locked like Codex's)
+  and a start-time version check; Python only warns. A packaging item (plan part 13).
+- `ferb-core`'s runtime trait has the wrong shape for real adapters: it should return what the adapter started,
+  and events should carry errors. To change with the supervisor port.
+- Differences: a line over 64 MiB is dropped whole (Python processes its tail as a new line); the proxy's 403 has
+  an empty body; httpx's own error class names may differ from the three used here; the MCP bridge covers the
+  handshake Python's library speaks today, not the newer request-envelope form.
+- Never run against the real `codex` or `claude` programs or a provider: that is a run the owner makes.

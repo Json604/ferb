@@ -42,7 +42,7 @@ the phone apps share; they reach the Mac's own parts only through traits.
 | Shell, sandbox, proxy | `ferb/act/shell` | (in 21,723) | `ferb-shell` | verified, live sandbox tests included (journal 20) |
 | Browser hands and extension bridge | `ferb/act/browser` | (in 21,723) | `ferb-browser` | protocol, pairing, bridge verified (journal 21); tool verbs in progress |
 | Mac hands: AX, input, capture, recording, hearing | `ferb/act/mac` and `ferb/act/*.py` | (in 21,723) | - | not started |
-| Model runtimes: Codex, Claude, APIs, tool bridge | `ferb/runtimes`, `ferb/cli/mcp.py` | 4,876 | `ferb-runtimes` | in progress |
+| Model runtimes: Codex, Claude, APIs, tool bridge | `ferb/runtimes`, `ferb/cli/mcp.py` | 4,876 | `ferb-runtimes` | verified against scripted programs and servers (journal 24); sign-in, keys, checks not started |
 | Orchestration: planner, workers, checker, plans | `ferb/orchestrator`, `ferb/decide` | 15,817 | - | not started |
 | Time: timers, schedules, waits | `ferb/clock`, `orchestrator/schedules.py` | ~2,000 | `ferb-clock` | verified (journal 19); tz database to settle |
 | Memory: embeddings, search, import parsers | `ferb/memory` (4 files) | ~1,770 | `ferb-memory` | verified (journal 22); needs SQLite 3.53.4+ for trigram tables |

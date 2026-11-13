@@ -1,0 +1,510 @@
+{
+ "cases": [
+  {
+   "scenario": {
+    "name": "the handshake, the run's tools and a call through the gateway",
+    "token": {
+     "file": "token-from-file\n"
+    },
+    "tools": [
+     {
+      "name": "fs.list",
+      "description": "List a folder — naïve ✓.",
+      "input_schema": {
+       "type": "object",
+       "properties": {
+        "path": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "path"
+       ],
+       "additionalProperties": false
+      }
+     },
+     {
+      "name": "mac.read_text",
+      "description": "Read the front window.",
+      "input_schema": {
+       "type": "object",
+       "properties": {}
+      }
+     }
+    ],
+    "calls": [
+     {
+      "result": {
+       "content": {
+        "entries": [
+         "a.txt",
+         "ünï"
+        ],
+        "n": 2.5
+       },
+       "footer": "[from: fs.list]",
+       "is_error": false,
+       "image": null
+      }
+     }
+    ],
+    "stdin": [
+     "{\"jsonrpc\": \"2.0\", \"id\": 0, \"method\": \"initialize\", \"params\": {\"protocolVersion\": \"2025-06-18\", \"capabilities\": {\"elicitation\": {}}, \"clientInfo\": {\"name\": \"codex-mcp-client\", \"title\": \"Codex\", \"version\": \"0.166.0\"}}}\n",
+     "{\"jsonrpc\": \"2.0\", \"method\": \"notifications/initialized\"}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/list\"}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools/call\", \"params\": {\"name\": \"fs_list\", \"arguments\": {\"path\": \"/tmp\"}, \"_meta\": {\"threadId\": \"th\", \"callId\": \"call_1\", \"progressToken\": 7}}}\n"
+    ]
+   },
+   "python": {
+    "name": "the handshake, the run's tools and a call through the gateway",
+    "stdout": [
+     "{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"capabilities\":{\"experimental\":{},\"tools\":{\"listChanged\":false}},\"protocolVersion\":\"2025-06-18\",\"serverInfo\":{\"name\":\"ferb\",\"version\":\"1\"}}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"tools\":[{\"description\":\"List a folder — naïve ✓.\",\"inputSchema\":{\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"],\"type\":\"object\",\"additionalProperties\":false},\"name\":\"fs_list\"},{\"description\":\"Read the front window.\",\"inputSchema\":{\"properties\":{},\"type\":\"object\"},\"name\":\"mac_read_text\"}]}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"text\":\"{\\\"entries\\\": [\\\"a.txt\\\", \\\"ünï\\\"], \\\"n\\\": 2.5}\\n[from: fs.list]\",\"type\":\"text\"}],\"isError\":false}}\n"
+    ],
+    "daemon": [
+     [
+      "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"token-from-file\"}}\n",
+      "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools.list\", \"params\": {}}\n"
+     ],
+     [
+      "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"token-from-file\"}}\n",
+      "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools.call\", \"params\": {\"name\": \"fs.list\", \"arguments\": {\"path\": \"/tmp\"}, \"call_id\": \"th/call_1\"}}\n"
+     ]
+    ],
+    "exit": 0,
+    "stderr_last": ""
+   }
+  },
+  {
+   "scenario": {
+    "name": "a refusal, a broken connection, an image, an unknown name and empty arguments",
+    "token": {
+     "env": "token-from-env"
+    },
+    "tools": [
+     {
+      "name": "fs.list",
+      "description": "List a folder — naïve ✓.",
+      "input_schema": {
+       "type": "object",
+       "properties": {
+        "path": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "path"
+       ],
+       "additionalProperties": false
+      }
+     },
+     {
+      "name": "mac.read_text",
+      "description": "Read the front window.",
+      "input_schema": {
+       "type": "object",
+       "properties": {}
+      }
+     }
+    ],
+    "calls": [
+     {
+      "error": {
+       "code": -32004,
+       "message": "the check said no"
+      }
+     },
+     {
+      "break": true
+     },
+     {
+      "result": {
+       "content": "shot",
+       "footer": "",
+       "is_error": true,
+       "image": {
+        "data": "aGVsbG8=",
+        "mime": "image/png"
+       }
+      }
+     },
+     {
+      "result": {
+       "content": null,
+       "footer": "f",
+       "is_error": false,
+       "image": null
+      }
+     },
+     {
+      "result": {
+       "content": {
+        "entries": [
+         "a.txt",
+         "ünï"
+        ],
+        "n": 2.5
+       },
+       "footer": "[from: fs.list]",
+       "is_error": false,
+       "image": null
+      }
+     }
+    ],
+    "stdin": [
+     "{\"jsonrpc\": \"2.0\", \"id\": 0, \"method\": \"initialize\", \"params\": {\"protocolVersion\": \"2025-06-18\", \"capabilities\": {\"elicitation\": {}}, \"clientInfo\": {\"name\": \"codex-mcp-client\", \"title\": \"Codex\", \"version\": \"0.166.0\"}}}\n",
+     "{\"jsonrpc\": \"2.0\", \"method\": \"notifications/initialized\"}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/list\"}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools/call\", \"params\": {\"name\": \"fs_list\", \"arguments\": {\"path\": \"/\"}}}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"tools/call\", \"params\": {\"name\": \"fs_list\", \"arguments\": {\"path\": \"/\"}}}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"tools/call\", \"params\": {\"name\": \"mac_read_text\", \"arguments\": null}}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"tools/call\", \"params\": {\"name\": \"shell_run_now\", \"arguments\": {}}}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 6, \"method\": \"tools/call\", \"params\": {\"name\": \"fs_list\", \"arguments\": {\"path\": \"/x\"}, \"_meta\": {\"threadId\": \"\", \"callId\": \"c\"}}}\n"
+    ]
+   },
+   "python": {
+    "name": "a refusal, a broken connection, an image, an unknown name and empty arguments",
+    "stdout": [
+     "{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"capabilities\":{\"experimental\":{},\"tools\":{\"listChanged\":false}},\"protocolVersion\":\"2025-06-18\",\"serverInfo\":{\"name\":\"ferb\",\"version\":\"1\"}}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"tools\":[{\"description\":\"List a folder — naïve ✓.\",\"inputSchema\":{\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"],\"type\":\"object\",\"additionalProperties\":false},\"name\":\"fs_list\"},{\"description\":\"Read the front window.\",\"inputSchema\":{\"properties\":{},\"type\":\"object\"},\"name\":\"mac_read_text\"}]}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"text\":\"FERB refused: the check said no\",\"type\":\"text\"}],\"isError\":true}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"content\":[{\"text\":\"FERB's connection broke during this call (NotRunning: FERB daemon closed the connection); the call's outcome is unknown. Check what it would have changed before trying it again.\",\"type\":\"text\"}],\"isError\":true}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"content\":[{\"text\":\"\\\"shot\\\"\\n\",\"type\":\"text\"},{\"data\":\"aGVsbG8=\",\"mimeType\":\"image/png\",\"type\":\"image\"}],\"isError\":true}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":5,\"result\":{\"content\":[{\"text\":\"null\\nf\",\"type\":\"text\"}],\"isError\":false}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":6,\"result\":{\"content\":[{\"text\":\"{\\\"entries\\\": [\\\"a.txt\\\", \\\"ünï\\\"], \\\"n\\\": 2.5}\\n[from: fs.list]\",\"type\":\"text\"}],\"isError\":false}}\n"
+    ],
+    "daemon": [
+     [
+      "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"token-from-env\"}}\n",
+      "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools.list\", \"params\": {}}\n"
+     ],
+     [
+      "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"token-from-env\"}}\n",
+      "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools.call\", \"params\": {\"name\": \"fs.list\", \"arguments\": {\"path\": \"/\"}}}\n"
+     ],
+     [
+      "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"token-from-env\"}}\n",
+      "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools.call\", \"params\": {\"name\": \"fs.list\", \"arguments\": {\"path\": \"/\"}}}\n"
+     ],
+     [
+      "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"token-from-env\"}}\n",
+      "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools.call\", \"params\": {\"name\": \"mac.read_text\", \"arguments\": {}}}\n"
+     ],
+     [
+      "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"token-from-env\"}}\n",
+      "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools.call\", \"params\": {\"name\": \"shell.run_now\", \"arguments\": {}}}\n"
+     ],
+     [
+      "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"token-from-env\"}}\n",
+      "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools.call\", \"params\": {\"name\": \"fs.list\", \"arguments\": {\"path\": \"/x\"}}}\n"
+     ]
+    ],
+    "exit": 0,
+    "stderr_last": ""
+   }
+  },
+  {
+   "scenario": {
+    "name": "a call before the list, resources, ping, an unknown method and a bad line",
+    "token": {
+     "env": "tok"
+    },
+    "tools": [
+     {
+      "name": "fs.list",
+      "description": "List a folder — naïve ✓.",
+      "input_schema": {
+       "type": "object",
+       "properties": {
+        "path": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "path"
+       ],
+       "additionalProperties": false
+      }
+     }
+    ],
+    "calls": [
+     {
+      "result": {
+       "content": {
+        "entries": [
+         "a.txt",
+         "ünï"
+        ],
+        "n": 2.5
+       },
+       "footer": "[from: fs.list]",
+       "is_error": false,
+       "image": null
+      }
+     },
+     {
+      "result": {
+       "content": {
+        "entries": [
+         "a.txt",
+         "ünï"
+        ],
+        "n": 2.5
+       },
+       "footer": "[from: fs.list]",
+       "is_error": false,
+       "image": null
+      }
+     }
+    ],
+    "stdin": [
+     "{\"jsonrpc\": \"2.0\", \"id\": 0, \"method\": \"initialize\", \"params\": {\"protocolVersion\": \"2025-06-18\", \"capabilities\": {\"elicitation\": {}}, \"clientInfo\": {\"name\": \"codex-mcp-client\", \"title\": \"Codex\", \"version\": \"0.166.0\"}}}\n",
+     "{\"jsonrpc\": \"2.0\", \"method\": \"notifications/initialized\"}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/call\", \"params\": {\"name\": \"fs_list\", \"arguments\": {\"path\": \"/\"}}}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"resources/list\"}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"resources/templates/list\"}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"ping\"}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"prompts/list\"}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 6, \"method\": \"nope/never\"}\n",
+     "{not json\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 7, \"method\": \"tools/list\", \"params\": {\"cursor\": \"x\"}}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 8, \"method\": \"tools/call\", \"params\": {\"name\": \"fs_list\", \"arguments\": {\"path\": 5}}}\n"
+    ]
+   },
+   "python": {
+    "name": "a call before the list, resources, ping, an unknown method and a bad line",
+    "stdout": [
+     "{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"capabilities\":{\"experimental\":{},\"tools\":{\"listChanged\":false}},\"protocolVersion\":\"2025-06-18\",\"serverInfo\":{\"name\":\"ferb\",\"version\":\"1\"}}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"text\":\"{\\\"entries\\\": [\\\"a.txt\\\", \\\"ünï\\\"], \\\"n\\\": 2.5}\\n[from: fs.list]\",\"type\":\"text\"}],\"isError\":false}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-32601,\"message\":\"Method not found\",\"data\":\"resources/list\"}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":3,\"error\":{\"code\":-32601,\"message\":\"Method not found\",\"data\":\"resources/templates/list\"}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":5,\"error\":{\"code\":-32601,\"message\":\"Method not found\",\"data\":\"prompts/list\"}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":6,\"error\":{\"code\":-32601,\"message\":\"Method not found\",\"data\":\"nope/never\"}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"tools\":[{\"description\":\"List a folder — naïve ✓.\",\"inputSchema\":{\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"],\"type\":\"object\",\"additionalProperties\":false},\"name\":\"fs_list\"}]}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":8,\"result\":{\"content\":[{\"text\":\"{\\\"entries\\\": [\\\"a.txt\\\", \\\"ünï\\\"], \\\"n\\\": 2.5}\\n[from: fs.list]\",\"type\":\"text\"}],\"isError\":false}}\n"
+    ],
+    "daemon": [
+     [
+      "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"tok\"}}\n",
+      "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools.call\", \"params\": {\"name\": \"fs.list\", \"arguments\": {\"path\": \"/\"}}}\n"
+     ],
+     [
+      "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"tok\"}}\n",
+      "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools.list\", \"params\": {}}\n"
+     ],
+     [
+      "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"tok\"}}\n",
+      "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools.call\", \"params\": {\"name\": \"fs.list\", \"arguments\": {\"path\": 5}}}\n"
+     ]
+    ],
+    "exit": 0,
+    "stderr_last": ""
+   }
+  },
+  {
+   "scenario": {
+    "name": "an older client's protocol version",
+    "token": {
+     "env": "tok"
+    },
+    "tools": [],
+    "calls": [],
+    "stdin": [
+     "{\"jsonrpc\": \"2.0\", \"id\": 0, \"method\": \"initialize\", \"params\": {\"protocolVersion\": \"2024-11-05\", \"capabilities\": {}, \"clientInfo\": {\"name\": \"claude-code\", \"version\": \"2.1.310\"}}}\n",
+     "{\"jsonrpc\": \"2.0\", \"method\": \"notifications/initialized\"}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/list\"}\n"
+    ]
+   },
+   "python": {
+    "name": "an older client's protocol version",
+    "stdout": [
+     "{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"capabilities\":{\"experimental\":{},\"tools\":{\"listChanged\":false}},\"protocolVersion\":\"2024-11-05\",\"serverInfo\":{\"name\":\"ferb\",\"version\":\"1\"}}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"tools\":[]}}\n"
+    ],
+    "daemon": [
+     [
+      "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"tok\"}}\n",
+      "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools.list\", \"params\": {}}\n"
+     ]
+    ],
+    "exit": 0,
+    "stderr_last": ""
+   }
+  },
+  {
+   "scenario": {
+    "name": "edges: versions, ids, bad params, schemas with more keys",
+    "token": {
+     "env": "tok"
+    },
+    "tools": [
+     {
+      "name": "a.b_c",
+      "description": "",
+      "input_schema": {
+       "title": "In",
+       "$defs": {
+        "X": {
+         "type": "string"
+        }
+       },
+       "type": "object",
+       "description": "d",
+       "properties": {
+        "x": {
+         "$ref": "#/$defs/X"
+        }
+       },
+       "required": [
+        "x"
+       ],
+       "additionalProperties": false
+      }
+     },
+     {
+      "name": "plain",
+      "description": "p",
+      "input_schema": {
+       "type": "object"
+      }
+     }
+    ],
+    "calls": [
+     {
+      "result": {
+       "content": {
+        "entries": [
+         "a.txt",
+         "ünï"
+        ],
+        "n": 2.5
+       },
+       "footer": "[from: fs.list]",
+       "is_error": false,
+       "image": null
+      }
+     }
+    ],
+    "stdin": [
+     "{\"jsonrpc\": \"2.0\", \"id\": \"s1\", \"method\": \"tools/list\"}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 0, \"method\": \"initialize\", \"params\": {\"protocolVersion\": \"1999-01-01\", \"capabilities\": {}, \"clientInfo\": {\"name\": \"x\", \"version\": \"1\"}}}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"initialize\", \"params\": {\"protocolVersion\": \"2025-11-25\", \"capabilities\": {}, \"clientInfo\": {\"name\": \"x\", \"version\": \"1\"}}}\n",
+     "{\"jsonrpc\": \"2.0\", \"method\": \"notifications/initialized\"}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": \"two\", \"method\": \"tools/list\"}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"tools/call\", \"params\": {}}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"tools/call\", \"params\": {\"name\": 5}}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"tools/call\", \"params\": \"x\"}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 77, \"result\": {}}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 6, \"method\": \"tools/call\", \"params\": {\"name\": \"a_b_c\", \"arguments\": {\"x\": \"y\"}}}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 7, \"method\": \"initialize\", \"params\": {\"capabilities\": {}}}\n"
+    ]
+   },
+   "python": {
+    "name": "edges: versions, ids, bad params, schemas with more keys",
+    "stdout": [
+     "{\"jsonrpc\":\"2.0\",\"id\":\"s1\",\"error\":{\"code\":-32602,\"message\":\"Invalid request parameters\",\"data\":\"\"}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"capabilities\":{\"experimental\":{},\"tools\":{\"listChanged\":false}},\"protocolVersion\":\"2025-11-25\",\"serverInfo\":{\"name\":\"ferb\",\"version\":\"1\"}}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"capabilities\":{\"experimental\":{},\"tools\":{\"listChanged\":false}},\"protocolVersion\":\"2025-11-25\",\"serverInfo\":{\"name\":\"ferb\",\"version\":\"1\"}}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":\"two\",\"result\":{\"tools\":[{\"description\":\"\",\"inputSchema\":{\"properties\":{\"x\":{\"$ref\":\"#/$defs/X\"}},\"required\":[\"x\"],\"type\":\"object\",\"title\":\"In\",\"$defs\":{\"X\":{\"type\":\"string\"}},\"description\":\"d\",\"additionalProperties\":false},\"name\":\"a_b_c\"},{\"description\":\"p\",\"inputSchema\":{\"type\":\"object\"},\"name\":\"plain\"}]}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":3,\"error\":{\"code\":-32602,\"message\":\"Invalid request parameters\",\"data\":\"\"}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":4,\"error\":{\"code\":-32602,\"message\":\"Invalid request parameters\",\"data\":\"\"}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":6,\"result\":{\"content\":[{\"text\":\"{\\\"entries\\\": [\\\"a.txt\\\", \\\"ünï\\\"], \\\"n\\\": 2.5}\\n[from: fs.list]\",\"type\":\"text\"}],\"isError\":false}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":7,\"error\":{\"code\":-32602,\"message\":\"Invalid request parameters\",\"data\":\"\"}}\n"
+    ],
+    "daemon": [
+     [
+      "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"tok\"}}\n",
+      "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools.list\", \"params\": {}}\n"
+     ],
+     [
+      "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"tok\"}}\n",
+      "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools.call\", \"params\": {\"name\": \"a.b_c\", \"arguments\": {\"x\": \"y\"}}}\n"
+     ]
+    ],
+    "exit": 0,
+    "stderr_last": ""
+   }
+  },
+  {
+   "scenario": {
+    "name": "the daemon refuses the list; a call the runtime gives up is closed",
+    "token": {
+     "env": "tok"
+    },
+    "tools": null,
+    "calls": [
+     {
+      "hang": true
+     },
+     {
+      "result": {
+       "content": {
+        "entries": [
+         "a.txt",
+         "ünï"
+        ],
+        "n": 2.5
+       },
+       "footer": "[from: fs.list]",
+       "is_error": false,
+       "image": null
+      }
+     }
+    ],
+    "stdin": [
+     "{\"jsonrpc\": \"2.0\", \"id\": 0, \"method\": \"initialize\", \"params\": {\"protocolVersion\": \"2025-06-18\", \"capabilities\": {\"elicitation\": {}}, \"clientInfo\": {\"name\": \"codex-mcp-client\", \"title\": \"Codex\", \"version\": \"0.166.0\"}}}\n",
+     "{\"jsonrpc\": \"2.0\", \"method\": \"notifications/initialized\"}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/list\"}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools/call\", \"params\": {\"name\": \"fs_list\", \"arguments\": {\"path\": \"/\"}}}\n",
+     "{\"jsonrpc\": \"2.0\", \"method\": \"notifications/cancelled\", \"params\": {\"requestId\": 2, \"reason\": \"timeout\"}}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"ping\"}\n",
+     "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"tools/call\", \"params\": {\"name\": \"fs_list\", \"arguments\": {\"path\": \"/\"}}}\n"
+    ]
+   },
+   "python": {
+    "name": "the daemon refuses the list; a call the runtime gives up is closed",
+    "stdout": [
+     "{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"capabilities\":{\"experimental\":{},\"tools\":{\"listChanged\":false}},\"protocolVersion\":\"2025-06-18\",\"serverInfo\":{\"name\":\"ferb\",\"version\":\"1\"}}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":0,\"message\":\"run token revoked\"}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{}}\n",
+     "{\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"content\":[{\"text\":\"{\\\"entries\\\": [\\\"a.txt\\\", \\\"ünï\\\"], \\\"n\\\": 2.5}\\n[from: fs.list]\",\"type\":\"text\"}],\"isError\":false}}\n"
+    ],
+    "daemon": [
+     [
+      "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"tok\"}}\n",
+      "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools.list\", \"params\": {}}\n"
+     ],
+     [
+      "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"tok\"}}\n",
+      "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools.call\", \"params\": {\"name\": \"fs.list\", \"arguments\": {\"path\": \"/\"}}}\n",
+      "<closed>"
+     ],
+     [
+      "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"mcp_shim\", \"token\": \"tok\"}}\n",
+      "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools.call\", \"params\": {\"name\": \"fs.list\", \"arguments\": {\"path\": \"/\"}}}\n"
+     ]
+    ],
+    "exit": 0,
+    "stderr_last": "ferb.cli.client.RpcError: run token revoked"
+   }
+  },
+  {
+   "scenario": {
+    "name": "no token: the bridge refuses to start",
+    "token": {},
+    "tools": [],
+    "calls": [],
+    "stdin": []
+   },
+   "python": {
+    "name": "no token: the bridge refuses to start",
+    "stdout": [],
+    "daemon": [],
+    "exit": 1,
+    "stderr_last": "ferb mcp: FERB_RUN_TOKEN is not set (only runtimes started by FERB may use this)"
+   }
+  }
+ ]
+}
