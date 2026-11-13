@@ -100,3 +100,15 @@ rule = "The push check runs the offline suite sequentially (`uv run pytest -q`, 
 why = "Parallel runs made timing-dependent tests fail under load (moved files to a serial pass, a rerun-alone stopgap); the owner chose the simpler sequential road."
 paths = ["kb/gate.toml", "tests/conftest.py", "pyproject.toml", "kb/setup.toml"]
 untestable = "How and where the suite runs: the gate configuration itself, not product code."
+
+[TEST-510]
+title = "The Python suite no longer gates a push"
+by = "owner"
+date = 2026-11-13
+status = "active"
+words = "remove the python test. havent we migrated, so why do we even need it?"
+words_source = "Answer to the agent after the push gate failed three times in a row on three different timing-sensitive Python tests, none touching the Rust work."
+rule = "The full Python suite (`uv run pytest -q`) is not a push check any more. A push is gated by the Rust checks (format, clippy, the tests, the build for iOS and Android) and the Swift tests. The rest of TEST-509 stands: checks run locally and in order, with no GitHub Actions. The quick Python checks at commit (imports, versions) stay while the Python sources remain in the repo, and the suite can be run by hand."
+why = "The Rust engine replaces the Python daemon, which the owner has stopped using; the suite's flaky tests were blocking pushes of code they do not test."
+paths = ["kb/gate.toml"]
+untestable = "A gate rule: kb/gate.toml shows it."

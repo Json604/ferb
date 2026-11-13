@@ -1356,3 +1356,23 @@ tree whole. A snapshot of a crate another agent is editing is not to be committe
   loop before the reply is written. It passed in this run; the fix belongs in the supervisor.
 - `ferb-sense`'s presence has no setter for "present since"; `ferb-mac-hands`' window list still defaults a
   missing layer to 0; the gateway's `probe` future is not Send and `question_sites` is private.
+
+## 2026-11-13 · 54 · The old FERB removed; the Python suite leaves the push gate (owner, TEST-510)
+
+**The owner's words.** "install it, you can quit/delete the old ferb, im not usig it anyways rn"; and, on the
+gate: "remove the python test. havent we migrated, so why do we even need it?"
+
+**Done on the owner's Mac.** The Python FERB's service unloaded (`launchctl bootout`); `~/.ferb` (2.2 GB) and the
+LaunchAgent definition moved to `~/FERB-archive-2026-11-13-before-rust/`; `/Applications/FERB.app` moved to the
+Trash. The sign-ins for Codex and Claude lived in that folder, so the new install asks for them again; Keychain
+items are untouched.
+
+**The gate.** Pushing the engine failed three runs in a row, each on a different timing-sensitive test outside
+the Rust work: a Swift window-Space test, `test_local_direct.py` (T-22 already calls it unreliable on a busy Mac),
+then a connection-flood test in `test_egress_proxy.py`. Each passes alone; the four Rust checks passed every
+time. Every push of this branch ran the 25-minute Python suite because the packaging touched `scripts/` and
+`tests/`. The coordinator also ran the gate twice per attempt (by hand, then again through the pre-push hook),
+which doubled the wait. `kb/gate.toml` no longer has the Python suite as a push check; the quick Python checks at
+commit stay while the Python sources remain.
+
+**Next.** Push, rebuild FERB.app with the finished engine, install it, then setup with the owner present.

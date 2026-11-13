@@ -68,12 +68,9 @@ level = "commit"
 run = "uv run pytest -q -p no:cacheprovider tests/test_imports.py tests/test_release_checks.py"
 when = ["ferb/**", "tests/**", "extensions/**", "scripts/**", "pyproject.toml", "uv.lock"]
 
-[[check]]
-name = "Python safety suite"                 # one test at a time, on this Mac, before every push (TEST-509)
-level = "push"
-run = "nice -n 10 uv run pytest -q"
-when = ["ferb/**", "tests/**", "extensions/**", "scripts/**", "pyproject.toml", "uv.lock", "package.json", "package-lock.json"]
-timeout = 1800
+# The Python safety suite is no longer a push check (TEST-510, owner, 2026-11-13): the Rust engine replaces the
+# Python daemon, and the suite's timing-sensitive tests failed three pushes in a row on code they do not test.
+# Run it by hand while the Python sources remain: `nice -n 10 uv run pytest -q`.
 
 [[check]]
 name = "Swift tests (FERB.app)"              # ~20 s warm, minutes cold
