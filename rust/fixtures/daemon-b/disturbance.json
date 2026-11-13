@@ -1,0 +1,5280 @@
+{
+ "pure": {
+  "screen_changes": [
+   [
+    null,
+    {
+     "frontmost_app": {
+      "pid": 1,
+      "bundle_id": "com.example.1",
+      "name": "A"
+     }
+    },
+    {}
+   ],
+   [
+    {},
+    {
+     "frontmost_app": {
+      "pid": 1,
+      "bundle_id": "com.example.1",
+      "name": "A"
+     }
+    },
+    {}
+   ],
+   [
+    {
+     "frontmost_app": {
+      "pid": 1,
+      "bundle_id": "com.example.1",
+      "name": "A"
+     }
+    },
+    null,
+    {}
+   ],
+   [
+    {
+     "frontmost_app": {
+      "pid": 1,
+      "bundle_id": "com.example.1",
+      "name": "A"
+     },
+     "cursor": [
+      1,
+      1
+     ]
+    },
+    {
+     "frontmost_app": {
+      "pid": 2,
+      "bundle_id": "com.example.2",
+      "name": ""
+     },
+     "cursor": [
+      2,
+      2
+     ]
+    },
+    {
+     "frontmost_app": {
+      "before": {
+       "pid": 1,
+       "bundle_id": "com.example.1",
+       "name": "A"
+      },
+      "after": {
+       "pid": 2,
+       "bundle_id": "com.example.2",
+       "name": ""
+      }
+     }
+    }
+   ],
+   [
+    {
+     "frontmost_app": {
+      "pid": 1,
+      "bundle_id": "com.example.1",
+      "name": "A"
+     },
+     "key_window": 1,
+     "fullscreen": false,
+     "active_space_epoch": 0
+    },
+    {
+     "frontmost_app": {
+      "pid": 1,
+      "bundle_id": "com.example.1",
+      "name": "A"
+     },
+     "key_window": 2,
+     "fullscreen": true,
+     "active_space_epoch": 1
+    },
+    {
+     "key_window": {
+      "before": 1,
+      "after": 2
+     },
+     "fullscreen": {
+      "before": false,
+      "after": true
+     },
+     "active_space_epoch": {
+      "before": 0,
+      "after": 1
+     }
+    }
+   ],
+   [
+    {
+     "frontmost_app": {
+      "pid": 1,
+      "bundle_id": "com.example.1",
+      "name": "A"
+     },
+     "unavailable": {
+      "frontmost_app": "x"
+     }
+    },
+    {
+     "frontmost_app": {
+      "pid": 2,
+      "bundle_id": "com.example.2",
+      "name": ""
+     }
+    },
+    {}
+   ],
+   [
+    {
+     "frontmost_app": {
+      "pid": 1,
+      "bundle_id": "com.example.1",
+      "name": "A"
+     }
+    },
+    {
+     "frontmost_app": {
+      "pid": 2,
+      "bundle_id": "com.example.2",
+      "name": ""
+     },
+     "unavailable": {
+      "key_window": "y"
+     },
+     "key_window": 3
+    },
+    {
+     "frontmost_app": {
+      "before": {
+       "pid": 1,
+       "bundle_id": "com.example.1",
+       "name": "A"
+      },
+      "after": {
+       "pid": 2,
+       "bundle_id": "com.example.2",
+       "name": ""
+      }
+     }
+    }
+   ],
+   [
+    {
+     "active_space_epoch": 1
+    },
+    {
+     "active_space_epoch": 1.0
+    },
+    {}
+   ],
+   [
+    {
+     "fullscreen": true
+    },
+    {
+     "fullscreen": 1
+    },
+    {}
+   ],
+   [
+    {
+     "key_window": null
+    },
+    {},
+    {}
+   ],
+   [
+    {
+     "unavailable": null,
+     "fullscreen": false
+    },
+    {
+     "fullscreen": null
+    },
+    {
+     "fullscreen": {
+      "before": false,
+      "after": null
+     }
+    }
+   ]
+  ],
+  "told": [
+   [
+    {},
+    {}
+   ],
+   [
+    {
+     "frontmost_app": {
+      "before": {
+       "pid": 1,
+       "bundle_id": "com.example.1",
+       "name": "A"
+      },
+      "after": {
+       "pid": 2,
+       "bundle_id": "com.example.2",
+       "name": ""
+      }
+     }
+    },
+    {
+     "front_app": {
+      "before": "A",
+      "after": "com.example.2"
+     },
+     "put_back": false
+    }
+   ],
+   [
+    {
+     "frontmost_app": {
+      "before": "x",
+      "after": null
+     },
+     "key_window": {
+      "before": 1,
+      "after": 2
+     }
+    },
+    {
+     "front_app": {
+      "before": "x",
+      "after": null
+     },
+     "put_back": false
+    }
+   ],
+   [
+    {
+     "key_window": {
+      "before": 1,
+      "after": 2
+     },
+     "fullscreen": {
+      "before": false,
+      "after": true
+     }
+    },
+    {
+     "focused_window_changed": true,
+     "fullscreen": true,
+     "put_back": false
+    }
+   ],
+   [
+    {
+     "active_space_epoch": {
+      "before": 1,
+      "after": 2
+     }
+    },
+    {
+     "space_changed": true,
+     "put_back": false
+    }
+   ],
+   [
+    {
+     "frontmost_app": {},
+     "key_window": {
+      "before": 1,
+      "after": 2
+     }
+    },
+    {
+     "focused_window_changed": true,
+     "put_back": false
+    }
+   ],
+   [
+    {
+     "frontmost_app": {
+      "before": {
+       "bundle_id": "b.id"
+      },
+      "after": {
+       "name": "",
+       "bundle_id": ""
+      }
+     }
+    },
+    {
+     "front_app": {
+      "before": "b.id",
+      "after": ""
+     },
+     "put_back": false
+    }
+   ],
+   [
+    {
+     "fullscreen": {}
+    },
+    {
+     "fullscreen": null,
+     "put_back": false
+    }
+   ]
+  ],
+  "elapsed": [
+   [
+    0.0,
+    0.0
+   ],
+   [
+    -1.0,
+    0.0
+   ],
+   [
+    0.07,
+    0.0
+   ],
+   [
+    0.7,
+    0.7
+   ],
+   [
+    7.68,
+    7.6
+   ],
+   [
+    9.99,
+    9.9
+   ],
+   [
+    9.999,
+    9.9
+   ],
+   [
+    10.0,
+    10.0
+   ],
+   [
+    12.9,
+    12.0
+   ],
+   [
+    59.5,
+    59.0
+   ]
+  ]
+ },
+ "scenarios": [
+  {
+   "name": "links_changes_to_action",
+   "what": "test_samples_task_and_links_changes_to_action_without_claiming_causation",
+   "state": {
+    "frontmost_app": {
+     "pid": 1
+    },
+    "cursor": [
+     10,
+     20
+    ],
+    "active_space_epoch": 0,
+    "key_window": "window-a",
+    "fullscreen": false,
+    "visible_window_order": [
+     1,
+     2
+    ]
+   },
+   "owner_input": {
+    "recent": true
+   },
+   "processes": [],
+   "paused": false,
+   "probe_hooks": true,
+   "steps": [
+    {
+     "do": "start",
+     "task": "task"
+    },
+    {
+     "do": "before",
+     "task": "task.worker",
+     "span": "action-1",
+     "tool": "mac.open",
+     "args": {
+      "app": "Notes"
+     },
+     "on_screen": true
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 2
+      },
+      "active_space_epoch": 1,
+      "cursor": [
+       99,
+       99
+      ],
+      "visible_window_order": [
+       2,
+       1
+      ]
+     }
+    },
+    {
+     "do": "after",
+     "span": "action-1"
+    },
+    {
+     "do": "facts",
+     "task": "task.worker"
+    },
+    {
+     "do": "context",
+     "task": "task"
+    },
+    {
+     "do": "finish",
+     "task": "task"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "before": {
+       "pid": 1
+      },
+      "after": {
+       "pid": 2
+      }
+     },
+     "active_space_epoch": {
+      "before": 0,
+      "after": 1
+     }
+    },
+    [
+     {
+      "tool": "mac.open",
+      "span_id": "action-1",
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 1
+        },
+        "after": {
+         "pid": 2
+        }
+       },
+       "active_space_epoch": {
+        "before": 0,
+        "after": 1
+       }
+      }
+     }
+    ],
+    "\nDesktop observations (facts, not inferred permission or causation; FERB's actions that can change the screen are marked on_screen): {\"samples\": 3, \"changes\": 1, \"errors\": 0, \"unavailable\": {}, \"front_or_space_changes_with_no_ferb_on_screen_action\": 0, \"latest\": [], \"read_full\": \"task.evidence query=disturbance on this task root\"}",
+    null
+   ],
+   "records": [
+    [
+     "task",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1
+       },
+       "active_space_epoch": 0,
+       "key_window": "window-a",
+       "fullscreen": false,
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "task",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 1
+        },
+        "after": {
+         "pid": 2
+        }
+       },
+       "active_space_epoch": {
+        "before": 0,
+        "after": 1
+       }
+      },
+      "actions": [
+       {
+        "task_id": "task.worker",
+        "span_id": "action-1",
+        "tool": "mac.open",
+        "on_screen": true,
+        "foreground_argument": null,
+        "started_monotonic": 1001.25,
+        "state": "in_flight"
+       }
+      ],
+      "owner_input": {
+       "recent": true
+      },
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": []
+     }
+    ],
+    [
+     "task",
+     "disturbance.summary",
+     {
+      "samples": 3,
+      "changes": 1,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 1,
+      "screen_changes": [
+       {
+        "tool": "mac.open",
+        "span_id": "action-1",
+        "changes": {
+         "frontmost_app": {
+          "before": {
+           "pid": 1
+          },
+          "after": {
+           "pid": 2
+          }
+         },
+         "active_space_epoch": {
+          "before": 0,
+          "after": 1
+         }
+        }
+       }
+      ],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ]
+   ],
+   "probe": [
+    "start",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "close"
+   ]
+  },
+  {
+   "name": "no_samples_around_reads",
+   "what": "test_no_timer_and_no_samples_around_read_only_calls",
+   "state": {
+    "frontmost_app": {
+     "pid": 1
+    }
+   },
+   "owner_input": {},
+   "processes": [],
+   "paused": false,
+   "probe_hooks": false,
+   "steps": [
+    {
+     "do": "start",
+     "task": "task"
+    },
+    {
+     "do": "before",
+     "task": "task.worker",
+     "span": "w",
+     "tool": "shell.wait",
+     "on_screen": false
+    },
+    {
+     "do": "after",
+     "span": "w"
+    },
+    {
+     "do": "before",
+     "task": "task.worker",
+     "span": "c",
+     "tool": "mac.click",
+     "on_screen": true
+    },
+    {
+     "do": "after",
+     "span": "c"
+    },
+    {
+     "do": "after",
+     "span": "c"
+    },
+    {
+     "do": "finish",
+     "task": "task"
+    },
+    {
+     "do": "sample"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    {},
+    null,
+    {},
+    {},
+    null,
+    null
+   ],
+   "records": [
+    [
+     "task",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "task",
+     "disturbance.summary",
+     {
+      "samples": 3,
+      "changes": 0,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 1,
+      "screen_changes": [],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ]
+   ],
+   "probe": [
+    "read",
+    "read",
+    "read"
+   ]
+  },
+  {
+   "name": "sample_error",
+   "what": "test_a_sample_error_is_recorded_and_the_task_goes_on",
+   "state": {
+    "frontmost_app": {
+     "pid": 1
+    },
+    "unavailable": {
+     "key_window": "AX not allowed"
+    }
+   },
+   "owner_input": {},
+   "processes": [],
+   "paused": false,
+   "probe_hooks": true,
+   "steps": [
+    {
+     "do": "start",
+     "task": "task"
+    },
+    {
+     "do": "read_fails",
+     "error": "RuntimeError: probe unavailable"
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 3
+      }
+     }
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "owner_input",
+     "value": "KeyError: owner"
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "context",
+     "task": "task"
+    },
+    {
+     "do": "finish",
+     "task": "task"
+    },
+    {
+     "do": "active"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 3
+     },
+     "unavailable": {
+      "key_window": "AX not allowed"
+     }
+    },
+    null,
+    null,
+    "\nDesktop observations (facts, not inferred permission or causation; FERB's actions that can change the screen are marked on_screen): {\"samples\": 2, \"changes\": 1, \"errors\": 2, \"unavailable\": {\"key_window\": \"AX not allowed\"}, \"front_or_space_changes_with_no_ferb_on_screen_action\": 1, \"latest\": [\"16:35:55 another app came to the front — no FERB on-screen action in progress (none yet); running: nothing FERB started\"], \"read_full\": \"task.evidence query=disturbance on this task root\"}",
+    null,
+    []
+   ],
+   "records": [
+    [
+     "task",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1
+       },
+       "unavailable": {
+        "key_window": "AX not allowed"
+       }
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "task",
+     "disturbance.error",
+     {
+      "error": "RuntimeError: probe unavailable"
+     }
+    ],
+    [
+     "task",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 1
+        },
+        "after": {
+         "pid": 3
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [],
+      "on_screen_in_task": false,
+      "last_on_screen_ended_s": null
+     }
+    ],
+    [
+     "task",
+     "disturbance.error",
+     {
+      "error": "KeyError: 'owner'"
+     }
+    ],
+    [
+     "task",
+     "disturbance.summary",
+     {
+      "samples": 2,
+      "changes": 1,
+      "errors": 2,
+      "unavailable": {
+       "key_window": "AX not allowed"
+      },
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 0,
+      "screen_changes": [],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ]
+   ],
+   "probe": [
+    "start",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "close"
+   ]
+  },
+  {
+   "name": "cursor_alone",
+   "what": "test_a_cursor_move_alone_records_nothing",
+   "state": {
+    "frontmost_app": {
+     "pid": 1
+    },
+    "cursor": [
+     0,
+     0
+    ]
+   },
+   "owner_input": {},
+   "processes": [],
+   "paused": false,
+   "probe_hooks": true,
+   "steps": [
+    {
+     "do": "start",
+     "task": "task"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "cursor": [
+       300,
+       400
+      ]
+     }
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "finish",
+     "task": "task"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 1
+     },
+     "unavailable": {}
+    },
+    null
+   ],
+   "records": [
+    [
+     "task",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "task",
+     "disturbance.summary",
+     {
+      "samples": 2,
+      "changes": 0,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 0,
+      "screen_changes": [],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ]
+   ],
+   "probe": [
+    "start",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "close"
+   ]
+  },
+  {
+   "name": "finish_while_start",
+   "what": "test_a_tree_finishing_while_another_starts_keeps_the_probe_open",
+   "state": {
+    "frontmost_app": {
+     "pid": 1
+    }
+   },
+   "owner_input": {},
+   "processes": [],
+   "paused": false,
+   "probe_hooks": true,
+   "steps": [
+    {
+     "do": "start",
+     "task": "a"
+    },
+    {
+     "do": "finish_and_start",
+     "finish": "a",
+     "start": "b"
+    },
+    {
+     "do": "active"
+    },
+    {
+     "do": "finish",
+     "task": "b"
+    },
+    {
+     "do": "start",
+     "task": "b"
+    },
+    {
+     "do": "start",
+     "task": "b"
+    },
+    {
+     "do": "finish",
+     "task": "b"
+    },
+    {
+     "do": "finish",
+     "task": "b"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    [
+     "b"
+    ],
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   "records": [
+    [
+     "a",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "a",
+     "disturbance.summary",
+     {
+      "samples": 1,
+      "changes": 0,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 0,
+      "screen_changes": [],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ],
+    [
+     "b",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "b",
+     "disturbance.summary",
+     {
+      "samples": 1,
+      "changes": 0,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 0,
+      "screen_changes": [],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ],
+    [
+     "b",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "b",
+     "disturbance.summary",
+     {
+      "samples": 1,
+      "changes": 0,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 0,
+      "screen_changes": [],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ]
+   ],
+   "probe": [
+    "start",
+    "pump",
+    "read",
+    "close",
+    "start",
+    "pump",
+    "read",
+    "close",
+    "start",
+    "pump",
+    "read",
+    "close"
+   ]
+  },
+  {
+   "name": "overlapping_tasks",
+   "what": "test_overlapping_tasks_do_not_invent_unique_action_attribution",
+   "state": {
+    "frontmost_app": {
+     "pid": 1
+    }
+   },
+   "owner_input": {},
+   "processes": [],
+   "paused": false,
+   "probe_hooks": true,
+   "steps": [
+    {
+     "do": "start",
+     "task": "a"
+    },
+    {
+     "do": "start",
+     "task": "b"
+    },
+    {
+     "do": "before",
+     "task": "a.worker",
+     "span": "one",
+     "tool": "mac.click",
+     "args": {
+      "allow_foreground": true
+     },
+     "on_screen": true
+    },
+    {
+     "do": "before",
+     "task": "b.worker",
+     "span": "two",
+     "tool": "mac.click",
+     "on_screen": true
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 2
+      }
+     }
+    },
+    {
+     "do": "after",
+     "span": "one"
+    },
+    {
+     "do": "after",
+     "span": "two"
+    },
+    {
+     "do": "facts",
+     "task": "a"
+    },
+    {
+     "do": "facts",
+     "task": "b.step.x"
+    },
+    {
+     "do": "finish",
+     "task": "a"
+    },
+    {
+     "do": "finish",
+     "task": "b"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "before": {
+       "pid": 1
+      },
+      "after": {
+       "pid": 2
+      }
+     }
+    },
+    {
+     "frontmost_app": {
+      "before": {
+       "pid": 1
+      },
+      "after": {
+       "pid": 2
+      }
+     }
+    },
+    [
+     {
+      "tool": "mac.click",
+      "span_id": "one",
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 1
+        },
+        "after": {
+         "pid": 2
+        }
+       }
+      }
+     }
+    ],
+    [
+     {
+      "tool": "mac.click",
+      "span_id": "two",
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 1
+        },
+        "after": {
+         "pid": 2
+        }
+       }
+      }
+     }
+    ],
+    null,
+    null
+   ],
+   "records": [
+    [
+     "a",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "b",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "a",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 1
+        },
+        "after": {
+         "pid": 2
+        }
+       }
+      },
+      "actions": [
+       {
+        "task_id": "a.worker",
+        "span_id": "one",
+        "tool": "mac.click",
+        "on_screen": true,
+        "foreground_argument": true,
+        "started_monotonic": 1001.75,
+        "state": "in_flight"
+       },
+       {
+        "task_id": "b.worker",
+        "span_id": "two",
+        "tool": "mac.click",
+        "on_screen": true,
+        "foreground_argument": null,
+        "started_monotonic": 1002.5,
+        "state": "in_flight"
+       }
+      ],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": []
+     }
+    ],
+    [
+     "b",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 1
+        },
+        "after": {
+         "pid": 2
+        }
+       }
+      },
+      "actions": [
+       {
+        "task_id": "a.worker",
+        "span_id": "one",
+        "tool": "mac.click",
+        "on_screen": true,
+        "foreground_argument": true,
+        "started_monotonic": 1001.75,
+        "state": "in_flight"
+       },
+       {
+        "task_id": "b.worker",
+        "span_id": "two",
+        "tool": "mac.click",
+        "on_screen": true,
+        "foreground_argument": null,
+        "started_monotonic": 1002.5,
+        "state": "in_flight"
+       }
+      ],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": []
+     }
+    ],
+    [
+     "a",
+     "disturbance.summary",
+     {
+      "samples": 6,
+      "changes": 1,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 1,
+      "screen_changes": [
+       {
+        "tool": "mac.click",
+        "span_id": "one",
+        "changes": {
+         "frontmost_app": {
+          "before": {
+           "pid": 1
+          },
+          "after": {
+           "pid": 2
+          }
+         }
+        }
+       }
+      ],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ],
+    [
+     "b",
+     "disturbance.summary",
+     {
+      "samples": 5,
+      "changes": 1,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 1,
+      "screen_changes": [
+       {
+        "tool": "mac.click",
+        "span_id": "two",
+        "changes": {
+         "frontmost_app": {
+          "before": {
+           "pid": 1
+          },
+          "after": {
+           "pid": 2
+          }
+         }
+        }
+       }
+      ],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ]
+   ],
+   "probe": [
+    "start",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "close"
+   ]
+  },
+  {
+   "name": "front_app_no_on_screen_action",
+   "what": "test_a_front_app_change_with_no_ferb_on_screen_action_names_the_app_and_ferbs_processes",
+   "state": {
+    "frontmost_app": {
+     "pid": 1,
+     "bundle_id": "com.example.browser",
+     "name": "Example Browser"
+    },
+    "cursor": [
+     0,
+     0
+    ]
+   },
+   "owner_input": {},
+   "processes": [
+    {
+     "id": "p-1",
+     "task": "tree.worker",
+     "command": "codex -m model-x",
+     "background": false
+    }
+   ],
+   "paused": false,
+   "probe_hooks": true,
+   "steps": [
+    {
+     "do": "now",
+     "advance_s": 40.5
+    },
+    {
+     "do": "start",
+     "task": "tree"
+    },
+    {
+     "do": "before",
+     "task": "tree.worker",
+     "span": "wait-1",
+     "tool": "shell.wait",
+     "args": {
+      "id": "p-1"
+     }
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 9,
+       "bundle_id": "com.example.chrome",
+       "name": "Example Chrome"
+      }
+     }
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "context",
+     "task": "tree.worker"
+    },
+    {
+     "do": "after",
+     "span": "wait-1"
+    },
+    {
+     "do": "finish",
+     "task": "tree"
+    },
+    {
+     "do": "context",
+     "task": "tree"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 9,
+      "bundle_id": "com.example.chrome",
+      "name": "Example Chrome"
+     },
+     "unavailable": {}
+    },
+    "\nDesktop observations (facts, not inferred permission or causation; FERB's actions that can change the screen are marked on_screen): {\"samples\": 2, \"changes\": 1, \"errors\": 0, \"unavailable\": {}, \"front_or_space_changes_with_no_ferb_on_screen_action\": 1, \"latest\": [\"16:36:35 Example Chrome came to the front — no FERB on-screen action in progress (none yet); running: codex -m model-x (started by this task)\"], \"read_full\": \"task.evidence query=disturbance on this task root\"}",
+    {},
+    null,
+    ""
+   ],
+   "records": [
+    [
+     "tree",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1,
+        "bundle_id": "com.example.browser",
+        "name": "Example Browser"
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 1,
+         "bundle_id": "com.example.browser",
+         "name": "Example Browser"
+        },
+        "after": {
+         "pid": 9,
+         "bundle_id": "com.example.chrome",
+         "name": "Example Chrome"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [
+       {
+        "id": "p-1",
+        "task": "tree.worker",
+        "command": "codex -m model-x",
+        "background": false
+       }
+      ],
+      "on_screen_in_task": false,
+      "last_on_screen_ended_s": null
+     }
+    ],
+    [
+     "tree",
+     "disturbance.summary",
+     {
+      "samples": 2,
+      "changes": 1,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 0,
+      "screen_changes": [],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ]
+   ],
+   "probe": [
+    "start",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "close"
+   ]
+  },
+  {
+   "name": "change_during_and_after",
+   "what": "test_a_change_during_or_just_after_an_on_screen_ferb_action_is_near_it",
+   "state": {
+    "frontmost_app": {
+     "pid": 1,
+     "bundle_id": "a.app",
+     "name": "A"
+    }
+   },
+   "owner_input": {},
+   "processes": [],
+   "paused": false,
+   "probe_hooks": true,
+   "steps": [
+    {
+     "do": "start",
+     "task": "tree"
+    },
+    {
+     "do": "before",
+     "task": "tree.worker",
+     "span": "click",
+     "tool": "mac.act",
+     "on_screen": true
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 2,
+       "bundle_id": "b.app",
+       "name": "B"
+      }
+     }
+    },
+    {
+     "do": "after",
+     "span": "click"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 3,
+       "bundle_id": "c.app",
+       "name": "C"
+      }
+     }
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "context",
+     "task": "tree.worker"
+    },
+    {
+     "do": "finish",
+     "task": "tree"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "before": {
+       "pid": 1,
+       "bundle_id": "a.app",
+       "name": "A"
+      },
+      "after": {
+       "pid": 2,
+       "bundle_id": "b.app",
+       "name": "B"
+      }
+     }
+    },
+    null,
+    {
+     "frontmost_app": {
+      "pid": 3,
+      "bundle_id": "c.app",
+      "name": "C"
+     },
+     "unavailable": {}
+    },
+    "\nDesktop observations (facts, not inferred permission or causation; FERB's actions that can change the screen are marked on_screen): {\"samples\": 4, \"changes\": 2, \"errors\": 0, \"unavailable\": {}, \"front_or_space_changes_with_no_ferb_on_screen_action\": 1, \"latest\": [\"16:35:55 C came to the front — no FERB on-screen action in progress (the last ended 0.0 s earlier); running: nothing FERB started\"], \"read_full\": \"task.evidence query=disturbance on this task root\"}",
+    null
+   ],
+   "records": [
+    [
+     "tree",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1,
+        "bundle_id": "a.app",
+        "name": "A"
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 1,
+         "bundle_id": "a.app",
+         "name": "A"
+        },
+        "after": {
+         "pid": 2,
+         "bundle_id": "b.app",
+         "name": "B"
+        }
+       }
+      },
+      "actions": [
+       {
+        "task_id": "tree.worker",
+        "span_id": "click",
+        "tool": "mac.act",
+        "on_screen": true,
+        "foreground_argument": null,
+        "started_monotonic": 1001.25,
+        "state": "in_flight"
+       }
+      ],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": []
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 2,
+         "bundle_id": "b.app",
+         "name": "B"
+        },
+        "after": {
+         "pid": 3,
+         "bundle_id": "c.app",
+         "name": "C"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [],
+      "on_screen_in_task": true,
+      "last_on_screen_ended_s": 0.0
+     }
+    ],
+    [
+     "tree",
+     "disturbance.summary",
+     {
+      "samples": 4,
+      "changes": 2,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 1,
+      "screen_changes": [
+       {
+        "tool": "mac.act",
+        "span_id": "click",
+        "changes": {
+         "frontmost_app": {
+          "before": {
+           "pid": 1,
+           "bundle_id": "a.app",
+           "name": "A"
+          },
+          "after": {
+           "pid": 2,
+           "bundle_id": "b.app",
+           "name": "B"
+          }
+         }
+        }
+       }
+      ],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ]
+   ],
+   "probe": [
+    "start",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "close"
+   ]
+  },
+  {
+   "name": "how_long_since",
+   "what": "test_a_change_after_the_window_says_how_long_before_the_last_on_screen_action_ended",
+   "state": {
+    "frontmost_app": {
+     "pid": 1,
+     "bundle_id": "a.app",
+     "name": "A"
+    }
+   },
+   "owner_input": {},
+   "processes": [],
+   "paused": false,
+   "probe_hooks": true,
+   "steps": [
+    {
+     "do": "start",
+     "task": "tree"
+    },
+    {
+     "do": "before",
+     "task": "tree.worker",
+     "span": "open",
+     "tool": "mac.open",
+     "on_screen": true
+    },
+    {
+     "do": "after",
+     "span": "open"
+    },
+    {
+     "do": "now",
+     "advance_s": 7.68
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 2,
+       "bundle_id": "com.example.chrome",
+       "name": "Example Chrome"
+      }
+     }
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "now",
+     "advance_s": 5
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 3,
+       "bundle_id": "com.example.safari",
+       "name": "Example Safari"
+      }
+     }
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "now",
+     "advance_s": 0.04
+    },
+    {
+     "do": "patch",
+     "state": {
+      "active_space_epoch": 4
+     }
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "active_space_epoch": 5,
+      "frontmost_app": {
+       "pid": 4,
+       "bundle_id": "d.app",
+       "name": ""
+      }
+     }
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "context",
+     "task": "tree.worker"
+    },
+    {
+     "do": "finish",
+     "task": "tree"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    {},
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 2,
+      "bundle_id": "com.example.chrome",
+      "name": "Example Chrome"
+     },
+     "unavailable": {}
+    },
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 3,
+      "bundle_id": "com.example.safari",
+      "name": "Example Safari"
+     },
+     "unavailable": {}
+    },
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 3,
+      "bundle_id": "com.example.safari",
+      "name": "Example Safari"
+     },
+     "active_space_epoch": 4,
+     "unavailable": {}
+    },
+    null,
+    {
+     "frontmost_app": {
+      "pid": 4,
+      "bundle_id": "d.app",
+      "name": ""
+     },
+     "active_space_epoch": 5,
+     "unavailable": {}
+    },
+    "\nDesktop observations (facts, not inferred permission or causation; FERB's actions that can change the screen are marked on_screen): {\"samples\": 7, \"changes\": 4, \"errors\": 0, \"unavailable\": {}, \"front_or_space_changes_with_no_ferb_on_screen_action\": 3, \"latest\": [\"16:36:02 Example Chrome came to the front — no FERB on-screen action in progress (the last ended 7.6 s earlier); running: nothing FERB started\", \"16:36:07 Example Safari came to the front — no FERB on-screen action in progress (the last ended 12 s earlier); running: nothing FERB started\", \"16:36:07 d.app came to the front and the Space changed — no FERB on-screen action in progress (the last ended 12 s earlier); running: nothing FERB started\"], \"read_full\": \"task.evidence query=disturbance on this task root\"}",
+    null
+   ],
+   "records": [
+    [
+     "tree",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1,
+        "bundle_id": "a.app",
+        "name": "A"
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 1,
+         "bundle_id": "a.app",
+         "name": "A"
+        },
+        "after": {
+         "pid": 2,
+         "bundle_id": "com.example.chrome",
+         "name": "Example Chrome"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [],
+      "on_screen_in_task": true,
+      "last_on_screen_ended_s": 7.6
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 2,
+         "bundle_id": "com.example.chrome",
+         "name": "Example Chrome"
+        },
+        "after": {
+         "pid": 3,
+         "bundle_id": "com.example.safari",
+         "name": "Example Safari"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [],
+      "on_screen_in_task": true,
+      "last_on_screen_ended_s": 12.0
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "active_space_epoch": {
+        "before": null,
+        "after": 4
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 3,
+         "bundle_id": "com.example.safari",
+         "name": "Example Safari"
+        },
+        "after": {
+         "pid": 4,
+         "bundle_id": "d.app",
+         "name": ""
+        }
+       },
+       "active_space_epoch": {
+        "before": 4,
+        "after": 5
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [],
+      "on_screen_in_task": true,
+      "last_on_screen_ended_s": 12.0
+     }
+    ],
+    [
+     "tree",
+     "disturbance.summary",
+     {
+      "samples": 7,
+      "changes": 4,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 1,
+      "screen_changes": [],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ]
+   ],
+   "probe": [
+    "start",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "close"
+   ]
+  },
+  {
+   "name": "another_tasks_call",
+   "what": "test_another_tasks_on_screen_call_is_named_as_such_and_its_commands_stay_out",
+   "state": {
+    "frontmost_app": {
+     "pid": 1,
+     "bundle_id": "com.example.1",
+     "name": "A"
+    }
+   },
+   "owner_input": {},
+   "processes": [
+    {
+     "id": "p-1",
+     "task": "tree.worker",
+     "command": "npm run dev",
+     "background": true
+    },
+    {
+     "id": "p-2",
+     "task": "other.worker",
+     "command": "curl https://example.com/private-page",
+     "background": false
+    },
+    {
+     "id": "p-3",
+     "background": false
+    }
+   ],
+   "paused": false,
+   "probe_hooks": true,
+   "steps": [
+    {
+     "do": "start",
+     "task": "tree"
+    },
+    {
+     "do": "start",
+     "task": "other"
+    },
+    {
+     "do": "before",
+     "task": "other.worker",
+     "span": "click",
+     "tool": "mac.act",
+     "on_screen": true
+    },
+    {
+     "do": "after",
+     "span": "click"
+    },
+    {
+     "do": "now",
+     "advance_s": 0.7
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 2,
+       "bundle_id": "com.example.2",
+       "name": "Example Chrome"
+      }
+     }
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "context",
+     "task": "tree.worker"
+    },
+    {
+     "do": "context",
+     "task": "other"
+    },
+    {
+     "do": "finish",
+     "task": "tree"
+    },
+    {
+     "do": "finish",
+     "task": "other"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    null,
+    {},
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 2,
+      "bundle_id": "com.example.2",
+      "name": "Example Chrome"
+     },
+     "unavailable": {}
+    },
+    "\nDesktop observations (facts, not inferred permission or causation; FERB's actions that can change the screen are marked on_screen): {\"samples\": 5, \"changes\": 1, \"errors\": 0, \"unavailable\": {}, \"front_or_space_changes_with_no_ferb_on_screen_action\": 1, \"latest\": [\"16:35:55 Example Chrome came to the front — no FERB on-screen action in progress (none in this task; the last of any FERB task ended 0.7 s earlier); running: npm run dev (started by this task); p-2 (started by another FERB task); p-3 (started by another FERB task)\"], \"read_full\": \"task.evidence query=disturbance on this task root\"}",
+    "\nDesktop observations (facts, not inferred permission or causation; FERB's actions that can change the screen are marked on_screen): {\"samples\": 4, \"changes\": 1, \"errors\": 0, \"unavailable\": {}, \"front_or_space_changes_with_no_ferb_on_screen_action\": 1, \"latest\": [\"16:35:55 Example Chrome came to the front — no FERB on-screen action in progress (the last ended 0.7 s earlier); running: p-1 (started by another FERB task); curl https://example.com/private-page (started by this task); p-3 (started by another FERB task)\"], \"read_full\": \"task.evidence query=disturbance on this task root\"}",
+    null,
+    null
+   ],
+   "records": [
+    [
+     "tree",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1,
+        "bundle_id": "com.example.1",
+        "name": "A"
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "other",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1,
+        "bundle_id": "com.example.1",
+        "name": "A"
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 1,
+         "bundle_id": "com.example.1",
+         "name": "A"
+        },
+        "after": {
+         "pid": 2,
+         "bundle_id": "com.example.2",
+         "name": "Example Chrome"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [
+       {
+        "id": "p-1",
+        "task": "tree.worker",
+        "command": "npm run dev",
+        "background": true
+       },
+       {
+        "id": "p-2",
+        "task": "other.worker",
+        "background": false
+       },
+       {
+        "id": "p-3",
+        "background": false
+       }
+      ],
+      "on_screen_in_task": false,
+      "last_on_screen_ended_s": 0.7
+     }
+    ],
+    [
+     "other",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 1,
+         "bundle_id": "com.example.1",
+         "name": "A"
+        },
+        "after": {
+         "pid": 2,
+         "bundle_id": "com.example.2",
+         "name": "Example Chrome"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [
+       {
+        "id": "p-1",
+        "task": "tree.worker",
+        "background": true
+       },
+       {
+        "id": "p-2",
+        "task": "other.worker",
+        "command": "curl https://example.com/private-page",
+        "background": false
+       },
+       {
+        "id": "p-3",
+        "background": false
+       }
+      ],
+      "on_screen_in_task": true,
+      "last_on_screen_ended_s": 0.7
+     }
+    ],
+    [
+     "tree",
+     "disturbance.summary",
+     {
+      "samples": 5,
+      "changes": 1,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 0,
+      "screen_changes": [],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ],
+    [
+     "other",
+     "disturbance.summary",
+     {
+      "samples": 4,
+      "changes": 1,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 1,
+      "screen_changes": [],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ]
+   ],
+   "probe": [
+    "start",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "close"
+   ]
+  },
+  {
+   "name": "unreadable_front_app",
+   "what": "test_an_unreadable_front_app_states_nothing_and_the_same_app_after_it_states_nothing",
+   "state": {
+    "frontmost_app": {
+     "pid": 1,
+     "bundle_id": "com.example.1",
+     "name": "Example Browser"
+    }
+   },
+   "owner_input": {},
+   "processes": [],
+   "paused": false,
+   "probe_hooks": true,
+   "steps": [
+    {
+     "do": "start",
+     "task": "tree"
+    },
+    {
+     "do": "set",
+     "state": {
+      "unavailable": {
+       "frontmost_app": "AX error -25204"
+      }
+     }
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "set",
+     "state": {
+      "frontmost_app": {
+       "pid": 1,
+       "bundle_id": "com.example.1",
+       "name": "Example Browser"
+      }
+     }
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "context",
+     "task": "tree"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 2,
+       "bundle_id": "com.example.2",
+       "name": "Example Chrome"
+      }
+     }
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": "x",
+       "name": "Odd"
+      }
+     }
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "context",
+     "task": "tree"
+    },
+    {
+     "do": "finish",
+     "task": "tree"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    {
+     "unavailable": {
+      "frontmost_app": "AX error -25204"
+     }
+    },
+    null,
+    {
+     "frontmost_app": {
+      "pid": 1,
+      "bundle_id": "com.example.1",
+      "name": "Example Browser"
+     },
+     "unavailable": {}
+    },
+    "\nDesktop observations (facts, not inferred permission or causation; FERB's actions that can change the screen are marked on_screen): {\"samples\": 3, \"changes\": 2, \"errors\": 0, \"unavailable\": {\"frontmost_app\": \"AX error -25204\"}, \"front_or_space_changes_with_no_ferb_on_screen_action\": 0, \"latest\": [], \"read_full\": \"task.evidence query=disturbance on this task root\"}",
+    null,
+    {
+     "frontmost_app": {
+      "pid": 2,
+      "bundle_id": "com.example.2",
+      "name": "Example Chrome"
+     },
+     "unavailable": {}
+    },
+    null,
+    {
+     "frontmost_app": {
+      "pid": "x",
+      "name": "Odd"
+     },
+     "unavailable": {}
+    },
+    "\nDesktop observations (facts, not inferred permission or causation; FERB's actions that can change the screen are marked on_screen): {\"samples\": 5, \"changes\": 4, \"errors\": 0, \"unavailable\": {\"frontmost_app\": \"AX error -25204\"}, \"front_or_space_changes_with_no_ferb_on_screen_action\": 1, \"latest\": [\"16:35:55 Example Chrome came to the front — no FERB on-screen action in progress (none yet); running: nothing FERB started\"], \"read_full\": \"task.evidence query=disturbance on this task root\"}",
+    null
+   ],
+   "records": [
+    [
+     "tree",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1,
+        "bundle_id": "com.example.1",
+        "name": "Example Browser"
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 1,
+         "bundle_id": "com.example.1",
+         "name": "Example Browser"
+        },
+        "after": null
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "front_app_unreadable": true
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": null,
+        "after": {
+         "pid": 1,
+         "bundle_id": "com.example.1",
+         "name": "Example Browser"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 1,
+         "bundle_id": "com.example.1",
+         "name": "Example Browser"
+        },
+        "after": {
+         "pid": 2,
+         "bundle_id": "com.example.2",
+         "name": "Example Chrome"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [],
+      "on_screen_in_task": false,
+      "last_on_screen_ended_s": null
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 2,
+         "bundle_id": "com.example.2",
+         "name": "Example Chrome"
+        },
+        "after": {
+         "pid": "x",
+         "name": "Odd"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "front_app_unreadable": true
+     }
+    ],
+    [
+     "tree",
+     "disturbance.summary",
+     {
+      "samples": 5,
+      "changes": 4,
+      "errors": 0,
+      "unavailable": {
+       "frontmost_app": "AX error -25204"
+      },
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 0,
+      "screen_changes": [],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ]
+   ],
+   "probe": [
+    "start",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "close"
+   ]
+  },
+  {
+   "name": "processes_unlisted",
+   "what": "test_processes_that_cannot_be_listed_are_recorded_as_not_recorded",
+   "state": {
+    "frontmost_app": {
+     "pid": 1,
+     "bundle_id": "a.app",
+     "name": "A"
+    }
+   },
+   "owner_input": {},
+   "processes": "RuntimeError: shell manager gone",
+   "paused": false,
+   "probe_hooks": true,
+   "steps": [
+    {
+     "do": "start",
+     "task": "tree"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 2,
+       "bundle_id": "b.app",
+       "name": "B"
+      }
+     }
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "context",
+     "task": "tree"
+    },
+    {
+     "do": "finish",
+     "task": "tree"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 2,
+      "bundle_id": "b.app",
+      "name": "B"
+     },
+     "unavailable": {}
+    },
+    "\nDesktop observations (facts, not inferred permission or causation; FERB's actions that can change the screen are marked on_screen): {\"samples\": 2, \"changes\": 1, \"errors\": 0, \"unavailable\": {}, \"front_or_space_changes_with_no_ferb_on_screen_action\": 1, \"latest\": [\"16:35:55 B came to the front — no FERB on-screen action in progress (none yet); running: not recorded\"], \"read_full\": \"task.evidence query=disturbance on this task root\"}",
+    null
+   ],
+   "records": [
+    [
+     "tree",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1,
+        "bundle_id": "a.app",
+        "name": "A"
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 1,
+         "bundle_id": "a.app",
+         "name": "A"
+        },
+        "after": {
+         "pid": 2,
+         "bundle_id": "b.app",
+         "name": "B"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": null,
+      "on_screen_in_task": false,
+      "last_on_screen_ended_s": null
+     }
+    ],
+    [
+     "tree",
+     "disturbance.summary",
+     {
+      "samples": 2,
+      "changes": 1,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 0,
+      "screen_changes": [],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ]
+   ],
+   "probe": [
+    "start",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "close"
+   ]
+  },
+  {
+   "name": "newest_statements",
+   "what": "test_only_the_newest_statements_reach_the_agents_context",
+   "state": {
+    "frontmost_app": {
+     "pid": 100,
+     "bundle_id": "app0",
+     "name": "App 0"
+    }
+   },
+   "owner_input": {},
+   "processes": [],
+   "paused": false,
+   "probe_hooks": true,
+   "steps": [
+    {
+     "do": "start",
+     "task": "tree"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 1,
+       "bundle_id": "app1",
+       "name": "App 1"
+      }
+     }
+    },
+    {
+     "do": "now",
+     "advance_s": 1
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 2,
+       "bundle_id": "app2",
+       "name": "App 2"
+      }
+     }
+    },
+    {
+     "do": "now",
+     "advance_s": 1
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 3,
+       "bundle_id": "app3",
+       "name": "App 3"
+      }
+     }
+    },
+    {
+     "do": "now",
+     "advance_s": 1
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 4,
+       "bundle_id": "app4",
+       "name": "App 4"
+      }
+     }
+    },
+    {
+     "do": "now",
+     "advance_s": 1
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 5,
+       "bundle_id": "app5",
+       "name": "App 5"
+      }
+     }
+    },
+    {
+     "do": "now",
+     "advance_s": 1
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 6,
+       "bundle_id": "app6",
+       "name": "App 6"
+      }
+     }
+    },
+    {
+     "do": "now",
+     "advance_s": 1
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 7,
+       "bundle_id": "app7",
+       "name": "App 7"
+      }
+     }
+    },
+    {
+     "do": "now",
+     "advance_s": 1
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 8,
+       "bundle_id": "app8",
+       "name": "App 8"
+      }
+     }
+    },
+    {
+     "do": "now",
+     "advance_s": 1
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 9,
+       "bundle_id": "app9",
+       "name": "App 9"
+      }
+     }
+    },
+    {
+     "do": "now",
+     "advance_s": 1
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 10,
+       "bundle_id": "app10",
+       "name": "App 10"
+      }
+     }
+    },
+    {
+     "do": "now",
+     "advance_s": 1
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 11,
+       "bundle_id": "app11",
+       "name": "App 11"
+      }
+     }
+    },
+    {
+     "do": "now",
+     "advance_s": 1
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 12,
+       "bundle_id": "app12",
+       "name": "App 12"
+      }
+     }
+    },
+    {
+     "do": "now",
+     "advance_s": 1
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "context",
+     "task": "tree"
+    },
+    {
+     "do": "finish",
+     "task": "tree"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 1,
+      "bundle_id": "app1",
+      "name": "App 1"
+     },
+     "unavailable": {}
+    },
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 2,
+      "bundle_id": "app2",
+      "name": "App 2"
+     },
+     "unavailable": {}
+    },
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 3,
+      "bundle_id": "app3",
+      "name": "App 3"
+     },
+     "unavailable": {}
+    },
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 4,
+      "bundle_id": "app4",
+      "name": "App 4"
+     },
+     "unavailable": {}
+    },
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 5,
+      "bundle_id": "app5",
+      "name": "App 5"
+     },
+     "unavailable": {}
+    },
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 6,
+      "bundle_id": "app6",
+      "name": "App 6"
+     },
+     "unavailable": {}
+    },
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 7,
+      "bundle_id": "app7",
+      "name": "App 7"
+     },
+     "unavailable": {}
+    },
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 8,
+      "bundle_id": "app8",
+      "name": "App 8"
+     },
+     "unavailable": {}
+    },
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 9,
+      "bundle_id": "app9",
+      "name": "App 9"
+     },
+     "unavailable": {}
+    },
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 10,
+      "bundle_id": "app10",
+      "name": "App 10"
+     },
+     "unavailable": {}
+    },
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 11,
+      "bundle_id": "app11",
+      "name": "App 11"
+     },
+     "unavailable": {}
+    },
+    null,
+    null,
+    {
+     "frontmost_app": {
+      "pid": 12,
+      "bundle_id": "app12",
+      "name": "App 12"
+     },
+     "unavailable": {}
+    },
+    "\nDesktop observations (facts, not inferred permission or causation; FERB's actions that can change the screen are marked on_screen): {\"samples\": 13, \"changes\": 12, \"errors\": 0, \"unavailable\": {}, \"front_or_space_changes_with_no_ferb_on_screen_action\": 12, \"latest\": [\"16:35:58 App 3 came to the front — no FERB on-screen action in progress (none yet); running: nothing FERB started\", \"16:35:59 App 4 came to the front — no FERB on-screen action in progress (none yet); running: nothing FERB started\", \"16:36:00 App 5 came to the front — no FERB on-screen action in progress (none yet); running: nothing FERB started\", \"16:36:01 App 6 came to the front — no FERB on-screen action in progress (none yet); running: nothing FERB started\", \"16:36:02 App 7 came to the front — no FERB on-screen action in progress (none yet); running: nothing FERB started\", \"16:36:03 App 8 came to the front — no FERB on-screen action in progress (none yet); running: nothing FERB started\", \"16:36:04 App 9 came to the front — no FERB on-screen action in progress (none yet); running: nothing FERB started\", \"16:36:05 App 10 came to the front — no FERB on-screen action in progress (none yet); running: nothing FERB started\", \"16:36:06 App 11 came to the front — no FERB on-screen action in progress (none yet); running: nothing FERB started\", \"16:36:07 App 12 came to the front — no FERB on-screen action in progress (none yet); running: nothing FERB started\"], \"read_full\": \"task.evidence query=disturbance on this task root\"}",
+    null
+   ],
+   "records": [
+    [
+     "tree",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 100,
+        "bundle_id": "app0",
+        "name": "App 0"
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 100,
+         "bundle_id": "app0",
+         "name": "App 0"
+        },
+        "after": {
+         "pid": 1,
+         "bundle_id": "app1",
+         "name": "App 1"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [],
+      "on_screen_in_task": false,
+      "last_on_screen_ended_s": null
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 1,
+         "bundle_id": "app1",
+         "name": "App 1"
+        },
+        "after": {
+         "pid": 2,
+         "bundle_id": "app2",
+         "name": "App 2"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [],
+      "on_screen_in_task": false,
+      "last_on_screen_ended_s": null
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 2,
+         "bundle_id": "app2",
+         "name": "App 2"
+        },
+        "after": {
+         "pid": 3,
+         "bundle_id": "app3",
+         "name": "App 3"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [],
+      "on_screen_in_task": false,
+      "last_on_screen_ended_s": null
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 3,
+         "bundle_id": "app3",
+         "name": "App 3"
+        },
+        "after": {
+         "pid": 4,
+         "bundle_id": "app4",
+         "name": "App 4"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [],
+      "on_screen_in_task": false,
+      "last_on_screen_ended_s": null
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 4,
+         "bundle_id": "app4",
+         "name": "App 4"
+        },
+        "after": {
+         "pid": 5,
+         "bundle_id": "app5",
+         "name": "App 5"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [],
+      "on_screen_in_task": false,
+      "last_on_screen_ended_s": null
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 5,
+         "bundle_id": "app5",
+         "name": "App 5"
+        },
+        "after": {
+         "pid": 6,
+         "bundle_id": "app6",
+         "name": "App 6"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [],
+      "on_screen_in_task": false,
+      "last_on_screen_ended_s": null
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 6,
+         "bundle_id": "app6",
+         "name": "App 6"
+        },
+        "after": {
+         "pid": 7,
+         "bundle_id": "app7",
+         "name": "App 7"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [],
+      "on_screen_in_task": false,
+      "last_on_screen_ended_s": null
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 7,
+         "bundle_id": "app7",
+         "name": "App 7"
+        },
+        "after": {
+         "pid": 8,
+         "bundle_id": "app8",
+         "name": "App 8"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [],
+      "on_screen_in_task": false,
+      "last_on_screen_ended_s": null
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 8,
+         "bundle_id": "app8",
+         "name": "App 8"
+        },
+        "after": {
+         "pid": 9,
+         "bundle_id": "app9",
+         "name": "App 9"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [],
+      "on_screen_in_task": false,
+      "last_on_screen_ended_s": null
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 9,
+         "bundle_id": "app9",
+         "name": "App 9"
+        },
+        "after": {
+         "pid": 10,
+         "bundle_id": "app10",
+         "name": "App 10"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [],
+      "on_screen_in_task": false,
+      "last_on_screen_ended_s": null
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 10,
+         "bundle_id": "app10",
+         "name": "App 10"
+        },
+        "after": {
+         "pid": 11,
+         "bundle_id": "app11",
+         "name": "App 11"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [],
+      "on_screen_in_task": false,
+      "last_on_screen_ended_s": null
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 11,
+         "bundle_id": "app11",
+         "name": "App 11"
+        },
+        "after": {
+         "pid": 12,
+         "bundle_id": "app12",
+         "name": "App 12"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [],
+      "on_screen_in_task": false,
+      "last_on_screen_ended_s": null
+     }
+    ],
+    [
+     "tree",
+     "disturbance.summary",
+     {
+      "samples": 13,
+      "changes": 12,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 0,
+      "screen_changes": [],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ]
+   ],
+   "probe": [
+    "start",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "close"
+   ]
+  },
+  {
+   "name": "paused_then_resumed",
+   "what": "test_a_task_run_while_paused_records_nothing_about_the_desktop_and_resuming_records_again",
+   "state": {
+    "frontmost_app": {
+     "pid": 1,
+     "bundle_id": "com.example.1",
+     "name": "A"
+    },
+    "cursor": [
+     0,
+     0
+    ]
+   },
+   "owner_input": {},
+   "processes": [],
+   "paused": true,
+   "probe_hooks": true,
+   "steps": [
+    {
+     "do": "start",
+     "task": "tree"
+    },
+    {
+     "do": "before",
+     "task": "tree.worker",
+     "span": "wait",
+     "tool": "shell.wait"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 2,
+       "bundle_id": "com.example.2",
+       "name": "Example Chrome"
+      }
+     }
+    },
+    {
+     "do": "after",
+     "span": "wait"
+    },
+    {
+     "do": "before",
+     "task": "tree.worker",
+     "span": "act",
+     "tool": "mac.act",
+     "on_screen": true
+    },
+    {
+     "do": "after",
+     "span": "act"
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "context",
+     "task": "tree"
+    },
+    {
+     "do": "paused",
+     "on": false
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 3,
+       "bundle_id": "com.example.3",
+       "name": "Example Safari"
+      }
+     }
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "context",
+     "task": "tree"
+    },
+    {
+     "do": "finish",
+     "task": "tree"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    null,
+    {},
+    null,
+    {},
+    null,
+    "",
+    null,
+    {
+     "frontmost_app": {
+      "pid": 2,
+      "bundle_id": "com.example.2",
+      "name": "Example Chrome"
+     },
+     "unavailable": {}
+    },
+    null,
+    {
+     "frontmost_app": {
+      "pid": 3,
+      "bundle_id": "com.example.3",
+      "name": "Example Safari"
+     },
+     "unavailable": {}
+    },
+    "\nDesktop observations (facts, not inferred permission or causation; FERB's actions that can change the screen are marked on_screen): {\"samples\": 2, \"changes\": 1, \"errors\": 0, \"unavailable\": {}, \"front_or_space_changes_with_no_ferb_on_screen_action\": 1, \"latest\": [\"16:35:55 Example Safari came to the front — no FERB on-screen action in progress (the last ended 0.0 s earlier); running: nothing FERB started\"], \"read_full\": \"task.evidence query=disturbance on this task root\"}",
+    null
+   ],
+   "records": [
+    [
+     "tree",
+     "disturbance.paused",
+     {
+      "reason": "sensing paused by the owner (Pause FERB): nothing about the desktop is read or recorded until Resume"
+     }
+    ],
+    [
+     "tree",
+     "disturbance.resumed",
+     {}
+    ],
+    [
+     "tree",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 2,
+        "bundle_id": "com.example.2",
+        "name": "Example Chrome"
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 2,
+         "bundle_id": "com.example.2",
+         "name": "Example Chrome"
+        },
+        "after": {
+         "pid": 3,
+         "bundle_id": "com.example.3",
+         "name": "Example Safari"
+        }
+       }
+      },
+      "actions": [],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": [],
+      "on_screen_in_task": true,
+      "last_on_screen_ended_s": 0.0
+     }
+    ],
+    [
+     "tree",
+     "disturbance.summary",
+     {
+      "samples": 2,
+      "changes": 1,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 1,
+      "screen_changes": [],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ]
+   ],
+   "probe": [
+    "start",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "close"
+   ]
+  },
+  {
+   "name": "pause_during_read",
+   "what": "test_a_pause_that_begins_during_a_read_drops_what_was_read",
+   "state": {
+    "frontmost_app": {
+     "pid": 1,
+     "bundle_id": "com.example.1",
+     "name": "A"
+    }
+   },
+   "owner_input": {},
+   "processes": [],
+   "paused": false,
+   "probe_hooks": true,
+   "steps": [
+    {
+     "do": "start",
+     "task": "tree"
+    },
+    {
+     "do": "arm_pause",
+     "on": true
+    },
+    {
+     "do": "patch",
+     "state": {
+      "frontmost_app": {
+       "pid": 2,
+       "bundle_id": "com.example.2",
+       "name": "Example Chrome"
+      }
+     }
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "context",
+     "task": "tree"
+    },
+    {
+     "do": "arm_pause",
+     "on": false
+    },
+    {
+     "do": "paused",
+     "on": false
+    },
+    {
+     "do": "start",
+     "task": "second"
+    },
+    {
+     "do": "arm_pause",
+     "on": true
+    },
+    {
+     "do": "read_fails",
+     "error": "RuntimeError: gone"
+    },
+    {
+     "do": "sample"
+    },
+    {
+     "do": "arm_pause",
+     "on": false
+    },
+    {
+     "do": "paused",
+     "on": false
+    },
+    {
+     "do": "finish",
+     "task": "tree"
+    },
+    {
+     "do": "finish",
+     "task": "second"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    null,
+    null,
+    "",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   "records": [
+    [
+     "tree",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1,
+        "bundle_id": "com.example.1",
+        "name": "A"
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "tree",
+     "disturbance.paused",
+     {
+      "reason": "sensing paused by the owner (Pause FERB): nothing about the desktop is read or recorded until Resume"
+     }
+    ],
+    [
+     "tree",
+     "disturbance.resumed",
+     {}
+    ],
+    [
+     "tree",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 2,
+        "bundle_id": "com.example.2",
+        "name": "Example Chrome"
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "second",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 2,
+        "bundle_id": "com.example.2",
+        "name": "Example Chrome"
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "tree",
+     "disturbance.paused",
+     {
+      "reason": "sensing paused by the owner (Pause FERB): nothing about the desktop is read or recorded until Resume"
+     }
+    ],
+    [
+     "second",
+     "disturbance.paused",
+     {
+      "reason": "sensing paused by the owner (Pause FERB): nothing about the desktop is read or recorded until Resume"
+     }
+    ],
+    [
+     "tree",
+     "disturbance.summary",
+     {
+      "samples": 2,
+      "changes": 0,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 0,
+      "screen_changes": [],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ],
+    [
+     "second",
+     "disturbance.summary",
+     {
+      "samples": 1,
+      "changes": 0,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 0,
+      "screen_changes": [],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ]
+   ],
+   "probe": [
+    "start",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "close"
+   ]
+  },
+  {
+   "name": "finished_twice_at_once",
+   "what": "test_a_task_finished_twice_at_once_is_summarized_once",
+   "state": {
+    "frontmost_app": {
+     "pid": 1
+    }
+   },
+   "owner_input": {},
+   "processes": [],
+   "paused": false,
+   "probe_hooks": true,
+   "steps": [
+    {
+     "do": "start",
+     "task": "tree"
+    },
+    {
+     "do": "start",
+     "task": "other"
+    },
+    {
+     "do": "finish_and_shutdown",
+     "task": "tree"
+    },
+    {
+     "do": "active"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    null,
+    []
+   ],
+   "records": [
+    [
+     "tree",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "other",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "tree",
+     "disturbance.summary",
+     {
+      "samples": 2,
+      "changes": 0,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 0,
+      "screen_changes": [],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ],
+    [
+     "other",
+     "disturbance.summary",
+     {
+      "samples": 1,
+      "changes": 0,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 0,
+      "screen_changes": [],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ]
+   ],
+   "probe": [
+    "start",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "close"
+   ]
+  },
+  {
+   "name": "unavailable_keys",
+   "what": "a key unreadable in either sample is not a change of the call; others are kept out",
+   "state": {
+    "frontmost_app": {
+     "pid": 1,
+     "bundle_id": "com.example.1",
+     "name": "A"
+    },
+    "key_window": {
+     "pid": 1,
+     "ax_identity": 77
+    },
+    "fullscreen": false,
+    "active_space_epoch": 2,
+    "extra": "never kept",
+    "unavailable": {
+     "cursor": "not read",
+     "fullscreen": "No readable focused window"
+    }
+   },
+   "owner_input": {},
+   "processes": [],
+   "paused": false,
+   "probe_hooks": true,
+   "steps": [
+    {
+     "do": "start",
+     "task": "tree"
+    },
+    {
+     "do": "before",
+     "task": "tree.worker",
+     "span": "k",
+     "tool": "mac.key",
+     "on_screen": true
+    },
+    {
+     "do": "set",
+     "state": {
+      "frontmost_app": {
+       "pid": 1,
+       "bundle_id": "com.example.1",
+       "name": "A"
+      },
+      "key_window": {
+       "pid": 1,
+       "ax_identity": 78
+      },
+      "fullscreen": true,
+      "active_space_epoch": 2
+     }
+    },
+    {
+     "do": "after",
+     "span": "k"
+    },
+    {
+     "do": "before",
+     "task": "tree.worker",
+     "span": "f",
+     "tool": "mac.key",
+     "on_screen": true
+    },
+    {
+     "do": "patch",
+     "state": {
+      "fullscreen": false,
+      "active_space_epoch": 3
+     }
+    },
+    {
+     "do": "after",
+     "span": "f"
+    },
+    {
+     "do": "context",
+     "task": "tree"
+    },
+    {
+     "do": "facts",
+     "task": "tree"
+    },
+    {
+     "do": "facts",
+     "task": "nobody"
+    },
+    {
+     "do": "finish",
+     "task": "tree"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    null,
+    {
+     "key_window": {
+      "before": {
+       "pid": 1,
+       "ax_identity": 77
+      },
+      "after": {
+       "pid": 1,
+       "ax_identity": 78
+      }
+     }
+    },
+    null,
+    null,
+    {
+     "fullscreen": {
+      "before": true,
+      "after": false
+     },
+     "active_space_epoch": {
+      "before": 2,
+      "after": 3
+     }
+    },
+    "\nDesktop observations (facts, not inferred permission or causation; FERB's actions that can change the screen are marked on_screen): {\"samples\": 5, \"changes\": 2, \"errors\": 0, \"unavailable\": {\"fullscreen\": \"No readable focused window\"}, \"front_or_space_changes_with_no_ferb_on_screen_action\": 0, \"latest\": [], \"read_full\": \"task.evidence query=disturbance on this task root\"}",
+    [
+     {
+      "tool": "mac.key",
+      "span_id": "k",
+      "changes": {
+       "key_window": {
+        "before": {
+         "pid": 1,
+         "ax_identity": 77
+        },
+        "after": {
+         "pid": 1,
+         "ax_identity": 78
+        }
+       }
+      }
+     },
+     {
+      "tool": "mac.key",
+      "span_id": "f",
+      "changes": {
+       "fullscreen": {
+        "before": true,
+        "after": false
+       },
+       "active_space_epoch": {
+        "before": 2,
+        "after": 3
+       }
+      }
+     }
+    ],
+    [],
+    null
+   ],
+   "records": [
+    [
+     "tree",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1,
+        "bundle_id": "com.example.1",
+        "name": "A"
+       },
+       "key_window": {
+        "pid": 1,
+        "ax_identity": 77
+       },
+       "fullscreen": false,
+       "active_space_epoch": 2,
+       "unavailable": {
+        "fullscreen": "No readable focused window"
+       }
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "key_window": {
+        "before": {
+         "pid": 1,
+         "ax_identity": 77
+        },
+        "after": {
+         "pid": 1,
+         "ax_identity": 78
+        }
+       },
+       "fullscreen": {
+        "before": false,
+        "after": true
+       }
+      },
+      "actions": [
+       {
+        "task_id": "tree.worker",
+        "span_id": "k",
+        "tool": "mac.key",
+        "on_screen": true,
+        "foreground_argument": null,
+        "started_monotonic": 1001.25,
+        "state": "in_flight"
+       }
+      ],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ],
+    [
+     "tree",
+     "disturbance.change",
+     {
+      "changes": {
+       "fullscreen": {
+        "before": true,
+        "after": false
+       },
+       "active_space_epoch": {
+        "before": 2,
+        "after": 3
+       }
+      },
+      "actions": [
+       {
+        "task_id": "tree.worker",
+        "span_id": "f",
+        "tool": "mac.key",
+        "on_screen": true,
+        "foreground_argument": null,
+        "started_monotonic": 1002.5,
+        "state": "in_flight"
+       }
+      ],
+      "owner_input": {},
+      "sample_duration_ms": 250.0,
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "processes": []
+     }
+    ],
+    [
+     "tree",
+     "disturbance.summary",
+     {
+      "samples": 5,
+      "changes": 2,
+      "errors": 0,
+      "unavailable": {
+       "fullscreen": "No readable focused window"
+      },
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 2,
+      "screen_changes": [
+       {
+        "tool": "mac.key",
+        "span_id": "k",
+        "changes": {
+         "key_window": {
+          "before": {
+           "pid": 1,
+           "ax_identity": 77
+          },
+          "after": {
+           "pid": 1,
+           "ax_identity": 78
+          }
+         }
+        }
+       },
+       {
+        "tool": "mac.key",
+        "span_id": "f",
+        "changes": {
+         "fullscreen": {
+          "before": true,
+          "after": false
+         },
+         "active_space_epoch": {
+          "before": 2,
+          "after": 3
+         }
+        }
+       }
+      ],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ]
+   ],
+   "probe": [
+    "start",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "close"
+   ]
+  },
+  {
+   "name": "sound_near_calls",
+   "what": "test_sound_stopping_in_the_owners_tab_near_a_ferb_call_is_a_disturbance_fact",
+   "state": {
+    "frontmost_app": {
+     "pid": 1
+    }
+   },
+   "owner_input": {
+    "monitored": true,
+    "recent": false,
+    "last_event_wall": null
+   },
+   "processes": [],
+   "paused": false,
+   "probe_hooks": true,
+   "steps": [
+    {
+     "do": "sound",
+     "tab": {
+      "browser": "chrome",
+      "tab_id": 41
+     },
+     "change": {
+      "audible": {
+       "before": true,
+       "after": false
+      }
+     }
+    },
+    {
+     "do": "start",
+     "task": "x"
+    },
+    {
+     "do": "call_started",
+     "task": "x.worker",
+     "span": "span-1",
+     "tool": "browser.use_tab"
+    },
+    {
+     "do": "sound",
+     "tab": {
+      "browser": "chrome",
+      "tab_id": 41
+     },
+     "change": {}
+    },
+    {
+     "do": "sound",
+     "tab": {
+      "browser": "chrome",
+      "tab_id": 41
+     },
+     "change": {
+      "audible": {
+       "before": true,
+       "after": false
+      }
+     }
+    },
+    {
+     "do": "call_ended",
+     "span": "span-1"
+    },
+    {
+     "do": "call_ended",
+     "span": "span-unknown"
+    },
+    {
+     "do": "mono",
+     "advance_s": 4.0
+    },
+    {
+     "do": "sound",
+     "tab": {
+      "browser": "chrome",
+      "tab_id": 41
+     },
+     "change": {
+      "muted": {
+       "before": false,
+       "after": true
+      }
+     }
+    },
+    {
+     "do": "mono",
+     "advance_s": 2.0
+    },
+    {
+     "do": "sound",
+     "tab": {
+      "browser": "chrome",
+      "tab_id": 41
+     },
+     "change": {
+      "audible": {
+       "before": false,
+       "after": true
+      }
+     }
+    },
+    {
+     "do": "start",
+     "task": "y"
+    },
+    {
+     "do": "call_started",
+     "task": "y.step.a",
+     "span": "s-y",
+     "tool": "browser.click"
+    },
+    {
+     "do": "call_started",
+     "task": "x.step.b",
+     "span": "s-x",
+     "tool": "browser.type"
+    },
+    {
+     "do": "call_started",
+     "task": "z.worker",
+     "span": "s-z",
+     "tool": "browser.read"
+    },
+    {
+     "do": "call_started",
+     "task": "y.step.a",
+     "span": "s-y",
+     "tool": "browser.scroll"
+    },
+    {
+     "do": "sound",
+     "tab": {
+      "browser": "chrome",
+      "tab_id": 42,
+      "task": "z"
+     },
+     "change": {
+      "audible": {
+       "before": false,
+       "after": true
+      }
+     }
+    },
+    {
+     "do": "facts",
+     "task": "x"
+    },
+    {
+     "do": "paused",
+     "on": true
+    },
+    {
+     "do": "sound",
+     "tab": {
+      "browser": "chrome",
+      "tab_id": 43
+     },
+     "change": {
+      "audible": {
+       "before": false,
+       "after": true
+      }
+     }
+    },
+    {
+     "do": "paused",
+     "on": false
+    },
+    {
+     "do": "finish",
+     "task": "x"
+    },
+    {
+     "do": "finish",
+     "task": "y"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    [
+     {
+      "tool": "browser.use_tab",
+      "span_id": "span-1",
+      "changes": {
+       "tab_sound": {
+        "tab": {
+         "browser": "chrome",
+         "tab_id": 41
+        },
+        "audible": {
+         "before": true,
+         "after": false
+        }
+       }
+      }
+     },
+     {
+      "tool": "browser.use_tab",
+      "span_id": "span-1",
+      "changes": {
+       "tab_sound": {
+        "tab": {
+         "browser": "chrome",
+         "tab_id": 41
+        },
+        "muted": {
+         "before": false,
+         "after": true
+        }
+       }
+      }
+     },
+     {
+      "tool": "browser.type",
+      "span_id": "s-x",
+      "changes": {
+       "tab_sound": {
+        "tab": {
+         "browser": "chrome",
+         "tab_id": 42,
+         "task": "z"
+        },
+        "audible": {
+         "before": false,
+         "after": true
+        }
+       }
+      }
+     }
+    ],
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   "records": [
+    [
+     "x",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "x",
+     "disturbance.change",
+     {
+      "changes": {
+       "tab_sound": {
+        "tab": {
+         "browser": "chrome",
+         "tab_id": 41
+        },
+        "audible": {
+         "before": true,
+         "after": false
+        }
+       }
+      },
+      "actions": [
+       {
+        "task_id": "x.worker",
+        "span_id": "span-1",
+        "tool": "browser.use_tab"
+       }
+      ],
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ],
+    [
+     "x",
+     "disturbance.change",
+     {
+      "changes": {
+       "tab_sound": {
+        "tab": {
+         "browser": "chrome",
+         "tab_id": 41
+        },
+        "muted": {
+         "before": false,
+         "after": true
+        }
+       }
+      },
+      "actions": [
+       {
+        "task_id": "x.worker",
+        "span_id": "span-1",
+        "tool": "browser.use_tab"
+       }
+      ],
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ],
+    [
+     "y",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "y",
+     "disturbance.change",
+     {
+      "changes": {
+       "tab_sound": {
+        "tab": {
+         "browser": "chrome",
+         "tab_id": 42,
+         "task": "z"
+        },
+        "audible": {
+         "before": false,
+         "after": true
+        }
+       }
+      },
+      "actions": [
+       {
+        "task_id": "y.step.a",
+        "span_id": "s-y",
+        "tool": "browser.scroll"
+       }
+      ],
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ],
+    [
+     "x",
+     "disturbance.change",
+     {
+      "changes": {
+       "tab_sound": {
+        "tab": {
+         "browser": "chrome",
+         "tab_id": 42,
+         "task": "z"
+        },
+        "audible": {
+         "before": false,
+         "after": true
+        }
+       }
+      },
+      "actions": [
+       {
+        "task_id": "x.step.b",
+        "span_id": "s-x",
+        "tool": "browser.type"
+       }
+      ],
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ],
+    [
+     "x",
+     "disturbance.summary",
+     {
+      "samples": 2,
+      "changes": 3,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 0,
+      "screen_changes": [
+       {
+        "tool": "browser.use_tab",
+        "span_id": "span-1",
+        "changes": {
+         "tab_sound": {
+          "tab": {
+           "browser": "chrome",
+           "tab_id": 41
+          },
+          "audible": {
+           "before": true,
+           "after": false
+          }
+         }
+        }
+       },
+       {
+        "tool": "browser.use_tab",
+        "span_id": "span-1",
+        "changes": {
+         "tab_sound": {
+          "tab": {
+           "browser": "chrome",
+           "tab_id": 41
+          },
+          "muted": {
+           "before": false,
+           "after": true
+          }
+         }
+        }
+       },
+       {
+        "tool": "browser.type",
+        "span_id": "s-x",
+        "changes": {
+         "tab_sound": {
+          "tab": {
+           "browser": "chrome",
+           "tab_id": 42,
+           "task": "z"
+          },
+          "audible": {
+           "before": false,
+           "after": true
+          }
+         }
+        }
+       }
+      ],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ],
+    [
+     "y",
+     "disturbance.summary",
+     {
+      "samples": 1,
+      "changes": 1,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 0,
+      "screen_changes": [
+       {
+        "tool": "browser.scroll",
+        "span_id": "s-y",
+        "changes": {
+         "tab_sound": {
+          "tab": {
+           "browser": "chrome",
+           "tab_id": 42,
+           "task": "z"
+          },
+          "audible": {
+           "before": false,
+           "after": true
+          }
+         }
+        }
+       }
+      ],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ]
+   ],
+   "probe": [
+    "start",
+    "pump",
+    "read",
+    "pump",
+    "read",
+    "close"
+   ]
+  },
+  {
+   "name": "sound_owner_input",
+   "what": "HAND-213 / SENSE-406: owner input near, the tap down, a reader that fails",
+   "state": {
+    "frontmost_app": {
+     "pid": 1
+    }
+   },
+   "owner_input": {
+    "monitored": true,
+    "recent": false,
+    "last_event_wall": null
+   },
+   "processes": [],
+   "paused": false,
+   "probe_hooks": true,
+   "steps": [
+    {
+     "do": "start",
+     "task": "x"
+    },
+    {
+     "do": "call_started",
+     "task": "x.worker",
+     "span": "span-1",
+     "tool": "browser.use_tab"
+    },
+    {
+     "do": "owner_input",
+     "value": {
+      "monitored": true,
+      "recent": false,
+      "last_event_wall": 1791563754.0
+     }
+    },
+    {
+     "do": "sound",
+     "tab": {
+      "tab_id": 41
+     },
+     "change": {
+      "audible": {
+       "before": true,
+       "after": false
+      }
+     }
+    },
+    {
+     "do": "owner_input",
+     "value": {
+      "monitored": true,
+      "recent": false,
+      "last_event_wall": 1791563752.0
+     }
+    },
+    {
+     "do": "sound",
+     "tab": {
+      "tab_id": 41
+     },
+     "change": {
+      "audible": {
+       "before": true,
+       "after": false
+      }
+     }
+    },
+    {
+     "do": "owner_input",
+     "value": {
+      "monitored": true,
+      "recent": true,
+      "last_event_wall": null
+     }
+    },
+    {
+     "do": "sound",
+     "tab": {
+      "tab_id": 41
+     },
+     "change": {
+      "audible": {
+       "before": true,
+       "after": false
+      }
+     }
+    },
+    {
+     "do": "owner_input",
+     "value": {
+      "monitored": true,
+      "recent": false,
+      "last_event_wall": 1791563695.0
+     }
+    },
+    {
+     "do": "sound",
+     "tab": {
+      "tab_id": 41
+     },
+     "change": {
+      "audible": {
+       "before": false,
+       "after": true
+      }
+     }
+    },
+    {
+     "do": "owner_input",
+     "value": {
+      "monitored": false,
+      "recent": false,
+      "last_event_wall": null
+     }
+    },
+    {
+     "do": "sound",
+     "tab": {
+      "tab_id": 41
+     },
+     "change": {
+      "muted": {
+       "before": false,
+       "after": true
+      }
+     }
+    },
+    {
+     "do": "owner_input",
+     "value": {
+      "recent": 0,
+      "last_event_wall": "not a number"
+     }
+    },
+    {
+     "do": "sound",
+     "tab": {
+      "tab_id": 41
+     },
+     "change": {
+      "muted": {
+       "before": true,
+       "after": false
+      }
+     }
+    },
+    {
+     "do": "owner_input",
+     "value": {
+      "recent": false,
+      "last_event_wall": "1791563753.0"
+     }
+    },
+    {
+     "do": "sound",
+     "tab": {
+      "tab_id": 41
+     },
+     "change": {
+      "muted": {
+       "before": false,
+       "after": true
+      }
+     }
+    },
+    {
+     "do": "owner_input",
+     "value": "RuntimeError: tap gone"
+    },
+    {
+     "do": "sound",
+     "tab": {
+      "tab_id": 41
+     },
+     "change": {
+      "muted": {
+       "before": true,
+       "after": false
+      }
+     }
+    },
+    {
+     "do": "finish",
+     "task": "x"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   "records": [
+    [
+     "x",
+     "disturbance.baseline",
+     {
+      "snapshot": {
+       "frontmost_app": {
+        "pid": 1
+       },
+       "unavailable": {}
+      },
+      "space_identity": "transition_epoch_only"
+     }
+    ],
+    [
+     "x",
+     "disturbance.change",
+     {
+      "changes": {
+       "tab_sound": {
+        "tab": {
+         "tab_id": 41
+        },
+        "audible": {
+         "before": false,
+         "after": true
+        }
+       }
+      },
+      "actions": [
+       {
+        "task_id": "x.worker",
+        "span_id": "span-1",
+        "tool": "browser.use_tab"
+       }
+      ],
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ],
+    [
+     "x",
+     "disturbance.change",
+     {
+      "changes": {
+       "tab_sound": {
+        "tab": {
+         "tab_id": 41
+        },
+        "muted": {
+         "before": false,
+         "after": true
+        }
+       }
+      },
+      "actions": [
+       {
+        "task_id": "x.worker",
+        "span_id": "span-1",
+        "tool": "browser.use_tab"
+       }
+      ],
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "owner_input_monitored": false
+     }
+    ],
+    [
+     "x",
+     "disturbance.change",
+     {
+      "changes": {
+       "tab_sound": {
+        "tab": {
+         "tab_id": 41
+        },
+        "muted": {
+         "before": true,
+         "after": false
+        }
+       }
+      },
+      "actions": [
+       {
+        "task_id": "x.worker",
+        "span_id": "span-1",
+        "tool": "browser.use_tab"
+       }
+      ],
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ],
+    [
+     "x",
+     "disturbance.change",
+     {
+      "changes": {
+       "tab_sound": {
+        "tab": {
+         "tab_id": 41
+        },
+        "muted": {
+         "before": true,
+         "after": false
+        }
+       }
+      },
+      "actions": [
+       {
+        "task_id": "x.worker",
+        "span_id": "span-1",
+        "tool": "browser.use_tab"
+       }
+      ],
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only",
+      "owner_input_monitored": false
+     }
+    ],
+    [
+     "x",
+     "disturbance.summary",
+     {
+      "samples": 1,
+      "changes": 4,
+      "errors": 0,
+      "unavailable": {},
+      "max_sample_ms": 250.0,
+      "on_screen_calls": 0,
+      "screen_changes": [
+       {
+        "tool": "browser.use_tab",
+        "span_id": "span-1",
+        "changes": {
+         "tab_sound": {
+          "tab": {
+           "tab_id": 41
+          },
+          "audible": {
+           "before": false,
+           "after": true
+          }
+         }
+        }
+       },
+       {
+        "tool": "browser.use_tab",
+        "span_id": "span-1",
+        "changes": {
+         "tab_sound": {
+          "tab": {
+           "tab_id": 41
+          },
+          "muted": {
+           "before": false,
+           "after": true
+          }
+         }
+        }
+       },
+       {
+        "tool": "browser.use_tab",
+        "span_id": "span-1",
+        "changes": {
+         "tab_sound": {
+          "tab": {
+           "tab_id": 41
+          },
+          "muted": {
+           "before": true,
+           "after": false
+          }
+         }
+        }
+       },
+       {
+        "tool": "browser.use_tab",
+        "span_id": "span-1",
+        "changes": {
+         "tab_sound": {
+          "tab": {
+           "tab_id": 41
+          },
+          "muted": {
+           "before": true,
+           "after": false
+          }
+         }
+        }
+       }
+      ],
+      "coverage": "sampled right before and after FERB's calls that can change the screen; front app, focused window, fullscreen and Space only; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+     }
+    ]
+   ],
+   "probe": [
+    "start",
+    "pump",
+    "read",
+    "close"
+   ]
+  }
+ ]
+}

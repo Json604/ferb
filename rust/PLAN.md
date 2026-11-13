@@ -277,6 +277,6 @@ also worth fixing in the Python build on `main`, since that build is installed t
 | `ferb/act/shell/sockets.py` | A nettop port with a non-decimal digit raises out of `complete()` | fixed in Rust (20) |
 | `ferb/act/browser/ext_bridge.py` | A closed connection fails the profile's commands on its newer connection too | fixed in Rust (21) |
 | `ferb/act/fs/files.py:51` | A file's `mtime_ns` is redacted as a card number about one time in ten | fixed in Rust (34) |
-| about 15 RPC handlers | Bad parameters answer an internal error instead of a refusal | open: fix with the daemon port (23) |
+| about 20 RPC handlers | Bad parameters answer an internal error instead of a refusal | fixed in Rust for 71 methods (40); the chat and task handlers remain |
 | global stop | Tags FERB's own words "(from the task)" | open: fix with the daemon port (23) |
 | `ferb/act/shell/proxy.py` | A bare-LF head is forwarded with `Connection: close` after the body bytes | open: mirrored in `ferb-shell` (20) |

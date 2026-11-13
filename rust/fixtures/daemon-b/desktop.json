@@ -1,0 +1,4344 @@
+{
+ "cases": [
+  {
+   "name": "disturbance_change",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "tasks": {
+     "t1": {
+      "span_id": "sp-root",
+      "tree_id": "t1"
+     },
+     "t1.w1": {
+      "span_id": null,
+      "tree_id": "t1"
+     },
+     "t2.w": {
+      "tree_id": null
+     }
+    }
+   },
+   "steps": [
+    [
+     "_record_disturbance",
+     "t1",
+     "disturbance.change",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 1
+        },
+        "after": {
+         "pid": 2
+        }
+       }
+      },
+      "note": "card 4111 1111 1111 1111"
+     }
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "spans.start",
+     "disturbance.change",
+     "t1",
+     "sp-root",
+     {
+      "operation": "observe desktop"
+     }
+    ],
+    [
+     "spans.finish",
+     "span-1",
+     {
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 1
+        },
+        "after": {
+         "pid": 2
+        }
+       }
+      },
+      "note": "card 4111 1111 1111 1111"
+     }
+    ]
+   ],
+   "journal": [],
+   "published": [
+    [
+     "disturbance.observed",
+     {
+      "task_id": "t1",
+      "span_id": "span-1",
+      "changes": {
+       "frontmost_app": {
+        "before": {
+         "pid": 1
+        },
+        "after": {
+         "pid": 2
+        }
+       }
+      },
+      "note": "card [redacted]"
+     }
+    ]
+   ],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "disturbance_error_no_task",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "tasks": {
+     "t1": {
+      "span_id": "sp-root",
+      "tree_id": "t1"
+     },
+     "t1.w1": {
+      "span_id": null,
+      "tree_id": "t1"
+     },
+     "t2.w": {
+      "tree_id": null
+     }
+    }
+   },
+   "steps": [
+    [
+     "_record_disturbance",
+     "t9",
+     "disturbance.error",
+     {
+      "error": "RuntimeError"
+     }
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "spans.start",
+     "disturbance.error",
+     "t9",
+     null,
+     {
+      "operation": "observe desktop"
+     }
+    ],
+    [
+     "spans.finish",
+     "span-1",
+     {
+      "error": "RuntimeError"
+     }
+    ]
+   ],
+   "journal": [],
+   "published": [
+    [
+     "disturbance.observed",
+     {
+      "task_id": "t9",
+      "span_id": "span-1",
+      "error": "RuntimeError"
+     }
+    ]
+   ],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "disturbance_summary",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "tasks": {
+     "t1": {
+      "span_id": "sp-root",
+      "tree_id": "t1"
+     },
+     "t1.w1": {
+      "span_id": null,
+      "tree_id": "t1"
+     },
+     "t2.w": {
+      "tree_id": null
+     }
+    }
+   },
+   "steps": [
+    [
+     "_record_disturbance",
+     "t1.w1",
+     "disturbance.summary",
+     {
+      "samples": 3
+     }
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "spans.start",
+     "disturbance.summary",
+     "t1.w1",
+     null,
+     {
+      "operation": "observe desktop"
+     }
+    ],
+    [
+     "spans.finish",
+     "span-1",
+     {
+      "samples": 3
+     }
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "disturbance_no_spans",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "spans": false
+   },
+   "steps": [
+    [
+     "_record_disturbance",
+     "t1",
+     "disturbance.change",
+     {
+      "x": 1
+     }
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "task_end_all",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "hearing": {
+     "end": {
+      "t1.w1": [
+       {
+        "resource": "listen",
+        "released": true
+       }
+      ]
+     }
+    },
+    "recordings": {
+     "end": {
+      "t1.w1": [
+       {
+        "resource": "recording",
+        "released": true,
+        "deleted": 1
+       }
+      ]
+     }
+    },
+    "mac": {
+     "launched": {
+      "release": [
+       {
+        "resource": "app",
+        "released": true,
+        "name": "TextEdit"
+       }
+      ]
+     }
+    },
+    "identity_browser": {
+     "release": [
+      {
+       "resource": "ferb_browser",
+       "released": true
+      }
+     ]
+    },
+    "router": {
+     "none": true
+    },
+    "downloads": true,
+    "shells": {}
+   },
+   "steps": [
+    [
+     "_task_end",
+     "t1.w1"
+    ]
+   ],
+   "out": [
+    [
+     {
+      "resource": "listen",
+      "released": true
+     },
+     {
+      "resource": "recording",
+      "released": true,
+      "deleted": 1
+     },
+     {
+      "resource": "app",
+      "released": true,
+      "name": "TextEdit"
+     },
+     {
+      "resource": "ferb_browser",
+      "released": true
+     }
+    ]
+   ],
+   "log": [
+    [
+     "hearing.end_task",
+     "t1.w1"
+    ],
+    [
+     "recordings.end_task",
+     "t1.w1"
+    ],
+    [
+     "launched.release",
+     "t1.w1"
+    ],
+    [
+     "identity_browser.release",
+     "t1.w1"
+    ],
+    [
+     "router.release",
+     "t1.w1"
+    ],
+    [
+     "downloads.forget_task",
+     "t1.w1"
+    ],
+    [
+     "shells.end_task",
+     "t1.w1"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "task_end_failures",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "mac": {
+     "launched": {
+      "raise": "RuntimeError: quit refused"
+     }
+    },
+    "identity_browser": {
+     "raise": "TimeoutError: no answer",
+     "tabs": [
+      {
+       "tab_id": 3,
+       "url": "https://a.test/"
+      }
+     ]
+    },
+    "router": {
+     "raise": "ValueError: bad",
+     "tabs": []
+    },
+    "shells": {
+     "end_raise": "OSError: kill failed"
+    }
+   },
+   "steps": [
+    [
+     "_task_end",
+     "t1"
+    ]
+   ],
+   "out": [
+    [
+     {
+      "resource": "app",
+      "released": false,
+      "error": "RuntimeError: quit refused"
+     },
+     {
+      "resource": "ferb_browser",
+      "released": false,
+      "error": "TimeoutError: no answer",
+      "tabs": [
+       {
+        "tab_id": 3,
+        "url": "https://a.test/"
+       }
+      ]
+     },
+     {
+      "resource": "browser",
+      "released": false,
+      "error": "ValueError: bad"
+     },
+     {
+      "resource": "shell",
+      "released": false,
+      "error": "OSError: kill failed"
+     }
+    ]
+   ],
+   "log": [
+    [
+     "hearing.end_task",
+     "t1"
+    ],
+    [
+     "recordings.end_task",
+     "t1"
+    ],
+    [
+     "launched.release",
+     "t1"
+    ],
+    [
+     "identity_browser.release",
+     "t1"
+    ],
+    [
+     "router.release",
+     "t1"
+    ],
+    [
+     "shells.end_task",
+     "t1"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "task_end_router_error_no_facts",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "router": {
+     "raise": "KeyError: tab"
+    }
+   },
+   "steps": [
+    [
+     "_task_end",
+     "t1"
+    ]
+   ],
+   "out": [
+    [
+     {
+      "resource": "browser",
+      "released": false,
+      "error": "KeyError: 'tab'"
+     }
+    ]
+   ],
+   "log": [
+    [
+     "hearing.end_task",
+     "t1"
+    ],
+    [
+     "recordings.end_task",
+     "t1"
+    ],
+    [
+     "router.release",
+     "t1"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "task_end_nothing",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "mac": {}
+   },
+   "steps": [
+    [
+     "_task_end",
+     "t1"
+    ]
+   ],
+   "out": [
+    []
+   ],
+   "log": [
+    [
+     "hearing.end_task",
+     "t1"
+    ],
+    [
+     "recordings.end_task",
+     "t1"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "paused_full",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "shells": {
+     "running_owners": [
+      "t1.w1",
+      "t10.w",
+      "t1",
+      null,
+      "t2"
+     ],
+     "stop": 2
+    },
+    "hearing": {
+     "owners": [
+      "t1.w2",
+      "t1.w1",
+      "t2.w",
+      null,
+      "t1.w1"
+     ],
+     "end": {
+      "t1.w1": [
+       {
+        "resource": "listen",
+        "stopped": true
+       }
+      ],
+      "t1.w2": []
+     }
+    },
+    "recordings": {
+     "owners": [
+      "t1"
+     ],
+     "end": {
+      "t1": [
+       {
+        "resource": "recording",
+        "deleted": true
+       }
+      ]
+     }
+    },
+    "schedules": {
+     "s-1": "active"
+    }
+   },
+   "steps": [
+    [
+     "_task_paused",
+     {
+      "task_id": "t1",
+      "schedule_id": "s-1"
+     }
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "shells.stop_running",
+     [
+      "t1.w1",
+      "t1"
+     ]
+    ],
+    [
+     "hearing.end_task",
+     "t1.w1"
+    ],
+    [
+     "hearing.end_task",
+     "t1.w2"
+    ],
+    [
+     "recordings.end_task",
+     "t1"
+    ],
+    [
+     "schedule_change",
+     "s-1",
+     "pause",
+     "t1"
+    ]
+   ],
+   "journal": [
+    [
+     "task.pause_stopped",
+     {
+      "task_id": "t1",
+      "resources": [
+       {
+        "resource": "shell",
+        "stopped": 2
+       },
+       {
+        "resource": "listen",
+        "stopped": true
+       },
+       {
+        "resource": "recording",
+        "deleted": true
+       }
+      ]
+     }
+    ]
+   ],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "paused_shell_error_schedule_paused",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "shells": {
+     "stop": "RuntimeError: stuck"
+    },
+    "schedules": {
+     "s-1": "paused"
+    }
+   },
+   "steps": [
+    [
+     "_task_paused",
+     {
+      "task_id": "t1",
+      "schedule_id": "s-1"
+     }
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "shells.stop_running",
+     []
+    ]
+   ],
+   "journal": [
+    [
+     "task.pause_stopped",
+     {
+      "task_id": "t1",
+      "resources": [
+       {
+        "resource": "shell",
+        "error": "RuntimeError: stuck"
+       }
+      ]
+     }
+    ]
+   ],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "paused_nothing",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "shells": {
+     "stop": 0
+    },
+    "schedules": {}
+   },
+   "steps": [
+    [
+     "_task_paused",
+     {
+      "task_id": "t1"
+     }
+    ],
+    [
+     "_task_paused",
+     {}
+    ],
+    [
+     "_task_paused",
+     {
+      "task_id": "t2",
+      "schedule_id": "gone"
+     }
+    ]
+   ],
+   "out": [
+    null,
+    null,
+    null
+   ],
+   "log": [
+    [
+     "shells.stop_running",
+     []
+    ],
+    [
+     "shells.stop_running",
+     []
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "paused_no_stores",
+   "config": "",
+   "start_files": {},
+   "state": {},
+   "steps": [
+    [
+     "_task_paused",
+     {
+      "task_id": "t1",
+      "schedule_id": "s-1"
+     }
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "resumed_yes",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "schedules": {
+     "s-1": "paused",
+     "s-2": "active"
+    },
+    "latest_kind": {
+     "s-1": "schedule.pause",
+     "s-3": "schedule.pause"
+    },
+    "of_kind": {
+     "s-1": [
+      {
+       "with_task": "t0"
+      },
+      {
+       "with_task": "t1"
+      }
+     ],
+     "s-3": [
+      {
+       "with_task": "t1"
+      }
+     ]
+    }
+   },
+   "steps": [
+    [
+     "_task_resumed",
+     {
+      "task_id": "t1",
+      "schedule_id": "s-1"
+     }
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "journal.latest_kind",
+     [
+      "schedule.pause",
+      "schedule.resume",
+      "schedule.cancel"
+     ],
+     "schedule_id",
+     "s-1"
+    ],
+    [
+     "journal.of_kind",
+     "schedule.pause",
+     "schedule_id",
+     "s-1"
+    ],
+    [
+     "schedule_change",
+     "s-1",
+     "resume",
+     "t1"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "resumed_other_task",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "schedules": {
+     "s-1": "paused",
+     "s-2": "active"
+    },
+    "latest_kind": {
+     "s-1": "schedule.pause",
+     "s-3": "schedule.pause"
+    },
+    "of_kind": {
+     "s-1": [
+      {
+       "with_task": "t0"
+      },
+      {
+       "with_task": "t1"
+      }
+     ],
+     "s-3": [
+      {
+       "with_task": "t1"
+      }
+     ]
+    }
+   },
+   "steps": [
+    [
+     "_task_resumed",
+     {
+      "task_id": "t0",
+      "schedule_id": "s-1"
+     }
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "journal.latest_kind",
+     [
+      "schedule.pause",
+      "schedule.resume",
+      "schedule.cancel"
+     ],
+     "schedule_id",
+     "s-1"
+    ],
+    [
+     "journal.of_kind",
+     "schedule.pause",
+     "schedule_id",
+     "s-1"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "resumed_active",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "schedules": {
+     "s-1": "paused",
+     "s-2": "active"
+    },
+    "latest_kind": {
+     "s-1": "schedule.pause",
+     "s-3": "schedule.pause"
+    },
+    "of_kind": {
+     "s-1": [
+      {
+       "with_task": "t0"
+      },
+      {
+       "with_task": "t1"
+      }
+     ],
+     "s-3": [
+      {
+       "with_task": "t1"
+      }
+     ]
+    }
+   },
+   "steps": [
+    [
+     "_task_resumed",
+     {
+      "task_id": "t1",
+      "schedule_id": "s-2"
+     }
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "journal.latest_kind",
+     [
+      "schedule.pause",
+      "schedule.resume",
+      "schedule.cancel"
+     ],
+     "schedule_id",
+     "s-2"
+    ],
+    [
+     "journal.of_kind",
+     "schedule.pause",
+     "schedule_id",
+     "s-2"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "resumed_gone",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "schedules": {
+     "s-1": "paused",
+     "s-2": "active"
+    },
+    "latest_kind": {
+     "s-1": "schedule.pause",
+     "s-3": "schedule.pause"
+    },
+    "of_kind": {
+     "s-1": [
+      {
+       "with_task": "t0"
+      },
+      {
+       "with_task": "t1"
+      }
+     ],
+     "s-3": [
+      {
+       "with_task": "t1"
+      }
+     ]
+    }
+   },
+   "steps": [
+    [
+     "_task_resumed",
+     {
+      "task_id": "t1",
+      "schedule_id": "s-3"
+     }
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "journal.latest_kind",
+     [
+      "schedule.pause",
+      "schedule.resume",
+      "schedule.cancel"
+     ],
+     "schedule_id",
+     "s-3"
+    ],
+    [
+     "journal.of_kind",
+     "schedule.pause",
+     "schedule_id",
+     "s-3"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "resumed_owner_resumed",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "schedules": {
+     "s-1": "paused",
+     "s-2": "active"
+    },
+    "latest_kind": {
+     "s-1": "schedule.resume"
+    },
+    "of_kind": {
+     "s-1": [
+      {
+       "with_task": "t0"
+      },
+      {
+       "with_task": "t1"
+      }
+     ],
+     "s-3": [
+      {
+       "with_task": "t1"
+      }
+     ]
+    }
+   },
+   "steps": [
+    [
+     "_task_resumed",
+     {
+      "task_id": "t1",
+      "schedule_id": "s-1"
+     }
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "journal.latest_kind",
+     [
+      "schedule.pause",
+      "schedule.resume",
+      "schedule.cancel"
+     ],
+     "schedule_id",
+     "s-1"
+    ],
+    [
+     "journal.of_kind",
+     "schedule.pause",
+     "schedule_id",
+     "s-1"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "resumed_no_sid",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "schedules": {
+     "s-1": "paused",
+     "s-2": "active"
+    },
+    "latest_kind": {
+     "s-1": "schedule.pause",
+     "s-3": "schedule.pause"
+    },
+    "of_kind": {
+     "s-1": [
+      {
+       "with_task": "t0"
+      },
+      {
+       "with_task": "t1"
+      }
+     ],
+     "s-3": [
+      {
+       "with_task": "t1"
+      }
+     ]
+    }
+   },
+   "steps": [
+    [
+     "_task_resumed",
+     {
+      "task_id": "t1"
+     }
+    ],
+    [
+     "_task_resumed",
+     {
+      "schedule_id": ""
+     }
+    ]
+   ],
+   "out": [
+    null,
+    null
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "resumed_no_store",
+   "config": "",
+   "start_files": {},
+   "state": {},
+   "steps": [
+    [
+     "_task_resumed",
+     {
+      "task_id": "t1",
+      "schedule_id": "s-1"
+     }
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "tree_finished_all",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "changes": {
+     "stuck": [
+      "/a",
+      "/b"
+     ]
+    },
+    "uploads": true
+   },
+   "steps": [
+    [
+     "_tree_finished",
+     "t1"
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "tokens.revoke_tree",
+     "t1"
+    ],
+    [
+     "disturbance.finish",
+     "t1"
+    ],
+    [
+     "changes.forget",
+     "t1"
+    ],
+    [
+     "clean_uploads",
+     "forget_tree",
+     "t1",
+     {
+      "task_id": "t1"
+     }
+    ]
+   ],
+   "journal": [
+    [
+     "changes.cleanup_failed",
+     {
+      "task_id": "t1",
+      "paths": 2
+     }
+    ]
+   ],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "tree_finished_clean",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "changes": {
+     "stuck": []
+    }
+   },
+   "steps": [
+    [
+     "_tree_finished",
+     "t1"
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "tokens.revoke_tree",
+     "t1"
+    ],
+    [
+     "disturbance.finish",
+     "t1"
+    ],
+    [
+     "changes.forget",
+     "t1"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "tree_finished_raises",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "disturbance_raise": "RuntimeError: probe",
+    "changes": {
+     "stuck": [
+      "/x"
+     ]
+    },
+    "uploads": true
+   },
+   "steps": [
+    [
+     "_tree_finished",
+     "t1"
+    ]
+   ],
+   "out": [
+    {
+     "raised": "RuntimeError: probe"
+    }
+   ],
+   "log": [
+    [
+     "tokens.revoke_tree",
+     "t1"
+    ],
+    [
+     "disturbance.finish",
+     "t1"
+    ],
+    [
+     "changes.forget",
+     "t1"
+    ],
+    [
+     "clean_uploads",
+     "forget_tree",
+     "t1",
+     {
+      "task_id": "t1"
+     }
+    ]
+   ],
+   "journal": [
+    [
+     "changes.cleanup_failed",
+     {
+      "task_id": "t1",
+      "paths": 1
+     }
+    ]
+   ],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "tree_finished_bare",
+   "config": "",
+   "start_files": {},
+   "state": {},
+   "steps": [
+    [
+     "_tree_finished",
+     "t1"
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "tokens.revoke_tree",
+     "t1"
+    ],
+    [
+     "disturbance.finish",
+     "t1"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "owner_used_app",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "tasks": {
+     "t1.w1": {
+      "tree_id": "t1"
+     },
+     "t2.w": {
+      "tree_id": null
+     }
+    },
+    "spans_rows": [
+     [
+      "t1",
+      "disturbance.change",
+      "2026-01-01T09:00:05+00:00",
+      "{\"changes\": {\"frontmost_app\": {\"after\": {\"pid\": 501}}}, \"actions\": [{\"on_screen\": true}]}"
+     ],
+     [
+      "t1",
+      "disturbance.change",
+      "2026-01-01T09:00:06+00:00",
+      "{\"changes\": {\"frontmost_app\": {\"after\": {\"pid\": 502}}}, \"actions\": [{\"on_screen\": false}, \"x\"]}"
+     ],
+     [
+      "t1",
+      "disturbance.change",
+      "2026-01-01T08:00:00+00:00",
+      "{\"changes\": {\"frontmost_app\": {\"after\": {\"pid\": 503}}}}"
+     ],
+     [
+      "t1",
+      "disturbance.sample",
+      "2026-01-01T09:00:07+00:00",
+      "{\"changes\": {\"frontmost_app\": {\"after\": {\"pid\": 503}}}}"
+     ],
+     [
+      "t2",
+      "disturbance.change",
+      "2026-01-01T09:00:07+00:00",
+      "{\"changes\": {\"frontmost_app\": {\"after\": {\"pid\": 504}}}, \"actions\": null}"
+     ],
+     [
+      "t2",
+      "disturbance.change",
+      "2026-01-01T09:00:08+00:00",
+      null
+     ]
+    ]
+   },
+   "steps": [
+    [
+     "_owner_used_app",
+     "t1.w1",
+     {
+      "pid": 501,
+      "at": "2026-01-01T09:00:00+00:00"
+     }
+    ],
+    [
+     "_owner_used_app",
+     "t1.w1",
+     {
+      "pid": 502,
+      "at": "2026-01-01T09:00:00+00:00"
+     }
+    ],
+    [
+     "_owner_used_app",
+     "t1.w1",
+     {
+      "pid": 503,
+      "at": "2026-01-01T09:00:00+00:00"
+     }
+    ],
+    [
+     "_owner_used_app",
+     "t2.w",
+     {
+      "pid": 504,
+      "at": "2026-01-01T09:00:00+00:00"
+     }
+    ],
+    [
+     "_owner_used_app",
+     "t9.x",
+     {
+      "pid": 504,
+      "at": "2026-01-01T09:00:00+00:00"
+     }
+    ],
+    [
+     "_owner_used_app",
+     "t2",
+     {
+      "pid": 504,
+      "at": "2026-01-01T10:00:00+00:00"
+     }
+    ]
+   ],
+   "out": [
+    false,
+    true,
+    false,
+    true,
+    false,
+    false
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "running_processes",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "shells": {
+     "procs": [
+      {
+       "id": "p-1",
+       "owner_task": "t1.w1",
+       "command": "curl -H 'Authorization: Bearer invented-token-abcdef123456'",
+       "long_lived": false,
+       "running": true,
+       "started": 1767258000.5
+      },
+      {
+       "id": "p-2",
+       "owner_task": "t1",
+       "command": "sleep 5",
+       "long_lived": true,
+       "running": false,
+       "started": 1767258001.0
+      },
+      {
+       "id": "p-3",
+       "owner_task": null,
+       "command": "npm run dev",
+       "long_lived": true,
+       "running": true,
+       "started": 12.0
+      }
+     ]
+    }
+   },
+   "steps": [
+    [
+     "_running_processes"
+    ]
+   ],
+   "out": [
+    [
+     {
+      "id": "p-1",
+      "task": "t1.w1",
+      "command": "curl -H 'Authorization: Bearer [redacted]'",
+      "background": false
+     },
+     {
+      "id": "p-3",
+      "task": null,
+      "command": "npm run dev",
+      "background": true
+     }
+    ]
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "running_processes_none",
+   "config": "",
+   "start_files": {},
+   "state": {},
+   "steps": [
+    [
+     "_running_processes"
+    ]
+   ],
+   "out": [
+    []
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "shell_process",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "shells": {
+     "procs": [
+      {
+       "id": "p-1",
+       "owner_task": "t1.w1",
+       "command": "curl -H 'Authorization: Bearer invented-token-abcdef123456'",
+       "long_lived": false,
+       "running": true,
+       "started": 1767258000.5
+      },
+      {
+       "id": "p-2",
+       "owner_task": "t1",
+       "command": "sleep 5",
+       "long_lived": true,
+       "running": false,
+       "started": 1767258001.0
+      },
+      {
+       "id": "p-3",
+       "owner_task": null,
+       "command": "npm run dev",
+       "long_lived": true,
+       "running": true,
+       "started": 12.0
+      }
+     ]
+    }
+   },
+   "steps": [
+    [
+     "_shell_process",
+     "p-1"
+    ],
+    [
+     "_shell_process",
+     "p-3"
+    ],
+    [
+     "_shell_process",
+     "nope"
+    ]
+   ],
+   "out": [
+    {
+     "command": "curl -H 'Authorization: Bearer invented-token-abcdef123456'",
+     "started": 1767258000.5,
+     "owner_task": "t1.w1",
+     "running": true
+    },
+    {
+     "command": "npm run dev",
+     "started": 12.0,
+     "owner_task": null,
+     "running": true
+    },
+    null
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "shell_process_no_shells",
+   "config": "",
+   "start_files": {},
+   "state": {},
+   "steps": [
+    [
+     "_shell_process",
+     "p-1"
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "page_secrets",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "mac": {
+     "page_secrets": [
+      {
+       "x": 1,
+       "y": 2,
+       "w": 3,
+       "h": 4
+      }
+     ]
+    }
+   },
+   "steps": [
+    [
+     "_native_page_secrets",
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Sign in"
+    ]
+   ],
+   "out": [
+    [
+     {
+      "x": 1,
+      "y": 2,
+      "w": 3,
+      "h": 4
+     }
+    ]
+   ],
+   "log": [
+    [
+     "mac.page_secrets",
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Sign in"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "page_secrets_fails",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "mac": {
+     "page_secrets_raise": "OSError: denied"
+    }
+   },
+   "steps": [
+    [
+     "_native_page_secrets",
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Sign in"
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "mac.page_secrets",
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Sign in"
+    ]
+   ],
+   "journal": [
+    [
+     "screen.page_secrets_failed",
+     {
+      "error": "OSError"
+     }
+    ]
+   ],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "page_secrets_no_mac",
+   "config": "",
+   "start_files": {},
+   "state": {},
+   "steps": [
+    [
+     "_native_page_secrets",
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Sign in"
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "place",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "mac": {
+     "place": [
+      5.0,
+      6.25,
+      7.0,
+      8.0
+     ]
+    }
+   },
+   "steps": [
+    [
+     "_native_place",
+     [
+      1.0,
+      2.5,
+      3.0,
+      4.0
+     ],
+     [
+      0.0,
+      0.0,
+      800.0,
+      600.0
+     ],
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Page"
+    ]
+   ],
+   "out": [
+    [
+     5.0,
+     6.25,
+     7.0,
+     8.0
+    ]
+   ],
+   "log": [
+    [
+     "mac.place_on_web_area",
+     [
+      1.0,
+      2.5,
+      3.0,
+      4.0
+     ],
+     [
+      0.0,
+      0.0,
+      800.0,
+      600.0
+     ],
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Page"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "place_none",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "mac": {}
+   },
+   "steps": [
+    [
+     "_native_place",
+     [
+      1.0,
+      2.5,
+      3.0,
+      4.0
+     ],
+     [
+      0.0,
+      0.0,
+      800.0,
+      600.0
+     ],
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Page"
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "mac.place_on_web_area",
+     [
+      1.0,
+      2.5,
+      3.0,
+      4.0
+     ],
+     [
+      0.0,
+      0.0,
+      800.0,
+      600.0
+     ],
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Page"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "place_no_mac",
+   "config": "",
+   "start_files": {},
+   "state": {},
+   "steps": [
+    [
+     "_native_place",
+     [
+      1.0,
+      2.5,
+      3.0,
+      4.0
+     ],
+     [
+      0.0,
+      0.0,
+      800.0,
+      600.0
+     ],
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Page"
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "capture_ok",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "windows": [
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       11.0,
+       21.5,
+       799.0,
+       600.0
+      ],
+      "title": "Invented  page "
+     },
+     {
+      "id": 42,
+      "pid": 77,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Other"
+     },
+     {
+      "id": 43,
+      "pid": 78,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     },
+     {
+      "id": 44,
+      "pid": 77,
+      "bounds": [
+       13.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     }
+    ],
+    "window_now": {
+     "id": 41,
+     "pid": 77,
+     "bounds": [
+      11.0,
+      21.5,
+      799.0,
+      600.0
+     ],
+     "title": "Invented  page "
+    },
+    "mac": {
+     "masking": "masked from AX"
+    }
+   },
+   "steps": [
+    [
+     "_native_window_capture",
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Invented page"
+    ]
+   ],
+   "out": [
+    [
+     "jpeg",
+     "masked from AX"
+    ]
+   ],
+   "log": [
+    [
+     "screenshot.normal_windows"
+    ],
+    [
+     "mac.window_image",
+     "pid:77",
+     "41"
+    ],
+    [
+     "screenshot.window",
+     41
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "capture_no_title",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "windows": [
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       11.0,
+       21.5,
+       799.0,
+       600.0
+      ],
+      "title": "Invented  page "
+     },
+     {
+      "id": 42,
+      "pid": 77,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Other"
+     }
+    ],
+    "window_now": {
+     "id": 41,
+     "pid": 77,
+     "bounds": [
+      11.0,
+      21.5,
+      799.0,
+      600.0
+     ],
+     "title": "Invented  page "
+    },
+    "mac": {}
+   },
+   "steps": [
+    [
+     "_native_window_capture",
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     ""
+    ]
+   ],
+   "out": [
+    [
+     null,
+     "more than one window of the browser at that place shows that tab's title"
+    ]
+   ],
+   "log": [
+    [
+     "screenshot.normal_windows"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "capture_only_one_untitled",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "windows": [
+     {
+      "id": 42,
+      "pid": 77,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Other"
+     },
+     {
+      "id": 43,
+      "pid": 78,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     }
+    ],
+    "window_now": {
+     "id": 42,
+     "pid": 77,
+     "bounds": [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "title": "Other"
+    },
+    "mac": {
+     "masking": ""
+    }
+   },
+   "steps": [
+    [
+     "_native_window_capture",
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     ""
+    ]
+   ],
+   "out": [
+    [
+     "jpeg",
+     ""
+    ]
+   ],
+   "log": [
+    [
+     "screenshot.normal_windows"
+    ],
+    [
+     "mac.window_image",
+     "pid:77",
+     "42"
+    ],
+    [
+     "screenshot.window",
+     42
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "capture_none_near",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "windows": [
+     {
+      "id": 43,
+      "pid": 78,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     },
+     {
+      "id": 44,
+      "pid": 77,
+      "bounds": [
+       13.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     }
+    ],
+    "mac": {}
+   },
+   "steps": [
+    [
+     "_native_window_capture",
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Invented page"
+    ]
+   ],
+   "out": [
+    [
+     null,
+     "no window of the browser showing that tab is on screen (it may be on another Space)"
+    ]
+   ],
+   "log": [
+    [
+     "screenshot.normal_windows"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "capture_two",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "windows": [
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       11.0,
+       21.5,
+       799.0,
+       600.0
+      ],
+      "title": "Invented  page "
+     },
+     {
+      "id": 45,
+      "pid": 77,
+      "bounds": [
+       11.0,
+       21.5,
+       799.0,
+       600.0
+      ],
+      "title": "Invented  page "
+     }
+    ],
+    "mac": {}
+   },
+   "steps": [
+    [
+     "_native_window_capture",
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Invented page"
+    ]
+   ],
+   "out": [
+    [
+     null,
+     "more than one window of the browser at that place shows that tab's title"
+    ]
+   ],
+   "log": [
+    [
+     "screenshot.normal_windows"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "capture_changed",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "windows": [
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       11.0,
+       21.5,
+       799.0,
+       600.0
+      ],
+      "title": "Invented  page "
+     }
+    ],
+    "window_now": {
+     "id": 42,
+     "pid": 77,
+     "bounds": [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "title": "Other"
+    },
+    "mac": {}
+   },
+   "steps": [
+    [
+     "_native_window_capture",
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Invented page"
+    ]
+   ],
+   "out": [
+    [
+     null,
+     "the window's page changed while it was captured (its title isn't the tab's now)"
+    ]
+   ],
+   "log": [
+    [
+     "screenshot.normal_windows"
+    ],
+    [
+     "mac.window_image",
+     "pid:77",
+     "41"
+    ],
+    [
+     "screenshot.window",
+     41
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "capture_gone_now",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "windows": [
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       11.0,
+       21.5,
+       799.0,
+       600.0
+      ],
+      "title": "Invented  page "
+     }
+    ],
+    "mac": {}
+   },
+   "steps": [
+    [
+     "_native_window_capture",
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Invented page"
+    ]
+   ],
+   "out": [
+    [
+     null,
+     "the window's page changed while it was captured (its title isn't the tab's now)"
+    ]
+   ],
+   "log": [
+    [
+     "screenshot.normal_windows"
+    ],
+    [
+     "mac.window_image",
+     "pid:77",
+     "41"
+    ],
+    [
+     "screenshot.window",
+     41
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "capture_no_target",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "windows": [
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       11.0,
+       21.5,
+       799.0,
+       600.0
+      ],
+      "title": "Invented  page "
+     }
+    ],
+    "mac": {
+     "image_raise": "NoTarget: gone"
+    }
+   },
+   "steps": [
+    [
+     "_native_window_capture",
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Invented page"
+    ]
+   ],
+   "out": [
+    [
+     null,
+     "the window went away before it could be captured"
+    ]
+   ],
+   "log": [
+    [
+     "screenshot.normal_windows"
+    ],
+    [
+     "mac.window_image",
+     "pid:77",
+     "41"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "capture_withheld",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "windows": [
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       11.0,
+       21.5,
+       799.0,
+       600.0
+      ],
+      "title": "Invented  page "
+     }
+    ],
+    "mac": {
+     "image_raise": "Withheld: pixels withheld: masks failed; pixels withheld"
+    }
+   },
+   "steps": [
+    [
+     "_native_window_capture",
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Invented page"
+    ]
+   ],
+   "out": [
+    [
+     null,
+     "masks failed"
+    ]
+   ],
+   "log": [
+    [
+     "screenshot.normal_windows"
+    ],
+    [
+     "mac.window_image",
+     "pid:77",
+     "41"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "capture_refused",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "windows": [
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       11.0,
+       21.5,
+       799.0,
+       600.0
+      ],
+      "title": "Invented  page "
+     }
+    ],
+    "mac": {
+     "image_raise": "Refused: FERB doesn't look at that app"
+    }
+   },
+   "steps": [
+    [
+     "_native_window_capture",
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Invented page"
+    ]
+   ],
+   "out": [
+    [
+     null,
+     "FERB doesn't look at that app"
+    ]
+   ],
+   "log": [
+    [
+     "screenshot.normal_windows"
+    ],
+    [
+     "mac.window_image",
+     "pid:77",
+     "41"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "capture_fails",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "windows_raise": "OSError: window list",
+    "mac": {}
+   },
+   "steps": [
+    [
+     "_native_window_capture",
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Invented page"
+    ]
+   ],
+   "out": [
+    [
+     null,
+     "the window capture failed (OSError)"
+    ]
+   ],
+   "log": [
+    [
+     "screenshot.normal_windows"
+    ]
+   ],
+   "journal": [
+    [
+     "screen.native_capture_failed",
+     {
+      "error": "OSError"
+     }
+    ]
+   ],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "capture_off",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "mac": {
+     "snapshot_images": false
+    }
+   },
+   "steps": [
+    [
+     "_native_window_capture",
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "Invented page"
+    ]
+   ],
+   "out": [
+    [
+     null,
+     "screenshots are switched off ([mac] snapshot_image)"
+    ]
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "capture_no_mac",
+   "config": "",
+   "start_files": {},
+   "state": {},
+   "steps": [
+    [
+     "_native_window_capture",
+     77,
+     [
+      10.0,
+      20.0,
+      800.0,
+      600.0
+     ],
+     "x"
+    ]
+   ],
+   "out": [
+    [
+     null,
+     "FERB has no Mac driver to capture windows with"
+    ]
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "automation",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "probes": {
+     "com.google.Chrome": [
+      "pending",
+      "denied"
+     ],
+     "com.apple.Safari": [
+      "not_determined"
+     ]
+    }
+   },
+   "steps": [
+    [
+     "_automation_granted",
+     "com.google.Chrome"
+    ],
+    [
+     "resolve",
+     "com.google.Chrome",
+     "granted"
+    ],
+    [
+     "_automation_granted",
+     "com.google.Chrome"
+    ],
+    [
+     "mono",
+     30
+    ],
+    [
+     "_automation_granted",
+     "com.google.Chrome"
+    ],
+    [
+     "mono",
+     31
+    ],
+    [
+     "_automation_granted",
+     "com.google.Chrome"
+    ],
+    [
+     "_automation_granted",
+     "com.apple.Safari"
+    ],
+    [
+     "_automation_granted",
+     "com.apple.Safari"
+    ]
+   ],
+   "out": [
+    false,
+    null,
+    true,
+    null,
+    true,
+    null,
+    false,
+    false,
+    false
+   ],
+   "log": [
+    [
+     "automation_check",
+     "com.google.Chrome",
+     false
+    ],
+    [
+     "automation_check",
+     "com.google.Chrome",
+     false
+    ],
+    [
+     "automation_check",
+     "com.apple.Safari",
+     false
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [
+     "com.apple.Safari",
+     "com.google.Chrome"
+    ],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "front_tab_granted",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "probes": {
+     "com.google.Chrome": [
+      "granted"
+     ]
+    },
+    "scripted": {
+     "com.google.Chrome": [
+      {
+       "bounds": [
+        11.0,
+        21.0,
+        799.0,
+        600.0
+       ],
+       "name": "Invented page",
+       "url": "https://example.test/p",
+       "title": "Invented page"
+      },
+      {
+       "bounds": [
+        500.0,
+        20.0,
+        800.0,
+        600.0
+       ],
+       "name": "Else",
+       "url": "https://else.test/",
+       "title": "Else"
+      }
+     ]
+    }
+   },
+   "steps": [
+    [
+     "_front_tab",
+     "com.google.Chrome",
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     }
+    ],
+    [
+     "_front_tab",
+     "com.google.Chrome",
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     },
+     true
+    ]
+   ],
+   "out": [
+    [
+     "https://example.test/p",
+     "Invented page"
+    ],
+    [
+     "https://example.test/p",
+     "Invented page"
+    ]
+   ],
+   "log": [
+    [
+     "automation_check",
+     "com.google.Chrome",
+     false
+    ],
+    [
+     "applescript_windows",
+     "com.google.Chrome"
+    ],
+    [
+     "applescript_windows",
+     "com.google.Chrome"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [
+     "com.google.Chrome"
+    ],
+    "automation_checks": [],
+    "tab_granted": [
+     "com.google.Chrome"
+    ]
+   }
+  },
+  {
+   "name": "front_tab_not_browser",
+   "config": "",
+   "start_files": {},
+   "state": {},
+   "steps": [
+    [
+     "_front_tab",
+     "com.apple.TextEdit",
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     }
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "front_tab_pending_then_after_shot",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "probes": {
+     "com.google.Chrome": [
+      "pending"
+     ]
+    },
+    "scripted": {
+     "com.google.Chrome": [
+      {
+       "bounds": [
+        11.0,
+        21.0,
+        799.0,
+        600.0
+       ],
+       "name": "Invented page",
+       "url": "https://example.test/p",
+       "title": "Invented page"
+      },
+      {
+       "bounds": [
+        500.0,
+        20.0,
+        800.0,
+        600.0
+       ],
+       "name": "Else",
+       "url": "https://else.test/",
+       "title": "Else"
+      }
+     ]
+    }
+   },
+   "steps": [
+    [
+     "_front_tab",
+     "com.google.Chrome",
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     }
+    ],
+    [
+     "_front_tab",
+     "com.google.Chrome",
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     },
+     true
+    ]
+   ],
+   "out": [
+    null,
+    null
+   ],
+   "log": [
+    [
+     "automation_check",
+     "com.google.Chrome",
+     false
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [
+     "com.google.Chrome"
+    ],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "front_tab_kept_grant_while_pending",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "probes": {
+     "com.google.Chrome": [
+      "granted",
+      "pending"
+     ]
+    },
+    "scripted": {
+     "com.google.Chrome": [
+      {
+       "bounds": [
+        11.0,
+        21.0,
+        799.0,
+        600.0
+       ],
+       "name": "Invented page",
+       "url": "https://example.test/p",
+       "title": "Invented page"
+      },
+      {
+       "bounds": [
+        500.0,
+        20.0,
+        800.0,
+        600.0
+       ],
+       "name": "Else",
+       "url": "https://else.test/",
+       "title": "Else"
+      }
+     ]
+    }
+   },
+   "steps": [
+    [
+     "_front_tab",
+     "com.google.Chrome",
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     }
+    ],
+    [
+     "mono",
+     61
+    ],
+    [
+     "_front_tab",
+     "com.google.Chrome",
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     }
+    ],
+    [
+     "_front_tab",
+     "com.google.Chrome",
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     },
+     true
+    ],
+    [
+     "resolve",
+     "com.google.Chrome",
+     "denied"
+    ],
+    [
+     "_front_tab",
+     "com.google.Chrome",
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     },
+     true
+    ]
+   ],
+   "out": [
+    [
+     "https://example.test/p",
+     "Invented page"
+    ],
+    null,
+    null,
+    [
+     "https://example.test/p",
+     "Invented page"
+    ],
+    null,
+    null
+   ],
+   "log": [
+    [
+     "automation_check",
+     "com.google.Chrome",
+     false
+    ],
+    [
+     "applescript_windows",
+     "com.google.Chrome"
+    ],
+    [
+     "automation_check",
+     "com.google.Chrome",
+     false
+    ],
+    [
+     "applescript_windows",
+     "com.google.Chrome"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [
+     "com.google.Chrome"
+    ],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "front_tab_script_fails",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "probes": {
+     "com.google.Chrome": [
+      "granted"
+     ]
+    },
+    "scripted": {
+     "com.google.Chrome": "raise"
+    }
+   },
+   "steps": [
+    [
+     "_front_tab",
+     "com.google.Chrome",
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     }
+    ],
+    [
+     "_front_tab",
+     "com.google.Chrome",
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     }
+    ]
+   ],
+   "out": [
+    null,
+    null
+   ],
+   "log": [
+    [
+     "automation_check",
+     "com.google.Chrome",
+     false
+    ],
+    [
+     "applescript_windows",
+     "com.google.Chrome"
+    ],
+    [
+     "applescript_windows",
+     "com.google.Chrome"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [
+     "com.google.Chrome"
+    ],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "front_tab_lists_none",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "probes": {
+     "com.google.Chrome": [
+      "granted"
+     ]
+    }
+   },
+   "steps": [
+    [
+     "_front_tab",
+     "com.google.Chrome",
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     }
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "automation_check",
+     "com.google.Chrome",
+     false
+    ],
+    [
+     "applescript_windows",
+     "com.google.Chrome"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [
+     "com.google.Chrome"
+    ],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "front_tab_no_url",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "probes": {
+     "com.google.Chrome": [
+      "granted"
+     ]
+    },
+    "scripted": {
+     "com.google.Chrome": [
+      {
+       "bounds": [
+        11.0,
+        21.0,
+        799.0,
+        600.0
+       ],
+       "name": "Invented page",
+       "url": "",
+       "title": "Invented page"
+      }
+     ]
+    }
+   },
+   "steps": [
+    [
+     "_front_tab",
+     "com.google.Chrome",
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     }
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "automation_check",
+     "com.google.Chrome",
+     false
+    ],
+    [
+     "applescript_windows",
+     "com.google.Chrome"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [
+     "com.google.Chrome"
+    ],
+    "automation_checks": [],
+    "tab_granted": [
+     "com.google.Chrome"
+    ]
+   }
+  },
+  {
+   "name": "front_tab_ambiguous",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "probes": {
+     "com.google.Chrome": [
+      "granted"
+     ]
+    },
+    "scripted": {
+     "com.google.Chrome": [
+      {
+       "bounds": [
+        11.0,
+        21.0,
+        799.0,
+        600.0
+       ],
+       "name": "Invented page",
+       "url": "https://example.test/p",
+       "title": "Invented page"
+      },
+      {
+       "bounds": [
+        11.0,
+        21.0,
+        799.0,
+        600.0
+       ],
+       "name": "Two",
+       "url": "https://example.test/p",
+       "title": "Invented page"
+      }
+     ]
+    }
+   },
+   "steps": [
+    [
+     "_front_tab",
+     "com.google.Chrome",
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     }
+    ]
+   ],
+   "out": [
+    {
+     "raised": "Ambiguous: more than one of the browser's windows could be the captured one and its title doesn't single one out, so FERB can't tell which tab it shows: no URL or tab title"
+    }
+   ],
+   "log": [
+    [
+     "automation_check",
+     "com.google.Chrome",
+     false
+    ],
+    [
+     "applescript_windows",
+     "com.google.Chrome"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [
+     "com.google.Chrome"
+    ],
+    "automation_checks": [],
+    "tab_granted": [
+     "com.google.Chrome"
+    ]
+   }
+  },
+  {
+   "name": "front_tab_nowhere",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "probes": {
+     "com.google.Chrome": [
+      "granted"
+     ]
+    },
+    "scripted": {
+     "com.google.Chrome": [
+      {
+       "bounds": [
+        500.0,
+        20.0,
+        800.0,
+        600.0
+       ],
+       "name": "Else",
+       "url": "https://else.test/",
+       "title": "Else"
+      }
+     ]
+    }
+   },
+   "steps": [
+    [
+     "_front_tab",
+     "com.google.Chrome",
+     {
+      "id": 41,
+      "pid": 77,
+      "bounds": [
+       10.0,
+       20.0,
+       800.0,
+       600.0
+      ],
+      "title": "Invented page"
+     }
+    ]
+   ],
+   "out": [
+    {
+     "raised": "LookupError: none of the browser's windows is where the captured window is, so FERB can't tell which tab it shows: no URL or tab title"
+    }
+   ],
+   "log": [
+    [
+     "automation_check",
+     "com.google.Chrome",
+     false
+    ],
+    [
+     "applescript_windows",
+     "com.google.Chrome"
+    ]
+   ],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [
+     "com.google.Chrome"
+    ],
+    "automation_checks": [],
+    "tab_granted": [
+     "com.google.Chrome"
+    ]
+   }
+  },
+  {
+   "name": "app_added",
+   "config": "[device]\nid = \"mac-1\"\n",
+   "start_files": {
+    "device/mac-1.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.TextEdit\",\n      \"name\": \"TextEdit\",\n      \"path\": \"/Applications/TextEdit.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"ok\",\n      \"bundle_id\": \"com.example.old\",\n      \"name\": \"Old\",\n      \"path\": \"/Applications/Old.app\",\n      \"scriptable\": false,\n      \"version\": \"2\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.finder\",\n      \"name\": \"Finder\",\n      \"path\": \"/System/Finder.app\",\n      \"scriptable\": true,\n      \"version\": \"14\"\n    }\n  ],\n  \"browsers\": [],\n  \"device_id\": \"mac-1\",\n  \"os\": \"macOS\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-01-01T09:00:00+00:00\"\n}\n"
+   },
+   "state": {},
+   "steps": [
+    [
+     "_app_changed",
+     "added",
+     {
+      "bundle_id": "com.example.new",
+      "name": "Nouveau",
+      "version": "3.1",
+      "path": "/Applications/New.app",
+      "scriptable": false
+     },
+     "/Applications/New.app"
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "spawn",
+     "device profile update"
+    ]
+   ],
+   "journal": [],
+   "published": [
+    [
+     "device.changed",
+     {
+      "change": "added",
+      "path": "/Applications/New.app",
+      "bundle_id": "com.example.new"
+     }
+    ]
+   ],
+   "files": {
+    "device/history.jsonl": "{\"added\": [\"com.example.new\"], \"at\": \"2026-01-01T09:00:00+00:00\", \"changed\": [], \"device_id\": \"mac-1\", \"message\": \"app added: com.example.new\", \"removed\": []}\n",
+    "device/mac-1.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.TextEdit\",\n      \"name\": \"TextEdit\",\n      \"path\": \"/Applications/TextEdit.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.finder\",\n      \"name\": \"Finder\",\n      \"path\": \"/System/Finder.app\",\n      \"scriptable\": true,\n      \"version\": \"14\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.example.new\",\n      \"name\": \"Nouveau\",\n      \"path\": \"/Applications/New.app\",\n      \"scriptable\": false,\n      \"version\": \"3.1\"\n    },\n    {\n      \"ax_support\": \"ok\",\n      \"bundle_id\": \"com.example.old\",\n      \"name\": \"Old\",\n      \"path\": \"/Applications/Old.app\",\n      \"scriptable\": false,\n      \"version\": \"2\"\n    }\n  ],\n  \"browsers\": [],\n  \"device_id\": \"mac-1\",\n  \"os\": \"macOS\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-01-01T09:00:00+00:00\"\n}\n"
+   },
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "app_updated",
+   "config": "[device]\nid = \"mac-1\"\n",
+   "start_files": {
+    "device/mac-1.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.TextEdit\",\n      \"name\": \"TextEdit\",\n      \"path\": \"/Applications/TextEdit.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"ok\",\n      \"bundle_id\": \"com.example.old\",\n      \"name\": \"Old\",\n      \"path\": \"/Applications/Old.app\",\n      \"scriptable\": false,\n      \"version\": \"2\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.finder\",\n      \"name\": \"Finder\",\n      \"path\": \"/System/Finder.app\",\n      \"scriptable\": true,\n      \"version\": \"14\"\n    }\n  ],\n  \"browsers\": [],\n  \"device_id\": \"mac-1\",\n  \"os\": \"macOS\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-01-01T09:00:00+00:00\"\n}\n"
+   },
+   "state": {},
+   "steps": [
+    [
+     "_app_changed",
+     "changed",
+     {
+      "bundle_id": "com.example.old",
+      "name": "Nouveau",
+      "version": "3",
+      "path": "/Applications/New.app",
+      "scriptable": false
+     },
+     "/Applications/Old2.app"
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "spawn",
+     "device profile update"
+    ]
+   ],
+   "journal": [],
+   "published": [
+    [
+     "device.changed",
+     {
+      "change": "changed",
+      "path": "/Applications/Old2.app",
+      "bundle_id": "com.example.old"
+     }
+    ]
+   ],
+   "files": {
+    "device/history.jsonl": "{\"added\": [], \"at\": \"2026-01-01T09:00:00+00:00\", \"changed\": [\"com.example.old\"], \"device_id\": \"mac-1\", \"message\": \"app changed: com.example.old\", \"removed\": []}\n",
+    "device/mac-1.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.TextEdit\",\n      \"name\": \"TextEdit\",\n      \"path\": \"/Applications/TextEdit.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.finder\",\n      \"name\": \"Finder\",\n      \"path\": \"/System/Finder.app\",\n      \"scriptable\": true,\n      \"version\": \"14\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.example.old\",\n      \"name\": \"Nouveau\",\n      \"path\": \"/Applications/New.app\",\n      \"scriptable\": false,\n      \"version\": \"3\"\n    }\n  ],\n  \"browsers\": [],\n  \"device_id\": \"mac-1\",\n  \"os\": \"macOS\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-01-01T09:00:00+00:00\"\n}\n"
+   },
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "app_removed",
+   "config": "[device]\nid = \"mac-1\"\n",
+   "start_files": {
+    "device/mac-1.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.TextEdit\",\n      \"name\": \"TextEdit\",\n      \"path\": \"/Applications/TextEdit.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"ok\",\n      \"bundle_id\": \"com.example.old\",\n      \"name\": \"Old\",\n      \"path\": \"/Applications/Old.app\",\n      \"scriptable\": false,\n      \"version\": \"2\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.finder\",\n      \"name\": \"Finder\",\n      \"path\": \"/System/Finder.app\",\n      \"scriptable\": true,\n      \"version\": \"14\"\n    }\n  ],\n  \"browsers\": [],\n  \"device_id\": \"mac-1\",\n  \"os\": \"macOS\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-01-01T09:00:00+00:00\"\n}\n"
+   },
+   "state": {},
+   "steps": [
+    [
+     "_app_changed",
+     "removed",
+     null,
+     "/Applications/Old.app"
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "spawn",
+     "device profile update"
+    ]
+   ],
+   "journal": [],
+   "published": [
+    [
+     "device.changed",
+     {
+      "change": "removed",
+      "path": "/Applications/Old.app",
+      "bundle_id": null
+     }
+    ]
+   ],
+   "files": {
+    "device/history.jsonl": "{\"added\": [], \"at\": \"2026-01-01T09:00:00+00:00\", \"changed\": [], \"device_id\": \"mac-1\", \"message\": \"app removed: Old.app\", \"removed\": [\"com.example.old\"]}\n",
+    "device/mac-1.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.TextEdit\",\n      \"name\": \"TextEdit\",\n      \"path\": \"/Applications/TextEdit.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.finder\",\n      \"name\": \"Finder\",\n      \"path\": \"/System/Finder.app\",\n      \"scriptable\": true,\n      \"version\": \"14\"\n    }\n  ],\n  \"browsers\": [],\n  \"device_id\": \"mac-1\",\n  \"os\": \"macOS\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-01-01T09:00:00+00:00\"\n}\n"
+   },
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "app_removed_unknown",
+   "config": "[device]\nid = \"mac-1\"\n",
+   "start_files": {
+    "device/mac-1.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.TextEdit\",\n      \"name\": \"TextEdit\",\n      \"path\": \"/Applications/TextEdit.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"ok\",\n      \"bundle_id\": \"com.example.old\",\n      \"name\": \"Old\",\n      \"path\": \"/Applications/Old.app\",\n      \"scriptable\": false,\n      \"version\": \"2\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.finder\",\n      \"name\": \"Finder\",\n      \"path\": \"/System/Finder.app\",\n      \"scriptable\": true,\n      \"version\": \"14\"\n    }\n  ],\n  \"browsers\": [],\n  \"device_id\": \"mac-1\",\n  \"os\": \"macOS\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-01-01T09:00:00+00:00\"\n}\n"
+   },
+   "state": {},
+   "steps": [
+    [
+     "_app_changed",
+     "removed",
+     null,
+     "/Applications/Never.app"
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "spawn",
+     "device profile update"
+    ]
+   ],
+   "journal": [],
+   "published": [
+    [
+     "device.changed",
+     {
+      "change": "removed",
+      "path": "/Applications/Never.app",
+      "bundle_id": null
+     }
+    ]
+   ],
+   "files": {
+    "device/history.jsonl": "{\"added\": [], \"at\": \"2026-01-01T09:00:00+00:00\", \"changed\": [], \"device_id\": \"mac-1\", \"message\": \"app removed: Never.app\", \"removed\": []}\n",
+    "device/mac-1.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.TextEdit\",\n      \"name\": \"TextEdit\",\n      \"path\": \"/Applications/TextEdit.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.finder\",\n      \"name\": \"Finder\",\n      \"path\": \"/System/Finder.app\",\n      \"scriptable\": true,\n      \"version\": \"14\"\n    },\n    {\n      \"ax_support\": \"ok\",\n      \"bundle_id\": \"com.example.old\",\n      \"name\": \"Old\",\n      \"path\": \"/Applications/Old.app\",\n      \"scriptable\": false,\n      \"version\": \"2\"\n    }\n  ],\n  \"browsers\": [],\n  \"device_id\": \"mac-1\",\n  \"os\": \"macOS\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-01-01T09:00:00+00:00\"\n}\n"
+   },
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "app_no_profile",
+   "config": "[device]\nid = \"mac-9\"\n",
+   "start_files": {
+    "device/mac-1.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.TextEdit\",\n      \"name\": \"TextEdit\",\n      \"path\": \"/Applications/TextEdit.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"ok\",\n      \"bundle_id\": \"com.example.old\",\n      \"name\": \"Old\",\n      \"path\": \"/Applications/Old.app\",\n      \"scriptable\": false,\n      \"version\": \"2\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.finder\",\n      \"name\": \"Finder\",\n      \"path\": \"/System/Finder.app\",\n      \"scriptable\": true,\n      \"version\": \"14\"\n    }\n  ],\n  \"browsers\": [],\n  \"device_id\": \"mac-1\",\n  \"os\": \"macOS\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-01-01T09:00:00+00:00\"\n}\n"
+   },
+   "state": {},
+   "steps": [
+    [
+     "_app_changed",
+     "added",
+     {
+      "bundle_id": "com.example.new",
+      "name": "Nouveau",
+      "version": "3.1",
+      "path": "/Applications/New.app",
+      "scriptable": false
+     },
+     "/Applications/New.app"
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "spawn",
+     "device profile update"
+    ]
+   ],
+   "journal": [],
+   "published": [
+    [
+     "device.changed",
+     {
+      "change": "added",
+      "path": "/Applications/New.app",
+      "bundle_id": "com.example.new"
+     }
+    ]
+   ],
+   "files": {
+    "device/mac-1.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.TextEdit\",\n      \"name\": \"TextEdit\",\n      \"path\": \"/Applications/TextEdit.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"ok\",\n      \"bundle_id\": \"com.example.old\",\n      \"name\": \"Old\",\n      \"path\": \"/Applications/Old.app\",\n      \"scriptable\": false,\n      \"version\": \"2\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.finder\",\n      \"name\": \"Finder\",\n      \"path\": \"/System/Finder.app\",\n      \"scriptable\": true,\n      \"version\": \"14\"\n    }\n  ],\n  \"browsers\": [],\n  \"device_id\": \"mac-1\",\n  \"os\": \"macOS\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-01-01T09:00:00+00:00\"\n}\n"
+   },
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "app_no_device_id",
+   "config": "",
+   "start_files": {
+    "device/mac-1.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.TextEdit\",\n      \"name\": \"TextEdit\",\n      \"path\": \"/Applications/TextEdit.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"ok\",\n      \"bundle_id\": \"com.example.old\",\n      \"name\": \"Old\",\n      \"path\": \"/Applications/Old.app\",\n      \"scriptable\": false,\n      \"version\": \"2\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.finder\",\n      \"name\": \"Finder\",\n      \"path\": \"/System/Finder.app\",\n      \"scriptable\": true,\n      \"version\": \"14\"\n    }\n  ],\n  \"browsers\": [],\n  \"device_id\": \"mac-1\",\n  \"os\": \"macOS\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-01-01T09:00:00+00:00\"\n}\n"
+   },
+   "state": {},
+   "steps": [
+    [
+     "_app_changed",
+     "added",
+     {
+      "bundle_id": "com.example.new",
+      "name": "Nouveau",
+      "version": "3.1",
+      "path": "/Applications/New.app",
+      "scriptable": false
+     },
+     "/Applications/New.app"
+    ]
+   ],
+   "out": [
+    null
+   ],
+   "log": [
+    [
+     "spawn",
+     "device profile update"
+    ]
+   ],
+   "journal": [],
+   "published": [
+    [
+     "device.changed",
+     {
+      "change": "added",
+      "path": "/Applications/New.app",
+      "bundle_id": "com.example.new"
+     }
+    ]
+   ],
+   "files": {
+    "device/mac-1.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.TextEdit\",\n      \"name\": \"TextEdit\",\n      \"path\": \"/Applications/TextEdit.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"ok\",\n      \"bundle_id\": \"com.example.old\",\n      \"name\": \"Old\",\n      \"path\": \"/Applications/Old.app\",\n      \"scriptable\": false,\n      \"version\": \"2\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.finder\",\n      \"name\": \"Finder\",\n      \"path\": \"/System/Finder.app\",\n      \"scriptable\": true,\n      \"version\": \"14\"\n    }\n  ],\n  \"browsers\": [],\n  \"device_id\": \"mac-1\",\n  \"os\": \"macOS\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-01-01T09:00:00+00:00\"\n}\n"
+   },
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "device_profile",
+   "config": "[device]\nid = \"mac-1\"\n",
+   "start_files": {
+    "device/mac-1.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.TextEdit\",\n      \"name\": \"TextEdit\",\n      \"path\": \"/Applications/TextEdit.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"ok\",\n      \"bundle_id\": \"com.example.old\",\n      \"name\": \"Old\",\n      \"path\": \"/Applications/Old.app\",\n      \"scriptable\": false,\n      \"version\": \"2\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.finder\",\n      \"name\": \"Finder\",\n      \"path\": \"/System/Finder.app\",\n      \"scriptable\": true,\n      \"version\": \"14\"\n    }\n  ],\n  \"browsers\": [],\n  \"device_id\": \"mac-1\",\n  \"os\": \"macOS\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-01-01T09:00:00+00:00\"\n}\n"
+   },
+   "state": {},
+   "steps": [
+    [
+     "_device_profile"
+    ],
+    [
+     "_installed_apps"
+    ]
+   ],
+   "out": [
+    {
+     "apps": [
+      {
+       "ax_support": "untested",
+       "bundle_id": "com.apple.TextEdit",
+       "name": "TextEdit",
+       "path": "/Applications/TextEdit.app",
+       "scriptable": true,
+       "version": "1.0"
+      },
+      {
+       "ax_support": "ok",
+       "bundle_id": "com.example.old",
+       "name": "Old",
+       "path": "/Applications/Old.app",
+       "scriptable": false,
+       "version": "2"
+      },
+      {
+       "ax_support": "untested",
+       "bundle_id": "com.apple.finder",
+       "name": "Finder",
+       "path": "/System/Finder.app",
+       "scriptable": true,
+       "version": "14"
+      }
+     ],
+     "browsers": [],
+     "device_id": "mac-1",
+     "os": "macOS",
+     "os_version": "26.1",
+     "scanned_at": "2026-01-01T09:00:00+00:00"
+    },
+    [
+     [
+      "com.apple.TextEdit",
+      "TextEdit"
+     ],
+     [
+      "com.example.old",
+      "Old"
+     ],
+     [
+      "com.apple.finder",
+      "Finder"
+     ]
+    ]
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {
+    "device/mac-1.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.TextEdit\",\n      \"name\": \"TextEdit\",\n      \"path\": \"/Applications/TextEdit.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"ok\",\n      \"bundle_id\": \"com.example.old\",\n      \"name\": \"Old\",\n      \"path\": \"/Applications/Old.app\",\n      \"scriptable\": false,\n      \"version\": \"2\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.finder\",\n      \"name\": \"Finder\",\n      \"path\": \"/System/Finder.app\",\n      \"scriptable\": true,\n      \"version\": \"14\"\n    }\n  ],\n  \"browsers\": [],\n  \"device_id\": \"mac-1\",\n  \"os\": \"macOS\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-01-01T09:00:00+00:00\"\n}\n"
+   },
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "device_profile_none",
+   "config": "",
+   "start_files": {
+    "device/mac-1.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.TextEdit\",\n      \"name\": \"TextEdit\",\n      \"path\": \"/Applications/TextEdit.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"ok\",\n      \"bundle_id\": \"com.example.old\",\n      \"name\": \"Old\",\n      \"path\": \"/Applications/Old.app\",\n      \"scriptable\": false,\n      \"version\": \"2\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.finder\",\n      \"name\": \"Finder\",\n      \"path\": \"/System/Finder.app\",\n      \"scriptable\": true,\n      \"version\": \"14\"\n    }\n  ],\n  \"browsers\": [],\n  \"device_id\": \"mac-1\",\n  \"os\": \"macOS\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-01-01T09:00:00+00:00\"\n}\n"
+   },
+   "state": {},
+   "steps": [
+    [
+     "_device_profile"
+    ],
+    [
+     "_installed_apps"
+    ]
+   ],
+   "out": [
+    null,
+    []
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {
+    "device/mac-1.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.TextEdit\",\n      \"name\": \"TextEdit\",\n      \"path\": \"/Applications/TextEdit.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"ok\",\n      \"bundle_id\": \"com.example.old\",\n      \"name\": \"Old\",\n      \"path\": \"/Applications/Old.app\",\n      \"scriptable\": false,\n      \"version\": \"2\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.finder\",\n      \"name\": \"Finder\",\n      \"path\": \"/System/Finder.app\",\n      \"scriptable\": true,\n      \"version\": \"14\"\n    }\n  ],\n  \"browsers\": [],\n  \"device_id\": \"mac-1\",\n  \"os\": \"macOS\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-01-01T09:00:00+00:00\"\n}\n"
+   },
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "device_profile_missing",
+   "config": "[device]\nid = \"mac-2\"\n",
+   "start_files": {
+    "device/mac-1.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.TextEdit\",\n      \"name\": \"TextEdit\",\n      \"path\": \"/Applications/TextEdit.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"ok\",\n      \"bundle_id\": \"com.example.old\",\n      \"name\": \"Old\",\n      \"path\": \"/Applications/Old.app\",\n      \"scriptable\": false,\n      \"version\": \"2\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.finder\",\n      \"name\": \"Finder\",\n      \"path\": \"/System/Finder.app\",\n      \"scriptable\": true,\n      \"version\": \"14\"\n    }\n  ],\n  \"browsers\": [],\n  \"device_id\": \"mac-1\",\n  \"os\": \"macOS\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-01-01T09:00:00+00:00\"\n}\n"
+   },
+   "state": {},
+   "steps": [
+    [
+     "_device_profile"
+    ],
+    [
+     "_installed_apps"
+    ]
+   ],
+   "out": [
+    null,
+    []
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {
+    "device/mac-1.json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.TextEdit\",\n      \"name\": \"TextEdit\",\n      \"path\": \"/Applications/TextEdit.app\",\n      \"scriptable\": true,\n      \"version\": \"1.0\"\n    },\n    {\n      \"ax_support\": \"ok\",\n      \"bundle_id\": \"com.example.old\",\n      \"name\": \"Old\",\n      \"path\": \"/Applications/Old.app\",\n      \"scriptable\": false,\n      \"version\": \"2\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.apple.finder\",\n      \"name\": \"Finder\",\n      \"path\": \"/System/Finder.app\",\n      \"scriptable\": true,\n      \"version\": \"14\"\n    }\n  ],\n  \"browsers\": [],\n  \"device_id\": \"mac-1\",\n  \"os\": \"macOS\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-01-01T09:00:00+00:00\"\n}\n"
+   },
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "permissions",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "permissions": {
+     "accessibility": "granted",
+     "screen": "denied"
+    }
+   },
+   "steps": [
+    [
+     "_permissions"
+    ]
+   ],
+   "out": [
+    {
+     "accessibility": true,
+     "screen": false
+    }
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "permissions_unknown",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "permissions": {
+     "accessibility": "unknown",
+     "screen": "not_determined"
+    }
+   },
+   "steps": [
+    [
+     "_permissions"
+    ]
+   ],
+   "out": [
+    {
+     "accessibility": false,
+     "screen": false
+    }
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "permissions_raise",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "permissions": {
+     "screen": "raise"
+    }
+   },
+   "steps": [
+    [
+     "_permissions"
+    ]
+   ],
+   "out": [
+    {
+     "accessibility": true,
+     "screen": true
+    }
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "running_apps",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "running": [
+     [
+      "com.apple.finder",
+      "Finder",
+      4101
+     ],
+     [
+      "com.example.x",
+      "Ünï",
+      4102
+     ]
+    ]
+   },
+   "steps": [
+    [
+     "_running_apps"
+    ]
+   ],
+   "out": [
+    [
+     [
+      "com.apple.finder",
+      "Finder",
+      4101
+     ],
+     [
+      "com.example.x",
+      "Ünï",
+      4102
+     ]
+    ]
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  },
+  {
+   "name": "running_apps_raise",
+   "config": "",
+   "start_files": {},
+   "state": {
+    "running": "raise"
+   },
+   "steps": [
+    [
+     "_running_apps"
+    ]
+   ],
+   "out": [
+    []
+   ],
+   "log": [],
+   "journal": [],
+   "published": [],
+   "files": {},
+   "after": {
+    "automation_cache": [],
+    "automation_checks": [],
+    "tab_granted": []
+   }
+  }
+ ]
+}

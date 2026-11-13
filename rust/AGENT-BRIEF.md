@@ -41,6 +41,12 @@ with `rust/fixtures/store/make_tables.py`, and `rust/crates/ferb-rpc` for async 
   half-edited member blocks every other commit.
 - Never commit, stash or reset. Never read `vibed/`. Never touch `~/.ferb`, `~/.codex`, `~/.claude`, the Keychain,
   the real secrets helper, a real browser or its folders, a model provider, or files outside temp folders.
+- A fixture script runs real Python code, and that code can start real programs. Before the first run, find every
+  place your part can launch something (`grep -n "Popen\|subprocess\|open -\|osascript\|launchctl"` in the modules
+  you drive) and replace each. A stub on a module function does not reach a caller that bound the real one as a
+  default argument at import: replace the default too (`fn.__defaults__`), or stub the caller. A recorder once
+  opened the owner's real browser three times through exactly that gap. If a run starts anything real, stop, say so
+  first in your report, and say what was left behind.
 - Invented data only. Fixtures must pass the commit gate and GitHub's push protection: no personal strings and no
   key-shaped values in tracked files unless your part is about detecting them; keep a fixture folder under ~3 MB.
 - Never print a secret value in an error, a `Debug` impl or a log.

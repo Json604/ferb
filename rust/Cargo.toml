@@ -28,9 +28,9 @@ members = [
     "crates/ferb-mac-hands",
     "crates/ferb-worker",
     "crates/ferb-gateway",
+    "crates/ferb-daemon",
 ]
 exclude = [
-    "crates/ferb-daemon",
     "crates/ferb-supervisor",
 ]
 

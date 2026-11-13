@@ -37,7 +37,7 @@ the phone apps share; they reach the Mac's own parts only through traits.
 | Prompt context, structured answers, answer schemas | `ferb/core/context.py`, `structured.py`, `orchestrator/schemas.py`, `runtimes/schema_shape.py` | ~1,500 | `ferb-context` | verified (journal 17); outcome models go with orchestration |
 | Policy: confirmations, protection, payments, destinations | `ferb/policy` | 4,666 | `ferb-policy` | verified on 10,769 cases (journal 26) |
 | Gateway, questions, stop, resources, registry | `ferb/daemon/gateway.py` and state files | ~6,000 | `ferb-gateway` | verified on 71 scenarios, hidden input included (journal 34, 39) |
-| RPC handlers (106 methods), daemon composition | `ferb/daemon/main.py`, `areas/` | ~9,700 | `ferbd` | not started; recordings of the Python daemon done (journal 23) |
+| RPC handlers (106 methods), daemon composition | `ferb/daemon/main.py`, `areas/` | ~9,700 | `ferb-daemon`, `ferbd` | 71 of 106 methods verified against the recordings (journal 40); chat, tasks and the composition not started |
 | Files, recovery | `ferb/act/fs` | (in 21,723) | `ferb-fs` | verified (journal 18); Mac renderers and Trash locator not written |
 | Shell, sandbox, proxy | `ferb/act/shell` | (in 21,723) | `ferb-shell` | verified, live sandbox tests included (journal 20) |
 | Browser hands and extension bridge | `ferb/act/browser` | (in 21,723) | `ferb-browser` | verified: protocol, bridge, operations, 46 tools, downloads, upload copies (journal 21, 28, 36); no real browser run |

@@ -1,0 +1,5655 @@
+{
+ "cases": [
+  {
+   "name": "env_full",
+   "method": "_environment",
+   "args": [
+    "open my mail"
+   ],
+   "config": "[identity]\nbrowser = \"chrome\"\nprofile = \"Profile 3\"\n",
+   "state": {
+    "identity_profile": [
+     "chrome",
+     "Profile 3"
+    ],
+    "pairings": [
+     {
+      "install_id": "inst-1",
+      "browser": "chrome",
+      "folder": "Default",
+      "identity": "owner"
+     }
+    ],
+    "profiles": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Personal",
+      "email": "owner@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 2",
+      "display_name": "",
+      "email": "side@example.test"
+     },
+     {
+      "browser": "brave",
+      "folder": "Default",
+      "display_name": "Bravé ü",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "FERB",
+      "email": "ferb.bot@example.test"
+     }
+    ],
+    "installed_apps": [
+     [
+      "com.google.Chrome",
+      "Google Chrome"
+     ],
+     [
+      "com.apple.TextEdit",
+      "TextEdit"
+     ]
+    ],
+    "running": [
+     "com.google.Chrome",
+     "com.apple.finder"
+    ],
+    "macos": "26.1",
+    "alignment": [
+     {
+      "task_id": "t1",
+      "advice": "stay on example.test"
+     }
+    ],
+    "profile_states": {
+     "chrome/Default": "connected"
+    },
+    "worker_types": [
+     "general",
+     "browser"
+    ]
+   },
+   "files": {
+    "Google/Chrome/Profile 1/Preferences": {
+     "extensions": {
+      "settings": {
+       "jaclnphefmmgmpofnabffahdkbjjompm": {
+        "location": 1,
+        "path": "/x/ext",
+        "state": 1
+       }
+      }
+     }
+    },
+    "Google/Chrome/Profile 2/Secure Preferences": {
+     "extensions": {
+      "settings": {
+       "plbfkifcmgkgnlfgikdeaaglgncdhkma": {
+        "location": 4,
+        "path": "/x/ext",
+        "disable_reasons": [
+         8192
+        ]
+       }
+      }
+     }
+    },
+    "Google/Chrome/Profile 2/Preferences": {
+     "extensions": {
+      "settings": {}
+     }
+    },
+    "BraveSoftware/Brave-Browser/Default/Preferences": {
+     "extensions": {
+      "settings": {},
+      "external_uninstalls": [
+       "plbfkifcmgkgnlfgikdeaaglgncdhkma"
+      ]
+     }
+    }
+   },
+   "out": {
+    "stable": "This Mac: macOS 26.1.\nPaired owner profiles: [{\"browser\": \"chrome\", \"profile\": \"Default\", \"name\": \"Personal\", \"account\": \"owner@example.test\"}]\nBrowser/profile inventory (facts, not a selected route): [{\"browser\": \"chrome\", \"profile\": \"Default\", \"name\": \"Personal\", \"account_hint\": \"owner@example.test\", \"identity\": \"owner\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 1\", \"name\": \"Work\", \"account_hint\": \"\", \"identity\": \"owner\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 2\", \"name\": \"\", \"account_hint\": \"side@example.test\", \"identity\": \"owner\"}, {\"browser\": \"brave\", \"profile\": \"Default\", \"name\": \"Brav\\u00e9 \\u00fc\", \"account_hint\": \"\", \"identity\": \"owner\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 3\", \"name\": \"FERB\", \"account_hint\": \"ferb.bot@example.test\", \"identity\": \"ferb\"}]\nWorker types: [\"general\", \"browser\"]",
+    "live": "Running bundle IDs: [\"com.apple.finder\", \"com.google.Chrome\"]\nNon-enforcing alignment advice for active tasks: [{\"task_id\": \"t1\", \"advice\": \"stay on example.test\"}]\nBrowser profile connections now: [{\"browser\": \"chrome\", \"profile\": \"Default\", \"connection\": \"connected\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 1\", \"connection\": \"ext:on\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 2\", \"connection\": \"ext:off\"}, {\"browser\": \"brave\", \"profile\": \"Default\", \"connection\": \"ext:removed\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 3\", \"connection\": \"ext:missing\"}]"
+   },
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "env_no_profiles",
+   "method": "_environment",
+   "args": [
+    ""
+   ],
+   "config": "",
+   "state": {
+    "pairings": [],
+    "profiles": [],
+    "running": "error",
+    "macos": "",
+    "worker_types": []
+   },
+   "files": {},
+   "out": {
+    "stable": "This Mac: macOS unknown.\nPaired owner profiles: []\nBrowser/profile inventory (facts, not a selected route): []\nWorker types: []",
+    "live": "Running bundle IDs: []"
+   },
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "env_no_pairings_store",
+   "method": "_environment",
+   "args": [
+    "x"
+   ],
+   "config": "[browser]\nstore_extension_id = \"\"\n",
+   "state": {
+    "pairings": null,
+    "profiles": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Personal",
+      "email": "owner@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": ""
+     }
+    ],
+    "running": [],
+    "worker_types": {
+     "a": 1
+    }
+   },
+   "files": {
+    "Google/Chrome/Default/Preferences": {
+     "extensions": {
+      "settings": {
+       "plbfkifcmgkgnlfgikdeaaglgncdhkma": {
+        "location": 1,
+        "path": "/p",
+        "state": 2
+       }
+      }
+     }
+    },
+    "Google/Chrome/Profile 1/Preferences": "not json"
+   },
+   "out": {
+    "stable": "This Mac: macOS 26.1.\nPaired owner profiles: []\nBrowser/profile inventory (facts, not a selected route): [{\"browser\": \"chrome\", \"profile\": \"Default\", \"name\": \"Personal\", \"account_hint\": \"owner@example.test\", \"identity\": \"owner\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 1\", \"name\": \"Work\", \"account_hint\": \"\", \"identity\": \"owner\"}]\nWorker types: {\"a\": 1}",
+    "live": "Running bundle IDs: []\nBrowser profile connections now: [{\"browser\": \"chrome\", \"profile\": \"Default\", \"connection\": \"ext:missing\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 1\", \"connection\": \"ext:missing\"}]"
+   },
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "env_removed_no_store_page",
+   "method": "_environment",
+   "args": [
+    "w"
+   ],
+   "config": "[browser]\nstore_extension_id = \"not-valid\"\n",
+   "state": {
+    "pairings": [
+     {
+      "install_id": "inst-2",
+      "browser": "brave",
+      "folder": "Default",
+      "identity": "owner"
+     }
+    ],
+    "profiles": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Personal",
+      "email": "owner@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 2",
+      "display_name": "",
+      "email": "side@example.test"
+     },
+     {
+      "browser": "brave",
+      "folder": "Default",
+      "display_name": "Bravé ü",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "FERB",
+      "email": "ferb.bot@example.test"
+     }
+    ],
+    "running": [
+     "com.brave.Browser"
+    ],
+    "profile_states": {
+     "brave/Default": "connected",
+     "chrome/Default": "removed"
+    }
+   },
+   "files": {
+    "Google/Chrome/Profile 1/Preferences": {
+     "extensions": {
+      "settings": {
+       "jaclnphefmmgmpofnabffahdkbjjompm": {
+        "location": 1,
+        "path": "/x/ext",
+        "state": 1
+       }
+      }
+     }
+    },
+    "Google/Chrome/Profile 2/Secure Preferences": {
+     "extensions": {
+      "settings": {
+       "plbfkifcmgkgnlfgikdeaaglgncdhkma": {
+        "location": 4,
+        "path": "/x/ext",
+        "disable_reasons": [
+         8192
+        ]
+       }
+      }
+     }
+    },
+    "Google/Chrome/Profile 2/Preferences": {
+     "extensions": {
+      "settings": {}
+     }
+    },
+    "BraveSoftware/Brave-Browser/Default/Preferences": {
+     "extensions": {
+      "settings": {},
+      "external_uninstalls": [
+       "plbfkifcmgkgnlfgikdeaaglgncdhkma"
+      ]
+     }
+    }
+   },
+   "out": {
+    "stable": "This Mac: macOS 26.1.\nPaired owner profiles: [{\"browser\": \"brave\", \"profile\": \"Default\", \"name\": \"Bravé ü\"}]\nBrowser/profile inventory (facts, not a selected route): [{\"browser\": \"chrome\", \"profile\": \"Default\", \"name\": \"Personal\", \"account_hint\": \"owner@example.test\", \"identity\": \"owner\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 1\", \"name\": \"Work\", \"account_hint\": \"\", \"identity\": \"owner\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 2\", \"name\": \"\", \"account_hint\": \"side@example.test\", \"identity\": \"owner\"}, {\"browser\": \"brave\", \"profile\": \"Default\", \"name\": \"Brav\\u00e9 \\u00fc\", \"account_hint\": \"\", \"identity\": \"owner\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 3\", \"name\": \"FERB\", \"account_hint\": \"ferb.bot@example.test\", \"identity\": \"owner\"}]\nWorker types: []",
+    "live": "Running bundle IDs: [\"com.brave.Browser\"]\nBrowser profile connections now: [{\"browser\": \"chrome\", \"profile\": \"Default\", \"connection\": \"removed\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 1\", \"connection\": \"ext:on\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 2\", \"connection\": \"ext:missing\"}, {\"browser\": \"brave\", \"profile\": \"Default\", \"connection\": \"connected\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 3\", \"connection\": \"ext:missing\"}]\nConnection \"removed\": the owner removed FERB's extension in that profile, so the browser won't add it again by itself; FERB can't pair or use that profile until the owner adds FERB there again, then FERB pairs it."
+   },
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "env_removed_store_page",
+   "method": "_environment",
+   "args": [
+    "w"
+   ],
+   "config": "",
+   "state": {
+    "pairings": [],
+    "profiles": [
+     {
+      "browser": "brave",
+      "folder": "Default",
+      "display_name": "Bravé ü",
+      "email": ""
+     }
+    ],
+    "running": [],
+    "profile_states": {
+     "brave/Default": "removed"
+    }
+   },
+   "files": {
+    "Google/Chrome/Profile 1/Preferences": {
+     "extensions": {
+      "settings": {
+       "jaclnphefmmgmpofnabffahdkbjjompm": {
+        "location": 1,
+        "path": "/x/ext",
+        "state": 1
+       }
+      }
+     }
+    },
+    "Google/Chrome/Profile 2/Secure Preferences": {
+     "extensions": {
+      "settings": {
+       "plbfkifcmgkgnlfgikdeaaglgncdhkma": {
+        "location": 4,
+        "path": "/x/ext",
+        "disable_reasons": [
+         8192
+        ]
+       }
+      }
+     }
+    },
+    "Google/Chrome/Profile 2/Preferences": {
+     "extensions": {
+      "settings": {}
+     }
+    },
+    "BraveSoftware/Brave-Browser/Default/Preferences": {
+     "extensions": {
+      "settings": {},
+      "external_uninstalls": [
+       "plbfkifcmgkgnlfgikdeaaglgncdhkma"
+      ]
+     }
+    }
+   },
+   "out": {
+    "stable": "This Mac: macOS 26.1.\nPaired owner profiles: []\nBrowser/profile inventory (facts, not a selected route): [{\"browser\": \"brave\", \"profile\": \"Default\", \"name\": \"Brav\\u00e9 \\u00fc\", \"account_hint\": \"\", \"identity\": \"owner\"}]\nWorker types: []",
+    "live": "Running bundle IDs: []\nBrowser profile connections now: [{\"browser\": \"brave\", \"profile\": \"Default\", \"connection\": \"removed\"}]\nConnection \"removed\": the owner removed FERB's extension in that profile, so the browser won't add it again by itself; FERB can't pair or use that profile until the owner adds FERB from its Chrome Web Store page there (https://chromewebstore.google.com/detail/plbfkifcmgkgnlfgikdeaaglgncdhkma), then FERB pairs it."
+   },
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "env_custom_store",
+   "method": "_environment",
+   "args": [
+    ""
+   ],
+   "config": "[identity]\nbrowser = \"chrome\"\nprofile = \"Profile 3\"\n[browser]\nstore_extension_id = \" abcdefghijklmnopabcdefghijklmnop \"\nextension_ids = [\"abcdefghijklmnopabcdefghijklmnop\", 7, \"bad\"]\n",
+   "state": {
+    "pairings": [
+     {
+      "install_id": "inst-1",
+      "browser": "chrome",
+      "folder": "Default",
+      "identity": "owner"
+     },
+     {
+      "install_id": "inst-2",
+      "browser": "brave",
+      "folder": "Default",
+      "identity": "owner"
+     },
+     {
+      "install_id": "inst-3",
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "identity": "ferb"
+     },
+     {
+      "install_id": "inst-4",
+      "browser": "chrome",
+      "folder": "Profile 9",
+      "identity": "owner"
+     }
+    ],
+    "profiles": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Personal",
+      "email": "owner@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 2",
+      "display_name": "",
+      "email": "side@example.test"
+     },
+     {
+      "browser": "brave",
+      "folder": "Default",
+      "display_name": "Bravé ü",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "FERB",
+      "email": "ferb.bot@example.test"
+     }
+    ],
+    "running": [
+     "b",
+     "a"
+    ],
+    "identity_profile": [
+     "chrome",
+     "Profile 3"
+    ],
+    "alignment": [
+     {
+      "x": "ü"
+     },
+     {
+      "y": [
+       1,
+       2
+      ]
+     }
+    ]
+   },
+   "files": {
+    "Google/Chrome/Default/Preferences": {
+     "extensions": {
+      "settings": {
+       "abcdefghijklmnopabcdefghijklmnop": {
+        "location": 1,
+        "path": "/x/ext",
+        "state": 1
+       }
+      }
+     }
+    },
+    "Google/Chrome/Profile 1/Preferences": {
+     "extensions": {
+      "settings": {},
+      "external_uninstalls": [
+       "abcdefghijklmnopabcdefghijklmnop"
+      ]
+     }
+    }
+   },
+   "out": {
+    "stable": "This Mac: macOS 26.1.\nPaired owner profiles: [{\"browser\": \"chrome\", \"profile\": \"Default\", \"name\": \"Personal\", \"account\": \"owner@example.test\"}, {\"browser\": \"brave\", \"profile\": \"Default\", \"name\": \"Bravé ü\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 9\", \"name\": \"Profile 9\"}]\nBrowser/profile inventory (facts, not a selected route): [{\"browser\": \"chrome\", \"profile\": \"Default\", \"name\": \"Personal\", \"account_hint\": \"owner@example.test\", \"identity\": \"owner\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 1\", \"name\": \"Work\", \"account_hint\": \"\", \"identity\": \"owner\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 2\", \"name\": \"\", \"account_hint\": \"side@example.test\", \"identity\": \"owner\"}, {\"browser\": \"brave\", \"profile\": \"Default\", \"name\": \"Brav\\u00e9 \\u00fc\", \"account_hint\": \"\", \"identity\": \"owner\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 3\", \"name\": \"FERB\", \"account_hint\": \"ferb.bot@example.test\", \"identity\": \"ferb\"}]\nWorker types: []",
+    "live": "Running bundle IDs: [\"a\", \"b\"]\nNon-enforcing alignment advice for active tasks: [{\"x\": \"\\u00fc\"}, {\"y\": [1, 2]}]\nBrowser profile connections now: [{\"browser\": \"chrome\", \"profile\": \"Default\", \"connection\": \"ext:None\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 1\", \"connection\": \"ext:removed\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 2\", \"connection\": \"ext:missing\"}, {\"browser\": \"brave\", \"profile\": \"Default\", \"connection\": \"ext:None\"}, {\"browser\": \"chrome\", \"profile\": \"Profile 3\", \"connection\": \"ext:None\"}]"
+   },
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "root_t1",
+   "method": "_task_root",
+   "args": [
+    "t1"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    }
+   },
+   "files": {},
+   "out": "t1",
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "root_t1.w1",
+   "method": "_task_root",
+   "args": [
+    "t1.w1"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    }
+   },
+   "files": {},
+   "out": "t1",
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "root_t2.w",
+   "method": "_task_root",
+   "args": [
+    "t2.w"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    }
+   },
+   "files": {},
+   "out": "t2",
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "root_t3.w",
+   "method": "_task_root",
+   "args": [
+    "t3.w"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    }
+   },
+   "files": {},
+   "out": "t3",
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "root_x.y.z",
+   "method": "_task_root",
+   "args": [
+    "x.y.z"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    }
+   },
+   "files": {},
+   "out": "x",
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "root_plain",
+   "method": "_task_root",
+   "args": [
+    "plain"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    }
+   },
+   "files": {},
+   "out": "plain",
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "inspect_t1.c1",
+   "method": "_inspection_parent",
+   "args": [
+    "t1.c1"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    }
+   },
+   "files": {},
+   "out": "t1.w1",
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "inspect_t1.c2",
+   "method": "_inspection_parent",
+   "args": [
+    "t1.c2"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    }
+   },
+   "files": {},
+   "out": null,
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "inspect_t1.c3",
+   "method": "_inspection_parent",
+   "args": [
+    "t1.c3"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    }
+   },
+   "files": {},
+   "out": null,
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "inspect_t1.c4",
+   "method": "_inspection_parent",
+   "args": [
+    "t1.c4"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    }
+   },
+   "files": {},
+   "out": null,
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "inspect_t1.c5",
+   "method": "_inspection_parent",
+   "args": [
+    "t1.c5"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    }
+   },
+   "files": {},
+   "out": null,
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "inspect_t1.c6",
+   "method": "_inspection_parent",
+   "args": [
+    "t1.c6"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    }
+   },
+   "files": {},
+   "out": null,
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "inspect_t1.c7",
+   "method": "_inspection_parent",
+   "args": [
+    "t1.c7"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    }
+   },
+   "files": {},
+   "out": null,
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "inspect_t1.c8",
+   "method": "_inspection_parent",
+   "args": [
+    "t1.c8"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    }
+   },
+   "files": {},
+   "out": null,
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "inspect_t4.c",
+   "method": "_inspection_parent",
+   "args": [
+    "t4.c"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    }
+   },
+   "files": {},
+   "out": null,
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "inspect_t1.w1",
+   "method": "_inspection_parent",
+   "args": [
+    "t1.w1"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    }
+   },
+   "files": {},
+   "out": null,
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "inspect_nope",
+   "method": "_inspection_parent",
+   "args": [
+    "nope"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    }
+   },
+   "files": {},
+   "out": null,
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "conv_known",
+   "method": "_conversation_tasks",
+   "args": [
+    "t1.w1"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    },
+    "readable": {
+     "t1": [
+      "t1",
+      "t0",
+      "s-1"
+     ]
+    }
+   },
+   "files": {},
+   "out": [
+    "s-1",
+    "t0",
+    "t1"
+   ],
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "conv_tree_none",
+   "method": "_conversation_tasks",
+   "args": [
+    "t2.w"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    },
+    "readable": {}
+   },
+   "files": {},
+   "out": [
+    "t2.w"
+   ],
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "conv_unknown",
+   "method": "_conversation_tasks",
+   "args": [
+    "nope"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    },
+    "readable": {}
+   },
+   "files": {},
+   "out": [],
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "conv_no_supervisor",
+   "method": "_conversation_tasks",
+   "args": [
+    "t1"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    }
+   },
+   "files": {},
+   "out": [],
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "tabs_both",
+   "method": "_task_tabs",
+   "args": [
+    "t1.w1"
+   ],
+   "config": "",
+   "state": {
+    "drivers": {
+     "router": {
+      "tabs": {
+       "t1.w1": [
+        {
+         "tab_id": 11,
+         "alias": "tab-1",
+         "url": "https://example.test/a?token=x",
+         "taken_over_from": "https://example.test/start"
+        }
+       ]
+      },
+      "urls": {
+       "t1.w1": [
+        "https://example.test/a"
+       ]
+      },
+      "wake": true
+     },
+     "ferb_identity": {
+      "tabs": {
+       "t1.w1": [
+        {
+         "tab_id": 12,
+         "title": "Café — mail of owner@example.test",
+         "password": "hunter2-invented"
+        }
+       ]
+      },
+      "urls": {
+       "t1.w1": [
+        "https://mail.example.test/"
+       ],
+       "t1": [
+        "https://x.test"
+       ]
+      }
+     }
+    }
+   },
+   "files": {},
+   "out": [
+    {
+     "tool_prefix": "browser",
+     "tab_id": 11,
+     "alias": "tab-1",
+     "url": "https://example.test/a?token=[redacted]",
+     "taken_over_from": "https://example.test/start"
+    },
+    {
+     "tool_prefix": "ferb_browser",
+     "tab_id": 12,
+     "title": "Café — mail of owner@example.test",
+     "password": "[redacted]"
+    }
+   ],
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "tabs_none",
+   "method": "_task_tabs",
+   "args": [
+    "t9"
+   ],
+   "config": "",
+   "state": {
+    "drivers": {
+     "router": {
+      "tabs": {
+       "t1.w1": [
+        {
+         "tab_id": 11,
+         "alias": "tab-1",
+         "url": "https://example.test/a?token=x",
+         "taken_over_from": "https://example.test/start"
+        }
+       ]
+      },
+      "urls": {
+       "t1.w1": [
+        "https://example.test/a"
+       ]
+      },
+      "wake": true
+     },
+     "ferb_identity": {
+      "tabs": {
+       "t1.w1": [
+        {
+         "tab_id": 12,
+         "title": "Café — mail of owner@example.test",
+         "password": "hunter2-invented"
+        }
+       ]
+      },
+      "urls": {
+       "t1.w1": [
+        "https://mail.example.test/"
+       ],
+       "t1": [
+        "https://x.test"
+       ]
+      }
+     }
+    }
+   },
+   "files": {},
+   "out": [],
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "tabs_no_drivers",
+   "method": "_task_tabs",
+   "args": [
+    "t1.w1"
+   ],
+   "config": "",
+   "state": {
+    "drivers": {}
+   },
+   "files": {},
+   "out": [],
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "tabs_router_only",
+   "method": "_task_tabs",
+   "args": [
+    "t1.w1"
+   ],
+   "config": "",
+   "state": {
+    "drivers": {
+     "router": {
+      "tabs": {
+       "t1.w1": [
+        {
+         "tab_id": 11,
+         "alias": "tab-1",
+         "url": "https://example.test/a?token=x",
+         "taken_over_from": "https://example.test/start"
+        }
+       ]
+      },
+      "urls": {
+       "t1.w1": [
+        "https://example.test/a"
+       ]
+      },
+      "wake": true
+     }
+    }
+   },
+   "files": {},
+   "out": [
+    {
+     "tool_prefix": "browser",
+     "tab_id": 11,
+     "alias": "tab-1",
+     "url": "https://example.test/a?token=[redacted]",
+     "taken_over_from": "https://example.test/start"
+    }
+   ],
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "browser_ctx_checker",
+   "method": "_browser_context",
+   "args": [
+    "t1.c1"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    },
+    "drivers": {
+     "router": {
+      "tabs": {
+       "t1.w1": [
+        {
+         "tab_id": 11,
+         "alias": "tab-1",
+         "url": "https://example.test/a?token=x",
+         "taken_over_from": "https://example.test/start"
+        }
+       ]
+      },
+      "urls": {
+       "t1.w1": [
+        "https://example.test/a"
+       ]
+      },
+      "wake": true
+     },
+     "ferb_identity": {
+      "tabs": {
+       "t1.w1": [
+        {
+         "tab_id": 12,
+         "title": "Café — mail of owner@example.test",
+         "password": "hunter2-invented"
+        }
+       ]
+      },
+      "urls": {
+       "t1.w1": [
+        "https://mail.example.test/"
+       ],
+       "t1": [
+        "https://x.test"
+       ]
+      }
+     }
+    }
+   },
+   "files": {},
+   "out": "\n\nExisting task tabs available for inspection (reuse these aliases; do not reopen the page or guess tab ids). A tab is known by its id: one you navigated elsewhere is still the same tab, and taken_over_from is the page it held when the task took it over: [{\"tool_prefix\": \"browser\", \"tab_id\": 11, \"alias\": \"tab-1\", \"url\": \"https://example.test/a?token=[redacted]\", \"taken_over_from\": \"https://example.test/start\"}, {\"tool_prefix\": \"ferb_browser\", \"tab_id\": 12, \"title\": \"Caf\\u00e9 \\u2014 mail of owner@example.test\", \"password\": \"[redacted]\"}]",
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "browser_ctx_no_tabs",
+   "method": "_browser_context",
+   "args": [
+    "t1.c1"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    },
+    "drivers": {
+     "router": {}
+    }
+   },
+   "files": {},
+   "out": "",
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "browser_ctx_worker",
+   "method": "_browser_context",
+   "args": [
+    "t1.w1"
+   ],
+   "config": "",
+   "state": {
+    "tasks": {
+     "t1": {
+      "tree_id": "t1",
+      "role": "planner",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.w1": {
+      "tree_id": "t1",
+      "role": "worker",
+      "parent_id": "t1",
+      "scopes": [
+       "browser:act",
+       "fs:read"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c1": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c2": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [
+       "browser:act",
+       "mac:act"
+      ],
+      "request_id": "r1"
+     },
+     "t1.c3": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r2"
+     },
+     "t1.c4": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c5": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "gone",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c6": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "scopes": [],
+      "request_id": "r1"
+     },
+     "t1.c7": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "identity": "ferb"
+     },
+     "t1.c8": {
+      "tree_id": "t1",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1",
+      "device_id": "other"
+     },
+     "t2.w": {
+      "tree_id": null,
+      "role": "worker",
+      "scopes": [],
+      "request_id": "r3"
+     },
+     "t3.w": {
+      "tree_id": "",
+      "role": "worker",
+      "scopes": []
+     },
+     "t4.c": {
+      "tree_id": "t9",
+      "role": "verifier",
+      "parent_id": "t1.w1",
+      "scopes": [],
+      "request_id": "r1"
+     }
+    },
+    "drivers": {
+     "router": {
+      "tabs": {
+       "t1.w1": [
+        {
+         "tab_id": 11,
+         "alias": "tab-1",
+         "url": "https://example.test/a?token=x",
+         "taken_over_from": "https://example.test/start"
+        }
+       ]
+      },
+      "urls": {
+       "t1.w1": [
+        "https://example.test/a"
+       ]
+      },
+      "wake": true
+     },
+     "ferb_identity": {
+      "tabs": {
+       "t1.w1": [
+        {
+         "tab_id": 12,
+         "title": "Café — mail of owner@example.test",
+         "password": "hunter2-invented"
+        }
+       ]
+      },
+      "urls": {
+       "t1.w1": [
+        "https://mail.example.test/"
+       ],
+       "t1": [
+        "https://x.test"
+       ]
+      }
+     }
+    }
+   },
+   "files": {},
+   "out": "",
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "urls_both",
+   "method": "_urls_of",
+   "args": [
+    "t1.w1"
+   ],
+   "config": "",
+   "state": {
+    "drivers": {
+     "router": {
+      "tabs": {
+       "t1.w1": [
+        {
+         "tab_id": 11,
+         "alias": "tab-1",
+         "url": "https://example.test/a?token=x",
+         "taken_over_from": "https://example.test/start"
+        }
+       ]
+      },
+      "urls": {
+       "t1.w1": [
+        "https://example.test/a"
+       ]
+      },
+      "wake": true
+     },
+     "ferb_identity": {
+      "tabs": {
+       "t1.w1": [
+        {
+         "tab_id": 12,
+         "title": "Café — mail of owner@example.test",
+         "password": "hunter2-invented"
+        }
+       ]
+      },
+      "urls": {
+       "t1.w1": [
+        "https://mail.example.test/"
+       ],
+       "t1": [
+        "https://x.test"
+       ]
+      }
+     }
+    }
+   },
+   "files": {},
+   "out": [
+    "https://example.test/a",
+    "https://mail.example.test/"
+   ],
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "urls_identity_only",
+   "method": "_urls_of",
+   "args": [
+    "t1"
+   ],
+   "config": "",
+   "state": {
+    "drivers": {
+     "ferb_identity": {
+      "tabs": {
+       "t1.w1": [
+        {
+         "tab_id": 12,
+         "title": "Café — mail of owner@example.test",
+         "password": "hunter2-invented"
+        }
+       ]
+      },
+      "urls": {
+       "t1.w1": [
+        "https://mail.example.test/"
+       ],
+       "t1": [
+        "https://x.test"
+       ]
+      }
+     }
+    }
+   },
+   "files": {},
+   "out": [
+    "https://x.test"
+   ],
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "keep_tabs",
+   "method": "_keep_tabs_open",
+   "args": [
+    "t1.w1"
+   ],
+   "config": "",
+   "state": {
+    "drivers": {
+     "router": {
+      "tabs": {
+       "t1.w1": [
+        {
+         "tab_id": 11,
+         "alias": "tab-1",
+         "url": "https://example.test/a?token=x",
+         "taken_over_from": "https://example.test/start"
+        }
+       ]
+      },
+      "urls": {
+       "t1.w1": [
+        "https://example.test/a"
+       ]
+      },
+      "wake": true
+     },
+     "ferb_identity": {
+      "tabs": {
+       "t1.w1": [
+        {
+         "tab_id": 12,
+         "title": "Café — mail of owner@example.test",
+         "password": "hunter2-invented"
+        }
+       ]
+      },
+      "urls": {
+       "t1.w1": [
+        "https://mail.example.test/"
+       ],
+       "t1": [
+        "https://x.test"
+       ]
+      }
+     }
+    }
+   },
+   "files": {},
+   "out": null,
+   "journal": [],
+   "log": [
+    [
+     "router",
+     "keep_tabs_open",
+     "t1.w1"
+    ],
+    [
+     "ferb_identity",
+     "keep_tabs_open",
+     "t1.w1"
+    ]
+   ]
+  },
+  {
+   "name": "keep_tabs_one",
+   "method": "_keep_tabs_open",
+   "args": [
+    "t1.w1"
+   ],
+   "config": "",
+   "state": {
+    "drivers": {
+     "ferb_identity": {}
+    }
+   },
+   "files": {},
+   "out": null,
+   "journal": [],
+   "log": [
+    [
+     "ferb_identity",
+     "keep_tabs_open",
+     "t1.w1"
+    ]
+   ]
+  },
+  {
+   "name": "loop_rest",
+   "method": "_loop_rest",
+   "args": [
+    "t1.w1",
+    true
+   ],
+   "config": "",
+   "state": {
+    "drivers": {
+     "router": {
+      "tabs": {
+       "t1.w1": [
+        {
+         "tab_id": 11,
+         "alias": "tab-1",
+         "url": "https://example.test/a?token=x",
+         "taken_over_from": "https://example.test/start"
+        }
+       ]
+      },
+      "urls": {
+       "t1.w1": [
+        "https://example.test/a"
+       ]
+      },
+      "wake": true
+     },
+     "ferb_identity": {
+      "tabs": {
+       "t1.w1": [
+        {
+         "tab_id": 12,
+         "title": "Café — mail of owner@example.test",
+         "password": "hunter2-invented"
+        }
+       ]
+      },
+      "urls": {
+       "t1.w1": [
+        "https://mail.example.test/"
+       ],
+       "t1": [
+        "https://x.test"
+       ]
+      }
+     }
+    }
+   },
+   "files": {},
+   "out": null,
+   "journal": [],
+   "log": [
+    [
+     "router",
+     "rest",
+     "t1.w1",
+     true
+    ],
+    [
+     "ferb_identity",
+     "rest",
+     "t1.w1",
+     true
+    ]
+   ]
+  },
+  {
+   "name": "loop_rest_off",
+   "method": "_loop_rest",
+   "args": [
+    "t1.w1",
+    false
+   ],
+   "config": "",
+   "state": {
+    "drivers": {
+     "router": {}
+    }
+   },
+   "files": {},
+   "out": null,
+   "journal": [],
+   "log": [
+    [
+     "router",
+     "rest",
+     "t1.w1",
+     false
+    ]
+   ]
+  },
+  {
+   "name": "activity_one",
+   "method": "_relevant_context",
+   "args": [
+    "page"
+   ],
+   "config": "",
+   "state": {
+    "activity": [
+     {
+      "source": "browser",
+      "source_id": "ev-1",
+      "what": "page",
+      "data": {
+       "url": "https://example.test/p?q=secret#f",
+       "title": "Ünïcode page"
+      }
+     }
+    ]
+   },
+   "files": {},
+   "out": [
+    "\nRelevant activity today (data): <untrusted-data id=\"0123456789ab\">\n[{\"source\": \"browser\", \"source_id\": \"ev-1\", \"what\": \"page\", \"data\": {\"url\": \"https://example.test/p\", \"title\": \"\\u00dcn\\u00efcode page\"}}]\n</untrusted-data id=\"0123456789ab\">\n",
+    "ferb,private",
+    "[{\"url\": \"https://example.test/p\", \"title\": \"Ünïcode page\"}]",
+    [
+     "trail:ev-1"
+    ]
+   ],
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "activity_none",
+   "method": "_relevant_context",
+   "args": [
+    "nothing"
+   ],
+   "config": "",
+   "state": {
+    "activity": []
+   },
+   "files": {},
+   "out": [
+    "\nRelevant activity today (data): <untrusted-data id=\"0123456789ab\">\n[]\n</untrusted-data id=\"0123456789ab\">\n",
+    "ferb",
+    "[]",
+    []
+   ],
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "activity_mixed",
+   "method": "_relevant_context",
+   "args": [
+    "page"
+   ],
+   "config": "",
+   "state": {
+    "activity": [
+     {
+      "source": "browser",
+      "source_id": "ev-1",
+      "what": "page",
+      "data": {
+       "url": "https://example.test/p?q=secret#f",
+       "title": "Ünïcode page"
+      }
+     },
+     {
+      "what": "observed",
+      "data": {
+       "tool": "mac.click"
+      }
+     },
+     {
+      "source": "messages",
+      "source_id": "m-1",
+      "data": {
+       "from": "someone"
+      }
+     },
+     {
+      "source": "app",
+      "id": "a-1",
+      "detail": "no data key",
+      "url": "http://x.test/?a=1"
+     },
+     {
+      "source": "",
+      "source_id": "z"
+     }
+    ]
+   },
+   "files": {},
+   "out": [
+    "\nRelevant activity today (data): <untrusted-data id=\"0123456789ab\">\n[{\"source\": \"browser\", \"source_id\": \"ev-1\", \"what\": \"page\", \"data\": {\"url\": \"https://example.test/p\", \"title\": \"\\u00dcn\\u00efcode page\"}}, {\"what\": \"observed\", \"data\": {\"tool\": \"mac.click\"}}, {\"source\": \"messages\", \"source_id\": \"m-1\", \"data\": {\"from\": \"someone\"}}, {\"source\": \"app\", \"id\": \"a-1\", \"detail\": \"no data key\", \"url\": \"http://x.test/\"}, {\"source\": \"\", \"source_id\": \"z\"}]\n</untrusted-data id=\"0123456789ab\">\n",
+    "ferb,private",
+    "[{\"url\": \"https://example.test/p\", \"title\": \"Ünïcode page\"}, {\"tool\": \"mac.click\"}, {\"from\": \"someone\"}, {\"source\": \"app\", \"id\": \"a-1\", \"detail\": \"no data key\", \"url\": \"http://x.test/\"}, {\"source\": \"\", \"source_id\": \"z\"}]",
+    [
+     "trail:ev-1",
+     "trail:m-1"
+    ]
+   ],
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "activity_limit",
+   "method": "_relevant_context",
+   "args": [
+    "word"
+   ],
+   "config": "",
+   "state": {
+    "activity": [
+     {
+      "source": "files",
+      "source_id": "f-0",
+      "data": {
+       "path": "/Users/o/Documents/note-0.txt",
+       "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+      }
+     },
+     {
+      "source": "files",
+      "source_id": "f-1",
+      "data": {
+       "path": "/Users/o/Documents/note-1.txt",
+       "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+      }
+     },
+     {
+      "source": "files",
+      "source_id": "f-2",
+      "data": {
+       "path": "/Users/o/Documents/note-2.txt",
+       "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+      }
+     },
+     {
+      "source": "files",
+      "source_id": "f-3",
+      "data": {
+       "path": "/Users/o/Documents/note-3.txt",
+       "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+      }
+     },
+     {
+      "source": "files",
+      "source_id": "f-4",
+      "data": {
+       "path": "/Users/o/Documents/note-4.txt",
+       "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+      }
+     },
+     {
+      "source": "files",
+      "source_id": "f-5",
+      "data": {
+       "path": "/Users/o/Documents/note-5.txt",
+       "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+      }
+     },
+     {
+      "source": "files",
+      "source_id": "f-6",
+      "data": {
+       "path": "/Users/o/Documents/note-6.txt",
+       "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+      }
+     },
+     {
+      "source": "files",
+      "source_id": "f-7",
+      "data": {
+       "path": "/Users/o/Documents/note-7.txt",
+       "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+      }
+     },
+     {
+      "source": "files",
+      "source_id": "f-8",
+      "data": {
+       "path": "/Users/o/Documents/note-8.txt",
+       "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+      }
+     },
+     {
+      "source": "files",
+      "source_id": "f-9",
+      "data": {
+       "path": "/Users/o/Documents/note-9.txt",
+       "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+      }
+     },
+     {
+      "source": "files",
+      "source_id": "f-10",
+      "data": {
+       "path": "/Users/o/Documents/note-10.txt",
+       "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+      }
+     },
+     {
+      "source": "files",
+      "source_id": "f-11",
+      "data": {
+       "path": "/Users/o/Documents/note-11.txt",
+       "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+      }
+     },
+     {
+      "source": "files",
+      "source_id": "f-12",
+      "data": {
+       "path": "/Users/o/Documents/note-12.txt",
+       "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+      }
+     },
+     {
+      "source": "files",
+      "source_id": "f-13",
+      "data": {
+       "path": "/Users/o/Documents/note-13.txt",
+       "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+      }
+     },
+     {
+      "source": "browser",
+      "source_id": "ev-1",
+      "what": "page",
+      "data": {
+       "url": "https://example.test/p?q=secret#f",
+       "title": "Ünïcode page"
+      }
+     }
+    ]
+   },
+   "files": {},
+   "out": [
+    "\nRelevant activity today (data): <untrusted-data id=\"0123456789ab\">\n[{\"source\": \"files\", \"source_id\": \"f-0\", \"data\": {\"path\": \"/Users/o/Documents/note-0.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}}, {\"source\": \"files\", \"source_id\": \"f-1\", \"data\": {\"path\": \"/Users/o/Documents/note-1.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}}, {\"source\": \"files\", \"source_id\": \"f-2\", \"data\": {\"path\": \"/Users/o/Documents/note-2.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}}, {\"source\": \"files\", \"source_id\": \"f-3\", \"data\": {\"path\": \"/Users/o/Documents/note-3.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}}, {\"source\": \"files\", \"source_id\": \"f-4\", \"data\": {\"path\": \"/Users/o/Documents/note-4.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}}, {\"source\": \"files\", \"source_id\": \"f-5\", \"data\": {\"path\": \"/Users/o/Documents/note-5.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}}, {\"source\": \"files\", \"source_id\": \"f-6\", \"data\": {\"path\": \"/Users/o/Documents/note-6.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}}, {\"source\": \"files\", \"source_id\": \"f-7\", \"data\": {\"path\": \"/Users/o/Documents/note-7.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}}, {\"source\": \"files\", \"source_id\": \"f-8\", \"data\": {\"path\": \"/Users/o/Documents/note-8.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}}, {\"source\": \"files\", \"source_id\": \"f-9\", \"data\": {\"path\": \"/Users/o/Documents/note-9.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}}, {\"source\": \"files\", \"source_id\": \"f-10\", \"data\": {\"path\": \"/Users/o/Documents/note-10.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}}, {\"source\": \"files\", \"source_id\": \"f-11\", \"data\": {\"path\": \"/Users/o/Documents/note-11.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}}, {\"source\": \"files\", \"source_id\": \"f-12\", \"data\": {\"path\": \"/Users/o/Documents/note-12.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}}, {\"source\": \"files\", \"source_id\": \"f-13\", \"data\": {\"path\": \"/Users/o/Documents/note-13.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}}, {\"source\": \"browser\", \"source_id\": \"ev-1\", \"what\": \"page\", \"data\": {\"url\": \"https://example.test/p\", \"title\": \"\\u00dcn\\u00efcode page\"}}]\n</untrusted-data id=\"0123456789ab\">\n",
+    "ferb,private",
+    "[{\"path\": \"/Users/o/Documents/note-0.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}, {\"path\": \"/Users/o/Documents/note-1.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}, {\"path\": \"/Users/o/Documents/note-2.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}, {\"path\": \"/Users/o/Documents/note-3.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}, {\"path\": \"/Users/o/Documents/note-4.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}, {\"path\": \"/Users/o/Documents/note-5.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}, {\"path\": \"/Users/o/Documents/note-6.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}, {\"path\": \"/Users/o/Documents/note-7.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}, {\"path\": \"/Users/o/Documents/note-8.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}, {\"path\": \"/Users/o/Documents/note-9.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}, {\"path\": \"/Users/o/Documents/note-10.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}, {\"path\": \"/Users/o/Documents/note-11.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}, {\"path\": \"/Users/o/Documents/note-12.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}, {\"path\": \"/Users/o/Documents/note-13.txt\", \"text\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}, {\"url\": \"https://example.test/p\", \"title\": \"Ünïcode page\"}]",
+    [
+     "trail:f-0",
+     "trail:f-1",
+     "trail:f-2",
+     "trail:f-3",
+     "trail:f-4",
+     "trail:f-5",
+     "trail:f-6",
+     "trail:f-7",
+     "trail:f-8",
+     "trail:f-9",
+     "trail:f-10",
+     "trail:f-11",
+     "trail:f-12",
+     "trail:f-13",
+     "trail:ev-1"
+    ]
+   ],
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "activity_mail",
+   "method": "_relevant_context",
+   "args": [
+    "invoice"
+   ],
+   "config": "",
+   "state": {
+    "activity": [
+     {
+      "source": "mail",
+      "source_id": "mail-1",
+      "data": {
+       "subject": "Invoice"
+      }
+     }
+    ]
+   },
+   "files": {},
+   "out": [
+    "\nRelevant activity today (data): <untrusted-data id=\"0123456789ab\">\n[{\"source\": \"mail\", \"source_id\": \"mail-1\", \"data\": {\"subject\": \"Invoice\"}}]\n</untrusted-data id=\"0123456789ab\">\n",
+    "ferb,private",
+    "[{\"subject\": \"Invoice\"}]",
+    [
+     "trail:mail-1"
+    ]
+   ],
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "avail_all_ok",
+   "method": "_availability",
+   "args": [],
+   "config": "[identity]\nbrowser = \"chrome\"\nprofile = \"Profile 3\"\n",
+   "state": {
+    "registered": [
+     [
+      "browser:act",
+      "browser:read"
+     ],
+     [
+      "mac:read",
+      "mac:act"
+     ],
+     [
+      "screen"
+     ],
+     [
+      "audio"
+     ],
+     [
+      "fs:read"
+     ],
+     [
+      "applescript"
+     ],
+     [
+      "trail:read"
+     ]
+    ],
+    "pairings": [
+     {
+      "install_id": "inst-1",
+      "browser": "chrome",
+      "folder": "Default",
+      "identity": "owner"
+     },
+     {
+      "install_id": "inst-2",
+      "browser": "brave",
+      "folder": "Default",
+      "identity": "owner"
+     },
+     {
+      "install_id": "inst-3",
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "identity": "ferb"
+     },
+     {
+      "install_id": "inst-4",
+      "browser": "chrome",
+      "folder": "Profile 9",
+      "identity": "owner"
+     }
+    ],
+    "identity_profile": [
+     "chrome",
+     "Profile 3"
+    ],
+    "identity_browser": true,
+    "profiles": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Personal",
+      "email": "owner@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 2",
+      "display_name": "",
+      "email": "side@example.test"
+     },
+     {
+      "browser": "brave",
+      "folder": "Default",
+      "display_name": "Bravé ü",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "FERB",
+      "email": "ferb.bot@example.test"
+     }
+    ],
+    "permissions": {
+     "accessibility": true,
+     "screen": true
+    }
+   },
+   "files": {},
+   "out": {
+    "scopes": [
+     "applescript",
+     "audio",
+     "browser:act",
+     "browser:read",
+     "fs:read",
+     "mac:act",
+     "mac:read",
+     "screen",
+     "trail:read"
+    ],
+    "text": "Installed worker capabilities:\n- Files: list, read, write, edit and move to Trash. Relative paths use FERB's workspace; absolute paths use the supplied location and operating-system access.\n- The owner's browsers, connection observations: paired: Chrome “Personal” (owner@example.test), Brave “Bravé ü”, Chrome “Profile 9” (whether each is connected now: the live facts) — open pages in their signed-in sessions, read them, click/type/select, or take over a tab the owner already has open. For work that needs the owner's accounts or a profile they name (prompts decision 5); login codes and passwords come through FERB's hidden input.\n- The owner's Mac apps: through Accessibility and AppleScript (applescript, mac:act, mac:read), from the background: the owner stays in their own app. A goal is what to read or do in it (\"Read the top chat in WhatsApp\").\n- A screenshot of one app window, with screenshot-bound pointer input (screen, mac:act).\n- Hearing (audio): what one app or a task's tab is playing, as a transcript recognized on this Mac only; recordings can include the sound. The media must be playing and unmuted.\n- FERB's record of the owner's recent activity (trail:read).",
+    "missing": []
+   },
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "avail_nothing_paired",
+   "method": "_availability",
+   "args": [],
+   "config": "",
+   "state": {
+    "registered": [
+     [
+      "browser:act",
+      "browser:read"
+     ],
+     [
+      "mac:read",
+      "mac:act"
+     ],
+     [
+      "screen"
+     ],
+     [
+      "audio"
+     ],
+     [
+      "fs:read"
+     ],
+     [
+      "applescript"
+     ],
+     [
+      "trail:read"
+     ]
+    ],
+    "pairings": [],
+    "identity_profile": [
+     "chrome",
+     "Profile 3"
+    ],
+    "identity_browser": false,
+    "permissions": {
+     "accessibility": false,
+     "screen": false
+    }
+   },
+   "files": {},
+   "out": {
+    "scopes": [
+     "applescript",
+     "audio",
+     "browser:act",
+     "browser:read",
+     "fs:read",
+     "mac:act",
+     "mac:read",
+     "screen",
+     "trail:read"
+    ],
+    "text": "Installed worker capabilities:\n- Files: list, read, write, edit and move to Trash. Relative paths use FERB's workspace; absolute paths use the supplied location and operating-system access.\n- The owner's browsers, connection observations: the paired profiles — open pages in their signed-in sessions, read them, click/type/select, or take over a tab the owner already has open. For work that needs the owner's accounts or a profile they name (prompts decision 5); login codes and passwords come through FERB's hidden input.\n- The owner's Mac apps: through Accessibility and AppleScript (applescript, mac:act, mac:read), from the background: the owner stays in their own app. A goal is what to read or do in it (\"Read the top chat in WhatsApp\").\n- A screenshot of one app window, with screenshot-bound pointer input (screen, mac:act).\n- Hearing (audio): what one app or a task's tab is playing, as a transcript recognized on this Mac only; recordings can include the sound. The media must be playing and unmuted.\n- FERB's record of the owner's recent activity (trail:read).\nConnection/permission observations: the owner's browsers (none of the owner's browser profiles is paired — browser_pair pairs one (FERB asks the owner once)); FERB's own browser (not paired yet); the owner's Mac apps (FERB doesn't have the Accessibility permission — the owner grants it in FERB's Settings → Permissions); screenshots of app windows (FERB doesn't have the Screen Recording permission — the owner grants it in FERB's Settings → Permissions); hearing app sound (FERB doesn't have the Screen Recording permission, which covers app sound — the owner grants it in FERB's Settings → Permissions).",
+    "missing": [
+     "the owner's browsers (none of the owner's browser profiles is paired — browser_pair pairs one (FERB asks the owner once))",
+     "FERB's own browser (not paired yet)",
+     "the owner's Mac apps (FERB doesn't have the Accessibility permission — the owner grants it in FERB's Settings → Permissions)",
+     "screenshots of app windows (FERB doesn't have the Screen Recording permission — the owner grants it in FERB's Settings → Permissions)",
+     "hearing app sound (FERB doesn't have the Screen Recording permission, which covers app sound — the owner grants it in FERB's Settings → Permissions)"
+    ]
+   },
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "avail_no_pairings_store",
+   "method": "_availability",
+   "args": [],
+   "config": "",
+   "state": {
+    "registered": [
+     [
+      "browser:act"
+     ]
+    ],
+    "pairings": null,
+    "browsing": {
+     "as_owner": true,
+     "label": "Chrome “Work”"
+    },
+    "permissions": {}
+   },
+   "files": {},
+   "out": {
+    "scopes": [
+     "browser:act"
+    ],
+    "text": "Installed worker capabilities:\n- The owner's browsers, connection observations: the paired profiles — open pages in their signed-in sessions, read them, click/type/select, or take over a tab the owner already has open. For work that needs the owner's accounts or a profile they name (prompts decision 5); login codes and passwords come through FERB's hidden input.\nConnection/permission observations: the owner's browsers (none of the owner's browser profiles is paired — browser_pair pairs one (FERB asks the owner once)); FERB's own browser (not set up; web work as FERB runs as the owner in their Chrome “Work”, the profile they picked).",
+    "missing": [
+     "the owner's browsers (none of the owner's browser profiles is paired — browser_pair pairs one (FERB asks the owner once))",
+     "FERB's own browser (not set up; web work as FERB runs as the owner in their Chrome “Work”, the profile they picked)"
+    ]
+   },
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "avail_declined",
+   "method": "_availability",
+   "args": [],
+   "config": "",
+   "state": {
+    "registered": [
+     [
+      "browser:act"
+     ],
+     [
+      "audio"
+     ]
+    ],
+    "pairings": [
+     {
+      "install_id": "inst-4",
+      "browser": "chrome",
+      "folder": "Profile 9",
+      "identity": "owner"
+     }
+    ],
+    "browsing": {
+     "declined": true
+    },
+    "profiles": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Personal",
+      "email": "owner@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 2",
+      "display_name": "",
+      "email": "side@example.test"
+     },
+     {
+      "browser": "brave",
+      "folder": "Default",
+      "display_name": "Bravé ü",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "FERB",
+      "email": "ferb.bot@example.test"
+     }
+    ],
+    "permissions": {
+     "screen": false
+    }
+   },
+   "files": {},
+   "out": {
+    "scopes": [
+     "audio",
+     "browser:act"
+    ],
+    "text": "Installed worker capabilities:\n- The owner's browsers, connection observations: paired: Chrome “Profile 9” (whether each is connected now: the live facts) — open pages in their signed-in sessions, read them, click/type/select, or take over a tab the owner already has open. For work that needs the owner's accounts or a profile they name (prompts decision 5); login codes and passwords come through FERB's hidden input.\n- Hearing (audio): what one app or a task's tab is playing, as a transcript recognized on this Mac only; recordings can include the sound. The media must be playing and unmuted.\nConnection/permission observations: FERB's own browser (not set up, and the owner chose to give FERB none of their profiles: web work as FERB has no browser, so pages are fetched directly, pages that need JavaScript, a sign-in or a bot check can't be read, and it is slower and less reliable. The owner can pick a profile in Settings → Browsers); hearing app sound (FERB doesn't have the Screen Recording permission, which covers app sound — the owner grants it in FERB's Settings → Permissions).",
+    "missing": [
+     "FERB's own browser (not set up, and the owner chose to give FERB none of their profiles: web work as FERB has no browser, so pages are fetched directly, pages that need JavaScript, a sign-in or a bot check can't be read, and it is slower and less reliable. The owner can pick a profile in Settings → Browsers)",
+     "hearing app sound (FERB doesn't have the Screen Recording permission, which covers app sound — the owner grants it in FERB's Settings → Permissions)"
+    ]
+   },
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "avail_unasked",
+   "method": "_availability",
+   "args": [],
+   "config": "",
+   "state": {
+    "registered": [
+     [
+      "browser:act",
+      "screen"
+     ]
+    ],
+    "pairings": [
+     {
+      "install_id": "inst-1",
+      "browser": "chrome",
+      "folder": "Default",
+      "identity": "owner"
+     },
+     {
+      "install_id": "inst-2",
+      "browser": "brave",
+      "folder": "Default",
+      "identity": "owner"
+     }
+    ],
+    "browsing": {},
+    "profiles": [],
+    "permissions": {
+     "accessibility": false
+    }
+   },
+   "files": {},
+   "out": {
+    "scopes": [
+     "browser:act",
+     "screen"
+    ],
+    "text": "Installed worker capabilities:\n- The owner's browsers, connection observations: paired: Chrome “Default”, Brave “Default” (whether each is connected now: the live facts) — open pages in their signed-in sessions, read them, click/type/select, or take over a tab the owner already has open. For work that needs the owner's accounts or a profile they name (prompts decision 5); login codes and passwords come through FERB's hidden input.\n- A screenshot of one app window, with screenshot-bound pointer input (screen, mac:act).\nConnection/permission observations: FERB's own browser (not set up; when a task does web work as FERB, FERB asks the owner once which of their browser profiles to use, and works there as the owner).",
+    "missing": [
+     "FERB's own browser (not set up; when a task does web work as FERB, FERB asks the owner once which of their browser profiles to use, and works there as the owner)"
+    ]
+   },
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "avail_no_browser_scope",
+   "method": "_availability",
+   "args": [],
+   "config": "",
+   "state": {
+    "registered": [
+     [
+      "mac:read"
+     ],
+     [
+      "fs:read"
+     ]
+    ],
+    "pairings": [
+     {
+      "install_id": "inst-1",
+      "browser": "chrome",
+      "folder": "Default",
+      "identity": "owner"
+     },
+     {
+      "install_id": "inst-2",
+      "browser": "brave",
+      "folder": "Default",
+      "identity": "owner"
+     },
+     {
+      "install_id": "inst-3",
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "identity": "ferb"
+     },
+     {
+      "install_id": "inst-4",
+      "browser": "chrome",
+      "folder": "Profile 9",
+      "identity": "owner"
+     }
+    ],
+    "permissions": {
+     "accessibility": false,
+     "screen": false
+    }
+   },
+   "files": {},
+   "out": {
+    "scopes": [
+     "fs:read",
+     "mac:read"
+    ],
+    "text": "Installed worker capabilities:\n- Files: list, read, write, edit and move to Trash. Relative paths use FERB's workspace; absolute paths use the supplied location and operating-system access.\n- The owner's Mac apps: through Accessibility (mac:read), from the background: the owner stays in their own app. A goal is what to read or do in it (\"Read the top chat in WhatsApp\").\nConnection/permission observations: the owner's Mac apps (FERB doesn't have the Accessibility permission — the owner grants it in FERB's Settings → Permissions).",
+    "missing": [
+     "the owner's Mac apps (FERB doesn't have the Accessibility permission — the owner grants it in FERB's Settings → Permissions)"
+    ]
+   },
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "avail_empty",
+   "method": "_availability",
+   "args": [],
+   "config": "",
+   "state": {
+    "registered": [],
+    "permissions": {}
+   },
+   "files": {},
+   "out": {
+    "scopes": [],
+    "text": "Installed worker capabilities:\n",
+    "missing": []
+   },
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "facts_mailbox",
+   "method": "_facts",
+   "args": [],
+   "config": "[mailbox]\naddress = \"ferb.invented@example.test\"\n",
+   "state": {
+    "about": "FERB 0.27.3 on this Mac.",
+    "secrets": [
+     {
+      "key": "github",
+      "account_hint": "o***@example.test",
+      "allowed_origins": [
+       "https://github.com"
+      ]
+     },
+     {
+      "key": "bank",
+      "account_hint": "",
+      "allowed_origins": [
+       "https://a.test",
+       "https://b.test"
+      ]
+     }
+    ],
+    "missing_dev_tools": [
+     "git",
+     "make"
+    ],
+    "dev_tools_installed": false,
+    "time_meanings": [
+     [
+      "tonight",
+      "after 18:00"
+     ],
+     [
+      "morning",
+      "before 11:00 “local”"
+     ]
+    ]
+   },
+   "files": {},
+   "out": "FERB 0.27.3 on this Mac.\n- FERB's own email (its identity, never the owner's): ferb.invented@example.test\n- FERB secret github: o***@example.test, usable on https://github.com\n- FERB secret bank: , usable on https://a.test, https://b.test\n- This Mac has no developer tools (Apple's Command Line Tools aren't installed): in a terminal command git, make are only Apple's stubs; running one fails and opens macOS's \"install developer tools\" dialog in front of the owner, so never run them. When a task really needs one, ask the owner once (owner_ask) to install the developer tools; after their Yes, `xcode-select --install` opens Apple's installer for them. FERB doesn't install them itself.\n- When the owner says “tonight”, they mean: after 18:00\n- When the owner says “morning”, they mean: before 11:00 “local”",
+   "journal": [],
+   "log": [],
+   "missing_dev_tools": [
+    "git",
+    "make"
+   ]
+  },
+  {
+   "name": "facts_tools_installed",
+   "method": "_facts",
+   "args": [],
+   "config": "[mailbox]\naddress = \"ferb.invented@example.test\"\n",
+   "state": {
+    "missing_dev_tools": [
+     "git"
+    ],
+    "dev_tools_installed": true
+   },
+   "files": {},
+   "out": "FERB about.\n- FERB's own email (its identity, never the owner's): ferb.invented@example.test",
+   "journal": [],
+   "log": [],
+   "missing_dev_tools": []
+  },
+  {
+   "name": "facts_no_account_chosen",
+   "method": "_facts",
+   "args": [],
+   "config": "[browsing]\nowner_profile = \"chrome/Profile 1\"\n",
+   "state": {
+    "profiles": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Personal",
+      "email": "owner@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 2",
+      "display_name": "",
+      "email": "side@example.test"
+     },
+     {
+      "browser": "brave",
+      "folder": "Default",
+      "display_name": "Bravé ü",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "FERB",
+      "email": "ferb.bot@example.test"
+     }
+    ]
+   },
+   "files": {},
+   "out": "FERB about.\n- FERB has no Google account or browser profile of its own (the owner can add one in FERB.app → Settings → Browsers): what needs FERB's own inbox (one-time codes for FERB's own sign-ups, sending from FERB's address) isn't set up; web work uses identity \"owner\" in the owner's chrome profile “Work” (folder “Profile 1”), which they chose for it.",
+   "journal": [],
+   "log": [],
+   "missing_dev_tools": []
+  },
+  {
+   "name": "facts_no_account_chosen_unknown",
+   "method": "_facts",
+   "args": [],
+   "config": "[browsing]\nowner_profile = \"brave/Gone\"\n",
+   "state": {
+    "profiles": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Personal",
+      "email": "owner@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 2",
+      "display_name": "",
+      "email": "side@example.test"
+     },
+     {
+      "browser": "brave",
+      "folder": "Default",
+      "display_name": "Bravé ü",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "FERB",
+      "email": "ferb.bot@example.test"
+     }
+    ]
+   },
+   "files": {},
+   "out": "FERB about.\n- FERB has no Google account or browser profile of its own (the owner can add one in FERB.app → Settings → Browsers): what needs FERB's own inbox (one-time codes for FERB's own sign-ups, sending from FERB's address) isn't set up; web work uses identity \"owner\" in the owner's brave profile “Gone” (folder “Gone”), which they chose for it.",
+   "journal": [],
+   "log": [],
+   "missing_dev_tools": []
+  },
+  {
+   "name": "facts_no_account_none",
+   "method": "_facts",
+   "args": [],
+   "config": "[browsing]\nowner_profile = \"\"\n",
+   "state": {
+    "profiles": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Personal",
+      "email": "owner@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 2",
+      "display_name": "",
+      "email": "side@example.test"
+     },
+     {
+      "browser": "brave",
+      "folder": "Default",
+      "display_name": "Bravé ü",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "FERB",
+      "email": "ferb.bot@example.test"
+     }
+    ]
+   },
+   "files": {},
+   "out": "FERB about.\n- FERB has no Google account or browser profile of its own (the owner can add one in FERB.app → Settings → Browsers): what needs FERB's own inbox (one-time codes for FERB's own sign-ups, sending from FERB's address) isn't set up; web work uses identity \"owner\" in a profile the owner names (none chosen for it).",
+   "journal": [],
+   "log": [],
+   "missing_dev_tools": []
+  },
+  {
+   "name": "facts_no_account_half",
+   "method": "_facts",
+   "args": [],
+   "config": "[browsing]\nowner_profile = \"chrome/\"\n",
+   "state": {
+    "profiles": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Personal",
+      "email": "owner@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 2",
+      "display_name": "",
+      "email": "side@example.test"
+     },
+     {
+      "browser": "brave",
+      "folder": "Default",
+      "display_name": "Bravé ü",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "FERB",
+      "email": "ferb.bot@example.test"
+     }
+    ]
+   },
+   "files": {},
+   "out": "FERB about.\n- FERB has no Google account or browser profile of its own (the owner can add one in FERB.app → Settings → Browsers): what needs FERB's own inbox (one-time codes for FERB's own sign-ups, sending from FERB's address) isn't set up; web work uses identity \"owner\" in a profile the owner names (none chosen for it).",
+   "journal": [],
+   "log": [],
+   "missing_dev_tools": []
+  },
+  {
+   "name": "facts_no_account_unset",
+   "method": "_facts",
+   "args": [],
+   "config": "",
+   "state": {
+    "about": "",
+    "missing_dev_tools": []
+   },
+   "files": {},
+   "out": "\n- FERB has no Google account or browser profile of its own (the owner can add one in FERB.app → Settings → Browsers): what needs FERB's own inbox (one-time codes for FERB's own sign-ups, sending from FERB's address) isn't set up; web work uses identity \"owner\" in a profile the owner names (none chosen for it).",
+   "journal": [],
+   "log": [],
+   "missing_dev_tools": []
+  },
+  {
+   "name": "live_full",
+   "method": "_live_facts",
+   "args": [],
+   "config": "",
+   "state": {
+    "models": {
+     "planner": "gpt-x",
+     "worker": "claude-y",
+     "checker": "gpt-x"
+    },
+    "schedule_facts": {
+     "plain": [
+      "- Schedules: 1",
+      "- daily 09:00"
+     ],
+     "last_runs": [
+      "- Schedules: 1",
+      "- daily 09:00 (last run ok)"
+     ]
+    },
+    "reminder_facts": [
+     "- Reminders: none"
+    ],
+    "pairings": [
+     {
+      "install_id": "inst-1",
+      "browser": "chrome",
+      "folder": "Default",
+      "identity": "owner"
+     },
+     {
+      "install_id": "inst-2",
+      "browser": "brave",
+      "folder": "Default",
+      "identity": "owner"
+     },
+     {
+      "install_id": "inst-3",
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "identity": "ferb"
+     },
+     {
+      "install_id": "inst-4",
+      "browser": "chrome",
+      "folder": "Profile 9",
+      "identity": "owner"
+     }
+    ],
+    "identity_profile": [
+     "chrome",
+     "Profile 3"
+    ],
+    "profiles": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Personal",
+      "email": "owner@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 2",
+      "display_name": "",
+      "email": "side@example.test"
+     },
+     {
+      "browser": "brave",
+      "folder": "Default",
+      "display_name": "Bravé ü",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "FERB",
+      "email": "ferb.bot@example.test"
+     }
+    ],
+    "hub": {
+     "bridges": {
+      "chrome/Default": {
+       "conn": true,
+       "version": "0.19.4"
+      },
+      "brave/Default": {
+       "conn": false,
+       "version": "0.18.0"
+      }
+     },
+     "unpaired": {
+      "x": "edge",
+      "y": "arc",
+      "z": "edge"
+     },
+     "problems": {
+      "chrome/Profile 9": "its FERB extension is too old"
+     }
+    },
+    "pairing_versions": {
+     "inst-2": "0.17.1",
+     "inst-4": "0.16.0"
+    },
+    "drivers": {
+     "router": {
+      "wake": true
+     }
+    },
+    "unpaired_notes": {
+     "edge": "Microsoft Edge has profiles FERB could pair"
+    }
+   },
+   "files": {},
+   "out": "- The AI FERB uses now, from its settings (answer questions about FERB's AI or model from this, never from memory): planner gpt-x; worker claude-y; checker gpt-x\n- Schedules: 1\n- daily 09:00\n- Reminders: none\n- The owner's chrome profile “Personal” (owner@example.test): paired, connected (FERB extension 0.19.4)\n- The owner's brave profile “Bravé ü”: paired; not connected now (usually the profile just isn't running) — FERB's browser tools start it in the background and open its tab there themselves, nothing to ask (FERB extension 0.17.1)\n- The owner's chrome profile “Profile 9”: paired; not connected: its FERB extension is too old (only the owner can fix this; browser tools can't use it until then) (FERB extension 0.16.0)\n- Microsoft Edge has profiles FERB could pair",
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "live_last_runs",
+   "method": "_live_facts",
+   "args": [
+    true,
+    true
+   ],
+   "config": "",
+   "state": {
+    "models": {
+     "planner": "gpt-x",
+     "worker": "claude-y",
+     "checker": "gpt-x"
+    },
+    "schedule_facts": {
+     "plain": [
+      "- Schedules: 1",
+      "- daily 09:00"
+     ],
+     "last_runs": [
+      "- Schedules: 1",
+      "- daily 09:00 (last run ok)"
+     ]
+    },
+    "reminder_facts": [
+     "- Reminders: none"
+    ],
+    "pairings": [
+     {
+      "install_id": "inst-1",
+      "browser": "chrome",
+      "folder": "Default",
+      "identity": "owner"
+     },
+     {
+      "install_id": "inst-2",
+      "browser": "brave",
+      "folder": "Default",
+      "identity": "owner"
+     },
+     {
+      "install_id": "inst-3",
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "identity": "ferb"
+     },
+     {
+      "install_id": "inst-4",
+      "browser": "chrome",
+      "folder": "Profile 9",
+      "identity": "owner"
+     }
+    ],
+    "identity_profile": [
+     "chrome",
+     "Profile 3"
+    ],
+    "profiles": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Personal",
+      "email": "owner@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 2",
+      "display_name": "",
+      "email": "side@example.test"
+     },
+     {
+      "browser": "brave",
+      "folder": "Default",
+      "display_name": "Bravé ü",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "FERB",
+      "email": "ferb.bot@example.test"
+     }
+    ],
+    "hub": {
+     "bridges": {
+      "chrome/Default": {
+       "conn": true,
+       "version": "0.19.4"
+      },
+      "brave/Default": {
+       "conn": false,
+       "version": "0.18.0"
+      }
+     },
+     "unpaired": {
+      "x": "edge",
+      "y": "arc",
+      "z": "edge"
+     },
+     "problems": {
+      "chrome/Profile 9": "its FERB extension is too old"
+     }
+    },
+    "pairing_versions": {
+     "inst-2": "0.17.1",
+     "inst-4": "0.16.0"
+    },
+    "drivers": {
+     "router": {
+      "wake": true
+     }
+    },
+    "unpaired_notes": {
+     "edge": "Microsoft Edge has profiles FERB could pair"
+    }
+   },
+   "files": {},
+   "out": "- The AI FERB uses now, from its settings (answer questions about FERB's AI or model from this, never from memory): planner gpt-x; worker claude-y; checker gpt-x\n- Schedules: 1\n- daily 09:00 (last run ok)\n- Reminders: none\n- The owner's chrome profile “Personal” (owner@example.test): paired, connected (FERB extension 0.19.4)\n- The owner's brave profile “Bravé ü”: paired; not connected now (usually the profile just isn't running) — FERB's browser tools start it in the background and open its tab there themselves, nothing to ask (FERB extension 0.17.1)\n- The owner's chrome profile “Profile 9”: paired; not connected: its FERB extension is too old (only the owner can fix this; browser tools can't use it until then) (FERB extension 0.16.0)\n- Microsoft Edge has profiles FERB could pair",
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "live_preview",
+   "method": "_live_facts",
+   "args": [
+    false,
+    false
+   ],
+   "config": "",
+   "state": {
+    "models": {
+     "planner": "gpt-x",
+     "worker": "claude-y",
+     "checker": "gpt-x"
+    },
+    "schedule_facts": {
+     "plain": [
+      "- Schedules: 1",
+      "- daily 09:00"
+     ],
+     "last_runs": [
+      "- Schedules: 1",
+      "- daily 09:00 (last run ok)"
+     ]
+    },
+    "reminder_facts": [
+     "- Reminders: none"
+    ],
+    "pairings": [
+     {
+      "install_id": "inst-1",
+      "browser": "chrome",
+      "folder": "Default",
+      "identity": "owner"
+     },
+     {
+      "install_id": "inst-2",
+      "browser": "brave",
+      "folder": "Default",
+      "identity": "owner"
+     },
+     {
+      "install_id": "inst-3",
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "identity": "ferb"
+     },
+     {
+      "install_id": "inst-4",
+      "browser": "chrome",
+      "folder": "Profile 9",
+      "identity": "owner"
+     }
+    ],
+    "identity_profile": [
+     "chrome",
+     "Profile 3"
+    ],
+    "profiles": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Personal",
+      "email": "owner@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 2",
+      "display_name": "",
+      "email": "side@example.test"
+     },
+     {
+      "browser": "brave",
+      "folder": "Default",
+      "display_name": "Bravé ü",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "FERB",
+      "email": "ferb.bot@example.test"
+     }
+    ],
+    "hub": {
+     "bridges": {
+      "chrome/Default": {
+       "conn": true,
+       "version": "0.19.4"
+      },
+      "brave/Default": {
+       "conn": false,
+       "version": "0.18.0"
+      }
+     },
+     "unpaired": {
+      "x": "edge",
+      "y": "arc",
+      "z": "edge"
+     },
+     "problems": {
+      "chrome/Profile 9": "its FERB extension is too old"
+     }
+    },
+    "pairing_versions": {
+     "inst-2": "0.17.1",
+     "inst-4": "0.16.0"
+    },
+    "drivers": {
+     "router": {
+      "wake": true
+     }
+    },
+    "unpaired_notes": {
+     "edge": "Microsoft Edge has profiles FERB could pair"
+    }
+   },
+   "files": {},
+   "out": "- The AI FERB uses now, from its settings (answer questions about FERB's AI or model from this, never from memory): planner gpt-x; worker claude-y; checker gpt-x\n- The owner's chrome profile “Personal” (owner@example.test): paired, connected (FERB extension 0.19.4)\n- The owner's brave profile “Bravé ü”: paired; not connected now (usually the profile just isn't running) — FERB's browser tools start it in the background and open its tab there themselves, nothing to ask (FERB extension 0.17.1)\n- The owner's chrome profile “Profile 9”: paired; not connected: its FERB extension is too old (only the owner can fix this; browser tools can't use it until then) (FERB extension 0.16.0)\n- Microsoft Edge has profiles FERB could pair",
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "live_no_wake",
+   "method": "_live_facts",
+   "args": [],
+   "config": "",
+   "state": {
+    "models": {
+     "planner": "gpt-x",
+     "worker": "claude-y",
+     "checker": "gpt-x"
+    },
+    "schedule_facts": {
+     "plain": [
+      "- Schedules: 1",
+      "- daily 09:00"
+     ],
+     "last_runs": [
+      "- Schedules: 1",
+      "- daily 09:00 (last run ok)"
+     ]
+    },
+    "reminder_facts": [
+     "- Reminders: none"
+    ],
+    "pairings": [
+     {
+      "install_id": "inst-1",
+      "browser": "chrome",
+      "folder": "Default",
+      "identity": "owner"
+     },
+     {
+      "install_id": "inst-2",
+      "browser": "brave",
+      "folder": "Default",
+      "identity": "owner"
+     },
+     {
+      "install_id": "inst-3",
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "identity": "ferb"
+     },
+     {
+      "install_id": "inst-4",
+      "browser": "chrome",
+      "folder": "Profile 9",
+      "identity": "owner"
+     }
+    ],
+    "identity_profile": [
+     "chrome",
+     "Profile 3"
+    ],
+    "profiles": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Personal",
+      "email": "owner@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 2",
+      "display_name": "",
+      "email": "side@example.test"
+     },
+     {
+      "browser": "brave",
+      "folder": "Default",
+      "display_name": "Bravé ü",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "FERB",
+      "email": "ferb.bot@example.test"
+     }
+    ],
+    "hub": {
+     "bridges": {
+      "chrome/Default": {
+       "conn": true,
+       "version": "0.19.4"
+      },
+      "brave/Default": {
+       "conn": false,
+       "version": "0.18.0"
+      }
+     },
+     "unpaired": {
+      "x": "edge",
+      "y": "arc",
+      "z": "edge"
+     },
+     "problems": {
+      "chrome/Profile 9": "its FERB extension is too old"
+     }
+    },
+    "pairing_versions": {
+     "inst-2": "0.17.1",
+     "inst-4": "0.16.0"
+    },
+    "drivers": {
+     "router": {
+      "wake": false
+     }
+    },
+    "unpaired_notes": {
+     "edge": "Microsoft Edge has profiles FERB could pair"
+    }
+   },
+   "files": {},
+   "out": "- The AI FERB uses now, from its settings (answer questions about FERB's AI or model from this, never from memory): planner gpt-x; worker claude-y; checker gpt-x\n- Schedules: 1\n- daily 09:00\n- Reminders: none\n- The owner's chrome profile “Personal” (owner@example.test): paired, connected (FERB extension 0.19.4)\n- The owner's brave profile “Bravé ü”: paired; not connected now — FERB connects once that profile is open in its browser (FERB extension 0.17.1)\n- The owner's chrome profile “Profile 9”: paired; not connected: its FERB extension is too old (only the owner can fix this; browser tools can't use it until then) (FERB extension 0.16.0)\n- Microsoft Edge has profiles FERB could pair",
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "live_no_router",
+   "method": "_live_facts",
+   "args": [],
+   "config": "",
+   "state": {
+    "models": {
+     "planner": "gpt-x",
+     "worker": "claude-y",
+     "checker": "gpt-x"
+    },
+    "schedule_facts": null,
+    "reminder_facts": null,
+    "pairings": [
+     {
+      "install_id": "inst-1",
+      "browser": "chrome",
+      "folder": "Default",
+      "identity": "owner"
+     },
+     {
+      "install_id": "inst-2",
+      "browser": "brave",
+      "folder": "Default",
+      "identity": "owner"
+     },
+     {
+      "install_id": "inst-3",
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "identity": "ferb"
+     },
+     {
+      "install_id": "inst-4",
+      "browser": "chrome",
+      "folder": "Profile 9",
+      "identity": "owner"
+     }
+    ],
+    "identity_profile": [
+     "chrome",
+     "Profile 3"
+    ],
+    "profiles": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Personal",
+      "email": "owner@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 2",
+      "display_name": "",
+      "email": "side@example.test"
+     },
+     {
+      "browser": "brave",
+      "folder": "Default",
+      "display_name": "Bravé ü",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "FERB",
+      "email": "ferb.bot@example.test"
+     }
+    ],
+    "hub": {
+     "bridges": {
+      "chrome/Default": {
+       "conn": true,
+       "version": "0.19.4"
+      },
+      "brave/Default": {
+       "conn": false,
+       "version": "0.18.0"
+      }
+     },
+     "unpaired": {
+      "x": "edge",
+      "y": "arc",
+      "z": "edge"
+     },
+     "problems": {
+      "chrome/Profile 9": "its FERB extension is too old"
+     }
+    },
+    "pairing_versions": {
+     "inst-2": "0.17.1",
+     "inst-4": "0.16.0"
+    },
+    "drivers": {},
+    "unpaired_notes": {
+     "edge": "Microsoft Edge has profiles FERB could pair"
+    }
+   },
+   "files": {},
+   "out": "- The AI FERB uses now, from its settings (answer questions about FERB's AI or model from this, never from memory): planner gpt-x; worker claude-y; checker gpt-x\n- The owner's chrome profile “Personal” (owner@example.test): paired, connected (FERB extension 0.19.4)\n- The owner's brave profile “Bravé ü”: paired; not connected now — FERB connects once that profile is open in its browser (FERB extension 0.17.1)\n- The owner's chrome profile “Profile 9”: paired; not connected: its FERB extension is too old (only the owner can fix this; browser tools can't use it until then) (FERB extension 0.16.0)\n- Microsoft Edge has profiles FERB could pair",
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "live_no_hub",
+   "method": "_live_facts",
+   "args": [],
+   "config": "",
+   "state": {
+    "models": {
+     "planner": "gpt-x",
+     "worker": "claude-y",
+     "checker": "gpt-x"
+    },
+    "schedule_facts": {
+     "plain": [
+      "- Schedules: 1",
+      "- daily 09:00"
+     ],
+     "last_runs": [
+      "- Schedules: 1",
+      "- daily 09:00 (last run ok)"
+     ]
+    },
+    "reminder_facts": [
+     "- Reminders: none"
+    ],
+    "pairings": [
+     {
+      "install_id": "inst-1",
+      "browser": "chrome",
+      "folder": "Default",
+      "identity": "owner"
+     },
+     {
+      "install_id": "inst-2",
+      "browser": "brave",
+      "folder": "Default",
+      "identity": "owner"
+     },
+     {
+      "install_id": "inst-3",
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "identity": "ferb"
+     },
+     {
+      "install_id": "inst-4",
+      "browser": "chrome",
+      "folder": "Profile 9",
+      "identity": "owner"
+     }
+    ],
+    "identity_profile": [
+     "chrome",
+     "Profile 3"
+    ],
+    "profiles": [
+     {
+      "browser": "chrome",
+      "folder": "Default",
+      "display_name": "Personal",
+      "email": "owner@example.test"
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "display_name": "Work",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 2",
+      "display_name": "",
+      "email": "side@example.test"
+     },
+     {
+      "browser": "brave",
+      "folder": "Default",
+      "display_name": "Bravé ü",
+      "email": ""
+     },
+     {
+      "browser": "chrome",
+      "folder": "Profile 3",
+      "display_name": "FERB",
+      "email": "ferb.bot@example.test"
+     }
+    ],
+    "hub": null,
+    "pairing_versions": {
+     "inst-2": "0.17.1",
+     "inst-4": "0.16.0"
+    },
+    "drivers": {
+     "router": {
+      "wake": true
+     }
+    },
+    "unpaired_notes": {
+     "edge": "Microsoft Edge has profiles FERB could pair"
+    }
+   },
+   "files": {},
+   "out": "- The AI FERB uses now, from its settings (answer questions about FERB's AI or model from this, never from memory): planner gpt-x; worker claude-y; checker gpt-x\n- Schedules: 1\n- daily 09:00\n- Reminders: none",
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "live_minimal",
+   "method": "_live_facts",
+   "args": [],
+   "config": "",
+   "state": {
+    "models": {}
+   },
+   "files": {},
+   "out": "- The AI FERB uses now, from its settings (answer questions about FERB's AI or model from this, never from memory): ",
+   "journal": [],
+   "log": []
+  },
+  {
+   "name": "keys_two",
+   "method": "_keychain_values",
+   "args": [],
+   "config": "",
+   "state": {
+    "runtime_for": {
+     "orchestrator": "openai",
+     "worker": "anthropic",
+     "checker": "openai"
+    },
+    "keys": {
+     "values": [
+      "invented-key-value-0001-abcdefghij",
+      "invented-key-value-0002-klmnopqrst"
+     ]
+    },
+    "probe": "echo invented-key-value-0001-abcdefghij and invented-key-value-0002-klmnopqrst"
+   },
+   "files": {},
+   "out": [
+    [
+     "invented-key-value-0001-abcdefghij",
+     "invented-key-value-0002-klmnopqrst"
+    ],
+    0
+   ],
+   "journal": [],
+   "log": [],
+   "providers": [
+    "anthropic",
+    "openai"
+   ],
+   "redacted_after": "echo invented-key-value-0001-abcdefghij and invented-key-value-0002-klmnopqrst"
+  },
+  {
+   "name": "keys_fail",
+   "method": "_keychain_values",
+   "args": [],
+   "config": "",
+   "state": {
+    "runtime_for": {
+     "orchestrator": "openai",
+     "worker": "anthropic",
+     "checker": "openai"
+    },
+    "keys": {
+     "raise": true
+    },
+    "probe": "echo invented-key-value-0001-abcdefghij and invented-key-value-0002-klmnopqrst"
+   },
+   "files": {},
+   "out": [
+    [],
+    1
+   ],
+   "journal": [],
+   "log": [],
+   "providers": [
+    "anthropic",
+    "openai"
+   ],
+   "redacted_after": "echo invented-key-value-0001-abcdefghij and invented-key-value-0002-klmnopqrst"
+  },
+  {
+   "name": "preload_two",
+   "method": "_preload_secrets",
+   "args": [],
+   "config": "",
+   "state": {
+    "runtime_for": {
+     "orchestrator": "openai",
+     "worker": "anthropic",
+     "checker": "openai"
+    },
+    "keys": {
+     "values": [
+      "invented-key-value-0001-abcdefghij",
+      "invented-key-value-0002-klmnopqrst",
+      "invented-key-value-0001-abcdefghij"
+     ],
+     "problems": [
+      {
+       "provider": "openai",
+       "error": "denied"
+      }
+     ]
+    },
+    "probe": "echo invented-key-value-0001-abcdefghij and invented-key-value-0002-klmnopqrst"
+   },
+   "files": {},
+   "out": null,
+   "journal": [
+    [
+     "keys.old_item_not_deleted",
+     {
+      "provider": "openai",
+      "error": "denied"
+     }
+    ],
+    [
+     "secret.registry_preloaded",
+     {
+      "values": 2,
+      "unreadable": 0
+     }
+    ]
+   ],
+   "log": [],
+   "providers": [
+    "anthropic",
+    "openai"
+   ],
+   "redacted_after": "echo [redacted] and [redacted]"
+  },
+  {
+   "name": "preload_none",
+   "method": "_preload_secrets",
+   "args": [],
+   "config": "",
+   "state": {
+    "runtime_for": {
+     "orchestrator": "codex",
+     "worker": "codex",
+     "checker": "claude"
+    },
+    "keys": {
+     "values": []
+    },
+    "probe": "echo invented-key-value-0001-abcdefghij and invented-key-value-0002-klmnopqrst"
+   },
+   "files": {},
+   "out": null,
+   "journal": [],
+   "log": [],
+   "providers": [
+    "claude",
+    "codex"
+   ],
+   "redacted_after": "echo invented-key-value-0001-abcdefghij and invented-key-value-0002-klmnopqrst"
+  },
+  {
+   "name": "preload_fail",
+   "method": "_preload_secrets",
+   "args": [],
+   "config": "",
+   "state": {
+    "runtime_for": {
+     "orchestrator": "openai",
+     "worker": "anthropic",
+     "checker": "openai"
+    },
+    "keys": {
+     "raise": true,
+     "problems": [
+      {
+       "provider": "x"
+      }
+     ]
+    },
+    "probe": "echo invented-key-value-0001-abcdefghij and invented-key-value-0002-klmnopqrst"
+   },
+   "files": {},
+   "out": null,
+   "journal": [
+    [
+     "keys.old_item_not_deleted",
+     {
+      "provider": "x"
+     }
+    ],
+    [
+     "secret.registry_preloaded",
+     {
+      "values": 0,
+      "unreadable": 1
+     }
+    ]
+   ],
+   "log": [],
+   "providers": [
+    "anthropic",
+    "openai"
+   ],
+   "redacted_after": "echo invented-key-value-0001-abcdefghij and invented-key-value-0002-klmnopqrst"
+  }
+ ]
+}

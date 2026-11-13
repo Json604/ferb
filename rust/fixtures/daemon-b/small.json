@@ -1,0 +1,1471 @@
+{
+ "scenarios": [
+  {
+   "name": "small_about",
+   "what": "About, the guide and What FERB saw over invented evidence rows",
+   "python": [
+    "ferb/daemon/areas/rpc.py:130 _register_rpc",
+    "ferb/daemon/areas/about.py",
+    "ferb/daemon/about.py"
+   ],
+   "volatile": [],
+   "steps": [
+    {
+     "do": "connect",
+     "conn": "app"
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"about.guide\", \"params\": {\"howtos\": [{\"title\": \" Pair  a browser \", \"steps\": \"Settings \\u2192 Browsers \\u2192 Pair\"}, {\"title\": \"x\"}, \"not a dict\"], \"shortcuts\": [{\"action\": \"Open FERB\", \"keys\": \"\\u2325Space\"}, {\"action\": \"\", \"keys\": \"x\"}], \"places\": {\"sense.window_titles\": \"Settings \\u2192 Privacy\", \"\": \"nowhere\", \"retention.trace_days\": \"\"}, \"app_settings\": [{\"key\": \"sounds\", \"name\": \"Sounds\", \"where\": \"Settings \\u2192 General\", \"what\": \"Chimes\", \"value\": \"OnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOnOn\"}, {\"key\": \"secret\", \"name\": \"Hidden\", \"where\": \"Settings\"}, {\"key\": \"\", \"name\": \"No key\", \"where\": \"Settings\"}]}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"howtos\": 1, \"shortcuts\": 1, \"places\": 1, \"app_settings\": 2}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"about.get\", \"params\": {}}"
+      },
+      {
+       "recv": {
+        "sha256": "04981065e3909c1e098bfafb34e40afb0575c4383f778444d8b29f135c64d5cc"
+       }
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"seen.list\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"captures\": [{\"id\": \"ev-8\", \"at\": \"2026-01-01T08:52:00+00:00\", \"kind\": \"screenshot\", \"task_id\": \"t4\", \"app\": \"\", \"bundle_id\": \"\", \"site\": \"\", \"url\": \"\", \"title\": \"Outside\", \"tool\": \"\", \"origin\": \"ferb\"}, {\"id\": \"ev-2\", \"at\": \"2026-01-01T08:30:00+00:00\", \"kind\": \"snapshot\", \"task_id\": \"t1.s2\", \"app\": \"\", \"bundle_id\": \"\", \"site\": \"www.example.test\", \"url\": \"https://www.example.test/page?q=1\", \"title\": \"Invented page\", \"tool\": \"browser.screenshot\", \"origin\": \"external:web\"}, {\"id\": \"ev-1\", \"at\": \"2026-01-01T08:00:00+00:00\", \"kind\": \"screenshot\", \"task_id\": \"t1\", \"app\": \"TextEdit\", \"bundle_id\": \"com.apple.TextEdit\", \"site\": \"\", \"url\": \"\", \"title\": \"Invented notes\", \"tool\": \"mac.screenshot\", \"origin\": \"ferb\"}], \"total\": 3, \"days\": 7}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"seen.list\", \"params\": {\"limit\": 2}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"result\": {\"captures\": [{\"id\": \"ev-8\", \"at\": \"2026-01-01T08:52:00+00:00\", \"kind\": \"screenshot\", \"task_id\": \"t4\", \"app\": \"\", \"bundle_id\": \"\", \"site\": \"\", \"url\": \"\", \"title\": \"Outside\", \"tool\": \"\", \"origin\": \"ferb\"}, {\"id\": \"ev-2\", \"at\": \"2026-01-01T08:30:00+00:00\", \"kind\": \"snapshot\", \"task_id\": \"t1.s2\", \"app\": \"\", \"bundle_id\": \"\", \"site\": \"www.example.test\", \"url\": \"https://www.example.test/page?q=1\", \"title\": \"Invented page\", \"tool\": \"browser.screenshot\", \"origin\": \"external:web\"}], \"total\": 3, \"days\": 7}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"method\": \"seen.list\", \"params\": {\"request_id\": \"req-1\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"result\": {\"captures\": [{\"id\": \"ev-2\", \"at\": \"2026-01-01T08:30:00+00:00\", \"kind\": \"snapshot\", \"task_id\": \"t1.s2\", \"app\": \"\", \"bundle_id\": \"\", \"site\": \"www.example.test\", \"url\": \"https://www.example.test/page?q=1\", \"title\": \"Invented page\", \"tool\": \"browser.screenshot\", \"origin\": \"external:web\"}, {\"id\": \"ev-1\", \"at\": \"2026-01-01T08:00:00+00:00\", \"kind\": \"screenshot\", \"task_id\": \"t1\", \"app\": \"TextEdit\", \"bundle_id\": \"com.apple.TextEdit\", \"site\": \"\", \"url\": \"\", \"title\": \"Invented notes\", \"tool\": \"mac.screenshot\", \"origin\": \"ferb\"}], \"total\": 2, \"days\": 7}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"method\": \"seen.list\", \"params\": {\"task_id\": \"t1.s2\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"result\": {\"captures\": [{\"id\": \"ev-2\", \"at\": \"2026-01-01T08:30:00+00:00\", \"kind\": \"snapshot\", \"task_id\": \"t1.s2\", \"app\": \"\", \"bundle_id\": \"\", \"site\": \"www.example.test\", \"url\": \"https://www.example.test/page?q=1\", \"title\": \"Invented page\", \"tool\": \"browser.screenshot\", \"origin\": \"external:web\"}, {\"id\": \"ev-1\", \"at\": \"2026-01-01T08:00:00+00:00\", \"kind\": \"screenshot\", \"task_id\": \"t1\", \"app\": \"TextEdit\", \"bundle_id\": \"com.apple.TextEdit\", \"site\": \"\", \"url\": \"\", \"title\": \"Invented notes\", \"tool\": \"mac.screenshot\", \"origin\": \"ferb\"}], \"total\": 2, \"days\": 7}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"method\": \"seen.list\", \"params\": {\"task_id\": \"t3\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"result\": {\"captures\": [], \"total\": 0, \"days\": 7}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"method\": \"seen.list\", \"params\": {\"limit\": 0}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"result\": {\"captures\": [{\"id\": \"ev-8\", \"at\": \"2026-01-01T08:52:00+00:00\", \"kind\": \"screenshot\", \"task_id\": \"t4\", \"app\": \"\", \"bundle_id\": \"\", \"site\": \"\", \"url\": \"\", \"title\": \"Outside\", \"tool\": \"\", \"origin\": \"ferb\"}, {\"id\": \"ev-2\", \"at\": \"2026-01-01T08:30:00+00:00\", \"kind\": \"snapshot\", \"task_id\": \"t1.s2\", \"app\": \"\", \"bundle_id\": \"\", \"site\": \"www.example.test\", \"url\": \"https://www.example.test/page?q=1\", \"title\": \"Invented page\", \"tool\": \"browser.screenshot\", \"origin\": \"external:web\"}, {\"id\": \"ev-1\", \"at\": \"2026-01-01T08:00:00+00:00\", \"kind\": \"screenshot\", \"task_id\": \"t1\", \"app\": \"TextEdit\", \"bundle_id\": \"com.apple.TextEdit\", \"site\": \"\", \"url\": \"\", \"title\": \"Invented notes\", \"tool\": \"mac.screenshot\", \"origin\": \"ferb\"}], \"total\": 3, \"days\": 7}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 10, \"method\": \"seen.list\", \"params\": {\"limit\": \"x\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 10, \"error\": {\"code\": -32603, \"message\": \"ValueError\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 11, \"method\": \"seen.image\", \"params\": {\"id\": \"ev-1\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 11, \"result\": {\"id\": \"ev-1\", \"at\": \"2026-01-01T08:00:00+00:00\", \"kind\": \"screenshot\", \"task_id\": \"t1\", \"app\": \"TextEdit\", \"bundle_id\": \"com.apple.TextEdit\", \"site\": \"\", \"url\": \"\", \"title\": \"Invented notes\", \"tool\": \"mac.screenshot\", \"origin\": \"ferb\", \"mime\": \"image/png\", \"image\": \"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 12, \"method\": \"seen.image\", \"params\": {\"id\": \"ev-2\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 12, \"result\": {\"id\": \"ev-2\", \"at\": \"2026-01-01T08:30:00+00:00\", \"kind\": \"snapshot\", \"task_id\": \"t1.s2\", \"app\": \"\", \"bundle_id\": \"\", \"site\": \"www.example.test\", \"url\": \"https://www.example.test/page?q=1\", \"title\": \"Invented page\", \"tool\": \"browser.screenshot\", \"origin\": \"external:web\", \"mime\": \"image/jpeg\", \"image\": \"aW52ZW50ZWQganBlZyBieXRlcw==\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 13, \"method\": \"seen.image\", \"params\": {\"id\": \"ev-3\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 13, \"error\": {\"code\": -32004, \"message\": \"that screenshot isn't kept any more, or it shows something you exclude\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 14, \"method\": \"seen.image\", \"params\": {\"id\": \"ev-5\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 14, \"error\": {\"code\": -32004, \"message\": \"that screenshot isn't kept any more, or it shows something you exclude\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 15, \"method\": \"seen.image\", \"params\": {\"id\": \"ev-6\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 15, \"error\": {\"code\": -32004, \"message\": \"that screenshot isn't kept any more, or it shows something you exclude\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 16, \"method\": \"seen.image\", \"params\": {\"id\": \"ev-8\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 16, \"error\": {\"code\": -32004, \"message\": \"that screenshot isn't kept any more\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 17, \"method\": \"seen.image\", \"params\": {\"id\": \"ev-9\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 17, \"error\": {\"code\": -32004, \"message\": \"that screenshot isn't kept any more, or it shows something you exclude\"}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app"
+    }
+   ],
+   "journal": [
+    [
+     "daemon.internal_error",
+     {
+      "method": "seen.list",
+      "error": "ValueError",
+      "message": "invalid literal for int() with base 10: 'x'",
+      "frames": [
+       "ferb/daemon/server.py:323:_dispatch",
+       "ferb/daemon/areas/about.py:177:_seen_list"
+      ]
+     },
+     "ferb"
+    ]
+   ],
+   "published": [],
+   "setup": {
+    "evidence": [
+     [
+      "ev-1",
+      "t1",
+      "screenshot",
+      "image/png",
+      "2026-01-01/ev-1.png",
+      {
+       "app": "TextEdit",
+       "bundle_id": "com.apple.TextEdit",
+       "title": "Invented notes",
+       "tool": "mac.screenshot"
+      },
+      "ferb",
+      "2026-01-01T08:00:00+00:00"
+     ],
+     [
+      "ev-2",
+      "t1.s2",
+      "snapshot",
+      "image/jpeg",
+      "2026-01-01/ev-2.jpg",
+      {
+       "url": "https://www.example.test/page?q=1",
+       "tab_title": "Invented page",
+       "tool": "browser.screenshot"
+      },
+      "external:web",
+      "2026-01-01T08:30:00+00:00"
+     ],
+     [
+      "ev-3",
+      "t2",
+      "app_window",
+      "image/png",
+      "2026-01-01/ev-3.png",
+      {
+       "app": "1Password",
+       "bundle_id": "com.1password.1password"
+      },
+      "ferb",
+      "2026-01-01T08:40:00+00:00"
+     ],
+     [
+      "ev-4",
+      "t2",
+      "snapshot",
+      "image/png",
+      "2026-01-01/ev-4.png",
+      {
+       "url": "https://excluded.example/x",
+       "title": 7
+      },
+      "external:web",
+      "2026-01-01T08:41:00+00:00"
+     ],
+     [
+      "ev-5",
+      "t3",
+      "screenshot",
+      "image/png",
+      "2025-12-01/ev-5.png",
+      {
+       "app": "Finder"
+      },
+      "ferb",
+      "2025-12-01T08:00:00+00:00"
+     ],
+     [
+      "ev-6",
+      "t3",
+      "screenshot",
+      "image/png",
+      null,
+      {
+       "app": "Finder"
+      },
+      "ferb",
+      "2026-01-01T08:50:00+00:00"
+     ],
+     [
+      "ev-7",
+      "t3",
+      "recording",
+      "video/mp4",
+      "2026-01-01/ev-7.mp4",
+      {
+       "app": "Finder"
+      },
+      "ferb",
+      "2026-01-01T08:51:00+00:00"
+     ],
+     [
+      "ev-8",
+      "t4",
+      "screenshot",
+      "image/png",
+      "../outside.png",
+      {
+       "window": "Outside"
+      },
+      "ferb",
+      "2026-01-01T08:52:00+00:00"
+     ],
+     [
+      "ev-9",
+      "t4",
+      "screenshot",
+      null,
+      "2026-01-01/ev-9.png",
+      "not json",
+      "ferb",
+      "2026-01-01T08:53:00+00:00"
+     ]
+    ],
+    "files": {
+     "2026-01-01/ev-1.png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==",
+     "2026-01-01/ev-2.jpg": "aW52ZW50ZWQganBlZyBieXRlcw==",
+     "2026-01-01/ev-3.png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==",
+     "2026-01-01/ev-4.png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==",
+     "2025-12-01/ev-5.png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==",
+     "2026-01-01/ev-7.mp4": "aW52ZW50ZWQgdmlkZW8=",
+     "../outside.png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=="
+    },
+    "tasks": [
+     [
+      "t1",
+      "t1",
+      "req-1"
+     ],
+     [
+      "t1.s2",
+      "t1",
+      "req-1"
+     ],
+     [
+      "t2",
+      "t2",
+      "req-2"
+     ],
+     [
+      "t3",
+      "t3",
+      "req-3"
+     ]
+    ],
+    "config": {
+     "sha256": "3c3b1bb1d71701d766c816b472f43a8c8d881e96aa93aa0740a41488b9d2b3e1"
+    }
+   }
+  },
+  {
+   "name": "small_notices",
+   "what": "Owner notices and banner categories",
+   "python": [
+    "ferb/daemon/areas/rpc.py:130 _register_rpc",
+    "ferb/daemon/areas/notify.py",
+    "ferb/daemon/banners.py",
+    "ferb/orchestrator/attention.py"
+   ],
+   "volatile": [],
+   "steps": [
+    {
+     "do": "connect",
+     "conn": "app"
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"notices.list\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"notices\": [{\"id\": \"plain-1\", \"text\": \"An invented note.\", \"quotes\": [], \"at\": \"2026-01-01T09:00:10+00:00\", \"cards\": [{\"type\": \"reminder\", \"title\": \"Invented\"}], \"shown\": false}, {\"id\": \"refused-sp-1\", \"text\": \"example.test didn't accept the password you gave: the page asked for it again. It says:\", \"quotes\": [{\"text\": \"Try again\", \"origin\": \"external:web:example.test\"}], \"at\": \"2026-01-01T09:00:05+00:00\", \"shown\": false}, {\"id\": \"loop-s1-0001\", \"text\": \"Paused the invented loop.\", \"quotes\": [], \"at\": \"2026-01-01T09:00:00+00:00\", \"shown\": false}]}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"attention.ack\", \"params\": {\"ids\": [\"plain-1\"]}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"ok\": true}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"notices.list\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"notices\": [{\"id\": \"plain-1\", \"text\": \"An invented note.\", \"quotes\": [], \"at\": \"2026-01-01T09:00:10+00:00\", \"cards\": [{\"type\": \"reminder\", \"title\": \"Invented\"}], \"shown\": true}, {\"id\": \"refused-sp-1\", \"text\": \"example.test didn't accept the password you gave: the page asked for it again. It says:\", \"quotes\": [{\"text\": \"Try again\", \"origin\": \"external:web:example.test\"}], \"at\": \"2026-01-01T09:00:05+00:00\", \"shown\": false}, {\"id\": \"loop-s1-0001\", \"text\": \"Paused the invented loop.\", \"quotes\": [], \"at\": \"2026-01-01T09:00:00+00:00\", \"shown\": false}]}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"attention.ack\", \"params\": {\"id\": \"loop-s1-0001\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"result\": {\"ok\": true}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"method\": \"attention.ack\", \"params\": {\"ids\": [\"no-such-notice\"]}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"error\": {\"code\": -32603, \"message\": \"ValueError\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"method\": \"attention.ack\", \"params\": {\"ids\": \"x\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"error\": {\"code\": -32603, \"message\": \"ValueError\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"method\": \"attention.ack\", \"params\": {\"ids\": [\"\"]}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"error\": {\"code\": -32603, \"message\": \"ValueError\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"method\": \"notices.list\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"result\": {\"notices\": [{\"id\": \"plain-1\", \"text\": \"An invented note.\", \"quotes\": [], \"at\": \"2026-01-01T09:00:10+00:00\", \"cards\": [{\"type\": \"reminder\", \"title\": \"Invented\"}], \"shown\": true}, {\"id\": \"refused-sp-1\", \"text\": \"example.test didn't accept the password you gave: the page asked for it again. It says:\", \"quotes\": [{\"text\": \"Try again\", \"origin\": \"external:web:example.test\"}], \"at\": \"2026-01-01T09:00:05+00:00\", \"shown\": false}, {\"id\": \"loop-s1-0001\", \"text\": \"Paused the invented loop.\", \"quotes\": [], \"at\": \"2026-01-01T09:00:00+00:00\", \"shown\": true}]}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 10, \"method\": \"notifications.categories\", \"params\": {\"set\": {\"loop\": false, \"alert\": false}}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 10, \"result\": {\"categories\": {\"question\": true, \"reminder\": true, \"alert\": false, \"task_finished\": true, \"loop\": false}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 11, \"method\": \"notifications.categories\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 11, \"result\": {\"categories\": {\"question\": true, \"reminder\": true, \"alert\": false, \"task_finished\": true, \"loop\": false}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 12, \"method\": \"notifications.categories\", \"params\": {\"set\": {\"nope\": true, \"zz\": false}}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 12, \"error\": {\"code\": -32004, \"message\": \"unknown banner categories ['nope', 'zz']; they are question, reminder, alert, task_finished, loop\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 13, \"method\": \"notifications.categories\", \"params\": {\"set\": {\"loop\": \"x\"}}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 13, \"error\": {\"code\": -32004, \"message\": \"each category is switched with true or false\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 14, \"method\": \"notifications.categories\", \"params\": {\"set\": {}}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 14, \"error\": {\"code\": -32004, \"message\": \"set names the categories to switch: question, reminder, alert, task_finished, loop\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 15, \"method\": \"notifications.categories\", \"params\": {\"set\": \"x\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 15, \"error\": {\"code\": -32004, \"message\": \"set names the categories to switch: question, reminder, alert, task_finished, loop\"}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app"
+    }
+   ],
+   "journal": [
+    [
+     "chat.notice",
+     {
+      "id": "loop-s1-0001",
+      "text": "Paused the invented loop.",
+      "quotes": []
+     },
+     "ferb"
+    ],
+    [
+     "chat.notice",
+     {
+      "id": "refused-sp-1",
+      "text": "example.test didn't accept the password you gave: the page asked for it again. It says:",
+      "quotes": [
+       {
+        "text": "Try again",
+        "origin": "external:web:example.test"
+       }
+      ]
+     },
+     "ferb"
+    ],
+    [
+     "chat.notice",
+     {
+      "id": "plain-1",
+      "text": "An invented note.",
+      "quotes": [],
+      "cards": [
+       {
+        "type": "reminder",
+        "title": "Invented"
+       }
+      ]
+     },
+     "ferb"
+    ],
+    [
+     "daemon.internal_error",
+     {
+      "method": "attention.ack",
+      "error": "ValueError",
+      "message": "No such owner notice",
+      "frames": [
+       "ferb/daemon/server.py:323:_dispatch",
+       "ferb/daemon/areas/notify.py:163:_attention_ack",
+       "ferb/orchestrator/attention.py:75:acknowledge"
+      ]
+     },
+     "ferb"
+    ],
+    [
+     "daemon.internal_error",
+     {
+      "method": "attention.ack",
+      "error": "ValueError",
+      "message": "ids must be a nonempty list of notice ids",
+      "frames": [
+       "ferb/daemon/server.py:323:_dispatch",
+       "ferb/daemon/areas/notify.py:162:_attention_ack"
+      ]
+     },
+     "ferb"
+    ],
+    [
+     "banners.switched",
+     {
+      "set": {
+       "loop": false,
+       "alert": false
+      }
+     },
+     "ferb"
+    ]
+   ],
+   "published": [
+    [
+     "attention.notice",
+     {
+      "id": "loop-s1-0001",
+      "text": "Paused the invented loop.",
+      "quotes": [],
+      "at": "2026-01-01T09:00:00+00:00"
+     }
+    ],
+    [
+     "attention.notice",
+     {
+      "id": "refused-sp-1",
+      "text": "example.test didn't accept the password you gave: the page asked for it again. It says:",
+      "quotes": [
+       {
+        "text": "Try again",
+        "origin": "external:web:example.test"
+       }
+      ],
+      "at": "2026-01-01T09:00:05+00:00"
+     }
+    ],
+    [
+     "attention.notice",
+     {
+      "id": "plain-1",
+      "text": "An invented note.",
+      "quotes": [],
+      "at": "2026-01-01T09:00:10+00:00",
+      "cards": [
+       {
+        "type": "reminder",
+        "title": "Invented"
+       }
+      ]
+     }
+    ]
+   ],
+   "setup": {}
+  },
+  {
+   "name": "small_jev",
+   "what": "Jev's switches with Jev off",
+   "python": [
+    "ferb/daemon/areas/rpc.py:130 _register_rpc",
+    "ferb/daemon/areas/jev.py"
+   ],
+   "volatile": [],
+   "steps": [
+    {
+     "do": "connect",
+     "conn": "app"
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"jev.enable\", \"params\": {\"question\": \"trail.relevance\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"error\": {\"code\": -32004, \"message\": \"Jev is switched off ([jev] on = false in config.toml)\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"jev.enable\", \"params\": {\"question\": \"trail.attention\", \"on\": false}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"error\": {\"code\": -32004, \"message\": \"trail.attention is live by the plan of record (Q4); it has no switch to turn on or off\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"jev.enable\", \"params\": {\"question\": \"action.destructive\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"error\": {\"code\": -32004, \"message\": \"action.destructive is measured in shadow; it cannot act before owner-reviewed measurement\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"jev.enable\", \"params\": {\"question\": \"action.destructive\", \"on\": false}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"result\": {\"enabled\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"method\": \"jev.enable\", \"params\": {\"question\": \"memory.worth_keeping\", \"on\": 0}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"result\": {\"enabled\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"method\": \"jev.enable\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"error\": {\"code\": -32603, \"message\": \"KeyError\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"method\": \"jev.reload\", \"params\": {\"ping\": true}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"result\": {\"configured\": false}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"method\": \"jev.stats\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"result\": {\"configured\": false, \"on\": false, \"stats\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app"
+    }
+   ],
+   "journal": [
+    [
+     "jev.disabled",
+     {
+      "question": "action.destructive"
+     },
+     "ferb"
+    ],
+    [
+     "jev.disabled",
+     {
+      "question": "memory.worth_keeping"
+     },
+     "ferb"
+    ],
+    [
+     "daemon.internal_error",
+     {
+      "method": "jev.enable",
+      "error": "KeyError",
+      "message": "'question'",
+      "frames": [
+       "ferb/daemon/server.py:323:_dispatch",
+       "ferb/daemon/areas/jev.py:123:_jev_enable"
+      ]
+     },
+     "ferb"
+    ]
+   ],
+   "published": [],
+   "setup": {}
+  },
+  {
+   "name": "small_intro",
+   "what": "intro.suggest from a seen scan",
+   "python": [
+    "ferb/daemon/areas/rpc.py:130 _register_rpc",
+    "ferb/daemon/areas/intro.py"
+   ],
+   "volatile": [],
+   "steps": [
+    {
+     "do": "connect",
+     "conn": "app"
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"intro.suggest\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"suggestions\": [{\"request\": \"Summarize my notes folder\", \"app\": \"Finder\"}, {\"request\": \"Find the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest\", \"app\": \"PreviewPreviewPreviewPreviewPreviewPreviewPreviewPreviewPrev\"}], \"fits\": true}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"intro.suggest\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"suggestions\": [{\"request\": \"Compare three well-reviewed electric kettles on the web and tell me which is the best value.\", \"app\": \"\"}, {\"request\": \"Find the five biggest files in my Downloads folder and tell me what each is, without changing anything.\", \"app\": \"Finder\"}], \"fits\": true}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"intro.suggest\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"suggestions\": [{\"request\": \"Find the five biggest files in my Downloads folder and tell me what each is, without changing anything.\", \"app\": \"Finder\"}, {\"request\": \"Compare three well-reviewed electric kettles on the web and tell me which is the best value.\", \"app\": \"\"}], \"fits\": false}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app"
+    }
+   ],
+   "model_calls": [
+    {
+     "n": 1,
+     "key": "supervisor",
+     "role_played": "planner",
+     "runtime_role": "orchestrator",
+     "mode": "supervisor",
+     "task_id": "intro-suggest-2026-01-01T09:00:00+00:00",
+     "schema": "sha256:80e2f09b8ae417ad54efa67fade907fa6f43a99664a5116236f14794c1b6c021",
+     "effort": null,
+     "tools": [],
+     "system": {
+      "sha256": "553787ac13f5e317d25b85676d22d233c9d01546ef9b370acf361a12f3fdf5fe"
+     },
+     "parts": [
+      "{\n \"summary\": \"An invented Mac used for writing and sketches.\",\n \"facts\": [\n  \"Uses TextEdit daily\",\n  \"Keeps notes in ~/notes\"\n ]\n}",
+      "Context budget: {\"budget_tokens\": 900000, \"reserved_tokens\": 2985, \"content_tokens_estimate\": 132, \"method\": \"utf8_byte_ceiling_tokenizer_unavailable\", \"over_budget\": false, \"omitted_blocks\": 0}"
+     ],
+     "cacheable": 0,
+     "images": 0,
+     "events": [
+      {
+       "kind": "usage",
+       "data": {
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "cost_usd": 0.001
+       }
+      },
+      {
+       "kind": "final",
+       "data": {
+        "text": "{\"requests\": [{\"request\": \"Summarize   my notes folder\", \"app\": \"Finder\"}, {\"request\": \"summarize my notes  folder\", \"app\": \"TextEdit\"}, {\"request\": \"Find the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file \", \"app\": \"PreviewPreviewPreviewPreviewPreviewPreviewPreviewPreviewPreviewPreviewPreviewPreviewPreviewPreviewPreview\"}]}"
+       }
+      }
+     ]
+    },
+    {
+     "n": 2,
+     "key": "supervisor",
+     "role_played": "planner",
+     "runtime_role": "orchestrator",
+     "mode": "supervisor",
+     "task_id": "intro-suggest-2026-01-01T09:00:00+00:00",
+     "schema": "sha256:80e2f09b8ae417ad54efa67fade907fa6f43a99664a5116236f14794c1b6c021",
+     "effort": null,
+     "tools": [],
+     "system": {
+      "sha256": "553787ac13f5e317d25b85676d22d233c9d01546ef9b370acf361a12f3fdf5fe"
+     },
+     "parts": [
+      "{\n \"summary\": \"An invented Mac used for writing and sketches.\",\n \"facts\": [\n  \"Uses TextEdit daily\",\n  \"Keeps notes in ~/notes\"\n ]\n}",
+      "Context budget: {\"budget_tokens\": 900000, \"reserved_tokens\": 2985, \"content_tokens_estimate\": 132, \"method\": \"utf8_byte_ceiling_tokenizer_unavailable\", \"over_budget\": false, \"omitted_blocks\": 0}"
+     ],
+     "cacheable": 0,
+     "images": 0,
+     "events": [
+      {
+       "kind": "usage",
+       "data": {
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "cost_usd": 0.001
+       }
+      },
+      {
+       "kind": "final",
+       "data": {
+        "text": "{\"requests\": [{\"request\": \"Compare three well-reviewed electric kettles on the web and tell me which is the best value.\", \"app\": \"\"}]}"
+       }
+      }
+     ]
+    },
+    {
+     "n": 3,
+     "key": "supervisor",
+     "role_played": "planner",
+     "runtime_role": "orchestrator",
+     "mode": "supervisor",
+     "task_id": "intro-suggest-2026-01-01T09:00:00+00:00",
+     "schema": "sha256:80e2f09b8ae417ad54efa67fade907fa6f43a99664a5116236f14794c1b6c021",
+     "effort": null,
+     "tools": [],
+     "system": {
+      "sha256": "553787ac13f5e317d25b85676d22d233c9d01546ef9b370acf361a12f3fdf5fe"
+     },
+     "parts": [
+      "{\n \"summary\": \"An invented Mac used for writing and sketches.\",\n \"facts\": [\n  \"Uses TextEdit daily\",\n  \"Keeps notes in ~/notes\"\n ]\n}",
+      "Context budget: {\"budget_tokens\": 900000, \"reserved_tokens\": 2985, \"content_tokens_estimate\": 132, \"method\": \"utf8_byte_ceiling_tokenizer_unavailable\", \"over_budget\": false, \"omitted_blocks\": 0}"
+     ],
+     "cacheable": 0,
+     "images": 0,
+     "events": [
+      {
+       "kind": "usage",
+       "data": {
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "cost_usd": 0.001
+       }
+      },
+      {
+       "kind": "final",
+       "data": {
+        "text": "{\"requests\": []}"
+       }
+      }
+     ]
+    }
+   ],
+   "journal": [
+    [
+     "intro.suggested",
+     {
+      "fits": true,
+      "from_scan": 2
+     },
+     "ferb"
+    ],
+    [
+     "intro.suggested",
+     {
+      "fits": true,
+      "from_scan": 1,
+      "why": "topped up"
+     },
+     "ferb"
+    ],
+    [
+     "intro.suggested",
+     {
+      "fits": false,
+      "from_scan": 0,
+      "why": "nothing clear"
+     },
+     "ferb"
+    ]
+   ],
+   "published": [],
+   "setup": {
+    "scan": {
+     "state": "seen",
+     "summary": "An invented   Mac used for writing\nand sketches.",
+     "facts": [
+      {
+       "text": "Uses  TextEdit daily"
+      },
+      {
+       "text": ""
+      },
+      "not a dict",
+      {
+       "text": "Keeps notes in ~/notes"
+      }
+     ]
+    },
+    "answers": [
+     {
+      "requests": [
+       {
+        "request": "Summarize   my notes folder",
+        "app": "Finder"
+       },
+       {
+        "request": "summarize my notes  folder",
+        "app": "TextEdit"
+       },
+       {
+        "request": "Find the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file the longest invented sketch file ",
+        "app": "PreviewPreviewPreviewPreviewPreviewPreviewPreviewPreviewPreviewPreviewPreviewPreviewPreviewPreviewPreview"
+       }
+      ]
+     },
+     {
+      "requests": [
+       {
+        "request": "Compare three well-reviewed electric kettles on the web and tell me which is the best value.",
+        "app": ""
+       }
+      ]
+     },
+     {
+      "requests": []
+     }
+    ]
+   }
+  },
+  {
+   "name": "small_tell",
+   "what": "Telling the owner with FERB.app as the poster",
+   "python": [
+    "ferb/daemon/areas/rpc.py:130 _register_rpc",
+    "ferb/daemon/areas/notify.py:33 _task_result, :64 _approval_notice, :209 _tell_owner, :223 _post_notice",
+    "ferb/daemon/banners.py"
+   ],
+   "volatile": [],
+   "steps": [],
+   "journal": [
+    [
+     "chat.notice",
+     {
+      "id": "loop-s9-0009",
+      "text": "Backing off the invented loop.",
+      "quotes": []
+     },
+     "ferb"
+    ]
+   ],
+   "published": [
+    [
+     "task.result",
+     {
+      "task_id": "t1",
+      "status": "done",
+      "answer": "Done: the invented report is ready.",
+      "goal": "Make a report",
+      "name": "Invented report",
+      "cards": [
+       {
+        "type": "file",
+        "path": "/x"
+       },
+       "not a card"
+      ],
+      "at": "2026-01-01T08:59:00+00:00",
+      "request_id": null,
+      "shown": false
+     }
+    ],
+    [
+     "task.result",
+     {
+      "task_id": "t2",
+      "status": "failed",
+      "summary": "It failed.",
+      "goal": "Fail",
+      "request_id": null,
+      "at": "2026-01-01T09:00:00+00:00",
+      "shown": true
+     }
+    ],
+    [
+     "task.result",
+     {
+      "task_id": "t3",
+      "status": "cancelled",
+      "answer": "Stopped.",
+      "goal": "Stop",
+      "request_id": null,
+      "at": "2026-01-01T09:00:00+00:00",
+      "shown": true
+     }
+    ],
+    [
+     "task.result",
+     {
+      "task_id": "t4",
+      "status": "done",
+      "answer": "The watched price dropped.",
+      "goal": "Watch",
+      "name": "Price",
+      "request_id": null,
+      "at": "2026-01-01T09:00:00+00:00",
+      "shown": false
+     }
+    ],
+    [
+     "task.result",
+     {
+      "task_id": "t6",
+      "status": "done",
+      "answer": "Unnamed result.",
+      "goal": "Plain",
+      "request_id": "req-6",
+      "at": "2026-01-01T09:00:00+00:00",
+      "shown": false
+     }
+    ],
+    [
+     "attention.notice",
+     {
+      "id": "loop-s9-0009",
+      "text": "Backing off the invented loop.",
+      "quotes": [],
+      "at": "2026-01-01T09:00:00+00:00",
+      "banner": true
+     }
+    ]
+   ],
+   "setup": {
+    "told": [
+     [
+      {
+       "task_id": "t1",
+       "status": "done",
+       "answer": "Done: the invented report is ready.",
+       "goal": "Make a report",
+       "name": "Invented report",
+       "cards": [
+        {
+         "type": "file",
+         "path": "/x"
+        },
+        "not a card"
+       ],
+       "at": "2026-01-01T08:59:00+00:00"
+      },
+      false,
+      false,
+      true
+     ],
+     [
+      {
+       "task_id": "t2",
+       "status": "failed",
+       "summary": "It failed.",
+       "goal": "Fail"
+      },
+      true,
+      false,
+      true
+     ],
+     [
+      {
+       "task_id": "t3",
+       "status": "cancelled",
+       "answer": "Stopped.",
+       "goal": "Stop"
+      },
+      false,
+      false,
+      true
+     ],
+     [
+      {
+       "task_id": "t4",
+       "status": "done",
+       "answer": "The watched price dropped.",
+       "goal": "Watch",
+       "name": "Price"
+      },
+      false,
+      true,
+      true
+     ],
+     [
+      {
+       "task_id": "t5",
+       "status": "done",
+       "answer": "Nothing to tell.",
+       "goal": "Check"
+      },
+      false,
+      false,
+      false
+     ],
+     [
+      {
+       "task_id": "t6",
+       "status": "done",
+       "answer": "Unnamed result.",
+       "goal": "Plain",
+       "request_id": "req-6"
+      },
+      false,
+      false,
+      true
+     ]
+    ],
+    "questions": [
+     {
+      "task_id": "t1.s1",
+      "approval_id": "ap-1",
+      "summary": "Send the invented note?"
+     },
+     {
+      "task_id": "t2",
+      "approval_id": "ap-2",
+      "reason": "Delete the invented file?"
+     },
+     {
+      "capability": "setup.persona",
+      "approval_id": "ap-3",
+      "summary": "x"
+     }
+    ]
+   },
+   "delivered": [
+    {
+     "id": "task:t1",
+     "category": "task_finished",
+     "title": "Invented report",
+     "body": "Done: the invented report is ready.",
+     "target": {
+      "kind": "task",
+      "task_id": "t1"
+     },
+     "when_hidden": true
+    },
+    {
+     "id": "task:t2",
+     "category": "task_finished",
+     "title": "FERB",
+     "body": "It failed.",
+     "target": {
+      "kind": "task",
+      "task_id": "t2"
+     },
+     "when_hidden": true
+    },
+    {
+     "id": "banner:000000000000",
+     "category": "alert",
+     "title": "Price",
+     "body": "The watched price dropped.",
+     "target": {
+      "kind": "task",
+      "task_id": "t4"
+     },
+     "when_hidden": false
+    },
+    {
+     "id": "task:t6",
+     "category": "task_finished",
+     "title": "FERB finished",
+     "body": "Unnamed result.",
+     "target": {
+      "kind": "task",
+      "task_id": "t6"
+     },
+     "when_hidden": true
+    },
+    {
+     "id": "loop:loop-s9-0009",
+     "category": "loop",
+     "title": "FERB loop",
+     "body": "Backing off the invented loop.",
+     "target": {
+      "kind": "task",
+      "task_id": "t9"
+     },
+     "when_hidden": true
+    },
+    {
+     "id": "question:ap-1",
+     "category": "question",
+     "title": "FERB needs you",
+     "body": "FERB needs your OK: Send the invented note?",
+     "target": {
+      "kind": "question",
+      "approval_id": "ap-1",
+      "task_id": "t1"
+     },
+     "when_hidden": true
+    },
+    {
+     "id": "question:ap-2",
+     "category": "question",
+     "title": "FERB needs you",
+     "body": "FERB needs your OK: Delete the invented file?",
+     "target": {
+      "kind": "question",
+      "approval_id": "ap-2",
+      "task_id": "t2"
+     },
+     "when_hidden": true
+    }
+   ],
+   "task_results": [
+    [
+     "t1",
+     "2026-01-01T08:59:00+00:00",
+     "done",
+     "Make a report",
+     "Done: the invented report is ready.",
+     0,
+     "Invented report",
+     "[{\"type\": \"file\", \"path\": \"/x\"}]"
+    ],
+    [
+     "t2",
+     "2026-01-01T09:00:00+00:00",
+     "failed",
+     "Fail",
+     "It failed.",
+     1,
+     null,
+     null
+    ],
+    [
+     "t3",
+     "2026-01-01T09:00:00+00:00",
+     "cancelled",
+     "Stop",
+     "Stopped.",
+     1,
+     null,
+     null
+    ],
+    [
+     "t4",
+     "2026-01-01T09:00:00+00:00",
+     "done",
+     "Watch",
+     "The watched price dropped.",
+     0,
+     "Price",
+     null
+    ],
+    [
+     "t5",
+     "2026-01-01T09:00:00+00:00",
+     "done",
+     "Check",
+     "Nothing to tell.",
+     0,
+     null,
+     null
+    ],
+    [
+     "t6",
+     "2026-01-01T09:00:00+00:00",
+     "done",
+     "Plain",
+     "Unnamed result.",
+     0,
+     null,
+     null
+    ]
+   ]
+  }
+ ]
+}

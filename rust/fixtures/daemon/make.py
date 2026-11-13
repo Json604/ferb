@@ -201,6 +201,13 @@ def install_stubs() -> None:
     stub(selftest, "run_all", lambda: [], "doctor's self-tests (an AX read, an event tap) don't run")
     stub(codex_exec, "check_version", no_version, "never `codex --version`")
     stub(browser_profiles, "_detached", lambda args: None, "no browser is ever launched")
+    # `open_known_profile` bound the real `_detached` as its `launch` default when the module was imported, so the
+    # stub above does not reach a call that passes no launcher (that gap once opened the owner's real browser from a
+    # sibling recorder). Replace the bound default itself.
+    _defaults = list(browser_profiles.open_known_profile.__defaults__)
+    assert _defaults[0].__name__ == "_detached", "open_known_profile's first default is no longer the launcher"
+    _defaults[0] = lambda args: None
+    browser_profiles.open_known_profile.__defaults__ = tuple(_defaults)
     stub(presence, "session", lambda: {}, "no login-session read (its digest is machine-dependent)")
     import ferb.act.fs.files as fs_files
     import ferb.act.fs.look as fs_look

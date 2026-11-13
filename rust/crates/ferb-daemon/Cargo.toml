@@ -1,0 +1,49 @@
+[package]
+name = "ferb-daemon"
+version = "0.28.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.100"
+publish = false
+description = "The daemon's RPC handlers (ferb/daemon/areas) over the ported engines, registered on ferb-rpc's server"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[dependencies]
+chrono = { version = "0.4.42", default-features = false, features = ["std", "clock"] }
+ferb-clock = { path = "../ferb-clock" }
+ferb-core = { path = "../ferb-core" }
+ferb-device = { path = "../ferb-device" }
+ferb-learning = { path = "../ferb-learning" }
+ferb-memory = { path = "../ferb-memory" }
+ferb-orchestrator = { path = "../ferb-orchestrator" }
+ferb-py = { path = "../ferb-py" }
+ferb-rpc = { path = "../ferb-rpc" }
+ferb-sanitize = { path = "../ferb-sanitize" }
+ferb-store = { path = "../ferb-store" }
+rusqlite = { version = "0.42", features = ["bundled"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+tokio = { version = "1.54.1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
+# group B's areas (areas_b): browsers, runtimes, about, sensing, shell processes, reports
+ferb-browser = { path = "../ferb-browser" }
+ferb-identity = { path = "../ferb-identity" }
+ferb-mac-hands = { path = "../ferb-mac-hands" }
+ferb-policy = { path = "../ferb-policy" }
+ferb-runtimes = { path = "../ferb-runtimes" }
+ferb-sense = { path = "../ferb-sense" }
+ferb-shell = { path = "../ferb-shell" }
+base64 = "0.22"
+hex = "0.4"
+regex = "1"
+fancy-regex = "0.14"
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+# group A's areas (areas_a): prompts for the import job and the profile pass
+ferb-context = { path = "../ferb-context" }
+ferb-trace = { path = "../ferb-trace" }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

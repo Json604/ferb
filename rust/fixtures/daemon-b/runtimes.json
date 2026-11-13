@@ -1,0 +1,4646 @@
+{
+ "scenarios": [
+  {
+   "name": "status_and_choice",
+   "what": "Settings → AI read with Claude and Codex signed in, an effort and a role's own model set; choosing a runtime per role with and without a model; a usage limit Claude reported shown until a later call answers, read again from the journal as after a restart.",
+   "python": [
+    "ferb/daemon/areas/runtimes.py",
+    "ferb/runtimes/keys.py",
+    "ferb/runtimes/check.py",
+    "ferb/runtimes/claude_login.py",
+    "ferb/cli/runtimes.py"
+   ],
+   "volatile": [],
+   "steps": [
+    {
+     "do": "connect",
+     "conn": "app"
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"runtimes.status\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"roles\": {\"orchestrator\": \"codex\", \"worker\": \"codex\", \"checker\": \"codex\"}, \"runtimes\": [{\"name\": \"codex\", \"usable\": true, \"fix\": \"\", \"signed_in\": true, \"model\": \"gpt-5.6-sol\", \"effort\": \"medium\"}, {\"name\": \"claude\", \"usable\": true, \"fix\": \"\", \"signed_in\": true, \"model\": \"claude-opus-5-5\", \"sign_in\": {\"state\": \"idle\", \"url\": \"\", \"why\": \"\"}, \"effort\": \"\"}, {\"name\": \"anthropic\", \"usable\": false, \"fix\": \"FERB has no anthropic API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"claude-sonnet-5-5\", \"effort\": \"\"}, {\"name\": \"openai\", \"usable\": false, \"fix\": \"FERB has no openai API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gpt-6.1-sol\", \"effort\": \"\"}, {\"name\": \"google\", \"usable\": false, \"fix\": \"FERB has no google API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gemini-3.8-flash\", \"effort\": \"\"}], \"role_details\": {\"orchestrator\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"medium\"}, \"worker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"medium\"}, \"checker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"medium\"}}}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app"
+    },
+    {
+     "do": "act",
+     "what": "runtime_account",
+     "args": [
+      "claude",
+      "usage_limit"
+     ]
+    },
+    {
+     "do": "act",
+     "what": "runtime_account",
+     "args": [
+      "codex",
+      "signed_out"
+     ]
+    },
+    {
+     "do": "connect",
+     "conn": "app#2"
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"runtimes.status\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"roles\": {\"orchestrator\": \"codex\", \"worker\": \"codex\", \"checker\": \"codex\"}, \"runtimes\": [{\"name\": \"codex\", \"usable\": true, \"fix\": \"\", \"signed_in\": true, \"model\": \"gpt-5.6-sol\", \"effort\": \"medium\", \"refused\": {\"account\": \"signed_out\", \"at\": \"2026-01-01T09:00:00+00:00\", \"fix\": \"sign in to ChatGPT again in Settings \\u2192 AI\"}}, {\"name\": \"claude\", \"usable\": true, \"fix\": \"\", \"signed_in\": true, \"model\": \"claude-opus-5-5\", \"sign_in\": {\"state\": \"idle\", \"url\": \"\", \"why\": \"\"}, \"effort\": \"\", \"refused\": {\"account\": \"usage_limit\", \"at\": \"2026-01-01T09:00:00+00:00\", \"fix\": \"it can be used again when the plan's limit resets, or use another connection\"}}, {\"name\": \"anthropic\", \"usable\": false, \"fix\": \"FERB has no anthropic API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"claude-sonnet-5-5\", \"effort\": \"\"}, {\"name\": \"openai\", \"usable\": false, \"fix\": \"FERB has no openai API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gpt-6.1-sol\", \"effort\": \"\"}, {\"name\": \"google\", \"usable\": false, \"fix\": \"FERB has no google API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gemini-3.8-flash\", \"effort\": \"\"}], \"role_details\": {\"orchestrator\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"medium\"}, \"worker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"medium\"}, \"checker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"medium\"}}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"runtimes.use\", \"params\": {\"runtime\": \"claude\", \"roles\": [\"orchestrator\"], \"model\": \"claude-sonnet-5-5\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"roles\": {\"orchestrator\": \"claude\", \"worker\": \"codex\", \"checker\": \"codex\"}, \"usable\": true, \"fix\": \"\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"runtimes.use\", \"params\": {\"runtime\": \"claude\", \"model\": \"\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"error\": {\"code\": -32004, \"message\": \"model must be a model name\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"runtimes.use\", \"params\": {\"runtime\": \"claude\", \"model\": 5}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"error\": {\"code\": -32004, \"message\": \"model must be a model name\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"method\": \"runtimes.use\", \"params\": {\"runtime\": \"claude\", \"roles\": []}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"error\": {\"code\": -32004, \"message\": \"Name at least one role; roles: orchestrator, worker, checker.\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"method\": \"runtimes.use\", \"params\": {\"runtime\": \"claude\", \"roles\": [\"nope\", \"worker\"]}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"error\": {\"code\": -32004, \"message\": \"Unknown role 'nope'; roles: orchestrator, worker, checker.\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"method\": \"runtimes.use\", \"params\": {\"runtime\": \"claude\", \"roles\": [1]}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"error\": {\"code\": -32004, \"message\": \"roles must be a list of role names\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"method\": \"runtimes.use\", \"params\": {\"runtime\": \"codex\", \"roles\": [\"checker\"], \"model\": \"gpt-unknown-1\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"error\": {\"code\": -32004, \"message\": \"FERB can't use 'gpt-unknown-1' with codex: Codex's model catalog (models_cache.json) reports no context window for 'gpt-unknown-1'\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 10, \"method\": \"runtimes.use\", \"params\": {\"runtime\": \"codex\", \"roles\": [\"checker\"], \"model\": \"gpt-invented-mini\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 10, \"result\": {\"roles\": {\"orchestrator\": \"claude\", \"worker\": \"codex\", \"checker\": \"codex\"}, \"usable\": true, \"fix\": \"\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 11, \"method\": \"runtimes.use\", \"params\": {\"runtime\": \"openai\", \"roles\": [\"worker\"]}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 11, \"result\": {\"roles\": {\"orchestrator\": \"claude\", \"worker\": \"openai\", \"checker\": \"codex\"}, \"usable\": false, \"fix\": \"FERB has no openai API key: add one in Settings \\u2192 AI\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 12, \"method\": \"runtimes.models\", \"params\": {\"runtime\": \"codex\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 12, \"result\": {\"runtime\": \"codex\", \"model\": \"gpt-invented-mini\", \"models\": [\"gpt-5.6-sol\", \"gpt-6.1-sol\", \"gpt-invented-mini\"], \"source\": \"known\", \"effort\": \"medium\", \"roles\": {\"worker\": {\"runtime\": \"claude\", \"model\": \"claude-sonnet-5-5\", \"effort\": \"high\"}}, \"levels\": {\"gpt-6.1-sol\": [\"low\", \"medium\", \"high\"], \"gpt-5.6-sol\": [\"low\", \"high\"], \"gpt-invented-mini\": []}, \"default_efforts\": {\"gpt-6.1-sol\": \"medium\"}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 13, \"method\": \"runtimes.models\", \"params\": {\"runtime\": \"claude\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 13, \"result\": {\"runtime\": \"claude\", \"model\": \"claude-sonnet-5-5\", \"models\": [\"claude-fable-5-1\", \"claude-haiku-4-5\", \"claude-haiku-4-5-20251001\", \"claude-haiku-5-5\", \"claude-opus-5-5\", \"claude-sonnet-5-5\"], \"source\": \"known\", \"effort\": \"\", \"roles\": {\"worker\": {\"runtime\": \"claude\", \"model\": \"claude-sonnet-5-5\", \"effort\": \"high\"}}, \"levels\": {\"claude-fable-5-1\": [\"low\", \"medium\", \"high\", \"xhigh\", \"max\"], \"claude-haiku-5-5\": [\"low\", \"medium\", \"high\", \"xhigh\", \"max\"], \"claude-opus-5-5\": [\"low\", \"medium\", \"high\", \"xhigh\", \"max\"], \"claude-sonnet-5-5\": [\"low\", \"medium\", \"high\", \"xhigh\", \"max\"]}, \"default_efforts\": {}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 14, \"method\": \"runtimes.models\", \"params\": {\"runtime\": \"google\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 14, \"result\": {\"runtime\": \"google\", \"model\": \"gemini-3.8-flash\", \"models\": [], \"source\": \"provider\", \"effort\": \"\", \"roles\": {\"worker\": {\"runtime\": \"claude\", \"model\": \"claude-sonnet-5-5\", \"effort\": \"high\"}}, \"problem\": \"no google API key is saved\", \"levels\": {\"gemini-3.8-flash\": [\"low\", \"medium\", \"high\"]}, \"default_efforts\": {\"gemini-3.8-flash\": \"medium\"}}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app#2"
+    },
+    {
+     "do": "act",
+     "what": "forget_refusals",
+     "args": []
+    },
+    {
+     "do": "connect",
+     "conn": "app#3"
+    },
+    {
+     "do": "call",
+     "conn": "app#3",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#3",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"runtimes.status\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"roles\": {\"orchestrator\": \"claude\", \"worker\": \"openai\", \"checker\": \"codex\"}, \"runtimes\": [{\"name\": \"codex\", \"usable\": true, \"fix\": \"\", \"signed_in\": true, \"model\": \"gpt-invented-mini\", \"effort\": \"medium\", \"refused\": {\"account\": \"signed_out\", \"at\": \"2026-01-01T09:00:00+00:00\", \"fix\": \"sign in to ChatGPT again in Settings \\u2192 AI\"}}, {\"name\": \"claude\", \"usable\": true, \"fix\": \"\", \"signed_in\": true, \"model\": \"claude-sonnet-5-5\", \"sign_in\": {\"state\": \"idle\", \"url\": \"\", \"why\": \"\"}, \"effort\": \"\", \"refused\": {\"account\": \"usage_limit\", \"at\": \"2026-01-01T09:00:00+00:00\", \"fix\": \"it can be used again when the plan's limit resets, or use another connection\"}}, {\"name\": \"anthropic\", \"usable\": false, \"fix\": \"FERB has no anthropic API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"claude-sonnet-5-5\", \"effort\": \"\"}, {\"name\": \"openai\", \"usable\": false, \"fix\": \"FERB has no openai API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gpt-6.1-sol\", \"effort\": \"\"}, {\"name\": \"google\", \"usable\": false, \"fix\": \"FERB has no google API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gemini-3.8-flash\", \"effort\": \"\"}], \"role_details\": {\"orchestrator\": {\"runtime\": \"claude\", \"model\": \"claude-sonnet-5-5\", \"effort\": \"\"}, \"worker\": {\"runtime\": \"openai\", \"model\": \"gpt-6.1-sol\", \"effort\": \"\"}, \"checker\": {\"runtime\": \"codex\", \"model\": \"gpt-invented-mini\", \"effort\": \"medium\"}}}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app#3"
+    },
+    {
+     "do": "act",
+     "what": "runtime_account",
+     "args": [
+      "claude",
+      ""
+     ]
+    },
+    {
+     "do": "act",
+     "what": "runtime_account",
+     "args": [
+      "claude",
+      ""
+     ]
+    },
+    {
+     "do": "act",
+     "what": "runtime_account",
+     "args": [
+      "codex",
+      "usage_limit"
+     ]
+    },
+    {
+     "do": "connect",
+     "conn": "app#4"
+    },
+    {
+     "do": "call",
+     "conn": "app#4",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#4",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"runtimes.status\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"roles\": {\"orchestrator\": \"claude\", \"worker\": \"openai\", \"checker\": \"codex\"}, \"runtimes\": [{\"name\": \"codex\", \"usable\": true, \"fix\": \"\", \"signed_in\": true, \"model\": \"gpt-invented-mini\", \"effort\": \"medium\", \"refused\": {\"account\": \"usage_limit\", \"at\": \"2026-01-01T09:00:00+00:00\", \"fix\": \"it can be used again when the plan's limit resets, or use another connection\"}}, {\"name\": \"claude\", \"usable\": true, \"fix\": \"\", \"signed_in\": true, \"model\": \"claude-sonnet-5-5\", \"sign_in\": {\"state\": \"idle\", \"url\": \"\", \"why\": \"\"}, \"effort\": \"\"}, {\"name\": \"anthropic\", \"usable\": false, \"fix\": \"FERB has no anthropic API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"claude-sonnet-5-5\", \"effort\": \"\"}, {\"name\": \"openai\", \"usable\": false, \"fix\": \"FERB has no openai API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gpt-6.1-sol\", \"effort\": \"\"}, {\"name\": \"google\", \"usable\": false, \"fix\": \"FERB has no google API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gemini-3.8-flash\", \"effort\": \"\"}], \"role_details\": {\"orchestrator\": {\"runtime\": \"claude\", \"model\": \"claude-sonnet-5-5\", \"effort\": \"\"}, \"worker\": {\"runtime\": \"openai\", \"model\": \"gpt-6.1-sol\", \"effort\": \"\"}, \"checker\": {\"runtime\": \"codex\", \"model\": \"gpt-invented-mini\", \"effort\": \"medium\"}}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#4",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"runtimes.use\", \"params\": {\"runtime\": \"claude\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"roles\": {\"orchestrator\": \"claude\", \"worker\": \"claude\", \"checker\": \"claude\"}, \"usable\": true, \"fix\": \"\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#4",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"runtimes.status\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"roles\": {\"orchestrator\": \"claude\", \"worker\": \"claude\", \"checker\": \"claude\"}, \"runtimes\": [{\"name\": \"codex\", \"usable\": true, \"fix\": \"\", \"signed_in\": true, \"model\": \"gpt-invented-mini\", \"effort\": \"medium\", \"refused\": {\"account\": \"usage_limit\", \"at\": \"2026-01-01T09:00:00+00:00\", \"fix\": \"it can be used again when the plan's limit resets, or use another connection\"}}, {\"name\": \"claude\", \"usable\": true, \"fix\": \"\", \"signed_in\": true, \"model\": \"claude-sonnet-5-5\", \"sign_in\": {\"state\": \"idle\", \"url\": \"\", \"why\": \"\"}, \"effort\": \"\"}, {\"name\": \"anthropic\", \"usable\": false, \"fix\": \"FERB has no anthropic API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"claude-sonnet-5-5\", \"effort\": \"\"}, {\"name\": \"openai\", \"usable\": false, \"fix\": \"FERB has no openai API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gpt-6.1-sol\", \"effort\": \"\"}, {\"name\": \"google\", \"usable\": false, \"fix\": \"FERB has no google API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gemini-3.8-flash\", \"effort\": \"\"}], \"role_details\": {\"orchestrator\": {\"runtime\": \"claude\", \"model\": \"claude-sonnet-5-5\", \"effort\": \"\"}, \"worker\": {\"runtime\": \"claude\", \"model\": \"claude-sonnet-5-5\", \"effort\": \"high\"}, \"checker\": {\"runtime\": \"claude\", \"model\": \"claude-sonnet-5-5\", \"effort\": \"\"}}}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app#4"
+    }
+   ],
+   "journal": [
+    [
+     "runtime.usage_limit",
+     {
+      "runtime": "claude"
+     },
+     "ferb"
+    ],
+    [
+     "runtime.signed_out",
+     {
+      "runtime": "codex"
+     },
+     "ferb"
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "claude",
+      "roles": [
+       "orchestrator"
+      ],
+      "model": "claude-sonnet-5-5"
+     },
+     "ferb"
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "codex",
+      "roles": [
+       "checker"
+      ],
+      "model": "gpt-invented-mini"
+     },
+     "ferb"
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "openai",
+      "roles": [
+       "worker"
+      ]
+     },
+     "ferb"
+    ],
+    [
+     "runtime.answered",
+     {
+      "runtime": "claude"
+     },
+     "ferb"
+    ],
+    [
+     "runtime.usage_limit",
+     {
+      "runtime": "codex"
+     },
+     "ferb"
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "claude",
+      "roles": [
+       "orchestrator",
+       "worker",
+       "checker"
+      ]
+     },
+     "ferb"
+    ]
+   ],
+   "published": [
+    [
+     "runtimes.changed",
+     {
+      "runtime": "claude",
+      "why": "refused"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "codex",
+      "why": "refused"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "claude",
+      "why": "roles"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "codex",
+      "why": "roles"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "openai",
+      "why": "roles"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "claude",
+      "why": "answered"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "codex",
+      "why": "refused"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "claude",
+      "why": "roles"
+     }
+    ]
+   ],
+   "setup": {
+    "files": {
+     "claude-home/.ferb-signed-in": "invented marker\n",
+     "codex-home/auth.json": "{}\n",
+     "codex-home/models_cache.json": "{\"models\": [{\"slug\": \"gpt-6.1-sol\", \"context_window\": 400000, \"effective_context_window_percent\": 95, \"default_reasoning_level\": \"medium\", \"supported_reasoning_levels\": [{\"effort\": \"low\"}, {\"effort\": \"medium\"}, {\"effort\": \"high\"}, {\"effort\": \"ultra\"}]}, {\"slug\": \"gpt-5.6-sol\", \"context_window\": 272000, \"effective_context_window_percent\": 95, \"supported_reasoning_levels\": [{\"effort\": \"low\"}, {\"effort\": \"high\"}]}, {\"slug\": \"gpt-invented-mini\", \"context_window\": 128000, \"effective_context_window_percent\": 90}]}"
+    },
+    "keychain": {},
+    "lists": {},
+    "offers": {},
+    "script": [],
+    "claude_sh": null,
+    "config": {
+     "sha256": "bb5a38b1745d2876f9701a8ba7805ab97c6ffd85e742969e3c7b1f3c0a0d05f7"
+    }
+   },
+   "log": [],
+   "after": {
+    "config": {
+     "sha256": "50273807ba6ab4e3e226bf217a20f05f60a9a53ca45db41c35154a148366c69d"
+    },
+    "keychain": {
+     "helper": {},
+     "security": {},
+     "reads": [
+      "helper:api.sealed/google"
+     ]
+    },
+    "claude_signed_in": true
+   }
+  },
+  {
+   "name": "keys",
+   "what": "API keys through the helper (a fake Keychain): stored and read back, an older `security` item moved and one that won't delete, removed; the models a key can use from the provider's list (answered, failed with words naming the key, no key).",
+   "python": [
+    "ferb/daemon/areas/runtimes.py",
+    "ferb/runtimes/keys.py",
+    "ferb/runtimes/check.py",
+    "ferb/runtimes/claude_login.py",
+    "ferb/cli/runtimes.py"
+   ],
+   "volatile": [],
+   "steps": [
+    {
+     "do": "connect",
+     "conn": "app"
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"keys.store\", \"params\": {\"provider\": \"anthropic\", \"key\": \"  invented-anthropic-words  \"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"stored\": true}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"keys.store\", \"params\": {\"provider\": \"anthropic\", \"key\": \"two words\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"error\": {\"code\": -32004, \"message\": \"that doesn't look like an API key\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"keys.store\", \"params\": {\"provider\": \"anthropic\", \"key\": 5}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"error\": {\"code\": -32004, \"message\": \"that doesn't look like an API key\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"keys.store\", \"params\": {\"provider\": \"anthropic\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"error\": {\"code\": -32004, \"message\": \"that doesn't look like an API key\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"method\": \"keys.store\", \"params\": {\"provider\": \"anthropic\", \"key\": \"   \"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"error\": {\"code\": -32004, \"message\": \"that doesn't look like an API key\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"method\": \"runtimes.status\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"result\": {\"roles\": {\"orchestrator\": \"codex\", \"worker\": \"codex\", \"checker\": \"codex\"}, \"runtimes\": [{\"name\": \"codex\", \"usable\": false, \"fix\": \"Codex isn't signed in for FERB: sign in to ChatGPT in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, {\"name\": \"claude\", \"usable\": false, \"fix\": \"Claude isn't signed in for FERB: sign in to Claude in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"claude-opus-5-5\", \"sign_in\": {\"state\": \"idle\", \"url\": \"\", \"why\": \"\"}, \"effort\": \"\"}, {\"name\": \"anthropic\", \"usable\": true, \"fix\": \"\", \"signed_in\": true, \"model\": \"claude-sonnet-5-5\", \"effort\": \"\"}, {\"name\": \"openai\", \"usable\": true, \"fix\": \"\", \"signed_in\": true, \"model\": \"gpt-6.1-sol\", \"effort\": \"\"}, {\"name\": \"google\", \"usable\": false, \"fix\": \"FERB has no google API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gemini-3.8-flash\", \"effort\": \"\"}], \"role_details\": {\"orchestrator\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, \"worker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, \"checker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"method\": \"runtimes.models\", \"params\": {\"runtime\": \"anthropic\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"result\": {\"runtime\": \"anthropic\", \"model\": \"claude-sonnet-5-5\", \"models\": [\"claude-sonnet-5-5\", \"claude-opus-5-5\", \"claude-invented-7\"], \"source\": \"provider\", \"effort\": \"\", \"roles\": {}, \"levels\": {\"claude-opus-5-5\": [\"low\", \"medium\", \"high\", \"xhigh\", \"max\"], \"claude-sonnet-5-5\": [\"low\", \"medium\", \"high\", \"xhigh\", \"max\"]}, \"default_efforts\": {\"claude-opus-5-5\": \"medium\", \"claude-sonnet-5-5\": \"high\"}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"method\": \"runtimes.models\", \"params\": {\"runtime\": \"openai\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"result\": {\"runtime\": \"openai\", \"model\": \"gpt-6.1-sol\", \"models\": [], \"source\": \"provider\", \"effort\": \"\", \"roles\": {}, \"problem\": \"HTTP 401: the key invented-openai-words was refused\", \"levels\": {}, \"default_efforts\": {\"gpt-6.1-sol\": \"medium\"}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 10, \"method\": \"keys.store\", \"params\": {\"provider\": \"openai\", \"key\": \"invented-openai-words\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 10, \"result\": {\"stored\": true}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 11, \"method\": \"runtimes.models\", \"params\": {\"runtime\": \"openai\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 11, \"result\": {\"runtime\": \"openai\", \"model\": \"gpt-6.1-sol\", \"models\": [], \"source\": \"provider\", \"effort\": \"\", \"roles\": {}, \"problem\": \"HTTP 401: the key [redacted] was refused\", \"levels\": {}, \"default_efforts\": {\"gpt-6.1-sol\": \"medium\"}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 12, \"method\": \"runtimes.models\", \"params\": {\"runtime\": \"google\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 12, \"result\": {\"runtime\": \"google\", \"model\": \"gemini-3.8-flash\", \"models\": [], \"source\": \"provider\", \"effort\": \"\", \"roles\": {}, \"problem\": \"no google API key is saved\", \"levels\": {\"gemini-3.8-flash\": [\"low\", \"medium\", \"high\"]}, \"default_efforts\": {\"gemini-3.8-flash\": \"medium\"}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 13, \"method\": \"keys.delete\", \"params\": {\"provider\": \"anthropic\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 13, \"result\": {\"removed\": true}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 14, \"method\": \"runtimes.models\", \"params\": {\"runtime\": \"anthropic\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 14, \"result\": {\"runtime\": \"anthropic\", \"model\": \"claude-sonnet-5-5\", \"models\": [], \"source\": \"provider\", \"effort\": \"\", \"roles\": {}, \"problem\": \"no anthropic API key is saved\", \"levels\": {\"claude-sonnet-5-5\": [\"low\", \"medium\", \"high\", \"xhigh\", \"max\"]}, \"default_efforts\": {\"claude-sonnet-5-5\": \"high\"}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 15, \"method\": \"runtimes.status\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 15, \"result\": {\"roles\": {\"orchestrator\": \"codex\", \"worker\": \"codex\", \"checker\": \"codex\"}, \"runtimes\": [{\"name\": \"codex\", \"usable\": false, \"fix\": \"Codex isn't signed in for FERB: sign in to ChatGPT in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, {\"name\": \"claude\", \"usable\": false, \"fix\": \"Claude isn't signed in for FERB: sign in to Claude in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"claude-opus-5-5\", \"sign_in\": {\"state\": \"idle\", \"url\": \"\", \"why\": \"\"}, \"effort\": \"\"}, {\"name\": \"anthropic\", \"usable\": false, \"fix\": \"FERB has no anthropic API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"claude-sonnet-5-5\", \"effort\": \"\"}, {\"name\": \"openai\", \"usable\": true, \"fix\": \"\", \"signed_in\": true, \"model\": \"gpt-6.1-sol\", \"effort\": \"\"}, {\"name\": \"google\", \"usable\": false, \"fix\": \"FERB has no google API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gemini-3.8-flash\", \"effort\": \"\"}], \"role_details\": {\"orchestrator\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, \"worker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, \"checker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 16, \"method\": \"keys.delete\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 16, \"error\": {\"code\": -32004, \"message\": \"unknown provider ''\"}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app"
+    },
+    {
+     "do": "keychain",
+     "delete_fails": true,
+     "security": {
+      "api/google": "invented-older-google-words"
+     }
+    },
+    {
+     "do": "connect",
+     "conn": "app#2"
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"keys.store\", \"params\": {\"provider\": \"google\", \"key\": \"invented-google-words\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"stored\": true}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"keys.delete\", \"params\": {\"provider\": \"google\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"removed\": false}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"keys.delete\", \"params\": {\"provider\": \"openai\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"removed\": true}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app#2"
+    }
+   ],
+   "journal": [
+    [
+     "keys.stored",
+     {
+      "provider": "anthropic",
+      "stored": true
+     },
+     "ferb"
+    ],
+    [
+     "keys.stored",
+     {
+      "provider": "openai",
+      "stored": true
+     },
+     "ferb"
+    ],
+    [
+     "keys.deleted",
+     {
+      "provider": "anthropic",
+      "removed": true
+     },
+     "ferb"
+    ],
+    [
+     "keys.old_item_not_deleted",
+     {
+      "provider": "google"
+     },
+     "ferb"
+    ],
+    [
+     "keys.stored",
+     {
+      "provider": "google",
+      "stored": true
+     },
+     "ferb"
+    ],
+    [
+     "keys.old_item_not_deleted",
+     {
+      "provider": "google"
+     },
+     "ferb"
+    ],
+    [
+     "keys.deleted",
+     {
+      "provider": "google",
+      "removed": false
+     },
+     "ferb"
+    ],
+    [
+     "keys.deleted",
+     {
+      "provider": "openai",
+      "removed": true
+     },
+     "ferb"
+    ]
+   ],
+   "published": [
+    [
+     "runtimes.changed",
+     {
+      "runtime": "anthropic",
+      "why": "key"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "openai",
+      "why": "key"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "anthropic",
+      "why": "key"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "google",
+      "why": "key"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "google",
+      "why": "key"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "openai",
+      "why": "key"
+     }
+    ]
+   ],
+   "setup": {
+    "files": {},
+    "keychain": {
+     "security": {
+      "api/openai": "invented-older-openai-words"
+     }
+    },
+    "lists": {
+     "anthropic": [
+      "claude-sonnet-5-5",
+      "claude-opus-5-5",
+      "claude-invented-7"
+     ],
+     "openai": "HTTP 401: the key invented-openai-words was refused"
+    },
+    "offers": {},
+    "script": [],
+    "claude_sh": null,
+    "config": {
+     "sha256": "9e983b683d4ccf675d32b86d2fb4792b47cdf745564c0a3e0c8468ec5ec70e5e"
+    }
+   },
+   "log": [
+    [
+     "models.list",
+     {
+      "provider": "anthropic",
+      "key": "invented-anthropic-words"
+     }
+    ],
+    [
+     "models.list",
+     {
+      "provider": "openai",
+      "key": "invented-older-openai-words"
+     }
+    ],
+    [
+     "models.list",
+     {
+      "provider": "openai",
+      "key": "invented-openai-words"
+     }
+    ]
+   ],
+   "after": {
+    "config": {
+     "sha256": "9e983b683d4ccf675d32b86d2fb4792b47cdf745564c0a3e0c8468ec5ec70e5e"
+    },
+    "keychain": {
+     "helper": {},
+     "security": {
+      "api/google": "invented-older-google-words"
+     },
+     "reads": [
+      "helper:api.sealed/anthropic",
+      "security:api/openai",
+      "helper:api.sealed/openai",
+      "helper:api.sealed/openai",
+      "helper:api.sealed/google",
+      "helper:api.sealed/anthropic",
+      "helper:api.sealed/google"
+     ]
+    },
+    "claude_signed_in": false
+   }
+  },
+  {
+   "name": "checks",
+   "what": "runtimes.check and runtimes.check_calls through the real factories with scripted adapters: an answer, a refusal, words that aren't JSON, an error event, a refused start, no answer, a stream that raises (Python answers an internal error), a model without documented limits; every check line passing, then each failing differently.",
+   "python": [
+    "ferb/daemon/areas/runtimes.py",
+    "ferb/runtimes/keys.py",
+    "ferb/runtimes/check.py",
+    "ferb/runtimes/claude_login.py",
+    "ferb/cli/runtimes.py"
+   ],
+   "volatile": [],
+   "steps": [
+    {
+     "do": "act",
+     "what": "runtime_account",
+     "args": [
+      "claude",
+      "signed_out"
+     ]
+    },
+    {
+     "do": "connect",
+     "conn": "app"
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"runtimes.check\", \"params\": {\"runtime\": \"claude\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"ok\": true, \"detail\": \"answered\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"runtimes.check\", \"params\": {\"runtime\": \"claude\", \"model\": \"claude-sonnet-5-5\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"ok\": false, \"detail\": \"answered\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"runtimes.check\", \"params\": {\"runtime\": \"claude\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"ok\": false, \"detail\": \"the answer was not {\\\"ok\\\": ...}\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"runtimes.check\", \"params\": {\"runtime\": \"claude\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"result\": {\"ok\": false, \"detail\": \"{'message': 'invented provider words', 'code': 7}\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"method\": \"runtimes.check\", \"params\": {\"runtime\": \"claude\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"result\": {\"ok\": false, \"detail\": \"Unsupported: invented start refusal\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"method\": \"runtimes.check\", \"params\": {\"runtime\": \"claude\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"result\": {\"ok\": false, \"detail\": \"no answer\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"method\": \"runtimes.check\", \"params\": {\"runtime\": \"claude\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"result\": {\"ok\": false, \"detail\": \"the answer was not {\\\"ok\\\": ...}\"}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app"
+    },
+    {
+     "do": "connect",
+     "conn": "app#2"
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"runtimes.check\", \"params\": {\"runtime\": \"claude\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"error\": {\"code\": -32603, \"message\": \"ConnectionError\"}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app#2"
+    },
+    {
+     "do": "connect",
+     "conn": "app#3"
+    },
+    {
+     "do": "call",
+     "conn": "app#3",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#3",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"runtimes.check\", \"params\": {\"runtime\": \"codex\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"ok\": true, \"detail\": \"answered\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#3",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"runtimes.check\", \"params\": {\"runtime\": \"codex\", \"model\": \"gpt-unknown-1\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"ok\": false, \"detail\": \"ServiceError: no documented context window: Codex's model catalog (models_cache.json) reports no context window for 'gpt-unknown-1'\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#3",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"runtimes.check\", \"params\": {\"runtime\": \"anthropic\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"ok\": true, \"detail\": \"answered\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#3",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"runtimes.check\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"result\": {\"ok\": false, \"detail\": \"FerbError: unknown runtime 'None' in config.toml [runtimes]; runtimes: codex, claude, anthropic, openai, google\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#3",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"method\": \"runtimes.check_calls\", \"params\": {\"runtime\": \"claude\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"result\": {\"runtime\": \"claude\", \"model\": \"claude-opus-5-5\", \"ok\": true, \"lines\": [{\"name\": \"Planner call (its real schema, lookups offered)\", \"ok\": true, \"detail\": \"\", \"model\": \"claude-opus-5-5\", \"typed\": \"json_schema\", \"seconds\": 0.0, \"input_tokens\": 100, \"output_tokens\": 20, \"cost_usd\": 0.0015, \"limit_s\": 60.0}, {\"name\": \"Tool call with no arguments\", \"ok\": true, \"detail\": \"\", \"model\": \"claude-opus-5-5\", \"typed\": \"json_schema\", \"seconds\": 0.0, \"input_tokens\": 0, \"output_tokens\": 0, \"cost_usd\": null, \"limit_s\": 60.0, \"part_of\": \"worker call\"}, {\"name\": \"Tool call with arguments\", \"ok\": true, \"detail\": \"\", \"model\": \"claude-opus-5-5\", \"typed\": \"json_schema\", \"seconds\": 0.0, \"input_tokens\": 0, \"output_tokens\": 0, \"cost_usd\": null, \"limit_s\": 60.0, \"part_of\": \"worker call\"}, {\"name\": \"Worker call (tools, its typed report)\", \"ok\": true, \"detail\": \"\", \"model\": \"claude-opus-5-5\", \"typed\": \"json_schema\", \"seconds\": 0.0, \"input_tokens\": 125, \"output_tokens\": 31, \"cost_usd\": 0.0021, \"limit_s\": 60.0}, {\"name\": \"Checker call (its schema)\", \"ok\": true, \"detail\": \"\", \"model\": \"claude-opus-5-5\", \"typed\": \"stated\", \"seconds\": 0.0, \"input_tokens\": 90, \"output_tokens\": 25, \"cost_usd\": null, \"limit_s\": 60.0}, {\"name\": \"A picture in the request\", \"ok\": true, \"detail\": \"\", \"model\": \"claude-opus-5-5\", \"typed\": \"json_schema\", \"seconds\": 0.0, \"input_tokens\": 300, \"output_tokens\": 4, \"cost_usd\": 0.0031, \"limit_s\": 60.0}], \"total_cost_usd\": 0.0067}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#3",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"method\": \"runtimes.check_calls\", \"params\": {\"runtime\": \"claude\", \"model\": \" claude-sonnet-5-5 \"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"result\": {\"runtime\": \"claude\", \"model\": \"claude-sonnet-5-5\", \"ok\": false, \"lines\": [{\"name\": \"Planner call (its real schema, lookups offered)\", \"ok\": false, \"detail\": \"invented overload\", \"model\": \"claude-sonnet-5-5\", \"typed\": \"none\", \"seconds\": 0.0, \"input_tokens\": 0, \"output_tokens\": 0, \"cost_usd\": null, \"limit_s\": 60.0}, {\"name\": \"Tool call with no arguments\", \"ok\": false, \"detail\": \"the model didn't call check.ping\", \"model\": \"claude-sonnet-5-5\", \"typed\": \"none\", \"seconds\": 0.0, \"input_tokens\": 0, \"output_tokens\": 0, \"cost_usd\": null, \"limit_s\": 60.0, \"part_of\": \"worker call\"}, {\"name\": \"Tool call with arguments\", \"ok\": false, \"detail\": \"the model didn't call check.echo with hello\", \"model\": \"claude-sonnet-5-5\", \"typed\": \"none\", \"seconds\": 0.0, \"input_tokens\": 0, \"output_tokens\": 0, \"cost_usd\": null, \"limit_s\": 60.0, \"part_of\": \"worker call\"}, {\"name\": \"Worker call (tools, its typed report)\", \"ok\": false, \"detail\": \"the answer didn't fit its form: the answer doesn't match the schema at the top level: 'reason' is a required property\", \"model\": \"claude-sonnet-5-5\", \"typed\": \"none\", \"seconds\": 0.0, \"input_tokens\": 0, \"output_tokens\": 0, \"cost_usd\": null, \"limit_s\": 60.0}, {\"name\": \"Checker call (its schema)\", \"ok\": false, \"detail\": \"Unsupported: invented start refusal\", \"model\": \"claude-sonnet-5-5\", \"typed\": \"none\", \"seconds\": 0.0, \"input_tokens\": 0, \"output_tokens\": 0, \"cost_usd\": null, \"limit_s\": 60.0}, {\"name\": \"A picture in the request\", \"ok\": false, \"detail\": \"ConnectionError: invented network drop\", \"model\": \"claude-sonnet-5-5\", \"typed\": \"none\", \"seconds\": 0.0, \"input_tokens\": 0, \"output_tokens\": 0, \"cost_usd\": null, \"limit_s\": 60.0}], \"total_cost_usd\": null}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#3",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"method\": \"runtimes.check_calls\", \"params\": {\"runtime\": \"codex\", \"model\": \"gpt-6.1-sol\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"result\": {\"runtime\": \"codex\", \"model\": \"gpt-6.1-sol\", \"ok\": false, \"lines\": [{\"name\": \"Planner call (its real schema, lookups offered)\", \"ok\": true, \"detail\": \"\", \"model\": \"gpt-6.1-sol\", \"typed\": \"json_schema\", \"seconds\": 0.0, \"input_tokens\": 50, \"output_tokens\": 5, \"cost_usd\": null, \"limit_s\": 60.0}, {\"name\": \"Tool call with no arguments\", \"ok\": false, \"detail\": \"the model didn't call check.ping\", \"model\": \"gpt-6.1-sol\", \"typed\": \"none\", \"seconds\": 0.0, \"input_tokens\": 0, \"output_tokens\": 0, \"cost_usd\": null, \"limit_s\": 60.0, \"part_of\": \"worker call\"}, {\"name\": \"Tool call with arguments\", \"ok\": false, \"detail\": \"the model didn't call check.echo with hello\", \"model\": \"gpt-6.1-sol\", \"typed\": \"none\", \"seconds\": 0.0, \"input_tokens\": 0, \"output_tokens\": 0, \"cost_usd\": null, \"limit_s\": 60.0, \"part_of\": \"worker call\"}, {\"name\": \"Worker call (tools, its typed report)\", \"ok\": false, \"detail\": \"{'code': 3}\", \"model\": \"gpt-6.1-sol\", \"typed\": \"none\", \"seconds\": 0.0, \"input_tokens\": 0, \"output_tokens\": 0, \"cost_usd\": null, \"limit_s\": 60.0}, {\"name\": \"Checker call (its schema)\", \"ok\": false, \"detail\": \"no answer\", \"model\": \"gpt-6.1-sol\", \"typed\": \"none\", \"seconds\": 0.0, \"input_tokens\": 0, \"output_tokens\": 0, \"cost_usd\": null, \"limit_s\": 60.0}, {\"name\": \"A picture in the request\", \"ok\": false, \"detail\": \"the answer didn't fit its form: the answer is not JSON (Expecting value)\", \"model\": \"gpt-6.1-sol\", \"typed\": \"none\", \"seconds\": 0.0, \"input_tokens\": 0, \"output_tokens\": 0, \"cost_usd\": null, \"limit_s\": 60.0}], \"total_cost_usd\": null}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#3",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"method\": \"runtimes.check_calls\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"error\": {\"code\": -32004, \"message\": \"unknown AI service ''\"}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app#3"
+    }
+   ],
+   "journal": [
+    [
+     "runtime.signed_out",
+     {
+      "runtime": "claude"
+     },
+     "ferb"
+    ],
+    [
+     "runtime.answered",
+     {
+      "runtime": "claude"
+     },
+     "ferb"
+    ],
+    [
+     "daemon.internal_error",
+     {
+      "method": "runtimes.check",
+      "error": "ConnectionError",
+      "message": "invented network drop",
+      "frames": [
+       "ferb/daemon/server.py:323:_dispatch",
+       "ferb/daemon/areas/runtimes.py:291:_runtimes_check",
+       "ferb/daemon/areas/runtimes.py:312:_check_runtime",
+       "runtimes.py:86:_events"
+      ]
+     },
+     "ferb"
+    ],
+    [
+     "runtimes.checked",
+     {
+      "runtime": "claude",
+      "passed": 6,
+      "lines": 6
+     },
+     "ferb"
+    ],
+    [
+     "runtimes.checked",
+     {
+      "runtime": "claude",
+      "passed": 0,
+      "lines": 6
+     },
+     "ferb"
+    ],
+    [
+     "runtimes.checked",
+     {
+      "runtime": "codex",
+      "passed": 1,
+      "lines": 6
+     },
+     "ferb"
+    ]
+   ],
+   "published": [
+    [
+     "runtimes.changed",
+     {
+      "runtime": "claude",
+      "why": "refused"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "claude",
+      "why": "answered"
+     }
+    ]
+   ],
+   "setup": {
+    "files": {
+     "claude-home/.ferb-signed-in": "invented marker\n",
+     "codex-home/auth.json": "{}\n",
+     "codex-home/models_cache.json": "{\"models\": [{\"slug\": \"gpt-6.1-sol\", \"context_window\": 400000, \"effective_context_window_percent\": 95, \"default_reasoning_level\": \"medium\", \"supported_reasoning_levels\": [{\"effort\": \"low\"}, {\"effort\": \"medium\"}, {\"effort\": \"high\"}, {\"effort\": \"ultra\"}]}, {\"slug\": \"gpt-5.6-sol\", \"context_window\": 272000, \"effective_context_window_percent\": 95, \"supported_reasoning_levels\": [{\"effort\": \"low\"}, {\"effort\": \"high\"}]}, {\"slug\": \"gpt-invented-mini\", \"context_window\": 128000, \"effective_context_window_percent\": 90}]}"
+    },
+    "keychain": {
+     "helper": {
+      "api.sealed/anthropic": "invented-anthropic-words"
+     }
+    },
+    "lists": {},
+    "offers": {},
+    "script": [
+     {
+      "events": [
+       [
+        "usage",
+        {
+         "model": "claude-opus-5-5",
+         "typed": "json_schema",
+         "input_tokens": 12,
+         "output_tokens": 3,
+         "cost_usd": 0.0004
+        }
+       ],
+       [
+        "final",
+        {
+         "text": "{\"ok\": true}"
+        }
+       ]
+      ]
+     },
+     {
+      "events": [
+       [
+        "final",
+        {
+         "text": "{\"ok\": false}"
+        }
+       ]
+      ]
+     },
+     {
+      "events": [
+       [
+        "final",
+        {
+         "text": "not json"
+        }
+       ]
+      ]
+     },
+     {
+      "events": [
+       [
+        "error",
+        {
+         "message": "invented provider words",
+         "code": 7
+        }
+       ]
+      ]
+     },
+     {
+      "raise": [
+       "Unsupported",
+       "invented start refusal"
+      ]
+     },
+     {
+      "events": []
+     },
+     {
+      "events": [
+       [
+        "violation",
+        {
+         "tool": "invented"
+        }
+       ],
+       [
+        "final",
+        {
+         "text": "[1]"
+        }
+       ]
+      ]
+     },
+     {
+      "raise_in_events": [
+       "ConnectionError",
+       "invented network drop"
+      ]
+     },
+     {
+      "events": [
+       [
+        "final",
+        {
+         "text": "{\"ok\": true}"
+        }
+       ]
+      ]
+     },
+     {
+      "events": [
+       [
+        "final",
+        {
+         "text": "{\"ok\": true}"
+        }
+       ]
+      ]
+     },
+     {
+      "events": [
+       [
+        "usage",
+        {
+         "model": "claude-opus-5-5",
+         "typed": "json_schema",
+         "input_tokens": 100,
+         "output_tokens": 20,
+         "cost_usd": 0.0015
+        }
+       ],
+       [
+        "final",
+        {
+         "text": "{\"kind\": \"reply\", \"answers_question\": false, \"task\": null, \"control\": null, \"side_entries\": null, \"text\": \"ok\"}"
+        }
+       ]
+      ]
+     },
+     {
+      "tools": [
+       [
+        "check.ping",
+        {}
+       ],
+       [
+        "check.echo",
+        {
+         "text": "hello"
+        }
+       ]
+      ],
+      "events": [
+       [
+        "usage",
+        {
+         "model": "claude-opus-5-5",
+         "typed": "json_schema",
+         "input_tokens": 120,
+         "output_tokens": 30,
+         "cost_usd": 0.002
+        }
+       ],
+       [
+        "usage",
+        {
+         "model": "",
+         "typed": "",
+         "input_tokens": 5,
+         "output_tokens": 1,
+         "cost_usd": 0.0001
+        }
+       ],
+       [
+        "final",
+        {
+         "text": "{\"status\": \"done\", \"reason\": \"\", \"question\": null, \"answer\": \"ok\", \"artifacts\": [], \"how\": \"\"}"
+        }
+       ]
+      ]
+     },
+     {
+      "events": [
+       [
+        "usage",
+        {
+         "model": "claude-opus-5-5",
+         "typed": "stated",
+         "input_tokens": 90,
+         "output_tokens": 25,
+         "cost_usd": null
+        }
+       ],
+       [
+        "final",
+        {
+         "text": "{\"results\": [{\"index\": 0, \"met\": true, \"applies\": true, \"evidence\": \"the answer says ok\", \"how\": null}], \"next\": \"accept\", \"findings\": [], \"missing\": \"\", \"instructions\": \"\", \"worker_type\": null, \"question\": \"\", \"reason\": \"\"}"
+        }
+       ]
+      ]
+     },
+     {
+      "events": [
+       [
+        "usage",
+        {
+         "model": "claude-opus-5-5",
+         "typed": "json_schema",
+         "input_tokens": 300,
+         "output_tokens": 4,
+         "cost_usd": 0.0031
+        }
+       ],
+       [
+        "final",
+        {
+         "text": "{\"colour\": \"red\"}"
+        }
+       ]
+      ]
+     },
+     {
+      "events": [
+       [
+        "error",
+        {
+         "message": "invented overload"
+        }
+       ]
+      ]
+     },
+     {
+      "tools": [
+       [
+        "check.echo",
+        {
+         "text": "not hello"
+        }
+       ]
+      ],
+      "events": [
+       [
+        "retrying",
+        {
+         "message": "invented retry"
+        }
+       ],
+       [
+        "final",
+        {
+         "text": "{\"status\": \"done\"}"
+        }
+       ]
+      ]
+     },
+     {
+      "raise": [
+       "Unsupported",
+       "invented start refusal"
+      ]
+     },
+     {
+      "raise_in_events": [
+       "ConnectionError",
+       "invented network drop"
+      ]
+     },
+     {
+      "events": [
+       [
+        "usage",
+        {
+         "model": "gpt-6.1-sol",
+         "typed": "json_schema",
+         "input_tokens": 50,
+         "output_tokens": 5,
+         "cost_usd": null
+        }
+       ],
+       [
+        "final",
+        {
+         "text": "{\"kind\": \"reply\", \"answers_question\": false, \"task\": null, \"control\": null, \"side_entries\": null, \"text\": \"ok\"}"
+        }
+       ]
+      ]
+     },
+     {
+      "events": [
+       [
+        "error",
+        {
+         "code": 3
+        }
+       ]
+      ]
+     },
+     {
+      "events": []
+     },
+     {
+      "events": [
+       [
+        "final",
+        {
+         "text": ""
+        }
+       ]
+      ]
+     }
+    ],
+    "claude_sh": null,
+    "config": {
+     "sha256": "9e983b683d4ccf675d32b86d2fb4792b47cdf745564c0a3e0c8468ec5ec70e5e"
+    }
+   },
+   "log": [
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "5c83a21bad7eff39d127733642812db410871e0fbee9fc784c0cceceb061f9f4",
+      "model": "claude-opus-5-5",
+      "effort": "low",
+      "planner": false,
+      "limit_s": 900.0
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "runtime-check",
+      "parent_id": null,
+      "goal": "chat",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "runtime-check",
+      "system": "Answer {\"ok\": true}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "5c83a21bad7eff39d127733642812db410871e0fbee9fc784c0cceceb061f9f4",
+      "model": "claude-sonnet-5-5",
+      "effort": "low",
+      "planner": false,
+      "limit_s": 900.0
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "runtime-check",
+      "parent_id": null,
+      "goal": "chat",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "runtime-check",
+      "system": "Answer {\"ok\": true}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "5c83a21bad7eff39d127733642812db410871e0fbee9fc784c0cceceb061f9f4",
+      "model": "claude-opus-5-5",
+      "effort": "low",
+      "planner": false,
+      "limit_s": 900.0
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "runtime-check",
+      "parent_id": null,
+      "goal": "chat",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "runtime-check",
+      "system": "Answer {\"ok\": true}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "5c83a21bad7eff39d127733642812db410871e0fbee9fc784c0cceceb061f9f4",
+      "model": "claude-opus-5-5",
+      "effort": "low",
+      "planner": false,
+      "limit_s": 900.0
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "runtime-check",
+      "parent_id": null,
+      "goal": "chat",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "runtime-check",
+      "system": "Answer {\"ok\": true}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "5c83a21bad7eff39d127733642812db410871e0fbee9fc784c0cceceb061f9f4",
+      "model": "claude-opus-5-5",
+      "effort": "low",
+      "planner": false,
+      "limit_s": 900.0
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "runtime-check",
+      "parent_id": null,
+      "goal": "chat",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "runtime-check",
+      "system": "Answer {\"ok\": true}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "5c83a21bad7eff39d127733642812db410871e0fbee9fc784c0cceceb061f9f4",
+      "model": "claude-opus-5-5",
+      "effort": "low",
+      "planner": false,
+      "limit_s": 900.0
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "runtime-check",
+      "parent_id": null,
+      "goal": "chat",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "runtime-check",
+      "system": "Answer {\"ok\": true}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "5c83a21bad7eff39d127733642812db410871e0fbee9fc784c0cceceb061f9f4",
+      "model": "claude-opus-5-5",
+      "effort": "low",
+      "planner": false,
+      "limit_s": 900.0
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "runtime-check",
+      "parent_id": null,
+      "goal": "chat",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "runtime-check",
+      "system": "Answer {\"ok\": true}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "5c83a21bad7eff39d127733642812db410871e0fbee9fc784c0cceceb061f9f4",
+      "model": "claude-opus-5-5",
+      "effort": "low",
+      "planner": false,
+      "limit_s": 900.0
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "runtime-check",
+      "parent_id": null,
+      "goal": "chat",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "runtime-check",
+      "system": "Answer {\"ok\": true}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "build",
+     {
+      "name": "codex",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "5c83a21bad7eff39d127733642812db410871e0fbee9fc784c0cceceb061f9f4",
+      "model": "gpt-5.6-sol",
+      "effort": "low",
+      "planner": false,
+      "limit_s": 900.0,
+      "cache_role": null,
+      "cache_scope": "invented-device"
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "runtime-check",
+      "parent_id": null,
+      "goal": "chat",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "runtime-check",
+      "system": "Answer {\"ok\": true}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "build",
+     {
+      "name": "codex",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "5c83a21bad7eff39d127733642812db410871e0fbee9fc784c0cceceb061f9f4",
+      "model": "gpt-unknown-1",
+      "effort": "low",
+      "planner": false,
+      "limit_s": 900.0,
+      "cache_role": null,
+      "cache_scope": "invented-device"
+     }
+    ],
+    [
+     "build",
+     {
+      "name": "anthropic",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "5c83a21bad7eff39d127733642812db410871e0fbee9fc784c0cceceb061f9f4",
+      "model": "claude-sonnet-5-5",
+      "effort": "low",
+      "planner": false,
+      "limit_s": 900.0
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "runtime-check",
+      "parent_id": null,
+      "goal": "chat",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "runtime-check",
+      "system": "Answer {\"ok\": true}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "span.start",
+     {
+      "kind": "runtime.check",
+      "task_id": null,
+      "input": {
+       "runtime": "claude",
+       "role": "orchestrator",
+       "check": "Planner call (its real schema, lookups offered)"
+      }
+     }
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [
+       "about.read",
+       "chat.history",
+       "memory.read",
+       "task.evidence",
+       "trail.days",
+       "trail.query"
+      ],
+      "schema_sha256": "8164e6abeb5c2a2d61e4aedf4a19ff52898b5e19abd1b7413de5c31435d123ee",
+      "model": "claude-opus-5-5",
+      "effort": "low",
+      "planner": true,
+      "limit_s": null
+     }
+    ],
+    [
+     "tasks.hold",
+     {
+      "task_id": "check-#1",
+      "goal": "FERB's connection check",
+      "scopes": [
+       "task:read",
+       "trail:read"
+      ],
+      "at": "2026-01-01T09:00:00+00:00"
+     }
+    ],
+    [
+     "token.issue",
+     {
+      "task_id": "check-#1",
+      "holder": "check:check-#1",
+      "scopes": [
+       "task:read",
+       "trail:read"
+      ],
+      "identity": "owner",
+      "ttl_s": 600.0,
+      "observe_only": true,
+      "tools": [
+       "about.read",
+       "chat.history",
+       "memory.read",
+       "task.evidence",
+       "trail.days",
+       "trail.query"
+      ],
+      "max_calls": 10
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "check-#1",
+      "parent_id": null,
+      "goal": "FERB's connection check",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [
+       "task:read",
+       "trail:read"
+      ],
+      "role": "mixed",
+      "request_id": "check-#1",
+      "system": "This is FERB's connection check, not a real request. Use no tool. Answer with kind \"reply\", text \"ok\", every object field null and every list empty, and every other field empty or false.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": true
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "token.revoke",
+     "check:check-#1"
+    ],
+    [
+     "gateway.forget",
+     "check:check-#1"
+    ],
+    [
+     "tasks.remove",
+     "check-#1"
+    ],
+    [
+     "span.finish",
+     {
+      "output": {
+       "name": "Planner call (its real schema, lookups offered)",
+       "ok": true,
+       "detail": "",
+       "model": "claude-opus-5-5",
+       "typed": "json_schema",
+       "seconds": 0.0,
+       "input_tokens": 100,
+       "output_tokens": 20,
+       "cost_usd": 0.0015,
+       "limit_s": 60.0
+      }
+     }
+    ],
+    [
+     "span.start",
+     {
+      "kind": "runtime.check",
+      "task_id": null,
+      "input": {
+       "runtime": "claude",
+       "role": "worker",
+       "check": "Worker call (tools, its typed report)"
+      }
+     }
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "worker",
+      "mode": "worker",
+      "tools": [
+       "check.ping",
+       "check.echo"
+      ],
+      "schema_sha256": "3733aabbd879d85e3060a943b04ef4287ff14def883ed9e51141b601ae9fe877",
+      "model": "claude-opus-5-5",
+      "effort": null,
+      "planner": false,
+      "limit_s": null
+     }
+    ],
+    [
+     "tasks.hold",
+     {
+      "task_id": "check-#2",
+      "goal": "FERB's connection check",
+      "scopes": [],
+      "at": "2026-01-01T09:00:00+00:00"
+     }
+    ],
+    [
+     "token.issue",
+     {
+      "task_id": "check-#2",
+      "holder": "check:check-#2",
+      "scopes": [],
+      "identity": "owner",
+      "ttl_s": 600.0,
+      "observe_only": true,
+      "tools": [
+       "check.echo",
+       "check.ping"
+      ],
+      "max_calls": 10
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "check-#2",
+      "parent_id": null,
+      "goal": "FERB's connection check",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "check-#2",
+      "system": "This is FERB's connection check. First call the tool check_ping (check.ping) with no arguments. Then call the tool check_echo (check.echo) with text \"hello\". Then report: status \"done\", reason \"\", question null, answer \"ok\", artifacts [], how \"\".",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": true
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "token.revoke",
+     "check:check-#2"
+    ],
+    [
+     "gateway.forget",
+     "check:check-#2"
+    ],
+    [
+     "tasks.remove",
+     "check-#2"
+    ],
+    [
+     "span.finish",
+     {
+      "output": {
+       "name": "Worker call (tools, its typed report)",
+       "ok": true,
+       "detail": "",
+       "model": "claude-opus-5-5",
+       "typed": "json_schema",
+       "seconds": 0.0,
+       "input_tokens": 125,
+       "output_tokens": 31,
+       "cost_usd": 0.0021,
+       "limit_s": 60.0
+      }
+     }
+    ],
+    [
+     "span.start",
+     {
+      "kind": "runtime.check",
+      "task_id": null,
+      "input": {
+       "runtime": "claude",
+       "role": "checker",
+       "check": "Checker call (its schema)"
+      }
+     }
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "checker",
+      "mode": "worker",
+      "tools": [],
+      "schema_sha256": "433e473e818078ad62628da2c88330ad56c2ec65a2da88cc5667c01bdce41a82",
+      "model": "claude-opus-5-5",
+      "effort": null,
+      "planner": false,
+      "limit_s": null
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "check-#3",
+      "parent_id": null,
+      "goal": "FERB's connection check",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "check-#3",
+      "system": "This is FERB's connection check. Condition 0: the answer says ok. The answer: \"ok\". Judge it: results [{index 0, met true, evidence \"the answer says ok\", how null}], next \"accept\", findings [], and every other field empty or null.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "span.finish",
+     {
+      "output": {
+       "name": "Checker call (its schema)",
+       "ok": true,
+       "detail": "",
+       "model": "claude-opus-5-5",
+       "typed": "stated",
+       "seconds": 0.0,
+       "input_tokens": 90,
+       "output_tokens": 25,
+       "cost_usd": null,
+       "limit_s": 60.0
+      }
+     }
+    ],
+    [
+     "span.start",
+     {
+      "kind": "runtime.check",
+      "task_id": null,
+      "input": {
+       "runtime": "claude",
+       "role": "orchestrator",
+       "check": "A picture in the request"
+      }
+     }
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "d76a639d5ee695843991260476b712615c746bfe8871e95cc66c31a5102370ad",
+      "model": "claude-opus-5-5",
+      "effort": "low",
+      "planner": false,
+      "limit_s": 900.0
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "check-#4",
+      "parent_id": null,
+      "goal": "FERB's connection check",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "check-#4",
+      "system": "This is FERB's connection check. What single colour fills the picture? Answer {\"colour\": <word>}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [
+       {
+        "sha256": "5503ff8fef5a4d87e1fe0bdc07254b11153a86debfa97500641c7abbf93357ef",
+        "png_hex": "89504e470d0a1a0a0000000d4948445200000010000000100802000000909168360000001749444154789c63f8cfc04012224df5a886510d434a030090f9ff01f9e1fa780000000049454e44ae426082",
+        "reference": "connection-check",
+        "mime": "image/png"
+       }
+      ],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "span.finish",
+     {
+      "output": {
+       "name": "A picture in the request",
+       "ok": true,
+       "detail": "",
+       "model": "claude-opus-5-5",
+       "typed": "json_schema",
+       "seconds": 0.0,
+       "input_tokens": 300,
+       "output_tokens": 4,
+       "cost_usd": 0.0031,
+       "limit_s": 60.0
+      }
+     }
+    ],
+    [
+     "span.start",
+     {
+      "kind": "runtime.check",
+      "task_id": null,
+      "input": {
+       "runtime": "claude",
+       "role": "orchestrator",
+       "check": "Planner call (its real schema, lookups offered)"
+      }
+     }
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [
+       "about.read",
+       "chat.history",
+       "memory.read",
+       "task.evidence",
+       "trail.days",
+       "trail.query"
+      ],
+      "schema_sha256": "8164e6abeb5c2a2d61e4aedf4a19ff52898b5e19abd1b7413de5c31435d123ee",
+      "model": "claude-sonnet-5-5",
+      "effort": "low",
+      "planner": true,
+      "limit_s": null
+     }
+    ],
+    [
+     "tasks.hold",
+     {
+      "task_id": "check-#5",
+      "goal": "FERB's connection check",
+      "scopes": [
+       "task:read",
+       "trail:read"
+      ],
+      "at": "2026-01-01T09:00:00+00:00"
+     }
+    ],
+    [
+     "token.issue",
+     {
+      "task_id": "check-#5",
+      "holder": "check:check-#5",
+      "scopes": [
+       "task:read",
+       "trail:read"
+      ],
+      "identity": "owner",
+      "ttl_s": 600.0,
+      "observe_only": true,
+      "tools": [
+       "about.read",
+       "chat.history",
+       "memory.read",
+       "task.evidence",
+       "trail.days",
+       "trail.query"
+      ],
+      "max_calls": 10
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "check-#5",
+      "parent_id": null,
+      "goal": "FERB's connection check",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [
+       "task:read",
+       "trail:read"
+      ],
+      "role": "mixed",
+      "request_id": "check-#5",
+      "system": "This is FERB's connection check, not a real request. Use no tool. Answer with kind \"reply\", text \"ok\", every object field null and every list empty, and every other field empty or false.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": true
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "token.revoke",
+     "check:check-#5"
+    ],
+    [
+     "gateway.forget",
+     "check:check-#5"
+    ],
+    [
+     "tasks.remove",
+     "check-#5"
+    ],
+    [
+     "span.finish",
+     {
+      "output": {
+       "name": "Planner call (its real schema, lookups offered)",
+       "ok": false,
+       "detail": "invented overload",
+       "model": "claude-sonnet-5-5",
+       "typed": "none",
+       "seconds": 0.0,
+       "input_tokens": 0,
+       "output_tokens": 0,
+       "cost_usd": null,
+       "limit_s": 60.0
+      }
+     }
+    ],
+    [
+     "span.start",
+     {
+      "kind": "runtime.check",
+      "task_id": null,
+      "input": {
+       "runtime": "claude",
+       "role": "worker",
+       "check": "Worker call (tools, its typed report)"
+      }
+     }
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "worker",
+      "mode": "worker",
+      "tools": [
+       "check.ping",
+       "check.echo"
+      ],
+      "schema_sha256": "3733aabbd879d85e3060a943b04ef4287ff14def883ed9e51141b601ae9fe877",
+      "model": "claude-sonnet-5-5",
+      "effort": null,
+      "planner": false,
+      "limit_s": null
+     }
+    ],
+    [
+     "tasks.hold",
+     {
+      "task_id": "check-#6",
+      "goal": "FERB's connection check",
+      "scopes": [],
+      "at": "2026-01-01T09:00:00+00:00"
+     }
+    ],
+    [
+     "token.issue",
+     {
+      "task_id": "check-#6",
+      "holder": "check:check-#6",
+      "scopes": [],
+      "identity": "owner",
+      "ttl_s": 600.0,
+      "observe_only": true,
+      "tools": [
+       "check.echo",
+       "check.ping"
+      ],
+      "max_calls": 10
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "check-#6",
+      "parent_id": null,
+      "goal": "FERB's connection check",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "check-#6",
+      "system": "This is FERB's connection check. First call the tool check_ping (check.ping) with no arguments. Then call the tool check_echo (check.echo) with text \"hello\". Then report: status \"done\", reason \"\", question null, answer \"ok\", artifacts [], how \"\".",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": true
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "token.revoke",
+     "check:check-#6"
+    ],
+    [
+     "gateway.forget",
+     "check:check-#6"
+    ],
+    [
+     "tasks.remove",
+     "check-#6"
+    ],
+    [
+     "span.finish",
+     {
+      "output": {
+       "name": "Worker call (tools, its typed report)",
+       "ok": false,
+       "detail": "the answer didn't fit its form: the answer doesn't match the schema at the top level: 'reason' is a required property",
+       "model": "claude-sonnet-5-5",
+       "typed": "none",
+       "seconds": 0.0,
+       "input_tokens": 0,
+       "output_tokens": 0,
+       "cost_usd": null,
+       "limit_s": 60.0
+      }
+     }
+    ],
+    [
+     "span.start",
+     {
+      "kind": "runtime.check",
+      "task_id": null,
+      "input": {
+       "runtime": "claude",
+       "role": "checker",
+       "check": "Checker call (its schema)"
+      }
+     }
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "checker",
+      "mode": "worker",
+      "tools": [],
+      "schema_sha256": "433e473e818078ad62628da2c88330ad56c2ec65a2da88cc5667c01bdce41a82",
+      "model": "claude-sonnet-5-5",
+      "effort": null,
+      "planner": false,
+      "limit_s": null
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "check-#7",
+      "parent_id": null,
+      "goal": "FERB's connection check",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "check-#7",
+      "system": "This is FERB's connection check. Condition 0: the answer says ok. The answer: \"ok\". Judge it: results [{index 0, met true, evidence \"the answer says ok\", how null}], next \"accept\", findings [], and every other field empty or null.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "span.finish",
+     {
+      "output": {
+       "name": "Checker call (its schema)",
+       "ok": false,
+       "detail": "Unsupported: invented start refusal",
+       "model": "claude-sonnet-5-5",
+       "typed": "none",
+       "seconds": 0.0,
+       "input_tokens": 0,
+       "output_tokens": 0,
+       "cost_usd": null,
+       "limit_s": 60.0
+      }
+     }
+    ],
+    [
+     "span.start",
+     {
+      "kind": "runtime.check",
+      "task_id": null,
+      "input": {
+       "runtime": "claude",
+       "role": "orchestrator",
+       "check": "A picture in the request"
+      }
+     }
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "d76a639d5ee695843991260476b712615c746bfe8871e95cc66c31a5102370ad",
+      "model": "claude-sonnet-5-5",
+      "effort": "low",
+      "planner": false,
+      "limit_s": 900.0
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "check-#8",
+      "parent_id": null,
+      "goal": "FERB's connection check",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "check-#8",
+      "system": "This is FERB's connection check. What single colour fills the picture? Answer {\"colour\": <word>}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [
+       {
+        "sha256": "5503ff8fef5a4d87e1fe0bdc07254b11153a86debfa97500641c7abbf93357ef",
+        "png_hex": "89504e470d0a1a0a0000000d4948445200000010000000100802000000909168360000001749444154789c63f8cfc04012224df5a886510d434a030090f9ff01f9e1fa780000000049454e44ae426082",
+        "reference": "connection-check",
+        "mime": "image/png"
+       }
+      ],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "span.finish",
+     {
+      "output": {
+       "name": "A picture in the request",
+       "ok": false,
+       "detail": "ConnectionError: invented network drop",
+       "model": "claude-sonnet-5-5",
+       "typed": "none",
+       "seconds": 0.0,
+       "input_tokens": 0,
+       "output_tokens": 0,
+       "cost_usd": null,
+       "limit_s": 60.0
+      }
+     }
+    ],
+    [
+     "span.start",
+     {
+      "kind": "runtime.check",
+      "task_id": null,
+      "input": {
+       "runtime": "codex",
+       "role": "orchestrator",
+       "check": "Planner call (its real schema, lookups offered)"
+      }
+     }
+    ],
+    [
+     "build",
+     {
+      "name": "codex",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [
+       "about.read",
+       "chat.history",
+       "memory.read",
+       "task.evidence",
+       "trail.days",
+       "trail.query"
+      ],
+      "schema_sha256": "8164e6abeb5c2a2d61e4aedf4a19ff52898b5e19abd1b7413de5c31435d123ee",
+      "model": "gpt-6.1-sol",
+      "effort": "low",
+      "planner": true,
+      "limit_s": null,
+      "cache_role": "planner",
+      "cache_scope": "invented-device"
+     }
+    ],
+    [
+     "tasks.hold",
+     {
+      "task_id": "check-#9",
+      "goal": "FERB's connection check",
+      "scopes": [
+       "task:read",
+       "trail:read"
+      ],
+      "at": "2026-01-01T09:00:00+00:00"
+     }
+    ],
+    [
+     "token.issue",
+     {
+      "task_id": "check-#9",
+      "holder": "check:check-#9",
+      "scopes": [
+       "task:read",
+       "trail:read"
+      ],
+      "identity": "owner",
+      "ttl_s": 600.0,
+      "observe_only": true,
+      "tools": [
+       "about.read",
+       "chat.history",
+       "memory.read",
+       "task.evidence",
+       "trail.days",
+       "trail.query"
+      ],
+      "max_calls": 10
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "check-#9",
+      "parent_id": null,
+      "goal": "FERB's connection check",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [
+       "task:read",
+       "trail:read"
+      ],
+      "role": "mixed",
+      "request_id": "check-#9",
+      "system": "This is FERB's connection check, not a real request. Use no tool. Answer with kind \"reply\", text \"ok\", every object field null and every list empty, and every other field empty or false.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": true
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "token.revoke",
+     "check:check-#9"
+    ],
+    [
+     "gateway.forget",
+     "check:check-#9"
+    ],
+    [
+     "tasks.remove",
+     "check-#9"
+    ],
+    [
+     "span.finish",
+     {
+      "output": {
+       "name": "Planner call (its real schema, lookups offered)",
+       "ok": true,
+       "detail": "",
+       "model": "gpt-6.1-sol",
+       "typed": "json_schema",
+       "seconds": 0.0,
+       "input_tokens": 50,
+       "output_tokens": 5,
+       "cost_usd": null,
+       "limit_s": 60.0
+      }
+     }
+    ],
+    [
+     "span.start",
+     {
+      "kind": "runtime.check",
+      "task_id": null,
+      "input": {
+       "runtime": "codex",
+       "role": "worker",
+       "check": "Worker call (tools, its typed report)"
+      }
+     }
+    ],
+    [
+     "build",
+     {
+      "name": "codex",
+      "role": "worker",
+      "mode": "worker",
+      "tools": [
+       "check.ping",
+       "check.echo"
+      ],
+      "schema_sha256": "3733aabbd879d85e3060a943b04ef4287ff14def883ed9e51141b601ae9fe877",
+      "model": "gpt-6.1-sol",
+      "effort": null,
+      "planner": false,
+      "limit_s": null,
+      "cache_role": null,
+      "cache_scope": "invented-device"
+     }
+    ],
+    [
+     "tasks.hold",
+     {
+      "task_id": "check-#10",
+      "goal": "FERB's connection check",
+      "scopes": [],
+      "at": "2026-01-01T09:00:00+00:00"
+     }
+    ],
+    [
+     "token.issue",
+     {
+      "task_id": "check-#10",
+      "holder": "check:check-#10",
+      "scopes": [],
+      "identity": "owner",
+      "ttl_s": 600.0,
+      "observe_only": true,
+      "tools": [
+       "check.echo",
+       "check.ping"
+      ],
+      "max_calls": 10
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "check-#10",
+      "parent_id": null,
+      "goal": "FERB's connection check",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "check-#10",
+      "system": "This is FERB's connection check. First call the tool check_ping (check.ping) with no arguments. Then call the tool check_echo (check.echo) with text \"hello\". Then report: status \"done\", reason \"\", question null, answer \"ok\", artifacts [], how \"\".",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": true
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "token.revoke",
+     "check:check-#10"
+    ],
+    [
+     "gateway.forget",
+     "check:check-#10"
+    ],
+    [
+     "tasks.remove",
+     "check-#10"
+    ],
+    [
+     "span.finish",
+     {
+      "output": {
+       "name": "Worker call (tools, its typed report)",
+       "ok": false,
+       "detail": "{'code': 3}",
+       "model": "gpt-6.1-sol",
+       "typed": "none",
+       "seconds": 0.0,
+       "input_tokens": 0,
+       "output_tokens": 0,
+       "cost_usd": null,
+       "limit_s": 60.0
+      }
+     }
+    ],
+    [
+     "span.start",
+     {
+      "kind": "runtime.check",
+      "task_id": null,
+      "input": {
+       "runtime": "codex",
+       "role": "checker",
+       "check": "Checker call (its schema)"
+      }
+     }
+    ],
+    [
+     "build",
+     {
+      "name": "codex",
+      "role": "checker",
+      "mode": "worker",
+      "tools": [],
+      "schema_sha256": "433e473e818078ad62628da2c88330ad56c2ec65a2da88cc5667c01bdce41a82",
+      "model": "gpt-6.1-sol",
+      "effort": null,
+      "planner": false,
+      "limit_s": null,
+      "cache_role": null,
+      "cache_scope": "invented-device"
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "check-#11",
+      "parent_id": null,
+      "goal": "FERB's connection check",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "check-#11",
+      "system": "This is FERB's connection check. Condition 0: the answer says ok. The answer: \"ok\". Judge it: results [{index 0, met true, evidence \"the answer says ok\", how null}], next \"accept\", findings [], and every other field empty or null.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "span.finish",
+     {
+      "output": {
+       "name": "Checker call (its schema)",
+       "ok": false,
+       "detail": "no answer",
+       "model": "gpt-6.1-sol",
+       "typed": "none",
+       "seconds": 0.0,
+       "input_tokens": 0,
+       "output_tokens": 0,
+       "cost_usd": null,
+       "limit_s": 60.0
+      }
+     }
+    ],
+    [
+     "span.start",
+     {
+      "kind": "runtime.check",
+      "task_id": null,
+      "input": {
+       "runtime": "codex",
+       "role": "orchestrator",
+       "check": "A picture in the request"
+      }
+     }
+    ],
+    [
+     "build",
+     {
+      "name": "codex",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "d76a639d5ee695843991260476b712615c746bfe8871e95cc66c31a5102370ad",
+      "model": "gpt-6.1-sol",
+      "effort": "low",
+      "planner": false,
+      "limit_s": 900.0,
+      "cache_role": null,
+      "cache_scope": "invented-device"
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "check-#12",
+      "parent_id": null,
+      "goal": "FERB's connection check",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "check-#12",
+      "system": "This is FERB's connection check. What single colour fills the picture? Answer {\"colour\": <word>}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [
+       {
+        "sha256": "5503ff8fef5a4d87e1fe0bdc07254b11153a86debfa97500641c7abbf93357ef",
+        "png_hex": "89504e470d0a1a0a0000000d4948445200000010000000100802000000909168360000001749444154789c63f8cfc04012224df5a886510d434a030090f9ff01f9e1fa780000000049454e44ae426082",
+        "reference": "connection-check",
+        "mime": "image/png"
+       }
+      ],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "span.finish",
+     {
+      "output": {
+       "name": "A picture in the request",
+       "ok": false,
+       "detail": "the answer didn't fit its form: the answer is not JSON (Expecting value)",
+       "model": "gpt-6.1-sol",
+       "typed": "none",
+       "seconds": 0.0,
+       "input_tokens": 0,
+       "output_tokens": 0,
+       "cost_usd": null,
+       "limit_s": 60.0
+      }
+     }
+    ]
+   ],
+   "after": {
+    "config": {
+     "sha256": "9e983b683d4ccf675d32b86d2fb4792b47cdf745564c0a3e0c8468ec5ec70e5e"
+    },
+    "keychain": {
+     "helper": {
+      "api.sealed/anthropic": "invented-anthropic-words"
+     },
+     "security": {},
+     "reads": []
+    },
+    "claude_signed_in": true
+   }
+  },
+  {
+   "name": "model_choice",
+   "what": "runtimes.model: a model and an effort checked before they are saved (in the provider's list, else one tiny call), refused ones kept out, a role's own model and effort set and cleared, the shape checks.",
+   "python": [
+    "ferb/daemon/areas/runtimes.py",
+    "ferb/runtimes/keys.py",
+    "ferb/runtimes/check.py",
+    "ferb/runtimes/claude_login.py",
+    "ferb/cli/runtimes.py"
+   ],
+   "volatile": [],
+   "steps": [
+    {
+     "do": "connect",
+     "conn": "app"
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"runtimes.model\", \"params\": {\"runtime\": \"claude\", \"model\": \"claude-sonnet-5-5\", \"effort\": \"high\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"ok\": true, \"model\": \"claude-sonnet-5-5\", \"effort\": \"high\", \"detail\": \"answered\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"runtimes.model\", \"params\": {\"runtime\": \"claude\", \"model\": \"claude-sonnet-5-5\", \"effort\": \"turbo\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"ok\": false, \"detail\": \"answered\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"runtimes.model\", \"params\": {\"runtime\": \"claude\", \"model\": \"claude-sonnet-5-5\", \"effort\": \"very high!\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"error\": {\"code\": -32004, \"message\": \"an effort level is one short word (letters, digits, - or _), at most 32 characters\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"runtimes.model\", \"params\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"ultra\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"error\": {\"code\": -32004, \"message\": \"Codex's ultra level hands work to sub-agents, which FERB keeps off; pick another level\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"method\": \"runtimes.model\", \"params\": {\"runtime\": \"claude\", \"model\": \"\", \"role\": \"worker\", \"effort\": \"medium\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"result\": {\"ok\": true, \"model\": \"\", \"effort\": \"medium\", \"detail\": \"answered\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"method\": \"runtimes.model\", \"params\": {\"runtime\": \"claude\", \"role\": \"worker\", \"effort\": \"\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"result\": {\"ok\": true, \"model\": \"\", \"effort\": \"\", \"detail\": \"uses the connection's model\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"method\": \"runtimes.model\", \"params\": {\"runtime\": \"claude\", \"role\": \"nope\", \"model\": \"x\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"error\": {\"code\": -32004, \"message\": \"role must be one of orchestrator, worker, checker\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"method\": \"runtimes.model\", \"params\": {\"runtime\": \"claude\", \"role\": \"orchestrator\", \"model\": \"claude-opus-5-5\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"result\": {\"ok\": true, \"model\": \"claude-opus-5-5\", \"effort\": \"\", \"detail\": \"answered\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 10, \"method\": \"runtimes.models\", \"params\": {\"runtime\": \"claude\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 10, \"result\": {\"runtime\": \"claude\", \"model\": \"claude-sonnet-5-5\", \"models\": [\"claude-fable-5-1\", \"claude-haiku-4-5\", \"claude-haiku-4-5-20251001\", \"claude-haiku-5-5\", \"claude-opus-5-5\", \"claude-sonnet-5-5\"], \"source\": \"known\", \"effort\": \"high\", \"roles\": {\"orchestrator\": {\"runtime\": \"claude\", \"model\": \"claude-opus-5-5\"}}, \"levels\": {\"claude-fable-5-1\": [\"low\", \"medium\", \"high\", \"xhigh\", \"max\"], \"claude-haiku-5-5\": [\"low\", \"medium\", \"high\", \"xhigh\", \"max\"], \"claude-opus-5-5\": [\"low\", \"medium\", \"high\", \"xhigh\", \"max\"], \"claude-sonnet-5-5\": [\"low\", \"medium\", \"high\", \"xhigh\", \"max\"]}, \"default_efforts\": {}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 11, \"method\": \"runtimes.model\", \"params\": {\"runtime\": \"anthropic\", \"model\": \"claude-opus-5-5\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 11, \"result\": {\"ok\": true, \"model\": \"claude-opus-5-5\", \"effort\": \"\", \"detail\": \"in the provider's list\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 12, \"method\": \"runtimes.model\", \"params\": {\"runtime\": \"anthropic\", \"model\": \"claude-opus-9\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 12, \"result\": {\"ok\": false, \"detail\": \"claude-opus-9 isn't in the models your anthropic key can use\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 13, \"method\": \"runtimes.model\", \"params\": {\"runtime\": \"openai\", \"model\": \"gpt-invented-x\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 13, \"result\": {\"ok\": false, \"detail\": \"{'message': 'invented: model not found'}\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 14, \"method\": \"runtimes.model\", \"params\": {\"runtime\": \"openai\", \"model\": \"gpt-invented-y\", \"effort\": \"high\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 14, \"result\": {\"ok\": true, \"model\": \"gpt-invented-y\", \"effort\": \"high\", \"detail\": \"answered\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 15, \"method\": \"runtimes.model\", \"params\": {\"runtime\": \"claude\", \"model\": \"  claude-opus-5-5   extra \"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 15, \"result\": {\"ok\": true, \"model\": \"claude-opus-5-5 extra\", \"effort\": \"high\", \"detail\": \"answered\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 16, \"method\": \"runtimes.model\", \"params\": {\"runtime\": \"claude\", \"model\": \"claude-opus-5-5\", \"effort\": 7}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 16, \"result\": {\"ok\": true, \"model\": \"claude-opus-5-5\", \"effort\": \"7\", \"detail\": \"answered\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 17, \"method\": \"runtimes.models\", \"params\": {\"runtime\": \"anthropic\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 17, \"result\": {\"runtime\": \"anthropic\", \"model\": \"claude-opus-5-5\", \"models\": [\"claude-opus-5-5\", \"claude-sonnet-5-5\"], \"source\": \"provider\", \"effort\": \"\", \"roles\": {\"orchestrator\": {\"runtime\": \"claude\", \"model\": \"claude-opus-5-5\"}}, \"levels\": {\"claude-opus-5-5\": [\"low\", \"medium\", \"high\", \"xhigh\", \"max\"], \"claude-sonnet-5-5\": [\"low\", \"medium\", \"high\", \"xhigh\", \"max\"]}, \"default_efforts\": {\"claude-opus-5-5\": \"medium\", \"claude-sonnet-5-5\": \"high\"}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 18, \"method\": \"runtimes.status\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 18, \"result\": {\"roles\": {\"orchestrator\": \"codex\", \"worker\": \"codex\", \"checker\": \"codex\"}, \"runtimes\": [{\"name\": \"codex\", \"usable\": false, \"fix\": \"Codex isn't signed in for FERB: sign in to ChatGPT in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, {\"name\": \"claude\", \"usable\": true, \"fix\": \"\", \"signed_in\": true, \"model\": \"claude-opus-5-5\", \"sign_in\": {\"state\": \"idle\", \"url\": \"\", \"why\": \"\"}, \"effort\": \"7\"}, {\"name\": \"anthropic\", \"usable\": true, \"fix\": \"\", \"signed_in\": true, \"model\": \"claude-opus-5-5\", \"effort\": \"\"}, {\"name\": \"openai\", \"usable\": true, \"fix\": \"\", \"signed_in\": true, \"model\": \"gpt-invented-y\", \"effort\": \"high\"}, {\"name\": \"google\", \"usable\": false, \"fix\": \"FERB has no google API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gemini-3.8-flash\", \"effort\": \"\"}], \"role_details\": {\"orchestrator\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, \"worker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, \"checker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}}}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app"
+    }
+   ],
+   "journal": [
+    [
+     "runtimes.model",
+     {
+      "runtime": "claude",
+      "model": "claude-sonnet-5-5",
+      "effort": "high",
+      "checked": "answered"
+     },
+     "ferb"
+    ],
+    [
+     "runtimes.model",
+     {
+      "runtime": "claude",
+      "model": null,
+      "effort": "medium",
+      "checked": "answered",
+      "role": "worker"
+     },
+     "ferb"
+    ],
+    [
+     "runtimes.model",
+     {
+      "runtime": "claude",
+      "model": null,
+      "effort": null,
+      "checked": "",
+      "role": "worker"
+     },
+     "ferb"
+    ],
+    [
+     "runtimes.model",
+     {
+      "runtime": "claude",
+      "model": "claude-opus-5-5",
+      "effort": null,
+      "checked": "answered",
+      "role": "orchestrator"
+     },
+     "ferb"
+    ],
+    [
+     "runtimes.model",
+     {
+      "runtime": "anthropic",
+      "model": "claude-opus-5-5",
+      "effort": null,
+      "checked": "in the provider's list"
+     },
+     "ferb"
+    ],
+    [
+     "runtimes.model",
+     {
+      "runtime": "openai",
+      "model": "gpt-invented-y",
+      "effort": "high",
+      "checked": "answered"
+     },
+     "ferb"
+    ],
+    [
+     "runtimes.model",
+     {
+      "runtime": "claude",
+      "model": "claude-opus-5-5 extra",
+      "effort": "high",
+      "checked": "answered"
+     },
+     "ferb"
+    ],
+    [
+     "runtimes.model",
+     {
+      "runtime": "claude",
+      "model": "claude-opus-5-5",
+      "effort": "7",
+      "checked": "answered"
+     },
+     "ferb"
+    ]
+   ],
+   "published": [
+    [
+     "runtimes.changed",
+     {
+      "runtime": "claude",
+      "why": "model"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "claude",
+      "why": "model"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "claude",
+      "why": "model"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "claude",
+      "why": "model"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "anthropic",
+      "why": "model"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "openai",
+      "why": "model"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "claude",
+      "why": "model"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "claude",
+      "why": "model"
+     }
+    ]
+   ],
+   "setup": {
+    "files": {
+     "claude-home/.ferb-signed-in": "invented marker\n"
+    },
+    "keychain": {
+     "helper": {
+      "api.sealed/anthropic": "invented-anthropic-words",
+      "api.sealed/openai": "invented-openai-words"
+     }
+    },
+    "lists": {
+     "anthropic": [
+      "claude-opus-5-5",
+      "claude-sonnet-5-5"
+     ],
+     "openai": "HTTP 503: invented overload"
+    },
+    "offers": {},
+    "script": [
+     {
+      "events": [
+       [
+        "final",
+        {
+         "text": "{\"ok\": true}"
+        }
+       ]
+      ]
+     },
+     {
+      "events": [
+       [
+        "final",
+        {
+         "text": "{\"ok\": false}"
+        }
+       ]
+      ]
+     },
+     {
+      "events": [
+       [
+        "final",
+        {
+         "text": "{\"ok\": true}"
+        }
+       ]
+      ]
+     },
+     {
+      "events": [
+       [
+        "final",
+        {
+         "text": "{\"ok\": true}"
+        }
+       ]
+      ]
+     },
+     {
+      "events": [
+       [
+        "error",
+        {
+         "message": "invented: model not found"
+        }
+       ]
+      ]
+     },
+     {
+      "events": [
+       [
+        "final",
+        {
+         "text": "{\"ok\": true}"
+        }
+       ]
+      ]
+     },
+     {
+      "events": [
+       [
+        "final",
+        {
+         "text": "{\"ok\": true}"
+        }
+       ]
+      ]
+     },
+     {
+      "events": [
+       [
+        "final",
+        {
+         "text": "{\"ok\": true}"
+        }
+       ]
+      ]
+     }
+    ],
+    "claude_sh": null,
+    "config": {
+     "sha256": "9e983b683d4ccf675d32b86d2fb4792b47cdf745564c0a3e0c8468ec5ec70e5e"
+    }
+   },
+   "log": [
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "5c83a21bad7eff39d127733642812db410871e0fbee9fc784c0cceceb061f9f4",
+      "model": "claude-sonnet-5-5",
+      "effort": "high",
+      "planner": false,
+      "limit_s": 900.0
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "runtime-check",
+      "parent_id": null,
+      "goal": "chat",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "runtime-check",
+      "system": "Answer {\"ok\": true}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "5c83a21bad7eff39d127733642812db410871e0fbee9fc784c0cceceb061f9f4",
+      "model": "claude-sonnet-5-5",
+      "effort": "turbo",
+      "planner": false,
+      "limit_s": 900.0
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "runtime-check",
+      "parent_id": null,
+      "goal": "chat",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "runtime-check",
+      "system": "Answer {\"ok\": true}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "5c83a21bad7eff39d127733642812db410871e0fbee9fc784c0cceceb061f9f4",
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "planner": false,
+      "limit_s": 900.0
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "runtime-check",
+      "parent_id": null,
+      "goal": "chat",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "runtime-check",
+      "system": "Answer {\"ok\": true}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "5c83a21bad7eff39d127733642812db410871e0fbee9fc784c0cceceb061f9f4",
+      "model": "claude-opus-5-5",
+      "effort": "low",
+      "planner": false,
+      "limit_s": 900.0
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "runtime-check",
+      "parent_id": null,
+      "goal": "chat",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "runtime-check",
+      "system": "Answer {\"ok\": true}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "models.list",
+     {
+      "provider": "anthropic",
+      "key": "invented-anthropic-words"
+     }
+    ],
+    [
+     "models.list",
+     {
+      "provider": "anthropic",
+      "key": "invented-anthropic-words"
+     }
+    ],
+    [
+     "models.list",
+     {
+      "provider": "openai",
+      "key": "invented-openai-words"
+     }
+    ],
+    [
+     "build",
+     {
+      "name": "openai",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "5c83a21bad7eff39d127733642812db410871e0fbee9fc784c0cceceb061f9f4",
+      "model": "gpt-invented-x",
+      "effort": "low",
+      "planner": false,
+      "limit_s": 900.0
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "runtime-check",
+      "parent_id": null,
+      "goal": "chat",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "runtime-check",
+      "system": "Answer {\"ok\": true}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "models.list",
+     {
+      "provider": "openai",
+      "key": "invented-openai-words"
+     }
+    ],
+    [
+     "build",
+     {
+      "name": "openai",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "5c83a21bad7eff39d127733642812db410871e0fbee9fc784c0cceceb061f9f4",
+      "model": "gpt-invented-y",
+      "effort": "high",
+      "planner": false,
+      "limit_s": 900.0
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "runtime-check",
+      "parent_id": null,
+      "goal": "chat",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "runtime-check",
+      "system": "Answer {\"ok\": true}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "5c83a21bad7eff39d127733642812db410871e0fbee9fc784c0cceceb061f9f4",
+      "model": "claude-opus-5-5 extra",
+      "effort": "high",
+      "planner": false,
+      "limit_s": 900.0
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "runtime-check",
+      "parent_id": null,
+      "goal": "chat",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "runtime-check",
+      "system": "Answer {\"ok\": true}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "build",
+     {
+      "name": "claude",
+      "role": "orchestrator",
+      "mode": "supervisor",
+      "tools": [],
+      "schema_sha256": "5c83a21bad7eff39d127733642812db410871e0fbee9fc784c0cceceb061f9f4",
+      "model": "claude-opus-5-5",
+      "effort": "7",
+      "planner": false,
+      "limit_s": 900.0
+     }
+    ],
+    [
+     "start",
+     {
+      "task_id": "runtime-check",
+      "parent_id": null,
+      "goal": "chat",
+      "device_id": "invented-device",
+      "identity": "owner",
+      "scopes": [],
+      "role": "mixed",
+      "request_id": "runtime-check",
+      "system": "Answer {\"ok\": true}.",
+      "parts": [
+       "Check."
+      ],
+      "cacheable": 0,
+      "images": [],
+      "token": false
+     }
+    ],
+    [
+     "cancel"
+    ],
+    [
+     "models.list",
+     {
+      "provider": "anthropic",
+      "key": "invented-anthropic-words"
+     }
+    ]
+   ],
+   "after": {
+    "config": {
+     "sha256": "2e119ade4c7803daafc8ebbf54b03809c9647dc223a56ea1babfde95f03fca12"
+    },
+    "keychain": {
+     "helper": {
+      "api.sealed/anthropic": "invented-anthropic-words",
+      "api.sealed/openai": "invented-openai-words"
+     },
+     "security": {},
+     "reads": [
+      "helper:api.sealed/anthropic",
+      "helper:api.sealed/openai"
+     ]
+    },
+    "claude_signed_in": true
+   }
+  },
+  {
+   "name": "switch_task",
+   "what": "The app's one tap: a task waiting with FERB's offer of other runtimes, switched for the task, or its role pointed at the runtime first; refusals.",
+   "python": [
+    "ferb/daemon/areas/runtimes.py",
+    "ferb/runtimes/keys.py",
+    "ferb/runtimes/check.py",
+    "ferb/runtimes/claude_login.py",
+    "ferb/cli/runtimes.py"
+   ],
+   "volatile": [],
+   "steps": [
+    {
+     "do": "connect",
+     "conn": "app"
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"runtimes.switch_task\", \"params\": {\"task_id\": \"task-a\", \"runtime\": \"claude\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"task_id\": \"task-a\", \"runtime\": \"claude\", \"scope\": \"task\", \"role\": \"worker\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"runtimes.switch_task\", \"params\": {\"task_id\": \"task-a\", \"runtime\": \"openai\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"error\": {\"code\": -32004, \"message\": \"task task-a isn't waiting to switch to openai\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"runtimes.switch_task\", \"params\": {\"task_id\": \"task-b\", \"runtime\": \"claude\", \"scope\": \"role\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"task_id\": \"task-b\", \"runtime\": \"claude\", \"scope\": \"role\", \"role\": \"orchestrator\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"runtimes.switch_task\", \"params\": {\"task_id\": \"task-a\", \"runtime\": \"anthropic\", \"scope\": \"task\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"result\": {\"task_id\": \"task-a\", \"runtime\": \"anthropic\", \"scope\": \"task\", \"role\": \"worker\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"method\": \"runtimes.switch_task\", \"params\": {\"runtime\": \"claude\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"error\": {\"code\": -32004, \"message\": \"task  isn't waiting to switch to claude\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"method\": \"runtimes.switch_task\", \"params\": {\"task_id\": \"task-a\", \"runtime\": \"claude\", \"scope\": [\"role\"]}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"error\": {\"code\": -32004, \"message\": \"scope must be \\\"task\\\" or \\\"role\\\"\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"method\": \"runtimes.status\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"result\": {\"roles\": {\"orchestrator\": \"claude\", \"worker\": \"codex\", \"checker\": \"codex\"}, \"runtimes\": [{\"name\": \"codex\", \"usable\": false, \"fix\": \"Codex isn't signed in for FERB: sign in to ChatGPT in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, {\"name\": \"claude\", \"usable\": false, \"fix\": \"Claude isn't signed in for FERB: sign in to Claude in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"claude-opus-5-5\", \"sign_in\": {\"state\": \"idle\", \"url\": \"\", \"why\": \"\"}, \"effort\": \"\"}, {\"name\": \"anthropic\", \"usable\": false, \"fix\": \"FERB has no anthropic API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"claude-sonnet-5-5\", \"effort\": \"\"}, {\"name\": \"openai\", \"usable\": false, \"fix\": \"FERB has no openai API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gpt-6.1-sol\", \"effort\": \"\"}, {\"name\": \"google\", \"usable\": false, \"fix\": \"FERB has no google API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gemini-3.8-flash\", \"effort\": \"\"}], \"role_details\": {\"orchestrator\": {\"runtime\": \"claude\", \"model\": \"claude-opus-5-5\", \"effort\": \"\"}, \"worker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, \"checker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}}}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app"
+    }
+   ],
+   "journal": [
+    [
+     "runtimes.changed",
+     {
+      "runtime": "claude",
+      "roles": [
+       "orchestrator"
+      ]
+     },
+     "ferb"
+    ]
+   ],
+   "published": [
+    [
+     "runtimes.changed",
+     {
+      "runtime": "claude",
+      "why": "roles"
+     }
+    ]
+   ],
+   "setup": {
+    "files": {},
+    "keychain": {},
+    "lists": {},
+    "offers": {
+     "task-a": {
+      "role": "worker",
+      "choices": [
+       "claude",
+       "anthropic"
+      ]
+     },
+     "task-b": {
+      "role": "orchestrator",
+      "choices": [
+       "claude"
+      ]
+     }
+    },
+    "script": [],
+    "claude_sh": null,
+    "config": {
+     "sha256": "9e983b683d4ccf675d32b86d2fb4792b47cdf745564c0a3e0c8468ec5ec70e5e"
+    }
+   },
+   "log": [
+    [
+     "offer",
+     "task-a"
+    ],
+    [
+     "answer",
+     "task-a",
+     "claude"
+    ],
+    [
+     "offer",
+     "task-a"
+    ],
+    [
+     "offer",
+     "task-b"
+    ],
+    [
+     "answer",
+     "task-b",
+     "claude"
+    ],
+    [
+     "offer",
+     "task-a"
+    ],
+    [
+     "answer",
+     "task-a",
+     "anthropic"
+    ],
+    [
+     "offer",
+     ""
+    ]
+   ],
+   "after": {
+    "config": {
+     "sha256": "0158eba2ff9c48f340ac5f3dc1559b43d4c9e4510cd982c0beed78165e787451"
+    },
+    "keychain": {
+     "helper": {},
+     "security": {},
+     "reads": []
+    },
+    "claude_signed_in": false
+   }
+  },
+  {
+   "name": "sign_in",
+   "what": "FERB's own Claude sign-in with a stand-in claude program: started, its page read, a pasted code refused for its shape then sent, finished; started again and cancelled; started again and failed (a wrong code).",
+   "python": [
+    "ferb/daemon/areas/runtimes.py",
+    "ferb/runtimes/keys.py",
+    "ferb/runtimes/check.py",
+    "ferb/runtimes/claude_login.py",
+    "ferb/cli/runtimes.py"
+   ],
+   "volatile": [],
+   "steps": [
+    {
+     "do": "connect",
+     "conn": "app"
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"runtimes.sign_in\", \"params\": {\"runtime\": \"claude\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"state\": \"waiting\", \"url\": \"\", \"why\": \"\"}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app"
+    },
+    {
+     "do": "wait",
+     "until": "the Claude sign-in is waiting with its page"
+    },
+    {
+     "do": "wait_sign_in",
+     "state": "waiting",
+     "url": true
+    },
+    {
+     "do": "connect",
+     "conn": "app#2"
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"runtimes.status\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"roles\": {\"orchestrator\": \"codex\", \"worker\": \"codex\", \"checker\": \"codex\"}, \"runtimes\": [{\"name\": \"codex\", \"usable\": false, \"fix\": \"Codex isn't signed in for FERB: sign in to ChatGPT in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, {\"name\": \"claude\", \"usable\": false, \"fix\": \"Claude isn't signed in for FERB: sign in to Claude in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"claude-opus-5-5\", \"sign_in\": {\"state\": \"waiting\", \"url\": \"https://claude.example.test/oauth?state=invented\", \"why\": \"\"}, \"effort\": \"\"}, {\"name\": \"anthropic\", \"usable\": false, \"fix\": \"FERB has no anthropic API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"claude-sonnet-5-5\", \"effort\": \"\"}, {\"name\": \"openai\", \"usable\": false, \"fix\": \"FERB has no openai API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gpt-6.1-sol\", \"effort\": \"\"}, {\"name\": \"google\", \"usable\": false, \"fix\": \"FERB has no google API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gemini-3.8-flash\", \"effort\": \"\"}], \"role_details\": {\"orchestrator\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, \"worker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, \"checker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"runtimes.sign_in\", \"params\": {\"runtime\": \"claude\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"state\": \"waiting\", \"url\": \"https://claude.example.test/oauth?state=invented\", \"why\": \"\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"runtimes.sign_in\", \"params\": {\"runtime\": \"claude\", \"code\": \"two words\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"error\": {\"code\": -32004, \"message\": \"Paste the code the sign-in page shows\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"runtimes.sign_in\", \"params\": {\"runtime\": \"claude\", \"code\": \"  \"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"error\": {\"code\": -32004, \"message\": \"Paste the code the sign-in page shows\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"method\": \"runtimes.sign_in\", \"params\": {\"runtime\": \"claude\", \"code\": \" invented-code-42 \"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"result\": {\"state\": \"waiting\", \"url\": \"https://claude.example.test/oauth?state=invented\", \"why\": \"\"}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app#2"
+    },
+    {
+     "do": "wait",
+     "until": "the Claude sign-in is signed_in"
+    },
+    {
+     "do": "wait_sign_in",
+     "state": "signed_in",
+     "url": false
+    },
+    {
+     "do": "connect",
+     "conn": "app#3"
+    },
+    {
+     "do": "call",
+     "conn": "app#3",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#3",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"runtimes.status\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"roles\": {\"orchestrator\": \"codex\", \"worker\": \"codex\", \"checker\": \"codex\"}, \"runtimes\": [{\"name\": \"codex\", \"usable\": false, \"fix\": \"Codex isn't signed in for FERB: sign in to ChatGPT in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, {\"name\": \"claude\", \"usable\": true, \"fix\": \"\", \"signed_in\": true, \"model\": \"claude-opus-5-5\", \"sign_in\": {\"state\": \"signed_in\", \"url\": \"\", \"why\": \"\"}, \"effort\": \"\"}, {\"name\": \"anthropic\", \"usable\": false, \"fix\": \"FERB has no anthropic API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"claude-sonnet-5-5\", \"effort\": \"\"}, {\"name\": \"openai\", \"usable\": false, \"fix\": \"FERB has no openai API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gpt-6.1-sol\", \"effort\": \"\"}, {\"name\": \"google\", \"usable\": false, \"fix\": \"FERB has no google API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gemini-3.8-flash\", \"effort\": \"\"}], \"role_details\": {\"orchestrator\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, \"worker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, \"checker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#3",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"runtimes.sign_in\", \"params\": {\"runtime\": \"claude\", \"code\": \"invented-code-42\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"error\": {\"code\": -32004, \"message\": \"No Claude sign-in is waiting for a code; start it again\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#3",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"runtimes.sign_in\", \"params\": {\"runtime\": \"claude\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"state\": \"waiting\", \"url\": \"\", \"why\": \"\"}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app#3"
+    },
+    {
+     "do": "wait",
+     "until": "the Claude sign-in is waiting with its page"
+    },
+    {
+     "do": "wait_sign_in",
+     "state": "waiting",
+     "url": true
+    },
+    {
+     "do": "connect",
+     "conn": "app#4"
+    },
+    {
+     "do": "call",
+     "conn": "app#4",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#4",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"runtimes.sign_in\", \"params\": {\"runtime\": \"claude\", \"cancel\": true}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"state\": \"idle\", \"url\": \"\", \"why\": \"\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#4",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"runtimes.status\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"roles\": {\"orchestrator\": \"codex\", \"worker\": \"codex\", \"checker\": \"codex\"}, \"runtimes\": [{\"name\": \"codex\", \"usable\": false, \"fix\": \"Codex isn't signed in for FERB: sign in to ChatGPT in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, {\"name\": \"claude\", \"usable\": true, \"fix\": \"\", \"signed_in\": true, \"model\": \"claude-opus-5-5\", \"sign_in\": {\"state\": \"idle\", \"url\": \"\", \"why\": \"\"}, \"effort\": \"\"}, {\"name\": \"anthropic\", \"usable\": false, \"fix\": \"FERB has no anthropic API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"claude-sonnet-5-5\", \"effort\": \"\"}, {\"name\": \"openai\", \"usable\": false, \"fix\": \"FERB has no openai API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gpt-6.1-sol\", \"effort\": \"\"}, {\"name\": \"google\", \"usable\": false, \"fix\": \"FERB has no google API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gemini-3.8-flash\", \"effort\": \"\"}], \"role_details\": {\"orchestrator\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, \"worker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, \"checker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#4",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"runtimes.sign_in\", \"params\": {\"runtime\": \"claude\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"state\": \"waiting\", \"url\": \"\", \"why\": \"\"}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app#4"
+    },
+    {
+     "do": "wait",
+     "until": "the Claude sign-in is waiting with its page"
+    },
+    {
+     "do": "wait_sign_in",
+     "state": "waiting",
+     "url": true
+    },
+    {
+     "do": "connect",
+     "conn": "app#5"
+    },
+    {
+     "do": "call",
+     "conn": "app#5",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#5",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"runtimes.sign_in\", \"params\": {\"runtime\": \"claude\", \"code\": \"wrong-code\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"state\": \"waiting\", \"url\": \"https://claude.example.test/oauth?state=invented\", \"why\": \"\"}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app#5"
+    },
+    {
+     "do": "wait",
+     "until": "the Claude sign-in is failed"
+    },
+    {
+     "do": "wait_sign_in",
+     "state": "failed",
+     "url": false
+    },
+    {
+     "do": "connect",
+     "conn": "app#6"
+    },
+    {
+     "do": "call",
+     "conn": "app#6",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#6",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"runtimes.status\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"roles\": {\"orchestrator\": \"codex\", \"worker\": \"codex\", \"checker\": \"codex\"}, \"runtimes\": [{\"name\": \"codex\", \"usable\": false, \"fix\": \"Codex isn't signed in for FERB: sign in to ChatGPT in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, {\"name\": \"claude\", \"usable\": true, \"fix\": \"\", \"signed_in\": true, \"model\": \"claude-opus-5-5\", \"sign_in\": {\"state\": \"failed\", \"url\": \"\", \"why\": \"Claude didn't confirm the sign-in. Try again.\"}, \"effort\": \"\"}, {\"name\": \"anthropic\", \"usable\": false, \"fix\": \"FERB has no anthropic API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"claude-sonnet-5-5\", \"effort\": \"\"}, {\"name\": \"openai\", \"usable\": false, \"fix\": \"FERB has no openai API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gpt-6.1-sol\", \"effort\": \"\"}, {\"name\": \"google\", \"usable\": false, \"fix\": \"FERB has no google API key: add one in Settings \\u2192 AI\", \"signed_in\": false, \"model\": \"gemini-3.8-flash\", \"effort\": \"\"}], \"role_details\": {\"orchestrator\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, \"worker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}, \"checker\": {\"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"effort\": \"\"}}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#6",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"runtimes.sign_in\", \"params\": {\"runtime\": \"claude\", \"cancel\": \"yes\", \"code\": 42}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"error\": {\"code\": -32004, \"message\": \"No Claude sign-in is waiting for a code; start it again\"}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app#6"
+    },
+    {
+     "do": "wait",
+     "until": "the Claude sign-in is failed"
+    },
+    {
+     "do": "wait_sign_in",
+     "state": "failed",
+     "url": false
+    }
+   ],
+   "journal": [
+    [
+     "runtimes.sign_in",
+     {
+      "runtime": "claude",
+      "state": "waiting"
+     },
+     "ferb"
+    ],
+    [
+     "runtimes.sign_in",
+     {
+      "runtime": "claude",
+      "state": "waiting"
+     },
+     "ferb"
+    ],
+    [
+     "runtimes.sign_in_finished",
+     {
+      "runtime": "claude",
+      "signed_in": true
+     },
+     "ferb"
+    ],
+    [
+     "runtimes.sign_in",
+     {
+      "runtime": "claude",
+      "state": "waiting"
+     },
+     "ferb"
+    ],
+    [
+     "runtimes.sign_in",
+     {
+      "runtime": "claude",
+      "state": "waiting"
+     },
+     "ferb"
+    ],
+    [
+     "runtimes.sign_in_finished",
+     {
+      "runtime": "claude",
+      "signed_in": false
+     },
+     "ferb"
+    ]
+   ],
+   "published": [
+    [
+     "runtimes.changed",
+     {
+      "runtime": "claude",
+      "why": "signed_in"
+     }
+    ],
+    [
+     "runtimes.changed",
+     {
+      "runtime": "claude",
+      "why": "sign_in_failed"
+     }
+    ]
+   ],
+   "setup": {
+    "files": {},
+    "keychain": {},
+    "lists": {},
+    "offers": {},
+    "script": [],
+    "claude_sh": "#!/bin/sh\nsaved=\"$CLAUDE_CONFIG_DIR/invented-login\"\nif [ \"$1 $2\" = \"auth status\" ]; then\n  if [ -f \"$saved\" ]; then\n    echo '{\"loggedIn\": true, \"authMethod\": \"claude.ai\", \"apiProvider\": \"firstParty\"}'\n  else\n    echo '{\"loggedIn\": false, \"authMethod\": \"none\", \"apiProvider\": \"firstParty\"}'\n  fi\n  exit 0\nfi\nif [ \"$1 $2 $3\" = \"auth login --claudeai\" ]; then\n  if [ -n \"$ANTHROPIC_API_KEY\" ] || [ -n \"$CLAUDE_CODE_OAUTH_TOKEN\" ]; then\n    echo \"a key from the environment would take over the login\"\n    exit 3\n  fi\n  echo \"Opening browser to sign in... If the browser didn't open, visit: https://claude.example.test/oauth?state=invented.\"\n  printf 'Paste code here if prompted > '\n  read code\n  if [ \"$code\" != \"invented-code-42\" ]; then\n    echo \"Invalid code.\"\n    exit 1\n  fi\n  echo \"saved\" > \"$saved\"\n  echo \"Login successful. Credential invented-credential-words\"\n  exit 0\nfi\nexit 2\n",
+    "config": {
+     "sha256": "9e983b683d4ccf675d32b86d2fb4792b47cdf745564c0a3e0c8468ec5ec70e5e"
+    }
+   },
+   "log": [],
+   "after": {
+    "config": {
+     "sha256": "9e983b683d4ccf675d32b86d2fb4792b47cdf745564c0a3e0c8468ec5ec70e5e"
+    },
+    "keychain": {
+     "helper": {},
+     "security": {},
+     "reads": []
+    },
+    "claude_signed_in": true
+   }
+  }
+ ]
+}

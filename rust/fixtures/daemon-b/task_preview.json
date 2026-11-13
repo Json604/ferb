@@ -1,0 +1,2262 @@
+{
+ "scenarios": [
+  {
+   "name": "never_queues_and_abandoned_frees",
+   "what": "test_a_request_never_queues_behind_the_worker_and_an_abandoned_one_frees_the_surface",
+   "limit_s": 2.0,
+   "during_reads": true,
+   "allowed": true,
+   "surfaces": {
+    "first": [
+     {
+      "frame": "first"
+     }
+    ],
+    "stuck": [
+     {
+      "gate": "g",
+      "frame": "late"
+     }
+    ]
+   },
+   "steps": [
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "app:Notes",
+      "label": "Notes",
+      "surface": "first"
+     },
+     "locks": [
+      "app:com.apple.Notes"
+     ]
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "hold",
+     "id": "w",
+     "keys": [
+      "app:com.apple.Notes"
+     ]
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "unhold",
+     "id": "w"
+    },
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "app:Notes",
+      "label": "Notes",
+      "surface": "stuck"
+     },
+     "locks": [
+      "app:com.apple.Notes"
+     ]
+    },
+    {
+     "do": "frame_bg",
+     "id": "r",
+     "root": "t"
+    },
+    {
+     "do": "wait_entered",
+     "gate": "g"
+    },
+    {
+     "do": "free",
+     "keys": [
+      "app:com.apple.Notes"
+     ]
+    },
+    {
+     "do": "cancel",
+     "id": "r"
+    },
+    {
+     "do": "free",
+     "keys": [
+      "app:com.apple.Notes"
+     ]
+    },
+    {
+     "do": "snapshot"
+    }
+   ],
+   "results": [
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "first",
+     "fresh": true,
+     "seq": 1,
+     "age_ms": 0
+    },
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "first",
+     "fresh": false,
+     "seq": 1,
+     "age_ms": 0,
+     "busy": true
+    },
+    null,
+    null,
+    null,
+    null,
+    false,
+    "cancelled",
+    true,
+    {
+     "requests": 3,
+     "frames": 1,
+     "capture_ms": 0.0,
+     "cached": 1,
+     "busy": 1,
+     "window_busy": 1,
+     "window_capture_ms": 0.0,
+     "window_frames": 1,
+     "window_ocr_ms": 0.0,
+     "window_requests": 3,
+     "window_resolve_ms": 0.0,
+     "max_window_age_ms": 0.0,
+     "max_window_gap_ms": 0.0
+    }
+   ],
+   "notes": []
+  },
+  {
+   "name": "slow_capture",
+   "what": "test_a_slow_capture_ends_within_the_daemon_time_limit_with_the_last_frame",
+   "limit_s": 0.2,
+   "during_reads": true,
+   "allowed": true,
+   "surfaces": {
+    "ok": [
+     {
+      "frame": "kept"
+     }
+    ],
+    "slow": [
+     {
+      "slow": true
+     }
+    ]
+   },
+   "steps": [
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "app:Notes",
+      "label": "Notes",
+      "surface": "ok"
+     }
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "clock",
+     "advance_s": 1.5
+    },
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "app:Notes",
+      "label": "Notes",
+      "surface": "slow"
+     }
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "clock",
+     "advance_s": 700
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "snapshot"
+    }
+   ],
+   "results": [
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "kept",
+     "fresh": true,
+     "seq": 1,
+     "age_ms": 0
+    },
+    null,
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "kept",
+     "fresh": false,
+     "seq": 1,
+     "age_ms": 1500,
+     "problem": {
+      "kind": "slow",
+      "text": "The capture took too long"
+     }
+    },
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "kept",
+     "fresh": false,
+     "seq": 1,
+     "age_ms": 1500,
+     "problem": {
+      "kind": "slow",
+      "text": "The capture took too long"
+     }
+    },
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "kept",
+     "fresh": false,
+     "seq": 1,
+     "age_ms": 701500,
+     "problem": {
+      "kind": "slow",
+      "text": "The capture took too long"
+     }
+    },
+    {
+     "requests": 4,
+     "frames": 1,
+     "capture_ms": 0.0,
+     "cached": 3,
+     "busy": 0,
+     "window_capture_ms": 0.0,
+     "window_frames": 1,
+     "window_ocr_ms": 0.0,
+     "window_requests": 4,
+     "window_resolve_ms": 0.0,
+     "window_slow": 3,
+     "max_window_age_ms": 701500,
+     "max_window_gap_ms": 0.0
+    }
+   ],
+   "notes": [
+    [
+     "preview.slow",
+     {
+      "surface": "window",
+      "phase": "capture",
+      "seconds": 0.2
+     }
+    ],
+    [
+     "preview.slow",
+     {
+      "surface": "window",
+      "phase": "capture",
+      "seconds": 0.2,
+      "repeats": 1
+     }
+    ]
+   ]
+  },
+  {
+   "name": "no_frame_after_end",
+   "what": "test_no_frame_after_the_task_ends_even_from_a_capture_already_running",
+   "limit_s": 2.0,
+   "during_reads": true,
+   "allowed": true,
+   "surfaces": {
+    "cap": [
+     {
+      "gate": "g",
+      "frame": "captured"
+     }
+    ]
+   },
+   "steps": [
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.step.a",
+     "target": {
+      "scope": "tab:browser/7",
+      "label": "Notes",
+      "surface": "cap"
+     }
+    },
+    {
+     "do": "frame_bg",
+     "id": "p",
+     "root": "t"
+    },
+    {
+     "do": "wait_entered",
+     "gate": "g"
+    },
+    {
+     "do": "remove",
+     "roots": [
+      "t"
+     ]
+    },
+    {
+     "do": "release",
+     "gate": "g"
+    },
+    {
+     "do": "await",
+     "id": "p"
+    },
+    {
+     "do": "status",
+     "table": {
+      "*": [
+       "done",
+       "Done"
+      ]
+     }
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "status",
+     "table": null
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "snapshot"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    {
+     "state": "done",
+     "line": "Done"
+    },
+    null,
+    {
+     "state": "done",
+     "line": "Done"
+    },
+    null,
+    {
+     "state": "none",
+     "line": "No window to show yet"
+    },
+    {
+     "requests": 3,
+     "frames": 0,
+     "capture_ms": 0.0,
+     "cached": 0,
+     "busy": 0,
+     "tab_requests": 1,
+     "tab_resolve_ms": 0.0
+    }
+   ],
+   "notes": []
+  },
+  {
+   "name": "gone_tab",
+   "what": "test_no_frame_for_a_tab_the_task_does_not_own (the resolve refuses)",
+   "limit_s": 2.0,
+   "during_reads": true,
+   "allowed": true,
+   "surfaces": {
+    "never": [
+     {
+      "frame": "x"
+     }
+    ]
+   },
+   "steps": [
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.step.a",
+     "target": {
+      "scope": "tab:browser/tab-9",
+      "label": "the browser",
+      "surface": "never",
+      "resolve": {
+       "raise": "Refused",
+       "text": "that tab isn't this task's"
+      }
+     }
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "snapshot"
+    }
+   ],
+   "results": [
+    null,
+    {
+     "state": "working",
+     "line": "Working in the browser",
+     "worker": "t.step.a",
+     "step": "a",
+     "problem": {
+      "kind": "gone",
+      "text": "that tab isn't this task's"
+     }
+    },
+    {
+     "state": "working",
+     "line": "Working in the browser",
+     "worker": "t.step.a",
+     "step": "a",
+     "problem": {
+      "kind": "gone",
+      "text": "that tab isn't this task's"
+     }
+    },
+    {
+     "requests": 2,
+     "frames": 0,
+     "capture_ms": 0.0,
+     "cached": 2,
+     "busy": 0,
+     "tab_gone": 2,
+     "tab_requests": 2,
+     "tab_resolve_ms": 0.0
+    }
+   ],
+   "notes": []
+  },
+  {
+   "name": "freezes_with_state",
+   "what": "test_the_preview_freezes_with_a_state_when_ferb_leaves_the_surface_or_asks",
+   "limit_s": 2.0,
+   "during_reads": true,
+   "allowed": true,
+   "surfaces": {
+    "wa": [
+     {
+      "frame": "one"
+     },
+     {
+      "frame": "two"
+     },
+     {
+      "frame": "three"
+     }
+    ]
+   },
+   "steps": [
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "app:WhatsApp",
+      "label": "WhatsApp",
+      "surface": "wa"
+     }
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": null
+    },
+    {
+     "do": "clock",
+     "advance_s": 0.25
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "app:WhatsApp",
+      "label": "WhatsApp",
+      "surface": "wa"
+     }
+    },
+    {
+     "do": "status",
+     "table": {
+      "*": [
+       "asking",
+       "Asking you: Send it?"
+      ]
+     }
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "status",
+     "table": null
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "snapshot"
+    }
+   ],
+   "results": [
+    null,
+    {
+     "state": "working",
+     "line": "Working in WhatsApp",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "one",
+     "fresh": true,
+     "seq": 1,
+     "age_ms": 0
+    },
+    null,
+    null,
+    {
+     "state": "working_elsewhere",
+     "line": "Working on another part of this task",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "one",
+     "fresh": false,
+     "seq": 1,
+     "age_ms": 250
+    },
+    null,
+    null,
+    {
+     "state": "asking",
+     "line": "Asking you: Send it?",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "one",
+     "fresh": false,
+     "seq": 1,
+     "age_ms": 250
+    },
+    null,
+    {
+     "state": "working",
+     "line": "Working in WhatsApp",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "two",
+     "fresh": true,
+     "seq": 2,
+     "age_ms": 0
+    },
+    {
+     "requests": 4,
+     "frames": 2,
+     "capture_ms": 0.0,
+     "cached": 2,
+     "busy": 0,
+     "window_capture_ms": 0.0,
+     "window_frames": 2,
+     "window_ocr_ms": 0.0,
+     "window_requests": 2,
+     "window_resolve_ms": 0.0,
+     "max_window_age_ms": 0.0,
+     "max_window_gap_ms": 0.0
+    }
+   ],
+   "notes": []
+  },
+  {
+   "name": "parallel_steps",
+   "what": "test_parallel_steps_each_keep_their_surface_and_the_answer_names_the_step",
+   "limit_s": 2.0,
+   "during_reads": true,
+   "allowed": true,
+   "surfaces": {
+    "a": [
+     {
+      "frame": "tab-a"
+     }
+    ],
+    "b": [
+     {
+      "frame": "tab-b"
+     }
+    ]
+   },
+   "steps": [
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.step.permit",
+     "target": {
+      "scope": "tab:browser/1",
+      "label": "Notes",
+      "surface": "a"
+     }
+    },
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.step.term",
+     "target": {
+      "scope": "tab:browser/2",
+      "label": "Notes",
+      "surface": "b"
+     }
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "frame",
+     "root": "t",
+     "worker": "t.step.permit"
+    },
+    {
+     "do": "frame",
+     "root": "t",
+     "worker": "t.step.nobody"
+    },
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.step.term",
+     "target": null
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.step.permit",
+     "target": null
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "status",
+     "table": {
+      "t.step.term": [
+       "waiting",
+       "Waiting for 2 minutes"
+      ]
+     }
+    },
+    {
+     "do": "frame",
+     "root": "t",
+     "worker": "t.step.term"
+    },
+    {
+     "do": "frame",
+     "root": "other"
+    },
+    {
+     "do": "snapshot"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.step.term",
+     "step": "term",
+     "image": "tab-b",
+     "fresh": true,
+     "seq": 1,
+     "age_ms": 0
+    },
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.step.permit",
+     "step": "permit",
+     "image": "tab-a",
+     "fresh": true,
+     "seq": 2,
+     "age_ms": 0
+    },
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.step.term",
+     "step": "term",
+     "image": "tab-b",
+     "fresh": true,
+     "seq": 3,
+     "age_ms": 0
+    },
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.step.permit",
+     "step": "permit",
+     "image": "tab-a",
+     "fresh": true,
+     "seq": 4,
+     "age_ms": 0
+    },
+    null,
+    {
+     "state": "working_elsewhere",
+     "line": "Working on another part of this task",
+     "worker": "t.step.permit",
+     "step": "permit",
+     "image": "tab-a",
+     "fresh": false,
+     "seq": 4,
+     "age_ms": 0
+    },
+    null,
+    {
+     "state": "waiting",
+     "line": "Waiting for 2 minutes",
+     "worker": "t.step.term",
+     "step": "term",
+     "image": "tab-b",
+     "fresh": false,
+     "seq": 3,
+     "age_ms": 0
+    },
+    {
+     "state": "none",
+     "line": "No window to show yet"
+    },
+    {
+     "requests": 7,
+     "frames": 4,
+     "capture_ms": 0.0,
+     "cached": 2,
+     "busy": 0,
+     "tab_capture_ms": 0.0,
+     "tab_frames": 4,
+     "tab_ocr_ms": 0.0,
+     "tab_requests": 4,
+     "tab_resolve_ms": 0.0,
+     "max_tab_age_ms": 0.0,
+     "max_tab_gap_ms": 0.0
+    }
+   ],
+   "notes": []
+  },
+  {
+   "name": "rows_take_turns",
+   "what": "test_parallel_rows_take_the_tasks_one_capture_in_turn",
+   "limit_s": 2.0,
+   "during_reads": true,
+   "allowed": true,
+   "surfaces": {
+    "a": [
+     {
+      "gate": "g",
+      "frame": "tab-a"
+     },
+     {
+      "frame": "tab-a2"
+     }
+    ],
+    "b": [
+     {
+      "frame": "tab-b"
+     }
+    ]
+   },
+   "steps": [
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.step.book",
+     "target": {
+      "scope": "tab:browser/1",
+      "label": "Notes",
+      "surface": "a"
+     }
+    },
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.step.compare",
+     "target": {
+      "scope": "tab:browser/2",
+      "label": "Notes",
+      "surface": "b"
+     }
+    },
+    {
+     "do": "frame_bg",
+     "id": "first",
+     "root": "t",
+     "worker": "t.step.book"
+    },
+    {
+     "do": "wait_entered",
+     "gate": "g"
+    },
+    {
+     "do": "frame",
+     "root": "t",
+     "worker": "t.step.compare"
+    },
+    {
+     "do": "frame",
+     "root": "t",
+     "worker": "t.step.compare"
+    },
+    {
+     "do": "release",
+     "gate": "g"
+    },
+    {
+     "do": "await",
+     "id": "first"
+    },
+    {
+     "do": "frame",
+     "root": "t",
+     "worker": "t.step.book"
+    },
+    {
+     "do": "frame",
+     "root": "t",
+     "worker": "t.step.compare"
+    },
+    {
+     "do": "frame",
+     "root": "t",
+     "worker": "t.step.book"
+    },
+    {
+     "do": "frame",
+     "root": "t",
+     "worker": "t.step.compare"
+    },
+    {
+     "do": "snapshot"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    null,
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.step.compare",
+     "step": "compare",
+     "busy": true
+    },
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.step.compare",
+     "step": "compare",
+     "busy": true
+    },
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.step.book",
+     "step": "book",
+     "image": "tab-a",
+     "fresh": true,
+     "seq": 1,
+     "age_ms": 0
+    },
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.step.book",
+     "step": "book",
+     "image": "tab-a",
+     "fresh": false,
+     "seq": 1,
+     "age_ms": 0,
+     "busy": true
+    },
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.step.compare",
+     "step": "compare",
+     "image": "tab-b",
+     "fresh": true,
+     "seq": 2,
+     "age_ms": 0
+    },
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.step.book",
+     "step": "book",
+     "image": "tab-a2",
+     "fresh": true,
+     "seq": 3,
+     "age_ms": 0
+    },
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.step.compare",
+     "step": "compare",
+     "image": "tab-b",
+     "fresh": true,
+     "seq": 4,
+     "age_ms": 0
+    },
+    {
+     "requests": 7,
+     "frames": 4,
+     "capture_ms": 0.0,
+     "cached": 3,
+     "busy": 3,
+     "tab_busy": 3,
+     "tab_capture_ms": 0.0,
+     "tab_frames": 4,
+     "tab_ocr_ms": 0.0,
+     "tab_requests": 7,
+     "tab_resolve_ms": 0.0,
+     "max_tab_age_ms": 0.0,
+     "max_tab_gap_ms": 0.0
+    }
+   ],
+   "notes": []
+  },
+  {
+   "name": "turn_expires",
+   "what": "DMN-584: a row that stopped asking holds nobody up after TURN_S",
+   "limit_s": 2.0,
+   "during_reads": true,
+   "allowed": true,
+   "surfaces": {
+    "a": [
+     {
+      "gate": "g",
+      "frame": "tab-a"
+     },
+     {
+      "frame": "tab-a2"
+     }
+    ],
+    "b": [
+     {
+      "frame": "tab-b"
+     }
+    ]
+   },
+   "steps": [
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.step.book",
+     "target": {
+      "scope": "tab:browser/1",
+      "label": "Notes",
+      "surface": "a"
+     }
+    },
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.step.compare",
+     "target": {
+      "scope": "tab:browser/2",
+      "label": "Notes",
+      "surface": "b"
+     }
+    },
+    {
+     "do": "frame_bg",
+     "id": "first",
+     "root": "t",
+     "worker": "t.step.book"
+    },
+    {
+     "do": "wait_entered",
+     "gate": "g"
+    },
+    {
+     "do": "frame",
+     "root": "t",
+     "worker": "t.step.compare"
+    },
+    {
+     "do": "release",
+     "gate": "g"
+    },
+    {
+     "do": "await",
+     "id": "first"
+    },
+    {
+     "do": "clock",
+     "advance_s": 1.5
+    },
+    {
+     "do": "frame",
+     "root": "t",
+     "worker": "t.step.book"
+    },
+    {
+     "do": "snapshot"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    null,
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.step.compare",
+     "step": "compare",
+     "busy": true
+    },
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.step.book",
+     "step": "book",
+     "image": "tab-a",
+     "fresh": true,
+     "seq": 1,
+     "age_ms": 0
+    },
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.step.book",
+     "step": "book",
+     "image": "tab-a2",
+     "fresh": true,
+     "seq": 2,
+     "age_ms": 0
+    },
+    {
+     "requests": 3,
+     "frames": 2,
+     "capture_ms": 0.0,
+     "cached": 1,
+     "busy": 1,
+     "tab_busy": 1,
+     "tab_capture_ms": 0.0,
+     "tab_frames": 2,
+     "tab_ocr_ms": 0.0,
+     "tab_requests": 3,
+     "tab_resolve_ms": 0.0,
+     "max_tab_age_ms": 0.0,
+     "max_tab_gap_ms": 0.0
+    }
+   ],
+   "notes": []
+  },
+  {
+   "name": "two_waiters_share",
+   "what": "requests for the surface being captured share the one capture",
+   "limit_s": 2.0,
+   "during_reads": true,
+   "allowed": true,
+   "surfaces": {
+    "a": [
+     {
+      "gate": "g",
+      "frame": "shared",
+      "cost_s": 0.125
+     }
+    ]
+   },
+   "steps": [
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "tab:browser/1",
+      "label": "Notes",
+      "surface": "a"
+     }
+    },
+    {
+     "do": "frame_bg",
+     "id": "one",
+     "root": "t"
+    },
+    {
+     "do": "wait_entered",
+     "gate": "g"
+    },
+    {
+     "do": "frame_bg",
+     "id": "two",
+     "root": "t"
+    },
+    {
+     "do": "clock",
+     "advance_s": 0.5
+    },
+    {
+     "do": "cancel",
+     "id": "one"
+    },
+    {
+     "do": "release",
+     "gate": "g"
+    },
+    {
+     "do": "await",
+     "id": "two"
+    },
+    {
+     "do": "snapshot"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    "cancelled",
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "shared",
+     "fresh": true,
+     "seq": 1,
+     "age_ms": 0
+    },
+    {
+     "requests": 2,
+     "frames": 1,
+     "capture_ms": 625.0,
+     "cached": 0,
+     "busy": 0,
+     "tab_capture_ms": 625.0,
+     "tab_frames": 1,
+     "tab_ocr_ms": 0.0,
+     "tab_requests": 2,
+     "tab_resolve_ms": 0.0,
+     "max_tab_age_ms": 0.0,
+     "max_tab_gap_ms": 625.0
+    }
+   ],
+   "notes": []
+  },
+  {
+   "name": "withheld_and_masking",
+   "what": "test_a_withheld_frame_and_the_masking_note_are_said",
+   "limit_s": 2.0,
+   "during_reads": true,
+   "allowed": true,
+   "surfaces": {
+    "masked": [
+     {
+      "frame": "page",
+      "note": "masked by text recognition only"
+     }
+    ],
+    "withheld": [
+     {
+      "raise": "Withheld",
+      "text": "its password field couldn't be painted over"
+     },
+     {
+      "frame": "page2"
+     }
+    ]
+   },
+   "steps": [
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "tab:browser/1",
+      "label": "Notes",
+      "surface": "masked"
+     }
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "tab:browser/1",
+      "label": "Notes",
+      "surface": "withheld"
+     }
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "snapshot"
+    }
+   ],
+   "results": [
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "page",
+     "fresh": true,
+     "seq": 1,
+     "age_ms": 0,
+     "masking": "masked by text recognition only"
+    },
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "page",
+     "fresh": false,
+     "seq": 1,
+     "age_ms": 0,
+     "masking": "masked by text recognition only",
+     "problem": {
+      "kind": "withheld",
+      "text": "its password field couldn't be painted over"
+     }
+    },
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "page2",
+     "fresh": true,
+     "seq": 2,
+     "age_ms": 0
+    },
+    {
+     "requests": 3,
+     "frames": 2,
+     "capture_ms": 0.0,
+     "cached": 1,
+     "busy": 0,
+     "tab_capture_ms": 0.0,
+     "tab_frames": 2,
+     "tab_ocr_ms": 0.0,
+     "tab_requests": 3,
+     "tab_resolve_ms": 0.0,
+     "tab_withheld": 1,
+     "max_tab_age_ms": 0.0,
+     "max_tab_gap_ms": 0.0
+    }
+   ],
+   "notes": []
+  },
+  {
+   "name": "unchanged_frame_and_too_long_once",
+   "what": "test_an_unchanged_frame_isnt_sent_again_and_too_long_is_said_once",
+   "limit_s": 0.2,
+   "during_reads": true,
+   "allowed": true,
+   "surfaces": {
+    "a": [
+     {
+      "frame": "frame",
+      "cost_s": 0.04
+     },
+     {
+      "slow": true
+     },
+     {
+      "frame": "frame2"
+     }
+    ]
+   },
+   "steps": [
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "tab:browser/1",
+      "label": "Notes",
+      "surface": "a"
+     },
+     "locks": [
+      "tab:browser/1"
+     ]
+    },
+    {
+     "do": "clock",
+     "advance_s": 0.01
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "clock",
+     "advance_s": 0.3
+    },
+    {
+     "do": "hold",
+     "id": "w",
+     "keys": [
+      "tab:browser/1"
+     ]
+    },
+    {
+     "do": "frame",
+     "root": "t",
+     "have": 1
+    },
+    {
+     "do": "unhold",
+     "id": "w"
+    },
+    {
+     "do": "frame",
+     "root": "t",
+     "have": 1
+    },
+    {
+     "do": "hold",
+     "id": "w",
+     "keys": [
+      "tab:browser/1"
+     ]
+    },
+    {
+     "do": "frame",
+     "root": "t",
+     "have": 1
+    },
+    {
+     "do": "unhold",
+     "id": "w"
+    },
+    {
+     "do": "snapshot"
+    },
+    {
+     "do": "snapshot"
+    },
+    {
+     "do": "hold",
+     "id": "r",
+     "keys": [
+      "tab:browser/1"
+     ],
+     "reading": true
+    },
+    {
+     "do": "frame",
+     "root": "t",
+     "have": 1
+    },
+    {
+     "do": "unhold",
+     "id": "r"
+    },
+    {
+     "do": "snapshot"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "frame",
+     "fresh": true,
+     "seq": 1,
+     "age_ms": 0
+    },
+    null,
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "fresh": false,
+     "seq": 1,
+     "age_ms": 300,
+     "busy": true
+    },
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "fresh": false,
+     "seq": 1,
+     "age_ms": 300,
+     "problem": {
+      "kind": "slow",
+      "text": "The capture took too long"
+     }
+    },
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "fresh": false,
+     "seq": 1,
+     "age_ms": 300,
+     "busy": true
+    },
+    null,
+    {
+     "requests": 4,
+     "frames": 1,
+     "capture_ms": 40.0,
+     "cached": 3,
+     "busy": 2,
+     "tab_busy": 2,
+     "tab_capture_ms": 40.0,
+     "tab_frames": 1,
+     "tab_ocr_ms": 0.0,
+     "tab_requests": 4,
+     "tab_resolve_ms": 0.0,
+     "tab_slow": 1,
+     "max_tab_age_ms": 300,
+     "max_tab_gap_ms": 40.0
+    },
+    {
+     "requests": 4,
+     "frames": 1,
+     "capture_ms": 40.0,
+     "cached": 3,
+     "busy": 2,
+     "tab_busy": 2,
+     "tab_capture_ms": 40.0,
+     "tab_frames": 1,
+     "tab_ocr_ms": 0.0,
+     "tab_requests": 4,
+     "tab_resolve_ms": 0.0,
+     "tab_slow": 1
+    },
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "frame2",
+     "fresh": true,
+     "seq": 2,
+     "age_ms": 0
+    },
+    null,
+    {
+     "requests": 5,
+     "frames": 2,
+     "capture_ms": 40.0,
+     "cached": 3,
+     "busy": 2,
+     "tab_busy": 2,
+     "tab_capture_ms": 40.0,
+     "tab_frames": 2,
+     "tab_ocr_ms": 0.0,
+     "tab_requests": 5,
+     "tab_resolve_ms": 0.0,
+     "tab_slow": 1,
+     "max_tab_age_ms": 0.0,
+     "max_tab_gap_ms": 0.0
+    }
+   ],
+   "notes": [
+    [
+     "preview.slow",
+     {
+      "surface": "tab",
+      "phase": "capture",
+      "seconds": 0.2
+     }
+    ]
+   ]
+  },
+  {
+   "name": "app_only_and_locked",
+   "what": "test_a_call_naming_only_the_app_keeps_this_steps_window_of_it_and_a_locked_screen_is_said",
+   "limit_s": 2.0,
+   "during_reads": true,
+   "allowed": true,
+   "surfaces": {
+    "pp": [
+     {
+      "frame": "slide"
+     },
+     {
+      "frame": "slide2"
+     },
+     {
+      "raise": "ScreenOff",
+      "text": "locked"
+     },
+     {
+      "raise": "CaptureBusy",
+      "text": "the worker's screenshot"
+     },
+     {
+      "frame": "slide3"
+     }
+    ]
+   },
+   "steps": [
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "app:PowerPoint",
+      "label": "PowerPoint",
+      "surface": "pp"
+     }
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "app:PowerPoint",
+      "label": "PowerPoint",
+      "surface": null
+     }
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "app:Keynote",
+      "label": "Keynote",
+      "surface": null
+     }
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "snapshot"
+    }
+   ],
+   "results": [
+    null,
+    {
+     "state": "working",
+     "line": "Working in PowerPoint",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "slide",
+     "fresh": true,
+     "seq": 1,
+     "age_ms": 0
+    },
+    null,
+    {
+     "state": "working",
+     "line": "Working in PowerPoint",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "slide2",
+     "fresh": true,
+     "seq": 2,
+     "age_ms": 0
+    },
+    {
+     "state": "working",
+     "line": "Working in PowerPoint",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "slide2",
+     "fresh": false,
+     "seq": 2,
+     "age_ms": 0,
+     "problem": {
+      "kind": "screen_locked",
+      "text": "The screen is locked or asleep, so macOS lets nobody capture windows"
+     }
+    },
+    {
+     "state": "working",
+     "line": "Working in PowerPoint",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "slide2",
+     "fresh": false,
+     "seq": 2,
+     "age_ms": 0,
+     "problem": {
+      "kind": "screen_locked",
+      "text": "The screen is locked or asleep, so macOS lets nobody capture windows"
+     },
+     "busy": true
+    },
+    {
+     "state": "working",
+     "line": "Working in PowerPoint",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "slide3",
+     "fresh": true,
+     "seq": 3,
+     "age_ms": 0
+    },
+    null,
+    {
+     "state": "working_elsewhere",
+     "line": "Working in Keynote",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "slide3",
+     "fresh": false,
+     "seq": 3,
+     "age_ms": 0
+    },
+    {
+     "requests": 6,
+     "frames": 3,
+     "capture_ms": 0.0,
+     "cached": 3,
+     "busy": 1,
+     "window_busy": 1,
+     "window_capture_ms": 0.0,
+     "window_frames": 3,
+     "window_locked": 1,
+     "window_ocr_ms": 0.0,
+     "window_requests": 6,
+     "window_resolve_ms": 0.0,
+     "max_window_age_ms": 0.0,
+     "max_window_gap_ms": 0.0
+    }
+   ],
+   "notes": []
+  },
+  {
+   "name": "no_picture_first",
+   "what": "a surface with no window yet: no_picture; a new surface keeps the old frame",
+   "limit_s": 2.0,
+   "during_reads": true,
+   "allowed": true,
+   "surfaces": {
+    "n": [
+     {
+      "frame": "notes"
+     }
+    ],
+    "m": [
+     {
+      "frame": "mail",
+      "cost_s": 0.002
+     }
+    ]
+   },
+   "steps": [
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "app:Notes",
+      "label": "Notes",
+      "surface": null
+     }
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "app:Notes",
+      "label": "Notes",
+      "surface": "n"
+     }
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "app:Mail",
+      "label": "Mail",
+      "surface": null
+     }
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "app:Mail",
+      "label": "Mail",
+      "surface": "m"
+     }
+    },
+    {
+     "do": "status",
+     "table": {
+      "t.worker": [
+       "paused",
+       "Paused"
+      ]
+     }
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "status",
+     "table": null
+    },
+    {
+     "do": "frame",
+     "root": "t",
+     "have": 1
+    },
+    {
+     "do": "frame",
+     "root": "t",
+     "have": 2
+    },
+    {
+     "do": "remove",
+     "roots": [
+      "t.worker"
+     ]
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "remove",
+     "roots": [
+      "t"
+     ]
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "snapshot"
+    }
+   ],
+   "results": [
+    {
+     "state": "none",
+     "line": "No window to show yet"
+    },
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker"
+    },
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "notes",
+     "fresh": true,
+     "seq": 1,
+     "age_ms": 0
+    },
+    null,
+    {
+     "state": "working_elsewhere",
+     "line": "Working in Mail",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "notes",
+     "fresh": false,
+     "seq": 1,
+     "age_ms": 0
+    },
+    null,
+    null,
+    {
+     "state": "paused",
+     "line": "Paused",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "notes",
+     "fresh": false,
+     "seq": 0,
+     "age_ms": 500000
+    },
+    null,
+    {
+     "state": "working",
+     "line": "Working in Mail",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "mail",
+     "fresh": true,
+     "seq": 2,
+     "age_ms": 0
+    },
+    {
+     "state": "working",
+     "line": "Working in Mail",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "mail",
+     "fresh": true,
+     "seq": 3,
+     "age_ms": 0
+    },
+    null,
+    {
+     "state": "working",
+     "line": "Working in Mail",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "mail",
+     "fresh": true,
+     "seq": 4,
+     "age_ms": 0
+    },
+    null,
+    {
+     "state": "none",
+     "line": "No window to show yet"
+    },
+    {
+     "requests": 9,
+     "frames": 4,
+     "capture_ms": 6.0,
+     "cached": 3,
+     "busy": 0,
+     "window_capture_ms": 6.0,
+     "window_frames": 4,
+     "window_no_picture": 1,
+     "window_ocr_ms": 0.0,
+     "window_requests": 6,
+     "window_resolve_ms": 0.0,
+     "max_window_age_ms": 0.0,
+     "max_window_gap_ms": 2.0
+    }
+   ],
+   "notes": []
+  },
+  {
+   "name": "failures_journaled",
+   "what": "DMN-408: a failed capture journaled once per window with a count; gone, not_allowed and the error's domain and code",
+   "limit_s": 2.0,
+   "during_reads": true,
+   "allowed": false,
+   "surfaces": {
+    "f": [
+     {
+      "raise": "CaptureError",
+      "text": "a window title here",
+      "domain": "SCStreamErrorDomain",
+      "code": -3801
+     },
+     {
+      "raise": "RuntimeError",
+      "text": "x"
+     },
+     {
+      "frame": "bad"
+     },
+     {
+      "raise": "StaleRef",
+      "text": "window closed"
+     },
+     {
+      "raise": "NoTarget",
+      "text": "no window"
+     },
+     {
+      "frame": "ok"
+     }
+    ]
+   },
+   "steps": [
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "app:Notes",
+      "label": "Notes",
+      "surface": "f"
+     }
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "clock",
+     "advance_s": 601
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "snapshot"
+    }
+   ],
+   "results": [
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "problem": {
+      "kind": "not_allowed",
+      "text": "Screen Recording isn't allowed for FERB"
+     }
+    },
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "problem": {
+      "kind": "not_allowed",
+      "text": "Screen Recording isn't allowed for FERB"
+     }
+    },
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "problem": {
+      "kind": "not_allowed",
+      "text": "Screen Recording isn't allowed for FERB"
+     }
+    },
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "problem": {
+      "kind": "gone",
+      "text": "window closed"
+     }
+    },
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "problem": {
+      "kind": "gone",
+      "text": "no window"
+     }
+    },
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "image": "ok",
+     "fresh": true,
+     "seq": 1,
+     "age_ms": 0
+    },
+    {
+     "requests": 6,
+     "frames": 1,
+     "capture_ms": 0.0,
+     "cached": 5,
+     "busy": 0,
+     "window_capture_ms": 0.0,
+     "window_failed": 3,
+     "window_frames": 1,
+     "window_gone": 2,
+     "window_ocr_ms": 0.0,
+     "window_requests": 6,
+     "window_resolve_ms": 0.0,
+     "max_window_age_ms": 0.0,
+     "max_window_gap_ms": 601000.0
+    }
+   ],
+   "notes": [
+    [
+     "preview.failed",
+     {
+      "surface": "window",
+      "error": "CaptureError (SCStreamErrorDomain -3801)"
+     }
+    ],
+    [
+     "preview.failed",
+     {
+      "surface": "window",
+      "error": "ValueError",
+      "repeats": 1
+     }
+    ]
+   ]
+  },
+  {
+   "name": "plain_try_hold",
+   "what": "without during_reads a read holding the surface makes the preview busy",
+   "limit_s": 2.0,
+   "during_reads": false,
+   "allowed": true,
+   "surfaces": {
+    "a": [
+     {
+      "frame": "a1"
+     }
+    ]
+   },
+   "steps": [
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "tab:browser/1",
+      "label": "Notes",
+      "surface": "a"
+     },
+     "locks": [
+      "tab:browser/1"
+     ]
+    },
+    {
+     "do": "hold",
+     "id": "r",
+     "keys": [
+      "tab:browser/1"
+     ],
+     "reading": true
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "unhold",
+     "id": "r"
+    },
+    {
+     "do": "declare",
+     "root": "t",
+     "worker": "t.worker",
+     "target": {
+      "scope": "tab:browser/1",
+      "label": "Notes",
+      "surface": "a"
+     },
+     "locks": [
+      "bogus:1"
+     ]
+    },
+    {
+     "do": "frame",
+     "root": "t"
+    },
+    {
+     "do": "snapshot"
+    }
+   ],
+   "results": [
+    null,
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "busy": true
+    },
+    null,
+    null,
+    {
+     "state": "working",
+     "line": "Working in Notes",
+     "worker": "t.worker",
+     "step": "worker",
+     "problem": {
+      "kind": "failed",
+      "text": "ValueError"
+     }
+    },
+    {
+     "requests": 2,
+     "frames": 0,
+     "capture_ms": 0.0,
+     "cached": 2,
+     "busy": 1,
+     "tab_busy": 1,
+     "tab_failed": 1,
+     "tab_requests": 2
+    }
+   ],
+   "notes": [
+    [
+     "preview.failed",
+     {
+      "surface": "tab",
+      "error": "ValueError"
+     }
+    ]
+   ]
+  }
+ ]
+}

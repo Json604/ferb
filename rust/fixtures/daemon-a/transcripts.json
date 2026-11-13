@@ -1,0 +1,1960 @@
+{
+ "scenarios": [
+  {
+   "name": "memory_more",
+   "what": "Every memory.learning op, memory.list filters, the core profile's add and remove, an edit hidden whole, a forget keeping sources, timeline.get forms, chat history paging.",
+   "python": [
+    "ferb/daemon/server.py:222 Server._connection",
+    "ferb/daemon/server.py:259 Server._hello",
+    "ferb/daemon/server.py:290 Server._dispatch",
+    "ferb/daemon/areas/rpc.py:130 Rpc._register_rpc",
+    "ferb/daemon/areas/memory.py",
+    "ferb/daemon/areas/chat_history.py"
+   ],
+   "volatile": [],
+   "steps": [
+    {
+     "do": "connect",
+     "conn": "app"
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"memory.add\", \"params\": {\"content\": \"The owner's invented cat is called Biscuit.\", \"kind\": \"fact\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"id\": \"id-000016\", \"kind\": \"fact\", \"subject\": \"owner\", \"key\": \"the_owner_s_i_229ce237b19ac9c0\", \"content\": \"The owner's invented cat is called Biscuit.\", \"origin\": \"owner_stated\", \"label\": \"your words\", \"about\": \"\", \"status\": \"active\", \"valid_from\": \"2026-01-01T09:00:00+00:00\", \"valid_to\": null, \"supersedes\": null, \"review_at\": null, \"in_profile\": true, \"set_aside\": false, \"sources\": [\"journal:id-000015\"], \"evidence_days\": 0, \"conflict\": false, \"imported_from\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"memory.add\", \"params\": {\"content\": \"The invented team meets on Mondays.\", \"subject\": \"work\", \"key\": \"team_meeting\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"id\": \"id-000019\", \"kind\": \"fact\", \"subject\": \"work\", \"key\": \"team_meeting\", \"content\": \"The invented team meets on Mondays.\", \"origin\": \"owner_stated\", \"label\": \"your words\", \"about\": \"\", \"status\": \"active\", \"valid_from\": \"2026-01-01T09:00:00+00:00\", \"valid_to\": null, \"supersedes\": null, \"review_at\": null, \"in_profile\": false, \"set_aside\": false, \"sources\": [\"journal:id-000018\"], \"evidence_days\": 0, \"conflict\": false, \"imported_from\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"memory.add\", \"params\": {\"content\": \"The owner prefers tea to coffee.\", \"kind\": \"preference\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"id\": \"id-000021\", \"kind\": \"preference\", \"subject\": \"owner\", \"key\": \"the_owner_pre_8c2a15e03f228b1b\", \"content\": \"The owner prefers tea to coffee.\", \"origin\": \"owner_stated\", \"label\": \"your words\", \"about\": \"\", \"status\": \"active\", \"valid_from\": \"2026-01-01T09:00:00+00:00\", \"valid_to\": null, \"supersedes\": null, \"review_at\": null, \"in_profile\": true, \"set_aside\": false, \"sources\": [\"journal:id-000020\"], \"evidence_days\": 0, \"conflict\": false, \"imported_from\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"memory.list\", \"params\": {\"subject\": \"work\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"result\": {\"items\": [{\"id\": \"id-000019\", \"kind\": \"fact\", \"subject\": \"work\", \"key\": \"team_meeting\", \"content\": \"The invented team meets on Mondays.\", \"origin\": \"owner_stated\", \"label\": \"your words\", \"about\": \"\", \"status\": \"active\", \"valid_from\": \"2026-01-01T09:00:00+00:00\", \"valid_to\": null, \"supersedes\": null, \"review_at\": null, \"in_profile\": false, \"set_aside\": false, \"sources\": [\"journal:id-000018\"], \"evidence_days\": 0, \"conflict\": false, \"imported_from\": []}]}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"method\": \"memory.list\", \"params\": {\"imported_from\": \"any\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"result\": {\"items\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"method\": \"memory.list\", \"params\": {\"status\": \"all\", \"history\": true, \"subject\": \"owner\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"result\": {\"items\": [{\"id\": \"id-000016\", \"kind\": \"fact\", \"subject\": \"owner\", \"key\": \"the_owner_s_i_229ce237b19ac9c0\", \"content\": \"The owner's invented cat is called Biscuit.\", \"origin\": \"owner_stated\", \"label\": \"your words\", \"about\": \"\", \"status\": \"active\", \"valid_from\": \"2026-01-01T09:00:00+00:00\", \"valid_to\": null, \"supersedes\": null, \"review_at\": null, \"in_profile\": true, \"set_aside\": false, \"sources\": [\"journal:id-000015\"], \"evidence_days\": 0, \"conflict\": false, \"imported_from\": []}, {\"id\": \"id-000021\", \"kind\": \"preference\", \"subject\": \"owner\", \"key\": \"the_owner_pre_8c2a15e03f228b1b\", \"content\": \"The owner prefers tea to coffee.\", \"origin\": \"owner_stated\", \"label\": \"your words\", \"about\": \"\", \"status\": \"active\", \"valid_from\": \"2026-01-01T09:00:00+00:00\", \"valid_to\": null, \"supersedes\": null, \"review_at\": null, \"in_profile\": true, \"set_aside\": false, \"sources\": [\"journal:id-000020\"], \"evidence_days\": 0, \"conflict\": false, \"imported_from\": []}]}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"method\": \"memory.profile\", \"params\": {\"op\": \"remove\", \"id\": \"id-000021\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"result\": {\"markdown\": \"# Core profile\\n\\n_Always in FERB's prompts. Each line is one memory, in its own words; change it by telling FERB or on the memory page._\\n\\n## Recently said\\n- The owner's invented cat is called Biscuit. (your words) [id-000016]\\n\", \"budget_tokens\": 2500, \"used_tokens\": 22, \"left_out\": 0, \"last_pass\": null, \"sections\": [{\"title\": \"Recently said\", \"items\": [{\"id\": \"id-000016\", \"text\": \"The owner's invented cat is called Biscuit.\", \"label\": \"your words\", \"origin\": \"owner_stated\", \"about\": \"\", \"added_by\": \"code\"}]}]}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"method\": \"memory.profile\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"result\": {\"markdown\": \"# Core profile\\n\\n_Always in FERB's prompts. Each line is one memory, in its own words; change it by telling FERB or on the memory page._\\n\\n## Recently said\\n- The owner's invented cat is called Biscuit. (your words) [id-000016]\\n\", \"budget_tokens\": 2500, \"used_tokens\": 22, \"left_out\": 0, \"last_pass\": null, \"sections\": [{\"title\": \"Recently said\", \"items\": [{\"id\": \"id-000016\", \"text\": \"The owner's invented cat is called Biscuit.\", \"label\": \"your words\", \"origin\": \"owner_stated\", \"about\": \"\", \"added_by\": \"code\"}]}]}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 10, \"method\": \"memory.profile\", \"params\": {\"op\": \"add\", \"id\": \"id-000021\", \"section\": \"Preferences\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 10, \"result\": {\"markdown\": \"# Core profile\\n\\n_Always in FERB's prompts. Each line is one memory, in its own words; change it by telling FERB or on the memory page._\\n\\n## Recently said\\n- The owner's invented cat is called Biscuit. (your words) [id-000016]\\n\\n## Preferences\\n- The owner prefers tea to coffee. (your words) [id-000021]\\n\", \"budget_tokens\": 2500, \"used_tokens\": 41, \"left_out\": 0, \"last_pass\": null, \"sections\": [{\"title\": \"Recently said\", \"items\": [{\"id\": \"id-000016\", \"text\": \"The owner's invented cat is called Biscuit.\", \"label\": \"your words\", \"origin\": \"owner_stated\", \"about\": \"\", \"added_by\": \"code\"}]}, {\"title\": \"Preferences\", \"items\": [{\"id\": \"id-000021\", \"text\": \"The owner prefers tea to coffee.\", \"label\": \"your words\", \"origin\": \"owner_stated\", \"about\": \"\", \"added_by\": \"owner\"}]}]}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 11, \"method\": \"memory.profile\", \"params\": {\"op\": \"add\", \"id\": \"no-such-item\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 11, \"error\": {\"code\": -32004, \"message\": \"no current memory with that id\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 12, \"method\": \"memory.learning\", \"params\": {\"op\": \"backlog\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 12, \"result\": {\"backlog\": null}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 13, \"method\": \"memory.learning\", \"params\": {\"op\": \"guess\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 13, \"error\": {\"code\": -32004, \"message\": \"FERB no longer asks about its guesses: it saves what it understands, labelled as its understanding; correct it by telling FERB or on the memory page\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 14, \"method\": \"memory.learning\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 14, \"result\": {\"items\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 15, \"method\": \"memory.learning\", \"params\": {\"op\": \"inventory\", \"history\": true}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 15, \"result\": {\"items\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 16, \"method\": \"memory.learning\", \"params\": {\"op\": \"get\", \"id\": \"no-such-node\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 16, \"result\": {\"item\": null, \"history\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 17, \"method\": \"memory.learning\", \"params\": {\"op\": \"search\", \"query\": \"invented cat\", \"kind\": \"fact\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 17, \"result\": {\"items\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 18, \"method\": \"memory.learning\", \"params\": {\"op\": \"confirm\", \"id\": \"no-such-node\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 18, \"error\": {\"code\": -32004, \"message\": \"no current proposal\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 19, \"method\": \"memory.learning\", \"params\": {\"op\": \"edit\", \"id\": \"no-such-node\", \"text\": \"x\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 19, \"error\": {\"code\": -32004, \"message\": \"unknown item\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 20, \"method\": \"memory.learning\", \"params\": {\"op\": \"retire\", \"id\": \"no-such-node\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 20, \"result\": {\"item\": null}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 21, \"method\": \"memory.learning\", \"params\": {\"op\": \"forget\", \"id\": \"no-such-node\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 21, \"result\": {\"descendants\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 22, \"method\": \"memory.learning\", \"params\": {\"op\": \"forget\", \"id\": \"no-such-node\", \"confirm\": true}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 22, \"result\": {\"deleted\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 23, \"method\": \"memory.learning\", \"params\": {\"op\": \"rollback\", \"batch\": \"no-such-batch\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 23, \"result\": {\"invalidated\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 24, \"method\": \"memory.learning\", \"params\": {\"op\": \"digest\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 24, \"result\": {\"digest\": null}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 25, \"method\": \"memory.learning\", \"params\": {\"op\": \"eval_export\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 25, \"result\": {\"cases\": [], \"label_status\": \"needs owner relevance and expected-result labels\", \"recommended_queries\": \"approximately 50\\u2013100, including Hinglish, people, temporal and app queries\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 26, \"method\": \"memory.learning\", \"params\": {\"op\": \"embedding\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 26, \"result\": {\"active\": null, \"path\": \"/FX/01/home/models/embeddings/potion-base-8M@bf8b056651a2\", \"fetched_by_ferb\": true, \"vectors\": 0}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 27, \"method\": \"memory.edit\", \"params\": {\"id\": \"id-000016\", \"content\": \"4111 1111 1111 1111\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 27, \"error\": {\"code\": -32004, \"message\": \"Those words looked like a secret, so FERB hid them and saved nothing. Type how FERB should remember it, without the secret.\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 28, \"method\": \"memory.retract\", \"params\": {\"id\": \"no-such-item\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 28, \"error\": {\"code\": -32004, \"message\": \"no item no-such-item\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 29, \"method\": \"memory.forget\", \"params\": {\"id\": \"id-000021\", \"keep_sources\": true}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 29, \"result\": {\"confirmed\": false, \"will_delete\": [\"memory item \\u201cThe owner prefers tea to coffee.\\u201d (preference \\u00b7 owner \\u00b7 the_owner_pre_8c2a15e03f228b1b)\"], \"keeps\": \"Your own messages stay in the chat history; FERB won't learn it from them again.\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 30, \"method\": \"memory.forget\", \"params\": {\"id\": \"id-000021\", \"keep_sources\": true, \"confirm\": true}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 30, \"result\": {\"confirmed\": true, \"deleted\": [\"memory item \\u201cThe owner prefers tea to coffee.\\u201d (preference \\u00b7 owner \\u00b7 the_owner_pre_8c2a15e03f228b1b)\"], \"keeps\": \"Your own messages stay in the chat history; FERB won't learn it from them again.\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 31, \"method\": \"memory.restore\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 31, \"error\": {\"code\": -32004, \"message\": \"no memory with that id\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 32, \"method\": \"memory.show\", \"params\": {\"subject\": \"work\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 32, \"result\": {\"subject\": \"work\", \"items\": [{\"id\": \"id-000019\", \"kind\": \"fact\", \"subject\": \"work\", \"key\": \"team_meeting\", \"content\": \"The invented team meets on Mondays.\", \"origin\": \"owner_stated\", \"label\": \"your words\", \"about\": \"\", \"status\": \"active\", \"valid_from\": \"2026-01-01T09:00:00+00:00\", \"valid_to\": null, \"supersedes\": null, \"review_at\": null, \"in_profile\": false, \"set_aside\": false, \"sources\": [\"journal:id-000018\"], \"evidence_days\": 0, \"conflict\": false, \"imported_from\": []}]}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 33, \"method\": \"timeline.get\", \"params\": {\"limit\": 3}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 33, \"result\": {\"entries\": [{\"at\": \"2026-01-01T09:00:00+00:00\", \"kind\": \"memory.profile_changed\", \"data\": {\"removed\": [\"id-000021\"], \"by\": \"owner\"}}, {\"at\": \"2026-01-01T09:00:00+00:00\", \"kind\": \"memory.profile_changed\", \"data\": {\"added\": \"id-000021\", \"by\": \"owner\"}}, {\"at\": \"2026-01-01T09:00:00+00:00\", \"kind\": \"memory.forgot\", \"data\": {\"items\": 1, \"trail\": 0}}], \"more\": true}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 34, \"method\": \"timeline.get\", \"params\": {\"since\": \"2026-01-01T09:00:00+00:00\", \"limit\": 2}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 34, \"result\": {\"entries\": [{\"at\": \"2026-01-01T09:00:00+00:00\", \"kind\": \"memory.profile_changed\", \"data\": {\"added\": \"id-000021\", \"by\": \"owner\"}}, {\"at\": \"2026-01-01T09:00:00+00:00\", \"kind\": \"memory.forgot\", \"data\": {\"items\": 1, \"trail\": 0}}], \"more\": true}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 35, \"method\": \"timeline.get\", \"params\": {\"since\": \"2026-01-01T09:00:00\", \"limit\": \"2\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 35, \"result\": {\"entries\": [{\"at\": \"2026-01-01T09:00:00+00:00\", \"kind\": \"memory.profile_changed\", \"data\": {\"added\": \"id-000021\", \"by\": \"owner\"}}, {\"at\": \"2026-01-01T09:00:00+00:00\", \"kind\": \"memory.forgot\", \"data\": {\"items\": 1, \"trail\": 0}}], \"more\": true}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 36, \"method\": \"timeline.get\", \"params\": {\"limit\": 2.7}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 36, \"result\": {\"entries\": [{\"at\": \"2026-01-01T09:00:00+00:00\", \"kind\": \"memory.profile_changed\", \"data\": {\"added\": \"id-000021\", \"by\": \"owner\"}}, {\"at\": \"2026-01-01T09:00:00+00:00\", \"kind\": \"memory.forgot\", \"data\": {\"items\": 1, \"trail\": 0}}], \"more\": true}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 37, \"method\": \"timeline.get\", \"params\": {\"limit\": -5}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 37, \"result\": {\"entries\": [{\"at\": \"2026-01-01T09:00:00+00:00\", \"kind\": \"memory.forgot\", \"data\": {\"items\": 1, \"trail\": 0}}], \"more\": true}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 38, \"method\": \"timeline.get\", \"params\": {\"limit\": \"x\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 38, \"error\": {\"code\": -32603, \"message\": \"ValueError\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 39, \"method\": \"chat.history.put\", \"params\": {\"entries\": [{\"id\": \"00000000-0000-4000-8000-000000000001\", \"kind\": \"turn\", \"at\": \"2026-01-01T09:01:00.000000+00:00\", \"day\": \"2026-01-01\", \"open\": true, \"body\": {\"text\": \"invented entry 1\"}}, {\"id\": \"00000000-0000-4000-8000-000000000002\", \"kind\": \"reply\", \"at\": \"2026-01-01T09:02:00.000000+00:00\", \"day\": \"2026-01-01\", \"open\": false, \"body\": {\"text\": \"invented entry 2\"}}, {\"id\": \"00000000-0000-4000-8000-000000000003\", \"kind\": \"turn\", \"at\": \"2026-01-01T09:03:00.000000+00:00\", \"day\": \"2026-01-01\", \"open\": true, \"body\": {\"text\": \"invented entry 3\"}}, {\"id\": \"00000000-0000-4000-8000-000000000004\", \"kind\": \"notice\", \"at\": \"2026-01-02T09:04:00.000000+00:00\", \"day\": \"2026-01-02\", \"open\": false, \"body\": {\"text\": \"invented entry 4\"}}]}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 39, \"result\": {\"changed\": 4, \"held\": 4}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 40, \"method\": \"chat.history.page\", \"params\": {\"day\": \"2026-01-01\", \"limit\": 2}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 40, \"result\": {\"entries\": [{\"id\": \"00000000-0000-4000-8000-000000000002\", \"kind\": \"reply\", \"at\": \"2026-01-01T09:02:00.000000+00:00\", \"day\": \"2026-01-01\", \"open\": false, \"body\": {\"text\": \"invented entry 2\"}}, {\"id\": \"00000000-0000-4000-8000-000000000003\", \"kind\": \"turn\", \"at\": \"2026-01-01T09:03:00.000000+00:00\", \"day\": \"2026-01-01\", \"open\": true, \"body\": {\"text\": \"invented entry 3\"}}], \"more\": true, \"cursor\": \"2026-01-01T09:02:00.000000+00:00|00000000-0000-4000-8000-000000000002\", \"context\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 41, \"method\": \"chat.history.page\", \"params\": {\"day\": \"2026-01-01\", \"limit\": 2, \"before\": \"2026-01-01T09:02:00.000000+00:00|00000000-0000-4000-8000-000000000002\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 41, \"result\": {\"entries\": [{\"id\": \"00000000-0000-4000-8000-000000000001\", \"kind\": \"turn\", \"at\": \"2026-01-01T09:01:00.000000+00:00\", \"day\": \"2026-01-01\", \"open\": true, \"body\": {\"text\": \"invented entry 1\"}}], \"more\": false, \"cursor\": null, \"context\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 42, \"method\": \"chat.history.page\", \"params\": {\"day\": \"2026-01-01\", \"limit\": \"x\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 42, \"error\": {\"code\": -32004, \"message\": \"limit must be a whole number from 1 to 200\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 43, \"method\": \"chat.history.page\", \"params\": {\"day\": \"2026-01-01\", \"limit\": 0}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 43, \"error\": {\"code\": -32004, \"message\": \"limit must be a whole number from 1 to 200\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 44, \"method\": \"chat.history.page\", \"params\": {\"day\": \"2026-01-01\", \"limit\": 201}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 44, \"error\": {\"code\": -32004, \"message\": \"limit must be a whole number from 1 to 200\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 45, \"method\": \"chat.history.days\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 45, \"result\": {\"days\": [\"2026-01-02\", \"2026-01-01\"]}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 46, \"method\": \"setup.persona\", \"params\": {\"status\": true}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 46, \"result\": {\"state\": \"unavailable\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 47, \"method\": \"setup.persona\", \"params\": {\"refresh\": true}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 47, \"result\": {\"state\": \"unavailable\"}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app"
+    }
+   ],
+   "tables": {
+    "chat_history": {
+     "columns": [
+      "id",
+      "kind",
+      "at",
+      "day",
+      "open",
+      "ref",
+      "body_json",
+      "updated_at"
+     ],
+     "rows": [
+      [
+       "00000000-0000-4000-8000-000000000001",
+       "turn",
+       "2026-01-01T09:01:00.000000+00:00",
+       "2026-01-01",
+       1,
+       null,
+       "{\"text\": \"invented entry 1\"}",
+       "2026-01-01T09:00:00+00:00"
+      ],
+      [
+       "00000000-0000-4000-8000-000000000002",
+       "reply",
+       "2026-01-01T09:02:00.000000+00:00",
+       "2026-01-01",
+       0,
+       null,
+       "{\"text\": \"invented entry 2\"}",
+       "2026-01-01T09:00:00+00:00"
+      ],
+      [
+       "00000000-0000-4000-8000-000000000003",
+       "turn",
+       "2026-01-01T09:03:00.000000+00:00",
+       "2026-01-01",
+       1,
+       null,
+       "{\"text\": \"invented entry 3\"}",
+       "2026-01-01T09:00:00+00:00"
+      ],
+      [
+       "00000000-0000-4000-8000-000000000004",
+       "notice",
+       "2026-01-02T09:04:00.000000+00:00",
+       "2026-01-02",
+       0,
+       null,
+       "{\"text\": \"invented entry 4\"}",
+       "2026-01-01T09:00:00+00:00"
+      ]
+     ]
+    },
+    "conversations": {
+     "columns": [
+      "id",
+      "pending",
+      "asked",
+      "pending_payload"
+     ],
+     "rows": [
+      [
+       "owner",
+       "",
+       "",
+       ""
+      ]
+     ]
+    },
+    "forgotten_refs": {
+     "columns": [
+      "ref",
+      "at"
+     ],
+     "rows": [
+      [
+       "no-such-node",
+       "2026-01-01T09:00:00+00:00"
+      ]
+     ]
+    },
+    "journal": {
+     "columns": [
+      "seq",
+      "id",
+      "at",
+      "kind",
+      "data_json",
+      "origin"
+     ],
+     "rows": [
+      [
+       1,
+       "id-000001",
+       "2026-01-01T09:00:00+00:00",
+       "config.upgraded",
+       "{\"upgrade\": \"download-limits-2026-10-09\", \"changes\": []}",
+       "ferb"
+      ],
+      [
+       2,
+       "id-000002",
+       "2026-01-01T09:00:00+00:00",
+       "config.upgraded",
+       "{\"upgrade\": \"download-limits-2026-10-31\", \"changes\": []}",
+       "ferb"
+      ],
+      [
+       3,
+       "id-000003",
+       "2026-01-01T09:00:00+00:00",
+       "config.upgraded",
+       "{\"upgrade\": \"feedback-relay-2026-11-01\", \"changes\": []}",
+       "ferb"
+      ],
+      [
+       4,
+       "id-000004",
+       "2026-01-01T09:00:00+00:00",
+       "config.upgraded",
+       "{\"upgrade\": \"no-voice-2026-11-04\", \"changes\": []}",
+       "ferb"
+      ],
+      [
+       5,
+       "id-000005",
+       "2026-01-01T09:00:00+00:00",
+       "config.upgraded",
+       "{\"upgrade\": \"no-test-mode-2026-11-10\", \"changes\": []}",
+       "ferb"
+      ],
+      [
+       6,
+       "id-000006",
+       "2026-01-01T09:00:00+00:00",
+       "config.defaults_added",
+       "{\"key\": \"protection.never_read\", \"added\": [], \"offered\": [\"~/Library/Keychains\", \"/Library/Keychains\", \"~/Library/Messages\", \"~/Library/Mail\", \"~/Library/Cookies\", \"~/Library/Group Containers/group.com.apple.usernoted\", \"~/Library/Application Support/1Password\", \"~/Library/Group Containers/2BUA8C4S2C.com.1password\", \"~/Library/Application Support/Bitwarden\", \"~/.ssh\", \"~/.aws\", \"~/.config/gh\", \"~/.netrc\", \"~/.npmrc\", \"~/.docker\", \"~/Library/Safari\", \"~/Library/Containers/com.apple.Safari\", \"~/Library/SafariTechnologyPreview\", \"~/Library/Containers/com.apple.SafariTechnologyPreview\", \"~/Library/Application Support/BraveSoftware\", \"~/Library/Application Support/Arc\", \"~/Library/Application Support/Dia\", \"~/Library/Application Support/com.operasoftware.OperaGX\", \"~/Library/Application Support/Firefox\", \"~/Library/Application Support/Orion\", \"~/Library/Containers/com.duckduckgo.macos.browser\", \"~/Library/Application Support/librewolf\", \"~/Library/Application Support/Comet\", \"~/Library/Application Support/Yandex\", \"~/Library/Application Support/Floorp\", \"~/Library/Application Support/MullvadBrowser\", \"~/Library/Application Support/TorBrowser-Data\", \"~/Library/Application Support/zen\", \"~/Library/Application Support/Waterfox\", \"~/Library/Application Support/Thorium\", \"~/Library/Application Support/Google/Chrome\", \"~/Library/Application Support/Google/Chrome Beta\", \"~/Library/Application Support/Google/Chrome Dev\", \"~/Library/Application Support/Google/Chrome Canary\", \"~/Library/Application Support/Chromium\", \"~/Library/Application Support/Microsoft Edge\", \"~/Library/Application Support/Microsoft Edge Beta\", \"~/Library/Application Support/Microsoft Edge Dev\", \"~/Library/Application Support/Microsoft Edge Canary\", \"~/Library/Application Support/Vivaldi\", \"~/Library/Application Support/com.operasoftware.Opera\", \"~/.gnupg\", \"~/.kube\", \"~/.config/gcloud\", \"~/.azure\", \"~/.git-credentials\", \"~/.pypirc\", \"~/.cargo/credentials.toml\"]}",
+       "ferb"
+      ],
+      [
+       7,
+       "id-000007",
+       "2026-01-01T09:00:00+00:00",
+       "store.upgraded",
+       "{\"upgrade\": \"continuity_legacy\", \"changes\": {\"rewritten\": 0, \"imported\": 0, \"conflicting\": 0}}",
+       "ferb"
+      ],
+      [
+       8,
+       "id-000008",
+       "2026-01-01T09:00:00+00:00",
+       "memory.cleanup",
+       "{\"version\": 1, \"owner_kept\": [], \"guesses_kept\": 0, \"subjects_normalized\": 0, \"persona_observed\": 0, \"merged\": [], \"identity_closed\": 0}",
+       "ferb"
+      ],
+      [
+       9,
+       "id-000009",
+       "2026-01-01T09:00:00+00:00",
+       "memory.profile_seeded",
+       "{\"entries\": 0}",
+       "ferb"
+      ],
+      [
+       10,
+       "id-000010",
+       "2026-01-01T09:00:00+00:00",
+       "memory.fact_nodes_closed",
+       "{\"closed\": 0}",
+       "ferb"
+      ],
+      [
+       11,
+       "id-000011",
+       "2026-01-01T09:00:00+00:00",
+       "daemon.started",
+       "{\"pid\": \"<volatile>\"}",
+       "ferb"
+      ],
+      [
+       12,
+       "id-000012",
+       "2026-01-01T09:00:00+00:00",
+       "runtime.limits_unknown",
+       "{\"role\": \"orchestrator\", \"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"problem\": \"Codex's model catalog isn't available: the pinned Codex didn't print one\"}",
+       "ferb"
+      ],
+      [
+       13,
+       "id-000013",
+       "2026-01-01T09:00:00+00:00",
+       "runtime.limits_unknown",
+       "{\"role\": \"worker\", \"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"problem\": \"Codex's model catalog isn't available: the pinned Codex didn't print one\"}",
+       "ferb"
+      ],
+      [
+       14,
+       "id-000014",
+       "2026-01-01T09:00:00+00:00",
+       "runtime.limits_unknown",
+       "{\"role\": \"checker\", \"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"problem\": \"Codex's model catalog isn't available: the pinned Codex didn't print one\"}",
+       "ferb"
+      ],
+      [
+       15,
+       "id-000015",
+       "2026-01-01T09:00:00+00:00",
+       "memory.added",
+       "{\"content\": \"The owner's invented cat is called Biscuit.\"}",
+       "owner"
+      ],
+      [
+       16,
+       "id-000017",
+       "2026-01-01T09:00:00+00:00",
+       "memory.profile_changed",
+       "{\"added\": \"id-000016\", \"by\": \"code\"}",
+       "ferb"
+      ],
+      [
+       17,
+       "id-000018",
+       "2026-01-01T09:00:00+00:00",
+       "memory.added",
+       "{\"content\": \"The invented team meets on Mondays.\"}",
+       "owner"
+      ],
+      [
+       18,
+       "id-000020",
+       "2026-01-01T09:00:00+00:00",
+       "memory.added",
+       "{\"content\": \"The owner prefers tea to coffee.\"}",
+       "owner"
+      ],
+      [
+       19,
+       "id-000022",
+       "2026-01-01T09:00:00+00:00",
+       "memory.profile_changed",
+       "{\"added\": \"id-000021\", \"by\": \"code\"}",
+       "ferb"
+      ],
+      [
+       20,
+       "id-000023",
+       "2026-01-01T09:00:00+00:00",
+       "memory.profile_changed",
+       "{\"removed\": [\"id-000021\"], \"by\": \"owner\"}",
+       "ferb"
+      ],
+      [
+       21,
+       "id-000024",
+       "2026-01-01T09:00:00+00:00",
+       "memory.profile_changed",
+       "{\"added\": \"id-000021\", \"by\": \"owner\"}",
+       "ferb"
+      ],
+      [
+       22,
+       "id-000025",
+       "2026-01-01T09:00:00+00:00",
+       "memory.forgot",
+       "{\"items\": 1, \"trail\": 0}",
+       "ferb"
+      ],
+      [
+       23,
+       "id-000026",
+       "2026-01-01T09:00:00+00:00",
+       "daemon.internal_error",
+       "{\"method\": \"timeline.get\", \"error\": \"ValueError\", \"message\": \"invalid literal for int() with base 10: 'x'\", \"frames\": [\"ferb/daemon/server.py:323:_dispatch\", \"ferb/daemon/areas/memory.py:1122:_timeline\"]}",
+       "ferb"
+      ]
+     ]
+    },
+    "memory_forgotten": {
+     "columns": [
+      "fingerprint",
+      "at"
+     ],
+     "rows": [
+      [
+       "39e7365cf7014d041d0bf625738ea8a49ac2982eba8cddeeedfbf95652066a81",
+       "2026-01-01T09:00:00+00:00"
+      ]
+     ]
+    },
+    "memory_items": {
+     "columns": [
+      "seq",
+      "id",
+      "kind",
+      "subject",
+      "key",
+      "content",
+      "origin",
+      "status",
+      "confidence",
+      "observed_at",
+      "valid_from",
+      "valid_to",
+      "supersedes",
+      "created_at"
+     ],
+     "rows": [
+      [
+       1,
+       "id-000016",
+       "fact",
+       "owner",
+       "the_owner_s_i_229ce237b19ac9c0",
+       "The owner's invented cat is called Biscuit.",
+       "owner_stated",
+       "active",
+       1.0,
+       "2026-01-01T09:00:00+00:00",
+       "2026-01-01T09:00:00+00:00",
+       null,
+       null,
+       "2026-01-01T09:00:00+00:00"
+      ],
+      [
+       2,
+       "id-000019",
+       "fact",
+       "work",
+       "team_meeting",
+       "The invented team meets on Mondays.",
+       "owner_stated",
+       "active",
+       1.0,
+       "2026-01-01T09:00:00+00:00",
+       "2026-01-01T09:00:00+00:00",
+       null,
+       null,
+       "2026-01-01T09:00:00+00:00"
+      ]
+     ]
+    },
+    "memory_profile": {
+     "columns": [
+      "item_id",
+      "section",
+      "position",
+      "added_by",
+      "added_at"
+     ],
+     "rows": [
+      [
+       "id-000016",
+       "Recently said",
+       0,
+       "code",
+       "2026-01-01T09:00:00+00:00"
+      ]
+     ]
+    },
+    "memory_sources": {
+     "columns": [
+      "item_id",
+      "kind",
+      "source_id",
+      "day",
+      "actor"
+     ],
+     "rows": [
+      [
+       "id-000016",
+       "journal",
+       "id-000015",
+       "2026-01-01",
+       null
+      ],
+      [
+       "id-000019",
+       "journal",
+       "id-000018",
+       "2026-01-01",
+       null
+      ]
+     ]
+    },
+    "perception_floor": {
+     "columns": [
+      "source",
+      "seq",
+      "at"
+     ],
+     "rows": [
+      [
+       "trail",
+       0,
+       "<volatile>"
+      ],
+      [
+       "notification",
+       null,
+       "<volatile>"
+      ]
+     ]
+    },
+    "recall_state": {
+     "columns": [
+      "name",
+      "value"
+     ],
+     "rows": [
+      [
+       "vectors",
+       "0"
+      ]
+     ]
+    },
+    "trail_changes": {
+     "columns": [
+      "id",
+      "n"
+     ],
+     "rows": [
+      [
+       1,
+       0
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "name": "schedules_more",
+   "what": "Schedules paused, resumed, refused an unknown action, fired by the clock (a run that succeeds, one that fails and its retry), and booked again after a restart that lost the next run's timer.",
+   "python": [
+    "ferb/daemon/server.py:222 Server._connection",
+    "ferb/daemon/server.py:259 Server._hello",
+    "ferb/daemon/server.py:290 Server._dispatch",
+    "ferb/daemon/areas/rpc.py:130 Rpc._register_rpc",
+    "ferb/daemon/areas/schedules.py"
+   ],
+   "volatile": [],
+   "steps": [
+    {
+     "do": "add_schedule",
+     "spec": {
+      "request": "Check the invented permit page",
+      "own_words": "check the permit page in 5 minutes",
+      "targets": {},
+      "rule": {
+       "repeat": "none",
+       "tz": "UTC"
+      },
+      "first": "2026-01-01T09:05:00+00:00",
+      "watch": "none",
+      "name": "Permit check"
+     },
+     "id": "sc-id-000015"
+    },
+    {
+     "do": "add_schedule",
+     "spec": {
+      "request": "Water the invented plants",
+      "own_words": "water the plants every morning at 8",
+      "targets": {},
+      "rule": {
+       "repeat": "daily",
+       "at": "08:00",
+       "tz": "UTC"
+      },
+      "first": "2026-01-02T08:00:00+00:00",
+      "watch": "none",
+      "name": ""
+     },
+     "id": "sc-id-000017"
+    },
+    {
+     "do": "add_schedule",
+     "spec": {
+      "request": "Tidy the invented desk",
+      "own_words": "tidy the desk every friday",
+      "targets": {},
+      "rule": {
+       "repeat": "weekly",
+       "at": "17:00",
+       "weekday": 4,
+       "tz": "UTC"
+      },
+      "first": "2026-01-02T17:00:00+00:00",
+      "watch": "none",
+      "name": "Desk"
+     },
+     "id": "sc-id-000019"
+    },
+    {
+     "do": "connect",
+     "conn": "app"
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"schedules.list\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"schedules\": [{\"id\": \"sc-id-000015\", \"request\": \"Check the invented permit page\", \"name\": \"Permit check\", \"rule\": \"once\", \"state\": \"active\", \"next_run\": \"2026-01-01T09:05:00+00:00\", \"failures\": 0, \"until\": null, \"watch\": \"none\", \"last_result\": null}, {\"id\": \"sc-id-000017\", \"request\": \"Water the invented plants\", \"name\": \"Water the invented plants\", \"rule\": \"every day at 08:00\", \"state\": \"active\", \"next_run\": \"2026-01-02T08:00:00+00:00\", \"failures\": 0, \"until\": null, \"watch\": \"none\", \"last_result\": null}, {\"id\": \"sc-id-000019\", \"request\": \"Tidy the invented desk\", \"name\": \"Desk\", \"rule\": \"every Friday at 17:00\", \"state\": \"active\", \"next_run\": \"2026-01-02T17:00:00+00:00\", \"failures\": 0, \"until\": null, \"watch\": \"none\", \"last_result\": null}]}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"schedules.change\", \"params\": {\"id\": \"sc-id-000017\", \"action\": \"pause\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"text\": \"Paused: Water the invented plants\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"schedules.list\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"schedules\": [{\"id\": \"sc-id-000015\", \"request\": \"Check the invented permit page\", \"name\": \"Permit check\", \"rule\": \"once\", \"state\": \"active\", \"next_run\": \"2026-01-01T09:05:00+00:00\", \"failures\": 0, \"until\": null, \"watch\": \"none\", \"last_result\": null}, {\"id\": \"sc-id-000017\", \"request\": \"Water the invented plants\", \"name\": \"Water the invented plants\", \"rule\": \"every day at 08:00\", \"state\": \"paused\", \"next_run\": \"2026-01-02T08:00:00+00:00\", \"failures\": 0, \"until\": null, \"watch\": \"none\", \"last_result\": null}, {\"id\": \"sc-id-000019\", \"request\": \"Tidy the invented desk\", \"name\": \"Desk\", \"rule\": \"every Friday at 17:00\", \"state\": \"active\", \"next_run\": \"2026-01-02T17:00:00+00:00\", \"failures\": 0, \"until\": null, \"watch\": \"none\", \"last_result\": null}]}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"schedules.change\", \"params\": {\"id\": \"sc-id-000017\", \"action\": \"resume\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"result\": {\"text\": \"Resumed: Water the invented plants\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"method\": \"schedules.change\", \"params\": {\"id\": \"sc-id-000019\", \"action\": \"cancel\", \"extra\": 1}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"result\": {\"text\": \"Cancelled: Desk\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"method\": \"schedules.change\", \"params\": {\"id\": \"sc-id-000019\", \"action\": \"resume\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"result\": {\"text\": \"There's no active schedule sc-id-000019.\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"method\": \"reminders.list\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"result\": {\"pending\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"method\": \"timers.states\", \"params\": {\"ids\": []}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"result\": {\"timers\": {}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 10, \"method\": \"timers.repeat\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 10, \"error\": {\"code\": -32004, \"message\": \"no timer None to repeat\"}}"
+      }
+     ]
+    },
+    {
+     "do": "clock",
+     "advance_s": 300,
+     "now": "2026-01-01T09:05:00+00:00"
+    },
+    {
+     "do": "timers_tick",
+     "fired": 1
+    },
+    {
+     "do": "seams",
+     "calls": [
+      {
+       "run_scheduled": "sc-id-000015",
+       "late": false,
+       "overdue_s": 0,
+       "retry": false
+      },
+      {
+       "task_result": {
+        "task_id": "invented-run-1",
+        "status": "done",
+        "answer": "No open slots yet.",
+        "goal": "Check the invented permit page",
+        "name": "Permit check",
+        "cards": [
+         {
+          "type": "reminder",
+          "schedule_id": "sc-id-000015",
+          "title": "Permit check",
+          "kind": "schedule",
+          "due": "2026-01-01T09:05:00+00:00"
+         }
+        ]
+       },
+       "shown": false,
+       "alert": false
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 11, \"method\": \"schedules.list\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 11, \"result\": {\"schedules\": [{\"id\": \"sc-id-000017\", \"request\": \"Water the invented plants\", \"name\": \"Water the invented plants\", \"rule\": \"every day at 08:00\", \"state\": \"active\", \"next_run\": \"2026-01-02T08:00:00+00:00\", \"failures\": 0, \"until\": null, \"watch\": \"none\", \"last_result\": null}]}}"
+      }
+     ]
+    },
+    {
+     "do": "clock",
+     "advance_s": 82500,
+     "now": "2026-01-02T08:00:00+00:00"
+    },
+    {
+     "do": "timers_tick",
+     "fired": 1
+    },
+    {
+     "do": "seams",
+     "calls": [
+      {
+       "run_scheduled": "sc-id-000017",
+       "late": false,
+       "overdue_s": 0,
+       "retry": false
+      },
+      {
+       "task_result": {
+        "task_id": "invented-run-2",
+        "status": "failed",
+        "answer": "The invented garden was locked.",
+        "cards": [
+         {
+          "type": "reminder",
+          "schedule_id": "sc-id-000017",
+          "title": "Water the invented plants",
+          "kind": "schedule",
+          "due": "2026-01-02T08:00:00+00:00",
+          "repeat": "every day at 08:00",
+          "next_run": "2026-01-03T08:00:00+00:00"
+         },
+         {
+          "type": "note",
+          "text": "kept"
+         }
+        ],
+        "goal": "Water the invented plants",
+        "name": "Water the invented plants"
+       },
+       "shown": false,
+       "alert": false
+      }
+     ]
+    },
+    {
+     "do": "clock",
+     "advance_s": 600,
+     "now": "2026-01-02T08:10:00+00:00"
+    },
+    {
+     "do": "timers_tick",
+     "fired": 1
+    },
+    {
+     "do": "seams",
+     "calls": [
+      {
+       "run_scheduled": "sc-id-000017",
+       "late": false,
+       "overdue_s": 0,
+       "retry": true
+      },
+      {
+       "task_result": {
+        "task_id": "invented-run-3",
+        "status": "done_unverified",
+        "summary": "Watered, unconfirmed.",
+        "goal": "Water the invented plants",
+        "name": "Water the invented plants",
+        "answer": "Watered, unconfirmed.",
+        "cards": [
+         {
+          "type": "reminder",
+          "schedule_id": "sc-id-000017",
+          "title": "Water the invented plants",
+          "kind": "schedule",
+          "due": "2026-01-02T08:10:00+00:00",
+          "repeat": "every day at 08:00",
+          "next_run": "2026-01-03T08:00:00+00:00"
+         }
+        ]
+       },
+       "shown": false,
+       "alert": false
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 12, \"method\": \"schedules.list\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 12, \"result\": {\"schedules\": [{\"id\": \"sc-id-000017\", \"request\": \"Water the invented plants\", \"name\": \"Water the invented plants\", \"rule\": \"every day at 08:00\", \"state\": \"active\", \"next_run\": \"2026-01-03T08:00:00+00:00\", \"failures\": 1, \"until\": null, \"watch\": \"none\", \"last_result\": null}]}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 13, \"method\": \"schedules.change\", \"params\": {\"id\": \"sc-id-000017\", \"action\": \"stop\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 13, \"error\": {\"code\": -32603, \"message\": \"KeyError\"}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app"
+    },
+    {
+     "do": "note",
+     "text": "the daily schedule's booked timer was set cancelled (a crash between handling a run and booking the next)"
+    },
+    {
+     "do": "restart",
+     "ids_prefix": "r1"
+    },
+    {
+     "do": "connect",
+     "conn": "app#2"
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app#2",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"schedules.list\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"schedules\": [{\"id\": \"sc-id-000017\", \"request\": \"Water the invented plants\", \"name\": \"Water the invented plants\", \"rule\": \"every day at 08:00\", \"state\": \"active\", \"next_run\": \"2026-01-03T08:00:00+00:00\", \"failures\": 1, \"until\": null, \"watch\": \"none\", \"last_result\": null}]}}"
+      }
+     ]
+    },
+    {
+     "do": "close",
+     "conn": "app#2"
+    }
+   ],
+   "tables": {
+    "conversations": {
+     "columns": [
+      "id",
+      "pending",
+      "asked",
+      "pending_payload"
+     ],
+     "rows": [
+      [
+       "owner",
+       "",
+       "",
+       ""
+      ]
+     ]
+    },
+    "journal": {
+     "columns": [
+      "seq",
+      "id",
+      "at",
+      "kind",
+      "data_json",
+      "origin"
+     ],
+     "rows": [
+      [
+       1,
+       "id-000001",
+       "2026-01-01T09:00:00+00:00",
+       "config.upgraded",
+       "{\"upgrade\": \"download-limits-2026-10-09\", \"changes\": []}",
+       "ferb"
+      ],
+      [
+       2,
+       "id-000002",
+       "2026-01-01T09:00:00+00:00",
+       "config.upgraded",
+       "{\"upgrade\": \"download-limits-2026-10-31\", \"changes\": []}",
+       "ferb"
+      ],
+      [
+       3,
+       "id-000003",
+       "2026-01-01T09:00:00+00:00",
+       "config.upgraded",
+       "{\"upgrade\": \"feedback-relay-2026-11-01\", \"changes\": []}",
+       "ferb"
+      ],
+      [
+       4,
+       "id-000004",
+       "2026-01-01T09:00:00+00:00",
+       "config.upgraded",
+       "{\"upgrade\": \"no-voice-2026-11-04\", \"changes\": []}",
+       "ferb"
+      ],
+      [
+       5,
+       "id-000005",
+       "2026-01-01T09:00:00+00:00",
+       "config.upgraded",
+       "{\"upgrade\": \"no-test-mode-2026-11-10\", \"changes\": []}",
+       "ferb"
+      ],
+      [
+       6,
+       "id-000006",
+       "2026-01-01T09:00:00+00:00",
+       "config.defaults_added",
+       "{\"key\": \"protection.never_read\", \"added\": [], \"offered\": [\"~/Library/Keychains\", \"/Library/Keychains\", \"~/Library/Messages\", \"~/Library/Mail\", \"~/Library/Cookies\", \"~/Library/Group Containers/group.com.apple.usernoted\", \"~/Library/Application Support/1Password\", \"~/Library/Group Containers/2BUA8C4S2C.com.1password\", \"~/Library/Application Support/Bitwarden\", \"~/.ssh\", \"~/.aws\", \"~/.config/gh\", \"~/.netrc\", \"~/.npmrc\", \"~/.docker\", \"~/Library/Safari\", \"~/Library/Containers/com.apple.Safari\", \"~/Library/SafariTechnologyPreview\", \"~/Library/Containers/com.apple.SafariTechnologyPreview\", \"~/Library/Application Support/BraveSoftware\", \"~/Library/Application Support/Arc\", \"~/Library/Application Support/Dia\", \"~/Library/Application Support/com.operasoftware.OperaGX\", \"~/Library/Application Support/Firefox\", \"~/Library/Application Support/Orion\", \"~/Library/Containers/com.duckduckgo.macos.browser\", \"~/Library/Application Support/librewolf\", \"~/Library/Application Support/Comet\", \"~/Library/Application Support/Yandex\", \"~/Library/Application Support/Floorp\", \"~/Library/Application Support/MullvadBrowser\", \"~/Library/Application Support/TorBrowser-Data\", \"~/Library/Application Support/zen\", \"~/Library/Application Support/Waterfox\", \"~/Library/Application Support/Thorium\", \"~/Library/Application Support/Google/Chrome\", \"~/Library/Application Support/Google/Chrome Beta\", \"~/Library/Application Support/Google/Chrome Dev\", \"~/Library/Application Support/Google/Chrome Canary\", \"~/Library/Application Support/Chromium\", \"~/Library/Application Support/Microsoft Edge\", \"~/Library/Application Support/Microsoft Edge Beta\", \"~/Library/Application Support/Microsoft Edge Dev\", \"~/Library/Application Support/Microsoft Edge Canary\", \"~/Library/Application Support/Vivaldi\", \"~/Library/Application Support/com.operasoftware.Opera\", \"~/.gnupg\", \"~/.kube\", \"~/.config/gcloud\", \"~/.azure\", \"~/.git-credentials\", \"~/.pypirc\", \"~/.cargo/credentials.toml\"]}",
+       "ferb"
+      ],
+      [
+       7,
+       "id-000007",
+       "2026-01-01T09:00:00+00:00",
+       "store.upgraded",
+       "{\"upgrade\": \"continuity_legacy\", \"changes\": {\"rewritten\": 0, \"imported\": 0, \"conflicting\": 0}}",
+       "ferb"
+      ],
+      [
+       8,
+       "id-000008",
+       "2026-01-01T09:00:00+00:00",
+       "memory.cleanup",
+       "{\"version\": 1, \"owner_kept\": [], \"guesses_kept\": 0, \"subjects_normalized\": 0, \"persona_observed\": 0, \"merged\": [], \"identity_closed\": 0}",
+       "ferb"
+      ],
+      [
+       9,
+       "id-000009",
+       "2026-01-01T09:00:00+00:00",
+       "memory.profile_seeded",
+       "{\"entries\": 0}",
+       "ferb"
+      ],
+      [
+       10,
+       "id-000010",
+       "2026-01-01T09:00:00+00:00",
+       "memory.fact_nodes_closed",
+       "{\"closed\": 0}",
+       "ferb"
+      ],
+      [
+       11,
+       "id-000011",
+       "2026-01-01T09:00:00+00:00",
+       "daemon.started",
+       "{\"pid\": \"<volatile>\"}",
+       "ferb"
+      ],
+      [
+       12,
+       "id-000012",
+       "2026-01-01T09:00:00+00:00",
+       "runtime.limits_unknown",
+       "{\"role\": \"orchestrator\", \"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"problem\": \"Codex's model catalog isn't available: the pinned Codex didn't print one\"}",
+       "ferb"
+      ],
+      [
+       13,
+       "id-000013",
+       "2026-01-01T09:00:00+00:00",
+       "runtime.limits_unknown",
+       "{\"role\": \"worker\", \"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"problem\": \"Codex's model catalog isn't available: the pinned Codex didn't print one\"}",
+       "ferb"
+      ],
+      [
+       14,
+       "id-000014",
+       "2026-01-01T09:00:00+00:00",
+       "runtime.limits_unknown",
+       "{\"role\": \"checker\", \"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"problem\": \"Codex's model catalog isn't available: the pinned Codex didn't print one\"}",
+       "ferb"
+      ],
+      [
+       15,
+       "id-000021",
+       "2026-01-01T09:00:00+00:00",
+       "schedule.pause",
+       "{\"schedule_id\": \"sc-id-000017\"}",
+       "ferb"
+      ],
+      [
+       16,
+       "id-000023",
+       "2026-01-01T09:00:00+00:00",
+       "schedule.resume",
+       "{\"schedule_id\": \"sc-id-000017\"}",
+       "ferb"
+      ],
+      [
+       17,
+       "id-000024",
+       "2026-01-01T09:00:00+00:00",
+       "schedule.cancel",
+       "{\"schedule_id\": \"sc-id-000019\"}",
+       "ferb"
+      ],
+      [
+       18,
+       "id-000025",
+       "2026-01-01T09:05:00+00:00",
+       "schedule.posted",
+       "{\"schedule_id\": \"sc-id-000015\", \"task_id\": \"invented-run-1\", \"name\": \"Permit check\", \"status\": \"done\", \"text\": \"No open slots yet.\"}",
+       "inferred"
+      ],
+      [
+       19,
+       "id-000028",
+       "2026-01-02T08:00:00+00:00",
+       "schedule.retry_queued",
+       "{\"schedule_id\": \"sc-id-000017\", \"at\": \"2026-01-02T08:10:00+00:00\"}",
+       "ferb"
+      ],
+      [
+       20,
+       "id-000029",
+       "2026-01-02T08:00:00+00:00",
+       "schedule.posted",
+       "{\"schedule_id\": \"sc-id-000017\", \"task_id\": \"invented-run-2\", \"name\": \"Water the invented plants\", \"status\": \"failed\", \"text\": \"The invented garden was locked.\"}",
+       "inferred"
+      ],
+      [
+       21,
+       "id-000030",
+       "2026-01-02T08:10:00+00:00",
+       "schedule.posted",
+       "{\"schedule_id\": \"sc-id-000017\", \"task_id\": \"invented-run-3\", \"name\": \"Water the invented plants\", \"status\": \"done_unverified\", \"text\": \"Watered, unconfirmed.\"}",
+       "inferred"
+      ],
+      [
+       22,
+       "id-000031",
+       "2026-01-02T08:10:00+00:00",
+       "schedule.stop",
+       "{\"schedule_id\": \"sc-id-000017\"}",
+       "ferb"
+      ],
+      [
+       23,
+       "id-000032",
+       "2026-01-02T08:10:00+00:00",
+       "daemon.internal_error",
+       "{\"method\": \"schedules.change\", \"error\": \"KeyError\", \"message\": \"'stop'\", \"frames\": [\"ferb/daemon/server.py:323:_dispatch\", \"ferb/daemon/areas/schedules.py:916:_schedules_change\", \"ferb/daemon/areas/schedules.py:618:_schedule_change\"]}",
+       "ferb"
+      ],
+      [
+       24,
+       "id-000033",
+       "2026-01-02T08:10:00+00:00",
+       "daemon.stopped",
+       "{\"pid\": \"<volatile>\"}",
+       "ferb"
+      ],
+      [
+       25,
+       "r1-000002",
+       "2026-01-01T09:00:00+00:00",
+       "schedule.reconciled",
+       "{\"schedule_id\": \"sc-id-000017\", \"at\": \"2026-01-03T08:00:00+00:00\"}",
+       "ferb"
+      ],
+      [
+       26,
+       "r1-000003",
+       "2026-01-01T09:00:00+00:00",
+       "daemon.started",
+       "{\"pid\": \"<volatile>\"}",
+       "ferb"
+      ],
+      [
+       27,
+       "r1-000004",
+       "2026-01-01T09:00:00+00:00",
+       "runtime.limits_unknown",
+       "{\"role\": \"orchestrator\", \"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"problem\": \"Codex's model catalog isn't available: the pinned Codex didn't print one\"}",
+       "ferb"
+      ],
+      [
+       28,
+       "r1-000005",
+       "2026-01-01T09:00:00+00:00",
+       "runtime.limits_unknown",
+       "{\"role\": \"worker\", \"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"problem\": \"Codex's model catalog isn't available: the pinned Codex didn't print one\"}",
+       "ferb"
+      ],
+      [
+       29,
+       "r1-000006",
+       "2026-01-01T09:00:00+00:00",
+       "runtime.limits_unknown",
+       "{\"role\": \"checker\", \"runtime\": \"codex\", \"model\": \"gpt-5.6-sol\", \"problem\": \"Codex's model catalog isn't available: the pinned Codex didn't print one\"}",
+       "ferb"
+      ]
+     ]
+    },
+    "perception_floor": {
+     "columns": [
+      "source",
+      "seq",
+      "at"
+     ],
+     "rows": [
+      [
+       "trail",
+       0,
+       "<volatile>"
+      ],
+      [
+       "notification",
+       null,
+       "<volatile>"
+      ]
+     ]
+    },
+    "recall_state": {
+     "columns": [
+      "name",
+      "value"
+     ],
+     "rows": [
+      [
+       "vectors",
+       "0"
+      ]
+     ]
+    },
+    "schedule_names": {
+     "columns": [
+      "schedule_id",
+      "name"
+     ],
+     "rows": [
+      [
+       "sc-id-000015",
+       "Permit check"
+      ],
+      [
+       "sc-id-000019",
+       "Desk"
+      ]
+     ]
+    },
+    "schedules": {
+     "columns": [
+      "seq",
+      "id",
+      "request",
+      "own_words",
+      "intent_json",
+      "rule_json",
+      "next_run",
+      "timer_id",
+      "state",
+      "failures",
+      "last_run",
+      "created_at",
+      "watch",
+      "last_reported_met"
+     ],
+     "rows": [
+      [
+       1,
+       "sc-id-000015",
+       "Check the invented permit page",
+       "check the permit page in 5 minutes",
+       "{}",
+       "{\"repeat\": \"none\", \"at\": \"\", \"weekday\": null, \"every_minutes\": null, \"tz\": \"UTC\", \"when_active\": false, \"first\": \"2026-01-01T09:05:00+00:00\"}",
+       null,
+       null,
+       "done",
+       0,
+       "2026-01-01T09:05:00+00:00",
+       "2026-01-01T09:00:00+00:00",
+       "none",
+       null
+      ],
+      [
+       2,
+       "sc-id-000017",
+       "Water the invented plants",
+       "water the plants every morning at 8",
+       "{}",
+       "{\"repeat\": \"daily\", \"at\": \"08:00\", \"weekday\": null, \"every_minutes\": null, \"tz\": \"UTC\", \"when_active\": false, \"first\": \"2026-01-02T08:00:00+00:00\"}",
+       "2026-01-03T08:00:00+00:00",
+       "tm-r1-000001",
+       "active",
+       1,
+       "2026-01-02T08:10:00+00:00",
+       "2026-01-01T09:00:00+00:00",
+       "none",
+       null
+      ],
+      [
+       3,
+       "sc-id-000019",
+       "Tidy the invented desk",
+       "tidy the desk every friday",
+       "{}",
+       "{\"repeat\": \"weekly\", \"at\": \"17:00\", \"weekday\": 4, \"every_minutes\": null, \"tz\": \"UTC\", \"when_active\": false, \"first\": \"2026-01-02T17:00:00+00:00\"}",
+       "2026-01-02T17:00:00+00:00",
+       "tm-id-000020",
+       "cancelled",
+       0,
+       null,
+       "2026-01-01T09:00:00+00:00",
+       "none",
+       null
+      ]
+     ]
+    },
+    "timer_deliveries": {
+     "columns": [
+      "timer_id",
+      "at"
+     ],
+     "rows": [
+      [
+       "tm-id-000016",
+       "2026-01-01T09:05:00+00:00"
+      ],
+      [
+       "tm-id-000022",
+       "2026-01-02T08:00:00+00:00"
+      ],
+      [
+       "tm-id-000027",
+       "2026-01-02T08:10:00+00:00"
+      ]
+     ]
+    },
+    "timers": {
+     "columns": [
+      "seq",
+      "id",
+      "kind",
+      "fire_at",
+      "message",
+      "task_id",
+      "request_id",
+      "state",
+      "claim_token",
+      "claimed_at",
+      "delivered_at",
+      "overdue_s",
+      "chat_shown",
+      "created_at"
+     ],
+     "rows": [
+      [
+       1,
+       "tm-id-000016",
+       "schedule",
+       "2026-01-01T09:05:00+00:00",
+       "sc-id-000015",
+       null,
+       null,
+       "delivered",
+       "t000000000000006",
+       "2026-01-01T09:05:00+00:00",
+       "2026-01-01T09:05:00+00:00",
+       0.0,
+       0,
+       "2026-01-01T09:00:00+00:00"
+      ],
+      [
+       2,
+       "tm-id-000018",
+       "schedule",
+       "2026-01-02T08:00:00+00:00",
+       "sc-id-000017",
+       null,
+       null,
+       "cancelled",
+       null,
+       null,
+       null,
+       null,
+       0,
+       "2026-01-01T09:00:00+00:00"
+      ],
+      [
+       3,
+       "tm-id-000020",
+       "schedule",
+       "2026-01-02T17:00:00+00:00",
+       "sc-id-000019",
+       null,
+       null,
+       "cancelled",
+       null,
+       null,
+       null,
+       null,
+       0,
+       "2026-01-01T09:00:00+00:00"
+      ],
+      [
+       4,
+       "tm-id-000022",
+       "schedule",
+       "2026-01-02T08:00:00+00:00",
+       "sc-id-000017",
+       null,
+       null,
+       "delivered",
+       "t000000000000007",
+       "2026-01-02T08:00:00+00:00",
+       "2026-01-02T08:00:00+00:00",
+       0.0,
+       0,
+       "2026-01-01T09:00:00+00:00"
+      ],
+      [
+       5,
+       "tm-id-000026",
+       "schedule",
+       "2026-01-03T08:00:00+00:00",
+       "sc-id-000017",
+       null,
+       null,
+       "cancelled",
+       null,
+       null,
+       null,
+       null,
+       0,
+       "2026-01-02T08:00:00+00:00"
+      ],
+      [
+       6,
+       "tm-id-000027",
+       "schedule",
+       "2026-01-02T08:10:00+00:00",
+       "retry:sc-id-000017",
+       null,
+       null,
+       "delivered",
+       "t000000000000009",
+       "2026-01-02T08:10:00+00:00",
+       "2026-01-02T08:10:00+00:00",
+       0.0,
+       0,
+       "2026-01-02T08:00:00+00:00"
+      ],
+      [
+       7,
+       "tm-r1-000001",
+       "schedule",
+       "2026-01-03T08:00:00+00:00",
+       "sc-id-000017",
+       null,
+       null,
+       "pending",
+       null,
+       null,
+       null,
+       null,
+       0,
+       "2026-01-01T09:00:00+00:00"
+      ]
+     ]
+    },
+    "trail_changes": {
+     "columns": [
+      "id",
+      "n"
+     ],
+     "rows": [
+      [
+       1,
+       0
+      ]
+     ]
+    }
+   }
+  }
+ ]
+}

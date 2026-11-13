@@ -474,6 +474,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferb-daemon"
+version = "0.28.0"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "fancy-regex 0.14.0",
+ "ferb-browser",
+ "ferb-clock",
+ "ferb-context",
+ "ferb-core",
+ "ferb-device",
+ "ferb-identity",
+ "ferb-learning",
+ "ferb-mac-hands",
+ "ferb-memory",
+ "ferb-orchestrator",
+ "ferb-policy",
+ "ferb-py",
+ "ferb-rpc",
+ "ferb-runtimes",
+ "ferb-sanitize",
+ "ferb-sense",
+ "ferb-shell",
+ "ferb-store",
+ "ferb-trace",
+ "hex",
+ "libc",
+ "regex",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "ferb-device"
 version = "0.28.0"
 dependencies = [

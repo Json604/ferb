@@ -1,0 +1,1354 @@
+{
+ "scenarios": [
+  {
+   "name": "with_access",
+   "what": "Full Disk Access, Chrome (eight profiles in every state) and Brave (one without FERB): list, installed, the\n    native-host files, Pair all and its stream, pairing one profile (answered, unanswered, off, missing, too old, a bad\n    timeout), FERB's own profile found, chosen, paired and cleared, Add to Chrome, unpair, a handoff.",
+   "python": [
+    "ferb/daemon/areas/browsers.py"
+   ],
+   "volatile": [],
+   "steps": [
+    {
+     "do": "connect",
+     "conn": "app"
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"browsers.list\", \"params\": {}}"
+      },
+      {
+       "recv": {
+        "sha256": "672e1a9ddfd03bd70ecef63c6f5038e39eb1c3980d771356947ec357a0197646"
+       }
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"browsers.installed\", \"params\": {\"profile\": \"Work\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"installed\": true}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"browsers.installed\", \"params\": {\"profile\": \"chrome/Profile 4\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"installed\": false}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"browsers.installed\", \"params\": {\"profile\": \"Brave Me\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"result\": {\"installed\": false}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"method\": \"browsers.installed\", \"params\": {\"profile\": \"Nobody\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"error\": {\"code\": -32004, \"message\": \"no profile called 'Nobody'; found: chrome/Home (owner@example.test), chrome/Work (work@example.test), chrome/Spare, chrome/Old, chrome/Removed, chrome/FERB (ferb@example.test), chrome/Stale (stale@example.test), chrome/Mixed (ferb@example.test), brave/Brave Me\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"method\": \"browsers.installed\", \"params\": {\"profile\": \"chrome\", \"browser\": \"chrome\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"error\": {\"code\": -32004, \"message\": \"'chrome' matches several profiles: chrome/Default (name='Home', account=owner@example.test), chrome/Profile 1 (name='Work', account=work@example.test), chrome/Profile 2 (name='Spare', account=unknown), chrome/Profile 3 (name='Old', account=unknown), chrome/Profile 4 (name='Removed', account=unknown), chrome/Profile 5 (name='FERB', account=ferb@example.test), chrome/Profile 6 (name='Stale', account=stale@example.test), chrome/Profile 7 (name='Mixed', account=ferb@example.test)\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"method\": \"setup.browsers\", \"params\": {}}"
+      },
+      {
+       "recv": {
+        "sha256": "1788fb873a2a4b955df6be62c628974d92dda860f0b7ca95068c56a0e77fbdb4"
+       }
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"method\": \"setup.browsers\", \"params\": {}}"
+      },
+      {
+       "recv": {
+        "sha256": "92a52330c5f5ed528e79df2a0aea7f141db44d6d40e1ca7c20cc8260670a77d8"
+       }
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 10, \"method\": \"identity.find\", \"params\": {\"address\": \"FERB@example.test\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 10, \"result\": {\"current\": {\"address\": \"\", \"browser\": \"\", \"profile\": \"\", \"profile_name\": \"\", \"profile_email\": \"\", \"paired\": false, \"owner_profile\": \"\", \"owner_profile_name\": \"\", \"owner_profile_email\": \"\"}, \"address\": \"ferb@example.test\", \"candidates\": [{\"browser\": \"chrome\", \"browser_name\": \"Google Chrome\", \"folder\": \"Profile 5\", \"name\": \"FERB\", \"email\": \"ferb@example.test\", \"only\": true, \"other_accounts\": 0}, {\"browser\": \"chrome\", \"browser_name\": \"Google Chrome\", \"folder\": \"Profile 7\", \"name\": \"Mixed\", \"email\": \"ferb@example.test\", \"only\": false, \"other_accounts\": 1}]}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 11, \"method\": \"identity.choose\", \"params\": {\"address\": \"ferb@example.test\", \"browser\": \"chrome\", \"folder\": \"Default\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 11, \"error\": {\"code\": -32004, \"message\": \"profile Home (Default) isn't signed into ferb@example.test; FERB's profile must hold only ferb@example.test\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 12, \"method\": \"identity.choose\", \"params\": {\"address\": \"ferb@example.test\", \"browser\": \"chrome\", \"folder\": \"Profile 7\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 12, \"error\": {\"code\": -32004, \"message\": \"profile Mixed (Profile 7) also holds other accounts; FERB's profile must hold only ferb@example.test\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 13, \"method\": \"identity.choose\", \"params\": {\"address\": \"ferb@example.test\", \"browser\": \"opera\", \"folder\": \"Default\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 13, \"error\": {\"code\": -32004, \"message\": \"opera isn't installed\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 14, \"method\": \"identity.choose\", \"params\": {\"address\": \"ferb@example.test\", \"browser\": \"chrome\", \"folder\": \"Profile 5\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 14, \"result\": {\"address\": \"ferb@example.test\", \"browser\": \"chrome\", \"profile\": \"Profile 5\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 15, \"method\": \"identity.find\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 15, \"result\": {\"current\": {\"address\": \"ferb@example.test\", \"browser\": \"chrome\", \"profile\": \"Profile 5\", \"profile_name\": \"FERB\", \"profile_email\": \"ferb@example.test\", \"paired\": false, \"owner_profile\": \"\", \"owner_profile_name\": \"\", \"owner_profile_email\": \"\"}, \"address\": \"ferb@example.test\", \"candidates\": [{\"browser\": \"chrome\", \"browser_name\": \"Google Chrome\", \"folder\": \"Profile 5\", \"name\": \"FERB\", \"email\": \"ferb@example.test\", \"only\": true, \"other_accounts\": 0}, {\"browser\": \"chrome\", \"browser_name\": \"Google Chrome\", \"folder\": \"Profile 7\", \"name\": \"Mixed\", \"email\": \"ferb@example.test\", \"only\": false, \"other_accounts\": 1}]}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 16, \"method\": \"setup.browsers_pair_all\", \"params\": {\"timeout_s\": 0}}"
+      },
+      {
+       "recv": {
+        "sha256": "bdabdcccc9218c53a4177aface3ab585027468d0ccf24ea7cf669421a51ea21c"
+       }
+      }
+     ]
+    },
+    {
+     "do": "stream",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 17, \"method\": \"setup.browsers_pairing\", \"params\": {\"timeout_s\": 0}}"
+      }
+     ]
+    },
+    {
+     "do": "stream_end",
+     "conn": "app",
+     "lines": [
+      {
+       "recv": {
+        "sha256": "df1d242e1ff93f0bcd8272664f0d81958b26270adb6a85edaf0bed4fa6389112"
+       }
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"method\": \"setup.browsers_pairing.event\", \"params\": {\"type\": \"result\", \"browser\": \"chrome\", \"folder\": \"Profile 1\", \"name\": \"Work\", \"email\": \"work@example.test\", \"paired\": false, \"reason\": \"no_answer\", \"hint\": \"is the FERB extension loaded and enabled in that profile?\", \"why\": \"FERB's pairing page got no answer there: Google Chrome may have FERB turned off, updating or waiting for you to accept new permissions in that profile. Open chrome://extensions in that profile, make sure FERB is on and up to date, then try again\", \"label\": \"Google Chrome\"}}"
+      },
+      {
+       "recv": {
+        "sha256": "6b83d823be4f098d060bf935fca3de80aaa27999832f4d13500ea9fd1ac0132d"
+       }
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 17, \"result\": {\"ended\": true}}"
+      }
+     ]
+    },
+    {
+     "do": "stream",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 18, \"method\": \"setup.browsers_pairing\", \"params\": {\"timeout_s\": \"soon\"}}"
+      }
+     ]
+    },
+    {
+     "do": "stream_end",
+     "conn": "app",
+     "lines": [
+      {
+       "recv": {
+        "sha256": "df1d242e1ff93f0bcd8272664f0d81958b26270adb6a85edaf0bed4fa6389112"
+       }
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 18, \"error\": {\"code\": -32004, \"message\": \"ValueError: could not convert string to float: 'soon'\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 19, \"method\": \"browsers.pair\", \"params\": {\"browser\": \"chrome\", \"folder\": \"Profile 2\", \"timeout_s\": 0}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 19, \"result\": {\"browser\": \"chrome\", \"folder\": \"Profile 2\", \"name\": \"Spare\", \"email\": \"\", \"needs_enable\": true, \"paired\": false, \"reason\": \"off\", \"why\": \"Google Chrome turned FERB off until you accept its new permissions: open chrome://extensions in that profile and turn FERB on\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 20, \"method\": \"browsers.pair\", \"params\": {\"profile\": \"Brave Me\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 20, \"result\": {\"paired\": false, \"needs_install\": true, \"browser\": \"brave\", \"folder\": \"Default\", \"name\": \"Brave Me\", \"email\": \"\", \"extension_dir\": \"/FX/01/home/extensions/chromium\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 21, \"method\": \"browsers.pair\", \"params\": {\"profile\": \"FERB\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 21, \"error\": {\"code\": -32004, \"message\": \"'FERB' matches several profiles: chrome/Profile 5 (name='FERB', account=ferb@example.test), chrome/Profile 7 (name='Mixed', account=ferb@example.test)\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 22, \"method\": \"browsers.pair\", \"params\": {\"browser\": \"chrome\", \"folder\": \"Profile 3\", \"timeout_s\": \"soon\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 22, \"error\": {\"code\": -32603, \"message\": \"ValueError\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 23, \"method\": \"browsers.pair\", \"params\": {\"profile\": \"Old\", \"timeout_s\": 0}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 23, \"result\": {\"browser\": \"chrome\", \"folder\": \"Profile 3\", \"name\": \"Old\", \"email\": \"\", \"paired\": false, \"reason\": \"too_old\", \"why\": \"FERB's extension there is version 0.15.13 and FERB needs 0.19.0 or later: open chrome://extensions in that profile, turn on Developer mode and press Update, or quit and reopen Google Chrome\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 24, \"method\": \"setup.browser_pair\", \"params\": {\"browser\": \"chrome\", \"folder\": \"Profile 1\", \"timeout_s\": 0}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 24, \"result\": {\"browser\": \"chrome\", \"folder\": \"Profile 1\", \"name\": \"Work\", \"email\": \"work@example.test\", \"paired\": false, \"reason\": \"no_answer\", \"hint\": \"is the FERB extension loaded and enabled in that profile?\", \"why\": \"FERB's pairing page got no answer there: Google Chrome may have FERB turned off, updating or waiting for you to accept new permissions in that profile. Open chrome://extensions in that profile, make sure FERB is on and up to date, then try again\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 25, \"method\": \"setup.browser_pair\", \"params\": {\"browser\": \"chrome\", \"folder\": \"Profile 1\", \"timeout_s\": [1]}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 25, \"error\": {\"code\": -32603, \"message\": \"TypeError\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 26, \"method\": \"identity.pair\", \"params\": {\"timeout_s\": 0}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 26, \"result\": {\"paired\": false, \"profile\": \"Profile 5\", \"hint\": \"is the FERB extension loaded in FERB's profile?\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 27, \"method\": \"identity.pair\", \"params\": {\"timeout_s\": \"soon\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 27, \"error\": {\"code\": -32603, \"message\": \"ValueError\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 28, \"method\": \"browsers.pair\", \"params\": {\"browser\": \"chrome\", \"folder\": \"Profile 1\", \"timeout_s\": 5}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 28, \"result\": {\"browser\": \"chrome\", \"folder\": \"Profile 1\", \"name\": \"Work\", \"email\": \"work@example.test\", \"paired\": true}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 29, \"method\": \"identity.pair\", \"params\": {\"timeout_s\": 5}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 29, \"result\": {\"paired\": true, \"profile\": \"Profile 5\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 30, \"method\": \"identity.pair\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 30, \"error\": {\"code\": -32004, \"message\": \"FERB's identity profile is already paired; re-pairing needs your confirmation\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 31, \"method\": \"identity.find\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 31, \"result\": {\"current\": {\"address\": \"ferb@example.test\", \"browser\": \"chrome\", \"profile\": \"Profile 5\", \"profile_name\": \"FERB\", \"profile_email\": \"ferb@example.test\", \"paired\": true, \"owner_profile\": \"\", \"owner_profile_name\": \"\", \"owner_profile_email\": \"\"}, \"address\": \"ferb@example.test\", \"candidates\": [{\"browser\": \"chrome\", \"browser_name\": \"Google Chrome\", \"folder\": \"Profile 5\", \"name\": \"FERB\", \"email\": \"ferb@example.test\", \"only\": true, \"other_accounts\": 0}, {\"browser\": \"chrome\", \"browser_name\": \"Google Chrome\", \"folder\": \"Profile 7\", \"name\": \"Mixed\", \"email\": \"ferb@example.test\", \"only\": false, \"other_accounts\": 1}]}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 32, \"method\": \"browsers.list\", \"params\": {}}"
+      },
+      {
+       "recv": {
+        "sha256": "8819cf8eeb49d1810c5d806b7dd310097013ad5804f3e5d587855e4b66c98b01"
+       }
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 33, \"method\": \"setup.browser_open\", \"params\": {\"browser\": \"chrome\", \"folder\": \"Profile 4\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 33, \"result\": {\"opened\": \"https://chromewebstore.google.com/detail/plbfkifcmgkgnlfgikdeaaglgncdhkma\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 34, \"method\": \"setup.browser_open\", \"params\": {\"browser\": \"chrome\", \"folder\": \"Profile 9\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 34, \"error\": {\"code\": -32004, \"message\": \"chrome/Profile 9 isn't a discovered profile; refusing to create one\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 35, \"method\": \"browsers.unpair\", \"params\": {\"profile\": \"Spare\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 35, \"result\": {\"unpaired\": false}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 36, \"method\": \"browsers.unpair\", \"params\": {\"profile\": \"Work\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 36, \"result\": {\"unpaired\": true}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 37, \"method\": \"setup.browsers\", \"params\": {}}"
+      },
+      {
+       "recv": {
+        "sha256": "2c67d27df65ed467883e3489781f3f24a9f33f8ac930ced755e4be358d13c6ba"
+       }
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 38, \"method\": \"identity.choose\", \"params\": {\"clear\": true}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 38, \"result\": {\"address\": \"\", \"browser\": \"\", \"profile\": \"\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 39, \"method\": \"identity.find\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 39, \"result\": {\"current\": {\"address\": \"\", \"browser\": \"\", \"profile\": \"\", \"profile_name\": \"\", \"profile_email\": \"\", \"paired\": false, \"owner_profile\": \"\", \"owner_profile_name\": \"\", \"owner_profile_email\": \"\"}, \"address\": \"\", \"candidates\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "wait",
+     "until": "the handoff's first look"
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 40, \"method\": \"browser.show_handoff\", \"params\": {\"handoff_id\": \"abcdef012345\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 40, \"result\": {\"shown\": true, \"tab\": true}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 41, \"method\": \"browser.show_handoff\", \"params\": {\"handoff_id\": \"abcdef012345\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 41, \"result\": {\"shown\": true, \"tab\": false}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 42, \"method\": \"browser.show_handoff\", \"params\": {\"handoff_id\": \"abcdef012345\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 42, \"result\": {\"shown\": false, \"why\": \"that check is already over\"}}"
+      }
+     ]
+    }
+   ],
+   "journal": [
+    [
+     "browser.files_written",
+     {
+      "hosts": 2,
+      "requests": 2,
+      "failed": []
+     },
+     "ferb"
+    ],
+    [
+     "settings.changed",
+     {
+      "key": "identity",
+      "value": {
+       "address": "ferb@example.test",
+       "browser": "chrome",
+       "profile": "Profile 5"
+      }
+     },
+     "owner"
+    ],
+    [
+     "browsers.pair_all_skipped",
+     {
+      "skipped": [
+       {
+        "browser": "chrome",
+        "folder": "Profile 2",
+        "reason": "off"
+       },
+       {
+        "browser": "chrome",
+        "folder": "Profile 3",
+        "reason": "too_old"
+       },
+       {
+        "browser": "chrome",
+        "folder": "Profile 4",
+        "reason": "removed"
+       },
+       {
+        "browser": "chrome",
+        "folder": "Profile 6",
+        "reason": "problem"
+       },
+       {
+        "browser": "chrome",
+        "folder": "Profile 7",
+        "reason": "off"
+       },
+       {
+        "browser": "brave",
+        "folder": "Default",
+        "reason": "requested"
+       }
+      ]
+     },
+     "ferb"
+    ],
+    [
+     "browsers.pair_failed",
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "why": "the pairing page wasn't answered"
+     },
+     "ferb"
+    ],
+    [
+     "browsers.pair_all_skipped",
+     {
+      "skipped": [
+       {
+        "browser": "chrome",
+        "folder": "Profile 2",
+        "reason": "off"
+       },
+       {
+        "browser": "chrome",
+        "folder": "Profile 3",
+        "reason": "too_old"
+       },
+       {
+        "browser": "chrome",
+        "folder": "Profile 4",
+        "reason": "removed"
+       },
+       {
+        "browser": "chrome",
+        "folder": "Profile 6",
+        "reason": "problem"
+       },
+       {
+        "browser": "chrome",
+        "folder": "Profile 7",
+        "reason": "off"
+       },
+       {
+        "browser": "brave",
+        "folder": "Default",
+        "reason": "requested"
+       }
+      ]
+     },
+     "ferb"
+    ],
+    [
+     "browsers.pair_failed",
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "why": "the pairing page wasn't answered"
+     },
+     "ferb"
+    ],
+    [
+     "browsers.pair_all_skipped",
+     {
+      "skipped": [
+       {
+        "browser": "chrome",
+        "folder": "Profile 2",
+        "reason": "off"
+       },
+       {
+        "browser": "chrome",
+        "folder": "Profile 3",
+        "reason": "too_old"
+       },
+       {
+        "browser": "chrome",
+        "folder": "Profile 4",
+        "reason": "removed"
+       },
+       {
+        "browser": "chrome",
+        "folder": "Profile 6",
+        "reason": "problem"
+       },
+       {
+        "browser": "chrome",
+        "folder": "Profile 7",
+        "reason": "off"
+       },
+       {
+        "browser": "brave",
+        "folder": "Default",
+        "reason": "requested"
+       }
+      ]
+     },
+     "ferb"
+    ],
+    [
+     "daemon.internal_error",
+     {
+      "method": "setup.browsers_pairing",
+      "error": "ValueError",
+      "message": "could not convert string to float: 'soon'",
+      "frames": [
+       "ferb/daemon/server.py:413:pump",
+       "ferb/daemon/areas/browsers.py:730:_setup_browsers_pairing",
+       "ferb/daemon/areas/browsers.py:780:_pair_all_events"
+      ]
+     },
+     "ferb"
+    ],
+    [
+     "daemon.internal_error",
+     {
+      "method": "browsers.pair",
+      "error": "ValueError",
+      "message": "could not convert string to float: 'soon'",
+      "frames": [
+       "ferb/daemon/server.py:323:_dispatch",
+       "ferb/daemon/areas/browsers.py:530:_browsers_pair"
+      ]
+     },
+     "ferb"
+    ],
+    [
+     "browsers.pair_failed",
+     {
+      "browser": "chrome",
+      "folder": "Profile 1",
+      "why": "the pairing page wasn't answered"
+     },
+     "ferb"
+    ],
+    [
+     "daemon.internal_error",
+     {
+      "method": "setup.browser_pair",
+      "error": "TypeError",
+      "message": "float() argument must be a string or a real number, not 'list'",
+      "frames": [
+       "ferb/daemon/server.py:323:_dispatch",
+       "ferb/daemon/areas/browsers.py:718:_setup_browser_pair"
+      ]
+     },
+     "ferb"
+    ],
+    [
+     "daemon.internal_error",
+     {
+      "method": "identity.pair",
+      "error": "ValueError",
+      "message": "could not convert string to float: 'soon'",
+      "frames": [
+       "ferb/daemon/server.py:323:_dispatch",
+       "ferb/daemon/areas/browsers.py:379:_identity_pair"
+      ]
+     },
+     "ferb"
+    ],
+    [
+     "browsers.paired",
+     {
+      "browser": "chrome",
+      "folder": "Profile 1"
+     },
+     "ferb"
+    ],
+    [
+     "setup.browser_opened",
+     {
+      "browser": "chrome",
+      "folder": "Profile 4",
+      "url": "https://chromewebstore.google.com/detail/plbfkifcmgkgnlfgikdeaaglgncdhkma"
+     },
+     "ferb"
+    ],
+    [
+     "settings.changed",
+     {
+      "key": "identity",
+      "value": {
+       "address": "",
+       "browser": "",
+       "profile": ""
+      }
+     },
+     "owner"
+    ],
+    [
+     "browser.handoff",
+     {
+      "task_id": "task-1",
+      "handoff_id": "abcdef012345",
+      "host": "example.test",
+      "browser": "chrome",
+      "folder": "Default"
+     },
+     "ferb"
+    ],
+    [
+     "browser.handoff_ended",
+     {
+      "handoff_id": "abcdef012345",
+      "passed": true
+     },
+     "ferb"
+    ]
+   ],
+   "published": [],
+   "setup": {
+    "config": {
+     "sha256": "d26f8123d1ff111f9d50ca2fcc91784b9c0caac762cfbba929aa909f5ec13646"
+    },
+    "files": {
+     "Google/Chrome/Local State": "{\"profile\": {\"info_cache\": {\"Default\": {\"name\": \"Home\", \"user_name\": \"owner@example.test\"}, \"Profile 1\": {\"name\": \"Work\", \"user_name\": \"work@example.test\"}, \"Profile 2\": {\"name\": \"Spare\", \"user_name\": \"\"}, \"Profile 3\": {\"name\": \"Old\", \"user_name\": \"\"}, \"Profile 4\": {\"name\": \"Removed\", \"user_name\": \"\"}, \"Profile 5\": {\"name\": \"FERB\", \"user_name\": \"ferb@example.test\"}, \"Profile 6\": {\"name\": \"Stale\", \"user_name\": \"stale@example.test\"}, \"Profile 7\": {\"name\": \"Mixed\", \"user_name\": \"ferb@example.test\"}}}}",
+     "Google/Chrome/Default/Preferences": "{\"extensions\": {\"settings\": {\"plbfkifcmgkgnlfgikdeaaglgncdhkma\": {\"location\": 1, \"path\": \"plbfkifcmgkgnlfgikdeaaglgncdhkma/0.19.5_0\"}}}, \"account_info\": [{\"email\": \"owner@example.test\"}]}",
+     "Google/Chrome/Profile 1/Preferences": "{\"extensions\": {\"settings\": {\"plbfkifcmgkgnlfgikdeaaglgncdhkma\": {\"location\": 1, \"path\": \"plbfkifcmgkgnlfgikdeaaglgncdhkma/0.19.5_0\"}}}, \"account_info\": [{\"email\": \"work@example.test\"}]}",
+     "Google/Chrome/Profile 2/Preferences": "{\"extensions\": {\"settings\": {\"plbfkifcmgkgnlfgikdeaaglgncdhkma\": {\"location\": 1, \"path\": \"plbfkifcmgkgnlfgikdeaaglgncdhkma/0.19.5_0\", \"disable_reasons\": [4]}}}}",
+     "Google/Chrome/Profile 3/Preferences": "{\"extensions\": {\"settings\": {\"plbfkifcmgkgnlfgikdeaaglgncdhkma\": {\"location\": 1, \"path\": \"plbfkifcmgkgnlfgikdeaaglgncdhkma/0.15.13_0\"}}}}",
+     "Google/Chrome/Profile 4/Preferences": "{\"extensions\": {\"settings\": {}, \"external_uninstalls\": [\"plbfkifcmgkgnlfgikdeaaglgncdhkma\"]}}",
+     "Google/Chrome/Profile 5/Preferences": "{\"extensions\": {\"settings\": {\"plbfkifcmgkgnlfgikdeaaglgncdhkma\": {\"location\": 1, \"path\": \"plbfkifcmgkgnlfgikdeaaglgncdhkma/0.19.5_0\"}}}, \"account_info\": [{\"email\": \"ferb@example.test\"}]}",
+     "Google/Chrome/Profile 6/Preferences": "{\"extensions\": {\"settings\": {\"plbfkifcmgkgnlfgikdeaaglgncdhkma\": {\"location\": 1, \"path\": \"plbfkifcmgkgnlfgikdeaaglgncdhkma/0.19.5_0\"}}}, \"account_info\": [{\"email\": \"stale@example.test\"}]}",
+     "Google/Chrome/Profile 7/Preferences": "{\"extensions\": {\"settings\": {\"jaclnphefmmgmpofnabffahdkbjjompm\": {\"location\": 4, \"path\": \"/x/unpacked\", \"state\": 0}}}, \"account_info\": [{\"email\": \"ferb@example.test\"}, {\"email\": \"other@example.test\"}]}",
+     "BraveSoftware/Brave-Browser/Local State": "{\"profile\": {\"info_cache\": {\"Default\": {\"name\": \"Brave Me\", \"user_name\": \"\"}}}}",
+     "BraveSoftware/Brave-Browser/Default/Preferences": "{\"extensions\": {\"settings\": {}}}"
+    },
+    "installs": [
+     [
+      "inst-default",
+      "chrome",
+      "Default",
+      "owner",
+      "0.19.5"
+     ],
+     [
+      "inst-stale",
+      "chrome",
+      "Profile 6",
+      "owner",
+      "0.1.0"
+     ]
+    ],
+    "bridges": [
+     [
+      "chrome",
+      "Default",
+      "0.19.5",
+      1
+     ]
+    ],
+    "unpaired": [
+     [
+      "inst-unpaired",
+      "brave",
+      "0.19.4"
+     ]
+    ]
+   },
+   "launched": [
+    [
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+     "--profile-directory=Profile 1",
+     "http://127.0.0.1:9/wake#w1"
+    ],
+    [
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+     "--profile-directory=Profile 1",
+     "chrome-extension://plbfkifcmgkgnlfgikdeaaglgncdhkma/pair.html#token=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB"
+    ],
+    [
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+     "--profile-directory=Profile 1",
+     "http://127.0.0.1:9/wake#w1"
+    ],
+    [
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+     "--profile-directory=Profile 1",
+     "chrome-extension://plbfkifcmgkgnlfgikdeaaglgncdhkma/pair.html#token=AgICAgICAgICAgICAgICAgICAgICAgIC"
+    ],
+    [
+     "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+     "--profile-directory=Default",
+     "chrome://extensions"
+    ],
+    [
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+     "--profile-directory=Profile 1",
+     "http://127.0.0.1:9/wake#w1"
+    ],
+    [
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+     "--profile-directory=Profile 1",
+     "chrome-extension://plbfkifcmgkgnlfgikdeaaglgncdhkma/pair.html#token=AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD"
+    ],
+    [
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+     "--profile-directory=Profile 5",
+     "http://127.0.0.1:9/wake#w1"
+    ],
+    [
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+     "--profile-directory=Profile 5",
+     "chrome-extension://plbfkifcmgkgnlfgikdeaaglgncdhkma/pair.html#token=BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"
+    ],
+    [
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+     "--profile-directory=Profile 5",
+     "http://127.0.0.1:9/wake#w1"
+    ],
+    [
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+     "--profile-directory=Profile 5",
+     "chrome-extension://plbfkifcmgkgnlfgikdeaaglgncdhkma/pair.html#token=BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUF"
+    ],
+    [
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+     "--profile-directory=Profile 1",
+     "http://127.0.0.1:9/wake#w1"
+    ],
+    [
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+     "--profile-directory=Profile 1",
+     "chrome-extension://plbfkifcmgkgnlfgikdeaaglgncdhkma/pair.html#token=BgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYG"
+    ],
+    [
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+     "--profile-directory=Profile 5",
+     "http://127.0.0.1:9/wake#w1"
+    ],
+    [
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+     "--profile-directory=Profile 5",
+     "chrome-extension://plbfkifcmgkgnlfgikdeaaglgncdhkma/pair.html#token=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH"
+    ],
+    [
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+     "--profile-directory=Profile 4",
+     "https://chromewebstore.google.com/detail/plbfkifcmgkgnlfgikdeaaglgncdhkma"
+    ],
+    [
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+     "--profile-directory=Default"
+    ]
+   ],
+   "bridge_calls": [
+    [
+     "chrome/Profile 1",
+     "wake_close",
+     {
+      "url": "http://127.0.0.1:9/wake#w1"
+     },
+     5
+    ],
+    [
+     "chrome/Profile 5",
+     "wake_close",
+     {
+      "url": "http://127.0.0.1:9/wake#w1"
+     },
+     5
+    ]
+   ],
+   "handoff": {
+    "ref": {
+     "tab": 7
+    },
+    "message": "Verify you are human",
+    "task_id": "task-1",
+    "worker_id": "w-1",
+    "result": {
+     "passed": true,
+     "url": "https://www.example.test/check",
+     "title": "Check",
+     "next": "the check let the owner through: take a fresh snapshot of this tab and carry on"
+    },
+    "looks": [
+     [
+      {
+       "tab": 7
+      },
+      "Verify you are human"
+     ],
+     [
+      {
+       "tab": 7
+      },
+      "Verify you are human"
+     ],
+     [
+      {
+       "tab": 7
+      },
+      "Verify you are human"
+     ]
+    ],
+    "shown": [
+     {
+      "tab": 7
+     },
+     {
+      "tab": 7
+     }
+    ],
+    "notify": [
+     {
+      "title": "FERB needs you for a moment",
+      "text": "example.test wants to check you're human. Click to open the tab; FERB carries on by itself once it lets you through.",
+      "urgent": true,
+      "category": "question",
+      "target": {
+       "kind": "handoff",
+       "handoff_id": "abcdef012345",
+       "task_id": "task-1"
+      },
+      "ident": "handoff:abcdef012345"
+     }
+    ],
+    "waiting": [
+     [
+      "w-1",
+      true
+     ],
+     [
+      "w-1",
+      false
+     ]
+    ]
+   },
+   "after": {
+    "config": "[privacy]\nexclude_apps = [\"com.1password.1password\", \"com.agilebits.onepassword7\", \"com.bitwarden.desktop\", \"com.apple.Passwords\", \"com.apple.keychainaccess\"]\nexclude_domains = []\nexclude_paths = [\"~/.ssh\", \"~/Library/Keychains\", \"~/.ferb\"]\n\n[sense]\nwindow_titles = true\nwatch_folders = []\nidle_after_s = 120\ntrail_retention_days = 30\n\n[retention]\ntrace_days = 30\ndecision_days = 30\nevidence_days = 7\nrecovery_days = 7\nresource_days = 30\noperational_days = 90\n\n[browser]\ndownload_task_max_files = 300\ndownload_task_max_gb = 32\ndownload_total_gb = 20\ndownload_min_free_gb = 10\ntask_max_tabs = 50\n\n[protection]\nnever_read = [\"~/Library/Keychains\", \"/Library/Keychains\", \"~/Library/Messages\", \"~/Library/Mail\", \"~/Library/Cookies\", \"~/Library/Group Containers/group.com.apple.usernoted\", \"~/Library/Application Support/1Password\", \"~/Library/Group Containers/2BUA8C4S2C.com.1password\", \"~/Library/Application Support/Bitwarden\", \"~/.ssh\", \"~/.aws\", \"~/.config/gh\", \"~/.netrc\", \"~/.npmrc\", \"~/.docker\", \"~/Library/Safari\", \"~/Library/Containers/com.apple.Safari\", \"~/Library/SafariTechnologyPreview\", \"~/Library/Containers/com.apple.SafariTechnologyPreview\", \"~/Library/Application Support/BraveSoftware\", \"~/Library/Application Support/Arc\", \"~/Library/Application Support/Dia\", \"~/Library/Application Support/com.operasoftware.OperaGX\", \"~/Library/Application Support/Firefox\", \"~/Library/Application Support/Orion\", \"~/Library/Containers/com.duckduckgo.macos.browser\", \"~/Library/Application Support/librewolf\", \"~/Library/Application Support/Comet\", \"~/Library/Application Support/Yandex\", \"~/Library/Application Support/Floorp\", \"~/Library/Application Support/MullvadBrowser\", \"~/Library/Application Support/TorBrowser-Data\", \"~/Library/Application Support/zen\", \"~/Library/Application Support/Waterfox\", \"~/Library/Application Support/Thorium\", \"~/Library/Application Support/Google/Chrome\", \"~/Library/Application Support/Google/Chrome Beta\", \"~/Library/Application Support/Google/Chrome Dev\", \"~/Library/Application Support/Google/Chrome Canary\", \"~/Library/Application Support/Chromium\", \"~/Library/Application Support/Microsoft Edge\", \"~/Library/Application Support/Microsoft Edge Beta\", \"~/Library/Application Support/Microsoft Edge Dev\", \"~/Library/Application Support/Microsoft Edge Canary\", \"~/Library/Application Support/Vivaldi\", \"~/Library/Application Support/com.operasoftware.Opera\", \"~/.gnupg\", \"~/.kube\", \"~/.config/gcloud\", \"~/.azure\", \"~/.git-credentials\", \"~/.pypirc\", \"~/.cargo/credentials.toml\"]\nnever_write = [\"~/.ssh\", \"~/Library/Keychains\", \"~/Library/LaunchAgents\", \"/Library/LaunchAgents\", \"/Library/LaunchDaemons\", \"~/.zshrc\", \"~/.zprofile\", \"~/.zshenv\", \"~/.zlogin\", \"~/.bash_profile\", \"~/.bashrc\", \"~/.profile\", \"/System\", \"/Library\", \"/Applications\"]\nterminal_apps = [\"com.apple.Terminal\", \"com.googlecode.iterm2\", \"dev.warp.Warp-Stable\", \"dev.warp.Warp-Preview\", \"com.mitchellh.ghostty\", \"org.alacritty\", \"net.kovidgoyal.kitty\", \"com.github.wez.wezterm\", \"co.zeit.hyper\", \"org.tabby\", \"com.termius-dmg.mac\", \"com.termius.mac\", \"com.raphaelamorim.rio\", \"org.contourterminal.contour\"]\nlocal_ports = []\n\n[mailbox]\n\n[identity]\n",
+    "files": {
+     "BraveSoftware/Brave-Browser/Default/Preferences": "{\"extensions\": {\"settings\": {}}}",
+     "BraveSoftware/Brave-Browser/External Extensions/plbfkifcmgkgnlfgikdeaaglgncdhkma.json": "{\n  \"external_update_url\": \"https://clients2.google.com/service/update2/crx\"\n}\n",
+     "BraveSoftware/Brave-Browser/Local State": "{\"profile\": {\"info_cache\": {\"Default\": {\"name\": \"Brave Me\", \"user_name\": \"\"}}}}",
+     "BraveSoftware/Brave-Browser/NativeMessagingHosts/com.ferb.native_host.json": "{\n  \"name\": \"com.ferb.native_host\",\n  \"description\": \"FERB native messaging host\",\n  \"path\": \"/FX/01/home/bin/ferb-native-host\",\n  \"type\": \"stdio\",\n  \"allowed_origins\": [\n    \"chrome-extension://jaclnphefmmgmpofnabffahdkbjjompm/\",\n    \"chrome-extension://plbfkifcmgkgnlfgikdeaaglgncdhkma/\"\n  ]\n}",
+     "Google/Chrome/Default/Preferences": "{\"extensions\": {\"settings\": {\"plbfkifcmgkgnlfgikdeaaglgncdhkma\": {\"location\": 1, \"path\": \"plbfkifcmgkgnlfgikdeaaglgncdhkma/0.19.5_0\"}}}, \"account_info\": [{\"email\": \"owner@example.test\"}]}",
+     "Google/Chrome/External Extensions/plbfkifcmgkgnlfgikdeaaglgncdhkma.json": "{\n  \"external_update_url\": \"https://clients2.google.com/service/update2/crx\"\n}\n",
+     "Google/Chrome/Local State": "{\"profile\": {\"info_cache\": {\"Default\": {\"name\": \"Home\", \"user_name\": \"owner@example.test\"}, \"Profile 1\": {\"name\": \"Work\", \"user_name\": \"work@example.test\"}, \"Profile 2\": {\"name\": \"Spare\", \"user_name\": \"\"}, \"Profile 3\": {\"name\": \"Old\", \"user_name\": \"\"}, \"Profile 4\": {\"name\": \"Removed\", \"user_name\": \"\"}, \"Profile 5\": {\"name\": \"FERB\", \"user_name\": \"ferb@example.test\"}, \"Profile 6\": {\"name\": \"Stale\", \"user_name\": \"stale@example.test\"}, \"Profile 7\": {\"name\": \"Mixed\", \"user_name\": \"ferb@example.test\"}}}}",
+     "Google/Chrome/NativeMessagingHosts/com.ferb.native_host.json": "{\n  \"name\": \"com.ferb.native_host\",\n  \"description\": \"FERB native messaging host\",\n  \"path\": \"/FX/01/home/bin/ferb-native-host\",\n  \"type\": \"stdio\",\n  \"allowed_origins\": [\n    \"chrome-extension://jaclnphefmmgmpofnabffahdkbjjompm/\",\n    \"chrome-extension://plbfkifcmgkgnlfgikdeaaglgncdhkma/\"\n  ]\n}",
+     "Google/Chrome/Profile 1/Preferences": "{\"extensions\": {\"settings\": {\"plbfkifcmgkgnlfgikdeaaglgncdhkma\": {\"location\": 1, \"path\": \"plbfkifcmgkgnlfgikdeaaglgncdhkma/0.19.5_0\"}}}, \"account_info\": [{\"email\": \"work@example.test\"}]}",
+     "Google/Chrome/Profile 2/Preferences": "{\"extensions\": {\"settings\": {\"plbfkifcmgkgnlfgikdeaaglgncdhkma\": {\"location\": 1, \"path\": \"plbfkifcmgkgnlfgikdeaaglgncdhkma/0.19.5_0\", \"disable_reasons\": [4]}}}}",
+     "Google/Chrome/Profile 3/Preferences": "{\"extensions\": {\"settings\": {\"plbfkifcmgkgnlfgikdeaaglgncdhkma\": {\"location\": 1, \"path\": \"plbfkifcmgkgnlfgikdeaaglgncdhkma/0.15.13_0\"}}}}",
+     "Google/Chrome/Profile 4/Preferences": "{\"extensions\": {\"settings\": {}, \"external_uninstalls\": [\"plbfkifcmgkgnlfgikdeaaglgncdhkma\"]}}",
+     "Google/Chrome/Profile 5/Preferences": "{\"extensions\": {\"settings\": {\"plbfkifcmgkgnlfgikdeaaglgncdhkma\": {\"location\": 1, \"path\": \"plbfkifcmgkgnlfgikdeaaglgncdhkma/0.19.5_0\"}}}, \"account_info\": [{\"email\": \"ferb@example.test\"}]}",
+     "Google/Chrome/Profile 6/Preferences": "{\"extensions\": {\"settings\": {\"plbfkifcmgkgnlfgikdeaaglgncdhkma\": {\"location\": 1, \"path\": \"plbfkifcmgkgnlfgikdeaaglgncdhkma/0.19.5_0\"}}}, \"account_info\": [{\"email\": \"stale@example.test\"}]}",
+     "Google/Chrome/Profile 7/Preferences": "{\"extensions\": {\"settings\": {\"jaclnphefmmgmpofnabffahdkbjjompm\": {\"location\": 4, \"path\": \"/x/unpacked\", \"state\": 0}}}, \"account_info\": [{\"email\": \"ferb@example.test\"}, {\"email\": \"other@example.test\"}]}"
+    },
+    "installs": [
+     [
+      "inst-default",
+      "chrome",
+      "Default",
+      "owner",
+      "0.19.5"
+     ],
+     [
+      "inst-pair-0002",
+      "chrome",
+      "Profile 5",
+      "ferb",
+      ""
+     ],
+     [
+      "inst-stale",
+      "chrome",
+      "Profile 6",
+      "owner",
+      "0.1.0"
+     ]
+    ],
+    "identity_attached": [
+     true,
+     false
+    ]
+   }
+  },
+  {
+   "name": "without_access",
+   "what": "No Full Disk Access, one profile paired earlier (HAND-407: named by its folder), FERB's account set: the\n    calls that read nothing, and clearing FERB's account.",
+   "python": [
+    "ferb/daemon/areas/browsers.py"
+   ],
+   "volatile": [],
+   "steps": [
+    {
+     "do": "connect",
+     "conn": "app"
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"auth.hello\", \"params\": {\"role\": \"cli\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"role\": \"cli\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"browsers.list\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"profiles\": [{\"browser\": \"chrome\", \"folder\": \"Profile 5\", \"name\": \"Profile 5\", \"email\": \"\", \"ferb_identity\": true, \"paired\": true, \"identity\": \"ferb\", \"connected\": false, \"version\": \"\", \"last_version\": \"\", \"refused\": null}, {\"browser\": \"chrome\", \"folder\": \"Profile 9\", \"name\": \"Profile 9\", \"email\": \"\", \"ferb_identity\": false, \"paired\": true, \"identity\": \"owner\", \"connected\": false, \"version\": \"\", \"last_version\": \"0.19.5\", \"refused\": null}], \"extension_ids\": [\"jaclnphefmmgmpofnabffahdkbjjompm\", \"plbfkifcmgkgnlfgikdeaaglgncdhkma\"], \"unpaired_connections\": {}}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"browsers.pair\", \"params\": {\"profile\": \"Profile 9\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 3, \"error\": {\"code\": -32004, \"message\": \"no profile called 'Profile 9'; found: none\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"method\": \"browsers.unpair\", \"params\": {\"profile\": \"Profile 9\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 4, \"error\": {\"code\": -32004, \"message\": \"no profile called 'Profile 9'; found: none\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"method\": \"browsers.installed\", \"params\": {\"profile\": \"Profile 9\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 5, \"error\": {\"code\": -32004, \"message\": \"no profile called 'Profile 9'; found: none\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"method\": \"setup.browsers\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 6, \"result\": {\"store_url\": \"https://chromewebstore.google.com/detail/plbfkifcmgkgnlfgikdeaaglgncdhkma\", \"extension_dir\": \"/FX/02/home/extensions/chromium\", \"unsupported\": [], \"browsers\": [], \"waiting\": \"full_disk_access\", \"problem\": \"FERB can't look at your browsers until it has Full Disk Access (System Settings \\u2192 Privacy & Security \\u2192 Full Disk Access \\u2192 FERB)\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"method\": \"setup.browser_open\", \"params\": {\"browser\": \"chrome\", \"folder\": \"Profile 9\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 7, \"error\": {\"code\": -32004, \"message\": \"chrome/Profile 9 isn't a discovered profile; refusing to create one\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"method\": \"identity.find\", \"params\": {\"address\": \"ferb@example.test\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 8, \"result\": {\"current\": {\"address\": \"ferb@example.test\", \"browser\": \"chrome\", \"profile\": \"Profile 5\", \"profile_name\": \"Profile 5\", \"profile_email\": \"\", \"paired\": true, \"owner_profile\": \"chrome/Profile 9\", \"owner_profile_name\": \"Profile 9\", \"owner_profile_email\": \"\"}, \"address\": \"ferb@example.test\", \"candidates\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"method\": \"identity.pair\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 9, \"error\": {\"code\": -32004, \"message\": \"FERB can't look at your browsers until it has Full Disk Access (System Settings \\u2192 Privacy & Security \\u2192 Full Disk Access \\u2192 FERB)\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 10, \"method\": \"identity.pair\", \"params\": {\"confirm\": true}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 10, \"error\": {\"code\": -32004, \"message\": \"FERB can't look at your browsers until it has Full Disk Access (System Settings \\u2192 Privacy & Security \\u2192 Full Disk Access \\u2192 FERB)\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 11, \"method\": \"identity.choose\", \"params\": {\"address\": \"ferb@example.test\", \"browser\": \"chrome\", \"folder\": \"Profile 5\"}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 11, \"error\": {\"code\": -32004, \"message\": \"FERB can't look at your browsers until it has Full Disk Access (System Settings \\u2192 Privacy & Security \\u2192 Full Disk Access \\u2192 FERB)\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 12, \"method\": \"identity.choose\", \"params\": {\"clear\": true}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 12, \"result\": {\"address\": \"\", \"browser\": \"\", \"profile\": \"\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 13, \"method\": \"identity.find\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 13, \"result\": {\"current\": {\"address\": \"\", \"browser\": \"\", \"profile\": \"\", \"profile_name\": \"\", \"profile_email\": \"\", \"paired\": false, \"owner_profile\": \"chrome/Profile 9\", \"owner_profile_name\": \"Profile 9\", \"owner_profile_email\": \"\"}, \"address\": \"\", \"candidates\": []}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 14, \"method\": \"identity.pair\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 14, \"error\": {\"code\": -32004, \"message\": \"FERB's identity profile isn't chosen yet\"}}"
+      }
+     ]
+    },
+    {
+     "do": "call",
+     "conn": "app",
+     "lines": [
+      {
+       "send": "{\"jsonrpc\": \"2.0\", \"id\": 15, \"method\": \"setup.browsers_pair_all\", \"params\": {}}"
+      },
+      {
+       "recv": "{\"jsonrpc\": \"2.0\", \"id\": 15, \"result\": {\"profiles\": 0, \"skipped\": [], \"store_url\": \"https://chromewebstore.google.com/detail/plbfkifcmgkgnlfgikdeaaglgncdhkma\", \"results\": [], \"paired\": 0}}"
+      }
+     ]
+    }
+   ],
+   "journal": [
+    [
+     "settings.changed",
+     {
+      "key": "identity",
+      "value": {
+       "address": "",
+       "browser": "",
+       "profile": ""
+      }
+     },
+     "owner"
+    ]
+   ],
+   "published": [],
+   "setup": {
+    "config": {
+     "sha256": "2c4c5d9f9f92bbc2dce5bb6a2d4e6b7bc6f4c83059d78bffc13bb56d229d99e1"
+    },
+    "files": {},
+    "installs": [
+     [
+      "inst-ferb",
+      "chrome",
+      "Profile 5",
+      "ferb",
+      ""
+     ],
+     [
+      "inst-old",
+      "chrome",
+      "Profile 9",
+      "owner",
+      "0.19.5"
+     ]
+    ],
+    "bridges": [],
+    "unpaired": []
+   },
+   "launched": [],
+   "bridge_calls": [],
+   "after": {
+    "config": "[privacy]\nexclude_apps = [\"com.1password.1password\", \"com.agilebits.onepassword7\", \"com.bitwarden.desktop\", \"com.apple.Passwords\", \"com.apple.keychainaccess\"]\nexclude_domains = []\nexclude_paths = [\"~/.ssh\", \"~/Library/Keychains\", \"~/.ferb\"]\n\n[sense]\nwindow_titles = true\nwatch_folders = []\nidle_after_s = 120\ntrail_retention_days = 30\n\n[retention]\ntrace_days = 30\ndecision_days = 30\nevidence_days = 7\nrecovery_days = 7\nresource_days = 30\noperational_days = 90\n\n[browser]\ndownload_task_max_files = 300\ndownload_task_max_gb = 32\ndownload_total_gb = 20\ndownload_min_free_gb = 10\ntask_max_tabs = 50\n\n[protection]\nnever_read = [\"~/Library/Keychains\", \"/Library/Keychains\", \"~/Library/Messages\", \"~/Library/Mail\", \"~/Library/Cookies\", \"~/Library/Group Containers/group.com.apple.usernoted\", \"~/Library/Application Support/1Password\", \"~/Library/Group Containers/2BUA8C4S2C.com.1password\", \"~/Library/Application Support/Bitwarden\", \"~/.ssh\", \"~/.aws\", \"~/.config/gh\", \"~/.netrc\", \"~/.npmrc\", \"~/.docker\", \"~/Library/Safari\", \"~/Library/Containers/com.apple.Safari\", \"~/Library/SafariTechnologyPreview\", \"~/Library/Containers/com.apple.SafariTechnologyPreview\", \"~/Library/Application Support/BraveSoftware\", \"~/Library/Application Support/Arc\", \"~/Library/Application Support/Dia\", \"~/Library/Application Support/com.operasoftware.OperaGX\", \"~/Library/Application Support/Firefox\", \"~/Library/Application Support/Orion\", \"~/Library/Containers/com.duckduckgo.macos.browser\", \"~/Library/Application Support/librewolf\", \"~/Library/Application Support/Comet\", \"~/Library/Application Support/Yandex\", \"~/Library/Application Support/Floorp\", \"~/Library/Application Support/MullvadBrowser\", \"~/Library/Application Support/TorBrowser-Data\", \"~/Library/Application Support/zen\", \"~/Library/Application Support/Waterfox\", \"~/Library/Application Support/Thorium\", \"~/Library/Application Support/Google/Chrome\", \"~/Library/Application Support/Google/Chrome Beta\", \"~/Library/Application Support/Google/Chrome Dev\", \"~/Library/Application Support/Google/Chrome Canary\", \"~/Library/Application Support/Chromium\", \"~/Library/Application Support/Microsoft Edge\", \"~/Library/Application Support/Microsoft Edge Beta\", \"~/Library/Application Support/Microsoft Edge Dev\", \"~/Library/Application Support/Microsoft Edge Canary\", \"~/Library/Application Support/Vivaldi\", \"~/Library/Application Support/com.operasoftware.Opera\", \"~/.gnupg\", \"~/.kube\", \"~/.config/gcloud\", \"~/.azure\", \"~/.git-credentials\", \"~/.pypirc\", \"~/.cargo/credentials.toml\"]\nnever_write = [\"~/.ssh\", \"~/Library/Keychains\", \"~/Library/LaunchAgents\", \"/Library/LaunchAgents\", \"/Library/LaunchDaemons\", \"~/.zshrc\", \"~/.zprofile\", \"~/.zshenv\", \"~/.zlogin\", \"~/.bash_profile\", \"~/.bashrc\", \"~/.profile\", \"/System\", \"/Library\", \"/Applications\"]\nterminal_apps = [\"com.apple.Terminal\", \"com.googlecode.iterm2\", \"dev.warp.Warp-Stable\", \"dev.warp.Warp-Preview\", \"com.mitchellh.ghostty\", \"org.alacritty\", \"net.kovidgoyal.kitty\", \"com.github.wez.wezterm\", \"co.zeit.hyper\", \"org.tabby\", \"com.termius-dmg.mac\", \"com.termius.mac\", \"com.raphaelamorim.rio\", \"org.contourterminal.contour\"]\nlocal_ports = []\n\n[mailbox]\n\n[identity]\n\n[browsing]\nowner_profile = \"chrome/Profile 9\"\n",
+    "installs": [
+     [
+      "inst-ferb",
+      "chrome",
+      "Profile 5",
+      "ferb",
+      ""
+     ],
+     [
+      "inst-old",
+      "chrome",
+      "Profile 9",
+      "owner",
+      "0.19.5"
+     ]
+    ]
+   }
+  }
+ ]
+}

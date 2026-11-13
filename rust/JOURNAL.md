@@ -863,3 +863,40 @@ clippy clean; 23 gateway tests pass, re-run by the coordinator; the crate builds
 - The scenario test's per-run folder is under `/tmp` with a fixed length, because FERB clips long lines and a
   different path length clips them elsewhere.
 - The real hooks are checked against fakes; the parts they drive belong to other crates.
+
+## 2026-11-13 · 40 · The daemon's handlers (71 of 106 methods), and a recorder that opened a real browser
+
+**What.** `ferb-daemon` holds the RPC handlers over the ported engines, each behind a `Deps` struct of seams.
+- Group A, 26 methods: memory, memory import, schedules, reminders and timers, chat history, settings, retention,
+  records; plus `shared` (Python's helpers and the one loop thread that holds the engines, as Python's live on one
+  asyncio loop).
+- Group B, 45 methods: browsers and pairing, runtimes with keys, checks and the Claude sign-in, about, seen,
+  sensing, Jev (off: nothing reads a key), notices, intro, voice, egress, failure reports, the task preview, the
+  disturbance sampler, environment, compose and desktop.
+
+**Evidence.** Replayed against `rpc_transcripts.json`, the lines recorded from the real Python daemon: group A's 26
+methods over 106 lines (18 byte for byte, 8 differing only by named fixes) plus 63 more lines from
+`fixtures/daemon-a`; group B's 45 methods plus about 150 scenarios and 1,100 library comparisons from
+`fixtures/daemon-b`. A crash before a scheduled run's task is recorded leads to redelivery and the run happens
+once. 56 test groups pass, re-run by the coordinator; whole-workspace clippy clean.
+
+**Fixed against Python.** About 20 handlers answered bad parameters with an internal error (-32603) and now refuse
+in plain words (missing keys in `memory.*`, `schedules.change`, `reminders.cancel`; a bad `since`, `limit` or
+`timeout_s`; `attention.ack` with an unknown id). `schedules.change` with an unknown action wrote a bogus
+`schedule.<action>` journal row before crashing; Rust refuses before writing. `runtimes.check` answers
+`ok: false` when the adapter's stream raises. A frozen preview frame keeps its `seq` and `age_ms`.
+
+**What went wrong.** The browsers recorder (`fixtures/daemon-b/browsers.py`) opened the owner's real Brave three
+times at `chrome://extensions` in the Default profile. `profiles.open_known_profile` binds the real launcher as a
+default argument at import, so the stub on the launcher function never reached it. The recorder now stubs the
+caller; `fixtures/daemon/make.py` had the same gap and now replaces the bound default (its fixtures re-ran byte
+for byte). `AGENT-BRIEF.md` tells every recorder to find and replace each launch point first and to report
+anything real it starts. The owner was told and answered that testing in real apps is fine as long as it is
+reported.
+
+**Open.**
+- Not ported: `chat.*` and the task handlers (they need the supervisor), the composition (`main.py`'s
+  constructors, the runtime factory wiring the adapters, a macOS desktop probe), schedule creation and editing
+  from chat, the hourly memory loops, sleep and wait glue, the resource sampler.
+- Verified only on refusal paths: `ps.*`, `secrets.saved`/`delete`, the notifications stream's delivery.
+- Unverified: retention pass, persona with a real scan, the relay over https.
