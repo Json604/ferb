@@ -22,6 +22,17 @@ pub mod host;
 pub mod store;
 pub mod tree;
 pub mod turn;
+// control and recovery: stop, pause, steer and resume of running work; the stop RPCs; waits for the owner, the
+// check-in and service-down; restart recovery; scheduled runs
+pub mod control;
+pub mod owner_wait;
+pub mod restart;
+pub mod scheduled;
+// the forward path's joins to the daemon: the gateway's observer (`_Watch`), the chat RPCs (areas/chat.py)
+pub mod chat_rpc;
+pub mod side;
+pub mod steps;
+pub mod watch;
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
@@ -217,6 +228,83 @@ pub trait Daemon: Send + Sync {
 
     // --- the bus ---
     fn publish(&self, topic: &str, data: Value);
+
+    // --- control and recovery (control.rs, owner_wait.rs, restart.rs, scheduled.rs) ---
+    /// `gateway.cancel_tasks(ids)`: a stop; these tasks' calls in flight end and they may call no tool again.
+    fn cancel_tasks(&self, _ids: &BTreeSet<String>) {}
+    /// `gateway.interrupt_tasks(ids)`: a pause; their calls in flight end, and they may call again once resumed.
+    fn interrupt_tasks(&self, _ids: &BTreeSet<String>) {}
+    /// `gateway.in_flight(ids)`: one of these tasks' tool calls is still running.
+    fn in_flight(&self, _ids: &BTreeSet<String>) -> bool {
+        false
+    }
+    /// `gateway.hold_poll_s`: how often a wait for the owner looks at its question.
+    fn hold_poll_s(&self) -> f64 {
+        0.2
+    }
+    /// `state.stopped`: the global stop is engaged (a scheduled run doesn't start, a restart doesn't resume).
+    fn stopped(&self) -> bool {
+        false
+    }
+    /// `state.approvals`: the gateway's questions for the owner (None: no question can be asked here).
+    fn questions(&self) -> Option<Arc<dyn owner_wait::Questions>> {
+        None
+    }
+    /// `state.approvals.unattended.add(request_id)`: nobody is at chat for this request (a scheduled run).
+    fn set_unattended(&self, _request_id: &str) {}
+    /// `standing.scopes(tree_id)` held in force for a resumed tree, and `_withdraw_lapsed` (a schedule's grant).
+    fn withdraw_lapsed(&self, _tree_id: &str) {}
+    /// `spans.asked_origins(tree_id)` (a resumed tree's request).
+    fn asked_origins(&self, _tree_id: &str) -> BTreeSet<String> {
+        BTreeSet::new()
+    }
+    /// `gateway.reopen_noes(tree_id, request_id, source)`: the owner's own new message carrying a task on reopens
+    /// each No recorded in its tree before it (L11 round 4).
+    fn reopen_noes(&self, _tree_id: &str, _request_id: &str, _source: &str) {}
+    /// `ledger.mark_unknown_after_restart()`: the intents a restart cut off, now of unknown outcome (restart.rs).
+    fn mark_unknown_after_restart(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    // --- the forward path's joins (watch.rs, chat.rs) ---
+    /// tree.py `TaskTree.add` / `hold`: a task's live record, which the gateway reads for every call of that task
+    /// (its request, start, root span and tree). Python shares the one `TaskTree` with the gateway.
+    fn task_record(&self, _record: &LiveTask) {}
+    /// The live record's root span changed (the worker's span, `task_set_span`).
+    fn task_record_span(&self, _task_id: &str, _span_id: &str) {}
+    /// tree.py `TaskTree.remove`: the live record is gone.
+    fn task_record_removed(&self, _task_id: &str) {}
+    /// `bus.subscribe(topics)` for a chat turn (areas/chat.py:360): every event of these topics (a pattern ending in
+    /// `.*` takes a prefix) goes to `sink` the moment it is published, as (topic, data) with the redactor's marks
+    /// (Python's `Redacted`). None: no bus here. The returned handle unsubscribes when called.
+    fn subscribe(&self, _topics: &[&str], _sink: BusSink) -> Option<Unsubscribe> {
+        None
+    }
+    /// `state.approvals.pending()` as the gateway holds them (a chat message's code reply is hidden while one asks
+    /// for a code, areas/chat.py `_hide_code_reply`).
+    fn approvals(&self) -> Vec<ferb_gateway::questions::Approval> {
+        Vec::new()
+    }
+}
+
+/// Where a subscribed bus event goes: (topic, data).
+pub type BusSink = Arc<dyn Fn(&str, &ferb_sanitize::Py) + Send + Sync>;
+/// Leaves the bus.
+pub type Unsubscribe = Box<dyn FnOnce() + Send>;
+
+/// A task's live record (tree.py:33 `TaskRecord`) as the gateway reads it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LiveTask {
+    pub task_id: String,
+    pub request_id: String,
+    /// When it was added (ISO).
+    pub started_at: String,
+    /// The task's deadline (ISO), if it has one.
+    pub deadline: Option<String>,
+    /// Its root span: tool spans hang under it.
+    pub span_id: String,
+    /// The request's root task.
+    pub tree_id: Option<String>,
 }
 
 /// What `_screen_at_send` gave a message: its front window facts and its redacted screenshot.
@@ -300,6 +388,8 @@ pub struct Turn {
     pub preview: bool,
     /// The planner's pre-call span, open from intake to its first call (ORCH-525).
     pub prepare: Option<turn::Prepare>,
+    /// Trees whose Noes this turn reopened (`reopened`, control.rs).
+    pub reopened: BTreeSet<String>,
 }
 
 impl Turn {
@@ -384,6 +474,10 @@ pub struct TreeState {
     pub answering: Option<Arc<Tree>>,
     /// A single task's one step: the outcome its attempt loop returned (`_execute_plan`'s `ran`).
     pub single_ran: Option<Outcome>,
+    /// ORCH-579: the request whose reply tells the owner's stop of this task (`stop_told_in`, control.rs).
+    pub stop_told_in: String,
+    /// The wait a restart asks again as itself (`restored_wait`: a check-in or a runtime switch, owner_wait.rs).
+    pub restored_wait: Map<String, Value>,
 }
 
 /// A tree (or a plan step's member tree): its ids, its state and the corrections it shares with its root.
@@ -418,6 +512,18 @@ pub struct Live {
     pub records: HashMap<String, (String, String)>,
     /// `continuity.lend`: a planner's lookups task -> the chat it reads.
     pub lent: HashMap<String, String>,
+    /// The trees whose live line is open now (`_live`'s keys): a bus event about one rides its line (chat.rs).
+    pub live_lines: BTreeSet<String>,
+    /// supervisor.py `_sleeping` (ORCH-598): tree id -> its worker's sleep or wait while it lasts (steps.rs).
+    pub sleeping: HashMap<String, Map<String, Value>>,
+    /// supervisor.py:1177 `_pauses`: tree id -> its pause, until resumed (owner_wait.rs).
+    pub pauses: HashMap<String, Arc<owner_wait::Wait>>,
+    /// `_waiting`: tree id -> how many of its steps wait for the owner now.
+    pub waiting: HashMap<String, usize>,
+    /// `_questions`: tree id -> the question its latest open wait asked.
+    pub questions: HashMap<String, String>,
+    /// `_suspending`: FERB is shutting down; its trees resume after the restart (restart.rs).
+    pub suspending: bool,
 }
 
 /// The supervisor. Cheap to clone; every flow runs on a shared [`Inner`].
@@ -475,40 +581,12 @@ impl Supervisor {
     pub fn preview(&self) -> Result<(), NotPorted> {
         Err(NotPorted("Supervisor.preview"))
     }
-
-    /// supervisor.py:1629 `run_scheduled`.
-    pub fn run_scheduled(&self) -> Result<(), NotPorted> {
-        Err(NotPorted("Supervisor.run_scheduled"))
-    }
-
-    /// supervisor.py:2324 `resume_plans`: restart recovery.
-    pub fn resume_plans(&self) -> Result<(), NotPorted> {
-        Err(NotPorted("Supervisor.resume_plans"))
-    }
-
-    /// supervisor.py:1760 `stop_tree`.
-    pub fn stop_tree(&self, _tree_id: &str) -> Result<bool, NotPorted> {
-        Err(NotPorted("Supervisor.stop_tree"))
-    }
-
-    /// supervisor.py:1810 `pause_tree`.
-    pub fn pause_tree(&self, _tree_id: &str) -> Result<(), NotPorted> {
-        Err(NotPorted("Supervisor.pause_tree"))
-    }
-
-    /// supervisor.py:6745 `correct_from_question`.
-    pub fn correct_from_question(&self) -> Result<(), NotPorted> {
-        Err(NotPorted("Supervisor.correct_from_question"))
-    }
+    // control and recovery's entry points: `stop_task`, `pause_task`, `correct_from_card` (control.rs), `shut_down`,
+    // `resume_saved_plans` (restart.rs), `run_scheduled_rest` (scheduled.rs)
 
     /// supervisor.py:7054 `route_question`.
     pub fn route_question(&self) -> Result<(), NotPorted> {
         Err(NotPorted("Supervisor.route_question"))
-    }
-
-    /// supervisor.py:2279 `cancel_all`, :2291 `suspend_plans`.
-    pub fn suspend_plans(&self) -> Result<(), NotPorted> {
-        Err(NotPorted("Supervisor.suspend_plans"))
     }
 }
 

@@ -874,7 +874,7 @@ impl Inner {
         };
         self.join_question(turn, &out);
         let mut problems = self.problems(turn, &mut out)?;
-        problems.extend(self.side_quote_problems(&out)?);
+        problems.extend(self.side_quote_problems(turn, &out)?);
         if problems.is_empty() {
             return Ok(out);
         }
@@ -1031,12 +1031,25 @@ impl Inner {
         (normal, broad)
     }
 
-    /// supervisor.py:1439 `_side_quote_problems`: none of the side entries is ported; one present is refused by name.
-    fn side_quote_problems(&self, out: &SupervisorOutcome) -> Flow<Vec<String>> {
-        if has_side_entries(out) {
+    /// supervisor.py:1439 `_side_quote_problems`: the reminders and timers (side.rs); any other side entry present
+    /// is refused by name.
+    fn side_quote_problems(
+        &self,
+        turn: &Arc<Mutex<Turn>>,
+        out: &SupervisorOutcome,
+    ) -> Flow<Vec<String>> {
+        if has_unported_side_entries(out) {
             return Err(NotPorted("Supervisor._side_quote_problems").into());
         }
-        Ok(Vec::new())
+        let mut problems = self.timer_quote_problems(turn, out);
+        if !problems.is_empty() {
+            problems.push(
+                "Quote the owner's exact words for each of these, or leave it out; your text says only what will \
+                 actually happen, never that something was set, saved, changed or restored."
+                    .into(),
+            );
+        }
+        Ok(problems)
     }
 
     /// supervisor.py:1399 `_said_in_chat`: this turn's words, then this chat's recent owner messages, newest first.
@@ -1566,6 +1579,14 @@ impl Inner {
         let task_id = format!("{rid}{LOOKUPS}");
         let holder = format!("call:{span_id}");
         self.task_hold(&task_id, span_id, &task_id);
+        self.deps.daemon.task_record(&super::LiveTask {
+            task_id: task_id.clone(),
+            request_id: rid.clone(),
+            started_at: self.now_iso(),
+            deadline: None,
+            span_id: span_id.to_string(),
+            tree_id: Some(task_id.clone()),
+        });
         self.lend(&task_id, &session);
         let scopes: BTreeSet<String> = PLANNER_SCOPES.iter().map(|s| s.to_string()).collect();
         let token = self.deps.daemon.issue_token(
@@ -1638,6 +1659,7 @@ impl Inner {
         };
         let mut views = Vec::new();
         for tree in trees {
+            let (paused, question) = self.paused_view(&tree.id); // owner_wait.rs
             let st = tree.lock();
             let spec = st.spec.clone().expect("a spec");
             let steps = if spec.plan.is_some() {
@@ -1660,8 +1682,8 @@ impl Inner {
                 last_report: st.reports.last().cloned(),
                 steps,
                 loops: Vec::new(),
-                paused: false,
-                question: String::new(),
+                paused,
+                question,
                 cards: Vec::new(),
                 last_step: self.runs.last_step(&tree.id),
                 asleep: None,
@@ -1926,7 +1948,7 @@ impl Inner {
             return Err(NotPorted("Supervisor._answer").into());
         }
         if out.control.is_some() {
-            return Err(NotPorted("Supervisor._control").into());
+            return self.control(turn, out, emit).await;
         }
         if out.kind == "reply" || out.kind == "clarify" || out.task.is_none() {
             let kind = if out.kind == "clarify" {
@@ -1943,17 +1965,41 @@ impl Inner {
         self.start(turn, &out, spec, emit).await
     }
 
-    /// supervisor.py:3344 `_side_entries`: none is ported (refused by name before routing: `_side_quote_problems`).
-    fn side_entries(&self, out: &SupervisorOutcome) -> Flow<Side> {
-        if has_side_entries(out) {
+    /// supervisor.py:3344 `_side_entries`: the reminders and timers (side.rs); any other side entry is refused by name
+    /// before routing (`_side_quote_problems`).
+    fn side_entries(&self, turn: &Arc<Mutex<Turn>>, out: &SupervisorOutcome) -> Flow<Side> {
+        if has_unported_side_entries(out) {
             return Err(NotPorted("Supervisor._side_entries").into());
         }
+        let timers = self.timer_side(turn, out);
         Ok(Side {
-            events: Vec::new(),
-            lines: Vec::new(),
-            refused: Vec::new(),
-            cards: Vec::new(),
+            events: timers.events,
+            lines: timers.lines,
+            refused: timers.refused,
+            cards: timers.cards,
         })
+    }
+
+    /// supervisor.py:4691 `_said_cards`: cards as the owner is shown them, redacted like the text beside them, each
+    /// card's `line` exactly as that text carries it.
+    fn said_cards(&self, cards: &[Value], marked: bool) -> Vec<Value> {
+        cards
+            .iter()
+            .map(|card| {
+                let mut shown = self.redact(card);
+                if marked {
+                    if let Some(line) = shown.get("line").and_then(Value::as_str) {
+                        let first = ferb_policy::confirm::from_task_lines(line)
+                            .split('\n')
+                            .next()
+                            .unwrap_or("")
+                            .to_string();
+                        shown["line"] = json!(first);
+                    }
+                }
+                shown
+            })
+            .collect()
     }
 
     /// supervisor.py:2755 `_exit`.
@@ -1966,7 +2012,7 @@ impl Inner {
         by: &str,
         emit: &Emit,
     ) -> Flow<()> {
-        let effects = self.side_entries(out)?;
+        let effects = self.side_entries(turn, out)?;
         for ev in &effects.events {
             let _ = emit.send(ev.clone());
         }
@@ -2017,14 +2063,18 @@ impl Inner {
                 .map_err(Failure::from)?;
         }
         self.release(&session, &rid);
-        let _ = emit.send(json!({"type": kind, "text": said}));
+        let mut reply = json!({"type": kind, "text": said});
+        if !effects.cards.is_empty() {
+            // step 8e: the app draws these in place of their lines
+            reply["cards"] = Value::Array(self.said_cards(&effects.cards, true));
+        }
+        let _ = emit.send(reply);
         let _ = effects.refused;
-        let _ = effects.cards;
         Ok(())
     }
 
     /// supervisor.py:2790 `_record_reply`.
-    async fn record_reply(
+    pub(crate) async fn record_reply(
         &self,
         turn: &Arc<Mutex<Turn>>,
         kind: &str,
@@ -2101,14 +2151,14 @@ impl Inner {
     }
 
     /// supervisor.py:2819 `_start`.
-    async fn start(
+    pub(crate) async fn start(
         &self,
         turn: &Arc<Mutex<Turn>>,
         out: &SupervisorOutcome,
         spec: TaskSpec,
         emit: &Emit,
     ) -> Flow<()> {
-        let effects = self.side_entries(out)?;
+        let effects = self.side_entries(turn, out)?;
         for ev in &effects.events {
             let _ = emit.send(ev.clone());
         }
@@ -2232,6 +2282,17 @@ pub fn origin_set(items: &[&str]) -> BTreeSet<String> {
 }
 
 /// `_carries_more`'s side outputs: anything besides an answer, a control or a task.
+/// A side entry other than a reminder or timer (side.rs ports those).
+pub fn has_unported_side_entries(out: &SupervisorOutcome) -> bool {
+    !out.remember.is_empty()
+        || !out.forget.is_empty()
+        || !out.schedules.is_empty()
+        || !out.schedule_changes.is_empty()
+        || out.show_schedules
+        || !out.reminder_cancels.is_empty()
+        || !out.conversation_changes.is_empty()
+}
+
 pub fn has_side_entries(out: &SupervisorOutcome) -> bool {
     !out.remember.is_empty()
         || !out.forget.is_empty()

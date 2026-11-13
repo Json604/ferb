@@ -384,6 +384,15 @@ impl Inner {
             span_id: span_id.to_string(),
             tree_id: Some(tree_id.to_string()),
         };
+        // the gateway reads the same live record (Python shares the one TaskTree)
+        self.deps.daemon.task_record(&super::LiveTask {
+            task_id: task.id.clone(),
+            request_id: task.request_id.clone(),
+            started_at: rec.started_at.clone(),
+            deadline: task.deadline.as_ref().map(ferb_core::when::isoformat),
+            span_id: span_id.to_string(),
+            tree_id: Some(tree_id.to_string()),
+        });
         self.tasks(|t| t.add(rec, status).expect("a task write"));
     }
 
@@ -407,10 +416,12 @@ impl Inner {
         if let Some(r) = self.live().records.get_mut(task_id) {
             r.1 = span_id.to_string();
         }
+        self.deps.daemon.task_record_span(task_id, span_id);
     }
 
     pub fn task_remove(&self, task_id: &str) {
         self.live().records.remove(task_id);
+        self.deps.daemon.task_record_removed(task_id);
     }
 
     /// supervisor.py:1773 `_set_status`.

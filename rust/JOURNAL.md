@@ -970,3 +970,30 @@ temp home remain.
   `ferb-core`'s old runtime trait; `ferb-device`'s installer needs the Rust service definition; the catalog's MCP
   listing envelope disagrees with the bridge's wire fixture.
 - `ferbd` should handle SIGHUP.
+
+## 2026-11-13 · 43 · The supervisor: control, recovery and the real gateway (not yet a workspace member)
+
+**What.** Two agents in the same crate, each on its own files.
+- Control and recovery: `flow::control` (stop, pause, continue and retry from a planner answer, alone or together
+  with new work, ORCH-638; `task.stop`, where an empty list is refused; the global stop; steering; a correction
+  typed on a card), `flow::owner_wait` (the one wait for the owner, the check-in, service-down), `flow::restart`,
+  `flow::scheduled`.
+- The rest of the forward path: the real `ferb-gateway` joined in place of the scripted one (`watch.rs`), so spans,
+  ledger rows, ids and `tool.called` frames come from real code; change records from `ferb-fs` feed the checker;
+  the bus merged into the chat stream in Python's wake order; the chat RPCs (`chat_rpc.rs`); a waiting worker's
+  live line; timers set from a planner answer.
+
+**Evidence.** `tests/replay.rs`: **23 of the 28 recorded chat scenarios replay fully**, 2,209 comparisons (9 before).
+`tests/control_scenarios.rs`: 10 more recorded control scenarios, 8 full. The crate passes format, clippy and its
+tests (run by the porting agents).
+
+**Not yet replaying.** restart_mid_task and restart_with_open_question (restart is not replayed; `tree.rs` needs
+resume support); schedule_created_and_fired (a schedule made in chat is not ported); timer_set_and_fired (stops
+at the daemon's timer delivery); global_stop (needs the daemon's `stop.engage`).
+
+**Fixed against Python.** GATE-581: the global stop's summary is FERB's own words, not marked "(from the task)".
+
+**Open.** The summary fold, several asks and their card, checklist plans, loops, conversations, wait and ask
+steps, `route_question`, memory and schedule side entries, `_resume`; unverified chat handlers (`chat.correct`,
+`chat.attach`, `results.ack`); the chat methods' recorded lines are not replayed yet. `Gateway::call` is not Send
+and the gateway cannot take FERB's own questions (being fixed at the source). The fixture folder is about 3.8 MB.

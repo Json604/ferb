@@ -14,12 +14,16 @@ unsafe_op_in_unsafe_fn = "deny"
 default = ["store"]
 # The flows (intake to result): they read and write the Mac's SQLite store through ferb-orchestrator's stores, as the
 # Python supervisor does. Without it the crate is the composition alone (prompts, history, planner blocks, lines).
-store = ["dep:ferb-store", "dep:rusqlite", "dep:ferb-worker", "dep:ferb-trace", "dep:ferb-policy", "dep:ferb-fs", "dep:ferb-learning", "dep:ferb-memory", "dep:futures-util", "ferb-orchestrator/store"]
+store = ["dep:ferb-store", "dep:rusqlite", "dep:ferb-worker", "dep:ferb-trace", "dep:ferb-policy", "dep:ferb-fs", "dep:ferb-learning", "dep:ferb-memory", "dep:futures-util", "ferb-orchestrator/store", "ferb-clock/store"]
 
 [dependencies]
 chrono = { version = "0.4.42", default-features = false, features = ["std", "clock"] }
 ferb-clock = { path = "../ferb-clock", default-features = false }
 ferb-context = { path = "../ferb-context" }
+# the gateway's seams the supervisor fills (its Observer, the QuestionRouter) and the run grant they carry; the portable
+# part only (the call pipeline itself is the daemon's)
+ferb-gateway = { path = "../ferb-gateway", default-features = false }
+ferb-rpc = { path = "../ferb-rpc" }
 ferb-core = { path = "../ferb-core" }
 ferb-fs = { path = "../ferb-fs", optional = true }
 ferb-learning = { path = "../ferb-learning", default-features = false, optional = true }
@@ -43,3 +47,6 @@ tokio = { version = "1.54.1", features = ["sync", "time", "rt", "macros"] }
 [dev-dependencies]
 tempfile = "3.20.0"
 tokio = { version = "1.54.1", features = ["sync", "time", "rt", "macros", "test-util"] }
+# the replay's real gateway (its call pipeline on the store), its file tools, change records and timers
+ferb-gateway = { path = "../ferb-gateway" }
+ferb-identity = { path = "../ferb-identity" }

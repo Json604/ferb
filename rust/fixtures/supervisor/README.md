@@ -56,15 +56,30 @@ Determinism: the daemon fixture's (FakeClock, sequential ids, counters, invented
 
 ## The flows' replay (`ferb-supervisor/tests/replay.rs`)
 
-The forward path (intake, the planner's decision and its routing, the plan run, the worker and checker round, the
-task's end, `chat.send`'s stream) is replayed against `rust/fixtures/daemon/chat_scenarios.json`: every frame each
-connection received (bytes and order), every model call (runtime role, mode, tools, answer schema, instructions, parts)
-and every store table except those another part owns (`learning_*`, written by the memory part's episode capture
-after an outcome; `perception_floor`, `recall_state`, `trail_changes`, written by the daemon's start).
+The 28 chat scenarios of `rust/fixtures/daemon/chat_scenarios.json` are replayed on a temporary store: every frame each
+connection received (bytes and order), every model call (runtime role, mode, tools, answer schema, instructions,
+parts), every tool call's reply through the bridge, the chat RPCs' replies, and every store table except those another
+part owns (`learning_*`; `perception_floor`, `recall_state`, `trail_changes`, written by the daemon's start).
 
-What other parts gave the Python supervisor is read from `scenarios.json` here, in the order it was read: each planner
-call's environment and live facts (`supervise`), each role's instruction inputs (`system`), each context's activity
-search and desktop observations (`context`). The desktop observer's own spans (`disturbance.baseline`,
-`disturbance.summary`) are copied from the daemon fixture's `spans` table when the supervisor calls the desktop seam,
-under the id the run gives them. The gateway's listing is `rust/fixtures/catalog/tools.json` restricted to the daemon's
-registered tools. No new recording was needed: every read the forward path makes is one of these.
+- **The gateway is real** (ferb-gateway's `Gateway` on the scenario's store, the orchestrator's ledger, ferb-fs's change
+  record behind its hooks). The tools are scripted: each answers with the result the Python daemon recorded for it
+  (`gateway_calls`), after a file tool really ran (the file is there for the change record and the checker). The
+  scripted model makes its recorded `tool_bridge_lines` calls with its run token, as the bridge's `tools.call` does.
+- **The run's folder** is a real one under `$TMPDIR` as long as the recorder's `$TMPDIR/ferbdx` (budget lines count
+  path bytes), never the recorder's own (a recorder may be running in it). Hashes FERB takes over real paths (P19's
+  payload hash, a protected path's confirmation key) are therefore compared as `<sha256>`.
+- **Python's suspension points** are kept where the order of frames depends on them: the scripted model's step runs in
+  a thread (a yield before and after each bridge call), file tools run in a thread (a yield after the call). A chat
+  stream takes the events that became ready together as Python's loop hands them over (grouped by queue, the queue
+  that got the first event first: `chat.rs` `as_python_wakes`).
+- **The daemon's own plumbing** a chat scenario reaches is emulated in the harness: compose.py's `_publish` (a task's
+  question names its request) and `_question_record` (`question.asked` / `question.answered`). The daemon's other RPC
+  areas (`reminders.*`, `timers.*`, `schedules.*`, `stop.engage`, `notifications.subscribe`) and the timer loop's
+  delivery are passed over and named in the report.
+- Inputs read from `scenarios.json`: each planner call's environment and live facts (`supervise`), each role's
+  instruction inputs (`system`), each context's activity search (its `/FX` written as the run's folder) and desktop
+  observations (`context`); the desktop observer's spans are copied from the daemon fixture's `spans` table.
+
+23 of the 28 replay fully. The other five: `timer_set_and_fired` and `schedule_created_and_fired` reach the daemon's
+schedule and timer RPCs and its timer loop (and a schedule made in chat isn't ported), `global_stop` needs the daemon's
+`stop.engage`, `restart_mid_task` and `restart_with_open_question` need a restart.

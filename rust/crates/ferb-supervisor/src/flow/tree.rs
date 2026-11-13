@@ -385,6 +385,7 @@ impl Inner {
         }
         self.deps.daemon.on_task_start(&tree_id).await;
         let mut rx = self.runs.open_live(&tree_id);
+        self.live().live_lines.insert(tree_id.clone());
         let forward = |mut ev: Map<String, Value>| {
             if let Some(own) = ev.remove(SUBTASK_ID) {
                 ev.insert("task_id".into(), own);
@@ -404,6 +405,7 @@ impl Inner {
             forward(ev);
         }
         self.runs.close_live(&tree_id);
+        self.live().live_lines.remove(&tree_id);
         let (verification, stopped) = {
             let st = tree.lock();
             (st.verification.clone(), !st.stop.is_empty())
@@ -526,6 +528,30 @@ impl Inner {
     }
 
     /// supervisor.py:4736 `_checklist` (APP-894).
+    /// supervisor.py:4754 `checklist_state`: a running single ask's checklist now (chat.status).
+    pub fn checklist_state(&self, tree_id: &str) -> Option<Value> {
+        let tree = self.live().tree_of.get(tree_id).cloned()?;
+        if tree.id != tree_id {
+            return None;
+        }
+        self.checklist(&tree, None).get("checklist").cloned()
+    }
+
+    /// supervisor.py:2246 `tree_name`: a running tree's heading (its spec's short name, else its goal's first clause).
+    pub fn tree_name(&self, key: &str) -> String {
+        let tree = self.live().tree_of.get(key).cloned();
+        match tree.and_then(|t| t.lock().spec.clone()) {
+            Some(spec) => ferb_orchestrator::names::shown_name(Some(&spec.name), &spec.goal),
+            None => String::new(),
+        }
+    }
+
+    /// A watch check's tree (`tree.watch`): no client adopts it (I3).
+    pub fn is_watch(&self, key: &str) -> bool {
+        let tree = self.live().tree_of.get(key).cloned();
+        tree.is_some_and(|t| t.lock().watch)
+    }
+
     fn checklist(&self, tree: &Arc<Tree>, ended: Option<&str>) -> Map<String, Value> {
         let lines = self.plan_lines(&tree.id);
         if lines.len() < CHECKLIST_STEPS {
@@ -2040,7 +2066,12 @@ impl Inner {
                 answer.push_str(&format!("\n\n{own}"));
             }
         }
-        summary = ferb_policy::confirm::from_task_lines(&summary);
+        // GATE-581, fixed against Python (control.rs): a stop's words other than the owner's ("FERB was stopped", a
+        // shutdown, an interruption) are FERB's own and never marked "(from the task)"
+        let code_stop = !stop.is_empty() && stop != STOPPED_BY_YOU;
+        if !code_stop {
+            summary = ferb_policy::confirm::from_task_lines(&summary);
+        }
         answer = ferb_policy::confirm::from_task_lines(&answer);
         let sites = self.deps.daemon.sites_contacted(&tree.id);
         let lines = self.code_lines(tree, &sites);
@@ -2110,6 +2141,7 @@ impl Inner {
         if !cards.is_empty() {
             final_.insert("cards".into(), Value::Array(cards));
         }
+        final_.extend(self.told_in(tree)); // ORCH-579 (control.rs)
         final_.extend(self.checklist(tree, Some(&status)));
         Ok(final_)
     }

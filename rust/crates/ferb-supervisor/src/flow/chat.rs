@@ -3,9 +3,13 @@
 //! time it was queued (`request_id`, `at`); a task's outcome is recorded as its result (`_task_result`). What the app
 //! gets for a failed turn is recorded too.
 //!
-//! The bus events the daemon merges into the stream for this turn's tasks (`tool.called`, `approval.requested`,
-//! `action.*`) are the daemon's (ferbd) and are not merged here.
+//! The bus events the daemon merges into the stream (areas/chat.py:360 `bus_events`): `tool.called`,
+//! `approval.requested` and `action.*` about this turn's tasks (a task id the turn's events named, or one in its tree),
+//! wrapped `{"type": "event", "topic", "data"}` with the data redacted; an `action.*` outside any task goes to every
+//! open chat with `request_id: null`. They come through [`super::Daemon::subscribe`] the moment they are published and
+//! join the turn's own events in one queue, so each frame keeps the order in which it happened.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use ferb_sanitize::untrusted::mark;
@@ -108,7 +112,7 @@ impl Inner {
             .into_iter()
             .map(str::to_string)
             .collect();
-        let text = self.redact_text(&params.text);
+        let text = self.hide_code_reply(&self.redact_text(&params.text), &session);
         let request_id = self.new_id();
         let (tx, rx) = mpsc::unbounded_channel();
         let entry = self.journal(
@@ -154,6 +158,37 @@ impl Inner {
         out: mpsc::UnboundedSender<Value>,
     ) {
         let (tx, mut rx) = mpsc::unbounded_channel::<Value>();
+        // `self.bus.subscribe({"tool.called", "approval.requested", "action.*"})`: each event joins the turn's queue
+        // as it is published, redacted as `bus_events` redacts it
+        let unsubscribe = {
+            let bus = tx.clone();
+            let redactor = self.deps.redactor.clone();
+            let me = self.me.clone();
+            let turn = request_id.clone();
+            self.deps.daemon.subscribe(
+                &BUS_TOPICS,
+                Arc::new(move |topic: &str, data: &ferb_sanitize::Py| {
+                    let data = py_json(&redactor.py(data));
+                    // Tagged with this turn: a running tree's line is shared by every chat's subscription, and each
+                    // turn takes only its own copy. An event about a running tree's task rides that tree's line, so it
+                    // reaches the stream as the tree's own events do (one hop, as in Python both the tree's queue and
+                    // the bus's are); anything else joins the turn's queue now.
+                    let event = json!({BUS: topic, "data": data, TURN: turn});
+                    let tid = data.get("task_id").filter(|t| ferb_py::value::truthy(t));
+                    if let (Some(tid), Some(sup)) = (tid, me.upgrade()) {
+                        let tree = sup.tree_of(&ferb_py::value::py_str(tid));
+                        let open = tree.filter(|t| sup.live().live_lines.contains(t));
+                        if let (Some(tree), Some(worker), Value::Object(ev)) =
+                            (open, sup.worker.get(), &event)
+                        {
+                            worker.tell_tree(&tree, ev.clone());
+                            return;
+                        }
+                    }
+                    let _ = bus.send(event);
+                }),
+            )
+        };
         let stamp = |ev: Value| -> Value {
             let mut ev = match ev {
                 Value::Object(m) => m,
@@ -177,28 +212,62 @@ impl Inner {
             .await
         };
         tokio::pin!(run);
-        let mut my_tasks = false;
-        let result = loop {
-            tokio::select! {
-                biased;
-                Some(ev) = rx.recv() => {
-                    let ev = stamp(ev);
-                    my_tasks = my_tasks || ev.get("task_id").is_some_and(ferb_py::value::truthy);
-                    if ev.get("type").and_then(Value::as_str) == Some("outcome") {
-                        self.task_result(&ev, true);
-                    }
-                    let _ = out.send(ev);
+        let mut my_tasks: BTreeSet<String> = BTreeSet::new();
+        let take = |ev: Value, my_tasks: &mut BTreeSet<String>| {
+            if let Some(topic) = ev.get(BUS).and_then(Value::as_str) {
+                if ev.get(TURN).and_then(Value::as_str) != Some(request_id.as_str()) {
+                    return; // another chat's copy, on a tree's line this turn reads
                 }
-                r = &mut run => break r,
+                let data = &ev["data"];
+                let ours = self.ours(data, my_tasks);
+                let outside = data
+                    .get("task_id")
+                    .is_none_or(|t| !ferb_py::value::truthy(t));
+                if ours || (topic.starts_with("action.") && outside) {
+                    let mut wrapper = stamp(json!({"type": "event", "topic": topic, "data": data}));
+                    if !ours {
+                        // an observation outside any task goes to every open chat: it is about no message
+                        wrapper["request_id"] = Value::Null;
+                    }
+                    let _ = out.send(wrapper);
+                }
+                return;
             }
-        };
-        while let Ok(ev) = rx.try_recv() {
             let ev = stamp(ev);
+            if let Some(t) = ev.get("task_id").filter(|t| ferb_py::value::truthy(t)) {
+                my_tasks.insert(ferb_py::value::py_str(t));
+            }
             if ev.get("type").and_then(Value::as_str) == Some("outcome") {
                 self.task_result(&ev, true);
             }
             let _ = out.send(ev);
+        };
+        let result = loop {
+            tokio::select! {
+                biased;
+                Some(ev) = rx.recv() => {
+                    let mut batch = vec![ev];
+                    while let Ok(ev) = rx.try_recv() {
+                        batch.push(ev);
+                    }
+                    for ev in as_python_wakes(batch) {
+                        take(ev, &mut my_tasks);
+                    }
+                }
+                r = &mut run => break r,
+            }
+        };
+        let mut rest = Vec::new();
+        while let Ok(ev) = rx.try_recv() {
+            rest.push(ev);
         }
+        for ev in as_python_wakes(rest) {
+            take(ev, &mut my_tasks);
+        }
+        if let Some(leave) = unsubscribe {
+            leave();
+        }
+        let my_tasks = !my_tasks.is_empty();
         match result {
             Ok(()) | Err(Failure::Cancelled) => {}
             Err(failure) => {
@@ -234,6 +303,60 @@ impl Inner {
                 ));
             }
         }
+    }
+
+    /// `tid in my_tasks or self.tasks.tree_of(str(tid)) in my_tasks`.
+    fn ours(&self, data: &Value, my_tasks: &BTreeSet<String>) -> bool {
+        let tid = match data.get("task_id") {
+            None | Some(Value::Null) => "None".to_string(),
+            Some(v) => ferb_py::value::py_str(v),
+        };
+        if my_tasks.contains(&tid) {
+            return true;
+        }
+        self.tree_of(&tid).is_some_and(|t| my_tasks.contains(&t))
+    }
+
+    /// areas/chat.py:24 `_hide_code_reply` (rule 14): a chat message while a question is open, before any model sees
+    /// it: its codes are masked when a worker's question asks for a code, and a one-word reply to a password or PIN
+    /// question is hidden whole; the planner's own clarifying question in this chat counts too. FERB's memory
+    /// questions never ask for a secret, and a reply that is exactly an option of a waiting question is a choice.
+    /// (FERB's own "which is it?" about an answer, `_answer_focus`, isn't ported: no question is displaced by it.)
+    pub fn hide_code_reply(&self, text: &str, session_id: &str) -> String {
+        let redactor = &self.deps.redactor;
+        let open_now = self.deps.daemon.approvals();
+        let choice = {
+            let t = ferb_orchestrator::py::strip(text);
+            ferb_orchestrator::py::strip(t.trim_end_matches(['.', '!'])).to_string()
+        };
+        let mut text = text.to_string();
+        for ap in &open_now {
+            if ferb_orchestrator::steering::MEMORY_ASKS.contains(&ap.capability.as_str()) {
+                continue;
+            }
+            let reason = if ap.kind == "owner_login_code" {
+                "login code"
+            } else {
+                ap.reason.as_str()
+            };
+            if (ap.kind == "owner_question" || ap.kind == "owner_login_code")
+                && ap.option_for(&choice).is_none()
+            {
+                text = redactor.answer(&text, reason, true);
+            }
+        }
+        let asked = self
+            .continuity(|c| c.pending(session_id))
+            .ok()
+            .map(|(_, asked)| asked)
+            .filter(ferb_py::value::truthy)
+            .map(|a| ferb_py::value::py_str(&a));
+        if !open_now.iter().any(|ap| ap.option_for(&choice).is_some()) {
+            if let Some(asked) = asked {
+                text = redactor.answer(&text, &asked, true);
+            }
+        }
+        text
     }
 
     /// notify.py:33 `_task_result`: what FERB told the owner about a task, recorded.
@@ -280,4 +403,35 @@ impl Inner {
             .daemon
             .publish("task.result", Value::Object(published));
     }
+}
+
+/// The topics a chat turn takes from the bus (areas/chat.py:360).
+pub const BUS_TOPICS: [&str; 3] = ["tool.called", "approval.requested", "action.*"];
+
+/// The key a bus event carries in the turn's queue (never a key of the supervisor's own events).
+const BUS: &str = "\u{0}bus";
+/// The turn (its request id) whose subscription queued a bus event.
+const TURN: &str = "\u{0}turn";
+
+/// The events that became ready together (between two suspensions of the work that made them), in the order Python's
+/// loop hands them over: `_chat_send` reads two queues, the turn's own events (one task) and the bus's (another), and
+/// each task, once woken, takes everything queued for it. So the events of one burst come grouped by their queue,
+/// the queue that got the first of them first, each group in its own order.
+fn as_python_wakes(batch: Vec<Value>) -> Vec<Value> {
+    let is_bus = |ev: &Value| ev.get(BUS).is_some();
+    let Some(first) = batch.first().map(is_bus) else {
+        return batch;
+    };
+    let (mut lead, rest): (Vec<Value>, Vec<Value>) =
+        batch.into_iter().partition(|ev| is_bus(ev) == first);
+    lead.extend(rest);
+    lead
+}
+
+/// A Python value as `json.loads(json.dumps(v))` reads it.
+fn py_json(p: &ferb_sanitize::Py) -> Value {
+    p.to_json(false)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or(Value::Null)
 }

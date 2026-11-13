@@ -391,7 +391,21 @@ impl Inner {
         tree.lock().confirmed.clear();
         let mut retrying = false;
         let worker = self.worker.get().expect("the worker").clone();
+        if !tree.lock().restored_wait.is_empty() {
+            match self.restored_wait(tree, &task, &mut attempts, span).await {
+                Ok(more) => instructions = more,
+                Err(end) => return Ok(end),
+            }
+        }
         while !self.stopped(tree) {
+            match self.hold_if_paused(tree, &task).await {
+                super::owner_wait::Held::Go => {}
+                super::owner_wait::Held::Stop => break,
+                super::owner_wait::Held::Resume(more) => {
+                    instructions = more;
+                    continue;
+                }
+            }
             self.new_attempt(tree);
             self.set_status(&task.id, "running", None);
             let mut ctx = self.context(tree, true).await?;
@@ -416,9 +430,25 @@ impl Inner {
                 )
                 .await
                 .map_err(Failure::Worker)?;
+            if self.is_paused(tree) && !self.stopped(tree) {
+                continue; // the pause ended this attempt: its report is dropped (owner_wait.rs)
+            }
             if let Attempt::Outcome(o) = &raw {
-                if matches!(o.kind, OutcomeKind::ServiceDown { .. }) {
-                    return Err(NotPorted("Supervisor._service_down").into());
+                if let OutcomeKind::ServiceDown { runtime, problem } = &o.kind {
+                    if !self.stopped(tree) {
+                        let _ = self.read_report(tree, &task, &raw);
+                        match self
+                            .service_down_step(tree, &task, &o.outcome, runtime, problem)
+                            .await
+                        {
+                            Ok(more) => {
+                                instructions = more;
+                                continue;
+                            }
+                            Err(None) => break,
+                            Err(Some(failed)) => return Ok(failed),
+                        }
+                    }
                 }
             }
             let out = self.read_report(tree, &task, &raw);
@@ -471,10 +501,12 @@ impl Inner {
                 }
                 self.release_resources(tree, span).await;
             }
-            if self.steered(tree).await && !self.stopped(tree) {
-                return Err(
-                    NotPorted("Supervisor._worker (a correction during the attempt)").into(),
-                );
+            if (self.steered(tree).await || self.is_paused(tree)) && !self.stopped(tree) {
+                // the attempt's one steering checkpoint (owner_wait.rs): a done report is kept, the next attempt
+                // starts from the correction
+                self.superseded_attempt(tree, out.status == OutcomeStatus::Done);
+                instructions.clear();
+                continue;
             }
             let Some(choice) = choice else { break };
             if self.stopped(tree) || out.status == OutcomeStatus::Cancelled {
@@ -510,7 +542,14 @@ impl Inner {
             if choice.action == "ask" {
                 tree.lock().owner_question = choice.question.clone();
                 if tree.asks_in_place {
-                    return Err(NotPorted("Supervisor._wait_for_owner").into());
+                    match self.ask_in_place(tree, &task, &choice.question).await {
+                        Ok(more) => {
+                            instructions = more;
+                            continue;
+                        }
+                        Err(true) => break,
+                        Err(false) => {}
+                    }
                 }
                 return Ok(outcome(
                     &task.id,
@@ -535,7 +574,14 @@ impl Inner {
             } + &format!("\nInstructions for this attempt: {}", choice.instructions);
             retrying = true;
             if attempts.failed_one() {
-                return Err(NotPorted("Supervisor._check_in").into());
+                match self
+                    .check_in_step(tree, &task, &mut attempts, out.artifacts.clone())
+                    .await
+                {
+                    Ok(more) => instructions.push_str(&more),
+                    Err(None) => break,
+                    Err(Some(failed)) => return Ok(failed),
+                }
             }
         }
         let stop = tree.lock().stop.clone();
