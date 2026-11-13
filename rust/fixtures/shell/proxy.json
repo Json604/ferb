@@ -1,0 +1,3369 @@
+{
+ "hosts": [
+  {
+   "host": "127.0.0.1",
+   "literal": true,
+   "this_mac": true,
+   "local_host": true,
+   "local_addresses": [
+    [
+     false,
+     [
+      "127.0.0.1",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "localhost",
+   "literal": false,
+   "this_mac": false,
+   "local_host": true,
+   "local_addresses": [
+    [
+     true,
+     [
+      "::1",
+      8080,
+      0,
+      0
+     ]
+    ],
+    [
+     false,
+     [
+      "127.0.0.1",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "LOCALHOST.",
+   "literal": false,
+   "this_mac": false,
+   "local_host": true,
+   "local_addresses": [
+    [
+     true,
+     [
+      "::1",
+      8080,
+      0,
+      0
+     ]
+    ],
+    [
+     false,
+     [
+      "127.0.0.1",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "0.0.0.0",
+   "literal": true,
+   "this_mac": true,
+   "local_host": true,
+   "local_addresses": [
+    [
+     false,
+     [
+      "0.0.0.0",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "::1",
+   "literal": true,
+   "this_mac": true,
+   "local_host": true,
+   "local_addresses": [
+    [
+     true,
+     [
+      "::1",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "::ffff:127.0.0.1",
+   "literal": true,
+   "this_mac": true,
+   "local_host": true,
+   "local_addresses": [
+    [
+     true,
+     [
+      "::ffff:127.0.0.1",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "127.8.9.10",
+   "literal": true,
+   "this_mac": true,
+   "local_host": true,
+   "local_addresses": [
+    [
+     false,
+     [
+      "127.8.9.10",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "192.0.2.1",
+   "literal": true,
+   "this_mac": false,
+   "local_host": false,
+   "local_addresses": [
+    [
+     false,
+     [
+      "192.0.2.1",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "2001:db8::1",
+   "literal": true,
+   "this_mac": false,
+   "local_host": false,
+   "local_addresses": [
+    [
+     true,
+     [
+      "2001:db8::1",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "fe80::1%lo0",
+   "literal": true,
+   "this_mac": false,
+   "local_host": false,
+   "local_addresses": [
+    [
+     true,
+     [
+      "fe80::1%lo0",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "::",
+   "literal": true,
+   "this_mac": true,
+   "local_host": true,
+   "local_addresses": [
+    [
+     true,
+     [
+      "::",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "example.com",
+   "literal": false,
+   "this_mac": false,
+   "local_host": false,
+   "local_addresses": [
+    [
+     false,
+     [
+      "example.com",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "01.2.3.4",
+   "literal": false,
+   "this_mac": false,
+   "local_host": false,
+   "local_addresses": [
+    [
+     false,
+     [
+      "01.2.3.4",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "1.2.3",
+   "literal": false,
+   "this_mac": false,
+   "local_host": false,
+   "local_addresses": [
+    [
+     false,
+     [
+      "1.2.3",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "256.1.1.1",
+   "literal": false,
+   "this_mac": false,
+   "local_host": false,
+   "local_addresses": [
+    [
+     false,
+     [
+      "256.1.1.1",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "::ffff:1.2.3.4",
+   "literal": true,
+   "this_mac": false,
+   "local_host": false,
+   "local_addresses": [
+    [
+     true,
+     [
+      "::ffff:1.2.3.4",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "[::1]",
+   "literal": false,
+   "this_mac": false,
+   "local_host": false,
+   "local_addresses": [
+    [
+     true,
+     [
+      "[::1]",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "",
+   "literal": false,
+   "this_mac": false,
+   "local_host": false,
+   "local_addresses": [
+    [
+     false,
+     [
+      "",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "1.2.3.4%x",
+   "literal": true,
+   "this_mac": false,
+   "local_host": false,
+   "local_addresses": [
+    [
+     false,
+     [
+      "1.2.3.4%x",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "::%",
+   "literal": true,
+   "this_mac": true,
+   "local_host": true,
+   "local_addresses": [
+    [
+     true,
+     [
+      "::%",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "::1%a%b",
+   "literal": true,
+   "this_mac": true,
+   "local_host": true,
+   "local_addresses": [
+    [
+     true,
+     [
+      "::1%a%b",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "1:2:3:4:5:6:7:8:9",
+   "literal": false,
+   "this_mac": false,
+   "local_host": false,
+   "local_addresses": [
+    [
+     true,
+     [
+      "1:2:3:4:5:6:7:8:9",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "1::2::3",
+   "literal": false,
+   "this_mac": false,
+   "local_host": false,
+   "local_addresses": [
+    [
+     true,
+     [
+      "1::2::3",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "1:2:3:4:5:6:7::",
+   "literal": true,
+   "this_mac": false,
+   "local_host": false,
+   "local_addresses": [
+    [
+     true,
+     [
+      "1:2:3:4:5:6:7::",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "::1.2.3.4",
+   "literal": true,
+   "this_mac": false,
+   "local_host": false,
+   "local_addresses": [
+    [
+     true,
+     [
+      "::1.2.3.4",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "localhost..",
+   "literal": false,
+   "this_mac": false,
+   "local_host": true,
+   "local_addresses": [
+    [
+     true,
+     [
+      "::1",
+      8080,
+      0,
+      0
+     ]
+    ],
+    [
+     false,
+     [
+      "127.0.0.1",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "١.٢.٣.٤",
+   "literal": false,
+   "this_mac": false,
+   "local_host": false,
+   "local_addresses": [
+    [
+     false,
+     [
+      "١.٢.٣.٤",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "0x7f.0.0.1",
+   "literal": false,
+   "this_mac": false,
+   "local_host": false,
+   "local_addresses": [
+    [
+     false,
+     [
+      "0x7f.0.0.1",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "127.1",
+   "literal": false,
+   "this_mac": false,
+   "local_host": false,
+   "local_addresses": [
+    [
+     false,
+     [
+      "127.1",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "::ffff:7f00:0001",
+   "literal": true,
+   "this_mac": true,
+   "local_host": true,
+   "local_addresses": [
+    [
+     true,
+     [
+      "::ffff:7f00:0001",
+      8080
+     ]
+    ]
+   ]
+  },
+  {
+   "host": "abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd::1",
+   "literal": false,
+   "this_mac": false,
+   "local_host": false,
+   "local_addresses": [
+    [
+     true,
+     [
+      "abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd::1",
+      8080
+     ]
+    ]
+   ]
+  }
+ ],
+ "connect": [
+  [
+   "//origin.test:443",
+   {
+    "host": "origin.test",
+    "port": 443
+   }
+  ],
+  [
+   "//Origin.TEST:443",
+   {
+    "host": "origin.test",
+    "port": 443
+   }
+  ],
+  [
+   "//origin.test",
+   {
+    "host": "origin.test",
+    "port": null
+   }
+  ],
+  [
+   "//origin.test:0",
+   {
+    "host": "origin.test",
+    "port": 0
+   }
+  ],
+  [
+   "//origin.test:65536",
+   {
+    "error": "ValueError"
+   }
+  ],
+  [
+   "//origin.test:x",
+   {
+    "error": "ValueError"
+   }
+  ],
+  [
+   "//[::1]:443",
+   {
+    "host": "::1",
+    "port": 443
+   }
+  ],
+  [
+   "//[::1",
+   {
+    "error": "ValueError"
+   }
+  ],
+  [
+   "//[1.2.3.4]:443",
+   {
+    "error": "ValueError"
+   }
+  ],
+  [
+   "//user@host:22",
+   {
+    "host": "host",
+    "port": 22
+   }
+  ],
+  [
+   "//host:٣",
+   {
+    "error": "ValueError"
+   }
+  ],
+  [
+   "//host:+1",
+   {
+    "error": "ValueError"
+   }
+  ],
+  [
+   "//:443",
+   {
+    "host": null,
+    "port": 443
+   }
+  ],
+  [
+   "//[v1.x]:443",
+   {
+    "host": "v1.x",
+    "port": 443
+   }
+  ],
+  [
+   "//ḦOST:9",
+   {
+    "host": "ḧost",
+    "port": 9
+   }
+  ],
+  [
+   "//a/b:1",
+   {
+    "host": "a",
+    "port": null
+   }
+  ],
+  [
+   "// host:1",
+   {
+    "host": " host",
+    "port": 1
+   }
+  ],
+  [
+   "//\thost:1",
+   {
+    "host": "host",
+    "port": 1
+   }
+  ],
+  [
+   "//ho\nst:1",
+   {
+    "host": "host",
+    "port": 1
+   }
+  ],
+  [
+   "//host:00080",
+   {
+    "host": "host",
+    "port": 80
+   }
+  ],
+  [
+   "//host:-1",
+   {
+    "error": "ValueError"
+   }
+  ],
+  [
+   "//xn--abc.test:1",
+   {
+    "host": "xn--abc.test",
+    "port": 1
+   }
+  ],
+  [
+   "//[fe80::1%25lo0]:1",
+   {
+    "host": "fe80::1%25lo0",
+    "port": 1
+   }
+  ],
+  [
+   "//ｈost:1",
+   {
+    "host": "ｈost",
+    "port": 1
+   }
+  ],
+  [
+   "//h℅st:1",
+   {
+    "error": "ValueError"
+   }
+  ],
+  [
+   "//[::1]x:5",
+   {
+    "error": "ValueError"
+   }
+  ],
+  [
+   "//host:1:2",
+   {
+    "error": "ValueError"
+   }
+  ]
+ ],
+ "forward": [
+  [
+   "http://origin.test/x",
+   {
+    "scheme": "http",
+    "netloc": "origin.test",
+    "path": "/x",
+    "query": "",
+    "host": "origin.test",
+    "port": null
+   }
+  ],
+  [
+   "HTTP://origin.test:8080/a/b?q=1#frag",
+   {
+    "scheme": "http",
+    "netloc": "origin.test:8080",
+    "path": "/a/b",
+    "query": "q=1",
+    "host": "origin.test",
+    "port": 8080
+   }
+  ],
+  [
+   "https://origin.test/",
+   {
+    "scheme": "https",
+    "netloc": "origin.test",
+    "path": "/",
+    "query": "",
+    "host": "origin.test",
+    "port": null
+   }
+  ],
+  [
+   "/relative",
+   {
+    "scheme": "",
+    "netloc": "",
+    "path": "/relative",
+    "query": "",
+    "host": null,
+    "port": null
+   }
+  ],
+  [
+   "http://user:pw@origin.test:81/p",
+   {
+    "scheme": "http",
+    "netloc": "user:pw@origin.test:81",
+    "path": "/p",
+    "query": "",
+    "host": "origin.test",
+    "port": 81
+   }
+  ],
+  [
+   "http:///nohost",
+   {
+    "scheme": "http",
+    "netloc": "",
+    "path": "/nohost",
+    "query": "",
+    "host": null,
+    "port": null
+   }
+  ],
+  [
+   "http://origin.test",
+   {
+    "scheme": "http",
+    "netloc": "origin.test",
+    "path": "",
+    "query": "",
+    "host": "origin.test",
+    "port": null
+   }
+  ],
+  [
+   "http://origin.test?only=q",
+   {
+    "scheme": "http",
+    "netloc": "origin.test",
+    "path": "",
+    "query": "only=q",
+    "host": "origin.test",
+    "port": null
+   }
+  ],
+  [
+   "http://[2001:db8::1]:8080/x",
+   {
+    "scheme": "http",
+    "netloc": "[2001:db8::1]:8080",
+    "path": "/x",
+    "query": "",
+    "host": "2001:db8::1",
+    "port": 8080
+   }
+  ],
+  [
+   "http://[2001:db8::1/x",
+   {
+    "error": "ValueError"
+   }
+  ],
+  [
+   "ftp://x/y",
+   {
+    "scheme": "ftp",
+    "netloc": "x",
+    "path": "/y",
+    "query": "",
+    "host": "x",
+    "port": null
+   }
+  ],
+  [
+   "http://origin.test:bad/",
+   {
+    "error": "ValueError"
+   }
+  ],
+  [
+   "  http://origin.test/lead",
+   {
+    "scheme": "http",
+    "netloc": "origin.test",
+    "path": "/lead",
+    "query": "",
+    "host": "origin.test",
+    "port": null
+   }
+  ],
+  [
+   "http://or\tigin.test/x",
+   {
+    "scheme": "http",
+    "netloc": "origin.test",
+    "path": "/x",
+    "query": "",
+    "host": "origin.test",
+    "port": null
+   }
+  ],
+  [
+   "http://origin.test/a#b?c",
+   {
+    "scheme": "http",
+    "netloc": "origin.test",
+    "path": "/a",
+    "query": "",
+    "host": "origin.test",
+    "port": null
+   }
+  ],
+  [
+   "http:origin.test/x",
+   {
+    "scheme": "http",
+    "netloc": "",
+    "path": "origin.test/x",
+    "query": "",
+    "host": null,
+    "port": null
+   }
+  ],
+  [
+   "1http://x/",
+   {
+    "scheme": "",
+    "netloc": "",
+    "path": "1http://x/",
+    "query": "",
+    "host": null,
+    "port": null
+   }
+  ],
+  [
+   "http+x://h/p",
+   {
+    "scheme": "http+x",
+    "netloc": "h",
+    "path": "/p",
+    "query": "",
+    "host": "h",
+    "port": null
+   }
+  ],
+  [
+   "http://h/p;params?q",
+   {
+    "scheme": "http",
+    "netloc": "h",
+    "path": "/p;params",
+    "query": "q",
+    "host": "h",
+    "port": null
+   }
+  ],
+  [
+   "http://ORIGIN.test/%20x",
+   {
+    "scheme": "http",
+    "netloc": "ORIGIN.test",
+    "path": "/%20x",
+    "query": "",
+    "host": "origin.test",
+    "port": null
+   }
+  ]
+ ],
+ "hellos": [
+  {
+   "name": "sni",
+   "bytes": "16030100420100003e0303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000413011301010000110000000d000b00000863646e2e74657374",
+   "feeds": [
+    [
+     1,
+     "cdn.test"
+    ],
+    [
+     3,
+     "cdn.test"
+    ],
+    [
+     64,
+     "cdn.test"
+    ],
+    [
+     71,
+     "cdn.test"
+    ]
+   ]
+  },
+  {
+   "name": "upper sni",
+   "bytes": "16030100420100003e0303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000413011301010000110000000d000b00000843444e2e54657374",
+   "feeds": [
+    [
+     1,
+     "cdn.test"
+    ],
+    [
+     3,
+     "cdn.test"
+    ],
+    [
+     64,
+     "cdn.test"
+    ],
+    [
+     71,
+     "cdn.test"
+    ]
+   ]
+  },
+  {
+   "name": "no sni",
+   "bytes": "16030100310100002d0303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f0000041301130101000000",
+   "feeds": [
+    [
+     1,
+     ""
+    ],
+    [
+     3,
+     ""
+    ],
+    [
+     64,
+     ""
+    ],
+    [
+     54,
+     ""
+    ]
+   ]
+  },
+  {
+   "name": "no extensions",
+   "bytes": "160301002f0100002b0303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000004130113010100",
+   "feeds": [
+    [
+     1,
+     ""
+    ],
+    [
+     3,
+     ""
+    ],
+    [
+     64,
+     ""
+    ],
+    [
+     52,
+     ""
+    ]
+   ]
+  },
+  {
+   "name": "session",
+   "bytes": "16030100600100005c0303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2000000000000000000000000000000000000000000000000000000000000000000004130113010100000f0000000b0009000006612e74657374",
+   "feeds": [
+    [
+     1,
+     "a.test"
+    ],
+    [
+     3,
+     "a.test"
+    ],
+    [
+     64,
+     "a.test"
+    ],
+    [
+     101,
+     "a.test"
+    ]
+   ]
+  },
+  {
+   "name": "other ext first",
+   "bytes": "16030100500100004c0303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000004130113010100001f001000050003026832002b00030203040000000b0009000006622e74657374",
+   "feeds": [
+    [
+     1,
+     "b.test"
+    ],
+    [
+     3,
+     "b.test"
+    ],
+    [
+     64,
+     "b.test"
+    ],
+    [
+     85,
+     "b.test"
+    ]
+   ]
+  },
+  {
+   "name": "non ascii sni",
+   "bytes": "16030100420100003e0303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000413011301010000110000000d000b000008c3a9782e74657374",
+   "feeds": [
+    [
+     1,
+     ""
+    ],
+    [
+     3,
+     ""
+    ],
+    [
+     64,
+     ""
+    ],
+    [
+     71,
+     ""
+    ]
+   ]
+  },
+  {
+   "name": "trailing dot",
+   "bytes": "16030100430100003f0303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000413011301010000120000000e000c00000963646e2e746573742e",
+   "feeds": [
+    [
+     1,
+     "cdn.test."
+    ],
+    [
+     3,
+     "cdn.test."
+    ],
+    [
+     64,
+     "cdn.test."
+    ],
+    [
+     72,
+     "cdn.test."
+    ]
+   ]
+  },
+  {
+   "name": "empty sni",
+   "bytes": "160301003a010000360303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f0000041301130101000009000000050003000000",
+   "feeds": [
+    [
+     1,
+     ""
+    ],
+    [
+     3,
+     ""
+    ],
+    [
+     64,
+     ""
+    ],
+    [
+     63,
+     ""
+    ]
+   ]
+  },
+  {
+   "name": "server hello",
+   "bytes": "160303000402000000",
+   "feeds": [
+    [
+     1,
+     "\u0000not-a-client-hello"
+    ],
+    [
+     3,
+     "\u0000not-a-client-hello"
+    ],
+    [
+     64,
+     "\u0000not-a-client-hello"
+    ],
+    [
+     9,
+     "\u0000not-a-client-hello"
+    ]
+   ]
+  },
+  {
+   "name": "not handshake",
+   "bytes": "170303000178",
+   "feeds": [
+    [
+     1,
+     "\u0000not-a-client-hello"
+    ],
+    [
+     3,
+     "\u0000not-a-client-hello"
+    ],
+    [
+     64,
+     "\u0000not-a-client-hello"
+    ],
+    [
+     6,
+     "\u0000not-a-client-hello"
+    ]
+   ]
+  },
+  {
+   "name": "split 7",
+   "bytes": "160303000701000040030300160303000701020304050607160303000708090a0b0c0d0e16030300070f1011121314151603030007161718191a1b1c16030300071d1e1f0000041316030300070113010100001316030300070000000f000d001603030007000a73706c697416030300052e74657374",
+   "feeds": [
+    [
+     1,
+     "split.test"
+    ],
+    [
+     3,
+     "split.test"
+    ],
+    [
+     64,
+     "split.test"
+    ],
+    [
+     118,
+     "split.test"
+    ]
+   ]
+  },
+  {
+   "name": "split 1",
+   "bytes": "16030300010116030300010016030300010016030300013e16030300010316030300010316030300010016030300010116030300010216030300010316030300010416030300010516030300010616030300010716030300010816030300010916030300010a16030300010b16030300010c16030300010d16030300010e16030300010f16030300011016030300011116030300011216030300011316030300011416030300011516030300011616030300011716030300011816030300011916030300011a16030300011b16030300011c16030300011d16030300011e16030300011f16030300010016030300010016030300010416030300011316030300010116030300011316030300010116030300010116030300010016030300010016030300011116030300010016030300010016030300010016030300010d16030300010016030300010b16030300010016030300010016030300010816030300016f16030300016e16030300016516030300012e160303000174160303000165160303000173160303000174",
+   "feeds": [
+    [
+     1,
+     "one.test"
+    ],
+    [
+     3,
+     "one.test"
+    ],
+    [
+     64,
+     "one.test"
+    ],
+    [
+     396,
+     "one.test"
+    ]
+   ]
+  },
+  {
+   "name": "truncated",
+   "bytes": "16030100420100003e0303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c",
+   "feeds": [
+    [
+     1,
+     null
+    ],
+    [
+     3,
+     null
+    ],
+    [
+     64,
+     null
+    ],
+    [
+     40,
+     null
+    ]
+   ]
+  },
+  {
+   "name": "header only",
+   "bytes": "160301",
+   "feeds": [
+    [
+     1,
+     null
+    ],
+    [
+     3,
+     null
+    ],
+    [
+     64,
+     null
+    ],
+    [
+     3,
+     null
+    ]
+   ]
+  },
+  {
+   "name": "bad ext len",
+   "bytes": "16030100400100003c0303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000004130113010100000f0000000b0009000006782e74ffffff",
+   "feeds": [
+    [
+     1,
+     ""
+    ],
+    [
+     3,
+     ""
+    ],
+    [
+     64,
+     ""
+    ],
+    [
+     69,
+     ""
+    ]
+   ]
+  },
+  {
+   "name": "invalid utf8 sni",
+   "bytes": "16030100420100003e0303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000413011301010000110000000d000b0000c36261642e74657374",
+   "feeds": [
+    [
+     1,
+     "bad.test"
+    ],
+    [
+     3,
+     "bad.test"
+    ],
+    [
+     64,
+     "bad.test"
+    ],
+    [
+     71,
+     "bad.test"
+    ]
+   ]
+  }
+ ],
+ "sni_bodies": [
+  [
+   "00000000000000000000",
+   ""
+  ],
+  [
+   "0303000000000000000000000000000000000000000000000000000000000000000000",
+   ""
+  ],
+  [
+   "0303000000000000000000000000000000000000000000000000000000000000000005616263",
+   ""
+  ],
+  [
+   "0303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000004130113010100000f0000000b0009000006712e74657374",
+   "q.test"
+  ],
+  [
+   "0303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000004130113010100000f0000000b0009000006712e7465",
+   "q.te"
+  ],
+  [
+   "0303000000000000000000000000000000000000000000000000000000000000000000000213010100000900000005000300000978797a",
+   "xyz"
+  ]
+ ],
+ "who": {
+  "tokens": {
+   "p-1": "tok-AAAA_bbbb-1234"
+  },
+  "cases": [
+   [
+    "Basic cC0xOnRvay1BQUFBX2JiYmItMTIzNA==",
+    "p-1"
+   ],
+   [
+    "basic  cC0xOnRvay1BQUFBX2JiYmItMTIzNA== \u001c",
+    "p-1"
+   ],
+   [
+    "BASIC\tcC0xOnRvay1BQUFBX2JiYmItMTIzNA==",
+    null
+   ],
+   [
+    "Bearer cC0xOnRvay1BQUFBX2JiYmItMTIzNA==",
+    null
+   ],
+   [
+    "Basic cC0xOndyb25n",
+    null
+   ],
+   [
+    "Basic cC0yOng=",
+    null
+   ],
+   [
+    "Basic !!!",
+    null
+   ],
+   [
+    "Basic cC0xOnRvaw",
+    null
+   ],
+   [
+    "Basic cC0xOnRvaw=",
+    null
+   ],
+   [
+    "Basic cC0x=OnRvaw==",
+    null
+   ],
+   [
+    "Basic cC0xOnTDtms=",
+    null
+   ],
+   [
+    "Basic //4=",
+    null
+   ],
+   [
+    "Basic",
+    null
+   ],
+   [
+    "",
+    null
+   ],
+   [
+    "Basic cC0xdG9r",
+    null
+   ],
+   [
+    "Basic cA==",
+    null
+   ],
+   [
+    "Basic cB==",
+    null
+   ],
+   [
+    "Basic cC0xOnRvay1BQUFBX2JiYmItMTIzNA== ",
+    "p-1"
+   ],
+   [
+    "Basic écC0xOng=",
+    null
+   ],
+   [
+    "Basic Y\nA==",
+    null
+   ],
+   [
+    "Basic ====",
+    null
+   ],
+   [
+    "Basic cC0xOnRvaw===",
+    null
+   ]
+  ]
+ },
+ "facts": {
+  "p-a": {
+   "destinations": [
+    {
+     "host": "a.test",
+     "port": 80,
+     "bytes_out": 7,
+     "bytes_in": 100,
+     "connections": 2
+    },
+    {
+     "host": "b.test",
+     "port": 443,
+     "bytes_out": 0,
+     "bytes_in": 0,
+     "connections": 1
+    },
+    {
+     "host": "localhost",
+     "port": 5432,
+     "bytes_out": 0,
+     "bytes_in": 0,
+     "connections": 2,
+     "local_connections": [
+      {
+       "address": "127.0.0.1",
+       "executable": "/bin/pg",
+       "connections": 1
+      },
+      {
+       "address": "::1",
+       "executable": "/bin/pg",
+       "connections": 1
+      }
+     ]
+    },
+    {
+     "host": "sni.test",
+     "port": 443,
+     "bytes_out": 0,
+     "bytes_in": 0,
+     "connections": 0
+    },
+    {
+     "host": "excluded",
+     "port": 443,
+     "bytes_out": 0,
+     "bytes_in": 11,
+     "connections": 2
+    },
+    {
+     "host": "excluded",
+     "port": 1,
+     "bytes_out": 0,
+     "bytes_in": 0,
+     "connections": 1,
+     "local_connections": [
+      {
+       "address": "excluded",
+       "executable": "/bin/z",
+       "connections": 1
+      }
+     ]
+    }
+   ],
+   "refused": [
+    {
+     "host": "c.test",
+     "port": 443,
+     "why": "why one",
+     "count": 2
+    },
+    {
+     "host": "excluded",
+     "port": 443,
+     "why": "why two",
+     "count": 2
+    }
+   ]
+  },
+  "none": {
+   "destinations": [],
+   "refused": []
+  }
+ },
+ "env": {
+  "HTTP_PROXY": "http://p-a:@TOKEN@@127.0.0.1:@PORT@",
+  "HTTPS_PROXY": "http://p-a:@TOKEN@@127.0.0.1:@PORT@",
+  "ALL_PROXY": "http://p-a:@TOKEN@@127.0.0.1:@PORT@",
+  "http_proxy": "http://p-a:@TOKEN@@127.0.0.1:@PORT@",
+  "https_proxy": "http://p-a:@TOKEN@@127.0.0.1:@PORT@",
+  "all_proxy": "http://p-a:@TOKEN@@127.0.0.1:@PORT@",
+  "NO_PROXY": "localhost,127.0.0.1,::1",
+  "no_proxy": "localhost,127.0.0.1,::1",
+  "NODE_USE_ENV_PROXY": "1"
+ },
+ "env_local": {
+  "HTTP_PROXY": "http://p-a:@TOKEN@@127.0.0.1:@PORT@",
+  "HTTPS_PROXY": "http://p-a:@TOKEN@@127.0.0.1:@PORT@",
+  "ALL_PROXY": "http://p-a:@TOKEN@@127.0.0.1:@PORT@",
+  "http_proxy": "http://p-a:@TOKEN@@127.0.0.1:@PORT@",
+  "https_proxy": "http://p-a:@TOKEN@@127.0.0.1:@PORT@",
+  "all_proxy": "http://p-a:@TOKEN@@127.0.0.1:@PORT@",
+  "NO_PROXY": "",
+  "no_proxy": "",
+  "NODE_USE_ENV_PROXY": "1"
+ },
+ "constants": {
+  "ENDED": "this command has ended; its proxy credential no longer opens connections",
+  "OWN": "this Mac's own address: a command reaches this Mac's servers directly, and only ones started in FERB's shell",
+  "DEST_REFUSED_NO": "you said no to this place in this task",
+  "DEST_SNI_NONE": "a TLS connection whose server name FERB couldn't read",
+  "SNI_MAX": 16384,
+  "UNAUTH_TIMEOUT": 10.0,
+  "MAX_UNAUTH": 1024,
+  "MAX_HEAD": 262144,
+  "HOP": [
+   "connection",
+   "expect",
+   "keep-alive",
+   "proxy-authenticate",
+   "proxy-authorization",
+   "proxy-connection",
+   "te",
+   "trailer",
+   "upgrade"
+  ]
+ },
+ "wire": [
+  {
+   "name": "no credentials",
+   "request": "GET http://origin.test/x HTTP/1.1\r\nHost: origin.test\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"FERB\"\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 33\r\nConnection: close\r\n\r\nFERB: proxy credentials required\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "wrong token",
+   "request": "GET http://origin.test/x HTTP/1.1\r\nProxy-Authorization: Basic cC0xOm5vcGU=\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"FERB\"\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 33\r\nConnection: close\r\n\r\nFERB: proxy credentials required\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "head of 407",
+   "request": "HEAD http://origin.test/x HTTP/1.1\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"FERB\"\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 33\r\nConnection: close\r\n\r\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "get",
+   "request": "GET http://origin.test/x?q=1 HTTP/1.1\r\nHost: origin.test\r\nUser-Agent: t/1\r\nProxy-Authorization: @AUTH@\r\nProxy-Connection: keep-alive\r\nAccept: */*\r\nTE: trailers\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nKeep-Alive: timeout=5\r\nX-Up: 1\r\n\r\nhello",
+   "client_got": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nX-Up: 1\r\nConnection: close\r\n\r\nhello",
+   "origin_got": "GET /x?q=1 HTTP/1.1\r\nHost: origin.test\r\nConnection: close\r\nUser-Agent: t/1\r\nAccept: */*\r\n\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 91,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 91,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "get with port and userinfo",
+   "request": "GET http://u:p@ORIGIN.test:8080/a%20b HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\nX-Case: Mixed\r\nHOST: ignored\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nKeep-Alive: timeout=5\r\nX-Up: 1\r\n\r\nhello",
+   "client_got": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nX-Up: 1\r\nConnection: close\r\n\r\nhello",
+   "origin_got": "GET /a%20b HTTP/1.1\r\nHost: ORIGIN.test:8080\r\nConnection: close\r\nX-Case: Mixed\r\n\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 8080,
+      "bytes_out": 81,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 8080,
+      "bytes_out": 81,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "post content length",
+   "request": "POST http://origin.test/up HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\nContent-Length: 11\r\nContent-Type: text/plain\r\n\r\nhello world",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "HTTP/1.1 201 Created\r\nContent-Length: 2\r\nConnection: keep-alive\r\n\r\nok",
+   "client_got": "HTTP/1.1 201 Created\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+   "origin_got": "POST /up HTTP/1.1\r\nHost: origin.test\r\nConnection: close\r\nContent-Length: 11\r\nContent-Type: text/plain\r\n\r\nhello world",
+   "facts": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 116,
+      "bytes_in": 69,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 116,
+      "bytes_in": 69,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "post chunked",
+   "request": "POST http://origin.test/up HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nab\r\n2;ext=1\r\ncd\r\n0\r\nX-Trailer: t\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nKeep-Alive: timeout=5\r\nX-Up: 1\r\n\r\nhello",
+   "client_got": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nX-Up: 1\r\nConnection: close\r\n\r\nhello",
+   "origin_got": "POST /up HTTP/1.1\r\nHost: origin.test\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nab\r\n2;ext=1\r\ncd\r\n0\r\nX-Trailer: t\r\n\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 126,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 126,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "post bad chunk",
+   "request": "POST http://origin.test/up HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\nab\r\n0\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nKeep-Alive: timeout=5\r\nX-Up: 1\r\n\r\nhello",
+   "client_got": "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 39\r\nConnection: close\r\n\r\nFERB: the request framing is malformed\n",
+   "origin_got": "POST /up HTTP/1.1\r\nHost: origin.test\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 91,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 91,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "head",
+   "request": "HEAD http://origin.test/h HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n",
+   "client_got": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\n",
+   "origin_got": "HEAD /h HTTP/1.1\r\nHost: origin.test\r\nConnection: close\r\n\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 58,
+      "bytes_in": 38,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 58,
+      "bytes_in": 38,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "expect continue",
+   "request": "PUT http://origin.test/p HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\nExpect: 100-continue\r\nContent-Length: 3\r\n\r\nabc",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nKeep-Alive: timeout=5\r\nX-Up: 1\r\n\r\nhello",
+   "client_got": "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 5\r\nX-Up: 1\r\nConnection: close\r\n\r\nhello",
+   "origin_got": "PUT /p HTTP/1.1\r\nHost: origin.test\r\nConnection: close\r\nContent-Length: 3\r\n\r\nabc",
+   "facts": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 79,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 79,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "interim then final",
+   "request": "GET http://origin.test/i HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "HTTP/1.1 100 Continue\r\nX-A: 1\r\n\r\nHTTP/1.1 103 Early Hints\r\nLink: </s>\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 5\r\nKeep-Alive: timeout=5\r\nX-Up: 1\r\n\r\nhello",
+   "client_got": "HTTP/1.1 100 Continue\r\nX-A: 1\r\n\r\nHTTP/1.1 103 Early Hints\r\nLink: </s>\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 5\r\nX-Up: 1\r\nConnection: close\r\n\r\nhello",
+   "origin_got": "GET /i HTTP/1.1\r\nHost: origin.test\r\nConnection: close\r\n\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 57,
+      "bytes_in": 148,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 57,
+      "bytes_in": 148,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "upgrade 101",
+   "request": "GET http://origin.test/ws HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: k\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\nframes",
+   "client_got": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\nframes",
+   "origin_got": "GET /ws HTTP/1.1\r\nHost: origin.test\r\nConnection: Upgrade, close\r\nUpgrade: websocket\r\nSec-WebSocket-Key: k\r\n\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 109,
+      "bytes_in": 83,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 109,
+      "bytes_in": 83,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "upgrade refused",
+   "request": "GET http://origin.test/ws HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\nConnection: keep-alive, Upgrade\r\nUpgrade: websocket\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "HTTP/1.1 400 Bad\r\nConnection: close\r\n\r\nno",
+   "client_got": "HTTP/1.1 400 Bad\r\nConnection: close\r\n\r\nno",
+   "origin_got": "GET /ws HTTP/1.1\r\nHost: origin.test\r\nConnection: Upgrade, close\r\nUpgrade: websocket\r\n\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 87,
+      "bytes_in": 41,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 87,
+      "bytes_in": 41,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "upgrade header without connection",
+   "request": "GET http://origin.test/ws HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\nUpgrade: websocket\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nKeep-Alive: timeout=5\r\nX-Up: 1\r\n\r\nhello",
+   "client_got": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nX-Up: 1\r\nConnection: close\r\n\r\nhello",
+   "origin_got": "GET /ws HTTP/1.1\r\nHost: origin.test\r\nConnection: close\r\n\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 58,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 58,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "origin closes early",
+   "request": "GET http://origin.test/e HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "HTTP/1.1 200 OK\r\nX-Partial",
+   "client_got": "HTTP/1.1 200 OK\r\nX-Partial",
+   "origin_got": "GET /e HTTP/1.1\r\nHost: origin.test\r\nConnection: close\r\n\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 57,
+      "bytes_in": 26,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 57,
+      "bytes_in": 26,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "huge head",
+   "request": "GET http://origin.test/big HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": {
+    "repeat": "x",
+    "count": 262145
+   },
+   "client_got": "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 46\r\nConnection: close\r\n\r\nFERB: the upstream response head is too large\n",
+   "origin_got": "GET /big HTTP/1.1\r\nHost: origin.test\r\nConnection: close\r\n\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 59,
+      "bytes_in": 262145,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 59,
+      "bytes_in": 262145,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "lf head",
+   "request": "GET http://origin.test/lf HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "HTTP/1.1 200 OK\nContent-Length: 2\n\nok\r\n\r\ntail",
+   "client_got": "HTTP/1.1 200 OK\nContent-Length: 2\n\nok\r\nConnection: close\r\n\r\ntail",
+   "origin_got": "GET /lf HTTP/1.1\r\nHost: origin.test\r\nConnection: close\r\n\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 58,
+      "bytes_in": 45,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 58,
+      "bytes_in": 45,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "refused host",
+   "request": "GET http://a.refused.test/x HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 50\r\nConnection: close\r\n\r\nFERB: this destination needs the owner's approval\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": [
+     {
+      "host": "a.refused.test",
+      "port": 80,
+      "why": "this destination needs the owner's approval",
+      "count": 1
+     }
+    ]
+   },
+   "report": {
+    "destinations": [],
+    "refused": [
+     {
+      "host": "a.refused.test",
+      "port": 80,
+      "why": "this destination needs the owner's approval",
+      "count": 1
+     }
+    ]
+   }
+  },
+  {
+   "name": "refused blank why",
+   "request": "GET http://blank.test/x HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 36\r\nConnection: close\r\n\r\nFERB: FERB refused this destination\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": [
+     {
+      "host": "blank.test",
+      "port": 80,
+      "why": "FERB refused this destination",
+      "count": 1
+     }
+    ]
+   },
+   "report": {
+    "destinations": [],
+    "refused": [
+     {
+      "host": "blank.test",
+      "port": 80,
+      "why": "FERB refused this destination",
+      "count": 1
+     }
+    ]
+   }
+  },
+  {
+   "name": "owner said no",
+   "request": "CONNECT no.test:443 HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 45\r\nConnection: close\r\n\r\nFERB: you said no to this place in this task\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": [
+     {
+      "host": "no.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 1
+     }
+    ]
+   },
+   "report": {
+    "destinations": [],
+    "refused": [
+     {
+      "host": "no.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 1
+     }
+    ]
+   }
+  },
+  {
+   "name": "own address",
+   "request": "GET http://127.0.0.1:9/x HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 115\r\nConnection: close\r\n\r\nFERB: this Mac's own address: a command reaches this Mac's servers directly, and only ones started in FERB's shell\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": [
+     {
+      "host": "127.0.0.1",
+      "port": 9,
+      "why": "this Mac's own address: a command reaches this Mac's servers directly, and only ones started in FERB's shell",
+      "count": 1
+     }
+    ]
+   },
+   "report": {
+    "destinations": [],
+    "refused": [
+     {
+      "host": "127.0.0.1",
+      "port": 9,
+      "why": "this Mac's own address: a command reaches this Mac's servers directly, and only ones started in FERB's shell",
+      "count": 1
+     }
+    ]
+   }
+  },
+  {
+   "name": "own address v6",
+   "request": "CONNECT [::1]:22 HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 115\r\nConnection: close\r\n\r\nFERB: this Mac's own address: a command reaches this Mac's servers directly, and only ones started in FERB's shell\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": [
+     {
+      "host": "::1",
+      "port": 22,
+      "why": "this Mac's own address: a command reaches this Mac's servers directly, and only ones started in FERB's shell",
+      "count": 1
+     }
+    ]
+   },
+   "report": {
+    "destinations": [],
+    "refused": [
+     {
+      "host": "::1",
+      "port": 22,
+      "why": "this Mac's own address: a command reaches this Mac's servers directly, and only ones started in FERB's shell",
+      "count": 1
+     }
+    ]
+   }
+  },
+  {
+   "name": "localhost without local access",
+   "request": "GET http://localhost:9/x HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "",
+   "origin_got": "GET /x HTTP/1.1\r\nHost: localhost:9\r\nConnection: close\r\n\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "localhost",
+      "port": 9,
+      "bytes_out": 57,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "localhost",
+      "port": 9,
+      "bytes_out": 57,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "unresolvable",
+   "request": "GET http://unresolvable.test/x HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 43\r\nConnection: close\r\n\r\nFERB: couldn't resolve the name (gaierror)\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": [
+     {
+      "host": "unresolvable.test",
+      "port": 80,
+      "why": "couldn't resolve the name (gaierror)",
+      "count": 1
+     }
+    ]
+   },
+   "report": {
+    "destinations": [],
+    "refused": [
+     {
+      "host": "unresolvable.test",
+      "port": 80,
+      "why": "couldn't resolve the name (gaierror)",
+      "count": 1
+     }
+    ]
+   }
+  },
+  {
+   "name": "connect refused upstream",
+   "request": "GET http://closed.test/x HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 42\r\nConnection: close\r\n\r\nFERB: couldn't connect to the destination\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "excluded host",
+   "request": "GET http://x.hidden/x HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nKeep-Alive: timeout=5\r\nX-Up: 1\r\n\r\nhello",
+   "client_got": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nX-Up: 1\r\nConnection: close\r\n\r\nhello",
+   "origin_got": "GET /x HTTP/1.1\r\nHost: x.hidden\r\nConnection: close\r\n\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "excluded",
+      "port": 80,
+      "bytes_out": 54,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "excluded",
+      "port": 80,
+      "bytes_out": 54,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "https url",
+   "request": "GET https://origin.test/x HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 65\r\nConnection: close\r\n\r\nFERB: send an absolute http:// URL, or CONNECT for anything else\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "relative path",
+   "request": "GET /x HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 65\r\nConnection: close\r\n\r\nFERB: send an absolute http:// URL, or CONNECT for anything else\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "bad port",
+   "request": "GET http://origin.test:99999/x HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 65\r\nConnection: close\r\n\r\nFERB: send an absolute http:// URL, or CONNECT for anything else\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "connect no port",
+   "request": "CONNECT origin.test HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 30\r\nConnection: close\r\n\r\nFERB: CONNECT needs host:port\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "connect bad bracket",
+   "request": "CONNECT [::1:443 HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 30\r\nConnection: close\r\n\r\nFERB: CONNECT needs host:port\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "connect tunnel",
+   "request": "CONNECT Origin.Test:443 HTTP/1.1\r\nHost: origin.test:443\r\nProxy-Authorization: @AUTH@\r\n\r\nPING plain bytes\r\n",
+   "after": "",
+   "shutdown": true,
+   "sni": false,
+   "mode": "tunnel",
+   "reply": "PONG",
+   "client_got": "HTTP/1.1 200 Connection established\r\n\r\nPONG",
+   "origin_got": "PING plain bytes\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 443,
+      "bytes_out": 18,
+      "bytes_in": 4,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 443,
+      "bytes_out": 18,
+      "bytes_in": 4,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "tunnel server first",
+   "request": "CONNECT svc.test:25 HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\nHELO\r\n",
+   "after": "",
+   "shutdown": true,
+   "sni": false,
+   "mode": "greet",
+   "reply": "220 greet\r\n",
+   "client_got": "HTTP/1.1 200 Connection established\r\n\r\n220 greet\r\n",
+   "origin_got": "HELO\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "svc.test",
+      "port": 25,
+      "bytes_out": 6,
+      "bytes_in": 11,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "svc.test",
+      "port": 25,
+      "bytes_out": 6,
+      "bytes_in": 11,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "sni match",
+   "request": "CONNECT cdn.test:443 HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "16030100420100003e0303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000413011301010000110000000d000b00000863646e2e74657374",
+   "shutdown": true,
+   "sni": true,
+   "mode": "tunnel",
+   "reply": "server-hello",
+   "client_got": "HTTP/1.1 200 Connection established\r\n\r\nserver-hello",
+   "origin_got": "\u0016\u0003\u0001\u0000B\u0001\u0000\u0000>\u0003\u0003\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a\u001b\u001c\u001d\u001e\u001f\u0000\u0000\u0004\u0013\u0001\u0013\u0001\u0001\u0000\u0000\u0011\u0000\u0000\u0000\r\u0000\u000b\u0000\u0000\bcdn.test",
+   "facts": {
+    "destinations": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "bytes_out": 71,
+      "bytes_in": 12,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "bytes_out": 71,
+      "bytes_in": 12,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "sni trailing dot",
+   "request": "CONNECT cdn.test:443 HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "16030100430100003f0303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000413011301010000120000000e000c00000943444e2e746573742e",
+   "shutdown": true,
+   "sni": true,
+   "mode": "tunnel",
+   "reply": "s",
+   "client_got": "HTTP/1.1 200 Connection established\r\n\r\ns",
+   "origin_got": "\u0016\u0003\u0001\u0000C\u0001\u0000\u0000?\u0003\u0003\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a\u001b\u001c\u001d\u001e\u001f\u0000\u0000\u0004\u0013\u0001\u0013\u0001\u0001\u0000\u0000\u0012\u0000\u0000\u0000\u000e\u0000\f\u0000\u0000\tCDN.test.",
+   "facts": {
+    "destinations": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "bytes_out": 72,
+      "bytes_in": 1,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "bytes_out": 72,
+      "bytes_in": 1,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "sni other allowed",
+   "request": "CONNECT cdn.test:443 HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "1603010044010000400303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000413011301010000130000000f000d00000a6f746865722e74657374",
+   "shutdown": true,
+   "sni": true,
+   "mode": "tunnel",
+   "reply": "s",
+   "client_got": "HTTP/1.1 200 Connection established\r\n\r\ns",
+   "origin_got": "\u0016\u0003\u0001\u0000D\u0001\u0000\u0000@\u0003\u0003\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a\u001b\u001c\u001d\u001e\u001f\u0000\u0000\u0004\u0013\u0001\u0013\u0001\u0001\u0000\u0000\u0013\u0000\u0000\u0000\u000f\u0000\r\u0000\u0000\nother.test",
+   "facts": {
+    "destinations": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "bytes_out": 73,
+      "bytes_in": 1,
+      "connections": 1
+     },
+     {
+      "host": "other.test",
+      "port": 443,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 0
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "bytes_out": 73,
+      "bytes_in": 1,
+      "connections": 1
+     },
+     {
+      "host": "other.test",
+      "port": 443,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 0
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "sni refused",
+   "request": "CONNECT cdn.test:443 HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "160301004d010000490303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000004130113010100001c0000001800160000137365637265742e726566757365642e74657374",
+   "shutdown": true,
+   "sni": true,
+   "mode": "tunnel",
+   "reply": "s",
+   "client_got": "HTTP/1.1 200 Connection established\r\n\r\n",
+   "origin_got": "",
+   "facts": {
+    "destinations": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "secret.refused.test",
+      "port": 443,
+      "why": "this destination needs the owner's approval",
+      "count": 1
+     }
+    ]
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "secret.refused.test",
+      "port": 443,
+      "why": "this destination needs the owner's approval",
+      "count": 1
+     }
+    ]
+   }
+  },
+  {
+   "name": "sni split records",
+   "request": "CONNECT cdn.test:443 HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "16030300090100004903030001021603030009030405060708090a0b16030300090c0d0e0f1011121314160303000915161718191a1b1c1d16030300091e1f0000041301130116030300090100001c000000180016030300091600001373656372651603030009742e7265667573656416030300052e74657374",
+   "shutdown": true,
+   "sni": true,
+   "mode": "tunnel",
+   "reply": "s",
+   "client_got": "HTTP/1.1 200 Connection established\r\n\r\n",
+   "origin_got": "",
+   "facts": {
+    "destinations": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "secret.refused.test",
+      "port": 443,
+      "why": "this destination needs the owner's approval",
+      "count": 1
+     }
+    ]
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "secret.refused.test",
+      "port": 443,
+      "why": "this destination needs the owner's approval",
+      "count": 1
+     }
+    ]
+   }
+  },
+  {
+   "name": "no sni to a name",
+   "request": "CONNECT cdn.test:443 HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "16030100310100002d0303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f0000041301130101000000",
+   "shutdown": true,
+   "sni": true,
+   "mode": "tunnel",
+   "reply": "s",
+   "client_got": "HTTP/1.1 200 Connection established\r\n\r\n",
+   "origin_got": "",
+   "facts": {
+    "destinations": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "why": "a TLS connection whose server name FERB couldn't read",
+      "count": 1
+     }
+    ]
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "why": "a TLS connection whose server name FERB couldn't read",
+      "count": 1
+     }
+    ]
+   }
+  },
+  {
+   "name": "no sni to a literal",
+   "request": "CONNECT 192.0.2.7:443 HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "16030100310100002d0303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f0000041301130101000000",
+   "shutdown": true,
+   "sni": true,
+   "mode": "tunnel",
+   "reply": "s",
+   "client_got": "HTTP/1.1 200 Connection established\r\n\r\ns",
+   "origin_got": "\u0016\u0003\u0001\u00001\u0001\u0000\u0000-\u0003\u0003\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a\u001b\u001c\u001d\u001e\u001f\u0000\u0000\u0004\u0013\u0001\u0013\u0001\u0001\u0000\u0000\u0000",
+   "facts": {
+    "destinations": [
+     {
+      "host": "192.0.2.7",
+      "port": 443,
+      "bytes_out": 54,
+      "bytes_in": 1,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "192.0.2.7",
+      "port": 443,
+      "bytes_out": 54,
+      "bytes_in": 1,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "not a hello",
+   "request": "CONNECT cdn.test:443 HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "160303000402000000",
+   "shutdown": true,
+   "sni": true,
+   "mode": "tunnel",
+   "reply": "s",
+   "client_got": "HTTP/1.1 200 Connection established\r\n\r\n",
+   "origin_got": "",
+   "facts": {
+    "destinations": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "why": "a TLS connection whose server name FERB couldn't read",
+      "count": 1
+     }
+    ]
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "why": "a TLS connection whose server name FERB couldn't read",
+      "count": 1
+     }
+    ]
+   }
+  },
+  {
+   "name": "sni not checked",
+   "request": "CONNECT cdn.test:443 HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "1603010048010000440303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000004130113010100001700000013001100000e656c736577686572652e74657374",
+   "shutdown": true,
+   "sni": false,
+   "mode": "tunnel",
+   "reply": "s",
+   "client_got": "HTTP/1.1 200 Connection established\r\n\r\ns",
+   "origin_got": "\u0016\u0003\u0001\u0000H\u0001\u0000\u0000D\u0003\u0003\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a\u001b\u001c\u001d\u001e\u001f\u0000\u0000\u0004\u0013\u0001\u0013\u0001\u0001\u0000\u0000\u0017\u0000\u0000\u0000\u0013\u0000\u0011\u0000\u0000\u000eelsewhere.test",
+   "facts": {
+    "destinations": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "bytes_out": 77,
+      "bytes_in": 1,
+      "connections": 1
+     },
+     {
+      "host": "elsewhere.test",
+      "port": 443,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 0
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "bytes_out": 77,
+      "bytes_in": 1,
+      "connections": 1
+     },
+     {
+      "host": "elsewhere.test",
+      "port": 443,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 0
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "hello cut short",
+   "request": "CONNECT cdn.test:443 HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "16030100420100003e0303000102030405060708090a0b0c0d0e0f101112",
+   "shutdown": true,
+   "sni": true,
+   "mode": "tunnel",
+   "reply": "s",
+   "client_got": "HTTP/1.1 200 Connection established\r\n\r\n",
+   "origin_got": "",
+   "facts": {
+    "destinations": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "why": "a TLS connection whose server name FERB couldn't read",
+      "count": 1
+     }
+    ]
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "cdn.test",
+      "port": 443,
+      "why": "a TLS connection whose server name FERB couldn't read",
+      "count": 1
+     }
+    ]
+   }
+  },
+  {
+   "name": "garbage line",
+   "request": "GARBAGE\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 400</p>\n        <p>Message: Bad request syntax ('GARBAGE').</p>\n        <p>Error code explanation: 400 - Bad request syntax or unsupported method.</p>\n    </body>\n</html>\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "four words",
+   "request": "GET a b HTTP/1.1\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 400 Bad request syntax ('GET a b HTTP/1.1')\r\nConnection: close\r\nContent-Type: text/html;charset=utf-8\r\nContent-Length: 371\r\n\r\n<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 400</p>\n        <p>Message: Bad request syntax ('GET a b HTTP/1.1').</p>\n        <p>Error code explanation: 400 - Bad request syntax or unsupported method.</p>\n    </body>\n</html>\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "http 2",
+   "request": "GET http://origin.test/ HTTP/2.0\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 505</p>\n        <p>Message: Invalid HTTP version (2.0).</p>\n        <p>Error code explanation: 505 - Cannot fulfill request.</p>\n    </body>\n</html>\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "bad version",
+   "request": "GET http://origin.test/ HTTP/1.x\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 400</p>\n        <p>Message: Bad request version ('HTTP/1.x').</p>\n        <p>Error code explanation: 400 - Bad request syntax or unsupported method.</p>\n    </body>\n</html>\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "bad version quote",
+   "request": "GET http://origin.test/ HTTP/'é\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 400</p>\n        <p>Message: Bad request version (\"HTTP/'Ã©\").</p>\n        <p>Error code explanation: 400 - Bad request syntax or unsupported method.</p>\n    </body>\n</html>\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "unsupported method",
+   "request": "TRACE http://origin.test/ HTTP/1.1\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 501 Unsupported method ('TRACE')\r\nConnection: close\r\nContent-Type: text/html;charset=utf-8\r\nContent-Length: 358\r\n\r\n<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 501</p>\n        <p>Message: Unsupported method ('TRACE').</p>\n        <p>Error code explanation: 501 - Server does not support this operation.</p>\n    </body>\n</html>\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "lowercase method",
+   "request": "get http://origin.test/ HTTP/1.1\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 501 Unsupported method ('get')\r\nConnection: close\r\nContent-Type: text/html;charset=utf-8\r\nContent-Length: 356\r\n\r\n<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 501</p>\n        <p>Message: Unsupported method ('get').</p>\n        <p>Error code explanation: 501 - Server does not support this operation.</p>\n    </body>\n</html>\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "http 0.9",
+   "request": "GET /\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "FERB: send an absolute http:// URL, or CONNECT for anything else\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "http 0.9 post",
+   "request": "POST /\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 400</p>\n        <p>Message: Bad HTTP/0.9 request type ('POST').</p>\n        <p>Error code explanation: 400 - Bad request syntax or unsupported method.</p>\n    </body>\n</html>\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "http 1.0",
+   "request": "GET http://origin.test/ten HTTP/1.0\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nKeep-Alive: timeout=5\r\nX-Up: 1\r\n\r\nhello",
+   "client_got": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nX-Up: 1\r\nConnection: close\r\n\r\nhello",
+   "origin_got": "GET /ten HTTP/1.1\r\nHost: origin.test\r\nConnection: close\r\n\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 59,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 59,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "too many headers",
+   "request": "GET http://origin.test/ HTTP/1.1\r\nX-0: v\r\nX-1: v\r\nX-2: v\r\nX-3: v\r\nX-4: v\r\nX-5: v\r\nX-6: v\r\nX-7: v\r\nX-8: v\r\nX-9: v\r\nX-10: v\r\nX-11: v\r\nX-12: v\r\nX-13: v\r\nX-14: v\r\nX-15: v\r\nX-16: v\r\nX-17: v\r\nX-18: v\r\nX-19: v\r\nX-20: v\r\nX-21: v\r\nX-22: v\r\nX-23: v\r\nX-24: v\r\nX-25: v\r\nX-26: v\r\nX-27: v\r\nX-28: v\r\nX-29: v\r\nX-30: v\r\nX-31: v\r\nX-32: v\r\nX-33: v\r\nX-34: v\r\nX-35: v\r\nX-36: v\r\nX-37: v\r\nX-38: v\r\nX-39: v\r\nX-40: v\r\nX-41: v\r\nX-42: v\r\nX-43: v\r\nX-44: v\r\nX-45: v\r\nX-46: v\r\nX-47: v\r\nX-48: v\r\nX-49: v\r\nX-50: v\r\nX-51: v\r\nX-52: v\r\nX-53: v\r\nX-54: v\r\nX-55: v\r\nX-56: v\r\nX-57: v\r\nX-58: v\r\nX-59: v\r\nX-60: v\r\nX-61: v\r\nX-62: v\r\nX-63: v\r\nX-64: v\r\nX-65: v\r\nX-66: v\r\nX-67: v\r\nX-68: v\r\nX-69: v\r\nX-70: v\r\nX-71: v\r\nX-72: v\r\nX-73: v\r\nX-74: v\r\nX-75: v\r\nX-76: v\r\nX-77: v\r\nX-78: v\r\nX-79: v\r\nX-80: v\r\nX-81: v\r\nX-82: v\r\nX-83: v\r\nX-84: v\r\nX-85: v\r\nX-86: v\r\nX-87: v\r\nX-88: v\r\nX-89: v\r\nX-90: v\r\nX-91: v\r\nX-92: v\r\nX-93: v\r\nX-94: v\r\nX-95: v\r\nX-96: v\r\nX-97: v\r\nX-98: v\r\nX-99: v\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 431 Too many headers\r\nConnection: close\r\nContent-Type: text/html;charset=utf-8\r\nContent-Length: 333\r\n\r\n<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 431</p>\n        <p>Message: Too many headers.</p>\n        <p>Error code explanation: 431 - got more than 100 headers.</p>\n    </body>\n</html>\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "ninety nine headers",
+   "request": "GET http://origin.test/n HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\nX-0: v\r\nX-1: v\r\nX-2: v\r\nX-3: v\r\nX-4: v\r\nX-5: v\r\nX-6: v\r\nX-7: v\r\nX-8: v\r\nX-9: v\r\nX-10: v\r\nX-11: v\r\nX-12: v\r\nX-13: v\r\nX-14: v\r\nX-15: v\r\nX-16: v\r\nX-17: v\r\nX-18: v\r\nX-19: v\r\nX-20: v\r\nX-21: v\r\nX-22: v\r\nX-23: v\r\nX-24: v\r\nX-25: v\r\nX-26: v\r\nX-27: v\r\nX-28: v\r\nX-29: v\r\nX-30: v\r\nX-31: v\r\nX-32: v\r\nX-33: v\r\nX-34: v\r\nX-35: v\r\nX-36: v\r\nX-37: v\r\nX-38: v\r\nX-39: v\r\nX-40: v\r\nX-41: v\r\nX-42: v\r\nX-43: v\r\nX-44: v\r\nX-45: v\r\nX-46: v\r\nX-47: v\r\nX-48: v\r\nX-49: v\r\nX-50: v\r\nX-51: v\r\nX-52: v\r\nX-53: v\r\nX-54: v\r\nX-55: v\r\nX-56: v\r\nX-57: v\r\nX-58: v\r\nX-59: v\r\nX-60: v\r\nX-61: v\r\nX-62: v\r\nX-63: v\r\nX-64: v\r\nX-65: v\r\nX-66: v\r\nX-67: v\r\nX-68: v\r\nX-69: v\r\nX-70: v\r\nX-71: v\r\nX-72: v\r\nX-73: v\r\nX-74: v\r\nX-75: v\r\nX-76: v\r\nX-77: v\r\nX-78: v\r\nX-79: v\r\nX-80: v\r\nX-81: v\r\nX-82: v\r\nX-83: v\r\nX-84: v\r\nX-85: v\r\nX-86: v\r\nX-87: v\r\nX-88: v\r\nX-89: v\r\nX-90: v\r\nX-91: v\r\nX-92: v\r\nX-93: v\r\nX-94: v\r\nX-95: v\r\nX-96: v\r\nX-97: v\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nKeep-Alive: timeout=5\r\nX-Up: 1\r\n\r\nhello",
+   "client_got": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nX-Up: 1\r\nConnection: close\r\n\r\nhello",
+   "origin_got": "GET /n HTTP/1.1\r\nHost: origin.test\r\nConnection: close\r\nX-0: v\r\nX-1: v\r\nX-2: v\r\nX-3: v\r\nX-4: v\r\nX-5: v\r\nX-6: v\r\nX-7: v\r\nX-8: v\r\nX-9: v\r\nX-10: v\r\nX-11: v\r\nX-12: v\r\nX-13: v\r\nX-14: v\r\nX-15: v\r\nX-16: v\r\nX-17: v\r\nX-18: v\r\nX-19: v\r\nX-20: v\r\nX-21: v\r\nX-22: v\r\nX-23: v\r\nX-24: v\r\nX-25: v\r\nX-26: v\r\nX-27: v\r\nX-28: v\r\nX-29: v\r\nX-30: v\r\nX-31: v\r\nX-32: v\r\nX-33: v\r\nX-34: v\r\nX-35: v\r\nX-36: v\r\nX-37: v\r\nX-38: v\r\nX-39: v\r\nX-40: v\r\nX-41: v\r\nX-42: v\r\nX-43: v\r\nX-44: v\r\nX-45: v\r\nX-46: v\r\nX-47: v\r\nX-48: v\r\nX-49: v\r\nX-50: v\r\nX-51: v\r\nX-52: v\r\nX-53: v\r\nX-54: v\r\nX-55: v\r\nX-56: v\r\nX-57: v\r\nX-58: v\r\nX-59: v\r\nX-60: v\r\nX-61: v\r\nX-62: v\r\nX-63: v\r\nX-64: v\r\nX-65: v\r\nX-66: v\r\nX-67: v\r\nX-68: v\r\nX-69: v\r\nX-70: v\r\nX-71: v\r\nX-72: v\r\nX-73: v\r\nX-74: v\r\nX-75: v\r\nX-76: v\r\nX-77: v\r\nX-78: v\r\nX-79: v\r\nX-80: v\r\nX-81: v\r\nX-82: v\r\nX-83: v\r\nX-84: v\r\nX-85: v\r\nX-86: v\r\nX-87: v\r\nX-88: v\r\nX-89: v\r\nX-90: v\r\nX-91: v\r\nX-92: v\r\nX-93: v\r\nX-94: v\r\nX-95: v\r\nX-96: v\r\nX-97: v\r\n\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 929,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 929,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "folded and odd headers",
+   "request": "GET http://origin.test/f HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\nX-Fold: one\r\n two\r\nX-Latin: café\r\n:empty\r\nX-Last: z\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nKeep-Alive: timeout=5\r\nX-Up: 1\r\n\r\nhello",
+   "client_got": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nX-Up: 1\r\nConnection: close\r\n\r\nhello",
+   "origin_got": "GET /f HTTP/1.1\r\nHost: origin.test\r\nConnection: close\r\nX-Fold: one\r\n two\r\nX-Latin: cafÃ©\r\nX-Last: z\r\n\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 103,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 103,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "header without colon ends headers",
+   "request": "GET http://origin.test/c HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\nBad Header: x\r\nX-After: y\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nKeep-Alive: timeout=5\r\nX-Up: 1\r\n\r\nhello",
+   "client_got": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nX-Up: 1\r\nConnection: close\r\n\r\nhello",
+   "origin_got": "GET /c HTTP/1.1\r\nHost: origin.test\r\nConnection: close\r\n\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 57,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "origin.test",
+      "port": 80,
+      "bytes_out": 57,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  },
+  {
+   "name": "empty line",
+   "request": "\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "double slash path",
+   "request": "GET //origin.test/x HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "",
+   "client_got": "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 65\r\nConnection: close\r\n\r\nFERB: send an absolute http:// URL, or CONNECT for anything else\n",
+   "origin_got": null,
+   "facts": {
+    "destinations": [],
+    "refused": []
+   },
+   "report": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  {
+   "name": "ipv6 literal",
+   "request": "GET http://[2001:db8::7]:8080/v6 HTTP/1.1\r\nProxy-Authorization: @AUTH@\r\n\r\n",
+   "after": "",
+   "shutdown": false,
+   "sni": false,
+   "mode": "http",
+   "reply": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nKeep-Alive: timeout=5\r\nX-Up: 1\r\n\r\nhello",
+   "client_got": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nX-Up: 1\r\nConnection: close\r\n\r\nhello",
+   "origin_got": "GET /v6 HTTP/1.1\r\nHost: [2001:db8::7]:8080\r\nConnection: close\r\n\r\n",
+   "facts": {
+    "destinations": [
+     {
+      "host": "2001:db8::7",
+      "port": 8080,
+      "bytes_out": 65,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   },
+   "report": {
+    "destinations": [
+     {
+      "host": "2001:db8::7",
+      "port": 8080,
+      "bytes_out": 65,
+      "bytes_in": 75,
+      "connections": 1
+     }
+    ],
+    "refused": []
+   }
+  }
+ ]
+}

@@ -1,0 +1,9574 @@
+[
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": true,
+   "exit_code": null,
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "capture_error": null,
+   "sandbox_ms": 12.5,
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": []
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": true,
+   "exit_code": null,
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "capture_error": null,
+   "sandbox_ms": 12.5,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": false,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": []
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": true,
+   "exit_code": null,
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "shell.read with since=0 reads from the beginning, a page at a time",
+   "capture_error": null,
+   "sandbox_ms": 12.5,
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": []
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": true,
+   "exit_code": null,
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "capture_error": null,
+   "sandbox_ms": 12.5,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "is_error": false,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": []
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": true,
+   "exit_code": null,
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "shell.read with since=0 reads from the beginning, a page at a time",
+   "capture_error": null,
+   "sandbox_ms": 12.5,
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": []
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": true,
+   "exit_code": null,
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "capture_error": null,
+   "sandbox_ms": 12.5,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "is_error": false,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": []
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": 0,
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "capture_error": null,
+   "sandbox_ms": 3.0,
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": 0,
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "capture_error": null,
+   "sandbox_ms": 3.0,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": false,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": 0,
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "shell.read with since=0 reads from the beginning, a page at a time",
+   "capture_error": null,
+   "sandbox_ms": 3.0,
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": 0,
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "capture_error": null,
+   "sandbox_ms": 3.0,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "is_error": false,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": 0,
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "shell.read with since=0 reads from the beginning, a page at a time",
+   "capture_error": null,
+   "sandbox_ms": 3.0,
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": 0,
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "capture_error": null,
+   "sandbox_ms": 3.0,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "is_error": false,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": 1,
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete",
+   "sandbox_ms": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "is_error": true,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": 1,
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete",
+   "sandbox_ms": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": 1,
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "shell.read with since=0 reads from the beginning, a page at a time",
+   "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete",
+   "sandbox_ms": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_note": "FERB's shell can't change files in the owner's visible folders that this task doesn't name (macOS refused the write: \"Operation not permitted\"). Change them with FERB's file tools (fs.write, fs.edit, fs.trash: each keeps a recovery copy), or ask which folder the task is about. Hidden folders (.git…), ~/Library, temp folders and FERB's workspace stay writable for commands. Also, an app's own program (inside an .app in an Applications folder) can't start from FERB's shell: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing."
+  },
+  "is_error": true,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": 1,
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete",
+   "sandbox_ms": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_note": "FERB's shell can't change files in the owner's visible folders that this task doesn't name (macOS refused the write: \"Operation not permitted\"). Change them with FERB's file tools (fs.write, fs.edit, fs.trash: each keeps a recovery copy), or ask which folder the task is about. Hidden folders (.git…), ~/Library, temp folders and FERB's workspace stay writable for commands. Also, an app's own program (inside an .app in an Applications folder) can't start from FERB's shell: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing."
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": 1,
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "shell.read with since=0 reads from the beginning, a page at a time",
+   "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete",
+   "sandbox_ms": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "is_error": true,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": 1,
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete",
+   "sandbox_ms": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": -9,
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "capture_error": null,
+   "sandbox_ms": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "stopped_by_ferb": "the task's download budget is used up"
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "origin",
+    "external:unlabeled"
+   ],
+   [
+    "file",
+    "/h/.aws"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": -9,
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "capture_error": null,
+   "sandbox_ms": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "stopped_by_ferb": "the task's download budget is used up"
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ],
+   [
+    "file",
+    "/h/.aws"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": -9,
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "shell.read with since=0 reads from the beginning, a page at a time",
+   "capture_error": null,
+   "sandbox_ms": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_note": "FERB's shell can't change files in the owner's visible folders that this task doesn't name (macOS refused the write: \"Operation not permitted\"). Change them with FERB's file tools (fs.write, fs.edit, fs.trash: each keeps a recovery copy), or ask which folder the task is about. Hidden folders (.git…), ~/Library, temp folders and FERB's workspace stay writable for commands. Also, an app's own program (inside an .app in an Applications folder) can't start from FERB's shell: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing.",
+   "stopped_by_ferb": "the task's download budget is used up"
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "origin",
+    "external:unlabeled"
+   ],
+   [
+    "file",
+    "/h/.aws"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": -9,
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "capture_error": null,
+   "sandbox_ms": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_note": "FERB's shell can't change files in the owner's visible folders that this task doesn't name (macOS refused the write: \"Operation not permitted\"). Change them with FERB's file tools (fs.write, fs.edit, fs.trash: each keeps a recovery copy), or ask which folder the task is about. Hidden folders (.git…), ~/Library, temp folders and FERB's workspace stay writable for commands. Also, an app's own program (inside an .app in an Applications folder) can't start from FERB's shell: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing.",
+   "stopped_by_ferb": "the task's download budget is used up"
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ],
+   [
+    "file",
+    "/h/.aws"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": -9,
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "shell.read with since=0 reads from the beginning, a page at a time",
+   "capture_error": null,
+   "sandbox_ms": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "stopped_by_ferb": "the task's download budget is used up"
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "origin",
+    "external:unlabeled"
+   ],
+   [
+    "file",
+    "/h/.aws"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": -9,
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "capture_error": null,
+   "sandbox_ms": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "stopped_by_ferb": "the task's download budget is used up"
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ],
+   [
+    "file",
+    "/h/.aws"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": 2,
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "capture_error": null,
+   "sandbox_ms": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "origin",
+    "external:unlabeled"
+   ],
+   [
+    "file",
+    "/h/.ssh"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": 2,
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "capture_error": null,
+   "sandbox_ms": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ],
+   [
+    "file",
+    "/h/.ssh"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": 2,
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "shell.read with since=0 reads from the beginning, a page at a time",
+   "capture_error": null,
+   "sandbox_ms": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_note": "FERB's shell can't change files in the owner's visible folders that this task doesn't name (macOS refused the write: \"Operation not permitted\"). Change them with FERB's file tools (fs.write, fs.edit, fs.trash: each keeps a recovery copy), or ask which folder the task is about. Hidden folders (.git…), ~/Library, temp folders and FERB's workspace stay writable for commands. Also, an app's own program (inside an .app in an Applications folder) can't start from FERB's shell: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing."
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "origin",
+    "external:unlabeled"
+   ],
+   [
+    "file",
+    "/h/.ssh"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": 2,
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "capture_error": null,
+   "sandbox_ms": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_note": "FERB's shell can't change files in the owner's visible folders that this task doesn't name (macOS refused the write: \"Operation not permitted\"). Change them with FERB's file tools (fs.write, fs.edit, fs.trash: each keeps a recovery copy), or ask which folder the task is about. Hidden folders (.git…), ~/Library, temp folders and FERB's workspace stay writable for commands. Also, an app's own program (inside an .app in an Applications folder) can't start from FERB's shell: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing."
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ],
+   [
+    "file",
+    "/h/.ssh"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": 2,
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "shell.read with since=0 reads from the beginning, a page at a time",
+   "capture_error": null,
+   "sandbox_ms": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "origin",
+    "external:unlabeled"
+   ],
+   [
+    "file",
+    "/h/.ssh"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": 2,
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "output_truncated": true,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "capture_error": null,
+   "sandbox_ms": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ],
+   [
+    "file",
+    "/h/.ssh"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.start",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": true,
+   "exit_code": null
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": []
+ },
+ {
+  "tool": "shell.start",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": true,
+   "exit_code": null
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": []
+ },
+ {
+  "tool": "shell.start",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": null
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.start",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": null
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.start",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": null
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.start",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": null
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.start",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": null
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.start",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": null
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.start",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": null
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.start",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "running": false,
+   "exit_code": null
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": true,
+   "exit_code": null,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": 12.5,
+   "retrieval": null
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": []
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": true,
+   "exit_code": null,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": 12.5,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": false,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": []
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": true,
+   "exit_code": null,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": 12.5,
+   "retrieval": "shell.read with since=offset until more=false"
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": []
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": true,
+   "exit_code": null,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": 12.5,
+   "retrieval": "shell.read with since=offset until more=false",
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": false,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": []
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": true,
+   "exit_code": null,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": 12.5,
+   "retrieval": null
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": []
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": true,
+   "exit_code": null,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": 12.5,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": false,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": []
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": false,
+   "exit_code": 0,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": 3.0,
+   "retrieval": null
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": false,
+   "exit_code": 0,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": 3.0,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": false,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": false,
+   "exit_code": 0,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": 3.0,
+   "retrieval": "shell.read with since=offset until more=false"
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": false,
+   "exit_code": 0,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": 3.0,
+   "retrieval": "shell.read with since=offset until more=false",
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": false,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": false,
+   "exit_code": 0,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": 3.0,
+   "retrieval": null
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": false,
+   "exit_code": 0,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": 3.0,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": false,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": false,
+   "exit_code": 1,
+   "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete",
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": null,
+   "retrieval": null
+  },
+  "is_error": true,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": false,
+   "exit_code": 1,
+   "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete",
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": null,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": false,
+   "exit_code": 1,
+   "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete",
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": null,
+   "retrieval": "shell.read with since=offset until more=false",
+   "sandbox_note": "FERB's shell can't change files in the owner's visible folders that this task doesn't name (macOS refused the write: \"Operation not permitted\"). Change them with FERB's file tools (fs.write, fs.edit, fs.trash: each keeps a recovery copy), or ask which folder the task is about. Hidden folders (.git…), ~/Library, temp folders and FERB's workspace stay writable for commands. Also, an app's own program (inside an .app in an Applications folder) can't start from FERB's shell: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing."
+  },
+  "is_error": true,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": false,
+   "exit_code": 1,
+   "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete",
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": null,
+   "retrieval": "shell.read with since=offset until more=false",
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "sandbox_note": "FERB's shell can't change files in the owner's visible folders that this task doesn't name (macOS refused the write: \"Operation not permitted\"). Change them with FERB's file tools (fs.write, fs.edit, fs.trash: each keeps a recovery copy), or ask which folder the task is about. Hidden folders (.git…), ~/Library, temp folders and FERB's workspace stay writable for commands. Also, an app's own program (inside an .app in an Applications folder) can't start from FERB's shell: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing."
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": false,
+   "exit_code": 1,
+   "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete",
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": null,
+   "retrieval": null
+  },
+  "is_error": true,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": false,
+   "exit_code": 1,
+   "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete",
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": null,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": false,
+   "exit_code": -9,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": null,
+   "retrieval": null,
+   "stopped_by_ferb": "the task's download budget is used up"
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "origin",
+    "external:unlabeled"
+   ],
+   [
+    "file",
+    "/h/.aws"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": false,
+   "exit_code": -9,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": null,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "stopped_by_ferb": "the task's download budget is used up"
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ],
+   [
+    "file",
+    "/h/.aws"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": false,
+   "exit_code": -9,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": null,
+   "retrieval": "shell.read with since=offset until more=false",
+   "sandbox_note": "FERB's shell can't change files in the owner's visible folders that this task doesn't name (macOS refused the write: \"Operation not permitted\"). Change them with FERB's file tools (fs.write, fs.edit, fs.trash: each keeps a recovery copy), or ask which folder the task is about. Hidden folders (.git…), ~/Library, temp folders and FERB's workspace stay writable for commands. Also, an app's own program (inside an .app in an Applications folder) can't start from FERB's shell: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing.",
+   "stopped_by_ferb": "the task's download budget is used up"
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "origin",
+    "external:unlabeled"
+   ],
+   [
+    "file",
+    "/h/.aws"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": false,
+   "exit_code": -9,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": null,
+   "retrieval": "shell.read with since=offset until more=false",
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "sandbox_note": "FERB's shell can't change files in the owner's visible folders that this task doesn't name (macOS refused the write: \"Operation not permitted\"). Change them with FERB's file tools (fs.write, fs.edit, fs.trash: each keeps a recovery copy), or ask which folder the task is about. Hidden folders (.git…), ~/Library, temp folders and FERB's workspace stay writable for commands. Also, an app's own program (inside an .app in an Applications folder) can't start from FERB's shell: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing.",
+   "stopped_by_ferb": "the task's download budget is used up"
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ],
+   [
+    "file",
+    "/h/.aws"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": false,
+   "exit_code": -9,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": null,
+   "retrieval": null,
+   "stopped_by_ferb": "the task's download budget is used up"
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "origin",
+    "external:unlabeled"
+   ],
+   [
+    "file",
+    "/h/.aws"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": false,
+   "exit_code": -9,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": null,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "stopped_by_ferb": "the task's download budget is used up"
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ],
+   [
+    "file",
+    "/h/.aws"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": false,
+   "exit_code": 2,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": null,
+   "retrieval": null
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "origin",
+    "external:unlabeled"
+   ],
+   [
+    "file",
+    "/h/.ssh"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": false,
+   "exit_code": 2,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": null,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ],
+   [
+    "file",
+    "/h/.ssh"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": false,
+   "exit_code": 2,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": null,
+   "retrieval": "shell.read with since=offset until more=false",
+   "sandbox_note": "FERB's shell can't change files in the owner's visible folders that this task doesn't name (macOS refused the write: \"Operation not permitted\"). Change them with FERB's file tools (fs.write, fs.edit, fs.trash: each keeps a recovery copy), or ask which folder the task is about. Hidden folders (.git…), ~/Library, temp folders and FERB's workspace stay writable for commands. Also, an app's own program (inside an .app in an Applications folder) can't start from FERB's shell: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing."
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "origin",
+    "external:unlabeled"
+   ],
+   [
+    "file",
+    "/h/.ssh"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": false,
+   "exit_code": 2,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": null,
+   "retrieval": "shell.read with since=offset until more=false",
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "sandbox_note": "FERB's shell can't change files in the owner's visible folders that this task doesn't name (macOS refused the write: \"Operation not permitted\"). Change them with FERB's file tools (fs.write, fs.edit, fs.trash: each keeps a recovery copy), or ask which folder the task is about. Hidden folders (.git…), ~/Library, temp folders and FERB's workspace stay writable for commands. Also, an app's own program (inside an .app in an Applications folder) can't start from FERB's shell: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing."
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ],
+   [
+    "file",
+    "/h/.ssh"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": false,
+   "exit_code": 2,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": null,
+   "retrieval": null
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "origin",
+    "external:unlabeled"
+   ],
+   [
+    "file",
+    "/h/.ssh"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.wait",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": false,
+   "exit_code": 2,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": null,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ],
+   [
+    "file",
+    "/h/.ssh"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": true,
+   "exit_code": null,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": 12.5,
+   "retrieval": null
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": []
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": true,
+   "exit_code": null,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": 12.5,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": false,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": []
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": true,
+   "exit_code": null,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": 12.5,
+   "retrieval": "shell.read with since=offset until more=false"
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": []
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": true,
+   "exit_code": null,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": 12.5,
+   "retrieval": "shell.read with since=offset until more=false",
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": false,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": []
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": true,
+   "exit_code": null,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": 12.5,
+   "retrieval": null
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": []
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": true,
+   "exit_code": null,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": 12.5,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": false,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": []
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": false,
+   "exit_code": 0,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": 3.0,
+   "retrieval": null
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": false,
+   "exit_code": 0,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": 3.0,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": false,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": false,
+   "exit_code": 0,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": 3.0,
+   "retrieval": "shell.read with since=offset until more=false"
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": false,
+   "exit_code": 0,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": 3.0,
+   "retrieval": "shell.read with since=offset until more=false",
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": false,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": false,
+   "exit_code": 0,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": 3.0,
+   "retrieval": null
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 0,
+    "sandbox_ms": 3.0
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": false,
+   "exit_code": 0,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": 3.0,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": false,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": false,
+   "exit_code": 1,
+   "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete",
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": null,
+   "retrieval": null
+  },
+  "is_error": true,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": false,
+   "exit_code": 1,
+   "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete",
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": null,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": false,
+   "exit_code": 1,
+   "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete",
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": null,
+   "retrieval": "shell.read with since=offset until more=false",
+   "sandbox_note": "FERB's shell can't change files in the owner's visible folders that this task doesn't name (macOS refused the write: \"Operation not permitted\"). Change them with FERB's file tools (fs.write, fs.edit, fs.trash: each keeps a recovery copy), or ask which folder the task is about. Hidden folders (.git…), ~/Library, temp folders and FERB's workspace stay writable for commands. Also, an app's own program (inside an .app in an Applications folder) can't start from FERB's shell: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing."
+  },
+  "is_error": true,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": false,
+   "exit_code": 1,
+   "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete",
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": null,
+   "retrieval": "shell.read with since=offset until more=false",
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "sandbox_note": "FERB's shell can't change files in the owner's visible folders that this task doesn't name (macOS refused the write: \"Operation not permitted\"). Change them with FERB's file tools (fs.write, fs.edit, fs.trash: each keeps a recovery copy), or ask which folder the task is about. Hidden folders (.git…), ~/Library, temp folders and FERB's workspace stay writable for commands. Also, an app's own program (inside an .app in an Applications folder) can't start from FERB's shell: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing."
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": false,
+   "exit_code": 1,
+   "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete",
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": null,
+   "retrieval": null
+  },
+  "is_error": true,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 1,
+    "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": false,
+   "exit_code": 1,
+   "capture_error": "OSError (errno 5): shell output capture failed; output is incomplete",
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": null,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": false,
+   "exit_code": -9,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": null,
+   "retrieval": null,
+   "stopped_by_ferb": "the task's download budget is used up"
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "origin",
+    "external:unlabeled"
+   ],
+   [
+    "file",
+    "/h/.aws"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": false,
+   "exit_code": -9,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": null,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "stopped_by_ferb": "the task's download budget is used up"
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ],
+   [
+    "file",
+    "/h/.aws"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": false,
+   "exit_code": -9,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": null,
+   "retrieval": "shell.read with since=offset until more=false",
+   "sandbox_note": "FERB's shell can't change files in the owner's visible folders that this task doesn't name (macOS refused the write: \"Operation not permitted\"). Change them with FERB's file tools (fs.write, fs.edit, fs.trash: each keeps a recovery copy), or ask which folder the task is about. Hidden folders (.git…), ~/Library, temp folders and FERB's workspace stay writable for commands. Also, an app's own program (inside an .app in an Applications folder) can't start from FERB's shell: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing.",
+   "stopped_by_ferb": "the task's download budget is used up"
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "origin",
+    "external:unlabeled"
+   ],
+   [
+    "file",
+    "/h/.aws"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": false,
+   "exit_code": -9,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": null,
+   "retrieval": "shell.read with since=offset until more=false",
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "sandbox_note": "FERB's shell can't change files in the owner's visible folders that this task doesn't name (macOS refused the write: \"Operation not permitted\"). Change them with FERB's file tools (fs.write, fs.edit, fs.trash: each keeps a recovery copy), or ask which folder the task is about. Hidden folders (.git…), ~/Library, temp folders and FERB's workspace stay writable for commands. Also, an app's own program (inside an .app in an Applications folder) can't start from FERB's shell: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing.",
+   "stopped_by_ferb": "the task's download budget is used up"
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ],
+   [
+    "file",
+    "/h/.aws"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": false,
+   "exit_code": -9,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": null,
+   "retrieval": null,
+   "stopped_by_ferb": "the task's download budget is used up"
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "origin",
+    "external:unlabeled"
+   ],
+   [
+    "file",
+    "/h/.aws"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": -9,
+    "stopped": "the task's download budget is used up",
+    "read_path": "/h/.aws"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": false,
+   "exit_code": -9,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": null,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "stopped_by_ferb": "the task's download budget is used up"
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ],
+   [
+    "file",
+    "/h/.aws"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": false,
+   "exit_code": 2,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": null,
+   "retrieval": null
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "origin",
+    "external:unlabeled"
+   ],
+   [
+    "file",
+    "/h/.ssh"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "out",
+   "offset": 3,
+   "total": 3,
+   "more": false,
+   "running": false,
+   "exit_code": 2,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": null,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ],
+   [
+    "file",
+    "/h/.ssh"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": false,
+   "exit_code": 2,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": null,
+   "retrieval": "shell.read with since=offset until more=false",
+   "sandbox_note": "FERB's shell can't change files in the owner's visible folders that this task doesn't name (macOS refused the write: \"Operation not permitted\"). Change them with FERB's file tools (fs.write, fs.edit, fs.trash: each keeps a recovery copy), or ask which folder the task is about. Hidden folders (.git…), ~/Library, temp folders and FERB's workspace stay writable for commands. Also, an app's own program (inside an .app in an Applications folder) can't start from FERB's shell: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing."
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "origin",
+    "external:unlabeled"
+   ],
+   [
+    "file",
+    "/h/.ssh"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "x: Operation not permitted\n",
+    "offset": 27,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "x: Operation not permitted\n",
+   "offset": 27,
+   "total": 9000,
+   "more": true,
+   "running": false,
+   "exit_code": 2,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": null,
+   "retrieval": "shell.read with since=offset until more=false",
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done.",
+   "sandbox_note": "FERB's shell can't change files in the owner's visible folders that this task doesn't name (macOS refused the write: \"Operation not permitted\"). Change them with FERB's file tools (fs.write, fs.edit, fs.trash: each keeps a recovery copy), or ask which folder the task is about. Hidden folders (.git…), ~/Library, temp folders and FERB's workspace stay writable for commands. Also, an app's own program (inside an .app in an Applications folder) can't start from FERB's shell: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing."
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ],
+   [
+    "file",
+    "/h/.ssh"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": false,
+   "exit_code": 2,
+   "capture_error": null,
+   "network": {
+    "destinations": [],
+    "refused": []
+   },
+   "sandbox_ms": null,
+   "retrieval": null
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "origin",
+    "external:unlabeled"
+   ],
+   [
+    "file",
+    "/h/.ssh"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.read",
+  "scenario": {
+   "info": {
+    "running": false,
+    "exit_code": 2,
+    "read_path": "/h/.ssh"
+   },
+   "read": {
+    "text": "tail",
+    "offset": 9000,
+    "total": 9000
+   },
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   }
+  },
+  "args": {
+   "command": "true",
+   "id": "p-1",
+   "since": 0
+  },
+  "content": {
+   "id": "p-1",
+   "output": "tail",
+   "offset": 9000,
+   "total": 9000,
+   "more": false,
+   "running": false,
+   "exit_code": 2,
+   "capture_error": null,
+   "network": {
+    "destinations": [
+     {
+      "host": "b.test",
+      "port": 443,
+      "bytes_out": 1,
+      "bytes_in": 2,
+      "connections": 1
+     },
+     {
+      "host": "2001:db8::1",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "b.test",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     },
+     {
+      "host": "[::1]",
+      "port": 80,
+      "bytes_out": 0,
+      "bytes_in": 0,
+      "connections": 1
+     }
+    ],
+    "refused": [
+     {
+      "host": "c.test",
+      "port": 443,
+      "why": "other",
+      "count": 1
+     },
+     {
+      "host": "n.test",
+      "port": 443,
+      "why": "you said no to this place in this task",
+      "count": 2
+     }
+    ]
+   },
+   "sandbox_ms": null,
+   "retrieval": null,
+   "next": "The owner said no to reaching n.test in this task; don't try another way. Report that it wasn't done."
+  },
+  "is_error": true,
+  "read_sources": [
+   [
+    "web",
+    "https://b.test"
+   ],
+   [
+    "web",
+    "https://[2001:db8::1]"
+   ],
+   [
+    "web",
+    "https://[::1]"
+   ],
+   [
+    "file",
+    "/h/.ssh"
+   ]
+  ],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.send",
+  "scenario": {
+   "send": [
+    5,
+    5
+   ]
+  },
+  "content": {
+   "sent": true,
+   "bytes": 5
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": []
+ },
+ {
+  "tool": "shell.send",
+  "scenario": {
+   "send": [
+    2,
+    9
+   ]
+  },
+  "content": {
+   "sent": false,
+   "bytes_sent": 2,
+   "bytes": 9,
+   "error": "only 2 of 9 bytes went in: the command ended or isn't reading its input; check its output (shell.read) before sending the rest"
+  },
+  "is_error": true,
+  "read_sources": [],
+  "told": []
+ },
+ {
+  "tool": "shell.send",
+  "scenario": {
+   "send_refused": "You have taken over this process."
+  },
+  "content": {
+   "error": "You have taken over this process."
+  },
+  "is_error": true,
+  "read_sources": [],
+  "told": []
+ },
+ {
+  "tool": "shell.kill",
+  "scenario": {},
+  "content": {
+   "killed": true
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": [
+   "p-1"
+  ]
+ },
+ {
+  "tool": "shell.kill",
+  "scenario": {
+   "kill_refused": "no process p-9 for this task"
+  },
+  "content": {
+   "error": "no process p-9 for this task"
+  },
+  "is_error": true,
+  "read_sources": [],
+  "told": []
+ },
+ {
+  "tool": "shell.list",
+  "scenario": {
+   "list": [
+    {
+     "id": "p-1",
+     "task": "t",
+     "command": "a",
+     "running": true,
+     "exit_code": null,
+     "background": false
+    },
+    {
+     "id": "p-2",
+     "task": "other",
+     "command": "b",
+     "running": false,
+     "exit_code": 0,
+     "background": true
+    },
+    {
+     "id": "p-3",
+     "task": "t",
+     "command": "c",
+     "running": false,
+     "exit_code": 3,
+     "background": true
+    }
+   ]
+  },
+  "content": {
+   "processes": [
+    {
+     "id": "p-1",
+     "command": "a",
+     "running": true,
+     "exit_code": null,
+     "background": false
+    },
+    {
+     "id": "p-3",
+     "command": "c",
+     "running": false,
+     "exit_code": 3,
+     "background": true
+    }
+   ]
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": [
+   "p-3"
+  ]
+ },
+ {
+  "tool": "shell.run",
+  "scenario": {
+   "start_refused": "working folder refused: x",
+   "info": {
+    "running": true,
+    "exit_code": null,
+    "sandbox_ms": 12.5
+   },
+   "read": {
+    "text": "out",
+    "offset": 3,
+    "total": 3
+   },
+   "network": {
+    "destinations": [],
+    "refused": []
+   }
+  },
+  "content": {
+   "error": "working folder refused: x"
+  },
+  "is_error": true,
+  "read_sources": [],
+  "told": []
+ },
+ {
+  "tool": "shell.rules",
+  "scenario": {
+   "proxy_port": 4321
+  },
+  "content": {
+   "rules": [
+    {
+     "id": "ferb_state",
+     "kind": "read and write",
+     "path": "FERB's own files (~/.ferb except its workspace, and the workspace's uploads)",
+     "liftable": false
+    },
+    {
+     "id": "network",
+     "kind": "network",
+     "path": "no direct connection off this Mac, and on it only to servers started inside FERB's shell, plus owner-approved executable-pinned local ports through FERB's proxy; the proxy records each host and is the way out (shell.rules says whether it is running)",
+     "liftable": false
+    },
+    {
+     "id": "ferb_service",
+     "kind": "write",
+     "path": "FERB's own background-service definitions (~/Library/LaunchAgents/com.ferb.daemon.plist, ~/Library/LaunchAgents/com.ferb.FERB.login.plist)",
+     "liftable": false
+    },
+    {
+     "id": "admin",
+     "kind": "admin",
+     "path": "a command that needs your Mac password (sudo)",
+     "liftable": true
+    },
+    {
+     "id": "trustd",
+     "kind": "service",
+     "path": "macOS certificate trust evaluation (trustd): enabling it lets the certificate service fetch certificate URLs outside FERB's proxy; Go TLS may need it",
+     "liftable": true
+    },
+    {
+     "id": "read:~/.ssh",
+     "kind": "read",
+     "path": "~/.ssh",
+     "liftable": true
+    },
+    {
+     "id": "write:~/.zshrc",
+     "kind": "write",
+     "path": "~/.zshrc",
+     "liftable": true
+    }
+   ],
+   "network": "any remote host, without asking, only through FERB's proxy on 127.0.0.1:4321, which records each host, port and byte count (clients that ignore HTTPS_PROXY/HTTP_PROXY get no network; no ssh); this Mac's own servers only if started inside FERB's shell: directly when one was already listening as the command started, else through the proxy, which checks each connection's listener (NO_PROXY is empty, so HTTP clients take the proxy route); other programs' servers are out of reach; protection.local_ports allows approved TCP services: directly when the port's listener runs its approved executable as the command starts (listed under the command's network local_direct, with the connections the kernel reported: a lower bound, at least one per program that connected), and through the proxy, which checks the executable for each connection and records its bytes.",
+   "apps": "FERB's shell can't open apps or URLs on the owner's screen, send Apple Events to other apps, or start background jobs (launchd); FERB's browser and Mac tools (mac.applescript included) do that. An installed app's own program can't start from the shell either: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing.",
+   "own_sandbox": "A program can't start its own macOS sandbox inside FERB's shell (FERB's sandbox applies to it). Codex CLI needs its sandbox off: --sandbox danger-full-access (measured working), or --dangerously-bypass-approvals-and-sandbox only when the owner asked for no approvals.",
+   "local_ports": [
+    {
+     "port": 5432,
+     "executable": "/bin/sh"
+    }
+   ]
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": []
+ },
+ {
+  "tool": "shell.rules",
+  "scenario": {
+   "proxy_port": null
+  },
+  "content": {
+   "rules": [
+    {
+     "id": "ferb_state",
+     "kind": "read and write",
+     "path": "FERB's own files (~/.ferb except its workspace, and the workspace's uploads)",
+     "liftable": false
+    },
+    {
+     "id": "network",
+     "kind": "network",
+     "path": "no direct connection off this Mac, and on it only to servers started inside FERB's shell, plus owner-approved executable-pinned local ports through FERB's proxy; the proxy records each host and is the way out (shell.rules says whether it is running)",
+     "liftable": false
+    },
+    {
+     "id": "ferb_service",
+     "kind": "write",
+     "path": "FERB's own background-service definitions (~/Library/LaunchAgents/com.ferb.daemon.plist, ~/Library/LaunchAgents/com.ferb.FERB.login.plist)",
+     "liftable": false
+    },
+    {
+     "id": "admin",
+     "kind": "admin",
+     "path": "a command that needs your Mac password (sudo)",
+     "liftable": true
+    },
+    {
+     "id": "trustd",
+     "kind": "service",
+     "path": "macOS certificate trust evaluation (trustd): enabling it lets the certificate service fetch certificate URLs outside FERB's proxy; Go TLS may need it",
+     "liftable": true
+    },
+    {
+     "id": "read:~/.ssh",
+     "kind": "read",
+     "path": "~/.ssh",
+     "liftable": true
+    },
+    {
+     "id": "write:~/.zshrc",
+     "kind": "write",
+     "path": "~/.zshrc",
+     "liftable": true
+    }
+   ],
+   "network": "no network beyond this Mac; FERB's proxy is not running; this Mac's own servers only if started inside FERB's shell: directly when one was already listening as the command started, else through the proxy, which checks each connection's listener (NO_PROXY is empty, so HTTP clients take the proxy route); other programs' servers are out of reach; protection.local_ports allows approved TCP services: directly when the port's listener runs its approved executable as the command starts (listed under the command's network local_direct, with the connections the kernel reported: a lower bound, at least one per program that connected), and through the proxy, which checks the executable for each connection and records its bytes.",
+   "apps": "FERB's shell can't open apps or URLs on the owner's screen, send Apple Events to other apps, or start background jobs (launchd); FERB's browser and Mac tools (mac.applescript included) do that. An installed app's own program can't start from the shell either: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing.",
+   "own_sandbox": "A program can't start its own macOS sandbox inside FERB's shell (FERB's sandbox applies to it). Codex CLI needs its sandbox off: --sandbox danger-full-access (measured working), or --dangerously-bypass-approvals-and-sandbox only when the owner asked for no approvals.",
+   "local_ports": [
+    {
+     "port": 5432,
+     "executable": "/bin/sh"
+    }
+   ]
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": []
+ },
+ {
+  "tool": "shell.rules",
+  "scenario": {
+   "sandbox": false
+  },
+  "content": {
+   "rules": [
+    {
+     "id": "ferb_state",
+     "kind": "read and write",
+     "path": "FERB's own files (~/.ferb except its workspace, and the workspace's uploads)",
+     "liftable": false
+    },
+    {
+     "id": "network",
+     "kind": "network",
+     "path": "no direct connection off this Mac, and on it only to servers started inside FERB's shell, plus owner-approved executable-pinned local ports through FERB's proxy; the proxy records each host and is the way out (shell.rules says whether it is running)",
+     "liftable": false
+    },
+    {
+     "id": "ferb_service",
+     "kind": "write",
+     "path": "FERB's own background-service definitions (~/Library/LaunchAgents/com.ferb.daemon.plist, ~/Library/LaunchAgents/com.ferb.FERB.login.plist)",
+     "liftable": false
+    },
+    {
+     "id": "admin",
+     "kind": "admin",
+     "path": "a command that needs your Mac password (sudo)",
+     "liftable": true
+    },
+    {
+     "id": "trustd",
+     "kind": "service",
+     "path": "macOS certificate trust evaluation (trustd): enabling it lets the certificate service fetch certificate URLs outside FERB's proxy; Go TLS may need it",
+     "liftable": true
+    },
+    {
+     "id": "read:~/.ssh",
+     "kind": "read",
+     "path": "~/.ssh",
+     "liftable": true
+    },
+    {
+     "id": "write:~/.zshrc",
+     "kind": "write",
+     "path": "~/.zshrc",
+     "liftable": true
+    }
+   ],
+   "network": "no network beyond this Mac; FERB's proxy is not running; this Mac's own servers only if started inside FERB's shell: directly when one was already listening as the command started, else through the proxy, which checks each connection's listener (NO_PROXY is empty, so HTTP clients take the proxy route); other programs' servers are out of reach; protection.local_ports allows approved TCP services: directly when the port's listener runs its approved executable as the command starts (listed under the command's network local_direct, with the connections the kernel reported: a lower bound, at least one per program that connected), and through the proxy, which checks the executable for each connection and records its bytes.",
+   "apps": "FERB's shell can't open apps or URLs on the owner's screen, send Apple Events to other apps, or start background jobs (launchd); FERB's browser and Mac tools (mac.applescript included) do that. An installed app's own program can't start from the shell either: it has no screen there and crashes. Use FERB's tools instead (a PDF: browser.pdf; a web page: the browser tools; another app: the mac tools), or tell the owner what's missing.",
+   "own_sandbox": "A program can't start its own macOS sandbox inside FERB's shell (FERB's sandbox applies to it). Codex CLI needs its sandbox off: --sandbox danger-full-access (measured working), or --dangerously-bypass-approvals-and-sandbox only when the owner asked for no approvals.",
+   "local_ports": [
+    {
+     "port": 5432,
+     "executable": "/bin/sh"
+    }
+   ]
+  },
+  "is_error": false,
+  "read_sources": [],
+  "told": []
+ }
+]

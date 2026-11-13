@@ -15,10 +15,10 @@ members = [
     "crates/ferb-context",
     "crates/ferb-fs",
     "crates/ferb-clock",
+    "crates/ferb-shell",
 ]
 exclude = [
     "crates/ferb-policy",
-    "crates/ferb-shell",
     "crates/ferb-browser",
     "crates/ferb-runtimes",
     "crates/ferb-memory",

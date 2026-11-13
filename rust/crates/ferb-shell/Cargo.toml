@@ -1,0 +1,25 @@
+[package]
+name = "ferb-shell"
+version = "0.28.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "FERB's shell: the sandbox profile, PTY processes owned by tasks, the egress proxy and the local-peer checks (ferb/act/shell)"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[dependencies]
+ferb-core = { path = "../ferb-core" }
+ferb-py = { path = "../ferb-py" }
+ferb-sanitize = { path = "../ferb-sanitize" }
+getrandom = "0.3"
+hex = "0.4"
+libc = "0.2"
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "process"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "process", "test-util"] }

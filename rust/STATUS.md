@@ -39,8 +39,8 @@ the phone apps share; they reach the Mac's own parts only through traits.
 | Gateway, questions, stop, resources, registry | `ferb/daemon/gateway.py` and state files | ~6,000 | - | not started (needs policy) |
 | RPC handlers (106 methods), daemon composition | `ferb/daemon/main.py`, `areas/` | ~9,700 | `ferbd` | not started; recordings of the Python daemon in progress (`rust/fixtures/daemon`) |
 | Files, recovery | `ferb/act/fs` | (in 21,723) | `ferb-fs` | verified (journal 18); Mac renderers and Trash locator not written |
-| Shell, sandbox, proxy | `ferb/act/shell` | (in 21,723) | `ferb-shell` | in progress |
-| Browser hands and extension bridge | `ferb/act/browser` | (in 21,723) | `ferb-browser` | in progress |
+| Shell, sandbox, proxy | `ferb/act/shell` | (in 21,723) | `ferb-shell` | verified, live sandbox tests included (journal 20) |
+| Browser hands and extension bridge | `ferb/act/browser` | (in 21,723) | `ferb-browser` | protocol, pairing, bridge verified (journal 21); tool verbs in progress |
 | Mac hands: AX, input, capture, recording, hearing | `ferb/act/mac` and `ferb/act/*.py` | (in 21,723) | - | not started |
 | Model runtimes: Codex, Claude, APIs, tool bridge | `ferb/runtimes`, `ferb/cli/mcp.py` | 4,876 | `ferb-runtimes` | in progress |
 | Orchestration: planner, workers, checker, plans | `ferb/orchestrator`, `ferb/decide` | 15,817 | - | not started |

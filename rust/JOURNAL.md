@@ -369,3 +369,44 @@ output changed between runs; Rust returns the word first.
 - Patterns a model writes with `regex: true` run on `fancy-regex`, not Python's `re`.
 - Timer and schedule labels (they need `names.py`), the daemon handlers, `~user` expansion and Python's
   `local_zone()` fallback are not ported. Nothing was run on real time.
+
+## 2026-11-13 · 20 · Shell: the sandbox profile, PTY, task processes and the egress proxy
+
+**What.** `ferb-shell` ports `ferb/act/shell`: the Seatbelt profile builder, the PTY process with the PID-reuse
+defense, the task-owned process manager, the eight `shell.*` tools, the egress proxy, local access and listeners,
+and the hand-laid-out libproc socket structs. There is no uncontained mode (rule 11): a manager cannot be built
+without a sandbox.
+
+**Evidence.** `rust/fixtures/shell/make.py`: 2,188 checks, none differ, including 210 profile texts byte for byte
+and 60 raw proxy exchanges; struct layouts match Python's ctypes field by field. 11 live tests under the real
+`sandbox-exec`: writes outside the allowed folders are denied, app programs do not run, FERB's own state is closed,
+signals stay inside the command, stop kills the group, network goes only through the proxy. 41 tests pass.
+
+**Fixed against Python.** A nettop port written with a non-decimal digit made `int()` raise out of
+`sockets.complete()`; Rust reads it as no listing, which fails closed.
+
+**Open.**
+- Unverified: a real sudo admin run (only its argv), `DirectReports` against the real `log stream`, the proxy's
+  local-peer route with a real pinned server, other users' sockets.
+- Differences: proxy replies carry no `Server:` header; the `log stream` watcher is a fixed `/bin/sh` script, not
+  Python (exit 127, not 1, when `log` is missing); a symlink that vanishes while a path resolves is treated as a
+  plain path where Python raises.
+- Found in Python, mirrored: a head with bare-LF line endings is forwarded with `Connection: close` inserted after
+  the body bytes; latin-1 header bytes are re-encoded as UTF-8. To fix under ENG-6.
+- It uses doc-hidden helpers of `ferb-sanitize` (`parity::*`); they should move into `ferb-py`.
+
+## 2026-11-13 · 21 · Browser hands, first half (not yet a workspace member)
+
+**What.** `ferb-browser` has the protocol, both HMACs, the seal, pairing (byte-compatible with Python's stored
+records), the Hub and Bridge, snapshots and the core of the tab driver, including the sealed fills. The tool verbs
+and the remaining operations are being ported by a second agent; the crate stays out of the workspace until then.
+
+**Evidence.** MACs and seals agree byte for byte with Python and with the unchanged extension's `protocol.js` run
+under node. 8 transcripts through the Python tests' fake extension, 327 comparisons, none differ. 19 tests pass
+(run by the porting agent; not re-run by the coordinator).
+
+**Fixed against Python.** When a connection ends, only the commands sent on it become unknown; Python fails every
+command in flight on that profile, including ones already sent on its newer connection.
+
+**Open.** Everything in the second half. Python's `enters_text` and the extension's `entersText` disagree on six
+key specs (for example `a+` and `Cmd+V`).

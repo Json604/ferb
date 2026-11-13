@@ -1,0 +1,2046 @@
+{
+ "ip": [
+  [
+   "127.0.0.1",
+   "127.0.0.1"
+  ],
+  [
+   "::1",
+   "::1"
+  ],
+  [
+   "::ffff:127.0.0.1",
+   "127.0.0.1"
+  ],
+  [
+   "::ffff:7f00:1",
+   "127.0.0.1"
+  ],
+  [
+   "fe80::1%lo0",
+   "fe80::1"
+  ],
+  [
+   "2001:db8::1",
+   "2001:db8::1"
+  ],
+  [
+   "2001:DB8:0:0:1::1",
+   "2001:db8::1:0:0:1"
+  ],
+  [
+   "0:0:0:0:0:0:0:1",
+   "::1"
+  ],
+  [
+   "1:0:0:2:0:0:0:3",
+   "1:0:0:2::3"
+  ],
+  [
+   "1:0:0:0:2:0:0:3",
+   "1::2:0:0:3"
+  ],
+  [
+   "0.0.0.0",
+   "0.0.0.0"
+  ],
+  [
+   "::",
+   "::"
+  ],
+  [
+   "::ffff:0.0.0.0",
+   "0.0.0.0"
+  ],
+  [
+   "1:2:3:4:5:6:7::",
+   "1:2:3:4:5:6:7:0"
+  ],
+  [
+   "::1.2.3.4",
+   "::102:304"
+  ],
+  [
+   "1::2:3:4:5:6:7",
+   "1:0:2:3:4:5:6:7"
+  ],
+  [
+   "a:b:c:d:e:f:0:0",
+   "a:b:c:d:e:f::"
+  ]
+ ],
+ "reports": [
+  [
+   "Sandbox: psql(4242) allow network-outbound remote:*:8765\nferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   [
+    null,
+    "psql",
+    8765,
+    "ferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ]
+  ],
+  [
+   "3 duplicate reports for Sandbox: psql(4242) allow network-outbound remote:*:8765\nferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   [
+    3,
+    "psql",
+    8765,
+    "ferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ]
+  ],
+  [
+   "1 duplicate report for Sandbox: redis cli(1) allow network-outbound localhost:6379\nferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   [
+    1,
+    "redis cli",
+    6379,
+    "ferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ]
+  ],
+  [
+   "Sandbox: curl(4245) deny(1) network-outbound remote:*:8765\nferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   null
+  ],
+  [
+   "Sandbox: ps(ql)(4242) allow network-outbound remote:*:5432\nferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   null
+  ],
+  [
+   "Sandbox: psql(4242) allow network-outbound remote:*:5432\nferb p-aaaa1111",
+   null
+  ],
+  [
+   "  Sandbox: psql(4242) allow network-outbound remote:*:5432\nferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  \n",
+   [
+    null,
+    "psql",
+    5432,
+    "ferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ]
+  ],
+  [
+   "Sandbox: psql(4242) allow network-outbound a:1:2\nferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   [
+    null,
+    "psql",
+    2,
+    "ferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ]
+  ],
+  [
+   "Sandbox: psql(4242) allow network-outbound a:1:2x\nferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   null
+  ],
+  [
+   "Sandbox: psql(4242) allow network-outbound :٨٧٦٥\nferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   [
+    null,
+    "psql",
+    8765,
+    "ferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ]
+  ],
+  [
+   "٣ duplicate reports for Sandbox: p(1) allow network-outbound x:12\nferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   [
+    3,
+    "p",
+    12,
+    "ferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ]
+  ],
+  [
+   "Sandbox: psql(4242) allow network-outbound remote:*:5432\nferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaax",
+   null
+  ],
+  [
+   "Sandbox: psql(4242) allow network-outbound remote:*:5432\nferb p-AAAA aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   null
+  ],
+  [
+   "Sandbox: psql(4242) allow network-outbound remote (x):5432\nferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   null
+  ],
+  [
+   "Sandbox: (4242) allow network-outbound remote:*:5432\nferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   null
+  ],
+  [
+   "Sandbox: a\u001cb(4242) allow network-outbound r\u001c:1\nferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   null
+  ],
+  [
+   "Sandbox: psql(4242) allow network-outbound remote:*:5432\nferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+   [
+    null,
+    "psql",
+    5432,
+    "ferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ]
+  ],
+  [
+   "\u001cSandbox: psql(4242) allow network-outbound remote:*:5432\nferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   [
+    null,
+    "psql",
+    5432,
+    "ferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ]
+  ],
+  [
+   "Sandbox: psql(42a) allow network-outbound remote:*:5432\nferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   null
+  ],
+  [
+   "Sandbox: psql(4242) allow network-outbound remote:*:\nferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   null
+  ],
+  [
+   "Sandbox: x\ty(1) allow network-outbound remote:*:99\nferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   [
+    null,
+    "x\ty",
+    99,
+    "ferb p-aaaa1111 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ]
+  ]
+ ],
+ "access": [
+  {
+   "name": "exact peer, wrong exe",
+   "pins": [
+    [
+     8765,
+     "/usr/bin/python3"
+    ]
+   ],
+   "op": "connected",
+   "target": [
+    "127.0.0.1",
+    8765
+   ],
+   "client": [
+    "127.0.0.1",
+    54321
+   ],
+   "readings": [
+    [
+     [
+      [
+       "127.0.0.1",
+       8765
+      ],
+      null,
+      "LISTEN",
+      123,
+      0
+     ],
+     [
+      [
+       "127.0.0.1",
+       8765
+      ],
+      [
+       "127.0.0.1",
+       54321
+      ],
+      "ESTABLISHED",
+      456,
+      0
+     ]
+    ]
+   ],
+   "executables": {
+    "123": "/usr/bin/python3",
+    "456": "/bin/sh"
+   },
+   "contained": {},
+   "result": {
+    "refused": "the local server's executable does not match protection.local_ports"
+   },
+   "reads": 1,
+   "sleeps": []
+  },
+  {
+   "name": "before_connect ok",
+   "pins": [
+    [
+     8765,
+     "/usr/bin/python3"
+    ]
+   ],
+   "op": "before",
+   "target": [
+    "127.0.0.1",
+    8765
+   ],
+   "client": null,
+   "readings": [
+    [
+     [
+      [
+       "127.0.0.1",
+       8765
+      ],
+      null,
+      "LISTEN",
+      123,
+      0
+     ]
+    ]
+   ],
+   "executables": {
+    "123": "/usr/bin/python3"
+   },
+   "contained": {},
+   "result": {
+    "ok": null
+   },
+   "reads": 1,
+   "sleeps": []
+  },
+  {
+   "name": "before_connect none",
+   "pins": [
+    [
+     8765,
+     "/bin/x"
+    ]
+   ],
+   "op": "before",
+   "target": [
+    "127.0.0.1",
+    8765
+   ],
+   "client": null,
+   "readings": [
+    null
+   ],
+   "executables": {},
+   "contained": {},
+   "result": {
+    "refused": "FERB couldn't inspect the local TCP sockets"
+   },
+   "reads": 1,
+   "sleeps": []
+  },
+  {
+   "name": "before_connect empty",
+   "pins": [
+    [
+     8765,
+     "/bin/x"
+    ]
+   ],
+   "op": "before",
+   "target": [
+    "127.0.0.1",
+    8765
+   ],
+   "client": null,
+   "readings": [
+    []
+   ],
+   "executables": {},
+   "contained": {},
+   "result": {
+    "refused": "FERB couldn't identify the local listener or connected peer"
+   },
+   "reads": 1,
+   "sleeps": []
+  },
+  {
+   "name": "before_connect unknown pid",
+   "pins": [
+    [
+     8765,
+     "/bin/x"
+    ]
+   ],
+   "op": "before",
+   "target": [
+    "127.0.0.1",
+    8765
+   ],
+   "client": null,
+   "readings": [
+    [
+     [
+      [
+       "127.0.0.1",
+       8765
+      ],
+      null,
+      "LISTEN",
+      null,
+      0
+     ]
+    ]
+   ],
+   "executables": {},
+   "contained": {},
+   "result": {
+    "refused": "FERB couldn't identify the local listener or connected peer"
+   },
+   "reads": 1,
+   "sleeps": []
+  },
+  {
+   "name": "before_connect any address",
+   "pins": [
+    [
+     8765,
+     "/bin/x"
+    ]
+   ],
+   "op": "before",
+   "target": [
+    "::ffff:127.0.0.1",
+    8765
+   ],
+   "client": null,
+   "readings": [
+    [
+     [
+      [
+       "*",
+       8765
+      ],
+      null,
+      "LISTEN",
+      123,
+      0
+     ],
+     [
+      [
+       "::",
+       8765
+      ],
+      null,
+      "LISTEN",
+      7,
+      0
+     ],
+     [
+      [
+       "10.0.0.1",
+       8765
+      ],
+      null,
+      "LISTEN",
+      8,
+      0
+     ]
+    ]
+   ],
+   "executables": {
+    "123": "/bin/x",
+    "7": "/bin/x",
+    "8": "/bin/sh"
+   },
+   "contained": {},
+   "result": {
+    "ok": null
+   },
+   "reads": 1,
+   "sleeps": []
+  },
+  {
+   "name": "before_connect exe unknown",
+   "pins": [
+    [
+     8765,
+     "/bin/x"
+    ]
+   ],
+   "op": "before",
+   "target": [
+    "127.0.0.1",
+    8765
+   ],
+   "client": null,
+   "readings": [
+    [
+     [
+      [
+       "127.0.0.1",
+       8765
+      ],
+      null,
+      "LISTEN",
+      123,
+      0
+     ]
+    ]
+   ],
+   "executables": {},
+   "contained": {},
+   "result": {
+    "refused": "FERB couldn't identify the local server's executable"
+   },
+   "reads": 1,
+   "sleeps": []
+  },
+  {
+   "name": "queued then accepted",
+   "pins": [
+    [
+     8765,
+     "/usr/bin/python3"
+    ]
+   ],
+   "op": "connected",
+   "target": [
+    "127.0.0.1",
+    8765
+   ],
+   "client": [
+    "127.0.0.1",
+    54321
+   ],
+   "readings": [
+    [
+     [
+      [
+       "127.0.0.1",
+       8765
+      ],
+      null,
+      "LISTEN",
+      123,
+      1
+     ]
+    ],
+    [
+     [
+      [
+       "127.0.0.1",
+       8765
+      ],
+      null,
+      "LISTEN",
+      123,
+      1
+     ]
+    ],
+    [
+     [
+      [
+       "127.0.0.1",
+       8765
+      ],
+      null,
+      "LISTEN",
+      123,
+      0
+     ],
+     [
+      [
+       "127.0.0.1",
+       8765
+      ],
+      [
+       "127.0.0.1",
+       54321
+      ],
+      "ESTABLISHED",
+      123,
+      0
+     ]
+    ]
+   ],
+   "executables": {
+    "123": "/usr/bin/python3"
+   },
+   "contained": {},
+   "result": {
+    "ok": [
+     "127.0.0.1",
+     "/usr/bin/python3"
+    ]
+   },
+   "reads": 3,
+   "sleeps": [
+    0.001,
+    0.002
+   ]
+  },
+  {
+   "name": "visible listener, nothing",
+   "pins": [
+    [
+     8765,
+     "/usr/bin/python3"
+    ]
+   ],
+   "op": "connected",
+   "target": [
+    "127.0.0.1",
+    8765
+   ],
+   "client": [
+    "127.0.0.1",
+    54321
+   ],
+   "readings": [
+    [
+     [
+      [
+       "127.0.0.1",
+       8765
+      ],
+      null,
+      "LISTEN",
+      123,
+      0
+     ]
+    ]
+   ],
+   "executables": {
+    "123": "/usr/bin/python3"
+   },
+   "contained": {},
+   "result": {
+    "refused": "FERB couldn't identify the local listener or connected peer"
+   },
+   "reads": 4,
+   "sleeps": [
+    0.001,
+    0.002,
+    0.004
+   ]
+  },
+  {
+   "name": "queued elsewhere",
+   "pins": [
+    [
+     8765,
+     "/usr/bin/python3"
+    ]
+   ],
+   "op": "connected",
+   "target": [
+    "127.0.0.1",
+    8765
+   ],
+   "client": [
+    "127.0.0.1",
+    54321
+   ],
+   "readings": [
+    [
+     [
+      [
+       "127.0.0.1",
+       9999
+      ],
+      null,
+      "LISTEN",
+      123,
+      1
+     ]
+    ]
+   ],
+   "executables": {
+    "123": "/usr/bin/python3"
+   },
+   "contained": {},
+   "result": {
+    "refused": "FERB couldn't identify the local listener or connected peer"
+   },
+   "reads": 1,
+   "sleeps": []
+  },
+  {
+   "name": "no listener",
+   "pins": [
+    [
+     8765,
+     "/usr/bin/python3"
+    ]
+   ],
+   "op": "connected",
+   "target": [
+    "127.0.0.1",
+    8765
+   ],
+   "client": [
+    "127.0.0.1",
+    54321
+   ],
+   "readings": [
+    []
+   ],
+   "executables": {},
+   "contained": {},
+   "result": {
+    "refused": "FERB couldn't identify the local listener or connected peer"
+   },
+   "reads": 1,
+   "sleeps": []
+  },
+  {
+   "name": "mid accept contained",
+   "pins": [],
+   "op": "connected",
+   "target": [
+    "127.0.0.1",
+    9876
+   ],
+   "client": [
+    "127.0.0.1",
+    54321
+   ],
+   "readings": [
+    [
+     [
+      [
+       "127.0.0.1",
+       9876
+      ],
+      null,
+      "LISTEN",
+      123,
+      0
+     ]
+    ],
+    [
+     [
+      [
+       "127.0.0.1",
+       9876
+      ],
+      null,
+      "LISTEN",
+      123,
+      0
+     ],
+     [
+      [
+       "127.0.0.1",
+       9876
+      ],
+      [
+       "127.0.0.1",
+       54321
+      ],
+      "ESTABLISHED",
+      123,
+      0
+     ]
+    ]
+   ],
+   "executables": {
+    "123": "/usr/bin/python3"
+   },
+   "contained": {
+    "123": true
+   },
+   "result": {
+    "ok": [
+     "127.0.0.1",
+     "/usr/bin/python3"
+    ]
+   },
+   "reads": 2,
+   "sleeps": [
+    0.001
+   ]
+  },
+  {
+   "name": "mid accept outside",
+   "pins": [],
+   "op": "connected",
+   "target": [
+    "127.0.0.1",
+    9876
+   ],
+   "client": [
+    "127.0.0.1",
+    54321
+   ],
+   "readings": [
+    [
+     [
+      [
+       "127.0.0.1",
+       9876
+      ],
+      null,
+      "LISTEN",
+      123,
+      0
+     ]
+    ],
+    [
+     [
+      [
+       "127.0.0.1",
+       9876
+      ],
+      null,
+      "LISTEN",
+      123,
+      0
+     ],
+     [
+      [
+       "127.0.0.1",
+       9876
+      ],
+      [
+       "127.0.0.1",
+       54321
+      ],
+      "ESTABLISHED",
+      123,
+      0
+     ]
+    ]
+   ],
+   "executables": {
+    "123": "/usr/bin/python3"
+   },
+   "contained": {
+    "123": false
+   },
+   "result": {
+    "refused": "this local port is not in protection.local_ports and its server is outside FERB"
+   },
+   "reads": 2,
+   "sleeps": [
+    0.001
+   ]
+  },
+  {
+   "name": "never accepts",
+   "pins": [
+    [
+     8765,
+     "/usr/bin/python3"
+    ]
+   ],
+   "op": "connected",
+   "target": [
+    "127.0.0.1",
+    8765
+   ],
+   "client": [
+    "127.0.0.1",
+    54321
+   ],
+   "readings": [
+    [
+     [
+      [
+       "127.0.0.1",
+       8765
+      ],
+      null,
+      "LISTEN",
+      123,
+      1
+     ]
+    ]
+   ],
+   "executables": {
+    "123": "/usr/bin/python3"
+   },
+   "contained": {},
+   "result": {
+    "refused": "FERB couldn't identify the local listener or connected peer"
+   },
+   "reads": 606,
+   "sleeps": [
+    0.001,
+    0.002,
+    0.004,
+    0.008,
+    0.016,
+    0.032,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05
+   ]
+  },
+  {
+   "name": "v6 mapped peer",
+   "pins": [
+    [
+     8765,
+     "/bin/x"
+    ]
+   ],
+   "op": "connected",
+   "target": [
+    "::ffff:127.0.0.1",
+    8765
+   ],
+   "client": [
+    "::ffff:127.0.0.1",
+    54321
+   ],
+   "readings": [
+    [
+     [
+      [
+       "127.0.0.1",
+       8765
+      ],
+      [
+       "127.0.0.1",
+       54321
+      ],
+      "ESTABLISHED",
+      123,
+      0
+     ]
+    ]
+   ],
+   "executables": {
+    "123": "/bin/x"
+   },
+   "contained": {},
+   "result": {
+    "ok": [
+     "127.0.0.1",
+     "/bin/x"
+    ]
+   },
+   "reads": 1,
+   "sleeps": []
+  },
+  {
+   "name": "snapshot fails",
+   "pins": [
+    [
+     8765,
+     "/bin/x"
+    ]
+   ],
+   "op": "connected",
+   "target": [
+    "127.0.0.1",
+    8765
+   ],
+   "client": [
+    "127.0.0.1",
+    54321
+   ],
+   "readings": [
+    null
+   ],
+   "executables": {},
+   "contained": {},
+   "result": {
+    "refused": "FERB couldn't inspect the local TCP sockets"
+   },
+   "reads": 1,
+   "sleeps": []
+  },
+  {
+   "name": "unconfigured contained",
+   "pins": [
+    [
+     8765,
+     "/bin/x"
+    ]
+   ],
+   "op": "connected",
+   "target": [
+    "127.0.0.1",
+    9876
+   ],
+   "client": [
+    "127.0.0.1",
+    54321
+   ],
+   "readings": [
+    [
+     [
+      [
+       "127.0.0.1",
+       9876
+      ],
+      null,
+      "LISTEN",
+      123,
+      0
+     ],
+     [
+      [
+       "127.0.0.1",
+       9876
+      ],
+      [
+       "127.0.0.1",
+       54321
+      ],
+      "ESTABLISHED",
+      123,
+      0
+     ]
+    ]
+   ],
+   "executables": {
+    "123": "/usr/bin/python3"
+   },
+   "contained": {
+    "123": true
+   },
+   "result": {
+    "ok": [
+     "127.0.0.1",
+     "/usr/bin/python3"
+    ]
+   },
+   "reads": 1,
+   "sleeps": []
+  },
+  {
+   "name": "two held rows",
+   "pins": [
+    [
+     8765,
+     "/bin/x"
+    ]
+   ],
+   "op": "connected",
+   "target": [
+    "127.0.0.1",
+    8765
+   ],
+   "client": [
+    "127.0.0.1",
+    54321
+   ],
+   "readings": [
+    [
+     [
+      [
+       "127.0.0.1",
+       8765
+      ],
+      [
+       "127.0.0.1",
+       54321
+      ],
+      "ESTABLISHED",
+      5,
+      0
+     ],
+     [
+      [
+       "127.0.0.1",
+       8765
+      ],
+      [
+       "127.0.0.1",
+       54321
+      ],
+      "ESTABLISHED",
+      6,
+      0
+     ]
+    ]
+   ],
+   "executables": {
+    "5": "/bin/x",
+    "6": "/bin/y"
+   },
+   "contained": {},
+   "result": {
+    "refused": "the local server's executable does not match protection.local_ports"
+   },
+   "reads": 1,
+   "sleeps": []
+  }
+ ],
+ "direct": [
+  {
+   "name": "match",
+   "pins": [
+    [
+     8765,
+     "/usr/bin/python3"
+    ]
+   ],
+   "rows": [
+    [
+     [
+      "127.0.0.1",
+      8765
+     ],
+     null,
+     "LISTEN",
+     123,
+     0
+    ]
+   ],
+   "executables": {
+    "123": "/usr/bin/python3"
+   },
+   "allowed": [
+    [
+     8765,
+     "/usr/bin/python3"
+    ]
+   ]
+  },
+  {
+   "name": "other exe",
+   "pins": [
+    [
+     8765,
+     "/usr/bin/python3"
+    ]
+   ],
+   "rows": [
+    [
+     [
+      "127.0.0.1",
+      8765
+     ],
+     null,
+     "LISTEN",
+     123,
+     0
+    ]
+   ],
+   "executables": {
+    "123": "/bin/sh"
+   },
+   "allowed": []
+  },
+  {
+   "name": "one of two",
+   "pins": [
+    [
+     8765,
+     "/usr/bin/python3"
+    ]
+   ],
+   "rows": [
+    [
+     [
+      "127.0.0.1",
+      8765
+     ],
+     null,
+     "LISTEN",
+     123,
+     0
+    ],
+    [
+     [
+      "127.0.0.1",
+      8765
+     ],
+     null,
+     "LISTEN",
+     456,
+     0
+    ]
+   ],
+   "executables": {
+    "123": "/usr/bin/python3",
+    "456": "/bin/sh"
+   },
+   "allowed": []
+  },
+  {
+   "name": "unknown pid",
+   "pins": [
+    [
+     8765,
+     "/usr/bin/python3"
+    ]
+   ],
+   "rows": [
+    [
+     [
+      "127.0.0.1",
+      8765
+     ],
+     null,
+     "LISTEN",
+     null,
+     0
+    ]
+   ],
+   "executables": {},
+   "allowed": []
+  },
+  {
+   "name": "no listener",
+   "pins": [
+    [
+     8765,
+     "/usr/bin/python3"
+    ]
+   ],
+   "rows": [
+    [
+     [
+      "127.0.0.1",
+      8765
+     ],
+     [
+      "127.0.0.1",
+      54321
+     ],
+     "ESTABLISHED",
+     123,
+     0
+    ]
+   ],
+   "executables": {
+    "123": "/usr/bin/python3"
+   },
+   "allowed": []
+  },
+  {
+   "name": "unreadable",
+   "pins": [
+    [
+     8765,
+     "/usr/bin/python3"
+    ]
+   ],
+   "rows": null,
+   "executables": {},
+   "allowed": []
+  },
+  {
+   "name": "no pins",
+   "pins": [],
+   "rows": [
+    [
+     [
+      "127.0.0.1",
+      8765
+     ],
+     null,
+     "LISTEN",
+     123,
+     0
+    ]
+   ],
+   "executables": {
+    "123": "/x"
+   },
+   "allowed": []
+  },
+  {
+   "name": "two pins",
+   "pins": [
+    [
+     8765,
+     "/usr/bin/python3"
+    ],
+    [
+     5432,
+     "/bin/sh"
+    ]
+   ],
+   "rows": [
+    [
+     [
+      "127.0.0.1",
+      8765
+     ],
+     null,
+     "LISTEN",
+     123,
+     0
+    ],
+    [
+     [
+      "*",
+      5432
+     ],
+     null,
+     "LISTEN",
+     9,
+     0
+    ]
+   ],
+   "executables": {
+    "123": "/usr/bin/python3",
+    "9": "/bin/sh"
+   },
+   "allowed": [
+    [
+     8765,
+     "/usr/bin/python3"
+    ],
+    [
+     5432,
+     "/bin/sh"
+    ]
+   ]
+  }
+ ],
+ "listeners": [
+  {
+   "name": "mixed",
+   "sockets": [
+    [
+     "tcp",
+     [
+      "127.0.0.1",
+      3000
+     ],
+     null,
+     "LISTEN",
+     11,
+     0
+    ],
+    [
+     "tcp",
+     [
+      "*",
+      22
+     ],
+     null,
+     "LISTEN",
+     null,
+     0
+    ],
+    [
+     "udp",
+     [
+      "*",
+      5353
+     ],
+     null,
+     "",
+     12,
+     0
+    ],
+    [
+     "udp",
+     [
+      "127.0.0.1",
+      6000
+     ],
+     [
+      "127.0.0.1",
+      1
+     ],
+     "",
+     13,
+     0
+    ],
+    [
+     "tcp",
+     [
+      "127.0.0.1",
+      3000
+     ],
+     [
+      "127.0.0.1",
+      5
+     ],
+     "ESTABLISHED",
+     14,
+     0
+    ],
+    [
+     "tcp",
+     [
+      "::1",
+      3001
+     ],
+     null,
+     "LISTEN",
+     15,
+     0
+    ],
+    [
+     "tcp",
+     [
+      "*",
+      3001
+     ],
+     null,
+     "LISTEN",
+     11,
+     0
+    ],
+    [
+     "tcp",
+     [
+      "*",
+      0
+     ],
+     null,
+     "LISTEN",
+     11,
+     0
+    ]
+   ],
+   "contained": {
+    "11": true,
+    "12": false,
+    "15": false
+   },
+   "result": [
+    [
+     22,
+     3001,
+     5353
+    ],
+    [
+     3000
+    ]
+   ]
+  },
+  {
+   "name": "all inside",
+   "sockets": [
+    [
+     "tcp",
+     [
+      "127.0.0.1",
+      8000
+     ],
+     null,
+     "LISTEN",
+     1,
+     0
+    ]
+   ],
+   "contained": {
+    "1": true
+   },
+   "result": [
+    [],
+    [
+     8000
+    ]
+   ]
+  },
+  {
+   "name": "none",
+   "sockets": [],
+   "contained": {},
+   "result": [
+    [],
+    []
+   ]
+  },
+  {
+   "name": "unreadable",
+   "sockets": null,
+   "contained": {},
+   "result": null
+  }
+ ],
+ "accept_wait": 30.0,
+ "settle_reads": 3,
+ "stream": [
+  "/usr/bin/log",
+  "stream",
+  "--style",
+  "ndjson",
+  "--predicate",
+  "processID == 0 AND eventMessage CONTAINS \"ferb p-\""
+ ]
+}
