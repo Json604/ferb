@@ -837,3 +837,29 @@ porting agent; the crate is outside the workspace until the flows land, and is n
 
 **Open.** No scenario replays end to end: frames, gateway calls and tables need the flows. Pause, steer, stop,
 suspend, resume, restart, scheduled runs and waits come after the forward path.
+
+## 2026-11-13 · 39 · The gateway, second half: it joins the workspace
+
+**What.** `ferb-gateway` gains hidden input (a one-time secret, a saved one, by handle, login codes, the Mac admin
+password for the escape hatch): the answer is taken out of the question once and wiped, and a cleanup that runs
+even when the waiter leaves closes the question as used, declined or set aside. Also the real call hooks, FERB's
+own words carried with the redactor's mark to the span store and events, a cancelled call's measured facts kept as
+Python keeps them, and the real orchestrator ledger behind the `Ledger` seam with restart and reconcile.
+
+**Why.** Rules 5 to 7: this is the one path every model tool call takes.
+
+**Evidence.** `rust/fixtures/gateway`: 71 scenarios with 256 steps from the real Python `Gateway` (26 new), a
+canary value checked against every stored byte in the hidden-input scenarios, and 25 hook cases; none differ.
+Removing the marks, the cancel-time facts or the answer wipe each fails the right scenarios. Whole workspace
+clippy clean; 23 gateway tests pass, re-run by the coordinator; the crate builds for iOS and is in `members`.
+
+**Fixed against Python.** None new (entry 34's two stand).
+
+**Open.**
+- `Approval.answer` while a question is pending and `EscapeGrant.secret` are plain strings, not zeroized `Secret`s.
+- A hidden input whose caller left reads the task's newest in-flight call; Python reads the calling context.
+- `ferb-browser`'s `OwnerInput` seam passes (task, intent, origin) but the gateway needs the call's context: the
+  daemon keeps it when wiring the two.
+- The scenario test's per-run folder is under `/tmp` with a fixed length, because FERB clips long lines and a
+  different path length clips them elsewhere.
+- The real hooks are checked against fakes; the parts they drive belong to other crates.

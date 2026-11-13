@@ -43,8 +43,8 @@ impl State {
     }
 }
 
-/// `Approval` (`questions.py:22`).
-#[derive(Debug, Clone, PartialEq)]
+/// `Approval` (`questions.py:22`). `Debug` never shows a typed answer (a hidden input's is a secret).
+#[derive(Clone, PartialEq)]
 pub struct Approval {
     pub id: String,
     pub capability: String,
@@ -76,6 +76,22 @@ pub struct Approval {
     pub secret_labels: Vec<String>,
     pub site: String,
     pub picture: String,
+}
+
+impl std::fmt::Debug for Approval {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Approval")
+            .field("id", &self.id)
+            .field("capability", &self.capability)
+            .field("kind", &self.kind)
+            .field("state", &self.state)
+            .field("options", &self.options)
+            .field("choice", &self.choice)
+            .field("answer", &self.answer.as_ref().map(|_| "<hidden>"))
+            .field("summary", &self.summary)
+            .field("task_id", &self.task_id)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Approval {
@@ -380,6 +396,11 @@ impl Approvals {
         }
         ap.state = State::Superseded;
         Some(ap)
+    }
+
+    /// Every question still kept, oldest first.
+    pub fn all(&self) -> Vec<&Approval> {
+        self.items.iter().collect()
     }
 
     pub fn pending(&self) -> Vec<&Approval> {

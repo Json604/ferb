@@ -102,23 +102,36 @@ pub trait QuestionRouter: Send + Sync {
     ) -> BoxFuture<'a, Result<Map<String, Value>, String>>;
 }
 
-/// What only records or shows around a call (`ferb/daemon/call_hooks.py`): never deciding, never failing a call.
-/// The defaults are what Python does with no sentinel, evidence store, preview or shadow advice wired.
+/// What only records or shows around a call (`ferb/daemon/call_hooks.py`; the real ones are `call_hooks::RealHooks`):
+/// never deciding, never failing a call, and none runs before the owner's questions are answered. The defaults are
+/// what Python does with no sentinel, evidence store, preview, change record or shadow advice wired.
 pub trait CallHooks: Send + Sync {
+    /// A task tree ended (`forget(task_ids)`): what the hooks kept for it goes.
+    fn forget(&self, _task_ids: &BTreeSet<String>) {}
+    /// These tasks were stopped (`previews.remove`): their previews go.
+    fn stopped(&self, _task_ids: &BTreeSet<String>) {}
+    /// L12: this task's worker was handed the owner's front window at send as its first picture.
+    fn initial_image_given(&self, _task_id: &str) {}
+    /// A call's result brought its own image: this task's first picture is given.
+    fn image_provided(&self, _task_id: &str) {}
+    /// The live preview's surface for this call (`root`: its tree); after a successful call, what its result shows.
     fn preview(
         &self,
         _tool: &dyn Tool,
         _args: &Args,
         _grant: &RunGrant,
+        _root: &str,
         _locks: &[String],
         _observed: Option<&Map<String, Value>>,
     ) {
     }
+    /// L33: FERB's cursor at the element the action is about to touch (`root`: the task's tree, or the task).
     fn point<'a>(
         &'a self,
         _tool: &'a dyn Tool,
         _args: &'a Args,
         _grant: &'a RunGrant,
+        _root: &'a str,
     ) -> BoxFuture<'a, ()> {
         Box::pin(async {})
     }
@@ -182,10 +195,12 @@ pub trait CallHooks: Send + Sync {
     ) -> BoxFuture<'a, (ToolOutput, Map<String, Value>)> {
         Box::pin(async move { (out, Map::new()) })
     }
-    /// V1: the image kept as evidence; `{"evidence": id}` or `{"evidence_error": ...}`.
+    /// V1: the image kept as evidence; `{"evidence": id}` or `{"evidence_error": ...}`; {} with no evidence store.
+    #[allow(clippy::too_many_arguments)]
     fn keep_image<'a>(
         &'a self,
         _name: &'a str,
+        _site: Option<&'a str>,
         _grant: &'a RunGrant,
         _span_id: &'a str,
         _content: &'a Map<String, Value>,
@@ -244,7 +259,12 @@ pub trait Snapshots: Send + Sync {
 /// S4 (c): a folder's count before a permanent delete (`ferb/act/fs/usage.py` `usage(path, closed, True)`):
 /// `{"complete", "files", "bytes", "sample"...}`.
 pub trait Usage: Send + Sync {
-    fn count<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Map<String, Value>>;
+    /// `closed`: the protection lists' check of each item as it is reached (`_path_closed(name)`).
+    fn count<'a>(
+        &'a self,
+        path: &'a str,
+        closed: ferb_core::types::PathCheck,
+    ) -> BoxFuture<'a, Map<String, Value>>;
 }
 
 /// What `progress.describe` says of an action in a few plain words (orchestration's), for a retry question.

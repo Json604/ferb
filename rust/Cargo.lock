@@ -518,6 +518,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferb-gateway"
+version = "0.28.0"
+dependencies = [
+ "chrono",
+ "fancy-regex 0.14.0",
+ "ferb-clock",
+ "ferb-core",
+ "ferb-fs",
+ "ferb-identity",
+ "ferb-orchestrator",
+ "ferb-policy",
+ "ferb-py",
+ "ferb-rpc",
+ "ferb-sanitize",
+ "ferb-store",
+ "ferb-trace",
+ "getrandom 0.3.4",
+ "hex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "ferb-identity"
 version = "0.28.0"
 dependencies = [

@@ -34,7 +34,7 @@ use ferb_policy::{carried, destinations as dest};
 use ferb_rpc::auth::RunGrant;
 use ferb_sanitize::origin;
 use ferb_sanitize::terminal::printable;
-use ferb_sanitize::Redactor;
+use ferb_sanitize::{Py, PyStr, Redactor};
 use ferb_store::spans::{tree_where, Finish, PayloadOutput, Span, SpanStore};
 use ferb_store::Db;
 use serde_json::{json, Map, Value};
@@ -52,6 +52,86 @@ use crate::seams::{
 };
 use crate::tool::{Args, Registry, Tool, ToolError, ToolOutput};
 use crate::words::*;
+
+mod hidden;
+pub use hidden::{HiddenError, SecretAsk};
+
+// ---------------------------------------------------------------------------------------------------------------
+// FERB's own words, marked (Python's `Redacted`)
+// ---------------------------------------------------------------------------------------------------------------
+
+/// Strings FERB's code built from already-redacted values, or the redactor already returned (Python's `Redacted`,
+/// `redact.py:50`; GATE-572): a sink that redacts (the span store, the daemon's events) keeps them as they are.
+/// Python marks the string object; here a sink is told which texts are marked, and a string of the same text in
+/// the same record is kept too (it is the redactor's own output, or FERB's own line, either way).
+#[derive(Clone, Debug, Default)]
+pub struct Marks(HashSet<String>);
+
+impl Marks {
+    pub fn of(texts: &[&str]) -> Marks {
+        let mut m = Marks::default();
+        for t in texts {
+            m.add(t);
+        }
+        m
+    }
+
+    /// Every string in `v` (the redactor's whole output).
+    pub fn of_value(v: &Value) -> Marks {
+        let mut m = Marks::default();
+        m.add_value(v);
+        m
+    }
+
+    pub fn add(&mut self, text: &str) {
+        if !text.is_empty() {
+            self.0.insert(text.to_string());
+        }
+    }
+
+    pub fn add_value(&mut self, v: &Value) {
+        match v {
+            Value::String(s) => self.add(s),
+            Value::Array(a) => a.iter().for_each(|x| self.add_value(x)),
+            Value::Object(o) => o.values().for_each(|x| self.add_value(x)),
+            _ => {}
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    fn contains(&self, text: &str) -> bool {
+        self.0.contains(text)
+    }
+}
+
+/// `v` as a Python value, each string `marked` names carrying `template`'s mark.
+fn mark_py(v: &Value, marked: &Marks, template: &PyStr) -> Py {
+    match v {
+        Value::String(s) if marked.contains(s) => {
+            let mut p = template.clone();
+            p.text = s.clone();
+            Py::Str(p)
+        }
+        Value::Array(a) => Py::List(a.iter().map(|x| mark_py(x, marked, template)).collect()),
+        Value::Object(o) => Py::Dict(
+            o.iter()
+                .map(|(k, x)| (PyStr::new(k.as_str()), mark_py(x, marked, template)))
+                .collect(),
+        ),
+        other => Py::from(other),
+    }
+}
+
+/// A Python value back to JSON, as `json.loads(json.dumps(v))` reads it.
+pub fn py_value(p: &Py) -> Value {
+    p.to_json(false)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or(Value::Null)
+}
 
 // ---------------------------------------------------------------------------------------------------------------
 // errors and cancellation
@@ -124,6 +204,26 @@ impl Cancel {
     }
 }
 
+/// A tool's run with its call-facts record open on every poll (`call_facts.recording()`); the record stays with
+/// the caller, so what was noted survives the run being dropped by a cancel (`_measured`'s `finally`).
+struct Recorded<F> {
+    record: ferb_core::call_facts::Record,
+    run: F,
+}
+
+impl<F: Future + Unpin> Future for Recorded<F> {
+    type Output = F::Output;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<F::Output> {
+        let this = &mut *self;
+        let record = this.record.clone();
+        record.enter(|| std::pin::Pin::new(&mut this.run).poll(cx))
+    }
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // what the gateway is given
 // ---------------------------------------------------------------------------------------------------------------
@@ -168,8 +268,11 @@ pub static POSIX_FILES: ferb_policy::ppath::PosixFiles = ferb_policy::ppath::Pos
 pub trait Ids: IdSource {}
 impl<T: IdSource> Ids for T {}
 
-/// Where an event or a journaled problem goes: (kind, data).
+/// Where a journaled problem goes: (kind, data).
 pub type Sink = Box<dyn Fn(&str, Map<String, Value>) + Send + Sync>;
+/// Where an event goes: (topic, data). Strings FERB's code already redacted or built carry the redactor's mark
+/// (Python's `Redacted`, GATE-572), so the daemon's one redaction of the event keeps them as they are.
+pub type EventSink = Box<dyn Fn(&str, Py) + Send + Sync>;
 /// A profile's name or account by (browser, folder).
 pub type Names = Box<dyn Fn(&str, &str) -> String + Send + Sync>;
 /// Trail attribution of a path FERB touched: (path, task).
@@ -188,7 +291,7 @@ pub struct Deps {
     pub ids: Arc<dyn IdSource>,
     pub redactor: Arc<Redactor>,
     pub ledger: Arc<dyn Ledger>,
-    pub publish: Sink,
+    pub publish: EventSink,
     pub roots: FsRoots,
     pub device_id: String,
     pub recovery: Arc<dyn Recovery>,
@@ -209,6 +312,14 @@ pub struct Deps {
     pub made_in_tree: Option<MadeHere>,
     /// The owner's exclusion list (`Redactor.excluded_host` by default).
     pub excluded_host: Option<HostTest>,
+    /// The owner's saved secrets (`OwnerSecrets(protection.ferb_home)` on the signed helper); None: a hidden input
+    /// is refused ("secret storage protection is unavailable", as Python without protection lists).
+    pub owner_secrets: Option<Arc<ferb_identity::owner_secrets::OwnerSecrets>>,
+    /// Which apps are web browsers and how a browser reads an address (`is_browser`, `urls.parse`): a secret is
+    /// never bound to a whole browser (D12).
+    pub places: Arc<dyn ferb_identity::owner_secrets::Places>,
+    /// L36 §6: the memory sources a saved username may still come from (`username_sources()`); None: any.
+    pub username_holds: Option<HostTest>,
 }
 
 /// A file read in chunks, joined: (first rowid, labels, prepared text).
@@ -242,7 +353,7 @@ struct Inner {
     approvals: Approvals,
     stopped: bool,
     cancelled: HashSet<String>,
-    in_flight: Vec<(u64, String, Cancel)>,
+    in_flight: Vec<(u64, String, Cancel, Left)>,
     waiting: HashMap<String, usize>,
     undelivered: HashMap<(String, String, String), (String, Reply)>,
     calls_made: HashMap<String, u64>,
@@ -581,6 +692,16 @@ impl Gateway {
             .collect()
     }
 
+    /// Every question still kept, oldest first (open, or answered and not yet forgotten).
+    pub fn approvals(&self) -> Vec<Approval> {
+        lock(&self.inner)
+            .approvals
+            .all()
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
     pub fn approval(&self, id: &str) -> Option<Approval> {
         lock(&self.inner).approvals.get(id).cloned()
     }
@@ -634,13 +755,25 @@ impl Gateway {
     // ---------- the stores ----------
 
     fn spans<T>(&self, f: impl FnOnce(&SpanStore<'_>) -> T) -> T {
+        self.spans_marked(Marks::default(), f)
+    }
+
+    /// The span store, its redaction keeping `marked` strings as they are (Python's `Redacted`, GATE-572).
+    fn spans_marked<T>(&self, marked: Marks, f: impl FnOnce(&SpanStore<'_>) -> T) -> T {
         let db = lock(&self.d.db);
         let redactor = self.d.redactor.clone();
+        let template = self.mark_str("");
         let store = SpanStore::new(
             &db,
             Box::new(StoreTime(self.d.clock.clone())),
             Box::new(StoreIds(self.d.ids.clone())),
-            Box::new(move |v: &Value| redactor.value(v)),
+            Box::new(move |v: &Value| {
+                if marked.is_empty() {
+                    redactor.value(v)
+                } else {
+                    py_value(&redactor.py(&mark_py(v, &marked, &template)))
+                }
+            }),
             Box::new(|kind: &str| REVERSIBLE.contains(&kind)),
         );
         f(&store)
@@ -684,7 +817,30 @@ impl Gateway {
     }
 
     fn publish(&self, topic: &str, data: Map<String, Value>) {
-        (self.d.publish)(topic, data)
+        self.publish_marked(topic, data, &Marks::default())
+    }
+
+    /// An event whose `marked` strings FERB's code built or already redacted (GATE-572): the daemon's one redaction
+    /// of the event keeps them as they are, as Python's `Redacted` mark does.
+    fn publish_marked(&self, topic: &str, data: Map<String, Value>, marked: &Marks) {
+        (self.d.publish)(topic, self.py_marked(&Value::Object(data), marked))
+    }
+
+    /// A string carrying this redactor's mark now (`Redactor.marked()(text)`).
+    fn mark_str(&self, text: &str) -> PyStr {
+        let mut p = self.d.redactor.text_marked(&PyStr::new(""));
+        p.text = text.to_string();
+        p
+    }
+
+    /// `v` as Python holds it, each string in `marked` carrying the redactor's mark.
+    fn py_marked(&self, v: &Value, marked: &Marks) -> Py {
+        mark_py(v, marked, &self.mark_str(""))
+    }
+
+    /// `self.redact(v)` where `marked` strings are kept as they are.
+    fn redact_marked(&self, v: &Value, marked: &Marks) -> Value {
+        py_value(&self.d.redactor.py(&self.py_marked(v, marked)))
     }
 
     fn excluded(&self, host: &str) -> bool {
@@ -794,13 +950,16 @@ impl Gateway {
             }
         }
         let job = NEXT_JOB.fetch_add(1, Ordering::SeqCst);
-        lock(&self.inner)
-            .in_flight
-            .push((job, grant.task_id.clone(), cancel.clone()));
+        lock(&self.inner).in_flight.push((
+            job,
+            grant.task_id.clone(),
+            cancel.clone(),
+            caller_left.clone(),
+        ));
         let r = self
             .inner_call(grant, name, arguments, cancel, caller_left)
             .await;
-        lock(&self.inner).in_flight.retain(|(j, _, _)| *j != job);
+        lock(&self.inner).in_flight.retain(|(j, _, _, _)| *j != job);
         let r = r?;
         let tool = self.registry().get(name).cloned();
         if let Some(t) = tool {
@@ -824,15 +983,16 @@ impl Gateway {
         lock(&self.inner)
             .in_flight
             .iter()
-            .any(|(_, t, c)| task_ids.contains(t) && !c.is_cancelled())
+            .any(|(_, t, c, _)| task_ids.contains(t) && !c.is_cancelled())
     }
 
     /// `cancel_tasks(ids)`: a stop of these tasks: their calls in flight end and they may not call again. An empty
     /// list stops nothing (DMN-1: never a global stop).
     pub fn cancel_tasks(&self, task_ids: &BTreeSet<String>) {
+        self.hooks().stopped(task_ids);
         let mut i = lock(&self.inner);
         i.cancelled.extend(task_ids.iter().cloned());
-        for (_, t, c) in &i.in_flight {
+        for (_, t, c, _) in &i.in_flight {
             if task_ids.contains(t) {
                 c.cancel();
             }
@@ -842,7 +1002,7 @@ impl Gateway {
     /// `interrupt_tasks(ids)` (ORCH-308): their calls in flight end; they may call again once they resume.
     pub fn interrupt_tasks(&self, task_ids: &BTreeSet<String>) {
         let i = lock(&self.inner);
-        for (_, t, c) in &i.in_flight {
+        for (_, t, c, _) in &i.in_flight {
             if task_ids.contains(t) {
                 c.cancel();
             }
@@ -851,6 +1011,7 @@ impl Gateway {
 
     /// `forget_tasks(ids)`: a task tree ended; what the gateway kept for it goes.
     pub fn forget_tasks(&self, task_ids: &BTreeSet<String>) {
+        self.hooks().forget(task_ids);
         let ids: Vec<String> = task_ids.iter().cloned().collect();
         lock(&self.payments).forget(&ids);
         let mut i = lock(&self.inner);
@@ -868,6 +1029,11 @@ impl Gateway {
             .retain(|k, _| !task_ids.contains(k.split('.').next().unwrap_or(k)));
         i.undelivered.retain(|k, _| !task_ids.contains(&k.0));
         i.last_act.retain(|_, (task, _)| !task_ids.contains(task));
+    }
+
+    /// `initial_image_given(task)` (L12, D26 clarified): the worker was handed the owner's front window at send.
+    pub fn initial_image_given(&self, task_id: &str) {
+        self.hooks().initial_image_given(task_id);
     }
 
     /// `failed_act(worker)` (ORCH-639): this run's latest acting call when it ended with an error; taken once.
@@ -1126,7 +1292,10 @@ impl Gateway {
                 false,
             )));
         }
-        let mut spec = tool.describe(&checked.args);
+        // a `describe` that raises leaves `Gateway.call` (Python's exception; the RPC answers an internal error)
+        let mut spec = tool
+            .try_describe(&checked.args)
+            .map_err(|e| CallError::Internal(format!("{}: {}", e.class, e.message)))?;
         if let Some(p) = spec.target.path.clone() {
             spec.target.path = Some(
                 ferb_fs::files::normalize_path(&p, &self.d.roots.workspace, &self.d.roots.home)
@@ -2466,7 +2635,8 @@ impl Gateway {
                 ferb_fs::files::real_path(&path, &self.d.roots.workspace, &self.d.roots.home)
                     .unwrap_or(path.clone());
             if ferb_fs::pypath::is_dir(&real) {
-                let counted = c.cancel.guard(self.d.usage.count(&real)).await?;
+                let closed = self.path_closed(&c.name, &BTreeSet::new());
+                let counted = c.cancel.guard(self.d.usage.count(&real, closed)).await?;
                 if !counted.get("complete").is_some_and(ferb_py::value::truthy) {
                     return Ok(Err(obj(
                         json!({"error": "bulk deletion could not be fully enumerated; inspect the exact target first"}),
@@ -2936,7 +3106,7 @@ fn squash(text: &str, keep_spaces: bool) -> String {
 }
 
 impl Gateway {
-    /// `value(text)` (GATE-564): one value redacted by itself.
+    /// `value(text)` (GATE-572): one value redacted by itself.
     pub fn value(&self, text: &str) -> String {
         let r = self.redact(&json!({"v": text}));
         r.get("v").map(ferb_py::value::py_str).unwrap_or_default()
@@ -3290,7 +3460,21 @@ impl Gateway {
         task_id: &str,
         parent: Option<&str>,
     ) -> R<Span> {
-        Ok(self.spans(|s| s.start(kind, input, Some(task_id), parent, Some(&self.d.device_id)))?)
+        self.start_span_m(kind, input, task_id, parent, Marks::default())
+    }
+
+    /// `start_span` whose input holds FERB's own `marked` words (GATE-572).
+    fn start_span_m(
+        &self,
+        kind: &str,
+        input: &Value,
+        task_id: &str,
+        parent: Option<&str>,
+        marked: Marks,
+    ) -> R<Span> {
+        Ok(self.spans_marked(marked, |s| {
+            s.start(kind, input, Some(task_id), parent, Some(&self.d.device_id))
+        })?)
     }
 
     /// `ask_confirmation`: FERB's own question to the owner, in chat with Yes / No (D33).
@@ -3325,11 +3509,12 @@ impl Gateway {
         if let Some(s) = span {
             input.insert("for_span".into(), Value::String(s.to_string()));
         }
-        let mut q_span = self.start_span(
+        let mut q_span = self.start_span_m(
             "tool.call",
             &Value::Object(input),
             &grant.task_id,
             Some(&rec.span_id),
+            Marks::of(&[&text]),
         )?;
         self.publish(
             "tool.called",
@@ -3459,8 +3644,13 @@ impl Gateway {
             }));
             event.extend(card_parts(&ap));
             event.extend(card_flags(&ap));
+            // FERB's own built words keep their mark (`built`); the exact part is joined from them (unmarked)
+            let mut built = Marks::of(&[&text, &ap.summary, &ap.why, &ap.detail]);
+            for l in ap.labels.iter().take(2) {
+                built.add(l);
+            }
             self.store_approval(ap);
-            self.publish("approval.requested", event);
+            self.publish_marked("approval.requested", event, &built);
         } else {
             self.with_approval(&ap_id, |ap| ap.corrects = true);
         }
@@ -3841,11 +4031,18 @@ impl Gateway {
         if !retry.is_empty() {
             args_in.insert("retry_action".into(), Value::String(retry.clone()));
         }
-        let mut span = self.start_span(
+        // a retry question is FERB's own line, marked as built (`_marked`); a task's question is its words
+        let own = if retry.is_empty() {
+            Marks::default()
+        } else {
+            Marks::of(&[&question])
+        };
+        let mut span = self.start_span_m(
             "tool.call",
             &json!({"tool": OWNER_ASK, "args": args_in}),
             &grant.task_id,
             Some(&rec.span_id),
+            own.clone(),
         )?;
         self.publish(
             "tool.called",
@@ -3949,8 +4146,14 @@ impl Gateway {
             }
             event.extend(card_parts(&ap));
             event.extend(card_flags(&ap));
+            let mut built = own.clone();
+            if !retry.is_empty() {
+                for t in [&ap.summary, &ap.detail, &ap.why] {
+                    built.add(t);
+                }
+            }
             self.store_approval(ap);
-            self.publish("approval.requested", event);
+            self.publish_marked("approval.requested", event, &built);
         }
         self.observer().tool_call(grant, false);
         let answer = self.wait_answer(grant, &ap_id, cancel, left).await;
@@ -4362,19 +4565,29 @@ impl Gateway {
                 Some(cid) => Some(cid.to_string()),
                 None => self.granted_row(c, &need.key)?,
             };
-            if rule == "admin" {
-                // the Mac password for one approved admin command is the hidden-input path (hidden_input.py), not
-                // ported: refused as if cancelled, never run without it
-                return Ok(Err(obj(
-                    json!({"error": "the approved admin command was cancelled without a password"}),
-                )));
-            }
+            // the Mac password for an admin command, asked only after the Yes (hidden input): it goes only to the
+            // command (the escape grant), never to a span, a reply or the model
+            let secret = if rule == "admin" {
+                let given = self
+                    .admin_password(&c.grant, &c.rec, &command, &c.cancel, &c.left)
+                    .await?;
+                match given {
+                    Some(s) => Some(s.expose().to_string()),
+                    None => {
+                        return Ok(Err(obj(
+                            json!({"error": "the approved admin command was cancelled without a password"}),
+                        )))
+                    }
+                }
+            } else {
+                None
+            };
             escape = Some(EscapeGrant {
                 rule,
                 confirmation_id: cid.unwrap_or_default(),
                 command,
                 cwd,
-                secret: None,
+                secret,
             });
         }
         let mut terminal = None;
@@ -4460,6 +4673,32 @@ impl Gateway {
         error: Option<&str>,
         origins: Option<&BTreeSet<String>>,
     ) -> R<()> {
+        self.finish_call_m(
+            span,
+            name,
+            content,
+            is_error,
+            output,
+            error,
+            origins,
+            &Marks::default(),
+        )
+    }
+
+    /// `_finish_call` where `marked` are strings FERB already redacted (Python's `Redacted`: a tool's redacted
+    /// content, an error redacted by itself): the record keeps them as they are.
+    #[allow(clippy::too_many_arguments)]
+    fn finish_call_m(
+        &self,
+        span: &mut Span,
+        name: &str,
+        content: &Map<String, Value>,
+        is_error: bool,
+        output: Option<&Map<String, Value>>,
+        error: Option<&str>,
+        origins: Option<&BTreeSet<String>>,
+        marked: &Marks,
+    ) -> R<()> {
         let args = span
             .input
             .get("args")
@@ -4475,12 +4714,12 @@ impl Gateway {
         let summary = ferb_trace::lines::summarize(
             name,
             &args,
-            &self.redact(&Value::Object(content.clone())),
+            &self.redact_marked(&Value::Object(content.clone()), marked),
             is_error,
         );
         let joined = origins.map(|o| origin::join(o.iter().map(String::as_str)));
         let out_v = output.map(|o| Value::Object(o.clone()));
-        self.spans(|s| {
+        self.spans_marked(marked.clone(), |s| {
             s.finish(
                 span,
                 Finish {
@@ -4508,13 +4747,28 @@ impl Gateway {
                 .cloned()
                 .unwrap_or(Value::Null)
         };
-        let shown = shown_args(self.redact(&args).as_object().unwrap_or(&Map::new()));
-        self.publish(
+        let red_args = self.redact(&args);
+        let shown = shown_args(red_args.as_object().unwrap_or(&Map::new()));
+        // every value here is the redactor's own output (Python's `Redacted`), kept as it is by the daemon's events
+        let (summary_r, error_r, why_r) = (
+            red("s", &summary),
+            error.map(|e| red("e", e)),
+            red("w", &why),
+        );
+        let mut texts = Marks::of_value(&red_args);
+        for v in [Some(&summary_r), error_r.as_ref(), Some(&why_r)]
+            .into_iter()
+            .flatten()
+        {
+            texts.add_value(v);
+        }
+        self.publish_marked(
             "tool.finished",
             obj(json!({
-                "tool": name, "task_id": span.task_id, "summary": red("s", &summary),
-                "seconds": seconds, "error": error.map(|e| red("e", e)), "args": shown, "why": red("w", &why)
+                "tool": name, "task_id": span.task_id, "summary": summary_r,
+                "seconds": seconds, "error": error_r, "args": shown, "why": why_r
             })),
+            &texts,
         );
         Ok(())
     }
@@ -4656,10 +4910,25 @@ impl Gateway {
                 )
                 .await?;
             let _held = held.map_err(CallError::Internal)?;
-            self.hooks()
-                .preview(c.tool.as_ref(), &c.args, &c.grant, &c.lock_keys, None);
+            let preview_root = c
+                .rec
+                .tree_id
+                .clone()
+                .unwrap_or_else(|| c.grant.task_id.split('.').next().unwrap_or("").to_string());
+            self.hooks().preview(
+                c.tool.as_ref(),
+                &c.args,
+                &c.grant,
+                &preview_root,
+                &c.lock_keys,
+                None,
+            );
+            let point_root = c.root();
             c.cancel
-                .guard(self.hooks().point(c.tool.as_ref(), &c.args, &c.grant))
+                .guard(
+                    self.hooks()
+                        .point(c.tool.as_ref(), &c.args, &c.grant, &point_root),
+                )
                 .await?;
             c.cancel
                 .guard(self.hooks().screen_before(
@@ -4680,6 +4949,7 @@ impl Gateway {
                             c.tool.as_ref(),
                             &c.args,
                             &c.grant,
+                            &preview_root,
                             &c.lock_keys,
                             Some(content),
                         );
@@ -4914,10 +5184,19 @@ impl Gateway {
             }
         }
         covered.started = true;
-        let run = ferb_core::call_facts::recording(c.tool.run(&c.args, &ctx));
+        // `_measured`: what the tool's code measured meanwhile goes on its span whatever the outcome, a cancel's too
+        let record = ferb_core::call_facts::Record::default();
+        let run = Recorded {
+            record: record.clone(),
+            run: c.tool.run(&c.args, &ctx),
+        };
         let ran = c.cancel.guard(run).await;
+        let measured = record.facts();
         let (result, measured) = match ran {
             Err(CallError::Cancelled) => {
+                if !measured.is_empty() {
+                    self.spans(|s| s.update_input(&span.id, &Value::Object(measured)))?;
+                }
                 self.mark(
                     &intent,
                     "unknown",
@@ -4938,7 +5217,7 @@ impl Gateway {
                 return Err(CallError::Cancelled);
             }
             Err(e) => return Err(e),
-            Ok((r, facts)) => (r, facts),
+            Ok(r) => (r, measured),
         };
         if !measured.is_empty() {
             self.spans(|s| s.update_input(&span.id, &Value::Object(measured)))?;
@@ -4976,8 +5255,37 @@ impl Gateway {
         let mut out = out;
         let changed = self.after_change(c, &out, kept.as_deref()).await;
         raw.extend(changed);
+        let early_origins = without_excluded_hosts(
+            &result_origins(
+                &out.result.read_sources,
+                c.tool.facts().origin.as_deref(),
+                &c.spec.kind,
+            ),
+            &|h| self.excluded(h),
+        );
+        let ran_is_error = out.result.is_error;
+        let cancelled_after = |raw: &Map<String, Value>, span: &mut Span| -> R<Reply> {
+            // stopped while the image hooks ran: the call ran, its span still ends with its result (redacted)
+            let done = redact_measured(&self.d.redactor, raw, &[]);
+            let err = if ran_is_error {
+                done.get("error").map(ferb_py::value::py_str)
+            } else {
+                None
+            };
+            self.finish_call_m(
+                span,
+                &name,
+                &done,
+                ran_is_error,
+                Some(&done),
+                err.as_deref(),
+                Some(&early_origins),
+                &Marks::of_value(&Value::Object(done.clone())),
+            )?;
+            Err(CallError::Cancelled)
+        };
         if !out.result.is_error && out.result.image.is_none() {
-            out = c
+            let shot = c
                 .cancel
                 .guard(self.hooks().initial_image(
                     &name,
@@ -4987,13 +5295,24 @@ impl Gateway {
                     &c.grant,
                     out,
                 ))
-                .await?;
-            raw.extend(out.result.content.clone());
+                .await;
+            match shot {
+                Ok(o) => {
+                    out = o;
+                    raw.extend(out.result.content.clone());
+                }
+                Err(_) => return cancelled_after(&raw, span),
+            }
         }
         if out.result.image.is_some() && !out.result.is_error {
-            let (o2, withheld) = c.cancel.guard(self.hooks().redact_image(out)).await?;
-            out = o2;
-            raw.extend(withheld);
+            self.hooks().image_provided(&c.grant.task_id);
+            match c.cancel.guard(self.hooks().redact_image(out)).await {
+                Ok((o2, withheld)) => {
+                    out = o2;
+                    raw.extend(withheld);
+                }
+                Err(_) => return cancelled_after(&raw, span),
+            }
         }
         let origins = without_excluded_hosts(
             &result_origins(
@@ -5008,20 +5327,44 @@ impl Gateway {
             content = self.refused_fill(c, span, content)?;
         }
         let mut output = content.clone();
+        // the redacted content is the redactor's own output (Python's `Redacted`): the record keeps it as it is
+        let marked = Marks::of_value(&Value::Object(content.clone()));
         if (out.result.image.is_some() || raw.contains_key("image_withheld"))
             && !out.result.is_error
         {
-            let kept_image = self
-                .hooks()
-                .keep_image(
+            let kept_image = c
+                .cancel
+                .guard(self.hooks().keep_image(
                     &name,
+                    c.spec.target.site.as_deref(),
                     &c.grant,
                     &span.id,
                     &content,
                     out.result.image.as_deref(),
                     &origins,
-                )
+                ))
                 .await;
+            let Ok(kept_image) = kept_image else {
+                // stopped while the image was kept: the call ran, its span ends
+                let mut o = content.clone();
+                o.insert("evidence_error".into(), Value::String("cancelled".into()));
+                let err = if out.result.is_error {
+                    content.get("error").map(ferb_py::value::py_str)
+                } else {
+                    None
+                };
+                self.finish_call_m(
+                    span,
+                    &name,
+                    &content,
+                    out.result.is_error,
+                    Some(&o),
+                    err.as_deref(),
+                    Some(&origins),
+                    &marked,
+                )?;
+                return Err(CallError::Cancelled);
+            };
             output.extend(kept_image);
         }
         if let Some(f) = &out.result.facts {
@@ -5047,7 +5390,7 @@ impl Gateway {
         } else {
             None
         };
-        self.finish_call(
+        self.finish_call_m(
             span,
             &name,
             &content,
@@ -5055,6 +5398,7 @@ impl Gateway {
             Some(&recorded),
             err_text.as_deref(),
             Some(&origins),
+            &marked,
         )?;
         self.observed(
             &name,
@@ -5116,7 +5460,7 @@ impl Gateway {
             self.mark(intent, "failed", std::slice::from_ref(&detail));
             covered.started = false;
             self.observed(&name, &c.spec, &c.action, &c.grant, "failed");
-            self.finish_call(
+            self.finish_call_m(
                 span,
                 &name,
                 &obj(json!({"error": detail})),
@@ -5124,6 +5468,7 @@ impl Gateway {
                 recorded.as_ref(),
                 Some(&detail),
                 None,
+                &Marks::of(&[&detail]),
             )?;
             content.insert(
                 "error".into(),
@@ -5133,7 +5478,7 @@ impl Gateway {
             self.mark(intent, "unknown", std::slice::from_ref(&detail));
             self.observed(&name, &c.spec, &c.action, &c.grant, "unknown");
             self.spans(|s| s.update_input(&span.id, &json!({"outcome": "unknown"})))?;
-            self.finish_call(
+            self.finish_call_m(
                 span,
                 &name,
                 &obj(json!({"error": detail})),
@@ -5141,6 +5486,7 @@ impl Gateway {
                 recorded.as_ref(),
                 Some(&detail),
                 None,
+                &Marks::of(&[&detail]),
             )?;
             content.insert(
                 "error".into(),
@@ -5348,13 +5694,16 @@ impl Gateway {
     ) -> R<Map<String, Value>> {
         let cancel = Cancel::new();
         let job = NEXT_JOB.fetch_add(1, Ordering::SeqCst);
-        lock(&self.inner)
-            .in_flight
-            .push((job, grant.task_id.clone(), cancel.clone()));
+        lock(&self.inner).in_flight.push((
+            job,
+            grant.task_id.clone(),
+            cancel.clone(),
+            Arc::new(|| false),
+        ));
         let out = self
             .probe_inner(grant, name, arguments, span_id, &cancel)
             .await;
-        lock(&self.inner).in_flight.retain(|(j, _, _)| *j != job);
+        lock(&self.inner).in_flight.retain(|(j, _, _, _)| *j != job);
         out
     }
 
@@ -5439,7 +5788,15 @@ impl Gateway {
                 }));
             }
         }
-        let spec = tool.describe(&args);
+        let spec = match tool.try_describe(&args) {
+            Ok(spec) => spec,
+            Err(e) => {
+                return Ok(refused(format!(
+                    "{name} failed: {}: {}",
+                    e.class, e.message
+                )))
+            }
+        };
         let identities = tool.identities();
         let identity = if identities.len() == 1 {
             if identities.contains("ferb") {

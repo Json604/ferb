@@ -137,6 +137,42 @@ impl From<ToolResult> for ToolOutput {
     }
 }
 
+/// The live preview's surface one call works on (`ferb/act/point.py` `PreviewTarget`): its scope (the same scope is
+/// the same surface) and a short label; how it is captured is the capability's.
+#[derive(Clone)]
+pub struct PreviewTarget {
+    pub scope: String,
+    pub label: String,
+    pub capture: Option<std::sync::Arc<dyn std::any::Any + Send + Sync>>,
+}
+
+impl std::fmt::Debug for PreviewTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PreviewTarget")
+            .field("scope", &self.scope)
+            .field("label", &self.label)
+            .finish_non_exhaustive()
+    }
+}
+
+/// `Point` (L33): the element an action is about to touch, in global screen points, on a display.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Point {
+    /// click, type, scroll, press or drag.
+    pub kind: String,
+    pub rect: [f64; 4],
+    pub display: i64,
+}
+
+/// Why a picture couldn't be taken (`NoTarget`: no window yet; `Withheld`: its secret fields couldn't be painted
+/// over, FERB's words; anything else).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Shot {
+    NoTarget,
+    Withheld(String),
+    Failed,
+}
+
 /// What a tool's real file is (`real_path` hook): the path, or that it can't be told.
 pub type RealPath = Result<PathBuf, ()>;
 
@@ -188,6 +224,13 @@ pub trait Tool: Send + Sync {
 
     /// `describe(args)`: kind, target, content, facts.
     fn describe(&self, args: &Args) -> ActionSpec;
+
+    /// `describe(args)` as Python may raise it: `Err` is what it raised. A call then ends with an internal error,
+    /// as Python's exception leaves `Gateway.call`; a probe answers it as the tool's failure. By default `describe`
+    /// never fails.
+    fn try_describe(&self, args: &Args) -> Result<ActionSpec, ToolError> {
+        Ok(self.describe(args))
+    }
 
     /// `precheck(args)`: a refusal before anything else, else None.
     fn precheck(&self, _args: &Args) -> Option<String> {
@@ -259,6 +302,38 @@ pub trait Tool: Send + Sync {
         _declared: Option<&'a str>,
     ) -> BoxFuture<'a, Option<ferb_policy::payments::Pressed>> {
         Box::pin(async { None })
+    }
+
+    /// `preview_target(args, owner, observed)` (kb area app): the live preview's surface for this call, as the
+    /// capability declares it; `observed`: what a successful call's result shows. `Err`: the declaration failed
+    /// (read as no surface).
+    fn preview_target(
+        &self,
+        _args: &Args,
+        _owner: &str,
+        _observed: Option<&Map<String, Value>>,
+    ) -> Result<Option<PreviewTarget>, String> {
+        Ok(None)
+    }
+
+    /// `point(args, grant)` (L33): the element this action is about to touch, for FERB's cursor; `Ok(None)`: none
+    /// (also a tool without the hook); `Err`: it failed (skipped).
+    fn point<'a>(
+        &'a self,
+        _args: &'a Args,
+        _grant: &'a ferb_rpc::auth::RunGrant,
+    ) -> BoxFuture<'a, Result<Option<Point>, String>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    /// D6/D26: the task tab's picture now (`driver.screenshot(driver.owned_by(args.tab, task))`) with the page's
+    /// masking note (`driver.masking(tab)`), for a browser snapshot's first picture.
+    fn tab_picture<'a>(
+        &'a self,
+        _args: &'a Args,
+        _task: &'a str,
+    ) -> BoxFuture<'a, Result<(Vec<u8>, String), Shot>> {
+        Box::pin(async { Err(Shot::Failed) })
     }
 
     /// `run(args, ctx)`.

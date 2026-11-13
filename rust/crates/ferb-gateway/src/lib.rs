@@ -8,7 +8,10 @@
 
 pub mod admit;
 pub mod args;
+#[cfg(target_os = "macos")]
+pub mod call_hooks;
 pub mod catalog;
+pub mod hidden_words;
 pub mod listing;
 pub mod locks;
 pub mod pay_picture;

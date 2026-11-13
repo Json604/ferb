@@ -36,7 +36,7 @@ the phone apps share; they reach the Mac's own parts only through traits.
 | What the models receive: tool schemas, answer schemas, prompt assembly, error text | (fixtures only) | - | `rust/fixtures/catalog` | frozen (journal 9) |
 | Prompt context, structured answers, answer schemas | `ferb/core/context.py`, `structured.py`, `orchestrator/schemas.py`, `runtimes/schema_shape.py` | ~1,500 | `ferb-context` | verified (journal 17); outcome models go with orchestration |
 | Policy: confirmations, protection, payments, destinations | `ferb/policy` | 4,666 | `ferb-policy` | verified on 10,769 cases (journal 26) |
-| Gateway, questions, stop, resources, registry | `ferb/daemon/gateway.py` and state files | ~6,000 | `ferb-gateway` | call pipeline verified on 45 scenarios (journal 34); hidden input and several paths in progress |
+| Gateway, questions, stop, resources, registry | `ferb/daemon/gateway.py` and state files | ~6,000 | `ferb-gateway` | verified on 71 scenarios, hidden input included (journal 34, 39) |
 | RPC handlers (106 methods), daemon composition | `ferb/daemon/main.py`, `areas/` | ~9,700 | `ferbd` | not started; recordings of the Python daemon done (journal 23) |
 | Files, recovery | `ferb/act/fs` | (in 21,723) | `ferb-fs` | verified (journal 18); Mac renderers and Trash locator not written |
 | Shell, sandbox, proxy | `ferb/act/shell` | (in 21,723) | `ferb-shell` | verified, live sandbox tests included (journal 20) |
