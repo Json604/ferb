@@ -150,3 +150,129 @@ clean, `cargo test --workspace --locked`: 85 passed, 2 ignored (the two that nee
 **Next.** The Python packages import each other in circles (`policy` ↔ `orchestrator` ↔ `daemon`), so the Rust
 layering is its own: core types and ids, config and paths, the event bus, the typed stores (journal, spans,
 confirmations, tasks), the secrets-helper caller; then policy and the gateway on top of them.
+
+## 2026-11-13 · 8 · Pushing is blocked by GitHub, and stays blocked until the owner decides
+
+**What.** `git push` of `rust` was refused by GitHub's push protection: it decodes the base64 in
+`rust/fixtures/sanitize` and reports the invented key-shaped test values as secrets (10+ detections). The repo's
+own gate passed. Commits stay local.
+
+**Why not worked around.** The values have to look like real keys to test the detectors. Re-encoding them so the
+scanner cannot see them was refused as going around a security check, and is now a rule in `AGENTS.md`. Allowing
+them on GitHub, or excluding the folder from scanning, is the owner's choice (asked; open).
+
+## 2026-11-13 · 9 · Fixtures for what the models receive
+
+**What.** `rust/fixtures/catalog/make.py` starts the Python daemon in a temp home and writes `tools.json` (97
+tools, 23 listings by grant, the MCP form), `answer_schemas.json` (86 schemas in each provider's form),
+`prompt_static.json` (32 instruction texts, encoder cases, all 238 `json.dumps` sites), `repair_notes.json` (117)
+and `validation_errors.json` (627 through the real `Gateway.call`). `README.md` maps each to file:line.
+
+**Why.** ENG-3: pydantic's schemas and error text, `json.dumps` spacing and escaping and jsonschema's messages
+decide prompt bytes and provider caches. Rust cannot regenerate them by default, so they are frozen.
+
+**Evidence.** Two runs byte-identical; 1.92 MB; gate patterns clean.
+
+**Open.** Not frozen: real facts, availability and profile text; the text around the other `json.dumps` sites; MCP
+frames; where `ferb_browser.*` sits in the list when a profile is paired at start.
+Found in Python: `browser.pdf`, `ferb_browser.pdf` and `audio.listen` validators leave a `ValueError` in the reply,
+so it cannot be serialized.
+
+## 2026-11-13 · 10 · Core types, paths, config and the bus
+
+**What.** `ferb-core` ports `ferb/core` (types, ids, errors, timing, call_facts, interfaces), `ferb/paths.py`,
+`ferb/config.py` and `ferb/bus.py`.
+
+**Why.** tomlkit and `toml_edit` own whitespace differently, so `toml_edit` only locates tables, keys and values
+and each edit changes the text the way tomlkit does; shapes not reproduced are refused before anything is written.
+
+**Evidence.** `rust/fixtures/core/make.py`: 85 config cases byte for byte after every write, 5 bus scripts, timing
+scripts, every type's JSON. 27 tests pass.
+
+**Open.**
+- Ten config shapes are refused (`Unsupported`): a table as a value, inline or dotted sections, sub-table removal.
+  Three edits give the same values with a different layout from tomlkit.
+- Type JSON is compared by key order and values, not `json.dumps` spacing.
+- `SystemClock`/`FakeClock` are not here; `ferb-core::when` and `ferb_py::time` are two datetime types.
+- Found in Python: an empty `FERB_HOME` means the current folder (`paths.py:10`); the C host reads it as unset.
+
+## 2026-11-13 · 11 · The typed stores
+
+**What.** `ferb-store` now ports the rest of `ferb/store`: spans, task results, chat history, retention, the
+clean-up, salvage and `swap`. Other packages come in through seams (clock, ids, redactor, reversible kinds, card
+sources, journal, TOML check, settings).
+
+**Evidence.** `make_tables.py` ran the Python stores in temp folders; `tests/tables.rs` gets identical returns and
+rows for 291 calls in 6 scenarios and 62 salvage steps. SQLite 3.46 (bundled) matched Python's 3.53.4 on every
+ported query; FTS5 ranking is not used by these stores and is compared in the memory port.
+
+**Open.** `json.loads` edge cases (NaN, integers past 64 bits, lone surrogates); `lower()`/`upper()` follow Rust's
+Unicode tables; upgrade tests on older stores (STORE-403) still unported.
+Found in Python (mirrored, to fix under ENG-6): `retention._with_descendants` never ends on a span parent cycle.
+
+## 2026-11-13 · 12 · The secrets-helper caller and owner secrets
+
+**What.** `ferb-identity` ports `ferb/identity`: the caller of the pinned Swift helper (unchanged), owner secrets,
+configured secrets, origins, seals, the mail inventory, the Chrome profile check and `secrets.list`. Values are a
+`Secret` type: zeroed on drop, printed as `<secret>`.
+
+**Why.** The pin stays the requirement file in FERB's home, checked by `codesign` before every run, so tests run
+the real check on an ad-hoc-signed fake helper and no test-only switch exists. The helper's environment is cut to
+five variables (Python passes everything).
+
+**Evidence.** `rust/fixtures/identity/make.py`: 33 helper cases, 87 owner-secret steps, 31 handle files; same
+stdin bytes, refusals and `owner-secret-handles.json` bytes. 21 tests pass.
+
+**Open.** Never run with the real helper or Keychain; the scrubbed environment is unproven there. serde_json's
+scratch buffer is not zeroed. The `security` CLI branch (`secrets.py:80-84`) is not ported.
+Found in Python (mirrored, to fix under ENG-6): the helper is verified, then run by path, which leaves a swap window.
+
+## 2026-11-13 · 13 · Redaction hardened
+
+**What.** `ferb-sanitize`: a `Py` value type (any-size integers, bytes, the Redacted mark) with Python's JSON
+reading and writing; a pattern that cannot run hides the whole input (`[redacted: unreadable text]`) or returns
+`Err(Unread)` and never panics; `high_entropy` fixtured at the 3.0 line; a scaling guard by instruction counts.
+
+**Why.** serde_json's arbitrary precision would change every crate's numbers. The mark changes output
+(`redact.py:377`). Python's `re` cannot fail, so hiding everything is the only safe answer when Rust's can.
+
+**Evidence.** 8,706 tracked cases; 26 tests pass; three seeds at scale 8 (about 33,100 cases each), none differ.
+Scaling: 6,912 runs, none slow.
+
+**Open.** `formats`/`labels`/`known` read a pattern failure as "no match" unless wrapped in `checked`. The scaling
+test takes 54 s. `value(&serde_json::Value)` cannot carry marks, bytes or big integers (use `Py`).
+Found in Python (mirrored, to fix under ENG-6): a key body under a non-text key between BEGIN and END items is left
+unredacted (`redact.py:395`). That build is installed today.
+
+## 2026-11-13 · 14 · A shared foundation: portable engine crates, one Mac platform crate (ENG-5)
+
+**What.** `ferb-platform-macos` holds what touches Apple frameworks or macOS tools: the Security framework, the
+peer's pid and audit token, `codesign` and the helper process, Chrome's folder. `ferb-py` holds Python's own
+behavior once. `ferb-rpc` takes the peer lookup by injection (`Server::set_peer_lookup`); `ferb-identity` runs the
+helper through `helper::Launcher`. `gate.sh portable` checks the five engine crates for iOS and Android, and the
+push gate runs it.
+
+**Why.** The owner asked whether the rewrite was a straight translation or a shared foundation; the same engine
+must serve the phone apps, and ports by separate agents had left Mac code in shared crates and three copies of
+`repr(float)`.
+
+**Evidence.** Whole workspace, run by the coordinator: `cargo fmt --check` clean, clippy with warnings refused
+clean, `cargo test --workspace`: 158 passed, 3 ignored (they need `uv`); `./gate.sh portable` passes.
+
+**Open.** `ferb-store` is not in the portable set (bundled SQLite needs the NDK for Android). `ferb-rpc::app_peer`
+and `ferb-core::paths` both find the installed FERB.app.
+
+## 2026-11-13 · 15 · How the work is run from here
+
+**What.**
+- `rust/PLAN.md`: what is left, in order, with sources, needs and traps, and how a new agent picks it up.
+  `rust/AGENT-BRIEF.md`: the one brief every port agent gets. `AGENTS.md` has a section for the rewrite.
+- ENG-6: a bug found in Python is fixed in the port, not mirrored. The owner asked why known bugs were being
+  carried over; three mirrored ones are to be fixed next (redaction leak, retention cycle, helper swap window).
+- Every part whose needs are met is launched at once, each agent in its own crate with its own build folder; a
+  crate being ported sits in the workspace's `exclude` list. The owner asked why the work ran in small waves.
+- Subagents run on Opus or below (owner's word); six agents started on the coordinator's model were stopped and
+  relaunched.
+
+**Running now (nine agents):** policy, prompt context and answers, files, shell, browser, runtimes, time, memory
+(embeddings, search, import parsers), and recordings of the Python daemon's RPC and chat scenarios.

@@ -14,9 +14,16 @@
 //! own; each pattern is compiled and compared with Python's results by the fixtures (ENG-3).
 //! `match` is `\G` + the pattern, `fullmatch` is `\G(?:…)\z` on the text cut at `endpos`.
 //!
-//! No pattern can fail at run time: the backtrack limit is off (Python has none). Should fancy-regex still report
-//! an error, the process stops rather than let text through unread (the message names the pattern, never the text).
+//! A pattern can fail at run time where Python's `re` cannot: fancy-regex 0.14 stops at 1,000,000 saved
+//! backtrack positions (vm.rs `MAX_STACK`, not configurable; one is saved for each turn of a greedy loop it runs
+//! itself), and at its backtrack-count limit, which is off here (Python has none). No text was found that makes
+//! one of these patterns fail; the tests fail calls through a hook. A failed run never panics. It reads as "no
+//! match" and marks the calling thread (`FAILED`); `checked` turns that mark into `Err(Unread)`, and every
+//! `Redactor` and `RedactionStream` call answers it by hiding its whole input (`UNREADABLE`). A text Python would
+//! have read and masked in part comes out masked whole: never less hidden than Python's.
 
+use std::cell::Cell;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
 
 use fancy_regex::{Regex, RegexBuilder};
@@ -334,26 +341,95 @@ pub fn translate(src: &str, flags: u32) -> String {
     out
 }
 
-fn build(name: &str, pattern: &str) -> Regex {
+/// What a call returns in place of a text it could not read: the whole input hidden.
+pub const UNREADABLE: &str = "[redacted: unreadable text]";
+
+/// A pattern could not be run over the text (see the module's note): nothing may be concluded from the answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Unread;
+
+impl std::fmt::Display for Unread {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ferb-sanitize: a pattern could not be run over the text")
+    }
+}
+
+impl std::error::Error for Unread {}
+
+thread_local! {
+    static FAILED: Cell<bool> = const { Cell::new(false) };
+    static DEPTH: Cell<u32> = const { Cell::new(0) };
+    static FAIL_FROM: Cell<u64> = const { Cell::new(u64::MAX) };
+    static CALLS: Cell<u64> = const { Cell::new(0) };
+}
+
+/// The backtrack-count limit patterns are compiled with: off, as in Python. The scaling test lowers it before any
+/// pattern is compiled, so a call that backtracks more than in proportion to its text fails (tests/scaling.rs).
+static BACKTRACK_LIMIT: AtomicUsize = AtomicUsize::new(usize::MAX);
+
+pub fn set_backtrack_limit(limit: usize) {
+    BACKTRACK_LIMIT.store(limit, Ordering::SeqCst);
+}
+
+/// Tests only: this thread's pattern calls fail from the `n`th one from now (0: the next); None: never.
+pub fn fail_from(n: Option<u64>) {
+    CALLS.with(|c| c.set(0));
+    FAIL_FROM.with(|f| f.set(n.unwrap_or(u64::MAX)));
+}
+
+struct Level;
+
+impl Drop for Level {
+    fn drop(&mut self) {
+        DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+    }
+}
+
+/// `f`'s answer, or `Err(Unread)` when a pattern in it could not be run. Calls nest: a failure inside fails every
+/// `checked` around it.
+pub fn checked<T>(f: impl FnOnce() -> T) -> Result<T, Unread> {
+    if DEPTH.with(|d| d.replace(d.get() + 1)) == 0 {
+        FAILED.with(|x| x.set(false));
+    }
+    let level = Level;
+    let out = f();
+    drop(level);
+    if FAILED.with(Cell::get) {
+        Err(Unread)
+    } else {
+        Ok(out)
+    }
+}
+
+/// A pattern that does not compile is one that cannot be run (`every_python_pattern_compiles` is the test that
+/// none is).
+fn build(pattern: &str) -> Option<Regex> {
     RegexBuilder::new(pattern)
-        .backtrack_limit(usize::MAX)
+        .backtrack_limit(BACKTRACK_LIMIT.load(Ordering::SeqCst))
         .delegate_size_limit(1 << 28)
         .delegate_dfa_size_limit(1 << 26)
         .build()
-        .unwrap_or_else(|e| panic!("ferb-sanitize: pattern {name} does not compile: {e}"))
+        .ok()
 }
 
 /// A Python pattern, compiled when first used.
 pub struct Rx {
     pat: &'static Pat,
-    search: OnceLock<Regex>,
-    anchored: OnceLock<Regex>,
-    full: OnceLock<Regex>,
+    search: OnceLock<Option<Regex>>,
+    anchored: OnceLock<Option<Regex>>,
+    full: OnceLock<Option<Regex>>,
 }
 
-fn fail(name: &str) -> ! {
-    // Never the text: it may hold a secret.
-    panic!("ferb-sanitize: pattern {name} could not be run");
+/// Mark the thread: a pattern could not be run. Nothing is logged: the text may hold a secret.
+fn fail<T>() -> Option<T> {
+    FAILED.with(|x| x.set(true));
+    None
+}
+
+/// False when the test hook says this call fails.
+fn begin() -> bool {
+    let n = CALLS.with(|c| c.replace(c.get() + 1));
+    n < FAIL_FROM.with(Cell::get)
 }
 
 impl Rx {
@@ -370,29 +446,32 @@ impl Rx {
         translate(self.pat.src, self.pat.flags)
     }
 
-    fn search_re(&self) -> &Regex {
-        self.search
-            .get_or_init(|| build(self.pat.name, &self.body()))
+    fn search_re(&self) -> Option<&Regex> {
+        self.search.get_or_init(|| build(&self.body())).as_ref()
     }
 
-    fn anchored_re(&self) -> &Regex {
+    fn anchored_re(&self) -> Option<&Regex> {
         self.anchored
-            .get_or_init(|| build(self.pat.name, &format!("\\G(?:(?:{})()|)", self.body())))
+            .get_or_init(|| build(&format!("\\G(?:(?:{})()|)", self.body())))
+            .as_ref()
     }
 
-    fn full_re(&self) -> &Regex {
+    fn full_re(&self) -> Option<&Regex> {
         self.full
-            .get_or_init(|| build(self.pat.name, &format!("\\G(?:(?:{})\\z()|)", self.body())))
+            .get_or_init(|| build(&format!("\\G(?:(?:{})\\z()|)", self.body())))
+            .as_ref()
     }
 
-    /// Compile all three forms (the tests' check that every pattern translates).
-    pub fn compile(&self) {
-        self.search_re();
-        self.anchored_re();
-        self.full_re();
+    /// Compile all three forms; whether each compiled (the tests' check that every pattern translates).
+    pub fn compile(&self) -> bool {
+        self.search_re().is_some() && self.anchored_re().is_some() && self.full_re().is_some()
     }
 
-    fn caps_with(&self, re: &Regex, s: &str, pos: usize) -> Option<Caps> {
+    fn caps_with(&self, re: Option<&Regex>, s: &str, pos: usize) -> Option<Caps> {
+        let Some(re) = re else { return fail() };
+        if !begin() {
+            return fail();
+        }
         match re.captures_from_pos(s, pos) {
             Ok(Some(c)) => Some(
                 (0..c.len())
@@ -400,23 +479,27 @@ impl Rx {
                     .collect(),
             ),
             Ok(None) => None,
-            Err(_) => fail(self.pat.name),
+            Err(_) => fail(),
         }
     }
 
     /// A `\G` form run at `pos`. Both forms end in an empty marker group and an empty alternative: when the pattern
     /// doesn't match at `pos` the empty alternative does, at once (fancy-regex would otherwise try every later
     /// start, each failing on `\G`: a cost in the text's length per call). The marker tells the two apart.
-    fn anchored(&self, re: &Regex, s: &str, pos: usize) -> Option<Caps> {
+    fn anchored(&self, re: Option<&Regex>, s: &str, pos: usize) -> Option<Caps> {
         let mut caps = self.caps_with(re, s, pos)?;
         caps.pop()??;
         Some(caps)
     }
 
-    fn span_with(&self, re: &Regex, s: &str, pos: usize) -> Option<Span> {
+    fn span_with(&self, re: Option<&Regex>, s: &str, pos: usize) -> Option<Span> {
+        let Some(re) = re else { return fail() };
+        if !begin() {
+            return fail();
+        }
         match re.find_from_pos(s, pos) {
             Ok(m) => m.map(|m| (m.start(), m.end())),
-            Err(_) => fail(self.pat.name),
+            Err(_) => fail(),
         }
     }
 
@@ -513,11 +596,48 @@ impl std::fmt::Debug for Rx {
 
 /// Every pattern of the Python build, compiled: a test's check, and a daemon's at start if it wants the cost up
 /// front.
-pub fn compile_all() {
-    for pat in g::ALL_PATTERNS {
-        Rx::new(pat).compile();
+pub fn compile_all() -> Vec<&'static str> {
+    let mut failed = Vec::new();
+    for pat in g::ALL_PATTERNS
+        .iter()
+        .copied()
+        .chain(g::FORMAT_TABLE.iter().map(|f| &f.pat))
+    {
+        if !Rx::new(pat).compile() {
+            failed.push(pat.name);
+        }
     }
-    for f in g::FORMAT_TABLE {
-        Rx::new(&f.pat).compile();
+    failed
+}
+
+fn every() -> &'static [Rx] {
+    static ALL: OnceLock<Vec<Rx>> = OnceLock::new();
+    ALL.get_or_init(|| {
+        g::ALL_PATTERNS
+            .iter()
+            .copied()
+            .chain(g::FORMAT_TABLE.iter().map(|f| &f.pat))
+            .map(Rx::new)
+            .collect()
+    })
+}
+
+/// Tests only: the names of every pattern, in the order `run_pattern` numbers them.
+pub fn pattern_names() -> Vec<&'static str> {
+    every().iter().map(|rx| rx.pat.name).collect()
+}
+
+/// Tests only: pattern `i` run over `s` the ways asked for: searched through it, matched from `at`, full-matched
+/// from `at`.
+pub fn run_pattern(i: usize, s: &str, at: usize, search: bool, matched: bool, full: bool) {
+    let Some(rx) = every().get(i) else { return };
+    if search {
+        rx.search(s, 0);
+    }
+    if matched {
+        rx.match_at(s, at);
+    }
+    if full {
+        rx.fullmatch_in(s, at, s.len());
     }
 }

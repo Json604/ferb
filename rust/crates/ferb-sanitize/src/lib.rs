@@ -7,8 +7,13 @@
 //! invented inputs and `tests/parity.rs` asserts the same output for every case. Offsets here are bytes where
 //! Python's are code points; outputs are the same text.
 //!
-//! Not ported (see rust/JOURNAL.md): `images.py` (Vision OCR, Mac-only), Python's `Redacted` mark, `bytes`
-//! values in a structure, and integers beyond 64 bits.
+//! Not ported (see rust/JOURNAL.md): `images.py` (Vision OCR, Mac-only).
+//!
+//! Where Rust can fail and Python cannot: fancy-regex gives up on a text that needs more than a million saved
+//! backtrack positions, and the system may give no random bytes. Neither panics. Every `Redactor` and
+//! `RedactionStream` call then hides its whole input (`UNREADABLE`) or returns `Err(Unread)`; the functions of
+//! `formats`, `labels`, `known` and `untrusted` read a pattern that could not be run as "no match", so a caller
+//! of those wraps the call in `checked`, which returns `Err(Unread)` instead.
 
 #[rustfmt::skip]
 mod generated;
@@ -36,19 +41,29 @@ pub use known::{
 pub use labels::{
     code_words, label_class, password_field, secret_key, secret_words, LabelClass, CODE_REACH,
 };
+pub use pyvalue::{JsonError, Py, PyStr};
 pub use redact::{mask, Field, Redactor, EXCLUDED, NODE_TEXT, SAVED_SECRET};
+pub use rx::{checked, Unread, UNREADABLE};
 pub use stream::{RedactionStream, MAX_PENDING, OVERSIZED};
 
-/// Compile every pattern now (a daemon's start, a test) instead of at first use.
-pub fn compile_patterns() {
-    rx::compile_all();
+/// Compile every pattern now (a daemon's start, a test) instead of at first use. `Err`: the names of the
+/// patterns that do not compile (each would read every text as unreadable).
+pub fn compile_patterns() -> Result<(), Vec<&'static str>> {
+    let failed = rx::compile_all();
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(failed)
+    }
 }
 
 /// Python's answers the port rests on, for the parity tests (`tests/parity.rs`): not part of the crate's use.
 #[doc(hidden)]
 pub mod parity {
+    pub use crate::labels::{entropy_at_least_3, entropy_term};
     pub use crate::pyurl::hostname;
     pub use crate::pyvalue::{repr, to_str};
+    pub use crate::rx::{fail_from, pattern_names, run_pattern, set_backtrack_limit};
     pub use crate::unicode::{
         casefold, is_alnum, is_alpha, is_decimal, is_digit, is_space, lower, word_char,
     };

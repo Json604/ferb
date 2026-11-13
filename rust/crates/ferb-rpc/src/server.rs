@@ -12,6 +12,7 @@
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::io;
+use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::fs::PermissionsExt;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
@@ -27,9 +28,10 @@ use tokio::sync::{watch, Notify};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::Instant;
 
+use crate::app_peer::AuditToken;
 use crate::auth::{self, AuthError, Role, RunGrant, RunTokens};
 use crate::framing::{closing, FrameError, FrameReader, FrameWriter, Phase};
-use crate::peer::{self, AuditToken};
+use crate::peer;
 use crate::wire::{self, Id, Params, Reject, Request};
 
 /// How long the notch waits for a reply (its socket read timeout, DaemonRPC.swift), and the CLI by default
@@ -180,6 +182,15 @@ pub trait NativeChannel: Send + Sync + 'static {
 
 type ExtensionIds = dyn Fn() -> HashSet<String> + Send + Sync;
 type IsApp = dyn Fn(Option<AuditToken>) -> bool + Send + Sync;
+type PeerLookup = dyn Fn(BorrowedFd<'_>) -> PeerFacts + Send + Sync;
+
+/// What the platform says about the process on the other end of a connection (server.py:91-103,
+/// app_peer.py:27-33): each `None` when the socket can't say.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PeerFacts {
+    pub pid: Option<i32>,
+    pub token: Option<AuditToken>,
+}
 type OnInternal = dyn Fn(&str, &HandlerError) + Send + Sync;
 type OnSlow = dyn Fn(&str, f64) + Send + Sync;
 type OnNativeRefused = dyn Fn(&str, &str) + Send + Sync;
@@ -275,6 +286,7 @@ struct Inner {
     native: RwLock<Option<Arc<dyn NativeChannel>>>,
     extension_ids: RwLock<Arc<ExtensionIds>>,
     is_app: RwLock<Arc<IsApp>>,
+    peer_lookup: RwLock<Arc<PeerLookup>>,
     on_internal: RwLock<Arc<OnInternal>>,
     on_slow: RwLock<Arc<OnSlow>>,
     on_native_refused: RwLock<Arc<OnNativeRefused>>,
@@ -318,6 +330,8 @@ impl Server {
                 extension_ids: RwLock::new(Arc::new(HashSet::new)),
                 // No check in place: nobody is FERB.app (fails closed; server.py:158-161).
                 is_app: RwLock::new(Arc::new(|_| false)),
+                // No lookup in place: no pid and no audit token, so nobody is FERB.app either.
+                peer_lookup: RwLock::new(Arc::new(|_| PeerFacts::default())),
                 on_internal: RwLock::new(Arc::new(|_, _| {})),
                 on_slow: RwLock::new(Arc::new(|_, _| {})),
                 on_native_refused: RwLock::new(Arc::new(|_, _| {})),
@@ -385,6 +399,19 @@ impl Server {
             .is_app
             .write()
             .unwrap_or_else(PoisonError::into_inner) = Arc::new(check);
+    }
+
+    /// How a connection's process and audit token are read from its socket: the platform's part
+    /// (`ferb_platform_macos::peer::facts` on the Mac). Until set, a session has neither.
+    pub fn set_peer_lookup(
+        &self,
+        lookup: impl Fn(BorrowedFd<'_>) -> PeerFacts + Send + Sync + 'static,
+    ) {
+        *self
+            .inner
+            .peer_lookup
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = Arc::new(lookup);
     }
 
     /// Told a handler's fault (its method and the error; the reply names only its type), for the daemon to
@@ -561,7 +588,7 @@ async fn connection(inner: Arc<Inner>, stream: UnixStream) {
     let Ok(uid) = peer::peer_uid(&stream) else {
         return;
     };
-    let (pid, token) = (peer::peer_pid(&stream), peer::peer_token(&stream));
+    let PeerFacts { pid, token } = read(&inner.peer_lookup)(stream.as_fd());
     let (reading, writing) = stream.into_split();
     let mut reader = FrameReader::new(reading, inner.phase.subscribe());
     let mut writer = FrameWriter::new(writing, inner.phase.subscribe());

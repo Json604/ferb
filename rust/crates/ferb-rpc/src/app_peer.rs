@@ -2,7 +2,7 @@
 //! program running as the owner). Port of `ferb/daemon/app_peer.py`. It grants nothing else: `auth::METHODS`'
 //! `app_only` names what needs it (DMN-23, DMN-402).
 //!
-//! The kernel's audit token of the connected process (`peer::peer_token`) is handed to the Security framework,
+//! The kernel's audit token of the connected process (the platform's peer lookup) is handed to the Security framework,
 //! which checks the running code's signature against a requirement: FERB.app's own designated requirement (its
 //! exact code hash for an ad-hoc build, its certificate or Developer ID team otherwise), so only that app,
 //! signed as it is, passes. Anything that can't be checked fails closed.
@@ -25,14 +25,18 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
-use crate::peer::AuditToken;
+/// The size of the kernel's `audit_token_t`: its pid and pid version among others, so a reused pid can't stand
+/// in for the process that connected.
+pub const AUDIT_TOKEN_SIZE: usize = 32;
+pub type AuditToken = [u8; AUDIT_TOKEN_SIZE];
 
 /// What a daemon run from a source checkout accepts (app_peer.py:23).
 pub const DEV_REQUIREMENT: &str = r#"identifier "com.ferb.FERB" or identifier "dev.ferb.notch""#;
 /// FERB.app's bundle id (`ferb/paths.py:27`, ui/mac/FERBNotch/Info.plist).
 pub const APP_ID: &str = "com.ferb.FERB";
 
-/// The code-signature calls the check needs; `security::SecurityFramework` in the daemon, a fake in tests.
+/// The code-signature calls the check needs; `ferb_platform_macos::security::SecurityFramework` in the Mac
+/// daemon, a fake in tests.
 /// Each answer is `None`/`false` when it can't be had.
 pub trait Security {
     type Requirement;
@@ -261,14 +265,6 @@ impl<S: Security> AppPeers<S> {
                 .check(token.as_ref())
         }
     }
-}
-
-/// The check the daemon installs: this process's mode, the real Security framework.
-pub fn system(ferb_home: &Path) -> AppPeers<crate::security::SecurityFramework> {
-    AppPeers::new(
-        mode_of_this_process(ferb_home),
-        crate::security::SecurityFramework,
-    )
 }
 
 #[cfg(test)]

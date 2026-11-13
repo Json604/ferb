@@ -7,7 +7,7 @@
 
 use crate::generated as g;
 use crate::known::json_escape;
-use crate::rx::{Rx, Span};
+use crate::rx::{checked, Rx, Span};
 use crate::unicode as u;
 
 pub const PASTE_START: &str = "\x1b[200~";
@@ -116,8 +116,12 @@ fn next_marker(message: &str, mut from: usize) -> Option<(&'static str, usize)> 
 }
 
 /// untrusted.py:72: the owner's chat message as FERB records it (ORCH-518): all of it is their words.
+///
+/// When a pattern cannot be run over the message (rx.rs), it is recorded with only the composer's brackets
+/// removed: the clean-up of leaked markers is cosmetic, and the complete request is never discarded.
 pub fn mark(message: &str) -> Marked {
-    let plain = without_leaked_markers(message)
+    let plain = checked(|| without_leaked_markers(message))
+        .unwrap_or_else(|_| message.to_string())
         .replace(PASTE_START, "")
         .replace(PASTE_END, "");
     Marked {
@@ -177,13 +181,36 @@ pub fn wrap_untrusted_with_id(text: &str, uid: &str) -> String {
     format!("<untrusted-data id=\"{uid}\">\n{body}\n</untrusted-data id=\"{uid}\">")
 }
 
+/// The system gave no random bytes: no wrapper is made (Python's `secrets.token_hex` raises there too).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NoRandomness;
+
+impl std::fmt::Display for NoRandomness {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ferb-sanitize: the system gave no random bytes")
+    }
+}
+
+impl std::error::Error for NoRandomness {}
+
 /// untrusted.py:115: data, not instructions: in tags with a random id; a forged closing tag inside can't end ours.
-pub fn wrap_untrusted(text: &str) -> String {
+/// No id, no wrapper: a guessable id would let outside text close the tag (rule 9), so without random bytes the
+/// caller gets an error and nothing to show a model.
+pub fn wrap_untrusted(text: &str) -> Result<String, NoRandomness> {
+    wrap_untrusted_from(text, |bytes| getrandom::fill(bytes).is_ok())
+}
+
+/// `wrap_untrusted` with the source of random bytes given (false: it has none).
+pub fn wrap_untrusted_from(
+    text: &str,
+    random: impl FnOnce(&mut [u8]) -> bool,
+) -> Result<String, NoRandomness> {
     let mut bytes = [0u8; 6];
-    // No id, no wrapper: a guessable id would let outside text close the tag (rule 9).
-    getrandom::fill(&mut bytes).expect("ferb-sanitize: the system gave no random bytes");
+    if !random(&mut bytes) {
+        return Err(NoRandomness);
+    }
     let uid: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    wrap_untrusted_with_id(text, &uid)
+    Ok(wrap_untrusted_with_id(text, &uid))
 }
 
 /// untrusted.py:122: the text without FERB's earlier question (either label, in FERB's own wrapper).
@@ -193,14 +220,17 @@ pub fn without_ferb_question(text: &str) -> String {
 
 /// untrusted.py:129: whether a recorded request still holds one of FERB's wrappers once FERB's own earlier
 /// question is set aside.
+///
+/// True when a pattern cannot be run over it (rx.rs): unread text is not passed off as holding none.
 pub fn holds_pasted(payload: &str) -> bool {
-    WRAPPED.search(&without_ferb_question(payload), 0).is_some()
+    checked(|| WRAPPED.search(&without_ferb_question(payload), 0).is_some()).unwrap_or(true)
 }
 
 /// untrusted.py:135: the owner's own words of a recorded chat message, its pasted or quoted parts left out. None
 /// when the count of parts is unknown or the wrappers found differ from it.
+/// None too when a pattern cannot be run over it (rx.rs).
 pub fn recorded_own_words(for_model: &str, pasted: Option<usize>) -> Option<String> {
-    let found = WRAPPED.find_all(for_model);
+    let found = checked(|| WRAPPED.find_all(for_model)).ok()?;
     if pasted != Some(found.len()) {
         return None;
     }

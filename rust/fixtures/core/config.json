@@ -1,0 +1,3472 @@
+{
+ "default_exclude_apps": [
+  "com.1password.1password",
+  "com.agilebits.onepassword7",
+  "com.bitwarden.desktop",
+  "com.apple.Passwords",
+  "com.apple.keychainaccess"
+ ],
+ "upgrades": [
+  "download-limits-2026-10-09",
+  "download-limits-2026-10-31",
+  "feedback-relay-2026-11-01",
+  "no-voice-2026-11-04",
+  "no-test-mode-2026-11-10"
+ ],
+ "privacy_defaults": {
+  "never_read": [
+   "~/.ssh",
+   "~/Library/Keychains",
+   "~/invented folder"
+  ],
+  "never_write": [
+   "~/.ssh",
+   "/System"
+  ],
+  "terminal_apps": [
+   "com.apple.Terminal",
+   "com.example.term"
+  ],
+  "exclude_paths": [
+   "~/.ssh",
+   "~/.ferb"
+  ]
+ },
+ "cases": [
+  {
+   "name": "missing file: reads and first write",
+   "input": null,
+   "steps": [
+    {
+     "op": [
+      "get",
+      "policy",
+      "autonomy",
+      "balanced"
+     ],
+     "result": "\"balanced\"",
+     "error": null,
+     "text": null
+    },
+    {
+     "op": [
+      "section",
+      "policy"
+     ],
+     "result": "{}",
+     "error": null,
+     "text": null
+    },
+    {
+     "op": [
+      "exclude_apps"
+     ],
+     "result": "[\"com.1password.1password\", \"com.agilebits.onepassword7\", \"com.apple.Passwords\", \"com.apple.keychainaccess\", \"com.bitwarden.desktop\"]",
+     "error": null,
+     "text": null
+    },
+    {
+     "op": [
+      "remove",
+      "policy",
+      [
+       "autonomy"
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": null
+    },
+    {
+     "op": [
+      "add_defaults",
+      "privacy",
+      "exclude_apps",
+      [
+       "x"
+      ]
+     ],
+     "result": "[]",
+     "error": null,
+     "text": null
+    },
+    {
+     "op": [
+      "set",
+      "policy",
+      "autonomy",
+      "careful"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[policy]\nautonomy = \"careful\"\n"
+    },
+    {
+     "op": [
+      "get",
+      "policy",
+      "autonomy",
+      null
+     ],
+     "result": "\"careful\"",
+     "error": null,
+     "text": "[policy]\nautonomy = \"careful\"\n"
+    },
+    {
+     "op": [
+      "set",
+      "policy",
+      "level",
+      3
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[policy]\nautonomy = \"careful\"\nlevel = 3\n"
+    },
+    {
+     "op": [
+      "set",
+      "browser",
+      "task_max_tabs",
+      50
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[policy]\nautonomy = \"careful\"\nlevel = 3\n\n[browser]\ntask_max_tabs = 50\n"
+    },
+    {
+     "op": [
+      "set",
+      "policy",
+      "autonomy",
+      "hands-off"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[policy]\nautonomy = \"hands-off\"\nlevel = 3\n\n[browser]\ntask_max_tabs = 50\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"policy\": {\"level\": 3, \"autonomy\": \"hands-off\"}, \"browser\": {\"task_max_tabs\": 50}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "existing: comments and other tables stay",
+   "input": "# FERB runtime config. Owner-only (0600).\n\n[secrets.\"ferb/email/password\"]\nallowed_origins = [\"https://accounts.example.com\"]  # keep this comment\naccount_hint = \"ferb@example.com\"\n",
+   "steps": [
+    {
+     "op": [
+      "get",
+      "secrets",
+      "nope",
+      null
+     ],
+     "result": "null",
+     "error": null,
+     "text": "# FERB runtime config. Owner-only (0600).\n\n[secrets.\"ferb/email/password\"]\nallowed_origins = [\"https://accounts.example.com\"]  # keep this comment\naccount_hint = \"ferb@example.com\"\n"
+    },
+    {
+     "op": [
+      "get",
+      "secrets",
+      "nope",
+      3
+     ],
+     "result": "3",
+     "error": null,
+     "text": "# FERB runtime config. Owner-only (0600).\n\n[secrets.\"ferb/email/password\"]\nallowed_origins = [\"https://accounts.example.com\"]  # keep this comment\naccount_hint = \"ferb@example.com\"\n"
+    },
+    {
+     "op": [
+      "section",
+      "secrets"
+     ],
+     "result": "{\"ferb/email/password\": {\"allowed_origins\": [\"https://accounts.example.com\"], \"account_hint\": \"ferb@example.com\"}}",
+     "error": null,
+     "text": "# FERB runtime config. Owner-only (0600).\n\n[secrets.\"ferb/email/password\"]\nallowed_origins = [\"https://accounts.example.com\"]  # keep this comment\naccount_hint = \"ferb@example.com\"\n"
+    },
+    {
+     "op": [
+      "section",
+      "nope"
+     ],
+     "result": "{}",
+     "error": null,
+     "text": "# FERB runtime config. Owner-only (0600).\n\n[secrets.\"ferb/email/password\"]\nallowed_origins = [\"https://accounts.example.com\"]  # keep this comment\naccount_hint = \"ferb@example.com\"\n"
+    },
+    {
+     "op": [
+      "get",
+      "secrets",
+      "ferb/email/password",
+      null
+     ],
+     "result": "{\"allowed_origins\": [\"https://accounts.example.com\"], \"account_hint\": \"ferb@example.com\"}",
+     "error": null,
+     "text": "# FERB runtime config. Owner-only (0600).\n\n[secrets.\"ferb/email/password\"]\nallowed_origins = [\"https://accounts.example.com\"]  # keep this comment\naccount_hint = \"ferb@example.com\"\n"
+    },
+    {
+     "op": [
+      "set",
+      "policy",
+      "autonomy",
+      "careful"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "# FERB runtime config. Owner-only (0600).\n\n[secrets.\"ferb/email/password\"]\nallowed_origins = [\"https://accounts.example.com\"]  # keep this comment\naccount_hint = \"ferb@example.com\"\n\n[policy]\nautonomy = \"careful\"\n"
+    },
+    {
+     "op": [
+      "set",
+      "policy",
+      "autonomy",
+      "balanced"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "# FERB runtime config. Owner-only (0600).\n\n[secrets.\"ferb/email/password\"]\nallowed_origins = [\"https://accounts.example.com\"]  # keep this comment\naccount_hint = \"ferb@example.com\"\n\n[policy]\nautonomy = \"balanced\"\n"
+    },
+    {
+     "op": [
+      "remove",
+      "policy",
+      [
+       "autonomy"
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "# FERB runtime config. Owner-only (0600).\n\n[secrets.\"ferb/email/password\"]\nallowed_origins = [\"https://accounts.example.com\"]  # keep this comment\naccount_hint = \"ferb@example.com\"\n\n[policy]\n"
+    },
+    {
+     "op": [
+      "remove",
+      "policy",
+      [
+       "autonomy"
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "# FERB runtime config. Owner-only (0600).\n\n[secrets.\"ferb/email/password\"]\nallowed_origins = [\"https://accounts.example.com\"]  # keep this comment\naccount_hint = \"ferb@example.com\"\n\n[policy]\n"
+    },
+    {
+     "op": [
+      "set",
+      "policy",
+      "again",
+      true
+     ],
+     "result": "null",
+     "error": null,
+     "text": "# FERB runtime config. Owner-only (0600).\n\n[secrets.\"ferb/email/password\"]\nallowed_origins = [\"https://accounts.example.com\"]  # keep this comment\naccount_hint = \"ferb@example.com\"\n\n[policy]\nagain = true\n"
+    },
+    {
+     "op": [
+      "exclude_apps"
+     ],
+     "result": "[\"com.1password.1password\", \"com.agilebits.onepassword7\", \"com.apple.Passwords\", \"com.apple.keychainaccess\", \"com.bitwarden.desktop\"]",
+     "error": null,
+     "text": "# FERB runtime config. Owner-only (0600).\n\n[secrets.\"ferb/email/password\"]\nallowed_origins = [\"https://accounts.example.com\"]  # keep this comment\naccount_hint = \"ferb@example.com\"\n\n[policy]\nagain = true\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"secrets\": {\"ferb/email/password\": {\"allowed_origins\": [\"https://accounts.example.com\"], \"account_hint\": \"ferb@example.com\"}}, \"policy\": {\"again\": true}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "every value kind set",
+   "input": "",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "v",
+      "k0",
+      "careful"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k1",
+      ""
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k2",
+      "identifier \"com.example.app\" and anchor"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k3",
+      "tab\there"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k4",
+      "back\\slash"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k5",
+      "line\nbreak"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k6",
+      "naïve — ✓"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k7",
+      "it's"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k8",
+      "\u0001 control"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k9",
+      true
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k10",
+      false
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k11",
+      0
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\nk11 = 0\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k12",
+      -7
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\nk11 = 0\nk12 = -7\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k13",
+      9007199254740993
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\nk11 = 0\nk12 = -7\nk13 = 9007199254740993\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k14",
+      1.5
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\nk11 = 0\nk12 = -7\nk13 = 9007199254740993\nk14 = 1.5\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k15",
+      8.59
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\nk11 = 0\nk12 = -7\nk13 = 9007199254740993\nk14 = 1.5\nk15 = 8.59\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k16",
+      0.1
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\nk11 = 0\nk12 = -7\nk13 = 9007199254740993\nk14 = 1.5\nk15 = 8.59\nk16 = 0.1\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k17",
+      100.0
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\nk11 = 0\nk12 = -7\nk13 = 9007199254740993\nk14 = 1.5\nk15 = 8.59\nk16 = 0.1\nk17 = 100.0\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k18",
+      1e+16
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\nk11 = 0\nk12 = -7\nk13 = 9007199254740993\nk14 = 1.5\nk15 = 8.59\nk16 = 0.1\nk17 = 100.0\nk18 = 1e+16\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k19",
+      1.5e-07
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\nk11 = 0\nk12 = -7\nk13 = 9007199254740993\nk14 = 1.5\nk15 = 8.59\nk16 = 0.1\nk17 = 100.0\nk18 = 1e+16\nk19 = 1.5e-07\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k20",
+      -0.0
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\nk11 = 0\nk12 = -7\nk13 = 9007199254740993\nk14 = 1.5\nk15 = 8.59\nk16 = 0.1\nk17 = 100.0\nk18 = 1e+16\nk19 = 1.5e-07\nk20 = -0.0\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k21",
+      []
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\nk11 = 0\nk12 = -7\nk13 = 9007199254740993\nk14 = 1.5\nk15 = 8.59\nk16 = 0.1\nk17 = 100.0\nk18 = 1e+16\nk19 = 1.5e-07\nk20 = -0.0\nk21 = []\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k22",
+      [
+       "a"
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\nk11 = 0\nk12 = -7\nk13 = 9007199254740993\nk14 = 1.5\nk15 = 8.59\nk16 = 0.1\nk17 = 100.0\nk18 = 1e+16\nk19 = 1.5e-07\nk20 = -0.0\nk21 = []\nk22 = [\"a\"]\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k23",
+      [
+       "b",
+       "a",
+       "it's \"q\""
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\nk11 = 0\nk12 = -7\nk13 = 9007199254740993\nk14 = 1.5\nk15 = 8.59\nk16 = 0.1\nk17 = 100.0\nk18 = 1e+16\nk19 = 1.5e-07\nk20 = -0.0\nk21 = []\nk22 = [\"a\"]\nk23 = [\"b\", \"a\", \"it's \\\"q\\\"\"]\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k24",
+      [
+       1,
+       2,
+       3
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\nk11 = 0\nk12 = -7\nk13 = 9007199254740993\nk14 = 1.5\nk15 = 8.59\nk16 = 0.1\nk17 = 100.0\nk18 = 1e+16\nk19 = 1.5e-07\nk20 = -0.0\nk21 = []\nk22 = [\"a\"]\nk23 = [\"b\", \"a\", \"it's \\\"q\\\"\"]\nk24 = [1, 2, 3]\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k25",
+      [
+       true,
+       1.5,
+       "x"
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\nk11 = 0\nk12 = -7\nk13 = 9007199254740993\nk14 = 1.5\nk15 = 8.59\nk16 = 0.1\nk17 = 100.0\nk18 = 1e+16\nk19 = 1.5e-07\nk20 = -0.0\nk21 = []\nk22 = [\"a\"]\nk23 = [\"b\", \"a\", \"it's \\\"q\\\"\"]\nk24 = [1, 2, 3]\nk25 = [true, 1.5, \"x\"]\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k26",
+      [
+       [
+        "a"
+       ],
+       []
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\nk11 = 0\nk12 = -7\nk13 = 9007199254740993\nk14 = 1.5\nk15 = 8.59\nk16 = 0.1\nk17 = 100.0\nk18 = 1e+16\nk19 = 1.5e-07\nk20 = -0.0\nk21 = []\nk22 = [\"a\"]\nk23 = [\"b\", \"a\", \"it's \\\"q\\\"\"]\nk24 = [1, 2, 3]\nk25 = [true, 1.5, \"x\"]\nk26 = [[\"a\"], []]\n"
+    },
+    {
+     "op": [
+      "section",
+      "v"
+     ],
+     "result": "{\"k0\": \"careful\", \"k1\": \"\", \"k2\": \"identifier \\\"com.example.app\\\" and anchor\", \"k3\": \"tab\\there\", \"k4\": \"back\\\\slash\", \"k5\": \"line\\nbreak\", \"k6\": \"na\\u00efve \\u2014 \\u2713\", \"k7\": \"it's\", \"k8\": \"\\u007f\\u0001 control\", \"k9\": true, \"k10\": false, \"k11\": 0, \"k12\": -7, \"k13\": 9007199254740993, \"k14\": 1.5, \"k15\": 8.59, \"k16\": 0.1, \"k17\": 100.0, \"k18\": 1e+16, \"k19\": 1.5e-07, \"k20\": -0.0, \"k21\": [], \"k22\": [\"a\"], \"k23\": [\"b\", \"a\", \"it's \\\"q\\\"\"], \"k24\": [1, 2, 3], \"k25\": [true, 1.5, \"x\"], \"k26\": [[\"a\"], []]}",
+     "error": null,
+     "text": "[v]\nk0 = \"careful\"\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\nk11 = 0\nk12 = -7\nk13 = 9007199254740993\nk14 = 1.5\nk15 = 8.59\nk16 = 0.1\nk17 = 100.0\nk18 = 1e+16\nk19 = 1.5e-07\nk20 = -0.0\nk21 = []\nk22 = [\"a\"]\nk23 = [\"b\", \"a\", \"it's \\\"q\\\"\"]\nk24 = [1, 2, 3]\nk25 = [true, 1.5, \"x\"]\nk26 = [[\"a\"], []]\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k0",
+      5
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = 5\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\nk11 = 0\nk12 = -7\nk13 = 9007199254740993\nk14 = 1.5\nk15 = 8.59\nk16 = 0.1\nk17 = 100.0\nk18 = 1e+16\nk19 = 1.5e-07\nk20 = -0.0\nk21 = []\nk22 = [\"a\"]\nk23 = [\"b\", \"a\", \"it's \\\"q\\\"\"]\nk24 = [1, 2, 3]\nk25 = [true, 1.5, \"x\"]\nk26 = [[\"a\"], []]\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k22",
+      [
+       "z"
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = 5\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = true\nk10 = false\nk11 = 0\nk12 = -7\nk13 = 9007199254740993\nk14 = 1.5\nk15 = 8.59\nk16 = 0.1\nk17 = 100.0\nk18 = 1e+16\nk19 = 1.5e-07\nk20 = -0.0\nk21 = []\nk22 = [\"z\"]\nk23 = [\"b\", \"a\", \"it's \\\"q\\\"\"]\nk24 = [1, 2, 3]\nk25 = [true, 1.5, \"x\"]\nk26 = [[\"a\"], []]\n"
+    },
+    {
+     "op": [
+      "set",
+      "v",
+      "k9",
+      "now text"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[v]\nk0 = 5\nk1 = \"\"\nk2 = \"identifier \\\"com.example.app\\\" and anchor\"\nk3 = \"tab\\there\"\nk4 = \"back\\\\slash\"\nk5 = \"line\\nbreak\"\nk6 = \"naïve — ✓\"\nk7 = \"it's\"\nk8 = \"\\u007f\\u0001 control\"\nk9 = \"now text\"\nk10 = false\nk11 = 0\nk12 = -7\nk13 = 9007199254740993\nk14 = 1.5\nk15 = 8.59\nk16 = 0.1\nk17 = 100.0\nk18 = 1e+16\nk19 = 1.5e-07\nk20 = -0.0\nk21 = []\nk22 = [\"z\"]\nk23 = [\"b\", \"a\", \"it's \\\"q\\\"\"]\nk24 = [1, 2, 3]\nk25 = [true, 1.5, \"x\"]\nk26 = [[\"a\"], []]\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"v\": {\"k0\": 5, \"k1\": \"\", \"k2\": \"identifier \\\"com.example.app\\\" and anchor\", \"k3\": \"tab\\there\", \"k4\": \"back\\\\slash\", \"k5\": \"line\\nbreak\", \"k6\": \"na\\u00efve \\u2014 \\u2713\", \"k7\": \"it's\", \"k8\": \"\\u007f\\u0001 control\", \"k10\": false, \"k11\": 0, \"k12\": -7, \"k13\": 9007199254740993, \"k14\": 1.5, \"k15\": 8.59, \"k16\": 0.1, \"k17\": 100.0, \"k18\": 1e+16, \"k19\": 1.5e-07, \"k20\": -0.0, \"k21\": [], \"k22\": [\"z\"], \"k23\": [\"b\", \"a\", \"it's \\\"q\\\"\"], \"k24\": [1, 2, 3], \"k25\": [true, 1.5, \"x\"], \"k26\": [[\"a\"], []], \"k9\": \"now text\"}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "mixed file: reads, edits in place",
+   "input": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\n    \"com.example.one\",   # first\n    \"com.example.two\",\n]\nexclude_domains = []\n\n[sense]\nwindow_titles = false\nidle_after_s = 45.5\n\n[policy]\nautonomy = 'careful'\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n",
+   "steps": [
+    {
+     "op": [
+      "get",
+      "privacy",
+      "exclude_apps",
+      null
+     ],
+     "result": "[\"com.example.one\", \"com.example.two\"]",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\n    \"com.example.one\",   # first\n    \"com.example.two\",\n]\nexclude_domains = []\n\n[sense]\nwindow_titles = false\nidle_after_s = 45.5\n\n[policy]\nautonomy = 'careful'\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "exclude_apps"
+     ],
+     "result": "[\"com.example.one\", \"com.example.two\"]",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\n    \"com.example.one\",   # first\n    \"com.example.two\",\n]\nexclude_domains = []\n\n[sense]\nwindow_titles = false\nidle_after_s = 45.5\n\n[policy]\nautonomy = 'careful'\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "section",
+      "sense"
+     ],
+     "result": "{\"window_titles\": false, \"idle_after_s\": 45.5}",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\n    \"com.example.one\",   # first\n    \"com.example.two\",\n]\nexclude_domains = []\n\n[sense]\nwindow_titles = false\nidle_after_s = 45.5\n\n[policy]\nautonomy = 'careful'\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "section",
+      "policy"
+     ],
+     "result": "{\"autonomy\": \"careful\", \"nested\": {\"a\": 1, \"b\": [true, false]}}",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\n    \"com.example.one\",   # first\n    \"com.example.two\",\n]\nexclude_domains = []\n\n[sense]\nwindow_titles = false\nidle_after_s = 45.5\n\n[policy]\nautonomy = 'careful'\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "get",
+      "title",
+      "x",
+      "d"
+     ],
+     "result": "\"d\"",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\n    \"com.example.one\",   # first\n    \"com.example.two\",\n]\nexclude_domains = []\n\n[sense]\nwindow_titles = false\nidle_after_s = 45.5\n\n[policy]\nautonomy = 'careful'\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "section",
+      "title"
+     ],
+     "result": "{}",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\n    \"com.example.one\",   # first\n    \"com.example.two\",\n]\nexclude_domains = []\n\n[sense]\nwindow_titles = false\nidle_after_s = 45.5\n\n[policy]\nautonomy = 'careful'\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "section",
+      "runs"
+     ],
+     "result": "{}",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\n    \"com.example.one\",   # first\n    \"com.example.two\",\n]\nexclude_domains = []\n\n[sense]\nwindow_titles = false\nidle_after_s = 45.5\n\n[policy]\nautonomy = 'careful'\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "get",
+      "runs",
+      "name",
+      "d"
+     ],
+     "result": "\"d\"",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\n    \"com.example.one\",   # first\n    \"com.example.two\",\n]\nexclude_domains = []\n\n[sense]\nwindow_titles = false\nidle_after_s = 45.5\n\n[policy]\nautonomy = 'careful'\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "set",
+      "sense",
+      "window_titles",
+      true
+     ],
+     "result": "null",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\n    \"com.example.one\",   # first\n    \"com.example.two\",\n]\nexclude_domains = []\n\n[sense]\nwindow_titles = true\nidle_after_s = 45.5\n\n[policy]\nautonomy = 'careful'\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "set",
+      "sense",
+      "idle_after_s",
+      120
+     ],
+     "result": "null",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\n    \"com.example.one\",   # first\n    \"com.example.two\",\n]\nexclude_domains = []\n\n[sense]\nwindow_titles = true\nidle_after_s = 120\n\n[policy]\nautonomy = 'careful'\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "set",
+      "policy",
+      "autonomy",
+      "balanced"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\n    \"com.example.one\",   # first\n    \"com.example.two\",\n]\nexclude_domains = []\n\n[sense]\nwindow_titles = true\nidle_after_s = 120\n\n[policy]\nautonomy = \"balanced\"\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "add_defaults",
+      "privacy",
+      "exclude_apps",
+      [
+       "com.example.two",
+       "com.example.three"
+      ]
+     ],
+     "result": "[\"com.example.three\"]",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\n    \"com.example.one\",   # first\n    \"com.example.two\",\n    \"com.example.three\",\n]\nexclude_domains = []\n\n[sense]\nwindow_titles = true\nidle_after_s = 120\n\n[policy]\nautonomy = \"balanced\"\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "add_defaults",
+      "privacy",
+      "exclude_domains",
+      [
+       "example.com",
+       "example.org"
+      ]
+     ],
+     "result": "[\"example.com\", \"example.org\"]",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\n    \"com.example.one\",   # first\n    \"com.example.two\",\n    \"com.example.three\",\n]\nexclude_domains = [\"example.com\", \"example.org\"]\n\n[sense]\nwindow_titles = true\nidle_after_s = 120\n\n[policy]\nautonomy = \"balanced\"\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "add_defaults",
+      "privacy",
+      "exclude_domains",
+      [
+       "example.com"
+      ]
+     ],
+     "result": "[]",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\n    \"com.example.one\",   # first\n    \"com.example.two\",\n    \"com.example.three\",\n]\nexclude_domains = [\"example.com\", \"example.org\"]\n\n[sense]\nwindow_titles = true\nidle_after_s = 120\n\n[policy]\nautonomy = \"balanced\"\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "add_defaults",
+      "privacy",
+      "missing",
+      [
+       "x"
+      ]
+     ],
+     "result": "[]",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\n    \"com.example.one\",   # first\n    \"com.example.two\",\n    \"com.example.three\",\n]\nexclude_domains = [\"example.com\", \"example.org\"]\n\n[sense]\nwindow_titles = true\nidle_after_s = 120\n\n[policy]\nautonomy = \"balanced\"\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "add_defaults",
+      "sense",
+      "idle_after_s",
+      [
+       "x"
+      ]
+     ],
+     "result": "[]",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\n    \"com.example.one\",   # first\n    \"com.example.two\",\n    \"com.example.three\",\n]\nexclude_domains = [\"example.com\", \"example.org\"]\n\n[sense]\nwindow_titles = true\nidle_after_s = 120\n\n[policy]\nautonomy = \"balanced\"\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "add_defaults",
+      "nope",
+      "k",
+      [
+       "x"
+      ]
+     ],
+     "result": "[]",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\n    \"com.example.one\",   # first\n    \"com.example.two\",\n    \"com.example.three\",\n]\nexclude_domains = [\"example.com\", \"example.org\"]\n\n[sense]\nwindow_titles = true\nidle_after_s = 120\n\n[policy]\nautonomy = \"balanced\"\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "set",
+      "privacy",
+      "exclude_apps",
+      [
+       "only"
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\"only\"]\nexclude_domains = [\"example.com\", \"example.org\"]\n\n[sense]\nwindow_titles = true\nidle_after_s = 120\n\n[policy]\nautonomy = \"balanced\"\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "remove",
+      "sense",
+      [
+       "window_titles",
+       "nope",
+       "idle_after_s"
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\"only\"]\nexclude_domains = [\"example.com\", \"example.org\"]\n\n[sense]\n\n[policy]\nautonomy = \"balanced\"\nnested = { a = 1, b = [true, false] }\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "remove",
+      "policy",
+      [
+       "nested"
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\"only\"]\nexclude_domains = [\"example.com\", \"example.org\"]\n\n[sense]\n\n[policy]\nautonomy = \"balanced\"\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n"
+    },
+    {
+     "op": [
+      "set",
+      "new",
+      "k",
+      1
+     ],
+     "result": "null",
+     "error": null,
+     "text": "title = \"top level\"   # a bare key\n\n[privacy]\nexclude_apps = [\"only\"]\nexclude_domains = [\"example.com\", \"example.org\"]\n\n[sense]\n\n[policy]\nautonomy = \"balanced\"\n\n[[runs]]\nname = \"first\"\n\n[[runs]]\nname = \"second\"\n\n[new]\nk = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"title\": \"top level\", \"privacy\": {\"exclude_apps\": [\"only\"], \"exclude_domains\": [\"example.com\", \"example.org\"]}, \"sense\": {}, \"policy\": {\"autonomy\": \"balanced\"}, \"runs\": [{\"name\": \"first\"}, {\"name\": \"second\"}], \"new\": {\"k\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "privacy defaults on a missing file",
+   "input": null,
+   "steps": [
+    {
+     "op": [
+      "ensure_privacy_defaults"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[privacy]\nexclude_apps = [\"com.1password.1password\", \"com.agilebits.onepassword7\", \"com.bitwarden.desktop\", \"com.apple.Passwords\", \"com.apple.keychainaccess\"]\nexclude_domains = []\nexclude_paths = [\"~/.ssh\", \"~/.ferb\"]\n\n[sense]\nwindow_titles = true\nwatch_folders = []\nidle_after_s = 120\ntrail_retention_days = 30\n\n[retention]\ntrace_days = 30\ndecision_days = 30\nevidence_days = 7\nrecovery_days = 7\nresource_days = 30\noperational_days = 90\n\n[browser]\ndownload_task_max_files = 300\ndownload_task_max_gb = 32\ndownload_total_gb = 20\ndownload_min_free_gb = 10\ntask_max_tabs = 50\n\n[protection]\nnever_read = [\"~/.ssh\", \"~/Library/Keychains\", \"~/invented folder\"]\nnever_write = [\"~/.ssh\", \"/System\"]\nterminal_apps = [\"com.apple.Terminal\", \"com.example.term\"]\nlocal_ports = []\n"
+    },
+    {
+     "op": [
+      "ensure_privacy_defaults"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[privacy]\nexclude_apps = [\"com.1password.1password\", \"com.agilebits.onepassword7\", \"com.bitwarden.desktop\", \"com.apple.Passwords\", \"com.apple.keychainaccess\"]\nexclude_domains = []\nexclude_paths = [\"~/.ssh\", \"~/.ferb\"]\n\n[sense]\nwindow_titles = true\nwatch_folders = []\nidle_after_s = 120\ntrail_retention_days = 30\n\n[retention]\ntrace_days = 30\ndecision_days = 30\nevidence_days = 7\nrecovery_days = 7\nresource_days = 30\noperational_days = 90\n\n[browser]\ndownload_task_max_files = 300\ndownload_task_max_gb = 32\ndownload_total_gb = 20\ndownload_min_free_gb = 10\ntask_max_tabs = 50\n\n[protection]\nnever_read = [\"~/.ssh\", \"~/Library/Keychains\", \"~/invented folder\"]\nnever_write = [\"~/.ssh\", \"/System\"]\nterminal_apps = [\"com.apple.Terminal\", \"com.example.term\"]\nlocal_ports = []\n"
+    },
+    {
+     "op": [
+      "section",
+      "browser"
+     ],
+     "result": "{\"download_task_max_files\": 300, \"download_task_max_gb\": 32, \"download_total_gb\": 20, \"download_min_free_gb\": 10, \"task_max_tabs\": 50}",
+     "error": null,
+     "text": "[privacy]\nexclude_apps = [\"com.1password.1password\", \"com.agilebits.onepassword7\", \"com.bitwarden.desktop\", \"com.apple.Passwords\", \"com.apple.keychainaccess\"]\nexclude_domains = []\nexclude_paths = [\"~/.ssh\", \"~/.ferb\"]\n\n[sense]\nwindow_titles = true\nwatch_folders = []\nidle_after_s = 120\ntrail_retention_days = 30\n\n[retention]\ntrace_days = 30\ndecision_days = 30\nevidence_days = 7\nrecovery_days = 7\nresource_days = 30\noperational_days = 90\n\n[browser]\ndownload_task_max_files = 300\ndownload_task_max_gb = 32\ndownload_total_gb = 20\ndownload_min_free_gb = 10\ntask_max_tabs = 50\n\n[protection]\nnever_read = [\"~/.ssh\", \"~/Library/Keychains\", \"~/invented folder\"]\nnever_write = [\"~/.ssh\", \"/System\"]\nterminal_apps = [\"com.apple.Terminal\", \"com.example.term\"]\nlocal_ports = []\n"
+    },
+    {
+     "op": [
+      "exclude_apps"
+     ],
+     "result": "[\"com.1password.1password\", \"com.agilebits.onepassword7\", \"com.apple.Passwords\", \"com.apple.keychainaccess\", \"com.bitwarden.desktop\"]",
+     "error": null,
+     "text": "[privacy]\nexclude_apps = [\"com.1password.1password\", \"com.agilebits.onepassword7\", \"com.bitwarden.desktop\", \"com.apple.Passwords\", \"com.apple.keychainaccess\"]\nexclude_domains = []\nexclude_paths = [\"~/.ssh\", \"~/.ferb\"]\n\n[sense]\nwindow_titles = true\nwatch_folders = []\nidle_after_s = 120\ntrail_retention_days = 30\n\n[retention]\ntrace_days = 30\ndecision_days = 30\nevidence_days = 7\nrecovery_days = 7\nresource_days = 30\noperational_days = 90\n\n[browser]\ndownload_task_max_files = 300\ndownload_task_max_gb = 32\ndownload_total_gb = 20\ndownload_min_free_gb = 10\ntask_max_tabs = 50\n\n[protection]\nnever_read = [\"~/.ssh\", \"~/Library/Keychains\", \"~/invented folder\"]\nnever_write = [\"~/.ssh\", \"/System\"]\nterminal_apps = [\"com.apple.Terminal\", \"com.example.term\"]\nlocal_ports = []\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"privacy\": {\"exclude_apps\": [\"com.1password.1password\", \"com.agilebits.onepassword7\", \"com.bitwarden.desktop\", \"com.apple.Passwords\", \"com.apple.keychainaccess\"], \"exclude_domains\": [], \"exclude_paths\": [\"~/.ssh\", \"~/.ferb\"]}, \"sense\": {\"window_titles\": true, \"watch_folders\": [], \"idle_after_s\": 120, \"trail_retention_days\": 30}, \"retention\": {\"trace_days\": 30, \"decision_days\": 30, \"evidence_days\": 7, \"recovery_days\": 7, \"resource_days\": 30, \"operational_days\": 90}, \"browser\": {\"download_task_max_files\": 300, \"download_task_max_gb\": 32, \"download_total_gb\": 20, \"download_min_free_gb\": 10, \"task_max_tabs\": 50}, \"protection\": {\"never_read\": [\"~/.ssh\", \"~/Library/Keychains\", \"~/invented folder\"], \"never_write\": [\"~/.ssh\", \"/System\"], \"terminal_apps\": [\"com.apple.Terminal\", \"com.example.term\"], \"local_ports\": []}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "privacy defaults keep the owner's values",
+   "input": "[privacy]\nexclude_apps = []   # none\n\n[retention]\ntrace_days = 3\n\n[protection]\nlocal_ports = [8080]\n",
+   "steps": [
+    {
+     "op": [
+      "exclude_apps"
+     ],
+     "result": "[]",
+     "error": null,
+     "text": "[privacy]\nexclude_apps = []   # none\n\n[retention]\ntrace_days = 3\n\n[protection]\nlocal_ports = [8080]\n"
+    },
+    {
+     "op": [
+      "ensure_privacy_defaults"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[privacy]\nexclude_apps = []   # none\nexclude_domains = []\nexclude_paths = [\"~/.ssh\", \"~/.ferb\"]\n\n[retention]\ntrace_days = 3\ndecision_days = 30\nevidence_days = 7\nrecovery_days = 7\nresource_days = 30\noperational_days = 90\n\n[protection]\nlocal_ports = [8080]\nnever_read = [\"~/.ssh\", \"~/Library/Keychains\", \"~/invented folder\"]\nnever_write = [\"~/.ssh\", \"/System\"]\nterminal_apps = [\"com.apple.Terminal\", \"com.example.term\"]\n\n[sense]\nwindow_titles = true\nwatch_folders = []\nidle_after_s = 120\ntrail_retention_days = 30\n\n[browser]\ndownload_task_max_files = 300\ndownload_task_max_gb = 32\ndownload_total_gb = 20\ndownload_min_free_gb = 10\ntask_max_tabs = 50\n"
+    },
+    {
+     "op": [
+      "exclude_apps"
+     ],
+     "result": "[]",
+     "error": null,
+     "text": "[privacy]\nexclude_apps = []   # none\nexclude_domains = []\nexclude_paths = [\"~/.ssh\", \"~/.ferb\"]\n\n[retention]\ntrace_days = 3\ndecision_days = 30\nevidence_days = 7\nrecovery_days = 7\nresource_days = 30\noperational_days = 90\n\n[protection]\nlocal_ports = [8080]\nnever_read = [\"~/.ssh\", \"~/Library/Keychains\", \"~/invented folder\"]\nnever_write = [\"~/.ssh\", \"/System\"]\nterminal_apps = [\"com.apple.Terminal\", \"com.example.term\"]\n\n[sense]\nwindow_titles = true\nwatch_folders = []\nidle_after_s = 120\ntrail_retention_days = 30\n\n[browser]\ndownload_task_max_files = 300\ndownload_task_max_gb = 32\ndownload_total_gb = 20\ndownload_min_free_gb = 10\ntask_max_tabs = 50\n"
+    },
+    {
+     "op": [
+      "get",
+      "retention",
+      "trace_days",
+      null
+     ],
+     "result": "3",
+     "error": null,
+     "text": "[privacy]\nexclude_apps = []   # none\nexclude_domains = []\nexclude_paths = [\"~/.ssh\", \"~/.ferb\"]\n\n[retention]\ntrace_days = 3\ndecision_days = 30\nevidence_days = 7\nrecovery_days = 7\nresource_days = 30\noperational_days = 90\n\n[protection]\nlocal_ports = [8080]\nnever_read = [\"~/.ssh\", \"~/Library/Keychains\", \"~/invented folder\"]\nnever_write = [\"~/.ssh\", \"/System\"]\nterminal_apps = [\"com.apple.Terminal\", \"com.example.term\"]\n\n[sense]\nwindow_titles = true\nwatch_folders = []\nidle_after_s = 120\ntrail_retention_days = 30\n\n[browser]\ndownload_task_max_files = 300\ndownload_task_max_gb = 32\ndownload_total_gb = 20\ndownload_min_free_gb = 10\ntask_max_tabs = 50\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"privacy\": {\"exclude_apps\": [], \"exclude_domains\": [], \"exclude_paths\": [\"~/.ssh\", \"~/.ferb\"]}, \"retention\": {\"trace_days\": 3, \"decision_days\": 30, \"evidence_days\": 7, \"recovery_days\": 7, \"resource_days\": 30, \"operational_days\": 90}, \"protection\": {\"local_ports\": [8080], \"never_read\": [\"~/.ssh\", \"~/Library/Keychains\", \"~/invented folder\"], \"never_write\": [\"~/.ssh\", \"/System\"], \"terminal_apps\": [\"com.apple.Terminal\", \"com.example.term\"]}, \"sense\": {\"window_titles\": true, \"watch_folders\": [], \"idle_after_s\": 120, \"trail_retention_days\": 30}, \"browser\": {\"download_task_max_files\": 300, \"download_task_max_gb\": 32, \"download_total_gb\": 20, \"download_min_free_gb\": 10, \"task_max_tabs\": 50}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "privacy defaults on the existing file",
+   "input": "# FERB runtime config. Owner-only (0600).\n\n[secrets.\"ferb/email/password\"]\nallowed_origins = [\"https://accounts.example.com\"]  # keep this comment\naccount_hint = \"ferb@example.com\"\n",
+   "steps": [
+    {
+     "op": [
+      "ensure_privacy_defaults"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "# FERB runtime config. Owner-only (0600).\n\n[secrets.\"ferb/email/password\"]\nallowed_origins = [\"https://accounts.example.com\"]  # keep this comment\naccount_hint = \"ferb@example.com\"\n\n[privacy]\nexclude_apps = [\"com.1password.1password\", \"com.agilebits.onepassword7\", \"com.bitwarden.desktop\", \"com.apple.Passwords\", \"com.apple.keychainaccess\"]\nexclude_domains = []\nexclude_paths = [\"~/.ssh\", \"~/.ferb\"]\n\n[sense]\nwindow_titles = true\nwatch_folders = []\nidle_after_s = 120\ntrail_retention_days = 30\n\n[retention]\ntrace_days = 30\ndecision_days = 30\nevidence_days = 7\nrecovery_days = 7\nresource_days = 30\noperational_days = 90\n\n[browser]\ndownload_task_max_files = 300\ndownload_task_max_gb = 32\ndownload_total_gb = 20\ndownload_min_free_gb = 10\ntask_max_tabs = 50\n\n[protection]\nnever_read = [\"~/.ssh\", \"~/Library/Keychains\", \"~/invented folder\"]\nnever_write = [\"~/.ssh\", \"/System\"]\nterminal_apps = [\"com.apple.Terminal\", \"com.example.term\"]\nlocal_ports = []\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"secrets\": {\"ferb/email/password\": {\"allowed_origins\": [\"https://accounts.example.com\"], \"account_hint\": \"ferb@example.com\"}}, \"privacy\": {\"exclude_apps\": [\"com.1password.1password\", \"com.agilebits.onepassword7\", \"com.bitwarden.desktop\", \"com.apple.Passwords\", \"com.apple.keychainaccess\"], \"exclude_domains\": [], \"exclude_paths\": [\"~/.ssh\", \"~/.ferb\"]}, \"sense\": {\"window_titles\": true, \"watch_folders\": [], \"idle_after_s\": 120, \"trail_retention_days\": 30}, \"retention\": {\"trace_days\": 30, \"decision_days\": 30, \"evidence_days\": 7, \"recovery_days\": 7, \"resource_days\": 30, \"operational_days\": 90}, \"browser\": {\"download_task_max_files\": 300, \"download_task_max_gb\": 32, \"download_total_gb\": 20, \"download_min_free_gb\": 10, \"task_max_tabs\": 50}, \"protection\": {\"never_read\": [\"~/.ssh\", \"~/Library/Keychains\", \"~/invented folder\"], \"never_write\": [\"~/.ssh\", \"/System\"], \"terminal_apps\": [\"com.apple.Terminal\", \"com.example.term\"], \"local_ports\": []}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "limits decided 2026-10-09",
+   "input": "[browser]\ndownload_max_mb = 100   # per file\ndownload_task_max_files = 20\ndownload_task_max_mb = 500\ndownload_total_mb = 1000 # the owner's own\ntask_max_tabs = 20\n\n[retention]\ndownload_days = 30\ntrace_days = 14\n",
+   "steps": [
+    {
+     "op": [
+      "upgrade",
+      "download-limits-2026-10-09"
+     ],
+     "result": "[{\"key\": \"browser.download_max_mb\", \"from\": 100, \"to\": 512}, {\"key\": \"browser.download_task_max_files\", \"from\": 20, \"to\": 50}, {\"key\": \"browser.download_task_max_mb\", \"from\": 500, \"to\": 4096}, {\"key\": \"browser.task_max_tabs\", \"from\": 20, \"to\": 50}, {\"key\": \"retention.download_days\", \"from\": 30, \"to\": null}]",
+     "error": null,
+     "text": "[browser]\ndownload_max_mb = 512   # per file\ndownload_task_max_files = 50\ndownload_task_max_mb = 4096\ndownload_total_mb = 1000 # the owner's own\ntask_max_tabs = 50\n\n[retention]\ntrace_days = 14\n"
+    },
+    {
+     "op": [
+      "upgrade",
+      "download-limits-2026-10-09"
+     ],
+     "result": "[]",
+     "error": null,
+     "text": "[browser]\ndownload_max_mb = 512   # per file\ndownload_task_max_files = 50\ndownload_task_max_mb = 4096\ndownload_total_mb = 1000 # the owner's own\ntask_max_tabs = 50\n\n[retention]\ntrace_days = 14\n"
+    },
+    {
+     "op": [
+      "section",
+      "browser"
+     ],
+     "result": "{\"download_total_mb\": 1000, \"download_max_mb\": 512, \"download_task_max_files\": 50, \"download_task_max_mb\": 4096, \"task_max_tabs\": 50}",
+     "error": null,
+     "text": "[browser]\ndownload_max_mb = 512   # per file\ndownload_task_max_files = 50\ndownload_task_max_mb = 4096\ndownload_total_mb = 1000 # the owner's own\ntask_max_tabs = 50\n\n[retention]\ntrace_days = 14\n"
+    },
+    {
+     "op": [
+      "section",
+      "retention"
+     ],
+     "result": "{\"trace_days\": 14}",
+     "error": null,
+     "text": "[browser]\ndownload_max_mb = 512   # per file\ndownload_task_max_files = 50\ndownload_task_max_mb = 4096\ndownload_total_mb = 1000 # the owner's own\ntask_max_tabs = 50\n\n[retention]\ntrace_days = 14\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"browser\": {\"download_total_mb\": 1000, \"download_max_mb\": 512, \"download_task_max_files\": 50, \"download_task_max_mb\": 4096, \"task_max_tabs\": 50}, \"retention\": {\"trace_days\": 14}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "every upgrade in order",
+   "input": "# invented older config\n[browser]\ndownload_max_mb = 512\ndownload_task_max_files = 50\ndownload_task_max_mb = 4096\ndownload_total_mb = 8192\ndownload_min_free_gb = 10\n\n[voice]\ntts = \"macos\"\nvoice = \"Daniel\"\nrate = 190\n\n[feedback]\naddress = \"dev@example.org\"\n\n[test_mode]\nstate = \"on\"\n",
+   "steps": [
+    {
+     "op": [
+      "upgrade",
+      "download-limits-2026-10-09"
+     ],
+     "result": "[]",
+     "error": null,
+     "text": "# invented older config\n[browser]\ndownload_max_mb = 512\ndownload_task_max_files = 50\ndownload_task_max_mb = 4096\ndownload_total_mb = 8192\ndownload_min_free_gb = 10\n\n[voice]\ntts = \"macos\"\nvoice = \"Daniel\"\nrate = 190\n\n[feedback]\naddress = \"dev@example.org\"\n\n[test_mode]\nstate = \"on\"\n"
+    },
+    {
+     "op": [
+      "upgrade",
+      "download-limits-2026-10-31"
+     ],
+     "result": "[{\"key\": \"browser.download_task_max_files\", \"from\": 50, \"to\": 300}, {\"key\": \"browser.download_task_max_mb\", \"from\": 4096, \"to\": null}, {\"key\": \"browser.download_total_mb\", \"from\": 8192, \"to\": null}, {\"key\": \"browser.download_total_gb\", \"from\": null, \"to\": 8.59}, {\"key\": \"browser.download_max_mb\", \"from\": 512, \"to\": null}]",
+     "error": null,
+     "text": "# invented older config\n[browser]\ndownload_task_max_files = 300\ndownload_min_free_gb = 10\ndownload_total_gb = 8.59\n\n[voice]\ntts = \"macos\"\nvoice = \"Daniel\"\nrate = 190\n\n[feedback]\naddress = \"dev@example.org\"\n\n[test_mode]\nstate = \"on\"\n"
+    },
+    {
+     "op": [
+      "upgrade",
+      "feedback-relay-2026-11-01"
+     ],
+     "result": "[{\"key\": \"feedback.address\", \"to\": null}]",
+     "error": null,
+     "text": "# invented older config\n[browser]\ndownload_task_max_files = 300\ndownload_min_free_gb = 10\ndownload_total_gb = 8.59\n\n[voice]\ntts = \"macos\"\nvoice = \"Daniel\"\nrate = 190\n\n[test_mode]\nstate = \"on\"\n"
+    },
+    {
+     "op": [
+      "upgrade",
+      "no-voice-2026-11-04"
+     ],
+     "result": "[{\"key\": \"voice.tts\", \"to\": null}, {\"key\": \"voice.voice\", \"to\": null}, {\"key\": \"voice.rate\", \"to\": null}]",
+     "error": null,
+     "text": "# invented older config\n[browser]\ndownload_task_max_files = 300\ndownload_min_free_gb = 10\ndownload_total_gb = 8.59\n\n[test_mode]\nstate = \"on\"\n"
+    },
+    {
+     "op": [
+      "upgrade",
+      "no-test-mode-2026-11-10"
+     ],
+     "result": "[{\"key\": \"test_mode.state\", \"to\": null}]",
+     "error": null,
+     "text": "# invented older config\n[browser]\ndownload_task_max_files = 300\ndownload_min_free_gb = 10\ndownload_total_gb = 8.59\n\n"
+    },
+    {
+     "op": [
+      "upgrade",
+      "download-limits-2026-10-09"
+     ],
+     "result": "[]",
+     "error": null,
+     "text": "# invented older config\n[browser]\ndownload_task_max_files = 300\ndownload_min_free_gb = 10\ndownload_total_gb = 8.59\n\n"
+    },
+    {
+     "op": [
+      "upgrade",
+      "download-limits-2026-10-31"
+     ],
+     "result": "[]",
+     "error": null,
+     "text": "# invented older config\n[browser]\ndownload_task_max_files = 300\ndownload_min_free_gb = 10\ndownload_total_gb = 8.59\n\n"
+    },
+    {
+     "op": [
+      "upgrade",
+      "feedback-relay-2026-11-01"
+     ],
+     "result": "[]",
+     "error": null,
+     "text": "# invented older config\n[browser]\ndownload_task_max_files = 300\ndownload_min_free_gb = 10\ndownload_total_gb = 8.59\n\n"
+    },
+    {
+     "op": [
+      "upgrade",
+      "no-voice-2026-11-04"
+     ],
+     "result": "[]",
+     "error": null,
+     "text": "# invented older config\n[browser]\ndownload_task_max_files = 300\ndownload_min_free_gb = 10\ndownload_total_gb = 8.59\n\n"
+    },
+    {
+     "op": [
+      "upgrade",
+      "no-test-mode-2026-11-10"
+     ],
+     "result": "[]",
+     "error": null,
+     "text": "# invented older config\n[browser]\ndownload_task_max_files = 300\ndownload_min_free_gb = 10\ndownload_total_gb = 8.59\n\n"
+    },
+    {
+     "op": [
+      "upgrade",
+      "no-such-upgrade"
+     ],
+     "result": "null",
+     "error": "no config upgrade 'no-such-upgrade'",
+     "text": "# invented older config\n[browser]\ndownload_task_max_files = 300\ndownload_min_free_gb = 10\ndownload_total_gb = 8.59\n\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"browser\": {\"download_task_max_files\": 300, \"download_min_free_gb\": 10, \"download_total_gb\": 8.59}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "downloads: owner's own values carry over in GB",
+   "input": "[browser]\ndownload_task_max_files = 80\ndownload_task_max_mb = 1000\ndownload_total_mb = 2500.5\ndownload_task_max_gb = 1\n",
+   "steps": [
+    {
+     "op": [
+      "upgrade",
+      "download-limits-2026-10-31"
+     ],
+     "result": "[{\"key\": \"browser.download_task_max_mb\", \"from\": 1000, \"to\": null}, {\"key\": \"browser.download_task_max_gb\", \"from\": 1, \"to\": 1.049}, {\"key\": \"browser.download_total_mb\", \"from\": 2500.5, \"to\": null}, {\"key\": \"browser.download_total_gb\", \"from\": null, \"to\": 2.622}]",
+     "error": null,
+     "text": "[browser]\ndownload_task_max_files = 80\ndownload_task_max_gb = 1.049\ndownload_total_gb = 2.622\n"
+    },
+    {
+     "op": [
+      "section",
+      "browser"
+     ],
+     "result": "{\"download_task_max_files\": 80, \"download_task_max_gb\": 1.049, \"download_total_gb\": 2.622}",
+     "error": null,
+     "text": "[browser]\ndownload_task_max_files = 80\ndownload_task_max_gb = 1.049\ndownload_total_gb = 2.622\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"browser\": {\"download_task_max_files\": 80, \"download_task_max_gb\": 1.049, \"download_total_gb\": 2.622}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "downloads: values that are not sizes",
+   "input": "[browser]\ndownload_task_max_mb = \"big\"\ndownload_total_mb = -4\ndownload_max_mb = true\n",
+   "steps": [
+    {
+     "op": [
+      "upgrade",
+      "download-limits-2026-10-31"
+     ],
+     "result": "[{\"key\": \"browser.download_task_max_mb\", \"from\": \"big\", \"to\": null}, {\"key\": \"browser.download_total_mb\", \"from\": -4, \"to\": null}, {\"key\": \"browser.download_max_mb\", \"from\": true, \"to\": null}]",
+     "error": null,
+     "text": "[browser]\n"
+    },
+    {
+     "op": [
+      "section",
+      "browser"
+     ],
+     "result": "{}",
+     "error": null,
+     "text": "[browser]\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"browser\": {}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "downloads: a boolean and zero",
+   "input": "[browser]\ndownload_task_max_mb = true\ndownload_total_mb = 0\n",
+   "steps": [
+    {
+     "op": [
+      "upgrade",
+      "download-limits-2026-10-31"
+     ],
+     "result": "[{\"key\": \"browser.download_task_max_mb\", \"from\": true, \"to\": null}, {\"key\": \"browser.download_total_mb\", \"from\": 0, \"to\": null}, {\"key\": \"browser.download_total_gb\", \"from\": null, \"to\": 0.0}]",
+     "error": null,
+     "text": "[browser]\ndownload_total_gb = 0.0\n"
+    },
+    {
+     "op": [
+      "section",
+      "browser"
+     ],
+     "result": "{\"download_total_gb\": 0.0}",
+     "error": null,
+     "text": "[browser]\ndownload_total_gb = 0.0\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"browser\": {\"download_total_gb\": 0.0}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "downloads: no browser table",
+   "input": "[other]\nk = 1\n",
+   "steps": [
+    {
+     "op": [
+      "upgrade",
+      "download-limits-2026-10-31"
+     ],
+     "result": "[]",
+     "error": null,
+     "text": "[other]\nk = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"other\": {\"k\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "retire leaves a table that still has keys",
+   "input": "[voice]\ntts = \"macos\"\nrequirement = \"identifier x\"\n\n[feedback]\naddress = \"a@example.org\"\nrelay_url = \"https://relay.example.org/r\"\n",
+   "steps": [
+    {
+     "op": [
+      "upgrade",
+      "no-voice-2026-11-04"
+     ],
+     "result": "[{\"key\": \"voice.tts\", \"to\": null}]",
+     "error": null,
+     "text": "[voice]\nrequirement = \"identifier x\"\n\n[feedback]\naddress = \"a@example.org\"\nrelay_url = \"https://relay.example.org/r\"\n"
+    },
+    {
+     "op": [
+      "upgrade",
+      "feedback-relay-2026-11-01"
+     ],
+     "result": "[{\"key\": \"feedback.address\", \"to\": null}]",
+     "error": null,
+     "text": "[voice]\nrequirement = \"identifier x\"\n\n[feedback]\nrelay_url = \"https://relay.example.org/r\"\n"
+    },
+    {
+     "op": [
+      "section",
+      "voice"
+     ],
+     "result": "{\"requirement\": \"identifier x\"}",
+     "error": null,
+     "text": "[voice]\nrequirement = \"identifier x\"\n\n[feedback]\nrelay_url = \"https://relay.example.org/r\"\n"
+    },
+    {
+     "op": [
+      "section",
+      "feedback"
+     ],
+     "result": "{\"relay_url\": \"https://relay.example.org/r\"}",
+     "error": null,
+     "text": "[voice]\nrequirement = \"identifier x\"\n\n[feedback]\nrelay_url = \"https://relay.example.org/r\"\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"voice\": {\"requirement\": \"identifier x\"}, \"feedback\": {\"relay_url\": \"https://relay.example.org/r\"}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "retire removes a middle table",
+   "input": "[a]\nk = 1\n\n[test_mode]\nstate = \"off\"\n\n[z]\nk = 2\n",
+   "steps": [
+    {
+     "op": [
+      "upgrade",
+      "no-test-mode-2026-11-10"
+     ],
+     "result": "[{\"key\": \"test_mode.state\", \"to\": null}]",
+     "error": null,
+     "text": "[a]\nk = 1\n\n[z]\nk = 2\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1}, \"z\": {\"k\": 2}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "retire removes the only table",
+   "input": "# top comment\n[test_mode]\nstate = \"off\"\n",
+   "steps": [
+    {
+     "op": [
+      "upgrade",
+      "no-test-mode-2026-11-10"
+     ],
+     "result": "[{\"key\": \"test_mode.state\", \"to\": null}]",
+     "error": null,
+     "text": "# top comment\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "no trailing newline",
+   "input": "[a]\nk = 1",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "j",
+      2
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nk = 1\nj = 2\n"
+    },
+    {
+     "op": [
+      "set",
+      "b",
+      "k",
+      3
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nk = 1\nj = 2\n\n[b]\nk = 3\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1, \"j\": 2}, \"b\": {\"k\": 3}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "top-level keys only",
+   "input": "name = \"x\"\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "k",
+      1
+     ],
+     "result": "null",
+     "error": null,
+     "text": "name = \"x\"\n\n[a]\nk = 1\n"
+    },
+    {
+     "op": [
+      "remove",
+      "a",
+      [
+       "k"
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "name = \"x\"\n\n[a]\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"name\": \"x\", \"a\": {}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "dotted and quoted keys",
+   "input": "[a]\nb.c = 1\n\"quoted key\" = 2\n\n[a.sub]\nk = 3\n",
+   "steps": [
+    {
+     "op": [
+      "section",
+      "a"
+     ],
+     "result": "{\"b\": {\"c\": 1}, \"quoted key\": 2, \"sub\": {\"k\": 3}}",
+     "error": null,
+     "text": "[a]\nb.c = 1\n\"quoted key\" = 2\n\n[a.sub]\nk = 3\n"
+    },
+    {
+     "op": [
+      "set",
+      "a",
+      "plain",
+      4
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nb.c = 1\n\"quoted key\" = 2\nplain = 4\n\n[a.sub]\nk = 3\n"
+    },
+    {
+     "op": [
+      "set",
+      "a",
+      "needs quoting",
+      5
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nb.c = 1\n\"quoted key\" = 2\nplain = 4\n\"needs quoting\" = 5\n\n[a.sub]\nk = 3\n"
+    },
+    {
+     "op": [
+      "set",
+      "a",
+      "",
+      6
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nb.c = 1\n\"quoted key\" = 2\nplain = 4\n\"needs quoting\" = 5\n\"\" = 6\n\n[a.sub]\nk = 3\n"
+    },
+    {
+     "op": [
+      "remove",
+      "a",
+      [
+       "quoted key"
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nb.c = 1\nplain = 4\n\"needs quoting\" = 5\n\"\" = 6\n\n[a.sub]\nk = 3\n"
+    },
+    {
+     "op": [
+      "set",
+      "sec tion",
+      "k",
+      7
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nb.c = 1\nplain = 4\n\"needs quoting\" = 5\n\"\" = 6\n\n[a.sub]\nk = 3\n\n[\"sec tion\"]\nk = 7\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"b\": {\"c\": 1}, \"plain\": 4, \"needs quoting\": 5, \"\": 6, \"sub\": {\"k\": 3}}, \"sec tion\": {\"k\": 7}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "a section that is not a table",
+   "input": "policy = 3\n",
+   "steps": [
+    {
+     "op": [
+      "get",
+      "policy",
+      "autonomy",
+      "d"
+     ],
+     "result": "\"d\"",
+     "error": null,
+     "text": "policy = 3\n"
+    },
+    {
+     "op": [
+      "section",
+      "policy"
+     ],
+     "result": "{}",
+     "error": null,
+     "text": "policy = 3\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"policy\": 3}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\nk = 1\\n# c\\n\\n[b]\\nj = 2\\n'",
+   "input": "[a]\nk = 1\n# c\n\n[b]\nj = 2\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nk = 1\n# c\nn = 9\n\n[b]\nj = 2\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1, \"n\": 9}, \"b\": {\"j\": 2}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\nk = 1\\n\\n# about b\\n[b]\\nj = 2\\n'",
+   "input": "[a]\nk = 1\n\n# about b\n[b]\nj = 2\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nk = 1\n\n# about b\nn = 9\n[b]\nj = 2\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1, \"n\": 9}, \"b\": {\"j\": 2}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\n\\n[b]\\nj = 2\\n'",
+   "input": "[a]\n\n[b]\nj = 2\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nn = 9\n\n[b]\nj = 2\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"n\": 9}, \"b\": {\"j\": 2}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\n'",
+   "input": "[a]\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nn = 9\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"n\": 9}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]'",
+   "input": "[a]",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nn = 9\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"n\": 9}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\nk = 1\\n[b]\\nj = 2\\n'",
+   "input": "[a]\nk = 1\n[b]\nj = 2\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nk = 1\nn = 9\n[b]\nj = 2\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1, \"n\": 9}, \"b\": {\"j\": 2}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\nk = 1\\n\\n\\n[b]\\nj = 2\\n'",
+   "input": "[a]\nk = 1\n\n\n[b]\nj = 2\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nk = 1\nn = 9\n\n\n[b]\nj = 2\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1, \"n\": 9}, \"b\": {\"j\": 2}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\n  k = 1\\n\\n[b]\\n'",
+   "input": "[a]\n  k = 1\n\n[b]\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\n  k = 1\nn = 9\n\n[b]\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1, \"n\": 9}, \"b\": {}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a] # hc\\nk = 1 # kc\\n'",
+   "input": "[a] # hc\nk = 1 # kc\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a] # hc\nk = 1 # kc\nn = 9\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1, \"n\": 9}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\nk = 1\\n\\n\\n'",
+   "input": "[a]\nk = 1\n\n\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nk = 1\nn = 9\n\n\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1, \"n\": 9}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a.sub]\\nk = 1\\n\\n[a]\\nj = 2\\n\\n[c]\\n'",
+   "input": "[a.sub]\nk = 1\n\n[a]\nj = 2\n\n[c]\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a.sub]\nk = 1\n\n[a]\nj = 2\nn = 9\n\n[c]\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"sub\": {\"k\": 1}, \"j\": 2, \"n\": 9}, \"c\": {}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\r\\nk = 1\\r\\n\\r\\n[b]\\r\\nj = 2\\r\\n'",
+   "input": "[a]\r\nk = 1\r\n\r\n[b]\r\nj = 2\r\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nk = 1\nn = 9\n\n[b]\nj = 2\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1, \"n\": 9}, \"b\": {\"j\": 2}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on 'k = 1\\n\\n[a]\\nj = 1\\n'",
+   "input": "k = 1\n\n[a]\nj = 1\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "n",
+      [
+       1.0,
+       "x"
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "k = 1\n\n[a]\nj = 1\nn = [1.0, \"x\"]\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"k\": 1, \"a\": {\"j\": 1, \"n\": [1.0, \"x\"]}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\nk = \"\"\"\\nx\\n\\n\"\"\"\\n\\n[b]\\n'",
+   "input": "[a]\nk = \"\"\"\nx\n\n\"\"\"\n\n[b]\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nk = \"\"\"\nx\n\n\"\"\"\nn = 9\n\n[b]\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": \"x\\n\\n\", \"n\": 9}, \"b\": {}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on 'k = 1\\n# end'",
+   "input": "k = 1\n# end",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "s",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "k = 1\n# end\n[s]\nn = 9\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"k\": 1, \"s\": {\"n\": 9}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\nk = 1\\n\\n\\n'",
+   "input": "[a]\nk = 1\n\n\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "s",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nk = 1\n\n\n[s]\nn = 9\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1}, \"s\": {\"n\": 9}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '# only\\n'",
+   "input": "# only\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "s",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "# only\n\n[s]\nn = 9\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"n\": 9}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\r\\nk = 1\\r\\n'",
+   "input": "[a]\r\nk = 1\r\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "s",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nk = 1\n\n[s]\nn = 9\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1}, \"s\": {\"n\": 9}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\nk = 1'",
+   "input": "[a]\nk = 1",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "s",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nk = 1\n[s]\nn = 9\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1}, \"s\": {\"n\": 9}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on 'k = 1'",
+   "input": "k = 1",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "s",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "k = 1\n[s]\nn = 9\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"k\": 1, \"s\": {\"n\": 9}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '\\n'",
+   "input": "\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "s",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "\n[s]\nn = 9\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"n\": 9}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '\\n\\n'",
+   "input": "\n\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "s",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "\n\n[s]\nn = 9\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"n\": 9}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\nk = 1\\n# end\\n'",
+   "input": "[a]\nk = 1\n# end\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "s",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nk = 1\n# end\n\n[s]\nn = 9\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1}, \"s\": {\"n\": 9}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\nk = 1\\n\\n'",
+   "input": "[a]\nk = 1\n\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "s",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nk = 1\n\n[s]\nn = 9\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1}, \"s\": {\"n\": 9}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\n'",
+   "input": "[a]\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "s",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\n\n[s]\nn = 9\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {}, \"s\": {\"n\": 9}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[[r]]\\nk = 1\\n'",
+   "input": "[[r]]\nk = 1\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "s",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[[r]]\nk = 1\n\n[s]\nn = 9\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"r\": [{\"k\": 1}], \"s\": {\"n\": 9}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\nk = 1   # c\\nj = [\\n 1,\\n 2, # x\\n]  # t\\n'",
+   "input": "[a]\nk = 1   # c\nj = [\n 1,\n 2, # x\n]  # t\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "j",
+      [
+       3
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nk = 1   # c\nj = [3]  # t\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1, \"j\": [3]}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\nb = { c = 1 } # c\\nz = 1\\n'",
+   "input": "[a]\nb = { c = 1 } # c\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "b",
+      "x"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nb = \"x\" # c\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"z\": 1, \"b\": \"x\"}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\nb = \"\"\"\\nx\\ny\"\"\"\\nz = 1\\n'",
+   "input": "[a]\nb = \"\"\"\nx\ny\"\"\"\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "b",
+      "x"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nb = \"x\"\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"z\": 1, \"b\": \"x\"}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\nb=1\\nc   =   2  \\n'",
+   "input": "[a]\nb=1\nc   =   2  \n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "c",
+      6
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nb=1\nc   =   6  \n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"b\": 1, \"c\": 6}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on '[a]\\nb=1\\nc   =   2  \\n'",
+   "input": "[a]\nb=1\nc   =   2  \n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "b",
+      5
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nb=5\nc   =   2  \n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"c\": 2, \"b\": 5}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: set on \"[a]\\n'lit key' = 'old'\\n\"",
+   "input": "[a]\n'lit key' = 'old'\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "lit key",
+      "new"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\n'lit key' = \"new\"\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"lit key\": \"new\"}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: remove on '[a]\\n# about k\\nk = 1 # kc\\nj = 2\\n'",
+   "input": "[a]\n# about k\nk = 1 # kc\nj = 2\n",
+   "steps": [
+    {
+     "op": [
+      "remove",
+      "a",
+      [
+       "k"
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\n# about k\nj = 2\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"j\": 2}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: remove on '[a]\\nk = [\\n 1,\\n]\\nj = 2\\n'",
+   "input": "[a]\nk = [\n 1,\n]\nj = 2\n",
+   "steps": [
+    {
+     "op": [
+      "remove",
+      "a",
+      [
+       "k"
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nj = 2\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"j\": 2}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: remove on '[a]\\nj = 2\\nk = 1'",
+   "input": "[a]\nj = 2\nk = 1",
+   "steps": [
+    {
+     "op": [
+      "remove",
+      "a",
+      [
+       "k"
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nj = 2\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"j\": 2}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: remove on '[a]\\n  j = 2\\n  k = 1\\n  l = 3\\n'",
+   "input": "[a]\n  j = 2\n  k = 1\n  l = 3\n",
+   "steps": [
+    {
+     "op": [
+      "remove",
+      "a",
+      [
+       "k",
+       "j"
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\n  l = 3\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"l\": 3}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: remove on '[secrets.\"x/y\"]\\nk = 1\\n'",
+   "input": "[secrets.\"x/y\"]\nk = 1\n",
+   "steps": [
+    {
+     "op": [
+      "remove",
+      "secrets",
+      [
+       "nope"
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[secrets.\"x/y\"]\nk = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"secrets\": {\"x/y\": {\"k\": 1}}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: upgrade on '[a]\\nk = 1\\n\\n# about t\\n[test_mode]\\nstate = 1\\n# inside\\n\\n# about z\\n[z]\\nk = 2\\n'",
+   "input": "[a]\nk = 1\n\n# about t\n[test_mode]\nstate = 1\n# inside\n\n# about z\n[z]\nk = 2\n",
+   "steps": [
+    {
+     "op": [
+      "upgrade",
+      "no-test-mode-2026-11-10"
+     ],
+     "result": "[{\"key\": \"test_mode.state\", \"to\": null}]",
+     "error": null,
+     "text": "[a]\nk = 1\n\n# about t\n[z]\nk = 2\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1}, \"z\": {\"k\": 2}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: upgrade on '[test_mode]\\nstate = 1\\n\\n[z]\\nk = 2\\n'",
+   "input": "[test_mode]\nstate = 1\n\n[z]\nk = 2\n",
+   "steps": [
+    {
+     "op": [
+      "upgrade",
+      "no-test-mode-2026-11-10"
+     ],
+     "result": "[{\"key\": \"test_mode.state\", \"to\": null}]",
+     "error": null,
+     "text": "[z]\nk = 2\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"z\": {\"k\": 2}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: upgrade on '[test_mode]\\nstate = 1\\nother = 2\\n\\n[z]\\nk = 2\\n'",
+   "input": "[test_mode]\nstate = 1\nother = 2\n\n[z]\nk = 2\n",
+   "steps": [
+    {
+     "op": [
+      "upgrade",
+      "no-test-mode-2026-11-10"
+     ],
+     "result": "[{\"key\": \"test_mode.state\", \"to\": null}]",
+     "error": null,
+     "text": "[test_mode]\nother = 2\n\n[z]\nk = 2\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"test_mode\": {\"other\": 2}, \"z\": {\"k\": 2}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: upgrade on '[test_mode]\\nstate = 1\\n\\n[test_mode.sub]\\nk = 2\\n'",
+   "input": "[test_mode]\nstate = 1\n\n[test_mode.sub]\nk = 2\n",
+   "steps": [
+    {
+     "op": [
+      "upgrade",
+      "no-test-mode-2026-11-10"
+     ],
+     "result": "[{\"key\": \"test_mode.state\", \"to\": null}]",
+     "error": null,
+     "text": "[test_mode]\n\n[test_mode.sub]\nk = 2\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"test_mode\": {\"sub\": {\"k\": 2}}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: upgrade on '[test_mode]\\nother = 2\\n'",
+   "input": "[test_mode]\nother = 2\n",
+   "steps": [
+    {
+     "op": [
+      "upgrade",
+      "no-test-mode-2026-11-10"
+     ],
+     "result": "[]",
+     "error": null,
+     "text": "[test_mode]\nother = 2\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"test_mode\": {\"other\": 2}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = []\\nz = 1\\n'",
+   "input": "[s]\nk = []\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\"x\", \"y\"]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [ ]\\nz = 1\\n'",
+   "input": "[s]\nk = [ ]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\"x\", \"y\" ]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [\"a\"]\\nz = 1\\n'",
+   "input": "[s]\nk = [\"a\"]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\"a\", \"x\", \"y\"]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [ \"a\" ]\\nz = 1\\n'",
+   "input": "[s]\nk = [ \"a\" ]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [ \"a\", \"x\", \"y\" ]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [\"a\",]\\nz = 1\\n'",
+   "input": "[s]\nk = [\"a\",]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\"a\", \"x\", \"y\"]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [\"a\", \"b\"] # c\\nz = 1\\n'",
+   "input": "[s]\nk = [\"a\", \"b\"] # c\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\"a\", \"b\", \"x\", \"y\"] # c\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"b\", \"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [\\n  \"a\",\\n  \"b\"\\n]\\nz = 1\\n'",
+   "input": "[s]\nk = [\n  \"a\",\n  \"b\"\n]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\n  \"a\",\n  \"b\",\n  \"x\",\n  \"y\"\n]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"b\", \"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [\\n  \"a\",\\n  \"b\",\\n]\\nz = 1\\n'",
+   "input": "[s]\nk = [\n  \"a\",\n  \"b\",\n]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\n  \"a\",\n  \"b\",\n  \"x\",\n  \"y\",\n]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"b\", \"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [\\n    \"a\",   # first\\n    \"b\",\\n]\\nz = 1\\n'",
+   "input": "[s]\nk = [\n    \"a\",   # first\n    \"b\",\n]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\n    \"a\",   # first\n    \"b\",\n    \"x\",\n    \"y\",\n]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"b\", \"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [\\n\"a\"\\n]\\nz = 1\\n'",
+   "input": "[s]\nk = [\n\"a\"\n]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\n\"a\",\n\"x\",\n\"y\"\n]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [\"a\",\\n \"b\"]\\nz = 1\\n'",
+   "input": "[s]\nk = [\"a\",\n \"b\"]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\"a\",\n \"b\",\n \"x\",\n \"y\"]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"b\", \"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [\\n]\\nz = 1\\n'",
+   "input": "[s]\nk = [\n]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\n    \"x\",\n    \"y\"\n]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [\\n  # none yet\\n]\\nz = 1\\n'",
+   "input": "[s]\nk = [\n  # none yet\n]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\n  # none yet\n  \"x\",\n  \"y\"\n]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [1, 2]\\nz = 1\\n'",
+   "input": "[s]\nk = [1, 2]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [1, 2, \"x\", \"y\"]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [1, 2, \"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [\\n\\t\"a\",\\n]\\nz = 1\\n'",
+   "input": "[s]\nk = [\n\t\"a\",\n]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\n\t\"a\",\n\t\"x\",\n\t\"y\",\n]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [\\n  \"a\", \"b\",\\n  \"c\",\\n]\\nz = 1\\n'",
+   "input": "[s]\nk = [\n  \"a\", \"b\",\n  \"c\",\n]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\n  \"a\", \"b\",\n  \"c\",\n  \"x\",\n  \"y\",\n]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"b\", \"c\", \"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [\\n  \"a\",\\n  \"b\" # second\\n]\\nz = 1\\n'",
+   "input": "[s]\nk = [\n  \"a\",\n  \"b\" # second\n]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\n  \"a\",\n  \"b\", # second\n  \"x\",\n  \"y\"\n]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"b\", \"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [\\n  \"a\",\\n  \"b\", # second\\n]\\nz = 1\\n'",
+   "input": "[s]\nk = [\n  \"a\",\n  \"b\", # second\n]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\n  \"a\",\n  \"b\", # second\n  \"x\",\n  \"y\",\n]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"b\", \"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [\\n \"a\", \"b\"\\n]\\nz = 1\\n'",
+   "input": "[s]\nk = [\n \"a\", \"b\"\n]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\n \"a\", \"b\", \"x\", \"y\"\n]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"b\", \"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [\\n  \"a\",\\n  \"b\",\\n  # tail\\n]\\nz = 1\\n'",
+   "input": "[s]\nk = [\n  \"a\",\n  \"b\",\n  # tail\n]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\n  \"a\",\n  \"b\",\n  # tail\n  \"x\",\n  \"y\"\n]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"b\", \"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [ # open\\n  \"a\",\\n]\\nz = 1\\n'",
+   "input": "[s]\nk = [ # open\n  \"a\",\n]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [ # open\n  \"a\",\n  \"x\",\n  \"y\",\n]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [\\n  \"a\",\\n]\\n'",
+   "input": "[s]\nk = [\n  \"a\",\n]\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "x",
+       "a"
+      ]
+     ],
+     "result": "[\"x\", \"x\"]",
+     "error": null,
+     "text": "[s]\nk = [\n  \"a\",\n  \"x\",\n  \"x\",\n]\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"x\", \"x\"]}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "edit: add_defaults on '[s]\\nk = [\"a\"]'",
+   "input": "[s]\nk = [\"a\"]",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "it's \"q\"\n"
+      ]
+     ],
+     "result": "[\"it's \\\"q\\\"\\n\"]",
+     "error": null,
+     "text": "[s]\nk = [\"a\", \"it's \\\"q\\\"\\n\"]"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"it's \\\"q\\\"\\n\"]}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  }
+ ],
+ "refused": [
+  {
+   "name": "set on '# FERB runtime config. Owner-only (0600).\\n\\n[secrets.\"ferb/email/password\"]\\nallowed_origins = [\"https://accounts.example.com\"]  # keep this comment\\naccount_hint = \"ferb@example.com\"\\n'",
+   "input": "# FERB runtime config. Owner-only (0600).\n\n[secrets.\"ferb/email/password\"]\nallowed_origins = [\"https://accounts.example.com\"]  # keep this comment\naccount_hint = \"ferb@example.com\"\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "secrets",
+      "extra",
+      "x"
+     ],
+     "result": "null",
+     "error": null,
+     "text": "# FERB runtime config. Owner-only (0600).\n\n[secrets]\nextra = \"x\"\n\n[secrets.\"ferb/email/password\"]\nallowed_origins = [\"https://accounts.example.com\"]  # keep this comment\naccount_hint = \"ferb@example.com\"\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"secrets\": {\"ferb/email/password\": {\"allowed_origins\": [\"https://accounts.example.com\"], \"account_hint\": \"ferb@example.com\"}, \"extra\": \"x\"}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "set on 'a = { k = 1 }\\n'",
+   "input": "a = { k = 1 }\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "a = { k = 1, n = 9}\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1, \"n\": 9}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "set on 'a.k = 1\\nz = 2\\n'",
+   "input": "a.k = 1\nz = 2\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "a.k = 1\na.n = 9\nz = 2\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1, \"n\": 9}, \"z\": 2}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "set on '[a]\\nk = 1\\n[a.s]\\nq = 1\\n'",
+   "input": "[a]\nk = 1\n[a.s]\nq = 1\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "s",
+      5
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nk = 1\ns = 5\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1, \"s\": 5}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "set on '[a]\\nb.c = 1\\nz = 1\\n'",
+   "input": "[a]\nb.c = 1\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "b",
+      5
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nz = 1\nb = 5\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"z\": 1, \"b\": 5}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "remove on '[a]\\nb.c = 1\\nb.d = 2\\nz = 1\\n'",
+   "input": "[a]\nb.c = 1\nb.d = 2\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "remove",
+      "a",
+      [
+       "b"
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "remove on '[a]\\nk = 1\\n\\n[a.s]\\nq = 1\\n\\n[b]\\n'",
+   "input": "[a]\nk = 1\n\n[a.s]\nq = 1\n\n[b]\n",
+   "steps": [
+    {
+     "op": [
+      "remove",
+      "a",
+      [
+       "s"
+      ]
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nk = 1\n\n[b]\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1}, \"b\": {}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "set on '[a]\\nk = 1\\n'",
+   "input": "[a]\nk = 1\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "t",
+      {
+       "x": 1,
+       "y": [
+        "z"
+       ]
+      }
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[a]\nk = 1\n\n[a.t]\nx = 1\ny = [\"z\"]\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": {\"k\": 1, \"t\": {\"x\": 1, \"y\": [\"z\"]}}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "set on 'a = 3\\n'",
+   "input": "a = 3\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": "'Integer' object does not support item assignment",
+     "text": "a = 3\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": 3}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "set on '[[a]]\\nk = 1\\n'",
+   "input": "[[a]]\nk = 1\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": "list indices must be integers or slices, not str",
+     "text": "[[a]]\nk = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"a\": [{\"k\": 1}]}",
+   "left_behind": [
+    "config.toml"
+   ]
+  }
+ ],
+ "layout_differs": [
+  {
+   "name": "add_defaults on '[s]\\nk = [\\n  \"a\"\\n  ,\\n]\\nz = 1\\n'",
+   "input": "[s]\nk = [\n  \"a\"\n  ,\n]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\n  \"a\"\n  ,\n  \"x\"\n  ,\n  \"y\"\n  ,\n]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "add_defaults on '[s]\\nk = [\"a\", # x\\n]\\nz = 1\\n'",
+   "input": "[s]\nk = [\"a\", # x\n]\nz = 1\n",
+   "steps": [
+    {
+     "op": [
+      "add_defaults",
+      "s",
+      "k",
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "result": "[\"x\", \"y\"]",
+     "error": null,
+     "text": "[s]\nk = [\"a\", # x\n    \"x\",\n    \"y\",\n]\nz = 1\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"s\": {\"k\": [\"a\", \"x\", \"y\"], \"z\": 1}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  },
+  {
+   "name": "set on '[[r]]\\nk = 1\\n\\n[a]\\nj = 1\\n\\n[[r]]\\nk = 2\\n'",
+   "input": "[[r]]\nk = 1\n\n[a]\nj = 1\n\n[[r]]\nk = 2\n",
+   "steps": [
+    {
+     "op": [
+      "set",
+      "a",
+      "n",
+      9
+     ],
+     "result": "null",
+     "error": null,
+     "text": "[[r]]\nk = 1\n\n[[r]]\nk = 2\n[a]\nj = 1\nn = 9\n\n"
+    }
+   ],
+   "mode": "0o600",
+   "home_mode": "0o700",
+   "values": "{\"r\": [{\"k\": 1}, {\"k\": 2}], \"a\": {\"j\": 1, \"n\": 9}}",
+   "left_behind": [
+    "config.toml"
+   ]
+  }
+ ],
+ "insecure": [
+  {
+   "target": "file",
+   "mode": "0o644",
+   "message": "<config> has mode 0o644; others must have no access"
+  },
+  {
+   "target": "file",
+   "mode": "0o620",
+   "message": "<config> has mode 0o620; others must have no access"
+  },
+  {
+   "target": "file",
+   "mode": "0o604",
+   "message": "<config> has mode 0o604; others must have no access"
+  },
+  {
+   "target": "file",
+   "mode": "0o640",
+   "message": "<config> has mode 0o640; others must have no access"
+  },
+  {
+   "target": "home",
+   "mode": "0o755",
+   "message": "<home> has mode 0o755; others must have no access"
+  },
+  {
+   "target": "home",
+   "mode": "0o710",
+   "message": "<home> has mode 0o710; others must have no access"
+  }
+ ]
+}

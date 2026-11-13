@@ -20,7 +20,7 @@ use crate::labels::{
     marks_from, quote_only, secret_after, secret_words, CODE_REACH,
 };
 use crate::redact::Redactor;
-use crate::rx::{Rx, Span};
+use crate::rx::{checked, Rx, Span, Unread, UNREADABLE};
 use crate::unicode as u;
 
 static HOLD_WORDS: Rx = Rx::new(&g::STREAM_HOLD_WORDS);
@@ -520,7 +520,28 @@ impl<R: Deref<Target = Redactor>> RedactionStream<R> {
     }
 
     /// stream.py:297: feed the next bytes; returns what may be shown. `last`: Python's `final`, no more follows.
+    ///
+    /// When a pattern cannot be run over the held text (rx.rs), nothing of it is shown: `UNREADABLE` and a line
+    /// break stand for it, the held text is dropped, and what follows is dropped up to the next line break (as
+    /// for an oversized record) or, inside a private key, up to its END line.
     pub fn feed(&mut self, chunk: &[u8], last: bool) -> Vec<u8> {
+        let in_key = self.suppress == Some(Suppress::Private);
+        match checked(|| self.feed_read(chunk, last)) {
+            Ok(out) => out,
+            Err(Unread) => {
+                self.pending.clear();
+                self.context.clear();
+                self.suppress = Some(if in_key {
+                    Suppress::Private
+                } else {
+                    Suppress::Record
+                });
+                format!("{UNREADABLE}\n").into_bytes()
+            }
+        }
+    }
+
+    fn feed_read(&mut self, chunk: &[u8], last: bool) -> Vec<u8> {
         self.decode(chunk, last);
         if let Some(suppress) = self.suppress {
             let end = match suppress {

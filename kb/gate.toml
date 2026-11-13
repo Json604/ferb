@@ -97,6 +97,13 @@ when = ["rust/**"]
 timeout = 1800
 
 [[check]]
+name = "Rust foundation builds for iOS and Android"   # ENG-5: the engine crates, without the Mac platform crate
+level = "push"
+run = "rust/gate.sh portable"
+when = ["rust/**"]
+timeout = 1800
+
+[[check]]
 name = "Rust tests"
 level = "push"
 run = "rust/gate.sh test"

@@ -1,0 +1,140 @@
+{
+ "app_id": "com.ferb.FERB",
+ "homes": [
+  {
+   "given": "/tmp/invented/ferb-home",
+   "home": "/tmp/invented/ferb-home",
+   "socket": "/tmp/invented/ferb-home/run/ferb.sock"
+  },
+  {
+   "given": "/tmp/invented/ferb-home/",
+   "home": "/tmp/invented/ferb-home",
+   "socket": "/tmp/invented/ferb-home/run/ferb.sock"
+  },
+  {
+   "given": "/tmp//invented/./home",
+   "home": "/tmp/invented/home",
+   "socket": "/tmp/invented/home/run/ferb.sock"
+  },
+  {
+   "given": "relative/home",
+   "home": "relative/home",
+   "socket": "relative/home/run/ferb.sock"
+  },
+  {
+   "given": "//double/lead",
+   "home": "//double/lead",
+   "socket": "//double/lead/run/ferb.sock"
+  },
+  {
+   "given": "///triple/lead",
+   "home": "/triple/lead",
+   "socket": "/triple/lead/run/ferb.sock"
+  },
+  {
+   "given": "",
+   "home": ".",
+   "socket": "run/ferb.sock"
+  },
+  {
+   "given": ".",
+   "home": ".",
+   "socket": "run/ferb.sock"
+  },
+  {
+   "given": "/",
+   "home": "/",
+   "socket": "/run/ferb.sock"
+  },
+  {
+   "given": "/tmp/invented/dir/..",
+   "home": "/tmp/invented/dir/..",
+   "socket": "/tmp/invented/dir/../run/ferb.sock"
+  },
+  {
+   "given": "~/.ferb",
+   "home": "~/.ferb",
+   "socket": "~/.ferb/run/ferb.sock"
+  }
+ ],
+ "explicit": {
+  "home": "/tmp/invented/other",
+  "socket": "/tmp/invented/other/run/ferb.sock"
+ },
+ "bundles": [
+  {
+   "prefix": "apps/FERB.app/Contents/Resources/python",
+   "bundle": "apps/FERB.app"
+  },
+  {
+   "prefix": "apps/Other Name.app/Contents/Resources/python",
+   "bundle": "apps/Other Name.app"
+  },
+  {
+   "prefix": "apps/FERB.app/Contents/Resources/python/bin",
+   "bundle": null
+  },
+  {
+   "prefix": "apps/FERB/Contents/Resources/python",
+   "bundle": null
+  },
+  {
+   "prefix": "apps/FERB.app/Contents/Frameworks/python",
+   "bundle": null
+  },
+  {
+   "prefix": "venv",
+   "bundle": null
+  }
+ ],
+ "plists": {
+  "good": {
+   "CFBundleIdentifier": "com.ferb.FERB",
+   "CFBundleName": "FERB"
+  },
+  "other": {
+   "CFBundleIdentifier": "com.example.other"
+  },
+  "no_id": {
+   "CFBundleName": "FERB"
+  },
+  "broken": "not a plist"
+ },
+ "good_is_binary": true,
+ "installed": [
+  {
+   "candidates": [
+    "missing",
+    "good"
+   ],
+   "found": "good"
+  },
+  {
+   "candidates": [
+    "other",
+    "no_id",
+    "broken"
+   ],
+   "found": null
+  },
+  {
+   "candidates": [
+    "broken",
+    "other",
+    "good"
+   ],
+   "found": "good"
+  },
+  {
+   "candidates": [
+    "good",
+    "other"
+   ],
+   "found": "good"
+  },
+  {
+   "candidates": [],
+   "found": null
+  }
+ ]
+}

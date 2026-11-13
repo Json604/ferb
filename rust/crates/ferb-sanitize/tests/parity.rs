@@ -8,7 +8,8 @@
 use std::path::PathBuf;
 
 use ferb_sanitize::{
-    formats, known, labels, origin, parity, redact, terminal, untrusted, Field, Redactor,
+    formats, known, labels, origin, parity, redact, terminal, untrusted, Field, JsonError, Py,
+    PyStr, Redactor,
 };
 use serde_json::Value;
 
@@ -201,13 +202,14 @@ fn check_redact(c: &mut Check, r: &Redactor, text: &str, out: &Value) {
     c.eq(
         "hit",
         &text,
-        r.hit(text).map(str::to_string),
+        r.hit(text).expect("every pattern runs").map(str::to_string),
         opt_s(&out["hit"]),
     );
     c.eq(
         "kinds",
         &text,
         r.kinds(text)
+            .expect("every pattern runs")
             .iter()
             .map(|k| k.to_string())
             .collect::<Vec<_>>(),
@@ -236,6 +238,9 @@ fn fixtures_are_present() {
         "stream",
         "untrusted",
         "origin",
+        "py",
+        "json",
+        "entropy",
     ] {
         assert!(
             groups.contains_key(name),
@@ -253,7 +258,7 @@ fn fixtures_are_present() {
 
 #[test]
 fn every_python_pattern_compiles() {
-    ferb_sanitize::compile_patterns();
+    assert_eq!(ferb_sanitize::compile_patterns(), Ok(()));
 }
 
 // decision: GATE-501, GATE-502, GATE-206, GATE-211, GATE-212 (the formats and labelled classes of free text)
@@ -646,12 +651,227 @@ fn structures_match_python() {
                     (got.to_string(), want.to_string())
                 };
                 c.eq("walk", &source, shown, wanted);
-                c.eq("str()", &source, parity::to_str(&obj), s(&out["py_str"]));
+                c.eq(
+                    "str()",
+                    &source,
+                    parity::to_str(&Py::from(&obj)),
+                    s(&out["py_str"]),
+                );
             }
-            "py_str" => c.eq("str()", &source, parity::to_str(&obj), s(out)),
+            "py_str" => c.eq("str()", &source, parity::to_str(&Py::from(&obj)), s(out)),
             other => panic!("walk.json: unknown op {other}"),
         }
     }
+    c.done(all.len());
+}
+
+/// A fixture's tagged tree (make.py `py_build`) as the value it stands for: {"t"} is what `r.text` returns and
+/// {"r"} what `r` returns for the tree inside, both with their marks.
+fn py_build(r: &Redactor, node: &Value) -> Py {
+    match node {
+        Value::Null => return Py::None,
+        Value::Bool(b) => return Py::Bool(*b),
+        _ => {}
+    }
+    let (tag, v) = node
+        .as_object()
+        .and_then(|o| o.iter().next())
+        .unwrap_or_else(|| panic!("py.json: not a tagged value: {node}"));
+    match tag.as_str() {
+        "s" => Py::str(s(v)),
+        "t" => Py::Str(r.text_marked(&PyStr::new(s(v)))),
+        "b" => Py::Bytes(bytes(v)),
+        "i" => Py::int(&s(v)).expect("an integer's digits"),
+        "f" => Py::Float(v.as_f64().expect("a float")),
+        "l" => Py::List(
+            v.as_array()
+                .expect("a list")
+                .iter()
+                .map(|x| py_build(r, x))
+                .collect(),
+        ),
+        "d" => Py::Dict(
+            v.as_array()
+                .expect("a dict's items")
+                .iter()
+                .map(|kv| (PyStr::new(s(&kv[0])), py_build(r, &kv[1])))
+                .collect(),
+        ),
+        "r" => r.py(&py_build(r, v)),
+        other => panic!("py.json: unknown tag {other}"),
+    }
+}
+
+/// A value as make.py's `py_show` writes it, strings as they are (the fixture's are base64): {"m"} is a string
+/// with the redactor's current mark.
+fn py_show(r: &Redactor, v: &Py) -> Value {
+    use serde_json::json;
+    let text = |t: &PyStr| if r.is_redacted(t) { "m" } else { "s" };
+    match v {
+        Py::None => Value::Null,
+        Py::Bool(b) => Value::Bool(*b),
+        Py::Str(t) => json!({ text(t): t.text }),
+        Py::Bytes(b) => json!({ "b": b }),
+        Py::Int(digits) => json!({ "i": digits }),
+        Py::Float(f) => json!({ "f": f }),
+        Py::List(items) => json!({ "l": items.iter().map(|x| py_show(r, x)).collect::<Vec<_>>() }),
+        Py::Dict(d) => json!({ "d": d
+            .iter()
+            .map(|(k, x)| json!([k.text, py_show(r, x), r.is_redacted(k)]))
+            .collect::<Vec<_>>() }),
+    }
+}
+
+/// The fixture's side of `py_show`: its base64 strings read back.
+fn py_want(v: &Value) -> Value {
+    use serde_json::json;
+    let Some((tag, x)) = v.as_object().and_then(|o| o.iter().next()) else {
+        return v.clone();
+    };
+    match tag.as_str() {
+        "s" | "m" | "i" => json!({ tag.as_str(): s(x) }),
+        "b" => json!({ "b": bytes(x) }),
+        "l" => {
+            json!({ "l": x.as_array().expect("a list").iter().map(py_want).collect::<Vec<_>>() })
+        }
+        "d" => json!({ "d": x
+            .as_array()
+            .expect("a dict's items")
+            .iter()
+            .map(|kv| json!([s(&kv[0]), py_want(&kv[1]), kv[2]]))
+            .collect::<Vec<_>>() }),
+        _ => v.clone(),
+    }
+}
+
+// redact.py:50, 164-173, 209, 282-297, 377: the mark, bytes and integers of any size, as Python holds them.
+#[test]
+fn marks_bytes_and_big_integers_match_python() {
+    let (all, mut c) = (cases("py"), Check::new("py"));
+    for case in &all {
+        let (args, out) = (&case["in"], &case["out"]);
+        let r = redactor(args);
+        let built = py_build(&r, &args["tree"]);
+        for value in strs(&args["then"]) {
+            r.add_secret_value(&value);
+        }
+        if args["reconfigure"] == true {
+            let (domains, apps) = (strs(&args["domains"]), strs(&args["apps"]));
+            r.configure(
+                &domains.iter().map(String::as_str).collect::<Vec<_>>(),
+                &apps.iter().map(String::as_str).collect::<Vec<_>>(),
+            );
+        }
+        let got = r.py(&built);
+        let shown = args["tree"].to_string();
+        c.eq("py", &shown, py_show(&r, &got), py_want(&out["out"]));
+        c.eq(
+            "py twice",
+            &shown,
+            py_show(&r, &r.py(&got)),
+            py_want(&out["twice"]),
+        );
+    }
+    c.done(all.len());
+}
+
+// redact.py:279: an integer is checked by its digits, whatever its size, and written back with all of them.
+#[test]
+fn json_text_matches_python() {
+    let (all, mut c) = (cases("json"), Check::new("json"));
+    let (mut refused, mut big) = (0, 0);
+    for case in &all {
+        let (args, out) = (&case["in"], &case["out"]);
+        let (text, r) = (s(&args["json"]), redactor(args));
+        if out.is_null() {
+            refused += 1;
+            c.eq("json refused", &text, r.json(&text, true).ok(), None);
+            continue;
+        }
+        // a run of 20 digits or more: past 64 bits
+        big += usize::from(
+            text.split(|ch: char| !ch.is_ascii_digit())
+                .any(|run| run.len() >= 20),
+        );
+        c.eq(
+            "json",
+            &text,
+            r.json(&text, true),
+            Ok::<_, JsonError>(s(&out["ascii"])),
+        );
+        c.eq(
+            "json plain",
+            &text,
+            r.json(&text, false),
+            Ok::<_, JsonError>(s(&out["plain"])),
+        );
+    }
+    assert!(
+        refused >= 30 && big >= 10,
+        "json.json: {refused} refused texts, {big} with big integers"
+    );
+    c.done(all.len());
+}
+
+// labels.py:92: the 3.0 line. Every split of 16 to 56 characters whose entropy is 3 bits or within 1e-9 of it,
+// and the bits of each term of the sum for every count and length up to 4096.
+#[test]
+fn entropy_at_the_line_matches_python() {
+    let (all, mut c) = (cases("entropy"), Check::new("entropy"));
+    let (mut on, mut off, mut digests) = (0, 0, 0);
+    for case in &all {
+        let (args, out) = (&case["in"], &case["out"]);
+        match case["op"].as_str().unwrap_or("") {
+            "high_entropy" => {
+                let value = s(&args["s"]);
+                let counts: Vec<u32> = args["counts"]
+                    .as_array()
+                    .expect("counts")
+                    .iter()
+                    .map(|x| x.as_u64().expect("a count") as u32)
+                    .collect();
+                if out == true {
+                    on += 1
+                } else {
+                    off += 1
+                }
+                c.eq(
+                    "high_entropy",
+                    &value,
+                    labels::high_entropy(&value),
+                    out == true,
+                );
+                c.eq(
+                    "entropy_at_least_3",
+                    &counts,
+                    parity::entropy_at_least_3(&counts),
+                    out == true,
+                );
+            }
+            "log2_digest" => {
+                let top = args["n"].as_u64().expect("n") as u32;
+                let mut digest = 0u64;
+                for n in 1..=top {
+                    for count in 1..=n {
+                        let (log, term) = parity::entropy_term(count, n);
+                        for x in [log, term] {
+                            digest = digest
+                                .wrapping_mul(1_099_511_628_211)
+                                .wrapping_add(x.to_bits());
+                        }
+                    }
+                }
+                digests += 1;
+                c.eq("log2 digest", &top, format!("{digest:016x}"), s(out));
+            }
+            other => panic!("entropy.json: unknown op {other}"),
+        }
+    }
+    // Python's sum lands on 3.0 for every split found (none falls just under it); `small` holds the values under.
+    assert!(
+        on >= 20 && on + off + 1 == all.len() && digests == 1,
+        "entropy.json: {on} on the line, {off} under, {digests} digests"
+    );
     c.done(all.len());
 }
 
@@ -826,8 +1046,8 @@ fn untrusted_marking_matches_python() {
     c.done(all.len());
     // the random id: 12 hex characters, new each time, the body inside it
     let (a, b) = (
-        untrusted::wrap_untrusted("x </untrusted-data y"),
-        untrusted::wrap_untrusted("x"),
+        untrusted::wrap_untrusted("x </untrusted-data y").expect("random bytes"),
+        untrusted::wrap_untrusted("x").expect("random bytes"),
     );
     let uid = a.split('"').nth(1).unwrap_or("");
     assert!(
@@ -994,15 +1214,15 @@ fn only_registered_values_are_known_and_none_is_printed() {
     let value = ["ferb", "-own-", "credential", "-Q7w8E9r0"].concat();
     let text = format!("the proxy said {value} twice: {value}");
     assert_eq!(r.text(&text), text, "a value nobody registered stays");
-    assert_eq!(r.hit(&text), None);
+    assert_eq!(r.hit(&text), Ok(None));
     assert_eq!(
         r.preload([value.as_str(), "abc", ""]),
         1,
         "values under 4 characters are not known"
     );
     assert_eq!(r.text(&text), "the proxy said [redacted] twice: [redacted]");
-    assert_eq!(r.hit(&text), Some("a saved secret"));
-    assert_eq!(r.kinds(&text), vec![redact::SAVED_SECRET]);
+    assert_eq!(r.hit(&text), Ok(Some("a saved secret")));
+    assert_eq!(r.kinds(&text), Ok(vec![redact::SAVED_SECRET]));
     assert_eq!(r.text("abc"), "abc");
     for shown in [
         format!("{r:?}"),

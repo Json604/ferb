@@ -611,6 +611,214 @@ def origin_cases() -> None:
         add("origin", "hostname", {"s": ident}, out)
 
 
+# ---------------------------------------------------------------- marks, bytes and integers of any size (py, json)
+
+def py_build(r: Redactor, node: Any) -> Any:
+    """A tagged tree as the Python value it stands for: {"s": str}, {"t": str} (what `r.text` returns: marked),
+    {"b": bytes}, {"i": digits}, {"f": float}, {"l": [..]}, {"d": [[key, value], ..]}, {"r": tree} (what `r` returns
+    for that tree: its strings marked); None and bools as they are."""
+    if node is None or isinstance(node, bool):
+        return node
+    (tag, v), = node.items()
+    if tag == "t":
+        return r.text(v)
+    if tag == "i":
+        return int(v)
+    if tag == "l":
+        return [py_build(r, x) for x in v]
+    if tag == "d":
+        return {k: py_build(r, x) for k, x in v}
+    if tag == "r":
+        return r(py_build(r, v))
+    return v
+
+
+def py_show(r: Redactor, v: Any) -> Any:
+    """A value as a tagged tree; a string with the redactor's current mark is {"m": str}, a dict item is
+    [key, value, whether the key is marked]."""
+    mark = r.marked()
+    if v is None or isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        return {"m" if type(v) is mark else "s": str(v)}
+    if isinstance(v, (bytes, bytearray)):
+        return {"b": bytes(v)}
+    if isinstance(v, int):
+        return {"i": str(v)}
+    if isinstance(v, float):
+        return {"f": v}
+    if isinstance(v, list):
+        return {"l": [py_show(r, x) for x in v]}
+    return {"d": [[str(k), py_show(r, x), type(k) is mark] for k, x in v.items()]}
+
+
+def py_tree(obj: Any, pool: list[str], depth: int = 0) -> Any:
+    """A JSON value as a tagged tree, some of its strings redacted alone first, some as bytes, some parts redacted
+    as a whole first."""
+    roll = RNG.random()
+    if obj is None or isinstance(obj, bool):
+        return obj
+    if isinstance(obj, str):
+        if roll < 0.3:
+            return {"t": obj}
+        if roll < 0.42:
+            raw = obj.encode("utf-8")
+            if RNG.random() < 0.6 and raw:
+                at = RNG.randint(0, len(raw))
+                raw = raw[:at] + bytes(RNG.choice([[0xff], [0x80], [0xe2, 0x82], [0xc3], [0xed, 0xa0, 0x80], [0xf0, 0x9f]])) + raw[at:]
+            return {"b": raw}
+        return {"s": obj}
+    if isinstance(obj, int):
+        return {"i": str(obj)}
+    if isinstance(obj, float):
+        return {"f": obj}
+    if isinstance(obj, list):
+        out: Any = {"l": [py_tree(x, pool, depth + 1) for x in obj]}
+    else:
+        out = {"d": [[k, py_tree(x, pool, depth + 1)] for k, x in obj.items()]}
+    return {"r": out} if roll < 0.3 else out
+
+
+def py_case(tree: Any, values: list[str] = (), then: list[str] = (), reconfigure: bool = False,  # type: ignore[assignment]
+            domains: list[str] = (), apps: list[str] = ()) -> None:  # type: ignore[assignment]
+    r = redactor(values, domains, apps)
+    built = py_build(r, tree)
+    for value in then:
+        r.add_secret_value(value)
+    if reconfigure:
+        r.configure(set(domains) or None, set(apps) or None)
+    out = r(built)
+    add("py", "py", {"tree": tree, "then": list(then), "reconfigure": reconfigure, **config(values, domains, apps)},
+        {"out": py_show(r, out), "twice": py_show(r, r(out))})
+
+
+def py_cases(pool: list[str]) -> None:
+    S = lambda v: {"s": v}        # noqa: E731
+    T = lambda v: {"t": v}        # noqa: E731
+    L = lambda *v: {"l": list(v)}  # noqa: E731
+    R = lambda v: {"r": v}        # noqa: E731
+    I = lambda v: {"i": str(v)}   # noqa: E731,E741
+    key_begin, key_end = "-----BEGIN RSA " + J(["PRIV", "ATE KEY-----"]), "-----END RSA " + J(["PRIV", "ATE KEY-----"])
+    known_digits = "918273645546372819102938"
+    fixed: list[tuple[Any, dict[str, Any]]] = [
+        # a list whose texts were each redacted alone is not read as sibling lines (redact.py:377); a plain one is
+        (L(T("Your verification code"), T("482913")), {}), (L(S("Your verification code"), S("482913")), {}),
+        (L(T("Your verification code"), S("482913")), {}), (L(T("482913"), T("is your verification code")), {}),
+        (L(T("Your verification code"), I(482913)), {}), (L(I(482913), I(5)), {}), (L(T("Your code"), {"d": [["text", T("482913")]]}), {}),
+        (R(L(S("Your verification code"), S("482913"))), {}), (L(R(L(S("Your code"), S("482913"))), T("x")), {}),
+        (L(T(key_begin), T("MIIEowIBAAKCAQEA1234abcd"), T(key_end)), {}), (L(S(key_begin), S("MIIEowIBAAKCAQEA1234abcd"), S(key_end)), {}),
+        (L(T(key_begin), T("MIIEowIBAAKCAQEA1234abcd"), True, I(5), T(key_end)), {}),
+        # a mark made under other known values or exclusions is not trusted
+        (L(T("Your verification code"), T("482913")), {"then": [KNOWN_SETS[1][0]]}),
+        (L(T("Your verification code"), T("482913")), {"reconfigure": True}),
+        (L(T("a " + KNOWN_SETS[1][0] + " b"), T("c")), {"then": [KNOWN_SETS[1][0]]}),
+        (R({"d": [["note", S("see " + KNOWN_SETS[1][0])], ["n", I(5)]]}), {"then": [KNOWN_SETS[1][0]]}),
+        (T("Slack"), {"apps": ["slack"]}), (L(T("Slack"), T("482913")), {"apps": ["slack"]}), (T("[excluded]"), {"apps": ["[excluded]"]}),
+        # marked keys, keys that redact alike, a marked text under each kind of key
+        (R({"d": [["hunter2 password=abc", I(1)], ["password=abc", I(2)], ["password=xyz", I(3)], ["[redacted]", I(4)]]}), {}),
+        ({"d": [["value", T("482913")], ["label", S("Verification code")]]}, {}), ({"d": [["text", T("")], ["role", S("AXSecureTextField")]]}, {}),
+        ({"d": [["task_id", T(HEX32)], ["session_id", L(T("chat-0123456789ab"), I(5))]]}, {"values": ["0123456789ab"]}),
+        ({"d": [["password", T("")], ["token", T("x")], ["secret", {"b": b""}], ["pin", {"b": b"1234"}]]}, {}),
+        ({"d": [["a", T("PIN")], ["b", T("4821")]]}, {}), (R({"d": [["a", S("PIN")], ["b", S("4821")]]}), {}),
+        # bytes: UTF-8, not UTF-8, nothing to hide, under field keys
+        ({"b": b"password=hunter2 \xff\xfe tail"}, {}), ({"b": b"plain \xff bytes"}, {}), ({"b": "café password: hunter2".encode()}, {}),
+        ({"b": b"\xe2\x82"}, {}), ({"b": b""}, {}), ({"b": b"code 482913 \xed\xa0\x80\xf0\x9f\x98"}, {}), ({"b": "\U00040080 \U000400ff password=abc \xff".encode("utf-8", "surrogatepass")[:-2] + b"\xff"}, {}),
+        (L({"b": b"Your verification code"}, {"b": b"482913"}), {}), ({"d": [["type", {"b": b"password"}], ["value", S("v")]]}, {}),
+        ({"d": [["role", {"b": b"it's \"q\"\\\n\x00\xff"}], ["value", S("v")], ["label", {"b": b"a'b"}]]}, {}),
+        ({"d": [["value", {"b": b""}], ["type", S("password")]]}, {}), ({"b": ("a " + KNOWN_SETS[1][0] + " \xff").encode("latin-1")}, {"values": [KNOWN_SETS[1][0]]}),
+        ({"b": b"4111 1111 1111 1111\x80"}, {}), ({"b": b"\xff" * 40}, {}), ({"b": b"Password:\n\xffhunter2\n"}, {}),
+        # integers of any size
+        (I(10 ** 30), {}), (I(-(10 ** 30) - 4111111111111111), {}), (I(known_digits), {"values": [known_digits]}),
+        (I("-" + known_digits), {"values": [known_digits]}), (I("77" + known_digits + "77"), {"values": [known_digits]}),
+        ({"d": [["code", I(10 ** 24 + 482913)], ["pin", I(48291348)], ["otp", I(2 ** 70)], ["api_key", I(2 ** 80)]]}, {}),
+        (L(S("Your verification code"), I(2 ** 64)), {}), ({"d": [["a", S("PIN")], ["b", I(2 ** 64 + 4821)]]}, {}),
+        ({"d": [["type", I(2 ** 70)], ["value", S("v")], ["role", I(-(2 ** 70))]]}, {}), (I(18446744073709551616), {}), (I(0), {}),
+    ]
+    for tree, opts in fixed:
+        py_case(tree, **opts)
+    for i in range(170 * SCALE):
+        values = KNOWN_SETS[i % len(KNOWN_SETS)] if i % 4 == 0 else []
+        then = [RNG.choice(KNOWN_SETS[1:])[0]] if i % 9 == 0 else []
+        py_case(py_tree(random_json(pool), pool), values, then, reconfigure=i % 11 == 0)
+
+
+def json_cases(pool: list[str]) -> None:
+    """A record's JSON text through json.loads, the redactor and json.dumps (both `ensure_ascii` ways); None where
+    json.loads refuses the text."""
+    known_digits = "918273645546372819102938"
+    texts = ['{"n": 123456789012345678901234567890, "m": -98765432109876543210, "z": -0, "f": 1.0, "e": 1E5, "g": 1e999, "h": -1e-999}',
+             '[' + known_digits + ', -' + known_digits + ', 4111111111111111, 1' + known_digits + ']',
+             '{"code": 1000000000000000000482913, "pin": 4821, "otp": 99999999999999999999, "count": 18446744073709551616}',
+             '["Your verification code", 18446744073709551616, 482913]', '{"a": "PIN", "b": 48210000000000000000000}',
+             '{"k": 1, "k": 2, "a": 3, "k": "password=abc"}', ' \t\r\n[ 1 , 2.50 ,\n"x" ] ', '[NaN, Infinity, -Infinity, -0.0, 0.0, 1e16, 1e-7, 5e-324]',
+             '"\\u00e9\\ud83d\\ude00\\/\\b\\f\\n\\r\\t\\"\\\\ café \U0001f600 \x7f"', '{"\\u0070assword": "x", "t\\u006fken": [1, {"a": 2}]}',
+             '{"value": 4111111111111111111, "autocomplete": "cc-number"}', '[' + "9" * 4300 + ']', '[' + "9" * 4301 + ']',
+             '1' + "0" * 400, '-' + "4" * 60, '[1.5e3, 12E-2, 0.1, 100.0, 1e22, 1.7976931348623157e308, 123456789.125, 0e0, -0e5, 0E-0]',
+             '', ' ', '[1,]', '{"a":}', '01', '-', '1.', '1.e5', '.5', '+1', '[1 2]', '{"a" 1}', "{'a': 1}", '"\x01"', '"\\x41"', '"abc', '[', 'nul',
+             'tru', 'Nan', '-NaN', '1e', '1e+', '[1e5x]', '1 2', '{"a": 1,}', '{1: 2}', '"\\u12"', 'true false', '[-]', '-Infinit', '--1', '0x10',
+             '1.5.2', '2e5e5', '"tab\there"', '{"a":1}{"b":2}', '﻿[1]', '[1]\x00']
+    for i in range(60 * SCALE):
+        obj = random_json(pool)
+        text = json.dumps(obj, ensure_ascii=RNG.random() < 0.5, separators=RNG.choice([(",", ":"), (", ", ": "), (" ,\n", " :\t")]))
+        if RNG.random() < 0.5:
+            text = text.replace("482913", RNG.choice(["482913" + "0" * 20, "4829130000000000000000001", known_digits]), 1)
+        texts.append(text)
+    for i, text in enumerate(texts):
+        values = [known_digits] if i % 2 == 0 else []
+        r = redactor(values)
+        try:
+            out = r(json.loads(text))
+            shown: Any = {"ascii": json.dumps(out), "plain": json.dumps(out, ensure_ascii=False)}
+        except (ValueError, RecursionError):
+            shown = None
+        add("json", "json", {"json": text, **config(values)}, shown)
+
+
+def entropy_cases() -> None:
+    """`high_entropy` at its 3.0 line: every way to split 16 to 56 characters into counts whose entropy is exactly 3
+    bits or within 1e-9 of it, each in several orders (the sum is taken in first-seen order); and one number for the
+    bits of math.log2(c / n) and of c / n * math.log2(c / n) for every count and length up to 4096."""
+    import math
+    import struct
+    chars = "a1" + "bcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ023456789+/=_.~-"
+    logs = [0.0] + [c * math.log2(c) for c in range(1, 60)]
+    found: list[list[int]] = []
+
+    def split(left: int, largest: int, parts: list[int], weight: float, target: float, n: int) -> None:
+        if left == 0:
+            if abs(weight - target) < 1e-7 * n:
+                found.append(list(parts))
+            return
+        if len(parts) >= len(chars):
+            return
+        for c in range(min(left, largest), 0, -1):
+            if weight + logs[c] > target + 1e-6 * n:
+                continue
+            parts.append(c)
+            split(left - c, c, parts, weight + logs[c], target, n)
+            parts.pop()
+
+    for n in range(16, 57):
+        split(n, n, [], 0.0, n * math.log2(n) - 3 * n, n)
+    exact = 0
+    for counts in found:
+        n = sum(counts)
+        exact += n ** n == 8 ** n * math.prod(c ** c for c in counts)
+        orders = [sorted(counts), sorted(counts, reverse=True)] + [RNG.sample(counts, len(counts)) for _ in range(3)]
+        for order in {tuple(o) for o in orders}:
+            value = "".join(chars[i] * c for i, c in enumerate(order))
+            if len(order) > 1:
+                add("entropy", "high_entropy", {"s": value, "counts": list(order)}, labels.high_entropy(value))
+    assert exact >= 10, exact
+    digest = 0
+    for n in range(1, 4097):
+        for c in range(1, n + 1):
+            log = math.log2(c / n)
+            for x in (log, c / n * log):
+                digest = (digest * 1099511628211 + struct.unpack("<Q", struct.pack("<d", x))[0]) % 2 ** 64
+    add("entropy", "log2_digest", {"n": 4096}, f"{digest:016x}")
+
+
 def unicode_file() -> dict[str, Any]:
     """str.lower() and str.casefold(): every character lower() changes, and whole strings around the capital sigma
     (final or not), built from cased, case-ignorable and other characters."""
@@ -661,6 +869,10 @@ def main() -> None:
     stream_cases(seeds + RNG.sample(tests, min(len(tests), 150)))
     untrusted_cases(pool)
     origin_cases()
+    unicode = unicode_file()
+    py_cases(pool)            # the newer groups come last: the random source reaches the older ones as before
+    json_cases(pool)
+    entropy_cases()
     total = 0
     for old in OUT.glob("*.json"):
         old.unlink()
@@ -668,7 +880,7 @@ def main() -> None:
         (OUT / f"{group}.json").write_text(json.dumps({"group": group, "cases": cases}, separators=(",", ":")) + "\n", encoding="ascii")
         total += len(cases)
         print(f"{group}: {len(cases)} cases, {(OUT / f'{group}.json').stat().st_size} bytes")
-    (OUT / "unicode.json").write_text(json.dumps(unicode_file(), separators=(",", ":")) + "\n", encoding="ascii")
+    (OUT / "unicode.json").write_text(json.dumps(unicode, separators=(",", ":")) + "\n", encoding="ascii")
     (OUT / "manifest.json").write_text(json.dumps({"groups": {g: len(c) for g, c in CASES.items()}, "total": total},
                                                    indent=1) + "\n", encoding="ascii")
     size = sum(p.stat().st_size for p in OUT.glob("*.json"))

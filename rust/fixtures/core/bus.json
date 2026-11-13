@@ -1,0 +1,1046 @@
+{
+ "critical": [
+  "approval.requested",
+  "approval.resolved",
+  "attention.notice",
+  "browser.debugger_detached",
+  "browser.owner_stopped",
+  "browser.owner_took",
+  "browser.profile_paired",
+  "conversation.paused",
+  "device.changed",
+  "loop.status",
+  "memory.committed",
+  "memory.confirmed_derived",
+  "memory.expires",
+  "memory.forgot",
+  "memory.forgot_derived",
+  "memory.restored",
+  "memory.retired",
+  "memory.rollback",
+  "memory.set_aside",
+  "runtimes.changed",
+  "sense.paused",
+  "sense.resumed",
+  "sense.watcher_failed",
+  "stop.engaged",
+  "stop.lifted",
+  "task.created",
+  "task.finished",
+  "task.part",
+  "task.paused",
+  "task.result",
+  "task.resumed",
+  "task.resumed_event",
+  "task.retried",
+  "task.started",
+  "task.steered",
+  "timer.changed",
+  "timer.fired"
+ ],
+ "telemetry": [
+  "action.observed",
+  "browser.cleanup_failed",
+  "browser.connected",
+  "browser.connection_refused",
+  "browser.dialog",
+  "browser.disconnected",
+  "browser.download",
+  "browser.file_chooser",
+  "browser.profiles_changed",
+  "cursor.point",
+  "disturbance.observed",
+  "memory.derived",
+  "memory.digest",
+  "memory.embedding_unavailable",
+  "memory.import.progress",
+  "memory.proposed",
+  "perception.attention",
+  "perception.batch",
+  "secret.refused",
+  "security.alignment",
+  "task.progress",
+  "task.step",
+  "tool.called",
+  "tool.finished",
+  "trail.event"
+ ],
+ "dropped": "bus.dropped",
+ "scripts": [
+  {
+   "script": [
+    [
+     "sub",
+     "a",
+     null,
+     1000
+    ],
+    [
+     "pub",
+     "task.created",
+     {
+      "task_id": "t1"
+     }
+    ],
+    [
+     "advance",
+     1.5
+    ],
+    [
+     "pub",
+     "tool.called",
+     null
+    ],
+    [
+     "pub",
+     "task.progress",
+     {
+      "text": "héllo"
+     }
+    ],
+    [
+     "read",
+     "a"
+    ],
+    [
+     "read",
+     "a"
+    ],
+    [
+     "close",
+     "a"
+    ],
+    [
+     "read",
+     "a"
+    ],
+    [
+     "pub",
+     "task.created",
+     {}
+    ]
+   ],
+   "out": [
+    null,
+    {
+     "topic": "task.created",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "critical",
+     "data": {
+      "task_id": "t1"
+     }
+    },
+    null,
+    {
+     "topic": "tool.called",
+     "at": "2026-05-06T07:08:10.500000+00:00",
+     "class": "telemetry",
+     "data": {}
+    },
+    {
+     "topic": "task.progress",
+     "at": "2026-05-06T07:08:10.500000+00:00",
+     "class": "telemetry",
+     "data": {
+      "text": "héllo"
+     }
+    },
+    {
+     "events": [
+      {
+       "topic": "task.created",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "critical",
+       "data": {
+        "task_id": "t1"
+       }
+      },
+      {
+       "topic": "tool.called",
+       "at": "2026-05-06T07:08:10.500000+00:00",
+       "class": "telemetry",
+       "data": {}
+      },
+      {
+       "topic": "task.progress",
+       "at": "2026-05-06T07:08:10.500000+00:00",
+       "class": "telemetry",
+       "data": {
+        "text": "héllo"
+       }
+      }
+     ],
+     "dropped": 0,
+     "overflowed": false,
+     "closed": false,
+     "subscribers": 1
+    },
+    {
+     "events": [],
+     "dropped": 0,
+     "overflowed": false,
+     "closed": false,
+     "subscribers": 1
+    },
+    null,
+    {
+     "events": [
+      {
+       "closed": true
+      }
+     ],
+     "dropped": 0,
+     "overflowed": false,
+     "closed": true,
+     "subscribers": 0
+    },
+    {
+     "topic": "task.created",
+     "at": "2026-05-06T07:08:10.500000+00:00",
+     "class": "critical",
+     "data": {}
+    }
+   ]
+  },
+  {
+   "script": [
+    [
+     "sub",
+     "a",
+     null,
+     3
+    ],
+    [
+     "pub",
+     "tool.called",
+     {
+      "n": 1
+     }
+    ],
+    [
+     "pub",
+     "task.created",
+     {
+      "n": 2
+     }
+    ],
+    [
+     "pub",
+     "tool.called",
+     {
+      "n": 3
+     }
+    ],
+    [
+     "pub",
+     "tool.called",
+     {
+      "n": 4
+     }
+    ],
+    [
+     "pub",
+     "task.created",
+     {
+      "n": 5
+     }
+    ],
+    [
+     "read",
+     "a"
+    ],
+    [
+     "pub",
+     "tool.called",
+     {
+      "n": 6
+     }
+    ],
+    [
+     "read",
+     "a"
+    ]
+   ],
+   "out": [
+    null,
+    {
+     "topic": "tool.called",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "telemetry",
+     "data": {
+      "n": 1
+     }
+    },
+    {
+     "topic": "task.created",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "critical",
+     "data": {
+      "n": 2
+     }
+    },
+    {
+     "topic": "tool.called",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "telemetry",
+     "data": {
+      "n": 3
+     }
+    },
+    {
+     "topic": "tool.called",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "telemetry",
+     "data": {
+      "n": 4
+     }
+    },
+    {
+     "topic": "task.created",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "critical",
+     "data": {
+      "n": 5
+     }
+    },
+    {
+     "events": [
+      {
+       "topic": "bus.dropped",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "telemetry",
+       "data": {
+        "count": 2
+       }
+      },
+      {
+       "topic": "task.created",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "critical",
+       "data": {
+        "n": 2
+       }
+      },
+      {
+       "topic": "tool.called",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "telemetry",
+       "data": {
+        "n": 4
+       }
+      },
+      {
+       "topic": "task.created",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "critical",
+       "data": {
+        "n": 5
+       }
+      }
+     ],
+     "dropped": 2,
+     "overflowed": false,
+     "closed": false,
+     "subscribers": 1
+    },
+    {
+     "topic": "tool.called",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "telemetry",
+     "data": {
+      "n": 6
+     }
+    },
+    {
+     "events": [
+      {
+       "topic": "tool.called",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "telemetry",
+       "data": {
+        "n": 6
+       }
+      }
+     ],
+     "dropped": 2,
+     "overflowed": false,
+     "closed": false,
+     "subscribers": 1
+    }
+   ]
+  },
+  {
+   "script": [
+    [
+     "sub",
+     "a",
+     null,
+     2
+    ],
+    [
+     "sub",
+     "b",
+     null,
+     1000
+    ],
+    [
+     "pub",
+     "task.created",
+     {
+      "n": 1
+     }
+    ],
+    [
+     "pub",
+     "task.started",
+     {
+      "n": 2
+     }
+    ],
+    [
+     "pub",
+     "tool.called",
+     {
+      "n": 3
+     }
+    ],
+    [
+     "read",
+     "a"
+    ],
+    [
+     "pub",
+     "task.created",
+     {
+      "n": 4
+     }
+    ],
+    [
+     "pub",
+     "task.created",
+     {
+      "n": 5
+     }
+    ],
+    [
+     "pub",
+     "task.created",
+     {
+      "n": 6
+     }
+    ],
+    [
+     "pub",
+     "tool.called",
+     {
+      "n": 7
+     }
+    ],
+    [
+     "read",
+     "a"
+    ],
+    [
+     "read",
+     "b"
+    ],
+    [
+     "read",
+     "a"
+    ]
+   ],
+   "out": [
+    null,
+    null,
+    {
+     "topic": "task.created",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "critical",
+     "data": {
+      "n": 1
+     }
+    },
+    {
+     "topic": "task.started",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "critical",
+     "data": {
+      "n": 2
+     }
+    },
+    {
+     "topic": "tool.called",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "telemetry",
+     "data": {
+      "n": 3
+     }
+    },
+    {
+     "events": [
+      {
+       "topic": "bus.dropped",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "telemetry",
+       "data": {
+        "count": 1
+       }
+      },
+      {
+       "topic": "task.created",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "critical",
+       "data": {
+        "n": 1
+       }
+      },
+      {
+       "topic": "task.started",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "critical",
+       "data": {
+        "n": 2
+       }
+      }
+     ],
+     "dropped": 1,
+     "overflowed": false,
+     "closed": false,
+     "subscribers": 2
+    },
+    {
+     "topic": "task.created",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "critical",
+     "data": {
+      "n": 4
+     }
+    },
+    {
+     "topic": "task.created",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "critical",
+     "data": {
+      "n": 5
+     }
+    },
+    {
+     "topic": "task.created",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "critical",
+     "data": {
+      "n": 6
+     }
+    },
+    {
+     "topic": "tool.called",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "telemetry",
+     "data": {
+      "n": 7
+     }
+    },
+    {
+     "events": [
+      {
+       "topic": "task.created",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "critical",
+       "data": {
+        "n": 4
+       }
+      },
+      {
+       "topic": "task.created",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "critical",
+       "data": {
+        "n": 5
+       }
+      },
+      {
+       "overflow": "subscriber overflowed with critical events"
+      }
+     ],
+     "dropped": 1,
+     "overflowed": true,
+     "closed": false,
+     "subscribers": 1
+    },
+    {
+     "events": [
+      {
+       "topic": "task.created",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "critical",
+       "data": {
+        "n": 1
+       }
+      },
+      {
+       "topic": "task.started",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "critical",
+       "data": {
+        "n": 2
+       }
+      },
+      {
+       "topic": "tool.called",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "telemetry",
+       "data": {
+        "n": 3
+       }
+      },
+      {
+       "topic": "task.created",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "critical",
+       "data": {
+        "n": 4
+       }
+      },
+      {
+       "topic": "task.created",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "critical",
+       "data": {
+        "n": 5
+       }
+      },
+      {
+       "topic": "task.created",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "critical",
+       "data": {
+        "n": 6
+       }
+      },
+      {
+       "topic": "tool.called",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "telemetry",
+       "data": {
+        "n": 7
+       }
+      }
+     ],
+     "dropped": 0,
+     "overflowed": false,
+     "closed": false,
+     "subscribers": 1
+    },
+    {
+     "events": [
+      {
+       "closed": true
+      }
+     ],
+     "dropped": 1,
+     "overflowed": true,
+     "closed": false,
+     "subscribers": 1
+    }
+   ]
+  },
+  {
+   "script": [
+    [
+     "sub",
+     "exact",
+     [
+      "task.created",
+      "tool.called"
+     ],
+     10
+    ],
+    [
+     "sub",
+     "wild",
+     [
+      "task.*",
+      "browser.dialog"
+     ],
+     10
+    ],
+    [
+     "sub",
+     "none",
+     [],
+     10
+    ],
+    [
+     "sub",
+     "star",
+     [
+      "*"
+     ],
+     10
+    ],
+    [
+     "sub",
+     "dot",
+     [
+      ".*",
+      "memory.import.*"
+     ],
+     10
+    ],
+    [
+     "pub",
+     "task.created",
+     {}
+    ],
+    [
+     "pub",
+     "task.finished",
+     {}
+    ],
+    [
+     "pub",
+     "tool.called",
+     {}
+    ],
+    [
+     "pub",
+     "browser.dialog",
+     {}
+    ],
+    [
+     "pub",
+     "memory.import.progress",
+     {}
+    ],
+    [
+     "pub",
+     "tasks.nope",
+     {}
+    ],
+    [
+     "pub",
+     "bus.dropped",
+     {}
+    ],
+    [
+     "read",
+     "exact"
+    ],
+    [
+     "read",
+     "wild"
+    ],
+    [
+     "read",
+     "none"
+    ],
+    [
+     "read",
+     "star"
+    ],
+    [
+     "read",
+     "dot"
+    ]
+   ],
+   "out": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    {
+     "topic": "task.created",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "critical",
+     "data": {}
+    },
+    {
+     "topic": "task.finished",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "critical",
+     "data": {}
+    },
+    {
+     "topic": "tool.called",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "telemetry",
+     "data": {}
+    },
+    {
+     "topic": "browser.dialog",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "telemetry",
+     "data": {}
+    },
+    {
+     "topic": "memory.import.progress",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "telemetry",
+     "data": {}
+    },
+    {
+     "error": "unknown bus topic 'tasks.nope'; declare it in CRITICAL or TELEMETRY first"
+    },
+    {
+     "error": "unknown bus topic 'bus.dropped'; declare it in CRITICAL or TELEMETRY first"
+    },
+    {
+     "events": [
+      {
+       "topic": "task.created",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "critical",
+       "data": {}
+      },
+      {
+       "topic": "tool.called",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "telemetry",
+       "data": {}
+      }
+     ],
+     "dropped": 0,
+     "overflowed": false,
+     "closed": false,
+     "subscribers": 5
+    },
+    {
+     "events": [
+      {
+       "topic": "task.created",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "critical",
+       "data": {}
+      },
+      {
+       "topic": "task.finished",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "critical",
+       "data": {}
+      },
+      {
+       "topic": "browser.dialog",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "telemetry",
+       "data": {}
+      }
+     ],
+     "dropped": 0,
+     "overflowed": false,
+     "closed": false,
+     "subscribers": 5
+    },
+    {
+     "events": [],
+     "dropped": 0,
+     "overflowed": false,
+     "closed": false,
+     "subscribers": 5
+    },
+    {
+     "events": [],
+     "dropped": 0,
+     "overflowed": false,
+     "closed": false,
+     "subscribers": 5
+    },
+    {
+     "events": [
+      {
+       "topic": "memory.import.progress",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "telemetry",
+       "data": {}
+      }
+     ],
+     "dropped": 0,
+     "overflowed": false,
+     "closed": false,
+     "subscribers": 5
+    }
+   ]
+  },
+  {
+   "script": [
+    [
+     "sub",
+     "a",
+     null,
+     1
+    ],
+    [
+     "pub",
+     "tool.called",
+     {
+      "n": 1
+     }
+    ],
+    [
+     "pub",
+     "tool.called",
+     {
+      "n": 2
+     }
+    ],
+    [
+     "pub",
+     "tool.called",
+     {
+      "n": 3
+     }
+    ],
+    [
+     "close",
+     "a"
+    ],
+    [
+     "pub",
+     "tool.called",
+     {
+      "n": 4
+     }
+    ],
+    [
+     "read",
+     "a"
+    ],
+    [
+     "sub",
+     "z",
+     null,
+     0
+    ],
+    [
+     "pub",
+     "tool.called",
+     {
+      "n": 5
+     }
+    ],
+    [
+     "read",
+     "z"
+    ],
+    [
+     "pub",
+     "task.created",
+     {
+      "n": 6
+     }
+    ],
+    [
+     "read",
+     "z"
+    ]
+   ],
+   "out": [
+    null,
+    {
+     "topic": "tool.called",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "telemetry",
+     "data": {
+      "n": 1
+     }
+    },
+    {
+     "topic": "tool.called",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "telemetry",
+     "data": {
+      "n": 2
+     }
+    },
+    {
+     "topic": "tool.called",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "telemetry",
+     "data": {
+      "n": 3
+     }
+    },
+    null,
+    {
+     "topic": "tool.called",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "telemetry",
+     "data": {
+      "n": 4
+     }
+    },
+    {
+     "events": [
+      {
+       "topic": "bus.dropped",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "telemetry",
+       "data": {
+        "count": 2
+       }
+      },
+      {
+       "topic": "tool.called",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "telemetry",
+       "data": {
+        "n": 3
+       }
+      },
+      {
+       "closed": true
+      }
+     ],
+     "dropped": 2,
+     "overflowed": false,
+     "closed": true,
+     "subscribers": 0
+    },
+    null,
+    {
+     "topic": "tool.called",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "telemetry",
+     "data": {
+      "n": 5
+     }
+    },
+    {
+     "events": [
+      {
+       "topic": "bus.dropped",
+       "at": "2026-05-06T07:08:09+00:00",
+       "class": "telemetry",
+       "data": {
+        "count": 1
+       }
+      }
+     ],
+     "dropped": 1,
+     "overflowed": false,
+     "closed": false,
+     "subscribers": 1
+    },
+    {
+     "topic": "task.created",
+     "at": "2026-05-06T07:08:09+00:00",
+     "class": "critical",
+     "data": {
+      "n": 6
+     }
+    },
+    {
+     "events": [
+      {
+       "overflow": "subscriber overflowed with critical events"
+      }
+     ],
+     "dropped": 1,
+     "overflowed": true,
+     "closed": false,
+     "subscribers": 0
+    }
+   ]
+  }
+ ]
+}

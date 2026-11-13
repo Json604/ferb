@@ -6,15 +6,22 @@
 //! value shows by its own shape (formats.rs) and labelled classes (labels.rs). The result is redacted again until
 //! nothing changes, so `text(text(x)) == text(x)`; a mask is never split.
 //!
-//! Not ported: Python's `Redacted` mark (a str subclass that lets a later sink skip a string already redacted
-//! under the same known values). Every call here redacts; see the crate's notes for what that changes.
+//! Every string the redactor returns inside a structure is marked as redacted under the current known values and
+//! exclusions (`PyStr`'s mark, Python's `Redacted`), so a later pass skips it; a new known value or exclusion
+//! drops every mark. The mark changes what comes out, not only what it costs: a list whose texts are all marked
+//! is not read again as sibling lines (redact.py:377), and a text the eight passes did not settle is not passed
+//! over again.
+//!
+//! A pattern that cannot be run (rx.rs) never panics: `text`, `ident`, `field`, `answer`, `py`, `value` and
+//! `json` then hide their whole input (`UNREADABLE`), and `spans`, `hit` and `kinds` return `Err(Unread)`.
 //!
 //! decision: GATE-572 (owner), GATE-573, GATE-501, GATE-502, GATE-206, GATE-211, GATE-212.
 
 use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use crate::formats::{first_format, format_hits, holds_value, payment_card, urls};
 use crate::known::{known_spans, KnownValues, Registry, REDACTED};
@@ -24,8 +31,8 @@ use crate::labels::{
     password_field, LabelClass, FIELD_METADATA, INPUT_TYPES, INTERNAL_ID_KEYS,
 };
 use crate::pyurl;
-use crate::pyvalue::{is_int, to_str, truthy};
-use crate::rx::Span;
+use crate::pyvalue::{dict_get, to_str, truthy, JsonError, Mark, Py, PyStr};
+use crate::rx::{checked, Span, Unread, UNREADABLE};
 use crate::stream::RedactionStream;
 use crate::unicode as u;
 
@@ -177,10 +184,14 @@ struct Exclusions {
     apps: BTreeSet<String>,
 }
 
+static NEXT_REDACTOR: AtomicU64 = AtomicU64::new(1);
+
 /// redact.py:117.
 pub struct Redactor {
+    id: u64,
     registry: Registry,
     exclusions: RwLock<Arc<Exclusions>>,
+    config: AtomicU64,
 }
 
 impl std::fmt::Debug for Redactor {
@@ -195,14 +206,33 @@ impl Default for Redactor {
     }
 }
 
+type Dict = Vec<(PyStr, Py)>;
+
+fn redacted() -> Py {
+    Py::str(REDACTED) // a plain string, as Python's constant is: no mark
+}
+
+/// `isinstance(v, (str, int))`: a bool is an int there.
+fn str_or_int(v: &Py) -> bool {
+    matches!(v, Py::Str(_) | Py::Int(_) | Py::Bool(_))
+}
+
+/// Code points no text holds in Unicode 15 (planes 4 to 13, unassigned): what stands for a byte that is not
+/// UTF-8 while a `bytes` value is read as text. Python reads such a byte as a lone surrogate
+/// (`surrogateescape`), which a Rust `String` cannot hold; to every rule here an unassigned character is what a
+/// lone surrogate is to Python's (not a space, a letter, a digit or a word character, and it has no other case).
+const STAND_IN_BASES: std::ops::Range<u32> = 0x400..0xe00;
+
 impl Redactor {
     pub fn new(exclude_domains: &[&str], exclude_apps: &[&str]) -> Redactor {
         let r = Redactor {
+            id: NEXT_REDACTOR.fetch_add(1, Ordering::Relaxed),
             registry: Registry::new(),
             exclusions: RwLock::new(Arc::new(Exclusions {
                 domains: BTreeSet::new(),
                 apps: BTreeSet::new(),
             })),
+            config: AtomicU64::new(0),
         };
         r.configure(exclude_domains, exclude_apps);
         r
@@ -223,6 +253,7 @@ impl Redactor {
             .exclusions
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Arc::new(new);
+        self.config.fetch_add(1, Ordering::SeqCst);
     }
 
     fn exclusions(&self) -> Arc<Exclusions> {
@@ -277,10 +308,30 @@ impl Redactor {
         !ex.apps.is_empty() && ex.apps.contains(&u::lower(s))
     }
 
+    // ---------- the marker ----------
+
+    /// redact.py:164: this redactor's mark under the current known values and exclusions.
+    fn mark(&self) -> Mark {
+        Mark {
+            redactor: self.id,
+            values: self.registry.version(),
+            config: self.config.load(Ordering::SeqCst),
+        }
+    }
+
+    /// redact.py:172: whether this redactor returned `s` under the known values and exclusions it has now.
+    pub fn is_redacted(&self, s: &PyStr) -> bool {
+        s.mark == Some(self.mark())
+    }
+
     // ---------- text ----------
 
     /// redact.py:177: every span to mask in `s`, found on `s` as given: (start, end, mask), byte offsets.
-    pub fn spans(&self, s: &str, keyed: bool) -> Vec<(usize, usize, &'static str)> {
+    pub fn spans(&self, s: &str, keyed: bool) -> Result<Vec<(usize, usize, &'static str)>, Unread> {
+        checked(|| self.spans_of(s, keyed))
+    }
+
+    fn spans_of(&self, s: &str, keyed: bool) -> Vec<(usize, usize, &'static str)> {
         let found = urls(s);
         let mut out: Vec<(usize, usize, &'static str)> =
             known_spans(s, &self.registry.values(), keyed)
@@ -315,7 +366,7 @@ impl Redactor {
     /// mask can change (`around_masks`).
     fn fixed(&self, s: &str, keyed: bool) -> String {
         let mut s = s.to_string();
-        let mut out = mask(&s, &self.spans(&s, keyed));
+        let mut out = mask(&s, &self.spans_of(&s, keyed));
         for _ in 0..FIXED_POINT {
             if out == s {
                 break;
@@ -324,7 +375,7 @@ impl Redactor {
             let mut found: Vec<(usize, usize, &str)> = Vec::new();
             for (a, b) in around_masks(&s) {
                 found.extend(
-                    self.spans(&s[a..b], keyed)
+                    self.spans_of(&s[a..b], keyed)
                         .into_iter()
                         .map(|(x, y, rep)| (a + x, a + y, rep)),
                 );
@@ -334,35 +385,62 @@ impl Redactor {
         out
     }
 
-    /// redact.py:206: free text: an exception message, a page, a command's output.
-    pub fn text(&self, s: &str) -> String {
+    /// The answer when every pattern ran; the whole input hidden otherwise (rx.rs).
+    fn closed(&self, f: impl FnOnce() -> String) -> String {
+        checked(f).unwrap_or_else(|Unread| UNREADABLE.to_string())
+    }
+
+    fn text_of(&self, s: &str) -> String {
         if self.excluded_app(s) {
             return EXCLUDED.to_string();
         }
         self.fixed(s, false)
     }
 
+    /// redact.py:206: free text: an exception message, a page, a command's output.
+    pub fn text(&self, s: &str) -> String {
+        self.closed(|| self.text_of(s))
+    }
+
+    /// `text` on a string that may carry this redactor's mark: one it returned under the known values and
+    /// exclusions it has now comes back as it is (redact.py:209).
+    pub fn text_marked(&self, s: &PyStr) -> PyStr {
+        let mark = self.mark();
+        if s.mark == Some(mark) {
+            return s.clone();
+        }
+        PyStr::marked(self.text(&s.text), mark)
+    }
+
     /// redact.py:215: a value under one of FERB's own id keys: any generated id body keeps its form. An excluded
     /// app's name stays excluded.
     pub fn ident(&self, s: &str) -> String {
-        if self.excluded_app(s) {
-            return EXCLUDED.to_string();
-        }
-        self.fixed(s, true)
+        self.closed(|| {
+            if self.excluded_app(s) {
+                return EXCLUDED.to_string();
+            }
+            self.fixed(s, true)
+        })
     }
 
     /// redact.py:222: a specific secret in `s`, by kind, for a gate: a known value or a vendor format; None
     /// otherwise. Never "redaction would change it".
-    pub fn hit(&self, s: &str) -> Option<&'static str> {
-        if !known_spans(s, &self.registry.values(), false).is_empty() {
-            return Some("a saved secret");
-        }
-        first_format(s)
+    pub fn hit(&self, s: &str) -> Result<Option<&'static str>, Unread> {
+        checked(|| {
+            if !known_spans(s, &self.registry.values(), false).is_empty() {
+                return Some("a saved secret");
+            }
+            first_format(s)
+        })
     }
 
     /// redact.py:229: each kind of specific secret in `s`, once, in the order they stand; names only, never a
     /// value. decision: GATE-501, GATE-502.
-    pub fn kinds(&self, s: &str) -> Vec<&'static str> {
+    pub fn kinds(&self, s: &str) -> Result<Vec<&'static str>, Unread> {
+        checked(|| self.kinds_of(s))
+    }
+
+    fn kinds_of(&self, s: &str) -> Vec<&'static str> {
         let mut taken: Vec<(usize, usize, &'static str)> =
             known_spans(s, &self.registry.values(), false)
                 .into_iter()
@@ -389,110 +467,181 @@ impl Redactor {
         out
     }
 
-    /// redact.py:243: capture boundary for AX/DOM/clipboard fields; metadata never grants action permission.
-    /// decision: GATE-206.
-    pub fn field(&self, text: &str, f: &Field<'_>) -> String {
+    /// Whether a field's facts hide its text whole (redact.py:248).
+    fn field_hidden(&self, text: &str, f: &Field<'_>) -> bool {
         let kind = f.kind.unwrap_or(f.role);
         let role = u::casefold(f.role);
         let mut meta: Vec<&str> = vec![f.label];
         meta.extend_from_slice(f.metadata);
-        if f.secure_input
+        f.secure_input
             || f.concealed
             || role.contains("secure")
             || role == "password"
             || (!kind.is_empty() && password_field(kind, &meta))
             || labelled_code(f.label, text)
             || labelled_secret(kind, f.label, text)
-        {
-            return if text.is_empty() {
-                String::new()
-            } else {
-                REDACTED.to_string()
-            };
-        }
-        self.text(text)
+    }
+
+    /// redact.py:243: capture boundary for AX/DOM/clipboard fields; metadata never grants action permission.
+    /// decision: GATE-206.
+    pub fn field(&self, text: &str, f: &Field<'_>) -> String {
+        self.closed(|| {
+            if self.field_hidden(text, f) {
+                return if text.is_empty() {
+                    String::new()
+                } else {
+                    REDACTED.to_string()
+                };
+            }
+            self.text_of(text)
+        })
     }
 
     /// redact.py:254: the owner's typed answer to a question (no field): to a sign-in password, passcode or PIN
     /// question it is hidden whole; to a question with a code word its 4-8 digit codes are masked. `reply`: a chat
     /// message while the question is open.
     pub fn answer(&self, text: &str, question: &str, reply: bool) -> String {
-        if u::strip(text).is_empty() {
-            return text.to_string();
-        }
-        if hidden_answer(question, text, reply) {
-            return REDACTED.to_string();
-        }
-        let out = self.text(text);
-        if code_words(question).is_empty() {
-            out
-        } else {
-            labels::mask_code_values(&out)
-        }
+        self.closed(|| {
+            if u::strip(text).is_empty() {
+                return text.to_string();
+            }
+            if hidden_answer(question, text, reply) {
+                return REDACTED.to_string();
+            }
+            let out = self.text_of(text);
+            if code_words(question).is_empty() {
+                out
+            } else {
+                labels::mask_code_values(&out)
+            }
+        })
     }
 
     // ---------- structures ----------
 
-    /// redact.py:267 `Redactor.__call__`: a JSON value redacted, its shape kept.
-    pub fn value(&self, obj: &Value) -> Value {
-        self.walk(obj)
+    /// redact.py:267 `Redactor.__call__`: a record redacted, its shape kept. Every string that comes back from
+    /// the text rules carries this redactor's mark.
+    pub fn py(&self, obj: &Py) -> Py {
+        checked(|| self.walk(obj)).unwrap_or_else(|Unread| Py::str(UNREADABLE))
     }
 
-    fn walk(&self, obj: &Value) -> Value {
+    /// `py` for a `serde_json::Value`. A `Value` holds no mark, no bytes and no integer past 64 bits (serde_json
+    /// already read such a number as a float, its digits lost): for a record that may hold one, read its text
+    /// with `json` or `Py::from_json`.
+    pub fn value(&self, obj: &Value) -> Value {
+        self.py(&Py::from(obj)).to_value()
+    }
+
+    /// `json.dumps(redactor(json.loads(text)), ensure_ascii=…)`: a record's JSON text redacted, an integer of
+    /// any size checked by its digits and written back with all of them.
+    pub fn json(&self, text: &str, ensure_ascii: bool) -> Result<String, JsonError> {
+        self.py(&Py::from_json(text)?).to_json(ensure_ascii)
+    }
+
+    fn walk(&self, obj: &Py) -> Py {
         match obj {
-            Value::String(s) => Value::String(self.text(s)),
-            Value::Object(d) => Value::Object(self.dict(d)),
-            Value::Array(items) => Value::Array(self.list(items)),
-            Value::Number(n) if is_int(obj) => {
-                let digits = n.to_string();
+            Py::Str(s) => Py::Str(self.text_marked(s)),
+            Py::Dict(d) => Py::Dict(self.dict(d)),
+            Py::List(items) => Py::List(self.list(items)),
+            Py::Int(digits) => {
                 let digits = digits.trim_start_matches('-');
                 if payment_card(digits)
                     || !known_spans(digits, &self.registry.values(), false).is_empty()
                 {
-                    Value::String(REDACTED.to_string())
+                    redacted()
                 } else {
                     obj.clone()
                 }
             }
-            _ => obj.clone(),
+            Py::Bytes(raw) => Py::Bytes(self.bytes(raw)),
+            Py::None | Py::Bool(_) | Py::Float(_) => obj.clone(),
         }
+    }
+
+    /// redact.py:282: bytes read as UTF-8 text and redacted; the same bytes when nothing changed. A byte that is
+    /// not UTF-8 is read as a character of its own and comes back as that byte (Python's `surrogateescape`).
+    pub fn bytes(&self, raw: &[u8]) -> Vec<u8> {
+        if let Ok(text) = std::str::from_utf8(raw) {
+            return self.text(text).into_bytes();
+        }
+        let lossy = String::from_utf8_lossy(raw); // only to see which characters the text holds
+        let Some(base) = STAND_IN_BASES
+            .map(|b| b << 8)
+            .find(|&b| !lossy.chars().any(|c| (b..b + 0x100).contains(&(c as u32))))
+        else {
+            return UNREADABLE.as_bytes().to_vec(); // every stand-in is in the text: nothing can be told apart
+        };
+        let (mut text, mut rest) = (String::with_capacity(raw.len()), raw);
+        while !rest.is_empty() {
+            match std::str::from_utf8(rest) {
+                Ok(valid) => {
+                    text.push_str(valid);
+                    break;
+                }
+                Err(e) => {
+                    let (valid, bad) = rest.split_at(e.valid_up_to());
+                    text.push_str(std::str::from_utf8(valid).unwrap_or_default());
+                    let n = e.error_len().unwrap_or(bad.len());
+                    for &b in &bad[..n] {
+                        text.extend(char::from_u32(base + u32::from(b)));
+                    }
+                    rest = &bad[n..];
+                }
+            }
+        }
+        let masked = self.text(&text);
+        let mut out = Vec::with_capacity(masked.len());
+        for c in masked.chars() {
+            match (c as u32).checked_sub(base) {
+                Some(b @ 0x80..=0xff) => out.push(b as u8),
+                _ => out.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes()),
+            }
+        }
+        out
+    }
+
+    /// redact.py:288: a dict key redacted as text (a key can be a secret too).
+    fn key(&self, key: &PyStr) -> PyStr {
+        self.text_marked(key)
     }
 
     /// redact.py:350: `value` under `k` redacted; two keys that redact alike both stay ("#2" on the later one).
-    fn put(&self, out: &mut Map<String, Value>, k: &str, value: Value) -> String {
-        let mut key = self.text(k);
-        if out.contains_key(&key) {
+    /// Returns where it was put.
+    fn put(&self, out: &mut Dict, k: &PyStr, value: Py) -> usize {
+        let mut key = self.key(k);
+        if dict_get(out, &key.text).is_some() {
             let mut n = 2;
-            while out.contains_key(&format!("{key}#{n}")) {
+            while dict_get(out, &format!("{}#{n}", key.text)).is_some() {
                 n += 1;
             }
-            key = format!("{key}#{n}");
+            key = PyStr::marked(format!("{}#{n}", key.text), self.mark());
         }
-        out.insert(key.clone(), value);
-        key
+        out.push((key, value));
+        out.len() - 1
     }
 
     /// redact.py:361: a value a secret key names: every text and number in it masked, its shape kept.
-    fn hidden(&self, value: &Value) -> Value {
+    fn hidden(&self, value: &Py) -> Py {
         match value {
-            Value::Object(d) => {
-                let mut out = Map::new();
+            Py::Dict(d) => {
+                let mut out = Dict::new();
                 for (k, v) in d {
                     let v = self.hidden(v);
                     self.put(&mut out, k, v);
                 }
-                Value::Object(out)
+                Py::Dict(out)
             }
-            Value::Array(items) => Value::Array(items.iter().map(|v| self.hidden(v)).collect()),
-            Value::Null | Value::Bool(_) => value.clone(),
-            Value::String(s) if s.is_empty() => value.clone(),
-            _ => Value::String(REDACTED.to_string()),
+            Py::List(items) => Py::List(items.iter().map(|v| self.hidden(v)).collect()),
+            Py::None | Py::Bool(_) => value.clone(),
+            Py::Str(s) if s.text.is_empty() => value.clone(),
+            _ => redacted(),
         }
     }
 
-    fn dict(&self, d: &Map<String, Value>) -> Map<String, Value> {
-        let or_empty = |key: &str| d.get(key).filter(|v| truthy(v));
-        let get_str = |v: Option<&Value>| v.map(to_str).unwrap_or_default();
+    fn dict(&self, d: &[(PyStr, Py)]) -> Dict {
+        let get = |key: &str| dict_get(d, key);
+        let or_empty = |key: &str| get(key).filter(|v| truthy(v));
+        let get_str = |v: Option<&Py>| v.map(to_str).unwrap_or_default();
         let kind_type = get_str(or_empty("type"));
         let kind_type_lower = u::lower(&kind_type);
         // an input type before a role
@@ -503,10 +652,10 @@ impl Redactor {
             }
             None => get_str(or_empty("role")),
         };
-        let autocomplete = get_str(d.get("autocomplete"));
+        let autocomplete = get_str(get("autocomplete"));
         let metadata: Vec<&str> = FIELD_METADATA
             .iter()
-            .filter_map(|k| d.get(*k).and_then(Value::as_str))
+            .filter_map(|k| get(k).and_then(Py::as_str))
             .collect();
         let secret_field = kind_type_lower == "password"
             || u::lower(&autocomplete).contains("one-time-code")
@@ -515,57 +664,52 @@ impl Redactor {
                 .is_some()
             || labels::CARD_AUTOCOMPLETE.search(&autocomplete, 0).is_some()
             || password_field(&kind, &metadata);
-        let input_event = d
-            .get("method")
-            .and_then(Value::as_str)
+        let input_event = get("method")
+            .and_then(Py::as_str)
             .is_some_and(|m| m.starts_with("Input."));
-        let mut out = Map::new();
-        let mut order: Vec<(&str, String)> = Vec::new();
+        let mut out = Dict::new();
+        let mut order: Vec<(&str, usize)> = Vec::new();
         for (k, v) in d {
-            let ks = k.as_str();
+            let ks = k.text.as_str();
             let cls = label_class(ks);
             let value = if cls == Some(LabelClass::Secret) {
                 self.hidden(v)
             } else if cls.is_some()
-                && (v.is_string() || is_int(v))
+                && matches!(v, Py::Str(_) | Py::Int(_))
                 && labelled_value(cls, &to_str(v))
             {
-                Value::String(REDACTED.to_string())
-            } else if INTERNAL_ID_KEYS.contains(&ks) && (v.is_string() || v.is_array()) {
-                match v {
-                    Value::String(s) => Value::String(self.ident(s)),
-                    Value::Array(items) => Value::Array(
-                        items
-                            .iter()
-                            .map(|item| match item {
-                                Value::String(s) => Value::String(self.ident(s)),
-                                other => self.walk(other),
-                            })
-                            .collect(),
-                    ),
-                    _ => unreachable!("a string or an array"),
-                }
-            } else if secret_field && ks == "value" && !v.is_null() && v.as_str() != Some("") {
-                Value::String(REDACTED.to_string())
-            } else if let (true, "params", Value::Object(params)) = (input_event, ks, v) {
-                let mut inner = Map::new();
+                redacted()
+            } else if let (true, Py::Str(s)) = (INTERNAL_ID_KEYS.contains(&ks), v) {
+                Py::Str(PyStr::marked(self.ident(&s.text), self.mark()))
+            } else if let (true, Py::List(items)) = (INTERNAL_ID_KEYS.contains(&ks), v) {
+                Py::List(
+                    items
+                        .iter()
+                        .map(|item| match item {
+                            Py::Str(s) => Py::Str(PyStr::marked(self.ident(&s.text), self.mark())),
+                            other => self.walk(other),
+                        })
+                        .collect(),
+                )
+            } else if secret_field && ks == "value" && *v != Py::None && v.as_str() != Some("") {
+                redacted()
+            } else if let (true, "params", Py::Dict(params)) = (input_event, ks, v) {
+                let mut inner = Dict::new();
                 for (pk, pv) in params {
-                    let pv = if INPUT_TEXT_FIELDS.contains(&pk.as_str()) {
-                        Value::String(REDACTED.to_string())
+                    let pv = if INPUT_TEXT_FIELDS.contains(&pk.text.as_str()) {
+                        redacted()
                     } else {
                         self.walk(pv)
                     };
                     self.put(&mut inner, pk, pv);
                 }
-                Value::Object(inner)
-            } else if let (true, Value::String(text)) =
-                (matches!(ks, "value" | "text" | "content"), v)
-            {
-                let role = get_str(d.get("role").or_else(|| d.get("type")));
+                Py::Dict(inner)
+            } else if let (true, Py::Str(text)) = (matches!(ks, "value" | "text" | "content"), v) {
+                let role = get_str(get("role").or_else(|| get("type")));
                 let label = get_str(
-                    d.get("label")
-                        .or_else(|| d.get("name"))
-                        .or_else(|| d.get("autocomplete")),
+                    get("label")
+                        .or_else(|| get("name"))
+                        .or_else(|| get("autocomplete")),
                 );
                 let f = Field {
                     role: &role,
@@ -573,12 +717,20 @@ impl Redactor {
                     kind: Some(&kind),
                     ..Field::default()
                 };
-                Value::String(self.field(text, &f))
+                if self.field_hidden(&text.text, &f) {
+                    if text.text.is_empty() {
+                        v.clone()
+                    } else {
+                        redacted()
+                    }
+                } else {
+                    Py::Str(self.text_marked(text))
+                }
             } else {
                 self.walk(v)
             };
-            let key = self.put(&mut out, k, value);
-            order.push((ks, key));
+            let at = self.put(&mut out, k, value);
+            order.push((ks, at));
         }
         if d.len() > 1 {
             self.dict_siblings(d, &mut out, order);
@@ -588,18 +740,13 @@ impl Redactor {
 
     /// redact.py:336: a code its previous value labels (a body's "PIN" then "4821"): an object's neighbouring
     /// scalar values, in key order, read as sibling lines; FERB's own ids are neither read nor masked.
-    fn dict_siblings(
-        &self,
-        d: &Map<String, Value>,
-        out: &mut Map<String, Value>,
-        mut order: Vec<(&str, String)>,
-    ) {
-        order.sort_by(|a, b| a.1.cmp(&b.1)); // by the redacted key, as text; stable
+    fn dict_siblings(&self, d: &[(PyStr, Py)], out: &mut Dict, mut order: Vec<(&str, usize)>) {
+        order.sort_by(|a, b| out[a.1].0.text.cmp(&out[b.1].0.text)); // by the redacted key, as text; stable
         let id_key = |ks: &str| INTERNAL_ID_KEYS.contains(&ks) || SIBLING_ID_EXTRA.contains(&ks);
         let lines: Vec<String> = order
             .iter()
-            .map(|(ks, key)| match out.get(key) {
-                Some(v) if (v.is_string() || is_int(v)) && !id_key(ks) => to_str(v),
+            .map(|&(ks, at)| match &out[at].1 {
+                v @ (Py::Str(_) | Py::Int(_)) if !id_key(ks) => to_str(v),
                 _ => String::new(),
             })
             .collect();
@@ -611,25 +758,28 @@ impl Redactor {
         }
         let raw: Vec<&str> = order
             .iter()
-            .map(|(ks, _)| d.get(*ks).and_then(Value::as_str).unwrap_or(""))
+            .map(|(ks, _)| dict_get(d, ks).and_then(Py::as_str).unwrap_or(""))
             .collect();
         for i in self.sibling_hits(&lines, &raw) {
-            if let Some(v) = out.get_mut(&order[i].1) {
-                if v.is_string() || is_int(v) || v.is_boolean() {
-                    *v = Value::String(REDACTED.to_string()); // Python's isinstance(…, (str, int)) takes a bool too
-                }
+            let v = &mut out[order[i].1].1;
+            if str_or_int(v) {
+                *v = redacted();
             }
         }
     }
 
-    fn list(&self, raw: &[Value]) -> Vec<Value> {
-        let mut out: Vec<Value> = raw.iter().map(|v| self.walk(v)).collect();
+    fn list(&self, raw: &[Py]) -> Vec<Py> {
+        let mut out: Vec<Py> = raw.iter().map(|v| self.walk(v)).collect();
         if raw.len() < 2 {
             return out;
         }
-        // redact.py:377: a list with no text and no object relates nothing (there, every text it holds is already
-        // marked redacted: none is)
-        if !raw.iter().any(|v| v.is_string() || v.is_object()) {
+        // redact.py:377: already related as siblings when it was redacted
+        let mark = Some(self.mark());
+        if raw.iter().all(|v| match v {
+            Py::Str(s) => s.mark == mark,
+            Py::Dict(_) => false,
+            _ => true,
+        }) {
             return out;
         }
         self.siblings(raw, &mut out);
@@ -638,23 +788,22 @@ impl Redactor {
 
     /// redact.py:381: secrets that only neighbouring items show: a code split from its label across sibling nodes,
     /// read as lines; and a private key whose lines are separate items.
-    fn siblings(&self, raw: &[Value], out: &mut [Value]) {
+    fn siblings(&self, raw: &[Py], out: &mut [Py]) {
         let mut keys: Vec<Option<&'static str>> = Vec::new();
         let mut lines: Vec<String> = Vec::new();
         for item in out.iter() {
             let key = NODE_TEXT.iter().copied().find(|k| {
-                item.as_object()
-                    .and_then(|o| o.get(*k))
-                    .and_then(Value::as_str)
+                item.get(k)
+                    .and_then(Py::as_str)
                     .is_some_and(|t| !u::strip(t).is_empty())
             });
             keys.push(key);
             lines.push(match item {
-                Value::String(s) => s.clone(),
-                v if is_int(v) => to_str(v),
+                Py::Str(s) => s.text.clone(),
+                Py::Int(digits) => digits.clone(),
                 v => key
                     .and_then(|k| v.get(k))
-                    .and_then(Value::as_str)
+                    .and_then(Py::as_str)
                     .unwrap_or("")
                     .to_string(),
             });
@@ -662,10 +811,12 @@ impl Redactor {
         let raw_lines: Vec<&str> = raw.iter().map(|v| v.as_str().unwrap_or("")).collect();
         for i in self.sibling_hits(&lines, &raw_lines) {
             let item = &mut out[i];
-            if item.is_string() || is_int(item) || item.is_boolean() {
-                *item = Value::String(REDACTED.to_string());
-            } else if let (Some(key), Value::Object(o)) = (keys[i], item) {
-                o.insert(key.to_string(), Value::String(REDACTED.to_string()));
+            if str_or_int(item) {
+                *item = redacted();
+            } else if let (Some(key), Py::Dict(o)) = (keys[i], item) {
+                if let Some(entry) = o.iter_mut().find(|(k, _)| k.text == key) {
+                    entry.1 = redacted();
+                }
             }
         }
     }
@@ -694,7 +845,7 @@ impl Redactor {
                 joined.push_str(line);
                 joined.push('\n');
             }
-            for (a, b, _) in self.spans(&joined, false) {
+            for (a, b, _) in self.spans_of(&joined, false) {
                 let first = starts.partition_point(|&x| x <= a) - 1;
                 let last = starts.partition_point(|&x| x < b) - 1; // bisect_right(starts, b - 1) - 1
                 if first != last {

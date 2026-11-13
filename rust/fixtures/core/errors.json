@@ -1,0 +1,174 @@
+[
+ {
+  "class": "FerbError",
+  "message": "base",
+  "ferb_error": true,
+  "value_error": false,
+  "refused": false,
+  "unsupported": false
+ },
+ {
+  "class": "RuntimeUnavailable",
+  "message": "codex isn't installed",
+  "ferb_error": false,
+  "value_error": true,
+  "refused": false,
+  "unsupported": false
+ },
+ {
+  "class": "Unsupported",
+  "message": "can't",
+  "ferb_error": true,
+  "value_error": false,
+  "refused": false,
+  "unsupported": true
+ },
+ {
+  "class": "ModelLimitsUnknown",
+  "message": "no window",
+  "ferb_error": true,
+  "value_error": false,
+  "refused": false,
+  "unsupported": true
+ },
+ {
+  "class": "InputTooLarge",
+  "message": "this call's context is 1200000 characters, more than the 1048576 characters the model runtime accepts in one input; nothing was sent",
+  "ferb_error": true,
+  "value_error": false,
+  "refused": false,
+  "unsupported": true,
+  "args": {
+   "chars": 1200000,
+   "max_chars": 1048576,
+   "runtime": ""
+  }
+ },
+ {
+  "class": "InputTooLarge",
+  "message": "the plan is 5 characters, more than the 4 characters the model runtime accepts in one input; nothing was sent",
+  "ferb_error": true,
+  "value_error": false,
+  "refused": false,
+  "unsupported": true,
+  "args": {
+   "chars": 5,
+   "max_chars": 4,
+   "runtime": ""
+  }
+ },
+ {
+  "class": "PlanRejected",
+  "message": "The planner's answer still had problems after one repair: Inventory paths are protected: ['~/x']; two",
+  "ferb_error": false,
+  "value_error": true,
+  "refused": false,
+  "unsupported": false,
+  "args": {
+   "problems": [
+    "Inventory paths are protected: ['~/x']",
+    "two"
+   ]
+  }
+ },
+ {
+  "class": "PlanRejected",
+  "message": "The planner's answer still had problems after one repair: ",
+  "ferb_error": false,
+  "value_error": true,
+  "refused": false,
+  "unsupported": false,
+  "args": {
+   "problems": []
+  }
+ },
+ {
+  "class": "AuthError",
+  "message": "bad token",
+  "ferb_error": true,
+  "value_error": false,
+  "refused": false,
+  "unsupported": false
+ },
+ {
+  "class": "NotRunning",
+  "message": "gone",
+  "ferb_error": true,
+  "value_error": false,
+  "refused": false,
+  "unsupported": false
+ },
+ {
+  "class": "AlreadyRunning",
+  "message": "there",
+  "ferb_error": true,
+  "value_error": false,
+  "refused": false,
+  "unsupported": false
+ },
+ {
+  "class": "Deferred",
+  "message": "stopping",
+  "ferb_error": true,
+  "value_error": false,
+  "refused": false,
+  "unsupported": false
+ },
+ {
+  "class": "Refused",
+  "message": "no",
+  "ferb_error": true,
+  "value_error": false,
+  "refused": true,
+  "unsupported": false
+ },
+ {
+  "class": "StaleRef",
+  "message": "old tab",
+  "ferb_error": true,
+  "value_error": false,
+  "refused": true,
+  "unsupported": false
+ },
+ {
+  "class": "NoTarget",
+  "message": "no window",
+  "ferb_error": true,
+  "value_error": false,
+  "refused": true,
+  "unsupported": false
+ },
+ {
+  "class": "Withheld",
+  "message": "unpainted",
+  "ferb_error": true,
+  "value_error": false,
+  "refused": true,
+  "unsupported": false
+ },
+ {
+  "class": "DriverError",
+  "message": "driver failed",
+  "ferb_error": true,
+  "value_error": false,
+  "refused": false,
+  "unsupported": false,
+  "args": {
+   "facts": {}
+  }
+ },
+ {
+  "class": "DriverError",
+  "message": "needs a route",
+  "ferb_error": true,
+  "value_error": false,
+  "refused": false,
+  "unsupported": false,
+  "args": {
+   "facts": {
+    "route": "foreground",
+    "n": 2
+   }
+  }
+ }
+]

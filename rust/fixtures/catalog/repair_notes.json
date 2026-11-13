@@ -1,0 +1,1171 @@
+{
+ "about": "check_final (ferb/core/structured.py) on invented answers: `error` is the ValueError's text, `repair_note` what schema_shape.repair_note makes of it (sent to the model in the stated form). Schemas are in answer_schemas.json by name.",
+ "versions": {
+  "jsonschema": "4.26.0",
+  "python": "3.12.14"
+ },
+ "worker_side": {
+  "not_json": "the answer is not JSON ({json.JSONDecodeError.msg})",
+  "not_object": "the answer is not a JSON object",
+  "where": "ferb/orchestrator/worker.py _run_worker_once, raised as InvalidAnswer"
+ },
+ "case_count": 117,
+ "cases": [
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "not JSON",
+   "answer": "",
+   "ok": false,
+   "error": "the answer is not JSON (Expecting value)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer is not JSON (Expecting value)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "not JSON",
+   "answer": "   ",
+   "ok": false,
+   "error": "the answer is not JSON (Expecting value)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer is not JSON (Expecting value)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "not JSON",
+   "answer": "done",
+   "ok": false,
+   "error": "the answer is not JSON (Expecting value)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer is not JSON (Expecting value)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "not JSON",
+   "answer": "{",
+   "ok": false,
+   "error": "the answer is not JSON (Expecting property name enclosed in double quotes)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer is not JSON (Expecting property name enclosed in double quotes)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "not JSON",
+   "answer": "{\"status\": \"done\",}",
+   "ok": false,
+   "error": "the answer is not JSON (Expecting property name enclosed in double quotes)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer is not JSON (Expecting property name enclosed in double quotes)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "not JSON",
+   "answer": "{\"status\": \"done\"} and more",
+   "ok": false,
+   "error": "the answer is not JSON (Extra data)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer is not JSON (Extra data)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "not JSON",
+   "answer": "{'status': 'done'}",
+   "ok": false,
+   "error": "the answer is not JSON (Expecting property name enclosed in double quotes)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer is not JSON (Expecting property name enclosed in double quotes)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "not JSON",
+   "answer": "```json\n{\"answer\": \"x\"}\n```",
+   "ok": false,
+   "error": "the answer is not JSON (Expecting value)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer is not JSON (Expecting value)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "not JSON",
+   "answer": "{\"answer\": \"x\"",
+   "ok": false,
+   "error": "the answer is not JSON (Expecting ',' delimiter)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer is not JSON (Expecting ',' delimiter)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "not JSON",
+   "answer": "[\"a\", ]",
+   "ok": false,
+   "error": "the answer is not JSON (Expecting value)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer is not JSON (Expecting value)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "not JSON",
+   "answer": "{\"a\": 01}",
+   "ok": false,
+   "error": "the answer is not JSON (Expecting ',' delimiter)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer is not JSON (Expecting ',' delimiter)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "not JSON",
+   "answer": "{\"a\": \"line\nbreak\"}",
+   "ok": false,
+   "error": "the answer is not JSON (Invalid control character at)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer is not JSON (Invalid control character at)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "not JSON",
+   "answer": "{\"a\": \"\\x\"}",
+   "ok": false,
+   "error": "the answer is not JSON (Invalid \\escape)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer is not JSON (Invalid \\escape)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "not JSON",
+   "answer": "NaN",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: nan is not of type 'object'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: nan is not of type 'object'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "not JSON",
+   "answer": "﻿{}",
+   "ok": false,
+   "error": "the answer is not JSON (Unexpected UTF-8 BOM (decode using utf-8-sig))",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer is not JSON (Unexpected UTF-8 BOM (decode using utf-8-sig))). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "wrong top level or fields",
+   "answer": "[]",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: [] is not of type 'object'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: [] is not of type 'object'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "wrong top level or fields",
+   "answer": "\"text\"",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'text' is not of type 'object'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'text' is not of type 'object'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "wrong top level or fields",
+   "answer": "null",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: None is not of type 'object'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: None is not of type 'object'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "wrong top level or fields",
+   "answer": "7",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 7 is not of type 'object'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 7 is not of type 'object'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "wrong top level or fields",
+   "answer": "true",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: True is not of type 'object'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: True is not of type 'object'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "wrong top level or fields",
+   "answer": "{}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'answer' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'answer' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "wrong top level or fields",
+   "answer": "{\"answer\": null}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at answer: None is not of type 'string'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at answer: None is not of type 'string'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "wrong top level or fields",
+   "answer": "{\"answer\": \"x\", \"extra\": 1}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('extra' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('extra' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "FIX_SCHEMA",
+   "what": "wrong top level or fields",
+   "answer": "{\"answer\": 5, \"extra\": 1}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('extra' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('extra' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "SUPERVISOR_SCHEMA",
+   "what": "missing kind",
+   "answer": "{\"answers_question\": true, \"task\": {\"goal\": \"x\", \"name\": \"x\", \"identity\": \"owner\", \"worker_type\": \"x\", \"targets\": {\"apps\": [], \"sites\": [], \"paths\": [], \"recipients\": []}, \"success_conditions\": [{\"text\": \"x\", \"owner_text\": \"x\", \"layer\": \"outcome\", \"check\": {\"kind\": \"none\", \"path\": \"x\", \"text\": \"x\", \"url_contains\": \"x\", \"site\": \"x\", \"expected\": \"x\", \"tool\": \"x\"}}], \"plan\": {\"steps\": [], \"input_paths\": [], \"big_job\": true, \"time_estimate\": \"x\", \"cost_estimate\": \"x\", \"standing_sends\": []}, \"folders\": [], \"keep_tabs_open\": true, \"parts\": [], \"earlier_results\": []}, \"control\": {\"task_id\": \"x\", \"action\": \"stop\", \"new_goal\": true, \"standing_sends\": \"unchanged\", \"supersedes\": []}, \"side_entries\": {\"answer_question\": {\"approval_id\": \"x\", \"answer\": \"x\"}, \"remember\": [], \"forget\": [], \"timers\": [], \"schedules\": [], \"schedule_changes\": [], \"show_schedules\": true, \"reminder_cancels\": [], \"conversation_changes\": []}, \"text\": \"x\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'kind' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'kind' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "SUPERVISOR_SCHEMA",
+   "what": "an extra property",
+   "answer": "{\"kind\": \"reply\", \"answers_question\": true, \"task\": {\"goal\": \"x\", \"name\": \"x\", \"identity\": \"owner\", \"worker_type\": \"x\", \"targets\": {\"apps\": [], \"sites\": [], \"paths\": [], \"recipients\": []}, \"success_conditions\": [{\"text\": \"x\", \"owner_text\": \"x\", \"layer\": \"outcome\", \"check\": {\"kind\": \"none\", \"path\": \"x\", \"text\": \"x\", \"url_contains\": \"x\", \"site\": \"x\", \"expected\": \"x\", \"tool\": \"x\"}}], \"plan\": {\"steps\": [], \"input_paths\": [], \"big_job\": true, \"time_estimate\": \"x\", \"cost_estimate\": \"x\", \"standing_sends\": []}, \"folders\": [], \"keep_tabs_open\": true, \"parts\": [], \"earlier_results\": []}, \"control\": {\"task_id\": \"x\", \"action\": \"stop\", \"new_goal\": true, \"standing_sends\": \"unchanged\", \"supersedes\": []}, \"side_entries\": {\"answer_question\": {\"approval_id\": \"x\", \"answer\": \"x\"}, \"remember\": [], \"forget\": [], \"timers\": [], \"schedules\": [], \"schedule_changes\": [], \"show_schedules\": true, \"reminder_cancels\": [], \"conversation_changes\": []}, \"text\": \"x\", \"unasked\": \"café ✓\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "SUPERVISOR_SCHEMA",
+   "what": "wrong type at text",
+   "answer": "{\"kind\": \"reply\", \"answers_question\": true, \"task\": {\"goal\": \"x\", \"name\": \"x\", \"identity\": \"owner\", \"worker_type\": \"x\", \"targets\": {\"apps\": [], \"sites\": [], \"paths\": [], \"recipients\": []}, \"success_conditions\": [{\"text\": \"x\", \"owner_text\": \"x\", \"layer\": \"outcome\", \"check\": {\"kind\": \"none\", \"path\": \"x\", \"text\": \"x\", \"url_contains\": \"x\", \"site\": \"x\", \"expected\": \"x\", \"tool\": \"x\"}}], \"plan\": {\"steps\": [], \"input_paths\": [], \"big_job\": true, \"time_estimate\": \"x\", \"cost_estimate\": \"x\", \"standing_sends\": []}, \"folders\": [], \"keep_tabs_open\": true, \"parts\": [], \"earlier_results\": []}, \"control\": {\"task_id\": \"x\", \"action\": \"stop\", \"new_goal\": true, \"standing_sends\": \"unchanged\", \"supersedes\": []}, \"side_entries\": {\"answer_question\": {\"approval_id\": \"x\", \"answer\": \"x\"}, \"remember\": [], \"forget\": [], \"timers\": [], \"schedules\": [], \"schedule_changes\": [], \"show_schedules\": true, \"reminder_cancels\": [], \"conversation_changes\": []}, \"text\": 7}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at text: 7 is not of type 'string'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at text: 7 is not of type 'string'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "SUPERVISOR_SCHEMA",
+   "what": "not in the enum at kind",
+   "answer": "{\"kind\": \"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\", \"answers_question\": true, \"task\": {\"goal\": \"x\", \"name\": \"x\", \"identity\": \"owner\", \"worker_type\": \"x\", \"targets\": {\"apps\": [], \"sites\": [], \"paths\": [], \"recipients\": []}, \"success_conditions\": [{\"text\": \"x\", \"owner_text\": \"x\", \"layer\": \"outcome\", \"check\": {\"kind\": \"none\", \"path\": \"x\", \"text\": \"x\", \"url_contains\": \"x\", \"site\": \"x\", \"expected\": \"x\", \"tool\": \"x\"}}], \"plan\": {\"steps\": [], \"input_paths\": [], \"big_job\": true, \"time_estimate\": \"x\", \"cost_estimate\": \"x\", \"standing_sends\": []}, \"folders\": [], \"keep_tabs_open\": true, \"parts\": [], \"earlier_results\": []}, \"control\": {\"task_id\": \"x\", \"action\": \"stop\", \"new_goal\": true, \"standing_sends\": \"unchanged\", \"supersedes\": []}, \"side_entries\": {\"answer_question\": {\"approval_id\": \"x\", \"answer\": \"x\"}, \"remember\": [], \"forget\": [], \"timers\": [], \"schedules\": [], \"schedule_changes\": [], \"show_schedules\": true, \"reminder_cancels\": [], \"conversation_changes\": []}, \"text\": \"x\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at kind: 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at kind: 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "SUPERVISOR_SCHEMA",
+   "what": "two problems (missing and extra)",
+   "answer": "{\"kind\": \"reply\", \"answers_question\": true, \"task\": {\"goal\": \"x\", \"name\": \"x\", \"identity\": \"owner\", \"worker_type\": \"x\", \"targets\": {\"apps\": [], \"sites\": [], \"paths\": [], \"recipients\": []}, \"success_conditions\": [{\"text\": \"x\", \"owner_text\": \"x\", \"layer\": \"outcome\", \"check\": {\"kind\": \"none\", \"path\": \"x\", \"text\": \"x\", \"url_contains\": \"x\", \"site\": \"x\", \"expected\": \"x\", \"tool\": \"x\"}}], \"plan\": {\"steps\": [], \"input_paths\": [], \"big_job\": true, \"time_estimate\": \"x\", \"cost_estimate\": \"x\", \"standing_sends\": []}, \"folders\": [], \"keep_tabs_open\": true, \"parts\": [], \"earlier_results\": []}, \"control\": {\"task_id\": \"x\", \"action\": \"stop\", \"new_goal\": true, \"standing_sends\": \"unchanged\", \"supersedes\": []}, \"side_entries\": {\"answer_question\": {\"approval_id\": \"x\", \"answer\": \"x\"}, \"remember\": [], \"forget\": [], \"timers\": [], \"schedules\": [], \"schedule_changes\": [], \"show_schedules\": true, \"reminder_cancels\": [], \"conversation_changes\": []}, \"unasked\": 1}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "WORKER_SCHEMA",
+   "what": "missing status",
+   "answer": "{\"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'status' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'status' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "WORKER_SCHEMA",
+   "what": "an extra property",
+   "answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\", \"unasked\": \"café ✓\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "WORKER_SCHEMA",
+   "what": "wrong type at how",
+   "answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": 7}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at how: 7 is not of type 'string'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at how: 7 is not of type 'string'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "WORKER_SCHEMA",
+   "what": "not in the enum at status",
+   "answer": "{\"status\": \"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at status: 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at status: 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "WORKER_SCHEMA",
+   "what": "a wrong item at artifacts/1",
+   "answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [\"x\", 7], \"how\": \"x\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at artifacts/1: 7 is not of type 'string'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at artifacts/1: 7 is not of type 'string'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "WORKER_SCHEMA",
+   "what": "two problems (missing and extra)",
+   "answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"unasked\": 1}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "WORKER_ALL_SCHEMA",
+   "what": "missing status",
+   "answer": "{\"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\", \"input_notes\": [], \"conversation_proposals\": [], \"conversation_action\": \"wait\", \"watch_met\": true, \"loop_action\": \"continue\", \"probe\": {\"tool\": \"x\", \"args_json\": \"x\", \"field\": \"x\", \"op\": \"equals\", \"value_json\": \"x\"}, \"part_updates\": []}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'status' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'status' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "WORKER_ALL_SCHEMA",
+   "what": "an extra property",
+   "answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\", \"input_notes\": [], \"conversation_proposals\": [], \"conversation_action\": \"wait\", \"watch_met\": true, \"loop_action\": \"continue\", \"probe\": {\"tool\": \"x\", \"args_json\": \"x\", \"field\": \"x\", \"op\": \"equals\", \"value_json\": \"x\"}, \"part_updates\": [], \"unasked\": \"café ✓\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "WORKER_ALL_SCHEMA",
+   "what": "wrong type at part_updates",
+   "answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\", \"input_notes\": [], \"conversation_proposals\": [], \"conversation_action\": \"wait\", \"watch_met\": true, \"loop_action\": \"continue\", \"probe\": {\"tool\": \"x\", \"args_json\": \"x\", \"field\": \"x\", \"op\": \"equals\", \"value_json\": \"x\"}, \"part_updates\": {\"not\": \"a list\"}}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at part_updates: {'not': 'a list'} is not of type 'array'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at part_updates: {'not': 'a list'} is not of type 'array'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "WORKER_ALL_SCHEMA",
+   "what": "not in the enum at status",
+   "answer": "{\"status\": \"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\", \"input_notes\": [], \"conversation_proposals\": [], \"conversation_action\": \"wait\", \"watch_met\": true, \"loop_action\": \"continue\", \"probe\": {\"tool\": \"x\", \"args_json\": \"x\", \"field\": \"x\", \"op\": \"equals\", \"value_json\": \"x\"}, \"part_updates\": []}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at status: 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at status: 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "WORKER_ALL_SCHEMA",
+   "what": "a wrong item at artifacts/1",
+   "answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [\"x\", 7], \"how\": \"x\", \"input_notes\": [], \"conversation_proposals\": [], \"conversation_action\": \"wait\", \"watch_met\": true, \"loop_action\": \"continue\", \"probe\": {\"tool\": \"x\", \"args_json\": \"x\", \"field\": \"x\", \"op\": \"equals\", \"value_json\": \"x\"}, \"part_updates\": []}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at artifacts/1: 7 is not of type 'string'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at artifacts/1: 7 is not of type 'string'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "WORKER_ALL_SCHEMA",
+   "what": "two problems (missing and extra)",
+   "answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\", \"input_notes\": [], \"conversation_proposals\": [], \"conversation_action\": \"wait\", \"watch_met\": true, \"loop_action\": \"continue\", \"probe\": {\"tool\": \"x\", \"args_json\": \"x\", \"field\": \"x\", \"op\": \"equals\", \"value_json\": \"x\"}, \"unasked\": 1}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "CHECKER_SCHEMA",
+   "what": "missing results",
+   "answer": "{\"next\": \"accept\", \"findings\": [], \"missing\": \"x\", \"instructions\": \"x\", \"worker_type\": \"x\", \"question\": \"x\", \"reason\": \"x\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'results' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'results' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "CHECKER_SCHEMA",
+   "what": "an extra property",
+   "answer": "{\"results\": [], \"next\": \"accept\", \"findings\": [], \"missing\": \"x\", \"instructions\": \"x\", \"worker_type\": \"x\", \"question\": \"x\", \"reason\": \"x\", \"unasked\": \"café ✓\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "CHECKER_SCHEMA",
+   "what": "wrong type at reason",
+   "answer": "{\"results\": [], \"next\": \"accept\", \"findings\": [], \"missing\": \"x\", \"instructions\": \"x\", \"worker_type\": \"x\", \"question\": \"x\", \"reason\": 7}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at reason: 7 is not of type 'string'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at reason: 7 is not of type 'string'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "CHECKER_SCHEMA",
+   "what": "not in the enum at next",
+   "answer": "{\"results\": [], \"next\": \"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\", \"findings\": [], \"missing\": \"x\", \"instructions\": \"x\", \"worker_type\": \"x\", \"question\": \"x\", \"reason\": \"x\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at next: 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at next: 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "CHECKER_SCHEMA",
+   "what": "a wrong item at results/1",
+   "answer": "{\"results\": [{\"index\": 1, \"met\": true, \"applies\": true, \"evidence\": \"x\", \"how\": \"x\"}, [\"not\", \"an\", \"object\"]], \"next\": \"accept\", \"findings\": [], \"missing\": \"x\", \"instructions\": \"x\", \"worker_type\": \"x\", \"question\": \"x\", \"reason\": \"x\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at results/1: ['not', 'an', 'object'] is not of type 'object'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at results/1: ['not', 'an', 'object'] is not of type 'object'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "CHECKER_SCHEMA",
+   "what": "an item missing a field at results/0",
+   "answer": "{\"results\": [{\"met\": true, \"applies\": true, \"evidence\": \"x\", \"how\": \"x\"}], \"next\": \"accept\", \"findings\": [], \"missing\": \"x\", \"instructions\": \"x\", \"worker_type\": \"x\", \"question\": \"x\", \"reason\": \"x\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at results/0: 'index' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at results/0: 'index' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "CHECKER_SCHEMA",
+   "what": "two problems (missing and extra)",
+   "answer": "{\"results\": [], \"next\": \"accept\", \"findings\": [], \"missing\": \"x\", \"instructions\": \"x\", \"worker_type\": \"x\", \"question\": \"x\", \"unasked\": 1}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "RECHECK_SCHEMA",
+   "what": "missing findings",
+   "answer": "{}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'findings' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'findings' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "RECHECK_SCHEMA",
+   "what": "an extra property",
+   "answer": "{\"findings\": [], \"unasked\": \"café ✓\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "RECHECK_SCHEMA",
+   "what": "wrong type at findings",
+   "answer": "{\"findings\": {\"not\": \"a list\"}}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at findings: {'not': 'a list'} is not of type 'array'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at findings: {'not': 'a list'} is not of type 'array'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "RECHECK_SCHEMA",
+   "what": "a wrong item at findings/1",
+   "answer": "{\"findings\": [{\"quote\": \"x\", \"kind\": \"contradicted\", \"evidence\": \"x\"}, [\"not\", \"an\", \"object\"]]}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at findings/1: ['not', 'an', 'object'] is not of type 'object'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at findings/1: ['not', 'an', 'object'] is not of type 'object'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "RECHECK_SCHEMA",
+   "what": "an item missing a field at findings/0",
+   "answer": "{\"findings\": [{\"kind\": \"contradicted\", \"evidence\": \"x\"}]}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at findings/0: 'quote' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at findings/0: 'quote' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "RECHECK_SCHEMA",
+   "what": "two problems (missing and extra)",
+   "answer": "{\"unasked\": 1}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "SUMMARY_SCHEMA",
+   "what": "missing summary",
+   "answer": "{}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'summary' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'summary' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "SUMMARY_SCHEMA",
+   "what": "an extra property",
+   "answer": "{\"summary\": \"x\", \"unasked\": \"café ✓\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "SUMMARY_SCHEMA",
+   "what": "wrong type at summary",
+   "answer": "{\"summary\": 7}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at summary: 7 is not of type 'string'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at summary: 7 is not of type 'string'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "SUMMARY_SCHEMA",
+   "what": "two problems (missing and extra)",
+   "answer": "{\"unasked\": 1}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "QUESTION_SCHEMA",
+   "what": "missing ask_owner",
+   "answer": "{\"answer\": \"x\", \"question\": \"x\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'ask_owner' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'ask_owner' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "QUESTION_SCHEMA",
+   "what": "an extra property",
+   "answer": "{\"ask_owner\": true, \"answer\": \"x\", \"question\": \"x\", \"unasked\": \"café ✓\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "QUESTION_SCHEMA",
+   "what": "wrong type at question",
+   "answer": "{\"ask_owner\": true, \"answer\": \"x\", \"question\": 7}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at question: 7 is not of type 'string'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at question: 7 is not of type 'string'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "QUESTION_SCHEMA",
+   "what": "two problems (missing and extra)",
+   "answer": "{\"ask_owner\": true, \"answer\": \"x\", \"unasked\": 1}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "ATTENTION_SCHEMA",
+   "what": "missing tell",
+   "answer": "{\"text\": \"x\", \"source_refs\": [], \"quotes\": []}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'tell' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'tell' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "ATTENTION_SCHEMA",
+   "what": "an extra property",
+   "answer": "{\"tell\": true, \"text\": \"x\", \"source_refs\": [], \"quotes\": [], \"unasked\": \"café ✓\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "ATTENTION_SCHEMA",
+   "what": "wrong type at quotes",
+   "answer": "{\"tell\": true, \"text\": \"x\", \"source_refs\": [], \"quotes\": {\"not\": \"a list\"}}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at quotes: {'not': 'a list'} is not of type 'array'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at quotes: {'not': 'a list'} is not of type 'array'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "ATTENTION_SCHEMA",
+   "what": "a wrong item at source_refs/1",
+   "answer": "{\"tell\": true, \"text\": \"x\", \"source_refs\": [\"x\", 7], \"quotes\": []}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at source_refs/1: 7 is not of type 'string'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at source_refs/1: 7 is not of type 'string'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "ATTENTION_SCHEMA",
+   "what": "two problems (missing and extra)",
+   "answer": "{\"tell\": true, \"text\": \"x\", \"source_refs\": [], \"unasked\": 1}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "PROBE_SCHEMA",
+   "what": "missing tool",
+   "answer": "{\"args_json\": \"x\", \"field\": \"x\", \"op\": \"equals\", \"value_json\": \"x\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'tool' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'tool' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "PROBE_SCHEMA",
+   "what": "an extra property",
+   "answer": "{\"tool\": \"x\", \"args_json\": \"x\", \"field\": \"x\", \"op\": \"equals\", \"value_json\": \"x\", \"unasked\": \"café ✓\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "PROBE_SCHEMA",
+   "what": "wrong type at value_json",
+   "answer": "{\"tool\": \"x\", \"args_json\": \"x\", \"field\": \"x\", \"op\": \"equals\", \"value_json\": 7}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at value_json: 7 is not of type 'string'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at value_json: 7 is not of type 'string'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "PROBE_SCHEMA",
+   "what": "not in the enum at op",
+   "answer": "{\"tool\": \"x\", \"args_json\": \"x\", \"field\": \"x\", \"op\": \"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\", \"value_json\": \"x\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at op: 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at op: 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "PROBE_SCHEMA",
+   "what": "two problems (missing and extra)",
+   "answer": "{\"tool\": \"x\", \"args_json\": \"x\", \"field\": \"x\", \"op\": \"equals\", \"unasked\": 1}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "PROFILE_SCHEMA",
+   "what": "missing sections",
+   "answer": "{\"ended\": []}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'sections' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'sections' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "PROFILE_SCHEMA",
+   "what": "an extra property",
+   "answer": "{\"sections\": [], \"ended\": [], \"unasked\": \"café ✓\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "PROFILE_SCHEMA",
+   "what": "wrong type at ended",
+   "answer": "{\"sections\": [], \"ended\": {\"not\": \"a list\"}}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at ended: {'not': 'a list'} is not of type 'array'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at ended: {'not': 'a list'} is not of type 'array'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "PROFILE_SCHEMA",
+   "what": "a wrong item at sections/1",
+   "answer": "{\"sections\": [{\"title\": \"x\", \"items\": []}, [\"not\", \"an\", \"object\"]], \"ended\": []}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at sections/1: ['not', 'an', 'object'] is not of type 'object'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at sections/1: ['not', 'an', 'object'] is not of type 'object'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "PROFILE_SCHEMA",
+   "what": "an item missing a field at sections/0",
+   "answer": "{\"sections\": [{\"items\": []}], \"ended\": []}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at sections/0: 'title' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at sections/0: 'title' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "PROFILE_SCHEMA",
+   "what": "two problems (missing and extra)",
+   "answer": "{\"sections\": [], \"unasked\": 1}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "DISTILL_SCHEMA",
+   "what": "missing narrative",
+   "answer": "{\"items\": []}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'narrative' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'narrative' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "DISTILL_SCHEMA",
+   "what": "an extra property",
+   "answer": "{\"narrative\": \"x\", \"items\": [], \"unasked\": \"café ✓\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "DISTILL_SCHEMA",
+   "what": "wrong type at items",
+   "answer": "{\"narrative\": \"x\", \"items\": {\"not\": \"a list\"}}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at items: {'not': 'a list'} is not of type 'array'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at items: {'not': 'a list'} is not of type 'array'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "DISTILL_SCHEMA",
+   "what": "a wrong item at items/1",
+   "answer": "{\"narrative\": \"x\", \"items\": [{\"kind\": \"fact\", \"subject\": \"x\", \"key\": \"x\", \"content\": \"x\", \"origin\": \"observed\", \"confidence\": 1.5, \"handles\": [], \"quote\": {\"handle\": \"x\", \"text\": \"x\"}, \"retire\": true}, [\"not\", \"an\", \"object\"]]}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at items/1: ['not', 'an', 'object'] is not of type 'object'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at items/1: ['not', 'an', 'object'] is not of type 'object'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "DISTILL_SCHEMA",
+   "what": "an item missing a field at items/0",
+   "answer": "{\"narrative\": \"x\", \"items\": [{\"subject\": \"x\", \"key\": \"x\", \"content\": \"x\", \"origin\": \"observed\", \"confidence\": 1.5, \"handles\": [], \"quote\": {\"handle\": \"x\", \"text\": \"x\"}, \"retire\": true}]}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at items/0: 'kind' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at items/0: 'kind' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "DISTILL_SCHEMA",
+   "what": "two problems (missing and extra)",
+   "answer": "{\"narrative\": \"x\", \"unasked\": 1}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "RECALL_SCHEMA",
+   "what": "missing candidates",
+   "answer": "{}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'candidates' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'candidates' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "RECALL_SCHEMA",
+   "what": "an extra property",
+   "answer": "{\"candidates\": [], \"unasked\": \"café ✓\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "RECALL_SCHEMA",
+   "what": "wrong type at candidates",
+   "answer": "{\"candidates\": {\"not\": \"a list\"}}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at candidates: {'not': 'a list'} is not of type 'array'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at candidates: {'not': 'a list'} is not of type 'array'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "RECALL_SCHEMA",
+   "what": "a wrong item at candidates/1",
+   "answer": "{\"candidates\": [{\"kind\": \"fact\", \"subject\": \"x\", \"key\": \"x\", \"content\": \"x\", \"message\": \"x\", \"quote\": \"x\"}, [\"not\", \"an\", \"object\"]]}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at candidates/1: ['not', 'an', 'object'] is not of type 'object'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at candidates/1: ['not', 'an', 'object'] is not of type 'object'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "RECALL_SCHEMA",
+   "what": "an item missing a field at candidates/0",
+   "answer": "{\"candidates\": [{\"subject\": \"x\", \"key\": \"x\", \"content\": \"x\", \"message\": \"x\", \"quote\": \"x\"}]}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at candidates/0: 'kind' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at candidates/0: 'kind' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "RECALL_SCHEMA",
+   "what": "two problems (missing and extra)",
+   "answer": "{\"unasked\": 1}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "VERIFY_SCHEMA",
+   "what": "missing verdicts",
+   "answer": "{}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'verdicts' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'verdicts' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "VERIFY_SCHEMA",
+   "what": "an extra property",
+   "answer": "{\"verdicts\": [], \"unasked\": \"café ✓\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "VERIFY_SCHEMA",
+   "what": "wrong type at verdicts",
+   "answer": "{\"verdicts\": {\"not\": \"a list\"}}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at verdicts: {'not': 'a list'} is not of type 'array'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at verdicts: {'not': 'a list'} is not of type 'array'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "VERIFY_SCHEMA",
+   "what": "a wrong item at verdicts/1",
+   "answer": "{\"verdicts\": [{\"id\": \"x\", \"supported\": true, \"kind\": \"fact\", \"subject\": \"x\", \"key\": \"x\", \"content\": \"x\", \"message\": \"x\", \"quote\": \"x\", \"same_as\": \"x\", \"ended\": true, \"until\": \"x\", \"review_in_days\": 1}, [\"not\", \"an\", \"object\"]]}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at verdicts/1: ['not', 'an', 'object'] is not of type 'object'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at verdicts/1: ['not', 'an', 'object'] is not of type 'object'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "VERIFY_SCHEMA",
+   "what": "an item missing a field at verdicts/0",
+   "answer": "{\"verdicts\": [{\"supported\": true, \"kind\": \"fact\", \"subject\": \"x\", \"key\": \"x\", \"content\": \"x\", \"message\": \"x\", \"quote\": \"x\", \"same_as\": \"x\", \"ended\": true, \"until\": \"x\", \"review_in_days\": 1}]}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at verdicts/0: 'id' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at verdicts/0: 'id' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "VERIFY_SCHEMA",
+   "what": "two problems (missing and extra)",
+   "answer": "{\"unasked\": 1}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "MAC_SCHEMA",
+   "what": "missing summary",
+   "answer": "{\"facts\": []}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'summary' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'summary' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "MAC_SCHEMA",
+   "what": "an extra property",
+   "answer": "{\"summary\": \"x\", \"facts\": [], \"unasked\": \"café ✓\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "MAC_SCHEMA",
+   "what": "wrong type at facts",
+   "answer": "{\"summary\": \"x\", \"facts\": {\"not\": \"a list\"}}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at facts: {'not': 'a list'} is not of type 'array'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at facts: {'not': 'a list'} is not of type 'array'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "MAC_SCHEMA",
+   "what": "a wrong item at facts/1",
+   "answer": "{\"summary\": \"x\", \"facts\": [{\"kind\": \"fact\", \"key\": \"x\", \"content\": \"x\"}, [\"not\", \"an\", \"object\"]]}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at facts/1: ['not', 'an', 'object'] is not of type 'object'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at facts/1: ['not', 'an', 'object'] is not of type 'object'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "MAC_SCHEMA",
+   "what": "an item missing a field at facts/0",
+   "answer": "{\"summary\": \"x\", \"facts\": [{\"key\": \"x\", \"content\": \"x\"}]}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at facts/0: 'kind' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at facts/0: 'kind' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "MAC_SCHEMA",
+   "what": "two problems (missing and extra)",
+   "answer": "{\"summary\": \"x\", \"unasked\": 1}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "PLAYBOOK_SCHEMA",
+   "what": "missing same_kind",
+   "answer": "{\"members\": [], \"title\": \"x\", \"text\": \"x\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'same_kind' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'same_kind' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "PLAYBOOK_SCHEMA",
+   "what": "an extra property",
+   "answer": "{\"same_kind\": true, \"members\": [], \"title\": \"x\", \"text\": \"x\", \"unasked\": \"café ✓\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "PLAYBOOK_SCHEMA",
+   "what": "wrong type at text",
+   "answer": "{\"same_kind\": true, \"members\": [], \"title\": \"x\", \"text\": 7}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at text: 7 is not of type 'string'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at text: 7 is not of type 'string'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "PLAYBOOK_SCHEMA",
+   "what": "a wrong item at members/1",
+   "answer": "{\"same_kind\": true, \"members\": [\"x\", 7], \"title\": \"x\", \"text\": \"x\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at members/1: 7 is not of type 'string'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at members/1: 7 is not of type 'string'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "PLAYBOOK_SCHEMA",
+   "what": "two problems (missing and extra)",
+   "answer": "{\"same_kind\": true, \"members\": [], \"title\": \"x\", \"unasked\": 1}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "SUGGEST_SCHEMA",
+   "what": "missing requests",
+   "answer": "{}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'requests' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'requests' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "SUGGEST_SCHEMA",
+   "what": "an extra property",
+   "answer": "{\"requests\": [], \"unasked\": \"café ✓\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "SUGGEST_SCHEMA",
+   "what": "wrong type at requests",
+   "answer": "{\"requests\": {\"not\": \"a list\"}}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at requests: {'not': 'a list'} is not of type 'array'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at requests: {'not': 'a list'} is not of type 'array'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "SUGGEST_SCHEMA",
+   "what": "a wrong item at requests/1",
+   "answer": "{\"requests\": [{\"request\": \"x\", \"app\": \"x\"}, [\"not\", \"an\", \"object\"]]}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at requests/1: ['not', 'an', 'object'] is not of type 'object'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at requests/1: ['not', 'an', 'object'] is not of type 'object'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "SUGGEST_SCHEMA",
+   "what": "an item missing a field at requests/0",
+   "answer": "{\"requests\": [{\"app\": \"x\"}]}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at requests/0: 'request' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at requests/0: 'request' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "SUGGEST_SCHEMA",
+   "what": "two problems (missing and extra)",
+   "answer": "{\"unasked\": 1}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "IMAGE_SCHEMA",
+   "what": "missing colour",
+   "answer": "{}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'colour' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'colour' is a required property). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "IMAGE_SCHEMA",
+   "what": "an extra property",
+   "answer": "{\"colour\": \"x\", \"unasked\": \"café ✓\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "IMAGE_SCHEMA",
+   "what": "wrong type at colour",
+   "answer": "{\"colour\": 7}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at colour: 7 is not of type 'string'",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at colour: 7 is not of type 'string'). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "IMAGE_SCHEMA",
+   "what": "two problems (missing and extra)",
+   "answer": "{\"unasked\": 1}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: 'colour' is a required property",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: 'colour' is a required property). Reply again with only the corrected JSON object."
+  }
+ ],
+ "valid_examples": {
+  "SUPERVISOR_SCHEMA": {
+   "answer": "{\"kind\": \"reply\", \"answers_question\": true, \"task\": {\"goal\": \"x\", \"name\": \"x\", \"identity\": \"owner\", \"worker_type\": \"x\", \"targets\": {\"apps\": [], \"sites\": [], \"paths\": [], \"recipients\": []}, \"success_conditions\": [{\"text\": \"x\", \"owner_text\": \"x\", \"layer\": \"outcome\", \"check\": {\"kind\": \"none\", \"path\": \"x\", \"text\": \"x\", \"url_contains\": \"x\", \"site\": \"x\", \"expected\": \"x\", \"tool\": \"x\"}}], \"plan\": {\"steps\": [], \"input_paths\": [], \"big_job\": true, \"time_estimate\": \"x\", \"cost_estimate\": \"x\", \"standing_sends\": []}, \"folders\": [], \"keep_tabs_open\": true, \"parts\": [], \"earlier_results\": []}, \"control\": {\"task_id\": \"x\", \"action\": \"stop\", \"new_goal\": true, \"standing_sends\": \"unchanged\", \"supersedes\": []}, \"side_entries\": {\"answer_question\": {\"approval_id\": \"x\", \"answer\": \"x\"}, \"remember\": [], \"forget\": [], \"timers\": [], \"schedules\": [], \"schedule_changes\": [], \"show_schedules\": true, \"reminder_cancels\": [], \"conversation_changes\": []}, \"text\": \"x\"}",
+   "ok": true
+  },
+  "WORKER_SCHEMA": {
+   "answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\"}",
+   "ok": true
+  },
+  "WORKER_ALL_SCHEMA": {
+   "answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\", \"input_notes\": [], \"conversation_proposals\": [], \"conversation_action\": \"wait\", \"watch_met\": true, \"loop_action\": \"continue\", \"probe\": {\"tool\": \"x\", \"args_json\": \"x\", \"field\": \"x\", \"op\": \"equals\", \"value_json\": \"x\"}, \"part_updates\": []}",
+   "ok": true
+  },
+  "CHECKER_SCHEMA": {
+   "answer": "{\"results\": [], \"next\": \"accept\", \"findings\": [], \"missing\": \"x\", \"instructions\": \"x\", \"worker_type\": \"x\", \"question\": \"x\", \"reason\": \"x\"}",
+   "ok": true
+  },
+  "RECHECK_SCHEMA": {
+   "answer": "{\"findings\": []}",
+   "ok": true
+  },
+  "SUMMARY_SCHEMA": {
+   "answer": "{\"summary\": \"x\"}",
+   "ok": true
+  },
+  "QUESTION_SCHEMA": {
+   "answer": "{\"ask_owner\": true, \"answer\": \"x\", \"question\": \"x\"}",
+   "ok": true
+  },
+  "ATTENTION_SCHEMA": {
+   "answer": "{\"tell\": true, \"text\": \"x\", \"source_refs\": [], \"quotes\": []}",
+   "ok": true
+  },
+  "PROBE_SCHEMA": {
+   "answer": "{\"tool\": \"x\", \"args_json\": \"x\", \"field\": \"x\", \"op\": \"equals\", \"value_json\": \"x\"}",
+   "ok": true
+  },
+  "PROFILE_SCHEMA": {
+   "answer": "{\"sections\": [], \"ended\": []}",
+   "ok": true
+  },
+  "DISTILL_SCHEMA": {
+   "answer": "{\"narrative\": \"x\", \"items\": []}",
+   "ok": true
+  },
+  "RECALL_SCHEMA": {
+   "answer": "{\"candidates\": []}",
+   "ok": true
+  },
+  "VERIFY_SCHEMA": {
+   "answer": "{\"verdicts\": []}",
+   "ok": true
+  },
+  "MAC_SCHEMA": {
+   "answer": "{\"summary\": \"x\", \"facts\": []}",
+   "ok": true
+  },
+  "PLAYBOOK_SCHEMA": {
+   "answer": "{\"same_kind\": true, \"members\": [], \"title\": \"x\", \"text\": \"x\"}",
+   "ok": true
+  },
+  "SUGGEST_SCHEMA": {
+   "answer": "{\"requests\": []}",
+   "ok": true
+  },
+  "IMAGE_SCHEMA": {
+   "answer": "{\"colour\": \"x\"}",
+   "ok": true
+  }
+ },
+ "mapped_back": [
+  {
+   "schema": "SUPERVISOR_SCHEMA",
+   "mapped": true,
+   "what": "smallest wire answer",
+   "wire_answer": "{\"kind\": \"reply\", \"answers_question\": true, \"task\": [], \"control\": [], \"side_entries\": [], \"text\": \"x\"}",
+   "core_answer": "{\"kind\": \"reply\", \"answers_question\": true, \"task\": null, \"control\": null, \"side_entries\": null, \"text\": \"x\"}",
+   "ok": true
+  },
+  {
+   "schema": "SUPERVISOR_SCHEMA",
+   "mapped": true,
+   "what": "every optional left out",
+   "wire_answer": "{\"kind\": \"reply\", \"answers_question\": true, \"task\": [], \"control\": [], \"side_entries\": [], \"text\": \"x\"}",
+   "core_answer": "{\"kind\": \"reply\", \"answers_question\": true, \"task\": null, \"control\": null, \"side_entries\": null, \"text\": \"x\"}",
+   "ok": true
+  },
+  {
+   "schema": "SUPERVISOR_SCHEMA",
+   "mapped": true,
+   "what": "an unknown property kept",
+   "wire_answer": "{\"kind\": \"reply\", \"answers_question\": true, \"task\": [], \"control\": [], \"side_entries\": [], \"text\": \"x\", \"unasked\": \"é\"}",
+   "core_answer": "{\"kind\": \"reply\", \"answers_question\": true, \"task\": null, \"control\": null, \"side_entries\": null, \"text\": \"x\", \"unasked\": \"é\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "WORKER_ALL_SCHEMA",
+   "mapped": true,
+   "what": "smallest wire answer",
+   "wire_answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\", \"input_notes\": [], \"conversation_proposals\": [], \"conversation_action\": \"wait\", \"watch_met\": true, \"loop_action\": \"continue\", \"probe\": [], \"part_updates\": []}",
+   "core_answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\", \"input_notes\": [], \"conversation_proposals\": [], \"conversation_action\": \"wait\", \"watch_met\": true, \"loop_action\": \"continue\", \"probe\": null, \"part_updates\": []}",
+   "ok": true
+  },
+  {
+   "schema": "WORKER_ALL_SCHEMA",
+   "mapped": true,
+   "what": "every optional left out",
+   "wire_answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\", \"input_notes\": [], \"conversation_proposals\": [], \"conversation_action\": \"wait\", \"watch_met\": true, \"loop_action\": \"continue\", \"probe\": [], \"part_updates\": []}",
+   "core_answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\", \"input_notes\": [], \"conversation_proposals\": [], \"conversation_action\": \"wait\", \"watch_met\": true, \"loop_action\": \"continue\", \"probe\": null, \"part_updates\": []}",
+   "ok": true
+  },
+  {
+   "schema": "WORKER_ALL_SCHEMA",
+   "mapped": true,
+   "what": "an unknown property kept",
+   "wire_answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\", \"input_notes\": [], \"conversation_proposals\": [], \"conversation_action\": \"wait\", \"watch_met\": true, \"loop_action\": \"continue\", \"probe\": [], \"part_updates\": [], \"unasked\": \"é\"}",
+   "core_answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\", \"input_notes\": [], \"conversation_proposals\": [], \"conversation_action\": \"wait\", \"watch_met\": true, \"loop_action\": \"continue\", \"probe\": null, \"part_updates\": [], \"unasked\": \"é\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "CHECKER_SCHEMA",
+   "mapped": true,
+   "what": "smallest wire answer",
+   "wire_answer": "{\"results\": [], \"next\": \"accept\", \"findings\": [], \"missing\": \"x\", \"instructions\": \"x\", \"worker_type\": \"x\", \"question\": \"x\", \"reason\": \"x\"}",
+   "core_answer": "{\"results\": [], \"next\": \"accept\", \"findings\": [], \"missing\": \"x\", \"instructions\": \"x\", \"worker_type\": \"x\", \"question\": \"x\", \"reason\": \"x\"}",
+   "ok": true
+  },
+  {
+   "schema": "CHECKER_SCHEMA",
+   "mapped": true,
+   "what": "every optional left out",
+   "wire_answer": "{\"results\": [], \"next\": \"accept\", \"findings\": [], \"missing\": \"x\", \"instructions\": \"x\", \"worker_type\": \"x\", \"question\": \"x\", \"reason\": \"x\"}",
+   "core_answer": "{\"results\": [], \"next\": \"accept\", \"findings\": [], \"missing\": \"x\", \"instructions\": \"x\", \"worker_type\": \"x\", \"question\": \"x\", \"reason\": \"x\"}",
+   "ok": true
+  },
+  {
+   "schema": "CHECKER_SCHEMA",
+   "mapped": true,
+   "what": "an unknown property kept",
+   "wire_answer": "{\"results\": [], \"next\": \"accept\", \"findings\": [], \"missing\": \"x\", \"instructions\": \"x\", \"worker_type\": \"x\", \"question\": \"x\", \"reason\": \"x\", \"unasked\": \"é\"}",
+   "core_answer": "{\"results\": [], \"next\": \"accept\", \"findings\": [], \"missing\": \"x\", \"instructions\": \"x\", \"worker_type\": \"x\", \"question\": \"x\", \"reason\": \"x\", \"unasked\": \"é\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "WORKER_WATCH_SCHEMA",
+   "mapped": false,
+   "what": "smallest wire answer",
+   "wire_answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\", \"watch_met\": true}",
+   "core_answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\", \"watch_met\": true}",
+   "ok": true
+  },
+  {
+   "schema": "WORKER_WATCH_SCHEMA",
+   "mapped": false,
+   "what": "every optional left out",
+   "wire_answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\", \"watch_met\": true}",
+   "core_answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\", \"watch_met\": true}",
+   "ok": true
+  },
+  {
+   "schema": "WORKER_WATCH_SCHEMA",
+   "mapped": false,
+   "what": "an unknown property kept",
+   "wire_answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\", \"watch_met\": true, \"unasked\": \"é\"}",
+   "core_answer": "{\"status\": \"done\", \"reason\": \"x\", \"question\": \"x\", \"answer\": \"x\", \"artifacts\": [], \"how\": \"x\", \"watch_met\": true, \"unasked\": \"é\"}",
+   "ok": false,
+   "error": "the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)",
+   "repair_note": "That answer doesn't fit FERB's answer format (the answer doesn't match the schema at the top level: Additional properties are not allowed ('unasked' was unexpected)). Reply again with only the corrected JSON object."
+  },
+  {
+   "schema": "SUPERVISOR_SCHEMA",
+   "what": "not JSON is left as it is",
+   "wire_answer": "oops {",
+   "core_answer": "oops {"
+  }
+ ],
+ "unfenced": [
+  {
+   "text": "```json\n{\"answer\": \"x\"}\n```",
+   "out": "{\"answer\": \"x\"}"
+  },
+  {
+   "text": "```\n{\"answer\": \"x\"}\n```",
+   "out": "{\"answer\": \"x\"}"
+  },
+  {
+   "text": "```JSON\n{\"answer\": \"x\"}\n```",
+   "out": "{\"answer\": \"x\"}"
+  },
+  {
+   "text": "```python\n{\"answer\": \"x\"}\n```",
+   "out": "```python\n{\"answer\": \"x\"}\n```"
+  },
+  {
+   "text": "  ```json\n{\"answer\": \"x\"}\n```  ",
+   "out": "{\"answer\": \"x\"}"
+  },
+  {
+   "text": "{\"answer\": \"x\"}",
+   "out": "{\"answer\": \"x\"}"
+  },
+  {
+   "text": "``````",
+   "out": ""
+  },
+  {
+   "text": "```json {\"answer\": \"x\"}```",
+   "out": "```json {\"answer\": \"x\"}```"
+  },
+  {
+   "text": "Here:\n```json\n{\"answer\": \"x\"}\n```",
+   "out": "Here:\n```json\n{\"answer\": \"x\"}\n```"
+  }
+ ]
+}

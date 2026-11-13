@@ -8,7 +8,13 @@ patches. Judge designs by quality, the owner's goals and security, never by buil
 
 ## Source of truth
 
-- `HANDOFF.md`: the end state on 2026-11-13 and what to keep, for the conversion of this repo to mainly Rust.
+- `rust/PLAN.md`, `rust/STATUS.md` and `rust/JOURNAL.md`: the Rust rewrite. PLAN is what is left, in order, with
+  each part's Python sources, needs and known traps, and how to pick the work up; STATUS is the state of every
+  part; JOURNAL is what was done and why. Read all three before touching `rust/`; add a journal entry and update
+  the status row (and the plan, when it changes) in the commit that changes them.
+- `HANDOFF.md`: the end state of the Python build on 2026-11-13 and what to keep. Three of its statements are
+  corrected in journal entry 1 (the daemon host is C embedding Python, 58 migration files, Codex runs through
+  `app-server`).
 - `kb/`: the owner's decisions and agents' rulings, the work list, live checks and terms (overview `kb/MAP.md`;
   `tools/kb/run kb show <file>` before editing). Owner decisions are authoritative; a later decision supersedes an
   earlier one. If code, a prompt or this file disagrees with a decision, name both and ask the owner.
@@ -64,7 +70,51 @@ patches. Judge designs by quality, the owner's goals and security, never by buil
     service is registered). Never commit secrets.
 18. Caps, budgets and retention that change FERB's behavior are owner decisions; ask, never rule.
 
-## Development
+## The Rust rewrite (branch `rust`, PROJ-508)
+
+The Python daemon in `ferb/` is being replaced by a Rust engine in `rust/`, built beside it. Until stage 1 is cut
+over, the Python daemon is the one that ships and the reference for behavior: on this branch it is read, run for
+fixtures and left as it is.
+
+- **Order (ENG-1):** 1. the Mac engine at exact parity (same RPC, events, extension protocol, tools and store;
+  FERB.app and the extension unchanged), 2. history owned by the engine and shared by every client, 3. the phone
+  role and the Android app, 4. the iPhone app, 5. closed-app notifications. The phone code comes from the owner's
+  tested labs outside this repo (`~/Desktop/ferb-phone-link`); those folders are read, never changed.
+- **Layout:** a shared Rust foundation. Portable crates hold the engine and must compile for iOS and Android
+  (`rust/gate.sh portable`); everything that touches Apple frameworks or macOS tools lives in
+  `ferb-platform-macos` and reaches the engine only through traits. The crate list is at the top of
+  `rust/STATUS.md`. No Windows or Linux code (PROJ-506). No Python ships with the Rust engine (ENG-2).
+- **How a part is ported (ENG-3):** read the Python fully and its decisions (`tools/kb/run kb show <file>`); write
+  `rust/fixtures/<part>/make.py`, which runs the Python code on invented data in a temporary home and records what
+  it produces; port; test the Rust against those fixtures. A ported behavior keeps its decision IDs
+  (`// decision: GATE-572` above the test). "Verified" means it matches the fixtures or a live check, never that it
+  compiles. Every difference from Python that remains is listed in the journal; an unlisted difference is the worst
+  outcome.
+- **Bytes that are contracts:** whatever reaches a model, a client, the extension or the database. Python's
+  `json.dumps` spacing and escaping, pydantic's schemas and error text, jsonschema's messages and `re`'s Unicode
+  rules differ from Rust's defaults; `ferb-py` holds the Python-exact helpers and `rust/fixtures/catalog` freezes
+  what the models receive.
+- **A bug found in the Python code** is fixed in the Rust port when the part is ported. The fixture test names
+  that one deliberate difference, so the comparison stays strict everywhere else, and the journal lists it under
+  "Fixed against Python". Anything else that differs from Python is a drift, not a fix. `rust/PLAN.md` keeps the
+  table of bugs found.
+- **The store (ENG-4):** one copy of the migrations (`ferb/store/migrations`), no schema above 0062 before stage 1
+  is cut over, so either daemon opens the same store.
+- **Tests** use temporary folders only: never `~/.ferb`, the Keychain, the real secrets helper, a browser's folders
+  or a model provider. Time and ids are injected (TEST-508).
+- **Checks:** from `rust/`: `./gate.sh fmt`, `./gate.sh lint`, `./gate.sh test`, `./gate.sh portable`
+  (the toolchain is pinned in `rust/rust-toolchain.toml`; `. ~/.cargo/env` first).
+- **GitHub's push protection** flags the invented key-shaped values in `rust/fixtures/sanitize`. Never re-encode
+  or hide fixtures to get past a scanner; allowing them is the owner's choice.
+- **Parallel agents:** one agent per crate or fixture folder, named in its brief, each with its own build folder
+  (`CARGO_TARGET_DIR=rust/target/agents/<crate>`) so builds don't queue. A crate being ported sits in the
+  workspace's `exclude` list and is built by its own manifest, so unfinished work never breaks the gate; the
+  coordinator moves it to `members` once verified. An agent never commits, and ends with a journal entry listing what is unverified. The
+  coordinator runs the whole workspace's checks before committing. Launch every part whose needs are met at once
+  rather than in waves. The shared brief is `rust/AGENT-BRIEF.md`. Subagents run on Opus or below (owner,
+  2026-11-13); the coordinator's own model is kept for a big decision or an independent verification.
+
+## Development (the Python build)
 
 Python 3.12, `uv sync --group dev`. The checkout's `.venv` is separate from the installed `~/.ferb/venv`.
 Tests are a small safety suite (TEST-500): the safety floor and past-bug guards, end-to-end runs with a fake
@@ -106,7 +156,8 @@ Upgrading from any older FERB build must keep working (STORE-403).
 - **North star:** an agent that controls the Mac the way the owner can, in the background, and keeps learning by doing.
 
 ## Branch
-Work happens on the branch the owner names (currently `main`). Agents commit and push there through the hooks;
+The Rust rewrite happens on `rust` (PROJ-508); `main` stays as it is until the rewrite is merged. Agents commit and
+push through the hooks;
 never force-push. The checkout can be shared by parallel agents: never `git stash`, never reset others' work, and check
 `git diff --cached` before committing.
 

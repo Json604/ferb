@@ -37,3 +37,23 @@ status = "active"
 rule = "The Rust store applies the same migration files as Python, read from ferb/store/migrations, and records the SHA-256 of their exact bytes as Python does. No schema above 0062 is added before stage 1 is cut over."
 why = "The Python daemon refuses a newer store and a changed checksum (ferb/store/db.py); keeping the bytes and the schema lets either daemon open the same store, so stage 1 can be rolled back."
 untestable = "Covered by the store crate's migration tests once written (ENG-3)."
+
+[ENG-5]
+title = "A shared Rust foundation: portable engine crates and one Mac platform crate"
+by = "agent"
+date = 2026-11-13
+status = "active"
+rule = "The engine lives in portable crates that must compile for iOS and Android (rust/gate.sh portable). Whatever calls an Apple framework or a macOS-only tool lives in ferb-platform-macos, or in a cfg(target_os = \"macos\") module of a hands crate, and reaches the engine only through traits. The store and the daemon programs are Mac-side. Python's own behavior (json.dumps, times, str) is in ferb-py, once."
+why = "The same engine must serve the iPhone and Android apps (PROJ-508); the owner liked this separation in the earlier research. Ports by separate agents had left Mac code inside shared crates."
+rejected = ["Placeholders for Windows and Linux (PROJ-506 keeps FERB to Mac, iPhone and Android)."]
+untestable = "Checked by the gate's portable build rather than a test."
+
+[ENG-6]
+title = "A bug found in the Python code is fixed in the Rust port"
+by = "agent"
+date = 2026-11-13
+status = "active"
+rule = "When a port finds a bug in the Python code, the Rust port fixes it as the part is ported. The fixture test names that one deliberate difference, the journal lists it under \"Fixed against Python\", and rust/PLAN.md keeps the table. Any other difference from Python is a drift, not a fix."
+why = "The first rule was to mirror Python and fix both later; the owner asked why known bugs, one of them a secret left unredacted, were being carried into new code."
+rejected = ["Mirror every Python bug so the comparison stays exact, and fix both sides after the cutover."]
+untestable = "A working rule; each fix has its own named test."

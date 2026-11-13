@@ -202,30 +202,24 @@ pub fn secret_key(key: &str) -> bool {
     label_class(key) == Some(LabelClass::Secret)
 }
 
-/// labels.py:86: a value that looks random: 16+ token characters, letters and digits mixed, about 3+ bits per
-/// character. The sum is CPython 3.12's `sum()` over floats (Neumaier's compensated sum), in the order `Counter`
-/// gives the counts (first seen first), so a value on the 3.0 line falls the same way.
-pub fn high_entropy(value: &str) -> bool {
-    let token_char = |c: char| c.is_ascii_alphanumeric() || "+/=_.~-".contains(c);
-    if !u::longer_than(value, 15)
-        || !value.chars().all(token_char)
-        || !value.chars().any(u::is_digit)
-        || !value.chars().any(u::is_alpha)
-    {
-        return false;
-    }
-    let n = value.len() as f64; // all ASCII here
-    let mut counts: Vec<(u8, u32)> = Vec::new();
-    for b in value.bytes() {
-        match counts.iter_mut().find(|(c, _)| *c == b) {
-            Some(entry) => entry.1 += 1,
-            None => counts.push((b, 1)),
-        }
-    }
+/// One count's part of the sum in labels.py:92, `c / n * math.log2(c / n)`, and the logarithm in it. `math.log2`
+/// is the C library's `log2` (CPython's mathmodule.c `m_log2`), and so is `f64::log2` here: the same function of
+/// the same library on the Mac both run on. `tests/hardening.rs` compares both numbers, bit for bit, with
+/// Python's for every count and length up to 4096.
+pub fn entropy_term(c: u32, n: u32) -> (f64, f64) {
+    let p = f64::from(c) / f64::from(n);
+    let log = p.log2();
+    (log, p * log)
+}
+
+/// labels.py:92: `-sum(c / n * math.log2(c / n) for c in counts) >= 3.0`, `counts` in the order `Counter` gives
+/// them (first seen first). The sum is CPython 3.12's `sum()` over floats (Neumaier's compensated sum: additions
+/// and subtractions only, the same on every machine), so a value on the 3.0 line falls the same way.
+pub fn entropy_at_least_3(counts: &[u32]) -> bool {
+    let n: u32 = counts.iter().sum();
     let (mut total, mut comp) = (0.0f64, 0.0f64);
-    for (_, c) in counts {
-        let p = f64::from(c) / n;
-        let x = p * p.log2();
+    for &c in counts {
+        let x = entropy_term(c, n).1;
         let t = total + x;
         if total.abs() >= x.abs() {
             comp += (total - t) + x;
@@ -238,6 +232,27 @@ pub fn high_entropy(value: &str) -> bool {
         total += comp;
     }
     -total >= 3.0
+}
+
+/// labels.py:86: a value that looks random: 16+ token characters, letters and digits mixed, about 3+ bits per
+/// character.
+pub fn high_entropy(value: &str) -> bool {
+    let token_char = |c: char| c.is_ascii_alphanumeric() || "+/=_.~-".contains(c);
+    if !u::longer_than(value, 15)
+        || !value.chars().all(token_char)
+        || !value.chars().any(u::is_digit)
+        || !value.chars().any(u::is_alpha)
+    {
+        return false;
+    }
+    let mut counts: Vec<(u8, u32)> = Vec::new(); // all ASCII here
+    for b in value.bytes() {
+        match counts.iter_mut().find(|(c, _)| *c == b) {
+            Some(entry) => entry.1 += 1,
+            None => counts.push((b, 1)),
+        }
+    }
+    entropy_at_least_3(&counts.iter().map(|&(_, c)| c).collect::<Vec<_>>())
 }
 
 /// labels.py:95: whether a label of class `cls` hides this value.

@@ -6,8 +6,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::ptr;
 
-use crate::app_peer::Security;
-use crate::peer::AuditToken;
+use ferb_rpc::app_peer::{AuditToken, Security};
 
 type CFTypeRef = *const c_void;
 type OSStatus = i32;
@@ -207,8 +206,8 @@ impl Security for SecurityFramework {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app_peer::DEV_REQUIREMENT;
     use crate::peer::peer_token;
+    use ferb_rpc::app_peer::DEV_REQUIREMENT;
 
     fn own_token() -> AuditToken {
         let (a, _b) = std::os::unix::net::UnixStream::pair().unwrap();

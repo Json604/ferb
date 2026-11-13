@@ -4,9 +4,31 @@
 //! other made: the same pragmas, the same migration files (embedded from `ferb/store/migrations`
 //! at build time, decision: ENG-4) and the same `schema_version` rows.
 //!
-//! Not ported here: `swap` (`db.py:236`), which belongs with the parts that call it.
+//! On top of it, the typed stores of `ferb/store`: `spans`, `task_results`, `chat_history`,
+//! `retention`, `cleanup`, `salvage`, and `swap` (`db.py:236`). `pyjson` and `pytime` (from `ferb-py`) write JSON
+//! and times as Python does; what the stores take from other Python packages comes in through
+//! named seams (`spans::Clock`, `spans::IdSource`, `Redact`, `cleanup::CardSources`,
+//! `cleanup::JournalSink`, `salvage::Seams`).
 
+pub mod chat_history;
+pub mod cleanup;
 mod migrate;
+pub mod pyval;
+pub mod retention;
+pub mod salvage;
+pub mod spans;
+pub mod swap;
+pub mod task_results;
+
+use ferb_py::unicode as unicode_nd;
+/// JSON and times as Python writes them, and Python's `\d` (`ferb-py`).
+pub use ferb_py::{json as pyjson, time as pytime};
+/// Origins (`ferb/core/origin.py`), ported in `ferb-sanitize`.
+pub use ferb_sanitize::origin;
+
+/// The redaction seam (`ferb/sanitize`): every store that keeps text passes it through this
+/// before it is written (`ferb/store/spans.py:14`, `chat_history.py:69`).
+pub type Redact = Box<dyn Fn(&serde_json::Value) -> serde_json::Value>;
 
 use std::{
     fs, io,
@@ -40,6 +62,20 @@ pub enum Error {
     /// Python's `ValueError` from `_split_sql` (`db.py:275`).
     #[error("incomplete SQL statement at end of migration: {0}")]
     IncompleteSql(String),
+    /// Python's `Refused` (`ferb/core/errors.py:61`): a check said no; the message is safe to
+    /// show.
+    #[error("{0}")]
+    Refused(String),
+    /// Python's `ValueError` raised by a store on a bad argument.
+    #[error("{0}")]
+    Value(String),
+    /// A stored column or file that isn't the JSON a store expects (Python raises from
+    /// `json.loads` or from reading the value).
+    #[error("stored JSON can't be read: {0}")]
+    Json(String),
+    /// Python's `OverflowError` from a time moved outside years 1 to 9999.
+    #[error("date value out of range")]
+    Overflow,
     #[error(transparent)]
     Sqlite(#[from] rusqlite::Error),
     #[error(transparent)]

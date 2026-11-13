@@ -1,0 +1,211 @@
+{
+ "asdict": {
+  "SecretRef": [
+   "{\"key\": \"ferb/email/password\"}"
+  ],
+  "SecretSpec": [
+   "{\"ref\": {\"key\": \"ferb/email/password\"}, \"allowed_origins\": [\"https://accounts.example.com\"], \"account_hint\": \"f@example.com\"}"
+  ],
+  "Task": [
+   "{\"id\": \"t1\", \"parent_id\": null, \"goal\": \"Tidy the invented folder\", \"device_id\": \"dev-1\", \"identity\": \"ferb\", \"scopes\": [\"browser\", \"fs.write\"], \"role\": \"worker\", \"request_id\": \"r1\", \"success_conditions\": [\"the folder holds 3 files\"], \"deadline\": null}",
+   "{\"id\": \"t2\", \"parent_id\": \"t1\", \"goal\": \"Check it \\u2014 \\u2713\", \"device_id\": \"dev-1\", \"identity\": \"owner\", \"scopes\": [], \"role\": \"verifier\", \"request_id\": \"r1\", \"success_conditions\": [], \"deadline\": \"2026-03-04T15:00:15.000250+05:30\"}",
+   "{\"id\": \"t3\", \"parent_id\": \"t1\", \"goal\": \"\", \"device_id\": \"dev-2\", \"identity\": \"owner\", \"scopes\": [\"a\"], \"role\": \"mixed\", \"request_id\": \"r2\", \"success_conditions\": [\"x\", \"y\"], \"deadline\": \"2025-12-31T23:59:59.999999-08:00\"}"
+  ],
+  "Outcome": [
+   "{\"task_id\": \"t1\", \"status\": \"done\", \"summary\": \"It is done.\", \"artifacts\": [\"/tmp/invented/out.pdf\"], \"evidence\": [\"span:s1\"]}",
+   "{\"task_id\": \"t1\", \"status\": \"failed\", \"summary\": \"It is done.\", \"artifacts\": [\"/tmp/invented/out.pdf\"], \"evidence\": [\"span:s1\"]}",
+   "{\"task_id\": \"t1\", \"status\": \"unknown\", \"summary\": \"It is done.\", \"artifacts\": [\"/tmp/invented/out.pdf\"], \"evidence\": [\"span:s1\"]}",
+   "{\"task_id\": \"t1\", \"status\": \"cancelled\", \"summary\": \"It is done.\", \"artifacts\": [\"/tmp/invented/out.pdf\"], \"evidence\": [\"span:s1\"]}",
+   "{\"task_id\": \"t1\", \"status\": \"needs_user\", \"summary\": \"It is done.\", \"artifacts\": [\"/tmp/invented/out.pdf\"], \"evidence\": [\"span:s1\"]}",
+   "{\"task_id\": \"t1\", \"status\": \"blocked\", \"summary\": \"It is done.\", \"artifacts\": [\"/tmp/invented/out.pdf\"], \"evidence\": [\"span:s1\"]}"
+  ],
+  "ActionIntent": [
+   "{\"id\": \"i1\", \"task_id\": \"t1\", \"capability\": \"browser.click\", \"target\": {\"site\": \"example.com\", \"n\": 2}, \"payload_hash\": \"abababababababababababababababababababababababababababababababab\", \"state\": \"intended\"}",
+   "{\"id\": \"i1\", \"task_id\": \"t1\", \"capability\": \"browser.click\", \"target\": {\"site\": \"example.com\", \"n\": 2}, \"payload_hash\": \"abababababababababababababababababababababababababababababababab\", \"state\": \"executing\"}",
+   "{\"id\": \"i1\", \"task_id\": \"t1\", \"capability\": \"browser.click\", \"target\": {\"site\": \"example.com\", \"n\": 2}, \"payload_hash\": \"abababababababababababababababababababababababababababababababab\", \"state\": \"done\"}",
+   "{\"id\": \"i1\", \"task_id\": \"t1\", \"capability\": \"browser.click\", \"target\": {\"site\": \"example.com\", \"n\": 2}, \"payload_hash\": \"abababababababababababababababababababababababababababababababab\", \"state\": \"failed\"}",
+   "{\"id\": \"i1\", \"task_id\": \"t1\", \"capability\": \"browser.click\", \"target\": {\"site\": \"example.com\", \"n\": 2}, \"payload_hash\": \"abababababababababababababababababababababababababababababababab\", \"state\": \"unknown\"}"
+  ],
+  "Span": [
+   "{\"id\": \"s1\", \"parent_id\": null, \"kind\": \"task\", \"task_id\": null, \"device_id\": null, \"started_at\": \"2026-03-04T09:30:15+00:00\", \"ended_at\": null, \"input\": {}, \"output\": null, \"cost_usd\": null, \"error\": null, \"origin\": null, \"summary\": null}",
+   "{\"id\": \"s2\", \"parent_id\": \"s1\", \"kind\": \"tool.call\", \"task_id\": \"t1\", \"device_id\": \"dev-1\", \"started_at\": \"2026-03-04T15:00:15.000250+05:30\", \"ended_at\": \"2025-12-31T23:59:59.999999-08:00\", \"input\": {\"tool\": \"fs.read\", \"args\": {\"path\": \"a\"}}, \"output\": {\"ok\": true, \"n\": [1, 2.5, null]}, \"cost_usd\": 0.0125, \"error\": \"it failed: na\\u00efve\", \"origin\": \"owner,external:web\", \"summary\": \"read a\"}"
+  ],
+  "TrailEvent": [
+   "{\"id\": \"e1\", \"at\": \"2026-03-04T09:30:15+00:00\", \"device_id\": \"dev-1\", \"actor\": \"owner\", \"task_id\": null, \"source\": \"ax\", \"data\": {\"app\": \"com.example.notes\"}}",
+   "{\"id\": \"e1\", \"at\": \"2026-03-04T09:30:15+00:00\", \"device_id\": \"dev-1\", \"actor\": \"ferb\", \"task_id\": \"t1\", \"source\": \"ax\", \"data\": {\"app\": \"com.example.notes\"}}",
+   "{\"id\": \"e1\", \"at\": \"2026-03-04T09:30:15+00:00\", \"device_id\": \"dev-1\", \"actor\": \"unknown\", \"task_id\": null, \"source\": \"ax\", \"data\": {\"app\": \"com.example.notes\"}}"
+  ],
+  "Target": [
+   "{\"account\": null, \"site\": null, \"recipients\": [], \"path\": null, \"amount\": null, \"currency\": null, \"contact\": null, \"page\": null, \"item\": null}",
+   "{\"account\": \"gmail:someone@example.com\", \"site\": \"mail.example.com\", \"recipients\": [\"a@example.com\", \"b@example.com\"], \"path\": \"/tmp/invented/x\", \"amount\": 12.5, \"currency\": \"EUR\", \"contact\": \"Sam Example\", \"page\": \"Checkout \\u2013 Example\", \"item\": \"3 notes\"}"
+  ],
+  "ReceivedBy": [
+   "{\"bundle_id\": null, \"window\": null, \"role\": null}",
+   "{\"bundle_id\": \"com.example.notes\", \"window\": \"Shopping list\", \"role\": null}"
+  ],
+  "ActionFacts": [
+   "{\"submits_form\": null, \"form_action_host\": null, \"form_method\": null, \"field_kinds\": [], \"page_amount\": null, \"page_merchant\": null, \"page_amounts\": [], \"received_by\": null, \"secure_field\": null, \"terminal_target\": null, \"target_role\": null, \"target_subrole\": null, \"page_url\": null, \"frame_host\": null, \"tab_chain\": null, \"deletes\": [], \"writes\": [], \"control_label\": null}",
+   "{\"submits_form\": false, \"form_action_host\": null, \"form_method\": null, \"field_kinds\": [\"password\"], \"page_amount\": null, \"page_merchant\": null, \"page_amounts\": [], \"received_by\": {\"bundle_id\": null, \"window\": null, \"role\": null}, \"secure_field\": null, \"terminal_target\": null, \"target_role\": null, \"target_subrole\": null, \"page_url\": null, \"frame_host\": null, \"tab_chain\": null, \"deletes\": [], \"writes\": [], \"control_label\": null}",
+   "{\"submits_form\": true, \"form_action_host\": \"pay.example.com\", \"form_method\": \"POST\", \"field_kinds\": [\"card_number\", \"card_csc\"], \"page_amount\": \"\\u20ac12.50\", \"page_merchant\": \"Example Shop\", \"page_amounts\": [\"\\u20ac12.50\", \"USD 3\"], \"received_by\": {\"bundle_id\": \"com.example.notes\", \"window\": \"Shopping list\", \"role\": null}, \"secure_field\": false, \"terminal_target\": false, \"target_role\": \"AXButton\", \"target_subrole\": \"AXSecureTextField\", \"page_url\": \"https://pay.example.com/checkout\", \"frame_host\": \"cards.example.net\", \"tab_chain\": \"tab-41\", \"deletes\": [\"/tmp/invented/a.txt\"], \"writes\": [\"/tmp/invented/b.txt\", \"/tmp/invented/c.txt\"], \"control_label\": \"Pay now\"}"
+  ],
+  "ActionSpec": [
+   "{\"kind\": \"read\", \"target\": {\"account\": null, \"site\": null, \"recipients\": [], \"path\": null, \"amount\": null, \"currency\": null, \"contact\": null, \"page\": null, \"item\": null}, \"content\": null, \"declared\": null, \"place\": null, \"effect_kind\": null, \"facts\": null}",
+   "{\"kind\": \"send\", \"target\": {\"account\": null, \"site\": null, \"recipients\": [\"a@example.com\"], \"path\": null, \"amount\": null, \"currency\": null, \"contact\": null, \"page\": null, \"item\": null}, \"content\": \"hello\", \"declared\": \"send\", \"place\": \"Mail\", \"effect_kind\": \"pay\", \"facts\": {\"submits_form\": true, \"form_action_host\": \"pay.example.com\", \"form_method\": \"POST\", \"field_kinds\": [\"card_number\", \"card_csc\"], \"page_amount\": \"\\u20ac12.50\", \"page_merchant\": \"Example Shop\", \"page_amounts\": [\"\\u20ac12.50\", \"USD 3\"], \"received_by\": {\"bundle_id\": \"com.example.notes\", \"window\": \"Shopping list\", \"role\": null}, \"secure_field\": false, \"terminal_target\": false, \"target_role\": \"AXButton\", \"target_subrole\": \"AXSecureTextField\", \"page_url\": \"https://pay.example.com/checkout\", \"frame_host\": \"cards.example.net\", \"tab_chain\": \"tab-41\", \"deletes\": [\"/tmp/invented/a.txt\"], \"writes\": [\"/tmp/invented/b.txt\", \"/tmp/invented/c.txt\"], \"control_label\": \"Pay now\"}}"
+  ],
+  "ModelLimits": [
+   "{\"model\": \"invented-1\", \"context_window\": 200000, \"max_output\": 8000, \"source\": \"https://example.com/models\", \"window_includes_output\": true, \"max_input_chars\": null}",
+   "{\"model\": \"invented-2\", \"context_window\": 128000, \"max_output\": 4096, \"source\": \"docs\", \"window_includes_output\": false, \"max_input_chars\": 1048576}"
+  ],
+  "RuntimeEvent": [
+   "{\"kind\": \"message\", \"data\": {}}",
+   "{\"kind\": \"text_delta\", \"data\": {}}",
+   "{\"kind\": \"tool_call\", \"data\": {}}",
+   "{\"kind\": \"usage\", \"data\": {}}",
+   "{\"kind\": \"final\", \"data\": {\"text\": \"hi\", \"n\": 1}}",
+   "{\"kind\": \"error\", \"data\": {}}",
+   "{\"kind\": \"violation\", \"data\": {}}",
+   "{\"kind\": \"invalid_answer\", \"data\": {}}",
+   "{\"kind\": \"retrying\", \"data\": {}}",
+   "{\"kind\": \"progress\", \"data\": {}}",
+   "{\"kind\": \"compacted\", \"data\": {}}"
+  ],
+  "TerminalInput": [
+   "{\"app\": \"iTerm\", \"bundle_id\": \"com.googlecode.iterm2\", \"surface\": \"a terminal app\", \"text\": null, \"keys\": null, \"paste\": false, \"concealed\": false, \"clipboard\": null, \"enter\": false, \"covered_by\": null, \"window\": \"\", \"menu\": null, \"secret\": null, \"script\": null, \"drag\": false, \"runs\": false, \"control\": null, \"selection\": null, \"file\": null, \"runs_where\": \"\", \"files\": [], \"label\": \"\", \"opens\": false, \"named\": []}",
+   "{\"app\": \"Terminal\", \"bundle_id\": \"com.apple.Terminal\", \"surface\": \"a terminal app\", \"text\": \"echo h\\u00e9llo\", \"keys\": null, \"paste\": false, \"concealed\": false, \"clipboard\": null, \"enter\": true, \"covered_by\": null, \"window\": \"invented \\u2014 zsh\", \"menu\": null, \"secret\": null, \"script\": null, \"drag\": false, \"runs\": false, \"control\": null, \"selection\": null, \"file\": null, \"runs_where\": \"\", \"files\": [[\"/tmp/invented/run.command\", \"abababababababababababababababababababababababababababababababab\", \"echo hi\"]], \"label\": \"\", \"opens\": false, \"named\": [\"notes.txt\"]}"
+  ],
+  "TerminalGrant": [
+   "{\"input\": {\"app\": \"Terminal\", \"bundle_id\": \"com.apple.Terminal\", \"surface\": \"a terminal app\", \"text\": \"echo h\\u00e9llo\", \"keys\": null, \"paste\": false, \"concealed\": false, \"clipboard\": null, \"enter\": true, \"covered_by\": null, \"window\": \"invented \\u2014 zsh\", \"menu\": null, \"secret\": null, \"script\": null, \"drag\": false, \"runs\": false, \"control\": null, \"selection\": null, \"file\": null, \"runs_where\": \"\", \"files\": [[\"/tmp/invented/run.command\", \"abababababababababababababababababababababababababababababababab\", \"echo hi\"]], \"label\": \"\", \"opens\": false, \"named\": [\"notes.txt\"]}, \"confirmation_id\": \"c-1\"}"
+  ],
+  "TabRef": [
+   "{\"device_id\": \"dev-1\", \"browser\": \"chrome\", \"profile\": \"Profile 7\", \"generation\": 3, \"tab_id\": \"tab-41\"}"
+  ],
+  "ElementRef": [
+   "{\"tab\": {\"device_id\": \"dev-1\", \"browser\": \"chrome\", \"profile\": \"Profile 7\", \"generation\": 3, \"tab_id\": \"tab-41\"}, \"frame_id\": \"f0\", \"snapshot_gen\": 12, \"element_id\": \"e9\"}"
+  ],
+  "DriverFeatures": [
+   "{\"trusted_input_background\": true, \"parallel_actions\": false, \"network_events\": true, \"dom_snapshot\": true, \"screenshot_background\": false}"
+  ],
+  "WaitCondition": [
+   "{\"kind\": \"load\", \"value\": null}",
+   "{\"kind\": \"text\", \"value\": \"Thanks\"}",
+   "{\"kind\": \"url\", \"value\": \"https://example.com/done\"}"
+  ],
+  "ActionResult": [
+   "{\"ok\": true, \"detail\": \"\", \"facts\": {}, \"observed\": null}",
+   "{\"ok\": false, \"detail\": \"no such element\", \"facts\": {\"tries\": 2}, \"observed\": {\"submits_form\": false, \"form_action_host\": null, \"form_method\": null, \"field_kinds\": [\"password\"], \"page_amount\": null, \"page_merchant\": null, \"page_amounts\": [], \"received_by\": {\"bundle_id\": null, \"window\": null, \"role\": null}, \"secure_field\": null, \"terminal_target\": null, \"target_role\": null, \"target_subrole\": null, \"page_url\": null, \"frame_host\": null, \"tab_chain\": null, \"deletes\": [], \"writes\": [], \"control_label\": null}}"
+  ],
+  "FormSubmit": [
+   "{\"on_click\": true, \"on_enter\": false, \"action_host\": \"example.com\", \"method\": \"POST\", \"field_kinds\": [\"password\"], \"label\": \"Sign in\"}",
+   "{\"on_click\": false, \"on_enter\": true, \"action_host\": null, \"method\": null, \"field_kinds\": [], \"label\": \"\"}"
+  ],
+  "PageElement": [
+   "{\"id\": \"e0\", \"frame_id\": \"f0\", \"role\": \"button\", \"label\": \"Go\", \"value\": \"v\", \"rect\": [0.5, 0.25, 10.75, 20.5], \"visible\": false, \"input_type\": null, \"href\": null, \"form\": null, \"secret\": false, \"code_fill\": false, \"in_view\": true, \"offscreen\": null, \"occluded\": false, \"container\": null, \"state\": [], \"level\": null, \"terminal\": false, \"field_kind\": null, \"submit\": null, \"path\": \"\", \"backend_node\": null, \"in_dialog\": false}",
+   "{\"id\": \"e1\", \"frame_id\": \"f0\", \"role\": \"textbox\", \"label\": \"Email\", \"value\": null, \"rect\": [1.5, 2.0, 300.25, 40.0], \"visible\": true, \"input_type\": \"email\", \"href\": null, \"form\": null, \"secret\": false, \"code_fill\": false, \"in_view\": true, \"offscreen\": null, \"occluded\": false, \"container\": null, \"state\": [\"disabled\"], \"level\": null, \"terminal\": false, \"field_kind\": null, \"submit\": {\"on_click\": true, \"on_enter\": false, \"action_host\": \"example.com\", \"method\": \"POST\", \"field_kinds\": [\"password\"], \"label\": \"Sign in\"}, \"path\": \"\", \"backend_node\": 77, \"in_dialog\": false}"
+  ],
+  "PageSnapshot": [
+   "{\"tab\": {\"device_id\": \"dev-1\", \"browser\": \"chrome\", \"profile\": \"Profile 7\", \"generation\": 3, \"tab_id\": \"tab-41\"}, \"generation\": 4, \"url\": \"https://example.com/\", \"title\": \"Example\", \"elements\": [], \"text\": \"\", \"truncated\": false, \"dialogs\": [], \"scroll\": null, \"scrollers\": [], \"media\": [], \"frame_urls\": [], \"loading\": false, \"content_type\": null}",
+   "{\"tab\": {\"device_id\": \"dev-1\", \"browser\": \"chrome\", \"profile\": \"Profile 7\", \"generation\": 3, \"tab_id\": \"tab-41\"}, \"generation\": 5, \"url\": \"https://example.com/a\", \"title\": \"A\", \"elements\": [{\"id\": \"e1\", \"frame_id\": \"f0\", \"role\": \"textbox\", \"label\": \"Email\", \"value\": null, \"rect\": [1.5, 2.0, 300.25, 40.0], \"visible\": true, \"input_type\": \"email\", \"href\": null, \"form\": null, \"secret\": false, \"code_fill\": false, \"in_view\": true, \"offscreen\": null, \"occluded\": false, \"container\": null, \"state\": [\"disabled\"], \"level\": null, \"terminal\": false, \"field_kind\": null, \"submit\": {\"on_click\": true, \"on_enter\": false, \"action_host\": \"example.com\", \"method\": \"POST\", \"field_kinds\": [\"password\"], \"label\": \"Sign in\"}, \"path\": \"\", \"backend_node\": 77, \"in_dialog\": false}], \"text\": \"text\", \"truncated\": true, \"dialogs\": [\"alert: hi\"], \"scroll\": {\"y\": 0, \"height\": 900, \"viewport_h\": 600, \"at_end\": false}, \"scrollers\": [{\"id\": \"s1\", \"y\": 3}], \"media\": [{\"index\": 0, \"playing\": true}], \"frame_urls\": [\"https://frames.example.com/x\"], \"loading\": true, \"content_type\": \"application/pdf\"}"
+  ],
+  "ComputerAction": [
+   "{\"kind\": \"press\", \"element\": \"el-3\", \"text\": null, \"select\": null, \"direction\": null, \"amount\": null, \"window\": null, \"allow_foreground\": false, \"mechanism\": null}",
+   "{\"kind\": \"edit\", \"element\": \"el-4\", \"text\": \"new text\", \"select\": [2, 5], \"direction\": null, \"amount\": null, \"window\": null, \"allow_foreground\": true, \"mechanism\": \"ax_value\"}",
+   "{\"kind\": \"edit\", \"element\": \"el-4\", \"text\": \"x\", \"select\": \"all\", \"direction\": null, \"amount\": null, \"window\": null, \"allow_foreground\": false, \"mechanism\": null}",
+   "{\"kind\": \"scroll\", \"element\": null, \"text\": null, \"select\": null, \"direction\": \"down\", \"amount\": 3, \"window\": \"Notes\", \"allow_foreground\": false, \"mechanism\": \"foreground\"}",
+   "{\"kind\": \"set_value\", \"element\": null, \"text\": null, \"select\": null, \"direction\": null, \"amount\": null, \"window\": null, \"allow_foreground\": false, \"mechanism\": \"ax\"}",
+   "{\"kind\": \"focus\", \"element\": null, \"text\": null, \"select\": null, \"direction\": null, \"amount\": null, \"window\": null, \"allow_foreground\": false, \"mechanism\": \"pid\"}",
+   "{\"kind\": \"click\", \"element\": null, \"text\": null, \"select\": null, \"direction\": null, \"amount\": null, \"window\": null, \"allow_foreground\": false, \"mechanism\": null}",
+   "{\"kind\": \"type\", \"element\": null, \"text\": null, \"select\": null, \"direction\": null, \"amount\": null, \"window\": null, \"allow_foreground\": false, \"mechanism\": null}",
+   "{\"kind\": \"key\", \"element\": null, \"text\": null, \"select\": null, \"direction\": null, \"amount\": null, \"window\": null, \"allow_foreground\": false, \"mechanism\": null}",
+   "{\"kind\": \"select\", \"element\": null, \"text\": null, \"select\": null, \"direction\": null, \"amount\": null, \"window\": null, \"allow_foreground\": false, \"mechanism\": null}",
+   "{\"kind\": \"cancel\", \"element\": null, \"text\": null, \"select\": null, \"direction\": null, \"amount\": null, \"window\": null, \"allow_foreground\": false, \"mechanism\": null}"
+  ],
+  "Identity": [
+   "\"ferb\"",
+   "\"owner\""
+  ],
+  "RiskLevel": [
+   "1",
+   "2",
+   "3"
+  ],
+  "MemoryItem": [
+   "{\"id\": \"m1\", \"kind\": \"fact\", \"subject\": \"owner\", \"key\": \"dentist\", \"content\": \"The dentist is Dr Example — on Elm St\", \"source_ids\": [\"s1\", \"s2\"], \"observed_at\": \"2026-03-04 09:30:15+00:00\", \"valid_from\": \"2026-03-04 09:30:15+00:00\", \"valid_to\": null, \"supersedes\": null, \"confidence\": 0.9, \"origin\": \"owner_stated\", \"status\": \"active\", \"about\": \"\", \"review_at\": null, \"set_aside\": false}",
+   "{\"id\": \"m2\", \"kind\": \"preference\", \"subject\": \"owner\", \"key\": \"tea\", \"content\": \"Prefers green tea\", \"source_ids\": [], \"observed_at\": \"2026-03-04 15:00:15.000250+05:30\", \"valid_from\": \"2025-12-31 23:59:59.999999-08:00\", \"valid_to\": \"2026-03-04 09:30:15+00:00\", \"supersedes\": \"m1\", \"confidence\": 0.5, \"origin\": \"inferred\", \"status\": \"proposed\", \"about\": \"a chat about tea\", \"review_at\": \"2026-03-04 15:00:15.000250+05:30\", \"set_aside\": true}",
+   "{\"id\": \"m3\", \"kind\": \"person\", \"subject\": \"s\", \"key\": \"k\", \"content\": \"c\", \"source_ids\": [], \"observed_at\": \"2026-03-04 09:30:15+00:00\", \"valid_from\": \"2026-03-04 09:30:15+00:00\", \"valid_to\": null, \"supersedes\": null, \"confidence\": 1.0, \"origin\": \"observed\", \"status\": \"retracted\", \"about\": \"\", \"review_at\": null, \"set_aside\": false}",
+   "{\"id\": \"m4\", \"kind\": \"project\", \"subject\": \"s\", \"key\": \"k\", \"content\": \"c\", \"source_ids\": [], \"observed_at\": \"2026-03-04 09:30:15+00:00\", \"valid_from\": \"2026-03-04 09:30:15+00:00\", \"valid_to\": null, \"supersedes\": null, \"confidence\": 1.0, \"origin\": \"third_party\", \"status\": \"active\", \"about\": \"\", \"review_at\": null, \"set_aside\": false}",
+   "{\"id\": \"m5\", \"kind\": \"env\", \"subject\": \"s\", \"key\": \"k\", \"content\": \"c\", \"source_ids\": [], \"observed_at\": \"2026-03-04 09:30:15+00:00\", \"valid_from\": \"2026-03-04 09:30:15+00:00\", \"valid_to\": null, \"supersedes\": null, \"confidence\": 1.0, \"origin\": \"observed\", \"status\": \"active\", \"about\": \"\", \"review_at\": null, \"set_aside\": false}"
+  ]
+ },
+ "recorded": [
+  {
+   "facts": "{\"submits_form\": null, \"form_action_host\": null, \"form_method\": null, \"field_kinds\": [], \"page_amount\": null, \"page_merchant\": null, \"page_amounts\": [], \"received_by\": null, \"secure_field\": null, \"terminal_target\": null, \"target_role\": null, \"target_subrole\": null, \"page_url\": null, \"frame_host\": null, \"tab_chain\": null, \"deletes\": [], \"writes\": [], \"control_label\": null}",
+   "recorded": "{}"
+  },
+  {
+   "facts": "{\"submits_form\": false, \"form_action_host\": null, \"form_method\": null, \"field_kinds\": [\"password\"], \"page_amount\": null, \"page_merchant\": null, \"page_amounts\": [], \"received_by\": {\"bundle_id\": null, \"window\": null, \"role\": null}, \"secure_field\": null, \"terminal_target\": null, \"target_role\": null, \"target_subrole\": null, \"page_url\": null, \"frame_host\": null, \"tab_chain\": null, \"deletes\": [], \"writes\": [], \"control_label\": null}",
+   "recorded": "{\"submits_form\": false, \"field_kinds\": [\"password\"], \"received_by\": {}}"
+  },
+  {
+   "facts": "{\"submits_form\": true, \"form_action_host\": \"pay.example.com\", \"form_method\": \"POST\", \"field_kinds\": [\"card_number\", \"card_csc\"], \"page_amount\": \"\\u20ac12.50\", \"page_merchant\": \"Example Shop\", \"page_amounts\": [\"\\u20ac12.50\", \"USD 3\"], \"received_by\": {\"bundle_id\": \"com.example.notes\", \"window\": \"Shopping list\", \"role\": null}, \"secure_field\": false, \"terminal_target\": false, \"target_role\": \"AXButton\", \"target_subrole\": \"AXSecureTextField\", \"page_url\": \"https://pay.example.com/checkout\", \"frame_host\": \"cards.example.net\", \"tab_chain\": \"tab-41\", \"deletes\": [\"/tmp/invented/a.txt\"], \"writes\": [\"/tmp/invented/b.txt\", \"/tmp/invented/c.txt\"], \"control_label\": \"Pay now\"}",
+   "recorded": "{\"submits_form\": true, \"form_action_host\": \"pay.example.com\", \"form_method\": \"POST\", \"field_kinds\": [\"card_number\", \"card_csc\"], \"page_amount\": \"\\u20ac12.50\", \"page_merchant\": \"Example Shop\", \"page_amounts\": [\"\\u20ac12.50\", \"USD 3\"], \"received_by\": {\"bundle_id\": \"com.example.notes\", \"window\": \"Shopping list\"}, \"secure_field\": false, \"terminal_target\": false, \"target_role\": \"AXButton\", \"target_subrole\": \"AXSecureTextField\", \"page_url\": \"https://pay.example.com/checkout\", \"frame_host\": \"cards.example.net\", \"tab_chain\": \"tab-41\", \"deletes\": [\"/tmp/invented/a.txt\"], \"writes\": [\"/tmp/invented/b.txt\", \"/tmp/invented/c.txt\"], \"control_label\": \"Pay now\"}"
+  },
+  {
+   "facts": "{\"submits_form\": null, \"form_action_host\": null, \"form_method\": null, \"field_kinds\": [], \"page_amount\": null, \"page_merchant\": null, \"page_amounts\": [], \"received_by\": null, \"secure_field\": false, \"terminal_target\": null, \"target_role\": null, \"target_subrole\": null, \"page_url\": null, \"frame_host\": null, \"tab_chain\": null, \"deletes\": [\"a\"], \"writes\": [], \"control_label\": null}",
+   "recorded": "{\"secure_field\": false, \"deletes\": [\"a\"]}"
+  }
+ ],
+ "limits": [
+  {
+   "limits": "{\"model\": \"invented-1\", \"context_window\": 200000, \"max_output\": 8000, \"source\": \"https://example.com/models\", \"window_includes_output\": true, \"max_input_chars\": null}",
+   "context_budget": 192000
+  },
+  {
+   "limits": "{\"model\": \"invented-2\", \"context_window\": 128000, \"max_output\": 4096, \"source\": \"docs\", \"window_includes_output\": false, \"max_input_chars\": 1048576}",
+   "context_budget": 128000
+  }
+ ],
+ "datetimes": [
+  {
+   "iso": "2026-03-04T09:30:15+00:00",
+   "str": "2026-03-04 09:30:15+00:00"
+  },
+  {
+   "iso": "2026-03-04T15:00:15.000250+05:30",
+   "str": "2026-03-04 15:00:15.000250+05:30"
+  },
+  {
+   "iso": "2025-12-31T23:59:59.999999-08:00",
+   "str": "2025-12-31 23:59:59.999999-08:00"
+  },
+  {
+   "iso": "2026-01-01T00:00:00+00:00",
+   "str": "2026-01-01 00:00:00+00:00"
+  },
+  {
+   "iso": "1999-07-08T01:02:03.040000+05:30",
+   "str": "1999-07-08 01:02:03.040000+05:30"
+  },
+  {
+   "iso": "2026-06-01T12:00:00.000007-03:30",
+   "str": "2026-06-01 12:00:00.000007-03:30"
+  }
+ ],
+ "image": {
+  "hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021222324252627",
+  "ref": "evidence:7",
+  "mime": "image/jpeg",
+  "base64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJw==",
+  "data_url": "data:image/jpeg;base64,AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJw==",
+  "repr": "ModelImage(ref='evidence:7', mime='image/jpeg')"
+ },
+ "request": {
+  "system": "be brief",
+  "parts": [
+   "stable part",
+   "second",
+   "the request"
+  ],
+  "context": "stable part\n\nsecond\n\nthe request"
+ },
+ "escape_grant_repr": "EscapeGrant(rule='rule', confirmation_id='c-1', command='ls', cwd='/tmp/invented')"
+}

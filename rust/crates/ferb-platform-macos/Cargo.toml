@@ -1,0 +1,22 @@
+[package]
+name = "ferb-platform-macos"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# Everything in this crate is for macOS; on any other target it is empty and needs nothing.
+[target.'cfg(target_os = "macos")'.dependencies]
+ferb-identity = { path = "../ferb-identity" }
+ferb-rpc = { path = "../ferb-rpc" }
+libc.workspace = true
+zeroize.workspace = true
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

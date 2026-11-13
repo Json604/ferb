@@ -1,6 +1,28 @@
 [workspace]
 resolver = "2"
-members = ["crates/*"]
+# A crate joins `members` when the coordinator has verified it; a crate still being ported sits in `exclude` and is
+# built on its own (`cargo ... --manifest-path crates/<name>/Cargo.toml`), so unfinished work never breaks the gate.
+members = [
+    "crates/ferb-py",
+    "crates/ferb-core",
+    "crates/ferb-sanitize",
+    "crates/ferb-store",
+    "crates/ferb-rpc",
+    "crates/ferb-identity",
+    "crates/ferb-platform-macos",
+    "crates/ferb-native-host",
+    "crates/ferbd",
+]
+exclude = [
+    "crates/ferb-policy",
+    "crates/ferb-context",
+    "crates/ferb-fs",
+    "crates/ferb-shell",
+    "crates/ferb-browser",
+    "crates/ferb-runtimes",
+    "crates/ferb-clock",
+    "crates/ferb-memory",
+]
 
 [workspace.package]
 version = "0.28.0"
@@ -25,6 +47,12 @@ tempfile = "3"
 getrandom = "0.3"
 socket2 = "0.6"
 plist = { version = "1", default-features = false }
+toml_edit = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+zeroize = "1"
+aes-gcm = "0.10"
+hkdf = "0.12"
+roxmltree = "0.20"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

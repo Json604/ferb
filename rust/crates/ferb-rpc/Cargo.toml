@@ -10,15 +10,19 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+ferb-py = { path = "../ferb-py" }
 getrandom = { workspace = true }
 hex = { workspace = true }
-libc = { workspace = true }
-plist = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-socket2 = { workspace = true }
 thiserror = { workspace = true }
+
+# The Unix-socket server and the FERB.app check (`server`, `framing`, `peer`, `app_peer`).
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+plist = { workspace = true }
+socket2 = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
