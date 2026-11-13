@@ -122,7 +122,8 @@ RUSTFLAGS="--remap-path-prefix=$ROOT=. --remap-path-prefix=$CARGO_DIR=/cargo --r
 # build targets 10.12 and links Swift's back-deployment libraries by @rpath, which dyld can't find
 MACOSX_DEPLOYMENT_TARGET=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$ROOT/ui/mac/FERBAgent/Info.plist")
 export RUSTFLAGS CARGO_TARGET_DIR="$WORK/cargo" MACOSX_DEPLOYMENT_TARGET
-[[ -f "$ROOT/rust/crates/ferbd/Cargo.lock" ]] || die "rust/crates/ferbd has no Cargo.lock: a release builds only locked dependencies"
+# ferbd is a workspace member: the workspace's Cargo.lock locks it and ferb-native-host alike
+[[ -f "$ROOT/rust/Cargo.lock" ]] || die "rust/Cargo.lock is missing: a release builds only locked dependencies"
 rustup_here cargo build --release --locked --target "$FERB_RUST_TARGET" \
   --manifest-path "$ROOT/rust/crates/ferbd/Cargo.toml" --bin ferbd --bin ferb
 rustup_here cargo build --release --locked --target "$FERB_RUST_TARGET" --manifest-path "$ROOT/rust/Cargo.toml" \

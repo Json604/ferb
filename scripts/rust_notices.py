@@ -3,8 +3,8 @@
     python3 -I scripts/rust_notices.py --write    rewrite the section from Cargo.lock (cargo metadata, offline)
     python3 -I scripts/rust_notices.py --check    exit 1 when the section isn't what --write would write
 
-The shipped crates are those `ferbd` and `ferb` (rust/crates/ferbd/Cargo.lock) and `ferb-native-host`
-(rust/Cargo.lock) depend on as normal dependencies on either Mac architecture: build-time and test-only crates
+The shipped crates are those `ferbd`, `ferb` and `ferb-native-host` (workspace members, locked by rust/Cargo.lock)
+depend on as normal dependencies on either Mac architecture: build-time and test-only crates
 don't ship. For each: its version, its licence expression, the licence FERB takes it under (MIT, then Apache-2.0,
 from an OR choice; every part of an AND) and the copyright lines of its licence files. MIT's and Apache-2.0's texts
 follow once; any other licence's text is quoted from the crates' own files. The rest of THIRD_PARTY_NOTICES.md is
