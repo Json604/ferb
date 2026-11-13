@@ -1,14 +1,69 @@
 [package]
 name = "ferbd"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-rust-version.workspace = true
-publish.workspace = true
+version = "0.28.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.100"
+publish = false
+description = "FERB's daemon program: composes the engine crates (ferb/daemon/main.py), serves the RPC socket, and is re-entered as the models' tool bridge and FERB.app's internal commands"
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "ferbd"
+path = "src/main.rs"
+
+[features]
+default = []
+# Test-only: the binary honors FERBD_STAND_INS (the ferb-daemon test suite's stand-ins, a fake clock and ids, and a
+# control socket). A build without this feature has no such code at all: the variable is never read.
+stand-ins = []
+# The supervisor (rust/crates/ferb-supervisor, being finished by other agents): until it lands, chat and task methods
+# answer "not available in this build". See src/compose/supervisor.rs.
+supervisor = []
 
 [dependencies]
+ferb-browser = { path = "../ferb-browser" }
+ferb-clock = { path = "../ferb-clock" }
+ferb-context = { path = "../ferb-context" }
+ferb-core = { path = "../ferb-core" }
+ferb-daemon = { path = "../ferb-daemon" }
+ferb-device = { path = "../ferb-device" }
+ferb-fs = { path = "../ferb-fs" }
+ferb-gateway = { path = "../ferb-gateway" }
+ferb-identity = { path = "../ferb-identity" }
+ferb-learning = { path = "../ferb-learning" }
+ferb-mac-hands = { path = "../ferb-mac-hands" }
+ferb-memory = { path = "../ferb-memory" }
+ferb-orchestrator = { path = "../ferb-orchestrator" }
+ferb-platform-macos = { path = "../ferb-platform-macos" }
+ferb-policy = { path = "../ferb-policy" }
+ferb-py = { path = "../ferb-py" }
+ferb-rpc = { path = "../ferb-rpc" }
+ferb-runtimes = { path = "../ferb-runtimes" }
+ferb-sanitize = { path = "../ferb-sanitize" }
+ferb-sense = { path = "../ferb-sense" }
+ferb-shell = { path = "../ferb-shell" }
+ferb-store = { path = "../ferb-store" }
+ferb-trace = { path = "../ferb-trace" }
+ferb-worker = { path = "../ferb-worker" }
+chrono = { version = "0.4.42", default-features = false, features = ["std", "clock"] }
+libc = "0.2.191"
+rusqlite = { version = "0.42", features = ["bundled"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+tokio = { version = "1.54.1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "net", "io-util", "io-std", "signal", "process", "fs"] }
+sha2 = "0.10.9"
+zeroize = "1"
+hex = "0.4"
+futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 
 [dev-dependencies]
+tempfile = "3.20.0"
+hex = "0.4"
+# The test build's binary honors FERBD_STAND_INS (cargo unifies a dev-dependency's features into what the tests
+# build); `cargo build` and a release build never enable it.
+ferbd = { path = ".", features = ["stand-ins"] }

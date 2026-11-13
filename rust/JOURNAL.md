@@ -932,3 +932,41 @@ is now repaired like any invalid answer.
 **Open.** Control (pause, steer, stop), waits for the owner, check-in, service-down, side entries, the summary
 fold, several asks (the card), loops, conversations, wait and ask steps, scheduled runs, resume, restart: each
 answers `NotPorted` by its Python name. Bus events the daemon merges into a stream are not merged here.
+
+## 2026-11-13 · 42 · The daemon program runs (not yet a workspace member)
+
+**What.** `ferbd` composes the crates into one program with three modes: `daemon`, `mcp` (the tool bridge the
+model programs talk to) and the internal commands of `ferb-device`. It opens the store with salvage and config
+upgrades, builds the redactor, journal, ledger and gateway, serves the RPC socket with the peer lookup and the
+FERB.app check, takes the native-host channel, runs the timer loop and hourly retention, and builds the runtime
+factory with its glue to `ferb-worker`'s `ModelRuntime`. Home rule: inside a `.app` only the account's own
+`~/.ferb`; anywhere else `FERB_HOME` is honored.
+
+**Evidence.** Tests start the real binary on temp homes: 69 of the 71 ported methods replay through it against
+the recorded Python daemon (byte-exact or the named fixes); the catalog's 97 tools and 23 listings match by hash;
+`ferbd mcp` lists a run token's tools; SIGTERM exits 0 and removes the socket; a second daemon on the same home
+refuses; the stop marker and unknown-outcome marking survive a restart; the unchanged Python client gets a real
+`fs.list` through the gateway. 18 tests pass (run by the porting agent). Test stand-ins sit behind a feature only
+test builds enable; a plain build holds no trace of it (`strings`).
+
+**Fixed against Python.** An exclusive `run/daemon.lock`: two simultaneous starts could both pass the socket check.
+
+**Ran on this Mac.** Only `ferbd` on temp homes under `/tmp`. One smoke-test daemon outlived its shell (SIGHUP is
+not handled); it was found, stopped and its folders removed. Checked by the coordinator: no `ferbd` process and no
+temp home remain.
+
+**Open.**
+- Behind a "not available in this build" refusal: chat and task methods (the supervisor is not wired); the tools
+  `mac.*`, `recording.*`, `audio.listen`, `fs.look`, `recovery.snapshot`, `abilities.*`, `trail.*`,
+  `task.evidence`, `wait.for`, `sleep_until`, `skills.read`, `chat.history`, the memory tools, `secrets.list`,
+  `about.read`, `conversation.read` and the 21 `ferb_browser.*`; the device setup environment; the egress proxy;
+  the hourly memory loops; the resource sampler.
+- Not ported at all: 19 RPC methods (`doctor.check`, `setup.permissions`, `reports.*`, `recovery.*`, `trace.get`,
+  `verdict.set` and others) and the `logs.subscribe` stream.
+- Seams that did not fit and were adapted in `ferbd` instead of fixed at the source: `ferb-gateway`'s `call`
+  future is not Send, and it has no public way to ask FERB's own questions; nothing implements `ferb-shell`'s
+  `Protection`; two `Shape` types (`ferb-runtimes`, `ferb-context`); `ferb-worker`'s `Error` cannot carry a
+  provider error's overflow, account and image facts; `ferb-browser`'s `OwnerInput` lacks the call context;
+  `ferb-core`'s old runtime trait; `ferb-device`'s installer needs the Rust service definition; the catalog's MCP
+  listing envelope disagrees with the bridge's wire fixture.
+- `ferbd` should handle SIGHUP.

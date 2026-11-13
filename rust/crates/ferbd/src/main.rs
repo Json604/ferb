@@ -1,4 +1,4 @@
 fn main() {
-    eprintln!("not built yet (see rust/STATUS.md)");
-    std::process::exit(2);
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    std::process::exit(ferbd::run::main(&args));
 }
