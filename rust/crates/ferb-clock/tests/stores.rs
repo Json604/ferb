@@ -41,7 +41,7 @@ fn dump(db: &Db, tables: &[&str]) -> Value {
             .conn()
             .prepare(&format!("SELECT * FROM {t} ORDER BY rowid"))
             .unwrap();
-        let cols: Vec<String> = st.column_names().iter().map(|c| c.to_string()).collect();
+        let cols: Vec<String> = st.column_names().map(|c| c.to_string()).collect();
         let rows: Vec<Value> = st
             .query_map([], |r| {
                 let mut m = Map::new();

@@ -56,7 +56,7 @@ fn dump(conn: &Connection, table: &str) -> Value {
     let mut stmt = conn
         .prepare(&format!("SELECT * FROM {table} ORDER BY {order}"))
         .unwrap();
-    let names: Vec<String> = stmt.column_names().iter().map(|c| c.to_string()).collect();
+    let names: Vec<String> = stmt.column_names().map(|c| c.to_string()).collect();
     let rows = stmt
         .query_map([], |r| {
             let mut m = serde_json::Map::new();
@@ -437,8 +437,8 @@ fn the_pure_helpers_match_python() {
 
 /// What this build's bundled SQLite does with FTS5 against Python's SQLite (search.json "sqlite", 3.53.4): the
 /// unicode61 tokenizer with FERB's categories (memory_fts, chat_fts) and its other options tokenize and rank (bm25
-/// bits, order) identically. The trigram tokenizer (learning_titles, migration 0030) differs on text holding a NUL:
-/// SQLite 3.46 stops reading the text at the NUL, Python's 3.53.4 reads past it; ranks over such a corpus differ.
+/// bits, order) identically, and so does the trigram tokenizer (learning_titles, migration 0030) on text holding a NUL
+/// (SQLite 3.46 stopped reading at the NUL; 3.53.4 and newer read past it, so the workspace bundles a newer one).
 #[test]
 fn fts5_tokenizes_and_ranks_as_pythons_sqlite() {
     let fx = fixture("search.json");
@@ -517,14 +517,6 @@ fn fts5_tokenizes_and_ranks_as_pythons_sqlite() {
         rank_diffs.len()
     );
     assert!(compared > 1600);
-    for (table, text) in &token_diffs {
-        assert!(
-            table.starts_with("trigram") && text.contains('\0'),
-            "{table}: {text:?}"
-        );
-    }
-    assert!(
-        rank_diffs.iter().all(|t| t.starts_with("trigram")),
-        "{rank_diffs:?}"
-    );
+    assert!(token_diffs.is_empty(), "{token_diffs:?}");
+    assert!(rank_diffs.is_empty(), "{rank_diffs:?}");
 }

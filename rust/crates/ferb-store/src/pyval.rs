@@ -26,7 +26,7 @@ pub fn sql_to_json(value: Sql) -> Result<Value> {
 /// `dict(row)`: every column by name, in the statement's order.
 pub fn row_map(row: &rusqlite::Row<'_>) -> Result<Map<String, Value>> {
     let mut out = Map::new();
-    for (i, name) in row.as_ref().column_names().into_iter().enumerate() {
+    for (i, name) in row.as_ref().column_names().enumerate() {
         out.insert(name.to_owned(), sql_to_json(row.get::<_, Sql>(i)?)?);
     }
     Ok(out)

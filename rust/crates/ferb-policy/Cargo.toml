@@ -1,0 +1,37 @@
+[package]
+name = "ferb-policy"
+version = "0.28.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+ferb-core = { path = "../ferb-core" }
+ferb-py = { path = "../ferb-py" }
+ferb-sanitize = { path = "../ferb-sanitize" }
+fancy-regex = "0.14"
+hex = "0.4"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# The stores (known destinations, confirmations, standing permissions, the daily digest, sites contacted) are
+# Mac-side, as ferb-store is (ENG-5): the decisions above them stay portable.
+[target.'cfg(target_os = "macos")'.dependencies]
+ferb-store = { path = "../ferb-store" }
+rusqlite = { version = "0.42", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+ferb-store = { path = "../ferb-store" }
+rusqlite = { version = "0.42", features = ["bundled"] }

@@ -18,15 +18,16 @@ members = [
     "crates/ferb-shell",
     "crates/ferb-memory",
     "crates/ferb-runtimes",
+    "crates/ferb-policy",
 ]
 exclude = [
+    "crates/ferb-gateway",
     "crates/ferb-sense",
     "crates/ferb-trace",
     "crates/ferb-device",
     "crates/ferb-orchestrator",
     "crates/ferb-mac-hands",
     "crates/ferb-learning",
-    "crates/ferb-policy",
     "crates/ferb-browser",
 ]
 

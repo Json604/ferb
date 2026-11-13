@@ -495,6 +495,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferb-policy"
+version = "0.28.0"
+dependencies = [
+ "chrono",
+ "fancy-regex 0.14.0",
+ "ferb-core",
+ "ferb-py",
+ "ferb-sanitize",
+ "ferb-store",
+ "hex",
+ "libc",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "ferb-py"
 version = "0.28.0"
 dependencies = [

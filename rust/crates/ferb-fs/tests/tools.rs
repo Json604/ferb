@@ -578,7 +578,7 @@ impl Case {
         let mut stmt = conn
             .prepare("SELECT * FROM recovery ORDER BY rowid")
             .unwrap();
-        let names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+        let names: Vec<String> = stmt.column_names().map(|s| s.to_string()).collect();
         let rows = stmt
             .query_map([], |r| {
                 let mut d = Dict::new();

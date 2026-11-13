@@ -494,3 +494,47 @@ hook exists and is off by default so the fixture comparison stays exact.
   an empty body; httpx's own error class names may differ from the three used here; the MCP bridge covers the
   handshake Python's library speaks today, not the newer request-envelope form.
 - Never run against the real `codex` or `claude` programs or a provider: that is a run the owner makes.
+
+## 2026-11-13 · 25 · The store bundles SQLite 3.54.1 (rusqlite 0.42)
+
+**What.** The workspace moved from rusqlite 0.32 (libsqlite3-sys 0.30.1, SQLite 3.46.0) to rusqlite 0.42.0
+(libsqlite3-sys 0.40.0, SQLite 3.54.1). `ferb-clock`, `ferb-fs` and `ferb-memory` named their own version and now
+say 0.42. The only API change: `Statement::column_names()` returns an iterator, not a slice (four call sites).
+
+**Why.** Python's daemon runs SQLite 3.53.4; FTS5's trigram tokenizer differs on text with a NUL (entry 22), which
+reaches `learning_titles` (migration 0030).
+
+**Evidence.** `ferb-store/tests/sqlite_version.rs` asserts the linked version is at least 3.53.4 and that the
+trigram tokenizer skips a NUL and reads the text after it. `ferb-memory`'s FTS5 comparison no longer excepts
+NUL cases: 0 of its 1,698 comparisons differ. No other fixture comparison changed (stored schema text and rows
+match as before). Workspace: 311 tests pass, 4 ignored; fmt, clippy, `gate.sh portable` pass.
+
+**Open.**
+- Excluded crates `ferb-policy` and `ferb-browser` still name `rusqlite = "0.32"` (two lines each); they must move
+  to 0.42 before they join, or two SQLite copies link.
+
+## 2026-11-13 · 26 · Policy: when FERB asks, and what is protected
+
+**What.** `ferb-policy` ports `ferb/policy` (4,666 lines): `decide`, the URL and form sink rule, the question
+wording, provenance, known and approved destinations, confirmations, standing sends, payments, terminal input,
+certificate checks, the protection lists and stored provenance. It carries Python-exact urllib, ipaddress, idna,
+shlex and Unicode normalization from tables the Python build writes. It builds for iOS and Android; the stores are
+Mac-side.
+
+**Why.** These are the decisions about when FERB must ask before acting (rules 3 to 5). A drift here is a safety
+bug, so the cases were harvested from the Python guard tests themselves.
+
+**Evidence.** `rust/fixtures/policy/make.py` runs 455 guarding tests to collect inputs, then generated and
+scripted cases: 10,769 in all, none differ, rows byte-identical. Scripted cases cover known versus approved
+destinations, per-tree answers (the latest wins, an explicit No, one-run use), the terminal-app grant and its
+exceptions (GATE-585/586), standing sends, payment amount and merchant changes, and the routine 30-minute window
+and what it never covers. 16 test groups pass, re-run by the coordinator.
+
+**Fixed against Python.** `tls.py:344-345`: `yarn config set enableStrictSsl` with no value raised IndexError.
+
+**Open.**
+- How answers combine (first answer wins, window expiry) lives in `gateway.py` and `questions.py`: the gateway port.
+- Unverified: `targets::Requests`, `Contact`'s pydantic schema, `with_forms`, normalization beyond the sampled
+  strings.
+- Differences that fail closed or are listed: NaN amounts give text where Python raises; a regex backtrack stop
+  reads as no further match; a redactor that cannot read its text counts as a hit.
