@@ -1,0 +1,4530 @@
+{
+ "requirements": [
+  {
+   "req": "cdhash H\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+   "trusted": false,
+   "trusted_pinned": true,
+   "leaf": null
+  },
+  {
+   "req": "cdhash H\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"",
+   "trusted": false,
+   "trusted_pinned": false,
+   "leaf": null
+  },
+  {
+   "req": "cdhash H\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+   "trusted": false,
+   "trusted_pinned": false,
+   "leaf": null
+  },
+  {
+   "req": "identifier \"com.ferb.secrets\" and certificate leaf = H\"0123456789abcdef0123456789abcdef01234567\"",
+   "trusted": true,
+   "trusted_pinned": true,
+   "leaf": "0123456789abcdef0123456789abcdef01234567"
+  },
+  {
+   "req": "  identifier \"x\" and certificate leaf = H\"AbCdEf0123AbCdEf0123AbCdEf0123AbCdEf0123\"  ",
+   "trusted": true,
+   "trusted_pinned": true,
+   "leaf": "abcdef0123abcdef0123abcdef0123abcdef0123"
+  },
+  {
+   "req": "identifier \"\" and certificate leaf = H\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+   "trusted": true,
+   "trusted_pinned": true,
+   "leaf": null
+  },
+  {
+   "req": "identifier \"a\"b\" and certificate leaf = H\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+   "trusted": true,
+   "trusted_pinned": true,
+   "leaf": null
+  },
+  {
+   "req": "identifier \"com.ferb.secrets\"",
+   "trusted": false,
+   "trusted_pinned": false,
+   "leaf": null
+  },
+  {
+   "req": "",
+   "trusted": false,
+   "trusted_pinned": false,
+   "leaf": null
+  },
+  {
+   "req": "certificate leaf[subject.OU] = TEAM",
+   "trusted": true,
+   "trusted_pinned": true,
+   "leaf": null
+  }
+ ],
+ "codesign": [
+  {
+   "out": "Executable=/x\n# designated => cdhash H\"abc\"\n",
+   "designated": "cdhash H\"abc\"",
+   "cdhash": "",
+   "team": ""
+  },
+  {
+   "out": "designated => identifier \"a\" and anchor apple\n",
+   "designated": "identifier \"a\" and anchor apple",
+   "cdhash": "",
+   "team": ""
+  },
+  {
+   "out": "Executable=/x\r\nCDHash=  abc  \r\nTeamIdentifier=not set\n",
+   "designated": "",
+   "cdhash": "abc",
+   "team": "not set"
+  },
+  {
+   "out": "TeamIdentifier=T1=2\n",
+   "designated": "",
+   "cdhash": "",
+   "team": "T1=2"
+  },
+  {
+   "out": "nothing\n",
+   "designated": "",
+   "cdhash": "",
+   "team": ""
+  },
+  {
+   "out": "x\u000bdesignated => after a vertical tab\n",
+   "designated": "after a vertical tab",
+   "cdhash": "",
+   "team": ""
+  }
+ ],
+ "launchctl_words": [
+  {
+   "rc": 5,
+   "stdout": "",
+   "stderr": "Bootstrap failed: 5: Input/output error\n",
+   "words": "launchctl exited 5: Bootstrap failed: 5: Input/output error"
+  },
+  {
+   "rc": 37,
+   "stdout": "",
+   "stderr": "",
+   "words": "launchctl exited 37 and printed nothing"
+  },
+  {
+   "rc": 1,
+   "stdout": "  said on stdout \n",
+   "stderr": "  \n",
+   "words": "launchctl exited 1: said on stdout"
+  },
+  {
+   "rc": 3,
+   "stdout": "",
+   "stderr": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+   "words": "launchctl exited 3: éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+  },
+  {
+   "rc": 2,
+   "stdout": null,
+   "stderr": null,
+   "words": "launchctl exited 2 and printed nothing"
+  }
+ ],
+ "plists": [
+  {
+   "value": {
+    "Label": "a&b<c>",
+    "Args": [
+     "x",
+     "y\r\nz"
+    ],
+    "Empty": {},
+    "None": [],
+    "N": -3,
+    "T": true,
+    "Ünïcode": "café ☕",
+    "Nested": {
+     "b": {
+      "c": []
+     },
+     "a": 1
+    }
+   },
+   "hex": "3c3f786d6c2076657273696f6e3d22312e302220656e636f64696e673d225554462d38223f3e0a3c21444f435459504520706c697374205055424c494320222d2f2f4170706c652f2f44544420504c49535420312e302f2f454e222022687474703a2f2f7777772e6170706c652e636f6d2f445444732f50726f70657274794c6973742d312e302e647464223e0a3c706c6973742076657273696f6e3d22312e30223e0a3c646963743e0a093c6b65793e417267733c2f6b65793e0a093c61727261793e0a09093c737472696e673e783c2f737472696e673e0a09093c737472696e673e790a7a3c2f737472696e673e0a093c2f61727261793e0a093c6b65793e456d7074793c2f6b65793e0a093c646963742f3e0a093c6b65793e4c6162656c3c2f6b65793e0a093c737472696e673e6126616d703b62266c743b632667743b3c2f737472696e673e0a093c6b65793e4e3c2f6b65793e0a093c696e74656765723e2d333c2f696e74656765723e0a093c6b65793e4e65737465643c2f6b65793e0a093c646963743e0a09093c6b65793e613c2f6b65793e0a09093c696e74656765723e313c2f696e74656765723e0a09093c6b65793e623c2f6b65793e0a09093c646963743e0a0909093c6b65793e633c2f6b65793e0a0909093c61727261792f3e0a09093c2f646963743e0a093c2f646963743e0a093c6b65793e4e6f6e653c2f6b65793e0a093c61727261792f3e0a093c6b65793e543c2f6b65793e0a093c747275652f3e0a093c6b65793ec39c6ec3af636f64653c2f6b65793e0a093c737472696e673e636166c3a920e298953c2f737472696e673e0a3c2f646963743e0a3c2f706c6973743e0a"
+  },
+  {
+   "value": {},
+   "hex": "3c3f786d6c2076657273696f6e3d22312e302220656e636f64696e673d225554462d38223f3e0a3c21444f435459504520706c697374205055424c494320222d2f2f4170706c652f2f44544420504c49535420312e302f2f454e222022687474703a2f2f7777772e6170706c652e636f6d2f445444732f50726f70657274794c6973742d312e302e647464223e0a3c706c6973742076657273696f6e3d22312e30223e0a3c646963742f3e0a3c2f706c6973743e0a"
+  }
+ ],
+ "plist_errors": [
+  {
+   "value": "bad\u0001char",
+   "error": "strings can't contain control characters; use bytes instead"
+  }
+ ],
+ "profile": {
+  "a": {
+   "apps": [
+    {
+     "ax_support": "untested",
+     "bundle_id": "com.a",
+     "name": "A",
+     "path": "/A.app",
+     "scriptable": true,
+     "version": "1"
+    },
+    {
+     "ax_support": "untested",
+     "bundle_id": "com.b",
+     "name": "B",
+     "path": "/B.app",
+     "scriptable": false,
+     "version": "2"
+    }
+   ],
+   "browsers": [
+    {
+     "bundle_id": "com.google.Chrome",
+     "drivers": {
+      "ax:chrome": "x",
+      "ext:chrome": "y"
+     },
+     "name": "chrome",
+     "path": "/C.app"
+    }
+   ],
+   "device_id": "dev1",
+   "os": "macos",
+   "os_version": "26.1",
+   "scanned_at": "2026-11-13T09:30:05+05:30"
+  },
+  "b": {
+   "apps": [
+    {
+     "ax_support": "untested",
+     "bundle_id": "com.b",
+     "name": "B",
+     "path": "/B.app",
+     "scriptable": false,
+     "version": "3"
+    },
+    {
+     "ax_support": "untested",
+     "bundle_id": "com.c",
+     "name": "C",
+     "path": "/C.app",
+     "scriptable": true,
+     "version": "1"
+    }
+   ],
+   "browsers": [
+    {
+     "bundle_id": "com.google.Chrome",
+     "drivers": {
+      "ax:chrome": "x",
+      "ext:chrome": "y"
+     },
+     "name": "chrome",
+     "path": "/C.app"
+    }
+   ],
+   "device_id": "dev1",
+   "os": "macos",
+   "os_version": "26.1",
+   "scanned_at": "2026-11-14T09:30:05+05:30"
+  },
+  "c": {
+   "apps": [
+    {
+     "ax_support": "untested",
+     "bundle_id": "com.b",
+     "name": "B",
+     "path": "/B.app",
+     "scriptable": false,
+     "version": "3"
+    },
+    {
+     "ax_support": "untested",
+     "bundle_id": "com.c",
+     "name": "C",
+     "path": "/C.app",
+     "scriptable": true,
+     "version": "1"
+    }
+   ],
+   "browsers": [
+    {
+     "bundle_id": "com.google.Chrome",
+     "drivers": {
+      "ax:chrome": "x",
+      "ext:chrome": "y"
+     },
+     "name": "chrome",
+     "path": "/C.app"
+    }
+   ],
+   "device_id": "dev1",
+   "os": "macos",
+   "os_version": "26.1",
+   "scanned_at": "2026-11-15T09:30:05+05:30"
+  },
+  "a_json": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.a\",\n      \"name\": \"A\",\n      \"path\": \"/A.app\",\n      \"scriptable\": true,\n      \"version\": \"1\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.b\",\n      \"name\": \"B\",\n      \"path\": \"/B.app\",\n      \"scriptable\": false,\n      \"version\": \"2\"\n    }\n  ],\n  \"browsers\": [\n    {\n      \"bundle_id\": \"com.google.Chrome\",\n      \"drivers\": {\n        \"ax:chrome\": \"x\",\n        \"ext:chrome\": \"y\"\n      },\n      \"name\": \"chrome\",\n      \"path\": \"/C.app\"\n    }\n  ],\n  \"device_id\": \"dev1\",\n  \"os\": \"macos\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-11-13T09:30:05+05:30\"\n}",
+  "saves": [
+   true,
+   true,
+   false
+  ],
+  "history": [
+   "first",
+   "device scan"
+  ],
+  "files": [
+   {
+    "path": "device",
+    "kind": "dir",
+    "mode": 448
+   },
+   {
+    "path": "device/dev1.json",
+    "kind": "file",
+    "mode": 420,
+    "text": "{\n  \"apps\": [\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.b\",\n      \"name\": \"B\",\n      \"path\": \"/B.app\",\n      \"scriptable\": false,\n      \"version\": \"3\"\n    },\n    {\n      \"ax_support\": \"untested\",\n      \"bundle_id\": \"com.c\",\n      \"name\": \"C\",\n      \"path\": \"/C.app\",\n      \"scriptable\": true,\n      \"version\": \"1\"\n    }\n  ],\n  \"browsers\": [\n    {\n      \"bundle_id\": \"com.google.Chrome\",\n      \"drivers\": {\n        \"ax:chrome\": \"x\",\n        \"ext:chrome\": \"y\"\n      },\n      \"name\": \"chrome\",\n      \"path\": \"/C.app\"\n    }\n  ],\n  \"device_id\": \"dev1\",\n  \"os\": \"macos\",\n  \"os_version\": \"26.1\",\n  \"scanned_at\": \"2026-11-14T09:30:05+05:30\"\n}\n"
+   },
+   {
+    "path": "device/history.jsonl",
+    "kind": "file",
+    "mode": 420,
+    "text": "{\"added\": [\"com.a\", \"com.b\"], \"at\": \"2026-11-13T09:30:05+05:30\", \"changed\": [], \"device_id\": \"dev1\", \"message\": \"first\", \"removed\": []}\n{\"added\": [\"com.c\"], \"at\": \"2026-11-14T09:30:05+05:30\", \"changed\": [\"com.b\"], \"device_id\": \"dev1\", \"message\": \"device scan\", \"removed\": [\"com.a\"]}\nnot json\n{\"no\": 1}\n"
+   }
+  ],
+  "diff": {
+   "added": [
+    "com.c"
+   ],
+   "removed": [
+    "com.a"
+   ],
+   "changed": [
+    "com.b"
+   ]
+  },
+  "summary": {
+   "apps": 2,
+   "scriptable": 1,
+   "browsers": [
+    "chrome"
+   ]
+  }
+ },
+ "scan": {
+  "files": [
+   {
+    "path": "Binary.app",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Binary.app/Contents",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Binary.app/Contents/Info.plist",
+    "kind": "file",
+    "mode": 420,
+    "hex": "62706c6973743030d401020304050607085f1012434642756e646c654964656e7469666965725c434642756e646c654e616d655f101a434642756e646c6553686f727456657273696f6e537472696e675f10164f5341536372697074696e67446566696e6974696f6e5f1012636f6d2e6578616d706c652e62696e6172795642696e61727953312e3056782e736465660811263350697e85890000000000000101000000000000000900000000000000000000000000000090"
+   },
+   {
+    "path": "Binary.app/Contents/Resources",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Brave.app",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Brave.app/Contents",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Brave.app/Contents/Info.plist",
+    "kind": "file",
+    "mode": 420,
+    "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<key>CFBundleIdentifier</key>\n\t<string>com.brave.Browser</string>\n\t<key>CFBundleName</key>\n\t<string>Brave</string>\n\t<key>CFBundleShortVersionString</key>\n\t<string>1.0</string>\n</dict>\n</plist>\n"
+   },
+   {
+    "path": "Brave.app/Contents/Resources",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Chrome.app",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Chrome.app/Contents",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Chrome.app/Contents/Info.plist",
+    "kind": "file",
+    "mode": 420,
+    "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<key>CFBundleDisplayName</key>\n\t<string>Google Chrome</string>\n\t<key>CFBundleIdentifier</key>\n\t<string>com.google.Chrome</string>\n\t<key>CFBundleName</key>\n\t<string>Chrome</string>\n\t<key>CFBundleShortVersionString</key>\n\t<string>1.0</string>\n\t<key>NSAppleScriptEnabled</key>\n\t<true/>\n</dict>\n</plist>\n"
+   },
+   {
+    "path": "Chrome.app/Contents/Resources",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Dup.app",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Dup.app/Contents",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Dup.app/Contents/Info.plist",
+    "kind": "file",
+    "mode": 420,
+    "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<key>CFBundleIdentifier</key>\n\t<string>com.apple.Notes</string>\n\t<key>CFBundleName</key>\n\t<string>Dup</string>\n\t<key>CFBundleShortVersionString</key>\n\t<string>1.0</string>\n</dict>\n</plist>\n"
+   },
+   {
+    "path": "Dup.app/Contents/Resources",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Empty.app",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Empty.app/Contents",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Empty.app/Contents/Info.plist",
+    "kind": "file",
+    "mode": 420,
+    "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<key>CFBundleIdentifier</key>\n\t<string></string>\n\t<key>CFBundleName</key>\n\t<string></string>\n</dict>\n</plist>\n"
+   },
+   {
+    "path": "Listed.app",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Listed.app/Contents",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "NoId.app",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "NoId.app/Contents",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "NoId.app/Contents/Info.plist",
+    "kind": "file",
+    "mode": 420,
+    "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<key>CFBundleName</key>\n\t<string>NoId</string>\n\t<key>CFBundleShortVersionString</key>\n\t<string>1.0</string>\n</dict>\n</plist>\n"
+   },
+   {
+    "path": "NoId.app/Contents/Resources",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Notes.app",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Notes.app/Contents",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Notes.app/Contents/Info.plist",
+    "kind": "file",
+    "mode": 420,
+    "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<key>CFBundleIdentifier</key>\n\t<string>com.apple.Notes</string>\n\t<key>CFBundleName</key>\n\t<string>Notes</string>\n\t<key>CFBundleShortVersionString</key>\n\t<string>1.0</string>\n</dict>\n</plist>\n"
+   },
+   {
+    "path": "Notes.app/Contents/Resources",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Notes.app/Contents/Resources/Notes.sdef",
+    "kind": "file",
+    "mode": 420,
+    "text": "<dictionary/>"
+   },
+   {
+    "path": "Safari.app",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Safari.app/Contents",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Safari.app/Contents/Info.plist",
+    "kind": "file",
+    "mode": 420,
+    "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<key>CFBundleIdentifier</key>\n\t<string>com.apple.Safari</string>\n\t<key>CFBundleName</key>\n\t<string>Safari</string>\n\t<key>CFBundleShortVersionString</key>\n\t<string>1.0</string>\n</dict>\n</plist>\n"
+   },
+   {
+    "path": "Safari.app/Contents/Resources",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Web.app",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Web.app/Contents",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "Web.app/Contents/Info.plist",
+    "kind": "file",
+    "mode": 420,
+    "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<key>CFBundleIdentifier</key>\n\t<string>com.example.web</string>\n\t<key>CFBundleName</key>\n\t<string>Web</string>\n\t<key>CFBundleShortVersionString</key>\n\t<string>1.0</string>\n\t<key>CFBundleURLTypes</key>\n\t<array>\n\t\t<dict>\n\t\t\t<key>CFBundleURLSchemes</key>\n\t\t\t<array>\n\t\t\t\t<string>HTTPS</string>\n\t\t\t</array>\n\t\t</dict>\n\t</array>\n</dict>\n</plist>\n"
+   },
+   {
+    "path": "Web.app/Contents/Resources",
+    "kind": "dir",
+    "mode": 493
+   }
+  ],
+  "reads": [
+   {
+    "bundle": "Binary.app",
+    "app": {
+     "bundle_id": "com.example.binary",
+     "name": "Binary",
+     "version": "1.0",
+     "path": "/private/tmp/ferb-device-fx/pure/Apps/Binary.app",
+     "scriptable": true,
+     "ax_support": "untested"
+    }
+   },
+   {
+    "bundle": "Brave.app",
+    "app": {
+     "bundle_id": "com.brave.Browser",
+     "name": "Brave",
+     "version": "1.0",
+     "path": "/private/tmp/ferb-device-fx/pure/Apps/Brave.app",
+     "scriptable": false,
+     "ax_support": "untested"
+    }
+   },
+   {
+    "bundle": "Chrome.app",
+    "app": {
+     "bundle_id": "com.google.Chrome",
+     "name": "Google Chrome",
+     "version": "1.0",
+     "path": "/private/tmp/ferb-device-fx/pure/Apps/Chrome.app",
+     "scriptable": true,
+     "ax_support": "untested"
+    }
+   },
+   {
+    "bundle": "Dup.app",
+    "app": {
+     "bundle_id": "com.apple.Notes",
+     "name": "Dup",
+     "version": "1.0",
+     "path": "/private/tmp/ferb-device-fx/pure/Apps/Dup.app",
+     "scriptable": false,
+     "ax_support": "untested"
+    }
+   },
+   {
+    "bundle": "Empty.app",
+    "app": null
+   },
+   {
+    "bundle": "Listed.app",
+    "error": "AttributeError"
+   },
+   {
+    "bundle": "NoId.app",
+    "app": null
+   },
+   {
+    "bundle": "Notes.app",
+    "app": {
+     "bundle_id": "com.apple.Notes",
+     "name": "Notes",
+     "version": "1.0",
+     "path": "/private/tmp/ferb-device-fx/pure/Apps/Notes.app",
+     "scriptable": true,
+     "ax_support": "untested"
+    }
+   },
+   {
+    "bundle": "Safari.app",
+    "app": {
+     "bundle_id": "com.apple.Safari",
+     "name": "Safari",
+     "version": "1.0",
+     "path": "/private/tmp/ferb-device-fx/pure/Apps/Safari.app",
+     "scriptable": false,
+     "ax_support": "untested"
+    }
+   },
+   {
+    "bundle": "Web.app",
+    "app": {
+     "bundle_id": "com.example.web",
+     "name": "Web",
+     "version": "1.0",
+     "path": "/private/tmp/ferb-device-fx/pure/Apps/Web.app",
+     "scriptable": false,
+     "ax_support": "untested"
+    }
+   }
+  ],
+  "profile": {
+   "apps": [
+    {
+     "ax_support": "untested",
+     "bundle_id": "com.apple.Notes",
+     "name": "Dup",
+     "path": "/private/tmp/ferb-device-fx/pure/Apps/Dup.app",
+     "scriptable": false,
+     "version": "1.0"
+    },
+    {
+     "ax_support": "untested",
+     "bundle_id": "com.apple.Safari",
+     "name": "Safari",
+     "path": "/private/tmp/ferb-device-fx/pure/Apps/Safari.app",
+     "scriptable": false,
+     "version": "1.0"
+    },
+    {
+     "ax_support": "untested",
+     "bundle_id": "com.brave.Browser",
+     "name": "Brave",
+     "path": "/private/tmp/ferb-device-fx/pure/Apps/Brave.app",
+     "scriptable": false,
+     "version": "1.0"
+    },
+    {
+     "ax_support": "untested",
+     "bundle_id": "com.example.binary",
+     "name": "Binary",
+     "path": "/private/tmp/ferb-device-fx/pure/Apps/Binary.app",
+     "scriptable": true,
+     "version": "1.0"
+    },
+    {
+     "ax_support": "untested",
+     "bundle_id": "com.example.web",
+     "name": "Web",
+     "path": "/private/tmp/ferb-device-fx/pure/Apps/Web.app",
+     "scriptable": false,
+     "version": "1.0"
+    },
+    {
+     "ax_support": "untested",
+     "bundle_id": "com.google.Chrome",
+     "name": "Google Chrome",
+     "path": "/private/tmp/ferb-device-fx/pure/Apps/Chrome.app",
+     "scriptable": true,
+     "version": "1.0"
+    }
+   ],
+   "browsers": [
+    {
+     "bundle_id": "com.brave.Browser",
+     "drivers": {
+      "ax:brave": "Accessibility read fallback",
+      "ext:brave": "FERB extension, per paired profile (`ferb browsers`)"
+     },
+     "name": "brave",
+     "path": "/private/tmp/ferb-device-fx/pure/Apps/Brave.app"
+    },
+    {
+     "bundle_id": "com.google.Chrome",
+     "drivers": {
+      "ax:chrome": "Accessibility read fallback",
+      "ext:chrome": "FERB extension, per paired profile (`ferb browsers`)"
+     },
+     "name": "chrome",
+     "path": "/private/tmp/ferb-device-fx/pure/Apps/Chrome.app"
+    },
+    {
+     "bundle_id": "com.apple.Safari",
+     "drivers": {
+      "applescript_read": "watch-only (Block 1), when Automation is granted"
+     },
+     "name": "safari",
+     "path": "/private/tmp/ferb-device-fx/pure/Apps/Safari.app"
+    },
+    {
+     "bundle_id": "com.example.web",
+     "drivers": {
+      "ax:web": "Accessibility read fallback"
+     },
+     "name": "web",
+     "path": "/private/tmp/ferb-device-fx/pure/Apps/Web.app"
+    }
+   ],
+   "device_id": "dev2",
+   "os": "macos",
+   "os_version": "26.1",
+   "scanned_at": "2026-11-13T09:30:05+05:30"
+  },
+  "web": {
+   "Binary.app": false,
+   "Brave.app": false,
+   "Chrome.app": false,
+   "Dup.app": false,
+   "Empty.app": false,
+   "Listed.app": false,
+   "NoId.app": false,
+   "Notes.app": false,
+   "Safari.app": false,
+   "Web.app": true
+  },
+  "catalog": {
+   "com.apple.Maps": {
+    "known": false,
+    "pair_key": "com.apple.Maps",
+    "paired": false
+   },
+   "com.apple.Notes": {
+    "known": false,
+    "pair_key": "com.apple.Notes",
+    "paired": false
+   },
+   "com.apple.Safari": {
+    "known": true,
+    "pair_key": "safari",
+    "paired": false
+   },
+   "com.brave.Browser": {
+    "known": true,
+    "pair_key": "brave",
+    "paired": true
+   },
+   "com.example.binary": {
+    "known": false,
+    "pair_key": "com.example.binary",
+    "paired": false
+   },
+   "com.example.web": {
+    "known": false,
+    "pair_key": "com.example.web",
+    "paired": false
+   },
+   "com.ferb.FERB": {
+    "known": false,
+    "pair_key": "com.ferb.FERB",
+    "paired": false
+   },
+   "com.google.Chrome": {
+    "known": true,
+    "pair_key": "chrome",
+    "paired": true
+   },
+   "com.google.Chrome.app.x": {
+    "known": true,
+    "pair_key": "com.google.Chrome.app.x",
+    "paired": false
+   },
+   "org.example": {
+    "known": false,
+    "pair_key": "org.example",
+    "paired": false
+   }
+  }
+ },
+ "persona": {
+  "apps": [
+   {
+    "bundle_id": "com.a",
+    "name": "A",
+    "version": "1",
+    "path": "/private/tmp/ferb-device-fx/pure/Apps/Notes.app",
+    "scriptable": true,
+    "ax_support": "untested"
+   },
+   {
+    "bundle_id": "com.b",
+    "name": "B",
+    "version": "1",
+    "path": "/private/tmp/ferb-device-fx/pure/Apps/Web.app",
+    "scriptable": false,
+    "ax_support": "untested"
+   },
+   {
+    "bundle_id": "com.c",
+    "name": "C",
+    "version": "1",
+    "path": "/nowhere/C.app",
+    "scriptable": false,
+    "ax_support": "untested"
+   }
+  ],
+  "mdls_hex": "3c3f786d6c2076657273696f6e3d22312e302220656e636f64696e673d225554462d38223f3e0a3c21444f435459504520706c697374205055424c494320222d2f2f4170706c652f2f44544420504c49535420312e302f2f454e222022687474703a2f2f7777772e6170706c652e636f6d2f445444732f50726f70657274794c6973742d312e302e647464223e0a3c706c6973742076657273696f6e3d22312e30223e0a3c61727261793e0a093c646963743e0a09093c6b65793e6b4d444974656d4c61737455736564446174653c2f6b65793e0a09093c646174653e323032362d31312d30315430383a30303a30305a3c2f646174653e0a09093c6b65793e6b4d444974656d506174683c2f6b65793e0a09093c737472696e673e2f707269766174652f746d702f666572622d6465766963652d66782f707572652f417070732f4e6f7465732e6170703c2f737472696e673e0a09093c6b65793e6b4d444974656d557365436f756e743c2f6b65793e0a09093c696e74656765723e373c2f696e74656765723e0a093c2f646963743e0a093c646963743e0a09093c6b65793e6b4d444974656d506174683c2f6b65793e0a09093c737472696e673e2f707269766174652f746d702f666572622d6465766963652d66782f707572652f417070732f5765622e6170703c2f737472696e673e0a09093c6b65793e6b4d444974656d557365436f756e743c2f6b65793e0a09093c747275652f3e0a093c2f646963743e0a093c646963743e0a09093c6b65793e6b4d444974656d506174683c2f6b65793e0a09093c696e74656765723e353c2f696e74656765723e0a093c2f646963743e0a093c737472696e673e6a756e6b3c2f737472696e673e0a3c2f61727261793e0a3c2f706c6973743e0a",
+  "rows": [
+   {
+    "bundle_id": "com.a",
+    "app": "A",
+    "uses": 7,
+    "last_used": "2026-11-01 08:00:00"
+   },
+   {
+    "bundle_id": "com.b",
+    "app": "B",
+    "uses": null,
+    "last_used": "unknown"
+   },
+   {
+    "bundle_id": "com.c",
+    "app": "C",
+    "uses": null,
+    "last_used": "unknown"
+   }
+  ],
+  "bad_rows": [
+   {
+    "bundle_id": "com.a",
+    "app": "A",
+    "uses": null,
+    "last_used": "unknown"
+   },
+   {
+    "bundle_id": "com.b",
+    "app": "B",
+    "uses": null,
+    "last_used": "unknown"
+   },
+   {
+    "bundle_id": "com.c",
+    "app": "C",
+    "uses": null,
+    "last_used": "unknown"
+   }
+  ],
+  "command": [
+   "/usr/bin/mdls",
+   "-plist",
+   "-",
+   "-name",
+   "kMDItemPath",
+   "-name",
+   "kMDItemUseCount",
+   "-name",
+   "kMDItemLastUsedDate",
+   "/private/tmp/ferb-device-fx/pure/Apps/Notes.app",
+   "/private/tmp/ferb-device-fx/pure/Apps/Web.app",
+   "/nowhere/C.app"
+  ],
+  "activity": [
+   {
+    "bundle_id": "com.b",
+    "focus_events": 4,
+    "last_used": "2026-11-12"
+   },
+   {
+    "bundle_id": "com.c",
+    "focus_events": 9,
+    "last_used": "2026-11-10"
+   }
+  ],
+  "with_activity": [
+   {
+    "bundle_id": "com.a",
+    "app": "A",
+    "uses": 7,
+    "last_used": "2026-11-01 08:00:00",
+    "source": "spotlight"
+   },
+   {
+    "bundle_id": "com.b",
+    "app": "B",
+    "uses": null,
+    "last_used": "2026-11-12",
+    "focus_events": 4,
+    "source": "owner_activity"
+   },
+   {
+    "bundle_id": "com.c",
+    "app": "C",
+    "uses": null,
+    "last_used": "2026-11-10",
+    "focus_events": 9,
+    "source": "owner_activity"
+   }
+  ],
+  "facts": {
+   "scanned_at": "2026-11-13T09:30:05+05:30",
+   "installed_apps": 3,
+   "apps_with_use": 3,
+   "apps": [
+    {
+     "app": "C",
+     "bundle_id": "com.c",
+     "focus_events": 9,
+     "last_used": "2026-11-10"
+    },
+    {
+     "app": "A",
+     "bundle_id": "com.a",
+     "uses": 7,
+     "last_used": "2026-11-01 08:00:00"
+    },
+    {
+     "app": "B",
+     "bundle_id": "com.b",
+     "focus_events": 4,
+     "last_used": "2026-11-12"
+    }
+   ],
+   "browsers": [
+    "chrome"
+   ],
+   "profiles": [
+    {
+     "browser": "Google Chrome",
+     "name": "Work",
+     "email": "w@example.invalid",
+     "last_used": true
+    }
+   ],
+   "profiles_read": true
+  },
+  "fingerprint": "beaa8131d38ba9de"
+ },
+ "devtools": {
+  "stub_folder": "/private/tmp/ferb-device-fx/pure/bins/usr_bin",
+  "files": [
+   {
+    "path": "brew",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "brew/git",
+    "kind": "file",
+    "mode": 493,
+    "text": "#!/bin/sh\n"
+   },
+   {
+    "path": "brew/pip3",
+    "kind": "file",
+    "mode": 420,
+    "text": "not executable"
+   },
+   {
+    "path": "brew/python3",
+    "kind": "file",
+    "mode": 493,
+    "text": "#!/bin/sh\n"
+   },
+   {
+    "path": "usr_bin",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "usr_bin/cc",
+    "kind": "file",
+    "mode": 493,
+    "text": "#!/bin/sh\n"
+   },
+   {
+    "path": "usr_bin/git",
+    "kind": "file",
+    "mode": 493,
+    "text": "#!/bin/sh\n"
+   },
+   {
+    "path": "usr_bin/make",
+    "kind": "file",
+    "mode": 493,
+    "text": "#!/bin/sh\n"
+   },
+   {
+    "path": "usr_bin/python3",
+    "kind": "file",
+    "mode": 493,
+    "text": "#!/bin/sh\n"
+   }
+  ],
+  "cases": [
+   {
+    "path": "/private/tmp/ferb-device-fx/pure/bins/brew:/private/tmp/ferb-device-fx/pure/bins/usr_bin",
+    "rc": 2,
+    "out": "",
+    "missing": [
+     "pip3",
+     "make",
+     "cc",
+     "clang"
+    ]
+   },
+   {
+    "path": "/private/tmp/ferb-device-fx/pure/bins/usr_bin::/private/tmp/ferb-device-fx/pure/bins/brew",
+    "rc": 2,
+    "out": "",
+    "missing": [
+     "python3",
+     "pip3",
+     "git",
+     "make",
+     "cc",
+     "clang"
+    ]
+   },
+   {
+    "path": "/private/tmp/ferb-device-fx/pure/bins/brew",
+    "rc": 0,
+    "out": "/private/tmp/ferb-device-fx/pure/bins\n",
+    "missing": []
+   },
+   {
+    "path": "/private/tmp/ferb-device-fx/pure/bins/brew",
+    "rc": 0,
+    "out": "relative\n",
+    "missing": [
+     "pip3",
+     "make",
+     "cc",
+     "clang"
+    ]
+   }
+  ],
+  "facts": [
+   "",
+   "- This Mac has no developer tools (Apple's Command Line Tools aren't installed): in a terminal command python3, git are only Apple's stubs; running one fails and opens macOS's \"install developer tools\" dialog in front of the owner, so never run them. When a task really needs one, ask the owner once (owner_ask) to install the developer tools; after their Yes, `xcode-select --install` opens Apple's installer for them. FERB doesn't install them itself."
+  ]
+ },
+ "argv": [
+  {
+   "argv": [
+    "setup",
+    "--service"
+   ],
+   "args": {
+    "cmd": "setup",
+    "update": false,
+    "codex_login": false,
+    "codex_logout": false,
+    "cli": false,
+    "claude_logout": false,
+    "cleanup": false,
+    "ok": null,
+    "service": true,
+    "app_service": false
+   }
+  },
+  {
+   "argv": [
+    "setup",
+    "--service",
+    "--update"
+   ],
+   "args": {
+    "cmd": "setup",
+    "update": true,
+    "codex_login": false,
+    "codex_logout": false,
+    "cli": false,
+    "claude_logout": false,
+    "cleanup": false,
+    "ok": null,
+    "service": true,
+    "app_service": false
+   }
+  },
+  {
+   "argv": [
+    "setup",
+    "--service",
+    "--app-service"
+   ],
+   "args": {
+    "cmd": "setup",
+    "update": false,
+    "codex_login": false,
+    "codex_logout": false,
+    "cli": false,
+    "claude_logout": false,
+    "cleanup": false,
+    "ok": null,
+    "service": true,
+    "app_service": true
+   }
+  },
+  {
+   "argv": [
+    "setup",
+    "--service",
+    "--update",
+    "--app-service"
+   ],
+   "args": {
+    "cmd": "setup",
+    "update": true,
+    "codex_login": false,
+    "codex_logout": false,
+    "cli": false,
+    "claude_logout": false,
+    "cleanup": false,
+    "ok": null,
+    "service": true,
+    "app_service": true
+   }
+  },
+  {
+   "argv": [
+    "setup",
+    "--codex-login"
+   ],
+   "args": {
+    "cmd": "setup",
+    "update": false,
+    "codex_login": true,
+    "codex_logout": false,
+    "cli": false,
+    "claude_logout": false,
+    "cleanup": false,
+    "ok": null,
+    "service": false,
+    "app_service": false
+   }
+  },
+  {
+   "argv": [
+    "setup",
+    "--codex-logout"
+   ],
+   "args": {
+    "cmd": "setup",
+    "update": false,
+    "codex_login": false,
+    "codex_logout": true,
+    "cli": false,
+    "claude_logout": false,
+    "cleanup": false,
+    "ok": null,
+    "service": false,
+    "app_service": false
+   }
+  },
+  {
+   "argv": [
+    "setup",
+    "--claude-logout"
+   ],
+   "args": {
+    "cmd": "setup",
+    "update": false,
+    "codex_login": false,
+    "codex_logout": false,
+    "cli": false,
+    "claude_logout": true,
+    "cleanup": false,
+    "ok": null,
+    "service": false,
+    "app_service": false
+   }
+  },
+  {
+   "argv": [
+    "setup",
+    "--cli"
+   ],
+   "args": {
+    "cmd": "setup",
+    "update": false,
+    "codex_login": false,
+    "codex_logout": false,
+    "cli": true,
+    "claude_logout": false,
+    "cleanup": false,
+    "ok": null,
+    "service": false,
+    "app_service": false
+   }
+  },
+  {
+   "argv": [
+    "setup",
+    "--cleanup"
+   ],
+   "args": {
+    "cmd": "setup",
+    "update": false,
+    "codex_login": false,
+    "codex_logout": false,
+    "cli": false,
+    "claude_logout": false,
+    "cleanup": true,
+    "ok": null,
+    "service": false,
+    "app_service": false
+   }
+  },
+  {
+   "argv": [
+    "setup",
+    "--cleanup",
+    "--ok",
+    "d1"
+   ],
+   "args": {
+    "cmd": "setup",
+    "update": false,
+    "codex_login": false,
+    "codex_logout": false,
+    "cli": false,
+    "claude_logout": false,
+    "cleanup": true,
+    "ok": "d1",
+    "service": false,
+    "app_service": false
+   }
+  },
+  {
+   "argv": [
+    "setup",
+    "--cleanup",
+    "--ok=d2"
+   ],
+   "args": {
+    "cmd": "setup",
+    "update": false,
+    "codex_login": false,
+    "codex_logout": false,
+    "cli": false,
+    "claude_logout": false,
+    "cleanup": true,
+    "ok": "d2",
+    "service": false,
+    "app_service": false
+   }
+  },
+  {
+   "argv": [
+    "uninstall"
+   ],
+   "args": {
+    "cmd": "uninstall",
+    "purge": false,
+    "yes": false
+   }
+  },
+  {
+   "argv": [
+    "uninstall",
+    "--purge",
+    "--yes"
+   ],
+   "args": {
+    "cmd": "uninstall",
+    "purge": true,
+    "yes": true
+   }
+  },
+  {
+   "argv": [
+    "mcp"
+   ],
+   "args": {
+    "cmd": "mcp"
+   }
+  },
+  {
+   "argv": [
+    "setup"
+   ],
+   "args": {
+    "cmd": "setup",
+    "update": false,
+    "codex_login": false,
+    "codex_logout": false,
+    "cli": false,
+    "claude_logout": false,
+    "cleanup": false,
+    "ok": null,
+    "service": false,
+    "app_service": false
+   }
+  },
+  {
+   "argv": [
+    "setup",
+    "--update"
+   ],
+   "args": {
+    "cmd": "setup",
+    "update": true,
+    "codex_login": false,
+    "codex_logout": false,
+    "cli": false,
+    "claude_logout": false,
+    "cleanup": false,
+    "ok": null,
+    "service": false,
+    "app_service": false
+   }
+  },
+  {
+   "argv": [
+    "doctor"
+   ],
+   "args": {
+    "cmd": "doctor"
+   }
+  },
+  {
+   "argv": [
+    "stats"
+   ],
+   "args": {
+    "cmd": "stats",
+    "days": 7
+   }
+  },
+  {
+   "argv": [
+    "stats",
+    "--days",
+    "3"
+   ],
+   "args": {
+    "cmd": "stats",
+    "days": 3
+   }
+  },
+  {
+   "argv": [
+    "stats",
+    "--days=x"
+   ],
+   "exit": 2,
+   "stdout": "",
+   "stderr_last": "ferb stats: error: argument --days: invalid int value: 'x'"
+  },
+  {
+   "argv": [
+    "logs",
+    "--tasks",
+    "--tools"
+   ],
+   "args": {
+    "cmd": "logs",
+    "tasks": true,
+    "trail": false,
+    "tools": true,
+    "browsers": false,
+    "policy": false,
+    "actions": false,
+    "timers": false
+   }
+  },
+  {
+   "argv": [
+    "trace"
+   ],
+   "args": {
+    "cmd": "trace",
+    "task_id": null,
+    "full": false,
+    "json": false
+   }
+  },
+  {
+   "argv": [
+    "trace",
+    "abc",
+    "--full"
+   ],
+   "args": {
+    "cmd": "trace",
+    "task_id": "abc",
+    "full": true,
+    "json": false
+   }
+  },
+  {
+   "argv": [
+    "trace",
+    "--json",
+    "--full"
+   ],
+   "exit": 2,
+   "stdout": "",
+   "stderr_last": "ferb trace: error: argument --full: not allowed with argument --json"
+  },
+  {
+   "argv": [
+    "verdict",
+    "t1",
+    "pass",
+    "--note",
+    "fine"
+   ],
+   "args": {
+    "cmd": "verdict",
+    "task_id": "t1",
+    "verdict": "pass",
+    "note": "fine"
+   }
+  },
+  {
+   "argv": [
+    "verdict",
+    "t1",
+    "maybe"
+   ],
+   "exit": 2,
+   "stdout": "",
+   "stderr_last": "ferb verdict: error: argument verdict: invalid choice: 'maybe' (choose from pass, fail)"
+  },
+  {
+   "argv": [
+    "daemon",
+    "run"
+   ],
+   "args": {
+    "cmd": "daemon",
+    "action": "run"
+   }
+  },
+  {
+   "argv": [
+    "daemon"
+   ],
+   "exit": 2,
+   "stdout": "",
+   "stderr_last": "ferb daemon: error: the following arguments are required: action"
+  },
+  {
+   "argv": [
+    "memory",
+    "list",
+    "--all"
+   ],
+   "args": {
+    "cmd": "memory",
+    "mcmd": "list",
+    "proposed": false,
+    "all": true
+   }
+  },
+  {
+   "argv": [
+    "memory",
+    "show"
+   ],
+   "args": {
+    "cmd": "memory",
+    "mcmd": "show",
+    "subject": "owner"
+   }
+  },
+  {
+   "argv": [
+    "memory",
+    "add",
+    "likes tea",
+    "--kind",
+    "preference"
+   ],
+   "args": {
+    "cmd": "memory",
+    "mcmd": "add",
+    "content": "likes tea",
+    "kind": "preference",
+    "subject": "owner",
+    "key": null
+   }
+  },
+  {
+   "argv": [
+    "memory",
+    "forget",
+    "m-1",
+    "--yes",
+    "--keep-sources"
+   ],
+   "args": {
+    "cmd": "memory",
+    "mcmd": "forget",
+    "id": "m-1",
+    "keep_sources": true,
+    "yes": true
+   }
+  },
+  {
+   "argv": [
+    "memory",
+    "search",
+    "tea",
+    "--app",
+    "Notes"
+   ],
+   "args": {
+    "cmd": "memory",
+    "mcmd": "search",
+    "query": "tea",
+    "kind": null,
+    "app": "Notes",
+    "person": null
+   }
+  },
+  {
+   "argv": [
+    "memory"
+   ],
+   "exit": 2,
+   "stdout": "",
+   "stderr_last": "ferb memory: error: the following arguments are required: mcmd"
+  },
+  {
+   "argv": [
+    "runtimes"
+   ],
+   "args": {
+    "cmd": "runtimes",
+    "rcmd": null
+   }
+  },
+  {
+   "argv": [
+    "runtimes",
+    "use",
+    "worker",
+    "claude",
+    "--model",
+    "m"
+   ],
+   "args": {
+    "cmd": "runtimes",
+    "rcmd": "use",
+    "role": "worker",
+    "runtime": "claude",
+    "model": "m"
+   }
+  },
+  {
+   "argv": [
+    "runtimes",
+    "pins"
+   ],
+   "args": {
+    "cmd": "runtimes",
+    "rcmd": "pins"
+   }
+  },
+  {
+   "argv": [
+    "restore"
+   ],
+   "args": {
+    "cmd": "restore",
+    "id": null
+   }
+  },
+  {
+   "argv": [
+    "restore",
+    "ab12"
+   ],
+   "args": {
+    "cmd": "restore",
+    "id": "ab12"
+   }
+  },
+  {
+   "argv": [
+    "browsers"
+   ],
+   "args": {
+    "cmd": "browsers",
+    "bcmd": null
+   }
+  },
+  {
+   "argv": [
+    "browsers",
+    "pair",
+    "Work",
+    "--browser",
+    "chrome"
+   ],
+   "args": {
+    "cmd": "browsers",
+    "bcmd": "pair",
+    "profile": "Work",
+    "browser": "chrome"
+   }
+  },
+  {
+   "argv": [
+    "browsers",
+    "unpair",
+    "Work",
+    "--browser",
+    "netscape"
+   ],
+   "exit": 2,
+   "stdout": "",
+   "stderr_last": "ferb browsers unpair: error: argument --browser: invalid choice: 'netscape' (choose from chrome, chrome-beta, chrome-dev, chrome-canary, chromium, brave, edge, edge-beta, edge-dev, edge-canary, vivaldi, arc, opera)"
+  },
+  {
+   "argv": [
+    "browsers",
+    "extension"
+   ],
+   "args": {
+    "cmd": "browsers",
+    "bcmd": "extension",
+    "action": "path",
+    "out": null
+   }
+  },
+  {
+   "argv": [
+    "browsers",
+    "extension",
+    "package",
+    "--out",
+    "/tmp/x"
+   ],
+   "args": {
+    "cmd": "browsers",
+    "bcmd": "extension",
+    "action": "package",
+    "out": "/tmp/x"
+   }
+  },
+  {
+   "argv": [
+    "ps"
+   ],
+   "args": {
+    "cmd": "ps"
+   }
+  },
+  {
+   "argv": [],
+   "exit": 2,
+   "stdout": "",
+   "stderr_last": "ferb: error: the following arguments are required: cmd"
+  },
+  {
+   "argv": [
+    "nope"
+   ],
+   "exit": 2,
+   "stdout": "",
+   "stderr_last": "ferb: error: argument cmd: invalid choice: 'nope' (choose from logs, trace, verdict, daemon, memory, runtimes, restore, browsers, ps, mcp, setup, doctor, stats, uninstall)"
+  },
+  {
+   "argv": [
+    "setup",
+    "--bogus"
+   ],
+   "exit": 2,
+   "stdout": "",
+   "stderr_last": "ferb: error: unrecognized arguments: --bogus"
+  },
+  {
+   "argv": [
+    "--version"
+   ],
+   "exit": 0,
+   "stdout": "ferb 0.27.3\n",
+   "stderr_last": ""
+  },
+  {
+   "argv": [
+    "setup",
+    "--ser"
+   ],
+   "args": {
+    "cmd": "setup",
+    "update": false,
+    "codex_login": false,
+    "codex_logout": false,
+    "cli": false,
+    "claude_logout": false,
+    "cleanup": false,
+    "ok": null,
+    "service": true,
+    "app_service": false
+   }
+  },
+  {
+   "argv": [
+    "uninstall",
+    "--purge",
+    "extra"
+   ],
+   "exit": 2,
+   "stdout": "",
+   "stderr_last": "ferb: error: unrecognized arguments: extra"
+  },
+  {
+   "argv": [
+    "memory",
+    "edit",
+    "m-2",
+    "new text"
+   ],
+   "args": {
+    "cmd": "memory",
+    "mcmd": "edit",
+    "id": "m-2",
+    "content": "new text"
+   }
+  }
+ ],
+ "version": "0.27.3",
+ "toolbox": [
+  {
+   "name": "verdict",
+   "args": {},
+   "answers": {
+    "verdict.set": {
+     "verdict": "pass",
+     "task_id": "t-1"
+    }
+   },
+   "calls": [
+    [
+     "verdict.set",
+     {
+      "task_id": "t-1",
+      "verdict": "pass",
+      "note": "fine"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "Recorded pass for t-1.\n"
+  },
+  {
+   "name": "ps_empty",
+   "args": {},
+   "answers": {
+    "ps.list": {
+     "processes": []
+    }
+   },
+   "calls": [
+    [
+     "ps.list",
+     null
+    ]
+   ],
+   "rc": 0,
+   "out": "No processes.\n"
+  },
+  {
+   "name": "ps",
+   "args": {},
+   "answers": {
+    "ps.list": {
+     "processes": [
+      {
+       "id": "p1",
+       "running": true,
+       "exit_code": null,
+       "long_lived": true,
+       "owner_task": "t-1",
+       "command": "python3 -m http.server xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      {
+       "id": "p2",
+       "running": false,
+       "exit_code": 2,
+       "long_lived": false,
+       "owner_task": "t-2",
+       "command": "ls"
+      }
+     ]
+    }
+   },
+   "calls": [
+    [
+     "ps.list",
+     null
+    ]
+   ],
+   "rc": 0,
+   "out": "p1  running, background  task t-1  python3 -m http.server xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\np2  exited 2  task t-2  ls\n"
+  },
+  {
+   "name": "browsers_list",
+   "args": {},
+   "answers": {
+    "browsers.list": {
+     "profiles": [
+      {
+       "browser": "chrome",
+       "name": "Work",
+       "folder": "Profile 1",
+       "email": "w@example.invalid",
+       "ferb_identity": false,
+       "paired": true,
+       "connected": true,
+       "version": "0.19.4",
+       "refused": null
+      },
+      {
+       "browser": "chrome",
+       "name": "FERB",
+       "folder": "Profile 7",
+       "email": "",
+       "ferb_identity": true,
+       "paired": true,
+       "connected": false,
+       "version": "0.19.1",
+       "refused": null,
+       "last_version": "0.19.0"
+      },
+      {
+       "browser": "brave",
+       "name": "Home",
+       "folder": "Default",
+       "email": "",
+       "ferb_identity": false,
+       "paired": true,
+       "connected": false,
+       "version": null,
+       "refused": "the extension's key changed"
+      },
+      {
+       "browser": "edge",
+       "name": "Old",
+       "folder": "Default",
+       "email": "",
+       "ferb_identity": false,
+       "paired": false,
+       "connected": false,
+       "version": null,
+       "refused": null
+      },
+      {
+       "browser": "chrome",
+       "name": "New",
+       "folder": "Profile 9",
+       "email": "",
+       "ferb_identity": true,
+       "paired": false,
+       "connected": false,
+       "version": null,
+       "refused": null
+      },
+      {
+       "browser": "chrome",
+       "name": "Live",
+       "folder": "Profile 3",
+       "email": "",
+       "ferb_identity": true,
+       "paired": true,
+       "connected": true,
+       "version": "",
+       "refused": null
+      }
+     ],
+     "unpaired_connections": {
+      "brave": 2
+     }
+    }
+   },
+   "calls": [
+    [
+     "browsers.list",
+     null
+    ]
+   ],
+   "rc": 0,
+   "out": "chrome  Work <w@example.invalid> (Profile 1): paired, connected, extension 0.19.4\nchrome  FERB (Profile 7): FERB's own profile, paired; not open right now (FERB opens it when a task needs it), last connected version 0.19.0\nbrave   Home (Default): refused: the extension's key changed\nedge    Old (Default): not paired\nchrome  New (Profile 9): FERB's own profile, not paired yet\nchrome  Live (Profile 3): FERB's own profile, connected\nbrave: 2 live extension connection(s) have no pairing (a reinstalled extension gets a new identity). Pair it in FERB's Settings → Browsers, or run `ferb browsers pair <profile> --browser brave`.\n"
+  },
+  {
+   "name": "browsers_unpair",
+   "args": {},
+   "answers": {
+    "browsers.unpair": {
+     "unpaired": true
+    }
+   },
+   "calls": [
+    [
+     "browsers.unpair",
+     {
+      "profile": "Work",
+      "browser": "chrome"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "Unpaired.\n"
+  },
+  {
+   "name": "browsers_unpair_none",
+   "args": {},
+   "answers": {
+    "browsers.unpair": {
+     "unpaired": false
+    }
+   },
+   "calls": [
+    [
+     "browsers.unpair",
+     {
+      "profile": "Work",
+      "browser": null
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "That profile wasn't paired.\n"
+  },
+  {
+   "name": "browsers_pair",
+   "args": {},
+   "answers": {
+    "browsers.pair": {
+     "paired": true,
+     "browser": "chrome",
+     "name": "Work",
+     "folder": "Profile 1"
+    }
+   },
+   "calls": [
+    [
+     "browsers.pair",
+     {
+      "profile": "Work",
+      "browser": "chrome"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "Opening the FERB pairing page in Work…\nPaired chrome profile “Work” (Profile 1).\n"
+  },
+  {
+   "name": "browsers_pair_refused",
+   "args": {},
+   "answers": {
+    "browsers.pair": {
+     "paired": false,
+     "hint": "open the profile first"
+    }
+   },
+   "calls": [
+    [
+     "browsers.pair",
+     {
+      "profile": "Work",
+      "browser": null
+     }
+    ]
+   ],
+   "rc": 1,
+   "out": "Opening the FERB pairing page in Work…\nNot paired: open the profile first\n"
+  },
+  {
+   "name": "browsers_pair_no_hint",
+   "args": {},
+   "answers": {
+    "browsers.pair": {
+     "paired": false
+    }
+   },
+   "calls": [
+    [
+     "browsers.pair",
+     {
+      "profile": "Work",
+      "browser": null
+     }
+    ]
+   ],
+   "rc": 1,
+   "out": "Opening the FERB pairing page in Work…\nNot paired: no answer from the extension\n"
+  },
+  {
+   "name": "browsers_pair_install",
+   "args": {},
+   "answers": {
+    "browsers.pair": [
+     {
+      "__seq__": 1,
+      "value": {
+       "needs_install": true,
+       "extension_dir": "/x/ext",
+       "browser": "chrome",
+       "name": "Work"
+      }
+     },
+     {
+      "__seq__": 1,
+      "value": {
+       "paired": true,
+       "browser": "chrome",
+       "name": "Work",
+       "folder": "Profile 1"
+      }
+     }
+    ],
+    "browsers.installed": [
+     {
+      "__seq__": 1,
+      "value": {
+       "installed": false
+      }
+     },
+     {
+      "__seq__": 1,
+      "value": {
+       "installed": true
+      }
+     }
+    ]
+   },
+   "calls": [
+    [
+     "browsers.pair",
+     {
+      "profile": "Work",
+      "browser": "chrome"
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Work",
+      "browser": "chrome"
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Work",
+      "browser": "chrome"
+     }
+    ],
+    [
+     "browsers.pair",
+     {
+      "profile": "Work",
+      "browser": "chrome"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "Opening the FERB pairing page in Work…\nFERB's extension isn't installed in Chrome “Work” yet. Its extensions page is open there:\n  (If it didn't open: in that profile's window, ⋮ menu → Extensions → Manage Extensions.)\n  1. Turn on Developer mode (top right).\n  2. Click “Load unpacked”.\n  3. Press ⌘⇧G, paste the folder (copied to your clipboard), press Return, then click Select:\n     /x/ext\nWaiting for it…\nInstalled. Now pairing…\nPaired chrome profile “Work” (Profile 1).\n"
+  },
+  {
+   "name": "browsers_pair_install_gives_up",
+   "args": {},
+   "answers": {
+    "browsers.pair": {
+     "needs_install": true,
+     "extension_dir": "/x/ext",
+     "browser": "brave",
+     "name": "Home"
+    },
+    "browsers.installed": {
+     "installed": false
+    }
+   },
+   "calls": [
+    [
+     "browsers.pair",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ],
+    [
+     "browsers.installed",
+     {
+      "profile": "Home",
+      "browser": null
+     }
+    ]
+   ],
+   "rc": 1,
+   "out": "Opening the FERB pairing page in Home…\nFERB's extension isn't installed in Brave “Home” yet. Its extensions page is open there:\n  (If it didn't open: in that profile's window, ⋮ menu → Extensions → Manage Extensions.)\n  1. Turn on Developer mode (top right).\n  2. Click “Load unpacked”.\n  3. Press ⌘⇧G, paste the folder (copied to your clipboard), press Return, then click Select:\n     /x/ext\nWaiting for it…\nDidn't see it installed after 5 minutes. Run this again when it's loaded.\n"
+  },
+  {
+   "name": "restore_list",
+   "args": {},
+   "answers": {
+    "recovery.list": {
+     "records": [
+      {
+       "id": "0123456789abcdef",
+       "at": "2026-11-12T08:05:00+00:00",
+       "kind": "file",
+       "reason": "edit",
+       "original": "/u/notes.txt",
+       "available": true
+      },
+      {
+       "id": "short",
+       "at": "2026-11-12T09:05:00+05:30",
+       "kind": "trash",
+       "reason": "trash-unverified",
+       "original": "/u/a\u001b[31mred.txt",
+       "available": false
+      },
+      {
+       "id": "abcdefabcdefabcd",
+       "at": "2026-11-11T23:59:00-08:00",
+       "kind": "file",
+       "reason": null,
+       "original": "/u/gone.txt",
+       "available": false
+      },
+      {
+       "id": "trashcopy1",
+       "at": "2026-11-10T00:00:00+00:00",
+       "kind": "trash",
+       "reason": "trash copy",
+       "original": "/u/x",
+       "available": true,
+       "needs_owner": true
+      },
+      {
+       "id": "snap-0001",
+       "at": "2026-11-09T10:00:00+00:00",
+       "kind": "snapshot",
+       "reason": null,
+       "original": "",
+       "available": true,
+       "saved_to": "com.apple.TimeMachine.2026-11-09-100000.local"
+      },
+      {
+       "id": "odd",
+       "at": "2026-11-08T10:00:00+00:00",
+       "kind": "file",
+       "reason": "rename",
+       "original": "/u/y",
+       "available": true
+      }
+     ],
+     "days": 7,
+     "total": 9
+    }
+   },
+   "calls": [
+    [
+     "recovery.list",
+     null
+    ]
+   ],
+   "rc": 0,
+   "out": "What FERB can put back, newest first (copies of changed files are kept 7 days; items it moved to the Trash, while they are still there):\nShowing the newest 6 of 9.\n  01234567  Thu 12 Nov 08:05  edited          /u/notes.txt\n  short  Thu 12 Nov 03:35  moved to Trash  /u/ared.txt  (not found in the Trash)\n  abcdefab  Thu 12 Nov 07:59  file            /u/gone.txt  (its copy is gone)\n  trashcopy1  Tue 10 Nov 00:00  Trash copy      /u/x  (it changed while FERB moved it, so FERB won't put it back: look at it in the Trash and move it yourself if it's yours)\n  snap-0001  Mon 09 Nov 10:00  disk snapshot   com.apple.TimeMachine.2026-11-09-100000.local: a recovery point of the whole disk you can open from macOS Recovery or Time Machine (admin rights)\n  odd  Sun 08 Nov 10:00  rename          /u/y\nPut one back: ferb restore <id>\n"
+  },
+  {
+   "name": "restore_none",
+   "args": {},
+   "answers": {
+    "recovery.list": {
+     "records": [],
+     "days": 7
+    }
+   },
+   "calls": [
+    [
+     "recovery.list",
+     null
+    ]
+   ],
+   "rc": 0,
+   "out": "Nothing to put back: FERB hasn't changed or deleted any files lately.\n"
+  },
+  {
+   "name": "restore_trash_True",
+   "args": {
+    "id": "ab12"
+   },
+   "answers": {
+    "recovery.restore": {
+     "kind": "trash",
+     "in_place": true,
+     "original": "/u/n\u0007.txt",
+     "restored_to": "/u/n 2.txt"
+    }
+   },
+   "calls": [
+    [
+     "recovery.restore",
+     {
+      "id": "ab12"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "Put /u/n.txt back from the Trash.\n"
+  },
+  {
+   "name": "restore_trash_False",
+   "args": {
+    "id": "ab12"
+   },
+   "answers": {
+    "recovery.restore": {
+     "kind": "trash",
+     "in_place": false,
+     "original": "/u/n\u0007.txt",
+     "restored_to": "/u/n 2.txt"
+    }
+   },
+   "calls": [
+    [
+     "recovery.restore",
+     {
+      "id": "ab12"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "Something is at /u/n.txt now, so the file from the Trash was put back beside it as /u/n 2.txt.\n"
+  },
+  {
+   "name": "restore_file_True",
+   "args": {
+    "id": "ab12"
+   },
+   "answers": {
+    "recovery.restore": {
+     "kind": "file",
+     "in_place": true,
+     "original": "/u/n\u0007.txt",
+     "restored_to": "/u/n 2.txt"
+    }
+   },
+   "calls": [
+    [
+     "recovery.restore",
+     {
+      "id": "ab12"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "Restored /u/n.txt to what it was before FERB changed it.\n"
+  },
+  {
+   "name": "restore_file_False",
+   "args": {
+    "id": "ab12"
+   },
+   "answers": {
+    "recovery.restore": {
+     "kind": "file",
+     "in_place": false,
+     "original": "/u/n\u0007.txt",
+     "restored_to": "/u/n 2.txt"
+    }
+   },
+   "calls": [
+    [
+     "recovery.restore",
+     {
+      "id": "ab12"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "/u/n.txt has changed since FERB changed it, so it was left as it is. The version from before FERB's change is now at /u/n 2.txt.\n"
+  },
+  {
+   "name": "memory_list",
+   "args": {
+    "mcmd": "list"
+   },
+   "answers": {
+    "memory.list": {
+     "items": [
+      {
+       "id": "i-1",
+       "kind": "preference",
+       "subject": "owner",
+       "key": "drink",
+       "content": "likes tea",
+       "origin": "observed",
+       "status": "proposed",
+       "evidence_days": 2,
+       "in_profile": true,
+       "valid_to": "2026-11-20T00:00:00+05:30",
+       "sources": [
+        "trail:1",
+        "trail:2"
+       ]
+      },
+      {
+       "id": "i-2",
+       "kind": "fact",
+       "subject": "owner",
+       "key": null,
+       "content": "lives in Pune",
+       "origin": "owner_stated",
+       "status": "active",
+       "sources": []
+      }
+     ]
+    }
+   },
+   "calls": [
+    [
+     "memory.list",
+     {
+      "status": "active"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "  i-1  [preference · owner · drink] likes tea  (observed, proposed (until 2026-11-19)) — seen on 2 of 3 days — in the core profile\n  i-2  [fact · owner · None] lives in Pune  (your words, active)\n"
+  },
+  {
+   "name": "memory_list_all_empty",
+   "args": {
+    "mcmd": "list",
+    "all": true
+   },
+   "answers": {
+    "memory.list": {
+     "items": []
+    }
+   },
+   "calls": [
+    [
+     "memory.list",
+     {
+      "status": "all"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "  (nothing)\n"
+  },
+  {
+   "name": "memory_list_proposed",
+   "args": {
+    "mcmd": "list",
+    "proposed": true
+   },
+   "answers": {
+    "memory.list": {
+     "items": []
+    }
+   },
+   "calls": [
+    [
+     "memory.list",
+     {
+      "status": "proposed"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "  (nothing)\n"
+  },
+  {
+   "name": "memory_show",
+   "args": {
+    "mcmd": "show"
+   },
+   "answers": {
+    "memory.show": {
+     "subject": "owner",
+     "items": [
+      {
+       "id": "i-1",
+       "kind": "preference",
+       "subject": "owner",
+       "key": "drink",
+       "content": "likes tea",
+       "origin": "observed",
+       "status": "proposed",
+       "evidence_days": 2,
+       "in_profile": true,
+       "valid_to": "2026-11-20T00:00:00+05:30",
+       "sources": [
+        "trail:1",
+        "trail:2"
+       ]
+      },
+      {
+       "id": "i-2",
+       "kind": "fact",
+       "subject": "owner",
+       "key": null,
+       "content": "lives in Pune",
+       "origin": "owner_stated",
+       "status": "active",
+       "sources": []
+      }
+     ]
+    }
+   },
+   "calls": [
+    [
+     "memory.show",
+     {
+      "subject": "owner"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "owner:\n  i-1  [preference · owner · drink] likes tea  (observed, proposed (until 2026-11-19)) — seen on 2 of 3 days — in the core profile\n      sources: trail:1, trail:2\n  i-2  [fact · owner · None] lives in Pune  (your words, active)\n      sources: -\n"
+  },
+  {
+   "name": "memory_profile",
+   "args": {
+    "mcmd": "profile"
+   },
+   "answers": {
+    "memory.profile": {
+     "markdown": "# Core\n- likes tea"
+    }
+   },
+   "calls": [
+    [
+     "memory.profile",
+     {}
+    ]
+   ],
+   "rc": 0,
+   "out": "# Core\n- likes tea\n"
+  },
+  {
+   "name": "memory_add",
+   "args": {
+    "mcmd": "add",
+    "content": "lives in Pune",
+    "kind": "fact"
+   },
+   "answers": {
+    "memory.add": {
+     "id": "i-2",
+     "kind": "fact",
+     "subject": "owner",
+     "key": null,
+     "content": "lives in Pune",
+     "origin": "owner_stated",
+     "status": "active",
+     "sources": []
+    }
+   },
+   "calls": [
+    [
+     "memory.add",
+     {
+      "content": "lives in Pune",
+      "kind": "fact",
+      "subject": "owner",
+      "key": null
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "Remembered:\n  i-2  [fact · owner · None] lives in Pune  (your words, active)\n"
+  },
+  {
+   "name": "memory_edit",
+   "args": {
+    "mcmd": "edit",
+    "id": "i-2",
+    "content": "lives in Pune"
+   },
+   "answers": {
+    "memory.edit": {
+     "id": "i-2",
+     "kind": "fact",
+     "subject": "owner",
+     "key": null,
+     "content": "lives in Pune",
+     "origin": "owner_stated",
+     "status": "active",
+     "sources": []
+    }
+   },
+   "calls": [
+    [
+     "memory.edit",
+     {
+      "id": "i-2",
+      "content": "lives in Pune"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "Updated (the old version stays as history):\n  i-2  [fact · owner · None] lives in Pune  (your words, active)\n"
+  },
+  {
+   "name": "memory_retract",
+   "args": {
+    "mcmd": "retract",
+    "id": "i-2"
+   },
+   "answers": {
+    "memory.retract": {}
+   },
+   "calls": [
+    [
+     "memory.retract",
+     {
+      "id": "i-2"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "Retracted i-2: kept as history, never used.\n"
+  },
+  {
+   "name": "memory_forget_no",
+   "args": {
+    "mcmd": "forget",
+    "id": "i-2",
+    "replies": [
+     "n"
+    ]
+   },
+   "answers": {
+    "memory.forget": {
+     "will_delete": [
+      "item i-2",
+      "3 trail rows"
+     ],
+     "keeps": "keeps x"
+    }
+   },
+   "calls": [
+    [
+     "memory.forget",
+     {
+      "id": "i-2",
+      "keep_sources": false
+     }
+    ]
+   ],
+   "rc": 1,
+   "out": "This permanently deletes:\n  - item i-2\n  - 3 trail rows\nkeeps x\nNothing deleted.\n"
+  },
+  {
+   "name": "memory_forget_yes",
+   "args": {
+    "mcmd": "forget",
+    "id": "i-2",
+    "yes": true,
+    "keep_sources": true
+   },
+   "answers": {
+    "memory.forget": {
+     "will_delete": [
+      "item i-2"
+     ]
+    }
+   },
+   "calls": [
+    [
+     "memory.forget",
+     {
+      "id": "i-2",
+      "keep_sources": true
+     }
+    ],
+    [
+     "memory.forget",
+     {
+      "id": "i-2",
+      "keep_sources": true,
+      "confirm": true
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "This permanently deletes:\n  - item i-2\nForgotten.\n"
+  },
+  {
+   "name": "memory_learning_forget",
+   "args": {
+    "mcmd": "forget",
+    "id": "m-1",
+    "replies": [
+     "yes"
+    ]
+   },
+   "answers": {
+    "memory.learning": {
+     "plan": [
+      "m-1"
+     ],
+     "note": "café"
+    }
+   },
+   "calls": [
+    [
+     "memory.learning",
+     {
+      "op": "forget",
+      "id": "m-1"
+     }
+    ],
+    [
+     "memory.learning",
+     {
+      "op": "forget",
+      "id": "m-1",
+      "confirm": true
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "{\n  \"plan\": [\n    \"m-1\"\n  ],\n  \"note\": \"café\"\n}\n{\n  \"plan\": [\n    \"m-1\"\n  ],\n  \"note\": \"café\"\n}\n"
+  },
+  {
+   "name": "memory_learning_forget_no",
+   "args": {
+    "mcmd": "forget",
+    "id": "m-1",
+    "replies": [
+     ""
+    ]
+   },
+   "answers": {
+    "memory.learning": {
+     "plan": [
+      "m-1"
+     ]
+    }
+   },
+   "calls": [
+    [
+     "memory.learning",
+     {
+      "op": "forget",
+      "id": "m-1"
+     }
+    ]
+   ],
+   "rc": 1,
+   "out": "{\n  \"plan\": [\n    \"m-1\"\n  ]\n}\n"
+  },
+  {
+   "name": "memory_learning_edit",
+   "args": {
+    "mcmd": "edit",
+    "id": "m-3",
+    "content": "x"
+   },
+   "answers": {
+    "memory.learning": {
+     "ok": true
+    }
+   },
+   "calls": [
+    [
+     "memory.learning",
+     {
+      "op": "edit",
+      "id": "m-3",
+      "text": "x"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "{\n  \"ok\": true\n}\n"
+  },
+  {
+   "name": "memory_search",
+   "args": {
+    "mcmd": "search",
+    "query": "tea",
+    "app": "Notes"
+   },
+   "answers": {
+    "memory.learning": {
+     "hits": [
+      {
+       "t": "é"
+      }
+     ]
+    }
+   },
+   "calls": [
+    [
+     "memory.learning",
+     {
+      "op": "search",
+      "query": "tea",
+      "app": "Notes"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "{\n  \"hits\": [\n    {\n      \"t\": \"é\"\n    }\n  ]\n}\n"
+  },
+  {
+   "name": "memory_digest",
+   "args": {
+    "mcmd": "digest"
+   },
+   "answers": {
+    "memory.learning": {
+     "pending": []
+    }
+   },
+   "calls": [
+    [
+     "memory.learning",
+     {
+      "op": "digest"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "{\n  \"pending\": []\n}\n"
+  },
+  {
+   "name": "memory_embeddings",
+   "args": {
+    "mcmd": "embeddings"
+   },
+   "answers": {
+    "memory.learning": {
+     "loaded": true
+    }
+   },
+   "calls": [
+    [
+     "set_timeout",
+     null
+    ],
+    [
+     "memory.learning",
+     {
+      "op": "embedding"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "{\n  \"loaded\": true\n}\n"
+  },
+  {
+   "name": "memory_eval_export",
+   "args": {
+    "mcmd": "eval-export"
+   },
+   "answers": {
+    "memory.learning": {
+     "rows": 3
+    }
+   },
+   "calls": [
+    [
+     "set_timeout",
+     null
+    ],
+    [
+     "memory.learning",
+     {
+      "op": "eval_export"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "{\n  \"rows\": 3\n}\n"
+  },
+  {
+   "name": "memory_rollback",
+   "args": {
+    "mcmd": "rollback",
+    "batch": "b1"
+   },
+   "answers": {
+    "memory.learning": {
+     "rolled_back": "b1"
+    }
+   },
+   "calls": [
+    [
+     "memory.learning",
+     {
+      "op": "rollback",
+      "batch": "b1"
+     }
+    ]
+   ],
+   "rc": 0,
+   "out": "{\n  \"rolled_back\": \"b1\"\n}\n"
+  }
+ ],
+ "log_events": [
+  {
+   "event": {
+    "topic": "task.created",
+    "at": "2026-11-13T09:30:05.123456+05:30",
+    "class": "critical",
+    "data": {
+     "id": "t-1",
+     "goal": "café ☕"
+    }
+   },
+   "line": "09:30:05 ! task.created             {\"id\":\"t-1\",\"goal\":\"café ☕\"}"
+  },
+  {
+   "event": {
+    "topic": "trail.app_focus",
+    "at": "2026-11-13T04:00:00+00:00",
+    "class": "notice",
+    "data": {}
+   },
+   "line": "04:00:00 * trail.app_focus          {}"
+  },
+  {
+   "event": {
+    "topic": "a.very.long.topic.name.beyond.24",
+    "at": "2026-11-13T04:00:00",
+    "class": "debug",
+    "data": {
+     "n": 1.5,
+     "l": [
+      1,
+      null,
+      true
+     ]
+    }
+   },
+   "line": "04:00:00   a.very.long.topic.name.beyond.24 {\"n\":1.5,\"l\":[1,null,true]}"
+  }
+ ],
+ "plain_error": [
+  {
+   "type": "RpcError",
+   "code": -32603,
+   "message": "KeyError",
+   "line": "ferb: that failed inside FERB (KeyError); `ferb stats` lists it"
+  },
+  {
+   "type": "RpcError",
+   "code": -32001,
+   "message": "not allowed for cli",
+   "line": "ferb: not allowed for cli"
+  },
+  {
+   "type": "FerbError",
+   "code": null,
+   "message": "  ",
+   "line": "ferb: FerbError"
+  },
+  {
+   "type": "FerbError",
+   "code": null,
+   "message": "plain cause",
+   "line": "ferb: plain cause"
+  }
+ ],
+ "shown_bytes": [
+  [
+   0,
+   "0 KB"
+  ],
+  [
+   999,
+   "1 KB"
+  ],
+  [
+   1500,
+   "2 KB"
+  ],
+  [
+   999999,
+   "1000 KB"
+  ],
+  [
+   1000000,
+   "1.0 MB"
+  ],
+  [
+   2345678,
+   "2.3 MB"
+  ],
+  [
+   999999999,
+   "1000.0 MB"
+  ],
+  [
+   1000000000.0,
+   "1.0 GB"
+  ],
+  [
+   2500000000.0,
+   "2.5 GB"
+  ]
+ ],
+ "status_label": [
+  [
+   "done",
+   "done"
+  ],
+  [
+   "done_unverified",
+   "not confirmed"
+  ],
+  [
+   "failed",
+   "failed"
+  ]
+ ],
+ "checks": {
+  "context_window": [
+   {
+    "name": "context window worker",
+    "status": "ok",
+    "detail": "codex gpt-x: 272000 tokens, 128000 for the reply",
+    "hint": ""
+   },
+   {
+    "name": "context window planner",
+    "status": "ok",
+    "detail": "codex gpt-x: 1 tokens, 2 for the reply, at most 1048576 characters in one input",
+    "hint": ""
+   },
+   {
+    "name": "context window checker",
+    "status": "fail",
+    "detail": "claude m: no documented limits",
+    "hint": "set a documented model in config.toml [models]"
+   }
+  ],
+  "clipboard": [
+   null,
+   {
+    "name": "clipboard",
+    "status": "ok",
+    "detail": "FERB may read what you copy (kept on this Mac for 7 days)",
+    "hint": ""
+   },
+   {
+    "name": "clipboard",
+    "status": "ok",
+    "detail": "FERB may read what you copy (kept on this Mac for 7 days)",
+    "hint": ""
+   },
+   {
+    "name": "clipboard",
+    "status": "warn",
+    "detail": "FERB doesn't record what you copy: macOS hasn't asked you yet",
+    "hint": "let macOS ask once from FERB's setup window, then set FERB to Allow in System Settings → Privacy & Security → Paste from Other Apps"
+   },
+   {
+    "name": "clipboard",
+    "status": "warn",
+    "detail": "FERB doesn't record what you copy: macOS would ask you every time",
+    "hint": "set FERB to Allow in System Settings → Privacy & Security → Paste from Other Apps"
+   },
+   {
+    "name": "clipboard",
+    "status": "warn",
+    "detail": "FERB doesn't record what you copy: you set FERB to Deny",
+    "hint": "set FERB to Allow in System Settings → Privacy & Security → Paste from Other Apps"
+   },
+   {
+    "name": "clipboard",
+    "status": "warn",
+    "detail": "FERB doesn't record what you copy: macOS reports odd",
+    "hint": "set FERB to Allow in System Settings → Privacy & Security → Paste from Other Apps"
+   }
+  ],
+  "containment": [
+   {
+    "name": "containment",
+    "status": "fail",
+    "detail": "the daemon didn't report it",
+    "hint": "run `ferb setup --update`"
+   },
+   {
+    "name": "containment",
+    "status": "fail",
+    "detail": "the daemon didn't report it",
+    "hint": "run `ferb setup --update`"
+   },
+   {
+    "name": "containment",
+    "status": "ok",
+    "detail": "FERB's shell and AppleScript run inside its sandbox (sandbox-exec)",
+    "hint": ""
+   },
+   {
+    "name": "containment",
+    "status": "fail",
+    "detail": "FERB's shell and AppleScript run inside its sandbox (sandbox-exec); FERB's egress proxy didn't answer, so the shell has no network (last error: refused)",
+    "hint": "restart the daemon (`ferb setup --update`)"
+   },
+   {
+    "name": "containment",
+    "status": "ok",
+    "detail": "FERB's shell and AppleScript run inside its sandbox (sandbox-exec); FERB's egress proxy had stopped and was restarted (last error: none)",
+    "hint": ""
+   },
+   {
+    "name": "containment",
+    "status": "fail",
+    "detail": "FERB's shell is unavailable until sandbox-exec works: sandbox-exec missing",
+    "hint": "restart the daemon after fixing it (`ferb setup --update`)"
+   },
+   {
+    "name": "containment",
+    "status": "fail",
+    "detail": "FERB's shell is unavailable until sandbox-exec works: denied",
+    "hint": "restart the daemon after fixing it (`ferb setup --update`)"
+   }
+  ],
+  "local_reports": [
+   null,
+   null,
+   {
+    "name": "local connections",
+    "status": "ok",
+    "detail": "direct connections to pinned local ports are recorded from the kernel's reports",
+    "hint": ""
+   },
+   {
+    "name": "local connections",
+    "status": "warn",
+    "detail": "the kernel's reports stopped (not started): direct connections to pinned local ports are unrecorded (null) until FERB restarts",
+    "hint": "restart the daemon (`ferb setup --update`); reading the system log may need an admin account"
+   },
+   {
+    "name": "local connections",
+    "status": "warn",
+    "detail": "the kernel's reports stopped (log stream ended): direct connections to pinned local ports are unrecorded (null) until FERB restarts",
+    "hint": "restart the daemon (`ferb setup --update`); reading the system log may need an admin account"
+   }
+  ],
+  "snapshots": [
+   {
+    "name": "snapshots",
+    "status": "warn",
+    "detail": "the daemon didn't report them",
+    "hint": "run `ferb setup --update`"
+   },
+   {
+    "name": "snapshots",
+    "status": "warn",
+    "detail": "snapshots are turned off: shell commands and permanent deletes run without a recovery snapshot",
+    "hint": ""
+   },
+   {
+    "name": "snapshots",
+    "status": "warn",
+    "detail": "snapshots are turned off: shell commands and permanent deletes run without a recovery snapshot",
+    "hint": ""
+   },
+   {
+    "name": "snapshots",
+    "status": "warn",
+    "detail": "the last snapshot attempt failed at 2026-11-12 02:35 (tmutil failed); shell commands since then ran without a recovery snapshot",
+    "hint": "check that Time Machine local snapshots work (`tmutil localsnapshot`)"
+   },
+   {
+    "name": "snapshots",
+    "status": "warn",
+    "detail": "the last snapshot attempt failed (x); shell commands since then ran without a recovery snapshot",
+    "hint": "check that Time Machine local snapshots work (`tmutil localsnapshot`)"
+   },
+   {
+    "name": "snapshots",
+    "status": "warn",
+    "detail": "the last snapshot attempt failed (y); shell commands since then ran without a recovery snapshot",
+    "hint": "check that Time Machine local snapshots work (`tmutil localsnapshot`)"
+   },
+   {
+    "name": "snapshots",
+    "status": "ok",
+    "detail": "a local snapshot comes before shell work and permanent deletes (one per 15 minutes, reused)",
+    "hint": ""
+   }
+  ],
+  "hearing": [
+   {
+    "in": null,
+    "out": []
+   },
+   {
+    "in": {},
+    "out": []
+   },
+   {
+    "in": {
+     "installed": false
+    },
+    "out": [
+     {
+      "name": "hearing",
+      "status": "warn",
+      "detail": "FERB.app isn't installed, so FERB can't turn sound into text",
+      "hint": "run `ferb setup`"
+     }
+    ]
+   },
+   {
+    "in": {
+     "installed": true
+    },
+    "out": []
+   },
+   {
+    "in": {
+     "installed": true,
+     "signed": false
+    },
+    "out": [
+     {
+      "name": "hearing",
+      "status": "warn",
+      "detail": "FERB.app's signature isn't the one recorded at setup",
+      "hint": "run `ferb setup`"
+     }
+    ]
+   },
+   {
+    "in": {
+     "installed": true,
+     "signed": true,
+     "error": "timed out"
+    },
+    "out": [
+     {
+      "name": "hearing",
+      "status": "warn",
+      "detail": "FERB.app didn't answer: timed out",
+      "hint": "run `ferb setup`"
+     }
+    ]
+   },
+   {
+    "in": {
+     "installed": true,
+     "signed": true,
+     "speech": "denied"
+    },
+    "out": [
+     {
+      "name": "hearing",
+      "status": "warn",
+      "detail": "FERB.app's Speech Recognition: denied",
+      "hint": "run `ferb setup` and allow Speech Recognition for FERB"
+     }
+    ]
+   },
+   {
+    "in": {
+     "installed": true,
+     "signed": true,
+     "speech": "granted",
+     "on_device": false,
+     "locale": "hi-IN"
+    },
+    "out": [
+     {
+      "name": "hearing",
+      "status": "warn",
+      "detail": "on-device speech recognition isn't available for hi-IN; FERB never uses a cloud recognizer",
+      "hint": "on-device support follows the Mac's Dictation languages (System Settings → Keyboard → Dictation)"
+     }
+    ]
+   },
+   {
+    "in": {
+     "installed": true,
+     "signed": true,
+     "speech": "granted",
+     "on_device": true,
+     "locale": "en-US"
+    },
+    "out": [
+     {
+      "name": "hearing",
+      "status": "ok",
+      "detail": "FERB.app may use on-device Speech Recognition (en-US)",
+      "hint": ""
+     }
+    ]
+   }
+  ],
+  "sip": [
+   {
+    "rc": 0,
+    "out": "System Integrity Protection status: enabled.\n",
+    "raises": false,
+    "check": {
+     "name": "system integrity protection",
+     "status": "ok",
+     "detail": "on",
+     "hint": ""
+    }
+   },
+   {
+    "rc": 0,
+    "out": "System Integrity Protection status: disabled.\n",
+    "raises": false,
+    "check": {
+     "name": "system integrity protection",
+     "status": "warn",
+     "detail": "System Integrity Protection is off: any process can then read a running command's proxy credential from its environment, and no sandbox rule stops it",
+     "hint": "turn it back on from macOS Recovery (`csrutil enable`)"
+    }
+   },
+   {
+    "rc": 0,
+    "out": "Configuration:\n Apple Internal: enabled\n",
+    "raises": false,
+    "check": {
+     "name": "system integrity protection",
+     "status": "warn",
+     "detail": "System Integrity Protection is partly off: any process can then read a running command's proxy credential from its environment, and no sandbox rule stops it",
+     "hint": "turn it back on from macOS Recovery (`csrutil enable`)"
+    }
+   },
+   {
+    "rc": 1,
+    "out": "",
+    "raises": false,
+    "check": {
+     "name": "system integrity protection",
+     "status": "warn",
+     "detail": "System Integrity Protection couldn't be read: any process can then read a running command's proxy credential from its environment, and no sandbox rule stops it",
+     "hint": "turn it back on from macOS Recovery (`csrutil enable`)"
+    }
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "raises": true,
+    "check": {
+     "name": "system integrity protection",
+     "status": "warn",
+     "detail": "System Integrity Protection couldn't be read: any process can then read a running command's proxy credential from its environment, and no sandbox rule stops it",
+     "hint": "turn it back on from macOS Recovery (`csrutil enable`)"
+    }
+   }
+  ],
+  "filevault": [
+   {
+    "rc": 0,
+    "out": "FileVault is On.\n",
+    "raises": false,
+    "check": {
+     "name": "filevault",
+     "status": "ok",
+     "detail": "on",
+     "hint": ""
+    }
+   },
+   {
+    "rc": 0,
+    "out": "FileVault is Off.\n",
+    "raises": false,
+    "check": {
+     "name": "filevault",
+     "status": "warn",
+     "detail": "FileVault is off: what FERB keeps in ~/.ferb (its database, traces and screenshots) sits unencrypted on this Mac's disk",
+     "hint": "turn it on in System Settings → Privacy & Security → FileVault"
+    }
+   },
+   {
+    "rc": 2,
+    "out": "x",
+    "raises": false,
+    "check": {
+     "name": "filevault",
+     "status": "warn",
+     "detail": "FileVault couldn't be read: what FERB keeps in ~/.ferb (its database, traces and screenshots) sits unencrypted on this Mac's disk",
+     "hint": "turn it on in System Settings → Privacy & Security → FileVault"
+    }
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "raises": true,
+    "check": {
+     "name": "filevault",
+     "status": "warn",
+     "detail": "FileVault couldn't be read: what FERB keeps in ~/.ferb (its database, traces and screenshots) sits unencrypted on this Mac's disk",
+     "hint": "turn it on in System Settings → Privacy & Security → FileVault"
+    }
+   }
+  ]
+ },
+ "tokenizer": {
+  "pin": "e15c8c7b7d4040e6a52c4906cd09a995aa12cd84945d19a3163aa614cfa9009e",
+  "url": "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken",
+  "home": "/private/tmp/ferb-device-fx/pure/tok",
+  "cases": [
+   {
+    "name": "downloaded",
+    "cache": null,
+    "fetched": "invented ranks\n",
+    "line": "Tokenizer: FERB's pinned copy downloaded and verified.",
+    "changes": [
+     {
+      "path": "tok",
+      "kind": "dir",
+      "mode": 493
+     },
+     {
+      "path": "tok/cache",
+      "kind": "dir",
+      "mode": 493
+     },
+     {
+      "path": "tok/cache/tokenizer",
+      "kind": "dir",
+      "mode": 493
+     },
+     {
+      "path": "tok/cache/tokenizer/o200k_base.tiktoken",
+      "kind": "file",
+      "mode": 420,
+      "text": "invented ranks\n"
+     }
+    ]
+   },
+   {
+    "name": "in_place",
+    "cache": null,
+    "fetched": "never fetched",
+    "line": "Tokenizer: FERB's pinned copy is in place.",
+    "changes": []
+   },
+   {
+    "name": "cached_copy",
+    "cache": "invented ranks\n",
+    "fetched": "never fetched",
+    "line": "Tokenizer: FERB's pinned copy copied from this Mac's tiktoken cache and verified.",
+    "changes": [
+     {
+      "path": "tok/cache/tokenizer/o200k_base.tiktoken",
+      "kind": "file",
+      "mode": 420,
+      "text": "invented ranks\n"
+     }
+    ]
+   },
+   {
+    "name": "mismatch",
+    "cache": null,
+    "fetched": "something else",
+    "line": "Tokenizer: the downloaded file doesn't match FERB's pinned hash; nothing was kept.",
+    "changes": []
+   },
+   {
+    "name": "offline",
+    "cache": null,
+    "fetched": [
+     "OSError",
+     "network unreachable"
+    ],
+    "line": "Tokenizer: not available (OSError: network unreachable); token counts use a byte ceiling until FERB's next update can fetch it.",
+    "changes": []
+   }
+  ]
+ },
+ "persona_state": {
+  "config_before": "[setup]\npersona_reviewed = true\nother = 1\n\n[setup.persona_pending]\nsummary = \"café notes\"\nfacts = [\"a\"]\n",
+  "steps": [
+   {
+    "op": "pending",
+    "result": {
+     "summary": "café notes",
+     "facts": [
+      "a"
+     ]
+    }
+   },
+   {
+    "op": "config",
+    "text": "[setup]\nother = 1\n\n"
+   },
+   {
+    "op": "reviewed",
+    "result": true
+   },
+   {
+    "op": "seen",
+    "result": {
+     "summary": "Notes ☕",
+     "at": "2026-11-13"
+    }
+   },
+   {
+    "op": "file",
+    "text": "{\"pending\": {\"summary\": \"café notes\", \"facts\": [\"a\"]}, \"reviewed\": true, \"seen\": {\"summary\": \"Notes ☕\", \"at\": \"2026-11-13\"}}",
+    "mode": 384
+   }
+  ]
+ },
+ "code_hash": {
+  "files": [
+   {
+    "path": "extensions",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "extensions/chromium",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "extensions/chromium/bg.js",
+    "kind": "file",
+    "mode": 420,
+    "text": "bg"
+   },
+   {
+    "path": "extensions/chromium/manifest.json",
+    "kind": "file",
+    "mode": 420,
+    "text": "{}"
+   },
+   {
+    "path": "ferb",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "ferb/.DS_Store",
+    "kind": "file",
+    "mode": 420,
+    "text": "finder"
+   },
+   {
+    "path": "ferb/__pycache__",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "ferb/__pycache__/a.cpython-312.pyc",
+    "kind": "file",
+    "mode": 420,
+    "text": "cache"
+   },
+   {
+    "path": "ferb/_extension",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "ferb/_extension/old.js",
+    "kind": "file",
+    "mode": 420,
+    "text": "old"
+   },
+   {
+    "path": "ferb/a.py",
+    "kind": "file",
+    "mode": 420,
+    "text": "print(1)\n"
+   },
+   {
+    "path": "ferb/sub",
+    "kind": "dir",
+    "mode": 493
+   },
+   {
+    "path": "ferb/sub/b.py",
+    "kind": "file",
+    "mode": 420,
+    "text": "\u0000binary"
+   },
+   {
+    "path": "ferb/x.pyc",
+    "kind": "file",
+    "mode": 420,
+    "text": "cache"
+   }
+  ],
+  "with_extension": "097e80b0c0c97ae1",
+  "without_extension": "0dca5bd021dcbfd7"
+ }
+}

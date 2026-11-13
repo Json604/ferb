@@ -451,6 +451,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferb-device"
+version = "0.28.0"
+dependencies = [
+ "chrono",
+ "ferb-core",
+ "ferb-py",
+ "ferb-rpc",
+ "ferb-sanitize",
+ "hex",
+ "libc",
+ "plist",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "ferb-fs"
 version = "0.28.0"
 dependencies = [

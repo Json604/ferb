@@ -21,11 +21,11 @@ members = [
     "crates/ferb-policy",
     "crates/ferb-trace",
     "crates/ferb-browser",
+    "crates/ferb-device",
 ]
 exclude = [
     "crates/ferb-gateway",
     "crates/ferb-sense",
-    "crates/ferb-device",
     "crates/ferb-orchestrator",
     "crates/ferb-mac-hands",
     "crates/ferb-learning",

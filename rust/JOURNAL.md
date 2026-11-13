@@ -587,3 +587,35 @@ pass, re-run by the coordinator; nothing differs from Python except the three fi
   compared instead of bytes.
 - `ferb-identity`'s mailbox draws its tokens from system randomness, which a test cannot inject.
 - Never run against a real browser.
+
+## 2026-11-13 · 29 · Device setup and the internal commands FERB.app calls
+
+**What.** `ferb-device` ports `ferb/device` (install, profile, scan, persona, devtools, extensions, the self-test's
+words, the grant probe) and `ferb/cli` (the argument parser, the socket client, every `setup` path, `uninstall`,
+sign-ins, the clean-up, `doctor`, the toolbox's daemon clients). A plist writer reproduces Python's
+`plistlib.dumps` exactly. The one named difference is `Programs`: in Python mode it writes Python's bytes; in Rust
+mode it names `ferbd` and `ferb-native-host`.
+
+**Why.** FERB.app runs these commands, reads `service.json` and compares the plist's SHA-256 (DMN-514). The app is
+unchanged in stage 1, so every command line, exit status, printed line and file must stay as it is.
+
+**Evidence.** `rust/fixtures/device/make.py` drives the Python with the test suite's fakes in a fixed temp root
+and records every file written, every external command it would run, every daemon call, printed line and exit
+status: 55 scenarios, 2,457 events, 52 command lines, 35 toolbox runs; none differ. 18 tests pass, re-run by the
+coordinator. No test runs `launchctl` or writes outside a temp folder.
+
+**Fixed against Python.** An app whose Info.plist is not a dictionary raised AttributeError and broke the whole
+software scan; Rust skips that app.
+
+**Open.**
+- No `ferb` program yet: its host needs parts that are not ported. Not started: the `trace`, `stats`, `runtimes`
+  and dashboard commands' wiring (the trace output itself is in `ferb-trace`).
+- **FERB.app tells a development checkout's service from its own by the arguments `-P -m ferb.daemon`**
+  (`AppSetupPlan.isCheckout`). A Rust checkout's plist has no such arguments, so the app would replace it without
+  asking. Stage 1 keeps the app unchanged: the Rust plist needs a marker the app already recognizes, or the app
+  needs a one-line change. To settle in part 12.
+- Moving the old `[setup.persona_pending]` sub-table is refused by `ferb-core`'s config writer (one of its ten
+  refused shapes), so the old keys stay in `config.toml`.
+- argparse's own usage and error text is not reproduced (the exit status is).
+- Found in Python, mirrored because it is owner-facing wording: `setup --codex-logout` with no Codex installed
+  prints its reason twice ("FERB's pinned Codex isn't installed: FERB's pinned Codex isn't installed: ...").

@@ -48,8 +48,8 @@ the phone apps share; they reach the Mac's own parts only through traits.
 | Memory: embeddings, search, import parsers | `ferb/memory` (4 files) | ~1,770 | `ferb-memory` | verified (journal 22); needs SQLite 3.53.4+ for trigram tables |
 | Memory: items, profile, learning, distill, playbooks, import job | `ferb/memory` (rest) | ~4,300 | - | not started |
 | Perception | `ferb/sense` | 3,817 | - | not started |
-| Device: install, permissions, service | `ferb/device` | 2,276 | - | not started |
-| Internal commands the app calls, toolbox | `ferb/cli` | 2,442 | - | not started |
+| Device: install, service, profile, scan | `ferb/device` | 2,276 | `ferb-device` | verified on recorded flows (journal 29); permissions are in `ferb-mac-hands` |
+| Internal commands the app calls, toolbox | `ferb/cli` | 2,442 | `ferb-device` | verified (journal 29); no `ferb` program yet |
 | Traces | `ferb/trace`, trace output of `ferb/cli/admin.py` | 759 | `ferb-trace` | verified (journal 27) |
 | Daemon host in FERB.app | `ui/mac/FERBAgent/main.c` | - | `ferbd` | not started |
 | Build, sign, package without Python | `scripts/` | - | - | not started |
