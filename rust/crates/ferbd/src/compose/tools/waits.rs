@@ -1,9 +1,9 @@
 //! `wait.for` (`ferb/clock/wait.py`, `add_wait`) and `time.sleep_until` (`add_time`, schedules.py `_sleep_until`) over
 //! this daemon's shell, browsers, timers and gateway.
 //!
-//! Without the supervisor (not wired in this build) a wait's live line, the task's corrections and the worker's
-//! "waiting" mark have nobody to tell: `status` does nothing and `steered` is 0, as Python's daemon before its
-//! supervisor is built.
+//! A wait's live line and the worker's "waiting" mark go to the supervisor, and a correction steered into the task
+//! wakes the wait (`Parts::wait_hooks`); before the supervisor is built nobody is told and `steered` is 0, as in
+//! Python's daemon.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -246,7 +246,14 @@ impl WaitEnv for Env {
         self.parts.clock().now()
     }
     fn monotonic(&self) -> f64 {
-        self.parts.clock().monotonic()
+        // wait.py `WaitDeps.monotonic`: the process's own monotonic clock (`time.monotonic`), never the daemon's
+        // clock: a wait's `after_s` and its polls are real seconds
+        static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+        START
+            .get_or_init(std::time::Instant::now)
+            .elapsed()
+            .as_secs_f64()
+            + 1000.0
     }
     fn pause(&self, seconds: f64) -> BoxFuture<'_, ()> {
         Box::pin(tokio::time::sleep(std::time::Duration::from_secs_f64(
@@ -265,9 +272,13 @@ impl WaitEnv for Env {
             Identity::Owner => self.owner.as_ref().map(|b| b as &dyn Browser),
         }
     }
-    fn status(&self, _worker: &str, _task: &str, _until: Option<&Time>, _line: Option<&str>) {}
-    fn steered(&self, _task: &str) -> i64 {
-        0
+    fn status(&self, worker: &str, task: &str, until: Option<&Time>, line: Option<&str>) {
+        if let Some(h) = self.parts.wait_hooks() {
+            h.status(worker, task, until, line);
+        }
+    }
+    fn steered(&self, task: &str) -> i64 {
+        self.parts.wait_hooks().map_or(0, |h| h.steered(task))
     }
     fn ending(&self) -> Option<String> {
         self.parts.shutting_down().then(|| "restart".to_string())

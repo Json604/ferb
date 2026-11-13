@@ -11,16 +11,12 @@ use std::sync::Arc;
 
 use ferb_core::errors::FerbError;
 use ferb_core::interfaces::BoxFuture;
-use ferb_core::types::{ModelLimits, ModelRequest, RuntimeEvent, Task};
-use ferb_daemon::areas_b::runtimes::{Build, Built, Factory, Programs, Runtimes};
+use ferb_daemon::areas_b::runtimes::{Build, Built, Factory, Programs};
 use ferb_gateway::gateway::Gateway;
 use ferb_identity::Secret;
 use ferb_runtimes::error::RuntimeError;
-use ferb_runtimes::forms::{Forms, Refusals, SchemaTooComplex, Shape};
-use ferb_runtimes::run::Adapter;
+use ferb_runtimes::forms::Refusals;
 use ferb_sanitize::redact::Redactor;
-use ferb_worker::errors::Error as WorkerError;
-use ferb_worker::ports::{EventSource, ModelRuntime, RunControl, StartedRun};
 use serde_json::Value;
 
 /// How a model program starts FERB's tool bridge: this program, `mcp` (`mcp_shim_command`).
@@ -123,43 +119,6 @@ impl Programs for MacPrograms {
 // ---------------------------------------------------------------------------------------------------------------
 // the answer forms (schema_shape.py, ported in ferb-context) as the adapters ask for them
 // ---------------------------------------------------------------------------------------------------------------
-
-/// ferb-context's reshaping behind ferb-runtimes' `Forms` seam (two `Shape` types: see the mismatch list).
-pub struct ContextForms;
-
-fn reshape(
-    r: Result<ferb_context::shape::Shape, ferb_context::shape::SchemaTooComplex>,
-) -> Result<Shape, SchemaTooComplex> {
-    match r {
-        Ok(s) if s.mapped => {
-            let held = s.clone();
-            Ok(Shape::mapped(
-                s.core,
-                s.wire,
-                Arc::new(move |answer: &Value| {
-                    let py = ferb_context::pyvalue::Py::from_value(answer);
-                    held.value(py).to_value()
-                }),
-            ))
-        }
-        Ok(s) => Ok(Shape::same(&s.core)),
-        Err(e) => Err(SchemaTooComplex(e.0)),
-    }
-}
-
-impl Forms for ContextForms {
-    fn anthropic(&self, schema: &Value) -> Result<Shape, SchemaTooComplex> {
-        reshape(ferb_context::shape::for_anthropic(schema))
-    }
-    fn gemini(&self, schema: &Value) -> Result<Shape, SchemaTooComplex> {
-        reshape(ferb_context::shape::for_gemini(schema))
-    }
-    fn check_final(&self, text: &str, schema: &Value) -> Result<(), String> {
-        ferb_context::structured::check_final(text, Some(schema))
-            .map(|_| ())
-            .map_err(|e| e.to_string())
-    }
-}
 
 // ---------------------------------------------------------------------------------------------------------------
 // the factory
@@ -269,7 +228,7 @@ impl Factory for RealFactory {
                     &b.tool_names,
                     output_schema,
                     (!b.model.is_empty()).then(|| b.model.clone()),
-                    Arc::new(ContextForms),
+                    Arc::new(ferb_runtimes::forms::ContextForms),
                     self.refusals.clone(),
                     ferb_runtimes::claude::Host::system(),
                 );
@@ -304,7 +263,7 @@ impl Factory for RealFactory {
                     output_schema,
                     Some(self.bridge.clone() as Arc<dyn ferb_runtimes::api::Bridge>),
                     self.keys.clone(),
-                    Arc::new(ContextForms),
+                    Arc::new(ferb_runtimes::forms::ContextForms),
                     self.refusals.clone(),
                 )
                 .map_err(|e| RuntimeError::unsupported(e.0))?;
@@ -325,145 +284,9 @@ impl Factory for RealFactory {
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------
-// the glue to ferb-worker's ModelRuntime
-// ---------------------------------------------------------------------------------------------------------------
-
-/// A runtime error as the worker reads it, class by class (journal 37: errors arrive as the stream's items).
-pub fn worker_error(e: RuntimeError) -> WorkerError {
-    match e {
-        RuntimeError::Ferb(f) => WorkerError::Ferb(f),
-        RuntimeError::SignedOut { message, runtime } => WorkerError::SignedOut { message, runtime },
-        RuntimeError::Account { .. } => WorkerError::Unavailable {
-            message: e.to_string(),
-            account: e.account().to_string(),
-            reason: match &e {
-                RuntimeError::Account { reason, .. } => reason.clone(),
-                _ => String::new(),
-            },
-        },
-        RuntimeError::Protocol { message, .. } => WorkerError::other("ProtocolError", message),
-        RuntimeError::Provider { message, .. } => WorkerError::other("ProviderError", message),
-        RuntimeError::Raised(r) => WorkerError::other(&r.class, r.message),
-    }
-}
-
-struct Events(ferb_runtimes::gen::EventStream);
-
-impl EventSource for Events {
-    fn next(
-        &mut self,
-    ) -> ferb_worker::ports::BoxFuture<'_, Option<Result<RuntimeEvent, WorkerError>>> {
-        Box::pin(async move { self.0.next().await.map(|i| i.map_err(worker_error)) })
-    }
-}
-
-struct Control(Arc<dyn ferb_runtimes::run::RunControl>);
-
-impl RunControl for Control {
-    fn steer<'a>(
-        &'a self,
-        message: &'a str,
-    ) -> ferb_worker::ports::BoxFuture<'a, Result<(), ferb_orchestrator::steering::ContinueError>>
-    {
-        Box::pin(async move {
-            self.0.steer(message).await.map_err(|e| match e {
-                RuntimeError::Ferb(FerbError::Unsupported(_)) => {
-                    ferb_orchestrator::steering::ContinueError::Unsupported
-                }
-                other => ferb_orchestrator::steering::ContinueError::Failed(other.class()),
-            })
-        })
-    }
-
-    fn cancel(&self) -> ferb_worker::ports::BoxFuture<'_, ()> {
-        self.0.cancel()
-    }
-}
-
-/// One built adapter as ferb-worker's `ModelRuntime`.
-pub struct WorkerRuntime {
-    pub build: Build,
-    pub adapter: Arc<dyn Adapter>,
-}
-
-impl ModelRuntime for WorkerRuntime {
-    fn name(&self) -> String {
-        self.adapter.name().to_string()
-    }
-
-    fn limits(&self) -> Result<ModelLimits, FerbError> {
-        ferb_runtimes::catalog::limits(&self.build.name, Some(&self.build.model), &self.build.home)
-    }
-
-    fn output_schema(&self) -> Option<Value> {
-        (!self.build.schema.is_null()).then(|| self.build.schema.clone())
-    }
-
-    fn start<'a>(
-        &'a self,
-        task: &'a Task,
-        request: &'a ModelRequest,
-        run_token: &'a str,
-    ) -> ferb_worker::ports::BoxFuture<'a, Result<StartedRun, WorkerError>> {
-        Box::pin(async move {
-            let started = self
-                .adapter
-                .start(task, request, run_token)
-                .await
-                .map_err(worker_error)?;
-            Ok(StartedRun {
-                handle: started.handle,
-                events: Box::new(Events(started.events)),
-                control: Arc::new(Control(started.control)),
-            })
-        })
-    }
-}
-
-/// `make_runtime(role, mode=, tool_names=, schema=, effort=)` as the worker and the supervisor call it.
-pub fn make_runtime(
-    rt: &Runtimes,
-    role: &str,
-    mode: &str,
-    tool_names: &[String],
-    schema: &Value,
-    effort: Option<&str>,
-) -> Result<Arc<dyn ModelRuntime>, WorkerError> {
-    let (build, built) = rt
-        .make_runtime(role, mode, tool_names, schema, effort)
-        .map_err(worker_error)?;
-    Ok(Arc::new(WorkerRuntime {
-        build,
-        adapter: built.adapter,
-    }))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_runtime_error_reaches_the_worker_by_its_python_class() {
-        let e = worker_error(RuntimeError::account_error("auth_required", Some(7)));
-        assert_eq!(e.class(), "RuntimeUnavailable");
-        assert!(matches!(&e, WorkerError::Unavailable { account, .. } if account == "signed_out"));
-        let e = worker_error(RuntimeError::SignedOut {
-            message: "Claude isn't signed in".into(),
-            runtime: "claude".into(),
-        });
-        assert_eq!(e.class(), "SignedOut");
-        let e = worker_error(RuntimeError::protocol("turn failed"));
-        assert_eq!(
-            (e.class().as_str(), e.is_value_error()),
-            ("ProtocolError", true)
-        );
-        assert_eq!(e.to_string(), "turn failed");
-        let e = worker_error(RuntimeError::provider("rate limited"));
-        assert_eq!(e.class(), "ProviderError");
-        let e = worker_error(RuntimeError::unsupported("no"));
-        assert_eq!(e.class(), "Unsupported");
-    }
 
     #[test]
     fn the_tool_bridge_is_this_program_again() {

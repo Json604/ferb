@@ -199,7 +199,8 @@ fn tables(name: &str, run: &Run, names: &[&str], journal_from: &str) {
 }
 
 fn base() -> Value {
-    json!({"ids": "id", "group_a": true})
+    // the recorder's programs (its start wrote 14 rows, the replay's ids continue at 15)
+    json!({"ids": "id", "group_a": true, "programs": "recorder"})
 }
 
 #[test]

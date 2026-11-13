@@ -12,6 +12,10 @@
 //! - `group_a` (true): group A's seams are the test suite's recording stand-ins (`tests/a_support`'s `Stand`).
 //! - `group_b`: `"small"` gives group B's areas the stand-ins `tests/b_small.rs` replays with (`perception`,
 //!   `answers` from the same file).
+//! - `script`: a recorded chat scenario's scripted model and reads (src/standins_chat.rs); with it the questions take
+//!   the recorder's counter ids, the planner counts tokens by the byte ceiling, the untrusted-data wrapper has the
+//!   recorder's fixed id and a new chat the recorder's id. `fs_identity` (true): file results carry the recorder's
+//!   invented file facts.
 //!
 //! The Keychain is always off (every helper call refused, `security` finds nothing), retention and the secrets'
 //! preload don't run, and no browser is started.
@@ -242,6 +246,7 @@ impl areas_b::runtimes::Programs for RecorderPrograms {
 
 /// What a test configured.
 pub struct StandIns {
+    pub script: Option<Arc<crate::standins_chat::Script>>,
     pub config: Value,
     pub clock: Option<FakeClock>,
     pub ids: Option<Arc<Seq>>,
@@ -253,9 +258,47 @@ struct Seams {
     config: Value,
     stand: Stand,
     group_a: bool,
+    script: Option<Arc<crate::standins_chat::Script>>,
 }
 
 impl Overrides for Seams {
+    fn supervisor_reads(
+        &self,
+        real: Arc<dyn crate::compose::supervisor::Reads>,
+    ) -> Arc<dyn crate::compose::supervisor::Reads> {
+        match &self.script {
+            Some(s) => Arc::new(crate::standins_chat::ScriptReads(s.clone())),
+            None => real,
+        }
+    }
+
+    fn supervisor_build(&self, p: &mut crate::compose::supervisor::BuildParts) {
+        if self.script.is_some() {
+            p.tokenizer = ferb_context::tokens::Tokenizer::Utf8Bytes;
+            p.wrap_id = Some("0123456789ab".into());
+            p.new_chat = Some(Arc::new(|| "c00000000001".into()));
+        }
+    }
+
+    fn started(&self, d: &Arc<Daemon>) {
+        let Some(s) = &self.script else { return };
+        let _ = s.db.set(d.db.clone());
+        let _ = s.ids.set(d.opts.ids.clone());
+        let _ = s.socket.set(ferb_core::paths::socket_path(&d.opts.home));
+        if self.config["fs_identity"] == true {
+            let mut reg = d.gateway.registry();
+            for name in crate::compose::tools::wrap::THREADED {
+                // around the registry's tool (its file work in a thread already), the recorder's facts
+                if let Some(t) = reg.get(name).cloned() {
+                    reg.set(Arc::new(crate::compose::tools::wrap::Wrapped {
+                        inner: t,
+                        around: crate::standins_chat::RecordedFacts { script: s.clone() },
+                    }));
+                }
+            }
+        }
+    }
+
     fn group_a(&self, d: &mut areas_a::Deps) {
         if self.group_a {
             d.tasks = Arc::new(self.stand.clone());
@@ -415,12 +458,21 @@ pub fn from_env(opts: &mut Options) -> Option<StandIns> {
         }));
     }
     let stand = Stand::default();
+    let script = config
+        .get("script")
+        .and_then(Value::as_str)
+        .and_then(crate::standins_chat::Script::load);
+    if let Some(s) = &script {
+        opts.question_ids = crate::standins_chat::question_counter(s.asked.clone());
+    }
     opts.overrides = Some(Arc::new(Seams {
         config: config.clone(),
         stand: stand.clone(),
         group_a: flag("group_a", true),
+        script: script.clone(),
     }));
     Some(StandIns {
+        script,
         config,
         clock,
         ids,
@@ -692,7 +744,10 @@ async fn control(d: &Arc<Daemon>, s: &StandIns, req: &Value) -> Result<Value, St
         }
         // the tools built as refusing "not available in this build" (the catalog test: none)
         "refusing" => Ok(json!(crate::compose::tools::refusing())),
-        // areas_c's and the services' controls (standins_c.rs)
-        other => crate::standins_c::control(d, req, other),
+        // a chat scenario's (standins_chat.rs), then areas_c's and the services' controls (standins_c.rs)
+        other => match crate::standins_chat::control(d, s.script.as_ref(), req, other) {
+            Some(r) => r,
+            None => crate::standins_c::control(d, req, other),
+        },
     }
 }

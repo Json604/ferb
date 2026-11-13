@@ -7,6 +7,7 @@
 
 pub mod areas;
 pub mod egress;
+pub mod env_seams;
 pub mod gateway;
 pub mod group_c;
 pub mod loops;
@@ -91,6 +92,8 @@ pub struct Options {
     pub memory_loops: bool,
     /// The resource log (L30, `resources`): a sample every five minutes and at shutdown.
     pub resources: bool,
+    /// The questions' ids (`"ap-" + token_hex(6)`; a test build: a counter).
+    pub question_ids: gateway::QuestionIds,
 }
 
 /// Replacements for seams the real composition fills, applied once each area's deps are built.
@@ -98,6 +101,14 @@ pub trait Overrides: Send + Sync {
     fn group_a(&self, _deps: &mut areas_a::Deps) {}
     fn group_b(&self, _deps: &mut ferb_daemon::areas_b::Deps) {}
     fn group_c(&self, _deps: &mut crate::areas_c::Deps) {}
+    /// What the supervisor reads of the Mac and FERB, and its runtime factory (a recorder's stand-ins).
+    fn supervisor_reads(&self, real: Arc<dyn supervisor::Reads>) -> Arc<dyn supervisor::Reads> {
+        real
+    }
+    /// The supervisor's own deps (a test's tokenizer, wrapper id, chat ids).
+    fn supervisor_build(&self, _parts: &mut supervisor::BuildParts) {}
+    /// Called once the daemon is built (a test build's hold on the parts it drives).
+    fn started(&self, _daemon: &Arc<Daemon>) {}
 }
 
 impl Options {
@@ -130,6 +141,7 @@ impl Options {
             egress: Arc::new(egress::Egress::default()),
             memory_loops: true,
             resources: true,
+            question_ids: Arc::new(gateway::random_question_id),
         }
     }
 }
@@ -169,6 +181,8 @@ pub struct Daemon {
     pub tokens: Arc<RunTokens>,
     pub gateway: Arc<Gateway>,
     pub ledger: Arc<gateway::RealLedger>,
+    /// The planner, its seam and its chat RPCs.
+    pub supervisor: supervisor::Built,
     pub a: Local<AState>,
     pub b: areas::GroupB,
     pub tools: tools::Parts,
@@ -362,13 +376,13 @@ impl Daemon {
             }
         }
         new_protection_defaults(&config, &journal);
+        legacy_continuity(&db, &journal, &redactor);
 
         let ledger = Arc::new(gateway::RealLedger {
             db: db.clone(),
             clock: clock.clone(),
             ids: opts.ids.clone(),
         });
-        interrupted_after_restart(&db, &journal, &redactor, &clock, &opts.ids);
 
         // the server and its run tokens
         let tokens = Arc::new(RunTokens::new(Arc::new(RpcClock(opts.clock.clone()))));
@@ -383,6 +397,11 @@ impl Daemon {
         {
             let j = journal.clone();
             server.on_internal(move |method, e| {
+                // a call the gateway cancelled (a stop while it ran) is no internal error: Python's handler task is
+                // cancelled and journals nothing
+                if e.type_name == "CancelledError" {
+                    return;
+                }
                 j.note(
                     ferb_rpc::server::INTERNAL_ERROR,
                     json!({"method": method, "error": e.type_name, "message": j.redactor.text(&e.message)}),
@@ -402,8 +421,13 @@ impl Daemon {
         let tool_parts = tools::Parts::new(&opts, &config, &redactor, &db, &journal, &events);
         tool_parts.set_owner_secrets(owner_secrets.clone());
         let registry = tools::registry(&tool_parts);
+        // compose.py `_publish` (a task's question names its request), once the supervisor's seam exists
+        let publisher: Arc<std::sync::OnceLock<std::sync::Weak<supervisor::SupDaemon>>> =
+            Arc::new(std::sync::OnceLock::new());
+        let router = Arc::new(supervisor::Router::default());
         let gw = {
             let ev = events.clone();
+            let publisher = publisher.clone();
             let j = journal.clone();
             let cfg = config.clone();
             gateway::build(
@@ -415,8 +439,11 @@ impl Daemon {
                     redactor: redactor.clone(),
                     ledger: ledger.clone(),
                     publish: Box::new(move |topic, data| {
-                        let v = ferb_gateway::gateway::py_value(&data);
-                        ev.publish(topic, crate::basics::object(v));
+                        let v = crate::basics::object(ferb_gateway::gateway::py_value(&data));
+                        match publisher.get().and_then(std::sync::Weak::upgrade) {
+                            Some(d) => d.publish_event(topic, v),
+                            None => ev.publish(topic, v),
+                        }
                     }),
                     journal_problem: Box::new(move |kind, data| j.note(kind, Value::Object(data))),
                     home: home.clone(),
@@ -441,6 +468,9 @@ impl Daemon {
                         let e = opts.egress.clone();
                         Box::new(move |proc: &str| e.owner_of(proc))
                     },
+                    changes: tool_parts.changes(),
+                    question_ids: opts.question_ids.clone(),
+                    route_question: Some(router.clone()),
                 },
             )
         };
@@ -470,6 +500,106 @@ impl Daemon {
         // the learners' model calls go through the runtimes area, built with group B below
         let learning_area: Arc<std::sync::OnceLock<ferb_daemon::areas_b::runtimes::Runtimes>> =
             Arc::new(std::sync::OnceLock::new());
+
+        // the supervisor (compose.py:130): built over the gateway; group A and the runtimes join it once registered
+        let a_cell: Arc<std::sync::OnceLock<Local<AState>>> = Arc::new(std::sync::OnceLock::new());
+        let sup = {
+            let host = ferb_daemon::areas_b::core::Host {
+                home: home.clone(),
+                config: config.clone(),
+                redactor: redactor.clone(),
+                journal: journal.clone(),
+                bus: events.clone(),
+                clock: clock.clone(),
+            };
+            let seams = Arc::new(env_seams::EnvSeams {
+                host: host.clone(),
+                tools: tool_parts.clone(),
+                runtimes: learning_area.clone(),
+                a: a_cell.clone(),
+                native: opts.native,
+                activity: ferb_sense::daily::DailyActivity::new(
+                    home.join("activity").join("today.jsonl"),
+                    {
+                        let c = clock.clone();
+                        move || c.now()
+                    },
+                    opts.clock.zone(),
+                ),
+                support: opts.user_home.join("Library/Application Support"),
+                browser_support: opts.browser_support.clone(),
+            });
+            let real: Arc<dyn supervisor::Reads> = Arc::new(supervisor::RealReads {
+                host,
+                seams,
+                runtimes: learning_area.clone(),
+                tools: tool_parts.clone(),
+                native: opts.native,
+            });
+            let reads = match &opts.overrides {
+                Some(o) => o.supervisor_reads(real),
+                None => real,
+            };
+            let own = Arc::new(supervisor::OwnQuestions::new(opts.question_ids.clone()));
+            let seam = supervisor::SupDaemon::new(supervisor::SupParts {
+                gateway: gw.clone(),
+                tokens: tokens.clone(),
+                tools: tool_parts.clone(),
+                db: db.clone(),
+                clock: clock.clone(),
+                ids: opts.ids.clone(),
+                redactor: redactor.clone(),
+                events: events.clone(),
+                journal: journal.clone(),
+                stop: stop.clone(),
+                ledger: ledger.clone(),
+                own,
+                reads,
+                home: home.to_string_lossy().into_owned(),
+                user_home: opts.user_home.to_string_lossy().into_owned(),
+                zone: opts.clock.zone(),
+                a: a_cell.clone(),
+                runtimes: learning_area.clone(),
+            });
+            let prompts = ferb_context::prompts::PromptRoot::new(&opts.package).map_err(|e| {
+                StartError::Failed(format!("FERB's prompts ({}): {e}", opts.package.display()))
+            })?;
+            let mut parts = supervisor::BuildParts {
+                db: db.clone(),
+                clock: opts.clock.clone(),
+                ids: opts.ids.clone(),
+                redactor: redactor.clone(),
+                prompts,
+                device_id: device_id.clone(),
+                home: home.to_string_lossy().into_owned(),
+                user_home: opts.user_home.to_string_lossy().into_owned(),
+                wrap_id: None,
+                new_chat: None,
+                shutting_down: {
+                    let t = tool_parts.clone();
+                    Arc::new(move || t.shutting_down())
+                },
+                tokenizer: ferb_context::tokens::Tokenizer::default(),
+            };
+            if let Some(o) = &opts.overrides {
+                o.supervisor_build(&mut parts);
+            }
+            let _ = publisher.set(Arc::downgrade(&seam));
+            let built = supervisor::build(seam, parts);
+            let _ = router.0.set(built.supervisor.clone());
+            built
+        };
+        // main.py:418-430: what was running didn't finish; the trees that won't resume are told to the owner
+        let resuming: std::collections::BTreeSet<String> =
+            sup.supervisor.recover_after_restart().into_iter().collect();
+        // L39 M1: the records a stopped daemon left go now, except those of trees that will resume
+        let stuck = tool_parts.changes().sweep(&|t: &str| resuming.contains(t));
+        if !stuck.is_empty() {
+            journal.note(
+                "changes.cleanup_failed",
+                json!({"at": "start", "paths": stuck.len()}),
+            );
+        }
         // group A's areas, on their loop thread
         let a = {
             let ev = events.clone();
@@ -490,15 +620,14 @@ impl Daemon {
                 make_runtime: Some(memory_loops::learning_runtime(learning_area.clone())),
                 app_bundle: opts.app_bundle.clone(),
                 persona_scan: None,
-                tasks: Arc::new(supervisor::NoSupervisor {
-                    db: db.clone(),
-                    now: {
-                        let c = clock.clone();
-                        Arc::new(move || ferb_core::when::isoformat(&c.now()))
-                    },
+                tasks: Arc::new(ferb_supervisor::flow::daemon_seams::SupervisorTasks {
+                    supervisor: sup.supervisor.clone(),
+                    runtime: tokio::runtime::Handle::current(),
                 }),
                 owner: Arc::new(areas::OwnerSide::new(&events)) as Arc<dyn Owner>,
-                questions: Arc::new(areas::GatewayQuestions(gw.clone())) as Arc<dyn Questions>,
+                questions: Arc::new(ferb_supervisor::flow::daemon_seams::GatewayQuestions(
+                    gw.clone(),
+                )) as Arc<dyn Questions>,
                 logins: Arc::new(areas::SavedLogins(owner_secrets.clone())) as Arc<dyn Logins>,
                 purges: None,
             };
@@ -509,6 +638,7 @@ impl Daemon {
             areas_a::register(&mut server, deps).map_err(StartError::Failed)?
         };
         tool_parts.set_group_a(a.clone());
+        let _ = a_cell.set(a.clone());
 
         // the Claude runtime's tool-list relay: 127.0.0.1, forwarding only a live run's own prefix (proxy.py). Python
         // starts it at a Claude run's first need; here at start, where it can bind (it refuses everything else)
@@ -530,8 +660,6 @@ impl Daemon {
             };
 
         // group B's areas (about reads group A's records on its thread)
-        let a_cell = Arc::new(std::sync::OnceLock::new());
-        let _ = a_cell.set(a.clone());
         let b = areas::group_b(
             &opts,
             &areas::Shared {
@@ -546,12 +674,18 @@ impl Daemon {
                 owner_secrets: owner_secrets.clone(),
                 tools: tool_parts.clone(),
                 claude_proxy: claude_proxy.clone(),
+                switch: Arc::new(supervisor::Switch(sup.supervisor.clone())),
             },
             a_cell,
         );
         let mut b = b;
         if let Some(o) = &opts.overrides {
             o.group_b(&mut b.deps);
+            // the runtimes area as a test replaced it (its programs) is the one the start prepares
+            if let Some(r) = &b.deps.runtimes {
+                b.runtimes =
+                    ferb_daemon::areas_b::runtimes::Runtimes::new(b.deps.host.clone(), r.clone());
+            }
         }
         // about.read's document: the About area's, as FERB.app's About page reads it
         if let Some(about) = b.deps.about.clone() {
@@ -572,6 +706,10 @@ impl Daemon {
             }
             None => b.runtimes.clone(),
         });
+
+        // the chat RPCs (areas/chat.py); group C's `conversations.*` and `ui.click_through`, and rpc.py's tool bridge
+        // below, take the place of the supervisor crate's own
+        ferb_supervisor::flow::chat_rpc::register(&server, sup.rpc.clone());
 
         // the records, permissions and health, logs.subscribe (areas_c)
         {
@@ -594,7 +732,7 @@ impl Daemon {
             crate::areas_c::register(&server, &c);
         }
 
-        // settings, the rest of rpc.py, the supervisor's refusals
+        // settings, the rest of rpc.py
         {
             let j = journal.clone();
             let r = redactor.clone();
@@ -609,7 +747,6 @@ impl Daemon {
                 }),
             );
         }
-        supervisor::register(&server);
         let quit = Arc::new(tokio::sync::Notify::new());
         rpc::register(
             &server,
@@ -622,6 +759,7 @@ impl Daemon {
                 events: events.clone(),
                 tokens: tokens.clone(),
                 quit: quit.clone(),
+                supervisor: sup.supervisor.clone(),
             },
         );
 
@@ -645,6 +783,7 @@ impl Daemon {
             tokens,
             gateway: gw,
             ledger,
+            supervisor: sup,
             a,
             b,
             tools: tool_parts,
@@ -655,6 +794,9 @@ impl Daemon {
             loops: Mutex::new(Vec::new()),
             _lock: lock_file,
         });
+        if let Some(o) = &daemon.opts.overrides {
+            o.started(&daemon);
+        }
         if let Err(e) = daemon.finish_start().await {
             daemon.journal.note(
                 "daemon.start_failed",
@@ -686,13 +828,32 @@ impl Daemon {
                 .await
                 .map_err(|e| e.to_string())?
                 .map_err(|e| e.message)?;
-        let unknown = self.ledger.mark_unknown_after_restart()?;
-        if !unknown.is_empty() {
-            self.journal.note(
-                "ledger.unknown_after_restart",
-                json!({"intent_ids": unknown}),
-            );
+        // L28 (main.py:460-468): an unknown window is said, never guessed
+        if let Ok(limits) = self.b.runtimes.runtime_limits() {
+            for (role, entry) in limits {
+                let Value::Object(entry) = entry else {
+                    continue;
+                };
+                let Some(problem) = entry.get("problem").map(ferb_py::value::py_str) else {
+                    continue;
+                };
+                let mut row = Map::new();
+                row.insert("role".into(), json!(role));
+                row.extend(entry.clone());
+                self.journal
+                    .note("runtime.limits_unknown", Value::Object(row));
+                let runtime = entry
+                    .get("runtime")
+                    .map(ferb_py::value::py_str)
+                    .unwrap_or_default();
+                eprintln!(
+                    "FERB: the {role} runtime {runtime} has no documented context window: {}",
+                    self.redactor.text(&problem)
+                );
+            }
         }
+        // main.py:466-468: every intent a restart cut off is of unknown outcome (journaled)
+        self.supervisor.supervisor.mark_unknown_after_restart();
         // a stop outlives a crash or a restart until the owner lifts it
         if self.stop.marker.exists() {
             self.stop.mark_engaged();
@@ -722,6 +883,8 @@ impl Daemon {
                 .spawn(ferb_mac_hands::native::vision::warm_recognition);
         }
         loops::start(self);
+        // main.py:472: the trees a shutdown or crash cut off run again in place, in the background
+        self.supervisor.supervisor.start_resume();
         self.server.set_ready();
         Ok(())
     }
@@ -746,6 +909,10 @@ impl Daemon {
                 areas_a::memory::settle_forgets(&st).await;
             })
             .await;
+        // main.py:522-524: the supervisor suspends its trees (they resume after the restart), cancels its runs and
+        // drains every chat turn
+        self.supervisor.supervisor.shut_down().await;
+        self.supervisor.daemon.reads.shutdown();
         for job in lock(&self.loops).drain(..) {
             job.abort();
         }
@@ -844,91 +1011,37 @@ fn new_protection_defaults(config: &Config, journal: &Journal) {
     );
 }
 
-/// `_start`'s restart recovery (main.py:418-430): what was running didn't finish. A tree whose plan didn't end
-/// resumes by itself; the others are told to the owner next time and get their permanent record (episode).
-fn interrupted_after_restart(
-    db: &SharedDb,
-    journal: &Journal,
-    redactor: &Arc<Redactor>,
-    clock: &Arc<dyn Clock>,
-    ids: &Arc<dyn IdSource>,
-) {
-    let interrupted = {
-        let d = lock(db);
-        let c = clock.clone();
-        let tree = ferb_orchestrator::tree::TaskTree::new(
-            Some(&d),
-            Box::new(move || ferb_core::when::isoformat(&c.now())),
-        );
-        tree.interrupt_running().unwrap_or_default()
-    };
-    if interrupted.is_empty() {
+/// main.py:406-409: chat continuity written by builds before 2026-10-03 upgraded once, journaled (step 8c); it also
+/// makes the owner's daily conversation.
+fn legacy_continuity(db: &SharedDb, journal: &Journal, redactor: &Arc<Redactor>) {
+    use ferb_orchestrator::continuity::{upgrade_legacy, Continuity, LEGACY_UPGRADE};
+    if !journal
+        .of_kind("store.upgraded", "upgrade", LEGACY_UPGRADE)
+        .is_empty()
+    {
         return;
     }
-    journal.note(
-        "tasks.interrupted_after_restart",
-        json!({"task_ids": interrupted}),
-    );
-    let d = lock(db);
-    let r = redactor.clone();
-    let plans =
-        ferb_orchestrator::plan_store::PlanStore::new(&d, Arc::new(move |v: &Value| r.value(v)));
-    let resuming: std::collections::BTreeSet<String> =
-        plans.pending().unwrap_or_default().into_iter().collect();
-    let roots: std::collections::BTreeSet<String> = interrupted
-        .iter()
-        .map(|t| t.split('.').next().unwrap_or(t).to_string())
-        .collect();
-    let now = ferb_core::when::isoformat(&clock.now());
-    let mut notes: Vec<(String, Value)> = Vec::new();
-    for tid in roots.difference(&resuming) {
-        let c = clock.clone();
-        let tree = ferb_orchestrator::tree::TaskTree::new(
-            Some(&d),
-            Box::new(move || ferb_core::when::isoformat(&c.now())),
-        );
-        let goal = tree
-            .rows(tid)
-            .unwrap_or_default()
-            .into_iter()
-            .find(|r| r.get("id").and_then(Value::as_str) == Some(tid))
-            .and_then(|r| r.get("goal").and_then(Value::as_str).map(String::from))
-            .unwrap_or_default();
-        let _ = ferb_store::task_results::TaskResults::new(&d).interrupted(
-            tid,
-            &now,
-            &goal,
-            &format!(
-                "This was interrupted when FERB restarted: {goal}. Want me to pick it up again?"
-            ),
-        );
-        let spans = ferb_store::spans::SpanStore::new(
+    let changes = {
+        let d = lock(db);
+        let r = redactor.clone();
+        let c = Continuity::new(
             &d,
-            Box::new(ferb_gateway::gateway::StoreTime(clock.clone())),
-            Box::new(ferb_gateway::gateway::StoreIds(ids.clone())),
-            {
-                let r = redactor.clone();
-                Box::new(move |v: &Value| r.value(v))
-            },
-            Box::new(|kind: &str| ferb_policy::rules::REVERSIBLE.contains(&kind)),
+            Arc::new(move |v: &Value| r.value(v)),
+            Arc::new(|_: &str| std::collections::BTreeSet::new()),
+            Arc::new(ferb_learning::journal::journal_origin),
+            Arc::new(|| ferb_runtimes::codex::token_hex(6)),
         );
-        let trace = json!({"task_id": tid, "spans": spans.tree_json(tid).unwrap_or_default(),
-                           "outcome": spans.outcome(tid).unwrap_or(Value::Null)});
-        let composed = ferb_trace::compose::compose(&trace);
-        ferb_orchestrator::episodes::record(
-            &d,
-            || Ok(composed),
-            &now,
-            tid,
-            |kind, data| {
-                notes.push((kind.to_string(), data));
-                Ok(())
-            },
-        );
-    }
-    drop(d);
-    for (kind, data) in notes {
-        journal.note(&kind, data);
+        upgrade_legacy(&c)
+    };
+    match changes {
+        Ok(changes) => journal.note(
+            "store.upgraded",
+            json!({"upgrade": LEGACY_UPGRADE, "changes": changes}),
+        ),
+        Err(e) => journal.note(
+            "store.upgrade_failed",
+            json!({"upgrade": LEGACY_UPGRADE, "error": e.to_string()}),
+        ),
     }
 }
 

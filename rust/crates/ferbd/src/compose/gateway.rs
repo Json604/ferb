@@ -375,6 +375,22 @@ pub struct GatewayParts {
     pub proc_task: ProcTask,
     /// S1's snapshots before a shell command or a permanent delete (HAND-206).
     pub snapshots: Option<Arc<dyn ferb_gateway::seams::Snapshots>>,
+    /// L39's change record: whether a task tree made a file (`changes.made_in_tree`).
+    pub changes: Arc<ferb_fs::changes::Changes>,
+    /// The questions' ids (Python: `"ap-" + secrets.token_hex(6)`), shared with the supervisor's own questions.
+    pub question_ids: QuestionIds,
+    /// `route_question`: a worker's question to the orchestrator first (the supervisor, bound once built).
+    pub route_question: Option<Arc<dyn ferb_gateway::seams::QuestionRouter>>,
+}
+
+/// Where question ids come from: [`random_question_id`] in the daemon, a counter in a test build.
+pub type QuestionIds = Arc<dyn Fn() -> String + Send + Sync>;
+
+/// `"ap-" + secrets.token_hex(6)`.
+pub fn random_question_id() -> String {
+    let mut b = [0u8; 6];
+    let _ = getrandom_fill(&mut b);
+    format!("ap-{}", hex6(&b))
 }
 
 /// S1's `Snapshots` as the gateway asks it (`snapshots.request(task, why, changes=True)`).
@@ -435,19 +451,21 @@ pub fn build(registry: Registry, p: GatewayParts) -> Arc<Gateway> {
         pay_same_site_forms: p.pay_same_site_forms,
         on_path: Box::new(|_p, _t| {}),
         proc_task: p.proc_task,
-        route_question: None,
+        route_question: p.route_question.clone(),
         hooks: p.hooks,
-        made_in_tree: None,
+        made_in_tree: {
+            let changes = p.changes.clone();
+            Some(Box::new(move |root: &str, path: &str| {
+                changes.made_in_tree(root, path)
+            }))
+        },
         excluded_host: Some(Box::new(move |h: &str| excluded.excluded_host(h))),
         owner_secrets: p.owner_secrets,
         places: Arc::new(BrowserPlaces),
         username_holds: None,
     };
-    Arc::new(Gateway::new(registry, deps, || {
-        let mut b = [0u8; 6];
-        let _ = getrandom_fill(&mut b);
-        format!("ap-{}", hex6(&b))
-    }))
+    let ids = p.question_ids;
+    Arc::new(Gateway::new(registry, deps, move || ids()))
 }
 
 fn getrandom_fill(buf: &mut [u8]) -> std::io::Result<()> {

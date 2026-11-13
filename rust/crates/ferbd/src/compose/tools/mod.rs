@@ -13,6 +13,7 @@ pub mod mac;
 pub mod misc;
 pub mod shell;
 pub mod waits;
+pub mod wrap;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
@@ -109,6 +110,44 @@ struct Inner {
     shutting_down: std::sync::atomic::AtomicBool,
     mac: OnceLock<mac::Mac>,
     snapshots: OnceLock<Arc<ferb_fs::recovery::Snapshots>>,
+    /// L39's change record (`self.changes`): the gateway's hooks write it before a file call, the checker reads it.
+    changes: Arc<ferb_fs::changes::Changes>,
+    /// What a waiting worker tells the supervisor (`_wait_status`, `supervisor.corrections`), once it is built.
+    waits: OnceLock<Arc<dyn WaitHooks>>,
+}
+
+/// The change record (L39) behind the gateway's hooks: `Changes.before` for the files a call names.
+pub struct ChangeHook(pub Arc<ferb_fs::changes::Changes>);
+
+impl ferb_gateway::call_hooks::ChangeRecord for ChangeHook {
+    fn before<'a>(
+        &'a self,
+        task: &'a str,
+        tree: &'a str,
+        paths: Vec<String>,
+    ) -> ferb_core::interfaces::BoxFuture<
+        'a,
+        Result<serde_json::Map<String, serde_json::Value>, String>,
+    > {
+        Box::pin(async move {
+            Ok(match self.0.before(task, tree, &paths).to_json() {
+                serde_json::Value::Object(m) => m,
+                _ => serde_json::Map::new(),
+            })
+        })
+    }
+}
+
+/// The supervisor's side of a worker's `wait.for` (schedules.py `_wait_status`, desktop.py's `steered`).
+pub trait WaitHooks: Send + Sync {
+    fn status(
+        &self,
+        worker: &str,
+        task: &str,
+        until: Option<&ferb_clock::py::Time>,
+        line: Option<&str>,
+    );
+    fn steered(&self, task: &str) -> i64;
 }
 
 /// Tools built as refusing "not available in this build" (none, once every part is composed): the catalog test
@@ -177,6 +216,12 @@ impl Parts {
             shutting_down: std::sync::atomic::AtomicBool::new(false),
             mac: OnceLock::new(),
             snapshots: OnceLock::new(),
+            changes: Arc::new(ferb_fs::changes::Changes::new(
+                &opts.home.join("changes").to_string_lossy(),
+                None,
+                &opts.user_home.to_string_lossy(),
+            )),
+            waits: OnceLock::new(),
         }));
         let _ = p.0.mac.set(mac::Mac::build(opts, &p));
         let _ = p.0.browsers.set(browser::Browsers::build(opts, &p));
@@ -229,6 +274,17 @@ impl Parts {
         self.0.snapshots.get().cloned()
     }
     /// The Mac's parts (driver, hearing, recordings, the image sanitizer).
+    /// L39's change record.
+    pub fn changes(&self) -> Arc<ferb_fs::changes::Changes> {
+        self.0.changes.clone()
+    }
+    /// The supervisor's side of `wait.for`, once it is built.
+    pub fn set_wait_hooks(&self, hooks: Arc<dyn WaitHooks>) {
+        let _ = self.0.waits.set(hooks);
+    }
+    pub fn wait_hooks(&self) -> Option<Arc<dyn WaitHooks>> {
+        self.0.waits.get().cloned()
+    }
     pub fn mac(&self) -> Option<&mac::Mac> {
         self.0.mac.get()
     }
@@ -289,7 +345,7 @@ impl Parts {
         self.0.shell_protection.clone()
     }
 
-    /// One gateway call, run on the calls' thread (its future isn't `Send`: listed as a seam mismatch).
+    /// One gateway call (its future is `Send` since journal 44: no thread of its own).
     pub async fn call(
         &self,
         gateway: Arc<Gateway>,
@@ -298,25 +354,15 @@ impl Parts {
         args: ferb_gateway::tool::Args,
         caller_left: ferb_gateway::gateway::Left,
     ) -> Result<ferb_gateway::reply::Reply, ferb_gateway::gateway::CallError> {
-        self.0
-            .calls
-            .run(move || async move {
-                gateway
-                    .call_as(
-                        &grant,
-                        &name,
-                        &args,
-                        ferb_gateway::gateway::Cancel::new(),
-                        caller_left,
-                    )
-                    .await
-            })
+        gateway
+            .call_as(
+                &grant,
+                &name,
+                &args,
+                ferb_gateway::gateway::Cancel::new(),
+                caller_left,
+            )
             .await
-            .unwrap_or_else(|_| {
-                Err(ferb_gateway::gateway::CallError::Internal(
-                    "the calls' thread has stopped".into(),
-                ))
-            })
     }
 
     pub fn browsers(&self) -> Option<&browser::Browsers> {
@@ -400,6 +446,12 @@ pub fn registry(p: &Parts) -> Registry {
     }
     // add_identity_browser: FERB's own profile's tools join once its profile is paired as FERB (the start's
     // `_attach_identity_if_paired`, compose/mod.rs)
+    // the file tools' work in a worker thread, as files.py runs it
+    for name in wrap::THREADED {
+        if let Some(t) = r.get(name).cloned() {
+            r.set(wrap::threaded(t));
+        }
+    }
     r
 }
 

@@ -997,7 +997,7 @@ pub fn hooks(p: &Parts) -> Arc<dyn ferb_gateway::seams::CallHooks> {
             sentinel: None,
             previews: None,
             evidence: Some(Arc::new(EvidenceKeeper { parts: p.clone() })),
-            changes: None,
+            changes: Some(Arc::new(super::ChangeHook(p.changes()))),
             images: mac
                 .map(|m| m.images.clone() as Arc<dyn ferb_gateway::call_hooks::ImageSanitizer>),
             app_windows: mac.map(|m| {

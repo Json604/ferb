@@ -15,11 +15,11 @@ use crate::basics::lock;
 /// `RESTORE_LIST` (rpc.py:30): `ferb restore` lists the newest this many records.
 pub const RESTORE_LIST: i64 = 100;
 
-/// What the conversations' changes still need that this build doesn't have: a resumed conversation's plan restarts
-/// through the supervisor's `resume_plans`.
+/// What the conversations' changes still need: a resumed conversation's plan restarts through the supervisor's
+/// delegated conversations (`_resume_conversation_plans`), which ferb-supervisor doesn't port yet (journal 46).
 pub const RESUME_NEEDS_SUPERVISOR: &str =
     "not available in this build: resuming a delegated conversation restarts its \
-plan, and FERB's planner (the supervisor) isn't part of this Rust daemon yet";
+plan through FERB's delegated conversations, which aren't ported to the Rust planner yet";
 
 type Handler =
     fn(
@@ -596,7 +596,8 @@ async fn conversations_list(d: Deps, p: Params) -> Result<Map<String, Value>, Ha
 }
 
 /// `_conversations_change` (chat.py:140): the owner pauses, takes over or closes a delegated conversation, journaled
-/// with the owner as its origin. Resuming one restarts its plan through the supervisor, which this build lacks.
+/// with the owner as its origin. Resuming one restarts its plan through the supervisor's delegated conversations,
+/// not ported yet.
 async fn conversations_change(d: Deps, p: Params) -> Result<Map<String, Value>, HandlerError> {
     let field = |k: &str| match p.get(k) {
         Some(v) => Ok(ferb_py::value::py_str(v)),

@@ -111,13 +111,15 @@ fn the_stop_and_the_ledger_survive_a_restart() {
 }
 
 #[test]
-fn the_supervisors_methods_refuse_plainly_in_this_build() {
+fn the_supervisors_methods_answer() {
     let tmp = root();
     let run = Run::start(tmp.path(), "03", json!({}));
     let r = call(&run, "chat.status", json!({}));
+    assert!(r["result"].is_object(), "{r}");
+    assert!(r["result"].get("approvals").is_some(), "{r}");
+    let r = call(&run, "tasks.list", json!({}));
+    assert!(r["result"].is_object(), "{r}");
+    // an empty task.stop is refused in plain words, never "everything" (DMN-1)
+    let r = call(&run, "task.stop", json!({"task_ids": []}));
     assert_eq!(r["error"]["code"], -32004, "{r}");
-    assert!(r["error"]["message"]
-        .as_str()
-        .unwrap()
-        .starts_with("not available in this build"));
 }

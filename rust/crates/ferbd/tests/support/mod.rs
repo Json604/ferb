@@ -115,7 +115,9 @@ impl Run {
                     }
                 }
             }
-            assert!(Instant::now() < until, "the daemon didn't start");
+            if Instant::now() >= until {
+                panic!("the daemon didn't start (home {})", self.home.display());
+            }
             std::thread::sleep(Duration::from_millis(50));
         }
     }

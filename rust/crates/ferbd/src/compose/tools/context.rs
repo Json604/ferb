@@ -224,6 +224,14 @@ pub fn ability_metadata(
     )
 }
 
+/// `registry.abilities.catalog()`: every ability's metadata, as every role's instructions list them.
+pub fn abilities_catalog(package: &Path, installed: &BTreeSet<String>) -> Vec<Value> {
+    ABILITIES
+        .iter()
+        .map(|a| Value::Object(ability_metadata(a, package, installed)))
+        .collect()
+}
+
 /// `AbilityCatalog.catalog()`.
 pub fn abilities_list(package: &Path, installed: &BTreeSet<String>) -> ToolResult {
     let rows: Vec<Value> = ABILITIES
@@ -896,6 +904,56 @@ impl ferb_learning::summary::Seams for SummarySeams {
     }
 }
 
+/// A task row as `_inspection_parent` reads it: (parent, role, request, identity, scopes).
+type TaskRow = (
+    Option<String>,
+    String,
+    String,
+    String,
+    std::collections::BTreeSet<String>,
+);
+
+/// environment.py `_inspection_parent`: a registered checker (role `verifier`) borrows its worker's tabs and evidence
+/// when its parent is a registered worker of the same request, identity and tree, holding at least its scopes. Both
+/// live records are the gateway's; their roles, scopes and request are the task rows the supervisor wrote.
+fn inspection_parent(p: &Parts, db: &ferb_store::Db, task_id: &str) -> Option<String> {
+    let child = p.task(task_id)?;
+    let row = |id: &str| -> Option<TaskRow> {
+        db.conn()
+            .query_row(
+                "SELECT parent_id, role, request_id, identity, scopes_json FROM tasks WHERE id = ?",
+                [id],
+                |r| {
+                    Ok((
+                        r.get::<_, Option<String>>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, String>(4)?,
+                    ))
+                },
+            )
+            .ok()
+            .map(|(parent, role, request, identity, scopes)| {
+                let scopes: std::collections::BTreeSet<String> =
+                    serde_json::from_str(&scopes).unwrap_or_default();
+                (parent, role, request, identity, scopes)
+            })
+    };
+    let (parent_id, role, request, identity, scopes) = row(task_id)?;
+    if role != "verifier" {
+        return None;
+    }
+    let parent_id = parent_id?;
+    let parent = p.task(&parent_id)?;
+    let (_, prole, prequest, pidentity, pscopes) = row(&parent_id)?;
+    if prole != "worker" || !scopes.is_subset(&pscopes) {
+        return None;
+    }
+    ((request, identity, child.tree_id) == (prequest, pidentity, parent.tree_id))
+        .then_some(parent_id)
+}
+
 fn evidence_run(
     p: &Parts,
     a: &Args,
@@ -931,9 +989,11 @@ fn evidence_run(
     let r = p.redactor();
     let ev = ferb_orchestrator::evidence::TaskEvidence {
         spans: &spans,
-        // `_inspection_parent`: a registered checker borrowing its worker's evidence. Live records here carry no
-        // role (the supervisor isn't wired), so none is a checker: None, as Python's for a worker
-        parent: Arc::new(|_t: &str| None),
+        // `_inspection_parent`: a registered checker borrowing its worker's evidence (the caller's, read now)
+        parent: {
+            let (me, parent) = (caller.to_string(), inspection_parent(p, &d, caller));
+            Arc::new(move |t: &str| if t == me { parent.clone() } else { None })
+        },
         root: Arc::new(move |t: &str| roots.task(t).and_then(|rec| rec.tree_id)),
         captures: Some(Arc::new(move |task: &str| {
             let Ok(db) = ferb_store::Db::open(&captures_db) else {

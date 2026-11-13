@@ -1191,3 +1191,36 @@ FERB's own words as the task's (the same kind as GATE-581).
   `runtime_switch`, `options_only`, `from_task`, `corrects`, `exact`.
 - A card row's `seq` read the real wall clock in Python; the recorder and the Rust card take the injected clock.
 - The fixture folder is 5.1 MB.
+
+## 2026-11-13 · 49 · The supervisor joins the daemon program: a message goes through the real binary
+
+**What.** `ferbd`'s `compose/supervisor.rs` is the real supervisor: `flow::Daemon` implemented over the gateway,
+run tokens, the live task records, the bus, the change record, schedules from chat and the runtimes; the
+gateway's question router and the runtime offer plugged in; the daemon's handlers on `SupervisorTasks` and
+`GatewayQuestions`; `chat_rpc` registered; start (recover after restart, mark unknown, resume) and shutdown
+(suspend) in the lifecycle; `stop.engage`'s hooks. The workarounds for seams fixed in entry 44 are deleted
+(the calls thread, the hand-written worker glue).
+
+**Evidence.** A test-only scripted model (absent from a plain build: the `strings` check) drives recorded
+scenarios through the started binary over its socket, its tool calls arriving as the tool bridge's with the run's
+token. **27 of the 28 base scenarios replay fully** (2,322 comparisons), the two restarts as real process stops
+and starts; 13 of the 14 newer ones. A smoke run with the unchanged Python client: `ping`, `about.get`,
+`tasks.list`, `chat.status`, and `chat.send "hello"` answered `ack` then a reply; SIGTERM exits 0. 57 tests pass
+(run by the porting agent).
+
+**Differences.**
+- confirm_stop_pending: one bridge reply differs. Python closes the connection with no line; Rust answers -32603
+  "CancelledError". `ferb-rpc` has no handler outcome that closes without a reply. Every frame, model call and
+  table row matches.
+- remember_then_forget does not replay through the binary: chat capture (`_remember`) is not ported in
+  `ferb-daemon`.
+- The scenario replay takes the recorder's values for what a real daemon reads from the machine (environment,
+  live facts, running apps, file identity, activity); those reads are unverified on the real Mac.
+
+**Ran on the owner's Mac.** Only `ferbd daemon` on temp homes. One interrupted test run left daemons that the
+agent killed itself (its own processes) and whose homes it removed. Checked by the coordinator: none running.
+
+**Open.** Refused still: `intro.preview`, `conversations.change resume` (both wait on the supervisor's last pass),
+the store clean-up preview, the hearing probe. Not started: `_remember`, the disturbance sentinel, the front
+window at send, the memory push, literal checks, the task-browser tab drivers' composition, standing permissions
+(the gateway exposes no public store for them). `ferb-rpc`'s `RunTokens` cannot take an injected token source.

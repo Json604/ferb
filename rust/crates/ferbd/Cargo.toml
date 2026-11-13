@@ -22,12 +22,11 @@ default = []
 # Test-only: the binary honors FERBD_STAND_INS (the ferb-daemon test suite's stand-ins, a fake clock and ids, and a
 # control socket). A build without this feature has no such code at all: the variable is never read.
 stand-ins = []
-# The supervisor (rust/crates/ferb-supervisor, being finished by other agents): until it lands, chat and task methods
-# answer "not available in this build". See src/compose/supervisor.rs.
-supervisor = []
 
 [dependencies]
 ferb-browser = { path = "../ferb-browser" }
+# the planner, with its seams into the daemon's areas (feature `daemon`): src/compose/supervisor.rs
+ferb-supervisor = { path = "../ferb-supervisor", features = ["daemon"] }
 ferb-clock = { path = "../ferb-clock" }
 ferb-context = { path = "../ferb-context" }
 ferb-core = { path = "../ferb-core" }

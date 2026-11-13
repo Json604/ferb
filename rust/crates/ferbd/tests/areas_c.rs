@@ -312,14 +312,13 @@ fn settings_setup_and_health_through_the_binary() {
 fn logs_subscribe_through_the_binary() {
     let tmp = root();
     let run = Run::start(tmp.path(), "40", json!({"ids": "id", "group_a": true}));
-    // the named difference: the global stop's hooks (the supervisor's runtimes, FERB's own browser) aren't wired in
-    // this build, so its summary counts 0 where Python's counted 2
+    // the global stop's two hooks (the supervisor's runtimes, FERB's own browser) as Python's
     let t = replay_with(
         "streams_and_processes",
         &run,
         &[],
         &["stop.engage", "stop.lift"],
-        &|w| w.replace("\"hooks\": 2", "\"hooks\": 0"),
+        &|w| w,
     );
     assert_clean("streams_and_processes", &t);
     // the filtered stream's two events and the refused filter

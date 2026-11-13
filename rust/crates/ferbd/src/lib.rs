@@ -23,3 +23,5 @@ pub mod setup_env;
 pub mod standins;
 #[cfg(feature = "stand-ins")]
 pub mod standins_c;
+#[cfg(feature = "stand-ins")]
+pub mod standins_chat;

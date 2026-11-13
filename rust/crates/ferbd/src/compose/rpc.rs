@@ -22,6 +22,7 @@ pub struct Parts {
     pub events: Arc<Events>,
     pub tokens: Arc<ferb_rpc::RunTokens>,
     pub quit: Arc<tokio::sync::Notify>,
+    pub supervisor: ferb_supervisor::flow::Supervisor,
 }
 
 fn ferb_error(message: &str) -> HandlerError {
@@ -92,29 +93,42 @@ pub fn register(server: &Server, p: &Parts) {
     }
     // the global stop (rpc.py:376-386): every run token revoked, the gateway refuses, the marker survives a restart
     {
-        let (stop, gw, j, ev, tokens) = (
+        let (stop, gw, j, ev, tokens, sup) = (
             p.stop.clone(),
             p.gateway.clone(),
             p.journal.clone(),
             p.events.clone(),
             p.tokens.clone(),
+            p.supervisor.clone(),
         );
         server.register_unary("stop.engage", move |_s: Session, _p: Params| {
-            let (stop, gw, j, ev, tokens) = (
+            let (stop, gw, j, ev, tokens, sup) = (
                 stop.clone(),
                 gw.clone(),
                 j.clone(),
                 ev.clone(),
                 tokens.clone(),
+                sup.clone(),
             );
             async move {
-                // stop.py `engage`: block first (nothing new starts), then revoke, then the hooks (none in this
-                // build: the supervisor's `runtimes` and the identity browser's are not wired here)
+                // stop.py `engage`: block first (nothing new starts), then revoke, then the hooks compose.py:189-190
+                // registers: the supervisor's `cancel_all` and the identity browser's (FERB's own browser holds no
+                // run of its own in this build)
                 stop.set(true)
                     .map_err(|e| HandlerError::fault("OSError", e.to_string()))?;
-                gw.set_stopped(true);
-                let revoked = tokens.revoke_all();
-                let summary = json!({"tokens_revoked": revoked, "hooks": 0, "hook_errors": {}});
+                let mut control = ferb_gateway::stop::StopControl::new(
+                    move || tokens.revoke_all(),
+                    move |on| gw.set_stopped(on),
+                );
+                control.register(
+                    "runtimes",
+                    Box::new(move || {
+                        sup.cancel_all();
+                        Ok(())
+                    }),
+                );
+                control.register("identity_browser", Box::new(|| Ok(())));
+                let summary = Value::Object(control.engage());
                 j.note("stop.engaged", summary.clone());
                 ev.publish("stop.engaged", crate::basics::object(summary.clone()));
                 Ok(crate::basics::object(summary))
@@ -138,13 +152,26 @@ pub fn register(server: &Server, p: &Parts) {
             }
         });
     }
-    // update.prepare (rpc.py:112): nothing runs that a restart would cut in this build (no supervisor), so the
-    // daemon is ready at once and shuts down
+    // update.prepare (rpc.py:112): ready only when nothing runs that a restart would cut, unless the owner chose Quit
+    // and Install (`even_if_busy`); when ready, nothing new starts and the daemon shuts down
     {
-        let (j, quit) = (p.journal.clone(), p.quit.clone());
+        let (j, quit, sup, tools) = (
+            p.journal.clone(),
+            p.quit.clone(),
+            p.supervisor.clone(),
+            p.tools.clone(),
+        );
         server.register_unary("update.prepare", move |_s: Session, params: Params| {
-            let (j, quit) = (j.clone(), quit.clone());
+            let (j, quit, sup, tools) = (j.clone(), quit.clone(), sup.clone(), tools.clone());
             async move {
+                let running = sup.update_blockers();
+                if !running.is_empty() && params.get("even_if_busy") != Some(&Value::Bool(true)) {
+                    return Ok(crate::basics::object(
+                        json!({"ready": false, "running": running}),
+                    ));
+                }
+                tools.set_shutting_down();
+                sup.hold_new_work();
                 let version: String = params
                     .get("version")
                     .map(ferb_py::value::py_str)
@@ -152,12 +179,18 @@ pub fn register(server: &Server, p: &Parts) {
                     .chars()
                     .take(40)
                     .collect();
+                let interrupted: Vec<Value> = running
+                    .iter()
+                    .map(|r| r.get("task_id").cloned().unwrap_or(Value::Null))
+                    .collect();
                 j.note(
                     "update.prepared",
-                    json!({"version": version, "interrupted": Vec::<String>::new()}),
+                    json!({"version": version, "interrupted": interrupted}),
                 );
                 quit.notify_one();
-                Ok(crate::basics::object(json!({"ready": true, "running": []})))
+                Ok(crate::basics::object(
+                    json!({"ready": true, "running": running}),
+                ))
             }
         });
     }

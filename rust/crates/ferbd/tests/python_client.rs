@@ -21,7 +21,8 @@ out["ping"] = c.call("ping")["role"]
 out["memory"] = c.call("memory.list")
 out["reminders"] = c.call("reminders.list")
 out["doctor"] = sorted(c.call("doctor.check", {"selftest": False, "hearing": False}))
-for name, method in (("supervisor", "chat.status"), ("refused", "conversations.change"), ("unknown", "nope")):
+out["status"] = sorted(c.call("chat.status"))
+for name, method in (("refused", "conversations.change"), ("unknown", "nope")):
     try:
         c.call(method)
     except RpcError as e:
@@ -81,11 +82,15 @@ fn the_python_client_talks_to_the_rust_daemon() {
     assert_eq!(out["ping"], "cli");
     assert_eq!(out["memory"], json!({"items": []}));
     assert_eq!(out["reminders"], json!({"pending": []}));
-    assert_eq!(out["supervisor"][0], -32004);
-    assert!(out["supervisor"][1]
-        .as_str()
-        .unwrap()
-        .contains("supervisor"));
+    // the supervisor's chat.status (areas/chat.py) answers
+    assert!(
+        out["status"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("approvals")),
+        "{}",
+        out["status"]
+    );
     // doctor.check answers (areas_c); a bad call of one of its methods is a plain refusal
     assert!(
         out["doctor"]

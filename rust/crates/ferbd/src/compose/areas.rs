@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use ferb_core::config::Config;
 use ferb_core::interfaces::BoxFuture;
-use ferb_daemon::areas_a::seams::{Ask, LoginError};
-use ferb_daemon::areas_a::{LocalFuture, Logins, Owner, Questions};
+use ferb_daemon::areas_a::seams::LoginError;
+use ferb_daemon::areas_a::{LocalFuture, Logins, Owner};
 use ferb_daemon::areas_b::{
     self, about, banners, browsers, core::Host, egress, intro, jev, notify, runtimes, sensing,
 };
@@ -130,7 +130,12 @@ impl Owner for OwnerSide {
         let banner = banners::Banner {
             title: title.into(),
             text: text.into(),
-            category: String::new(),
+            // schedules.py's reminder banner (`_notify(..., category="reminder")`); group A's other notices have none
+            category: if ident.starts_with("reminder:") {
+                "reminder".into()
+            } else {
+                String::new()
+            },
             target: crate::basics::object(target),
             when_hidden: false,
             ident: ident.into(),
@@ -177,28 +182,6 @@ impl Owner for OwnerSide {
                     .await;
             }
         })
-    }
-}
-
-/// FERB's own questions outside a task, as group A asks them. The gateway keeps the questions (`state.approvals`)
-/// but offers no public call to add one of FERB's own outside a tool call (seam mismatch, listed): asking is
-/// refused in these words, and the reads go to the gateway.
-pub struct GatewayQuestions(pub Arc<Gateway>);
-
-pub const NO_OWN_QUESTIONS: &str =
-    "FERB can't ask this question in this build: the gateway has no call for FERB's own questions yet";
-
-impl Questions for GatewayQuestions {
-    fn ask(&self, _ask: Ask<'_>) -> Result<String, String> {
-        Err(NO_OWN_QUESTIONS.into())
-    }
-
-    fn supersede(&self, approval_id: &str) -> bool {
-        self.0.supersede(approval_id).is_some()
-    }
-
-    fn waiting(&self, approval_id: &str) -> bool {
-        self.0.approval(approval_id).is_some()
     }
 }
 
@@ -254,6 +237,8 @@ pub struct Shared {
     pub tools: super::tools::Parts,
     /// The Claude runtime's tool-list relay (`_claude_proxy`), None when it couldn't bind.
     pub claude_proxy: Option<Arc<dyn ferb_runtimes::claude::ToolProxy>>,
+    /// The supervisor's runtime offer and switch (`runtime_offer`, `answer_runtime_switch`).
+    pub switch: Arc<dyn runtimes::Supervisor>,
 }
 
 /// Group B as built: its areas' deps and the parts the daemon's start and shutdown use.
@@ -679,14 +664,15 @@ pub fn group_b(
         }),
     }));
 
-    // intro: the suggestion's model call and the preview need the supervisor's runtime (not in this build)
+    // intro: the suggestion needs the Mac profile scan (MEM-13, not started in this build: its state stays
+    // `not_started`, so the model call is never reached) and the preview needs `Supervisor::preview` (not ported)
     let shutting = Arc::new(|| false);
     d.intro = Some(Arc::new(intro::Deps {
         scan: Arc::new(|| json!({"state": "not_started"})),
         ask: Arc::new(|_system, _ctx| {
             Box::pin(async {
                 Err(intro::CallFailed(
-                    super::supervisor::NOT_IN_THIS_BUILD.to_string(),
+                    "no Mac profile scan in this build".to_string(),
                 ))
             })
         }),
@@ -719,7 +705,7 @@ pub fn group_b(
         tools: s.tools.clone(),
     });
     let rt_deps_partial = |factory: Arc<dyn runtimes::Factory>| runtimes::Deps {
-        supervisor: Arc::new(super::supervisor::NoSwitch),
+        supervisor: s.switch.clone(),
         factory,
         programs: programs.clone(),
         helper: helper.clone(),
