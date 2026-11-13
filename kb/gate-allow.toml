@@ -182,3 +182,8 @@ reason = "an invented value in a redaction or safety test (sequences like abcdef
 path = "tests/test_stop.py"
 pattern = "Anthropic API key"
 reason = "an invented value in a redaction or safety test (sequences like abcdef or 456789, 33-49 characters where real keys are about 100); the test proves FERB masks it"
+
+[[secret]]
+path = "rust/fixtures/mac-hands/pure.json"
+pattern = "GitHub token"
+reason = "an invented token (ghp_ + a made-up run, written by rust/fixtures/mac-hands/make.py) in an OCR line the screenshot-masking test proves is masked"

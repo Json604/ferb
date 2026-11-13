@@ -2111,6 +2111,11 @@ async fn read_line<R: tokio::io::AsyncBufRead + Unpin>(r: &mut R) -> Option<(usi
     Some((n, buf))
 }
 
+/// The port the one-time page binds: 0 (the system picks one) except in a test replaying Python's
+/// frames, which name the address.
+#[doc(hidden)]
+pub static PAGE_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
+
 /// `_serve_once`: an HTML file at a one-time address on this Mac only (127.0.0.1, an unguessable
 /// path, [`PDF_PAGE_POLICY`]); any other path gets 404. The server stops when the handle is aborted.
 pub async fn serve_once(
@@ -2119,7 +2124,8 @@ pub async fn serve_once(
 ) -> std::io::Result<(String, tokio::task::JoinHandle<()>)> {
     use tokio::io::{AsyncWriteExt, BufReader};
     let token = crate::pairing::token_urlsafe(random, 24);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let port = PAGE_PORT.load(std::sync::atomic::Ordering::Relaxed);
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
     let port = listener.local_addr()?.port();
     let want = format!("/{token}.html");
     let html = Arc::new(html);
@@ -2142,8 +2148,12 @@ pub async fn serve_once(
                         None => return,
                     }
                 }
+                // latin-1, split on Python's whitespace (`str.split()`: \x1c-\x1f too)
                 let first: String = first.iter().map(|b| char::from(*b)).collect();
-                let parts: Vec<&str> = first.split_whitespace().collect();
+                let parts: Vec<&str> = first
+                    .split(ferb_py::value::is_py_space)
+                    .filter(|p| !p.is_empty())
+                    .collect();
                 let ok = parts.len() >= 2 && parts[0] == "GET" && parts[1] == want;
                 let body: &[u8] = if ok { &html } else { b"not found" };
                 let head = format!(

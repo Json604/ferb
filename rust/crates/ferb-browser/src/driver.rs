@@ -514,6 +514,10 @@ impl Driver {
         self.random.as_ref()
     }
 
+    pub(crate) fn random_arc(&self) -> Arc<dyn crate::pairing::Random> {
+        Arc::clone(&self.random)
+    }
+
     fn seal(&self, key: &[u8], value: &Secret, cid: &str, origin: &str) -> Result<Sealed> {
         let sealer = Arc::clone(&lock(&self.sealer));
         sealer(key, value, cid, origin).map_err(|_| Error::refused("the value couldn't be sealed"))

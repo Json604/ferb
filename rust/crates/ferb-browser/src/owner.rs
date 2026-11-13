@@ -36,6 +36,17 @@ pub struct Inbox {
 
 type InventoryKey = (Option<String>, String, String);
 
+/// The driver's random source as the mailbox's (its candidate tokens: `secrets.token_urlsafe`).
+struct Tokens(Arc<dyn crate::pairing::Random>);
+
+impl ferb_identity::mailbox::TokenRandom for Tokens {
+    fn fill(&self, buf: &mut [u8]) -> bool {
+        let got = self.0.bytes(buf.len());
+        buf.copy_from_slice(&got);
+        true
+    }
+}
+
 /// FERB's mailbox inventories (`_otp_inventory`) and the messages whose code was used.
 #[derive(Default)]
 pub struct Otp {
@@ -347,7 +358,11 @@ impl Driver {
         let (t, frame, ..) = self.resolve(el)?;
         let origin = self.checked_origin(&t, frame, secret).await?;
         let inbox = self.inbox();
-        let mut mailbox = GmailFeedMailbox::new(&(inbox.address)(), &inbox.feed_url);
+        let mut mailbox = GmailFeedMailbox::with_random(
+            &(inbox.address)(),
+            &inbox.feed_url,
+            Arc::new(Tokens(self.random_arc())),
+        );
         mailbox.used = self.otp().used.clone();
         let text = self.read_feed(&inbox.feed_url).await?;
         let result = mailbox.candidates(&text);

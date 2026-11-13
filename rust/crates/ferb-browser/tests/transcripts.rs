@@ -119,12 +119,12 @@ struct Run {
     drivers: Option<(Arc<Driver>, Arc<Driver>)>,
     running: Arc<Mutex<HashSet<String>>>,
     keychain: Arc<Mutex<(Option<String>, i64)>>,
-    random: Arc<Counter>,
-    /// The latest inbox inventory's tokens, Rust's and Python's (they differ: see `tokens`).
+    /// The latest inbox inventory's tokens.
     tokens: Vec<String>,
-    py_tokens: Vec<String>,
     /// The driver calls (the harness records no step times for their errors).
     driver_calls: HashSet<String>,
+    /// The real downloads, wired to the hub and both drivers (tools_more.json).
+    downloads: Option<Arc<ferb_browser::downloads::Downloads>>,
     _dir: tempfile::TempDir,
 }
 
@@ -471,16 +471,30 @@ impl Run {
                 "task-b".to_string(),
             ]))),
             keychain: Arc::default(),
-            random: random_handle.clone(),
             tokens: vec![],
-            py_tokens: vec![],
             driver_calls: HashSet::new(),
+            downloads: None,
             _dir: dir,
         };
+        if let Some(more) = f.get("more").and_then(Value::as_str) {
+            run.downloads = Some(real_downloads(&run, &path, more, random_handle.clone()));
+            // the daemon's part of the tools, logging into this run's log
+            ops::set_host(Some(Arc::new(MoreHost {
+                log: run.log.clone(),
+            })));
+        }
         if with_drivers {
             make_drivers(&mut run, random_for_drivers);
             if f.get("uploads").is_some() {
                 ops::seams(&run);
+            }
+            if let Some(dl) = &run.downloads {
+                let (router, ferb) = run.drivers.clone().unwrap();
+                for d in [router, ferb] {
+                    let mut seams = d.seams_now();
+                    seams.downloads = Some(dl.clone());
+                    d.set_seams(seams);
+                }
             }
         }
         run
@@ -502,6 +516,43 @@ impl Run {
                "unpaired": self.hub.unpaired().into_iter().map(|(k, v)| (k, Value::from(v))).collect::<Map<_, _>>(),
                "unpaired_copies": self.hub.unpaired_copies()})
     }
+}
+
+/// downloads.Downloads as the daemon wires it (areas/browsers.py): the hub's `on_download`, the hub's
+/// `task_tab`, its records in the run's store.
+fn real_downloads(
+    run: &Run,
+    db: &std::path::Path,
+    more: &str,
+    random: Arc<Counter>,
+) -> Arc<ferb_browser::downloads::Downloads> {
+    use ferb_browser::downloads::{sqlite::SqliteRecords, DlHooks, Downloads, Peer};
+    let log = run.log.clone();
+    let dl = Downloads::new(
+        std::path::PathBuf::from(more).join("downloads"),
+        Arc::new(SqliteRecords::new(rusqlite::Connection::open(db).unwrap())),
+        run.clock.clone(),
+        Arc::new(|_: &str, _: &str| Ok(None)),
+        Arc::new(|t: &str| t.replace("SECRET", "[redacted]")),
+        Arc::new(move |topic: &str, data: Map<String, Value>| {
+            log.lock().unwrap().push(json!({"pub": [topic, data]}))
+        }),
+        random,
+    );
+    let hub = Arc::downgrade(&run.hub);
+    dl.set_hooks(DlHooks {
+        task_tab: Arc::new(move |peer: &dyn Peer, tab: i64| {
+            let hub = hub.upgrade()?;
+            hub.task_tab(&peer.bridge()?, tab)
+        }),
+        task_root: Arc::new(|task: &str| task.split('.').next().unwrap().to_string()),
+        free_bytes: Arc::new(|| Ok(1_000_000_000_000_000)),
+        on_over_cap: Arc::new(|| {}),
+    });
+    let mut hooks = run.hub.hooks();
+    hooks.on_download = Some(dl.on_download());
+    run.hub.set_hooks(hooks);
+    dl
 }
 
 /// The one deliberate difference from Python in these transcripts (fixed against Python): when a
@@ -814,8 +865,12 @@ async fn the_hub_replays_python_transcripts() {
 
 // decisions: GATE-202, GATE-578, HAND-218, HAND-234, HAND-419, HAND-435, HAND-442, HAND-443, HAND-447, HAND-484,
 // HAND-488, HAND-493, HAND-496, HAND-497, HAND-500, HAND-501, HAND-502, HAND-510, HAND-511, L13, L31, L33
+/// The fixed folders the driver transcripts use (their frames name them): one test at a time.
+static FIXED_FOLDERS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[tokio::test(start_paused = true)]
 async fn the_drivers_page_operations_replay_python_transcripts() {
+    let _one = FIXED_FOLDERS.lock().await;
     let f = fixture("ops.json");
     let _files = ops::upload_files(&f);
     ops::policy(&f);
@@ -826,4 +881,258 @@ async fn the_drivers_page_operations_replay_python_transcripts() {
         total += n;
     }
     assert!(total > 500, "{total}");
+}
+
+// ---------- tools_more.json: the tool runs entry 28 left unverified ----------
+
+/// The daemon's part of the tools, as tools_more.py's recorders answer: pairing and the handoff (their success paths
+/// and a No), the display a rect is on, the recordings manager and hearing (keyed by the record call's output path,
+/// as the Python script changed them between calls), and real files under the fixture's folder.
+struct MoreHost {
+    log: Log,
+}
+
+struct MoreRecordings {
+    log: Log,
+}
+
+fn record_path() -> String {
+    ops::TOOL_ARGS.lock().unwrap()["path"]
+        .as_str()
+        .unwrap_or("")
+        .to_string()
+}
+
+impl ferb_browser::tools::Recordings for MoreRecordings {
+    fn hearing(&self) -> bool {
+        !record_path().ends_with("rec6.mp4")
+    }
+    fn excluded_host(&self, host: &str) -> bool {
+        self.log
+            .lock()
+            .unwrap()
+            .push(json!({"seam": ["excluded_host", host]}));
+        record_path().ends_with("rec3.mp4") && host == "a.example"
+    }
+    fn resolve_audio(&self, target: &str) -> (String, Value) {
+        self.log
+            .lock()
+            .unwrap()
+            .push(json!({"seam": ["resolve_audio", target]}));
+        let bundle = if record_path().ends_with("rec4.mp4") {
+            "com.brave.Browser"
+        } else {
+            "com.google.Chrome"
+        };
+        (bundle.into(), json!({"target": target, "pid": 4242}))
+    }
+    fn start(
+        &self,
+        task: &str,
+        target: Map<String, Value>,
+        path: String,
+        _capture: ferb_browser::capture::Recording,
+        fps: f64,
+        audio: Option<(String, Value)>,
+        language: Option<String>,
+        sources: Vec<(String, String)>,
+        ctx: &ferb_core::types::ToolContext,
+    ) -> BoxFuture<'_, ferb_browser::Result<Map<String, Value>>> {
+        self.log.lock().unwrap().push(json!({"seam": ["record_start", task, target, path, true, fps,
+            audio.map(|(b, v)| json!([b, v])), language,
+            sources.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>(), ctx.path_closed.is_some()]}));
+        let out: Map<String, Value> = json!({"recording": "rec-1", "path": path, "fps": fps})
+            .as_object()
+            .unwrap()
+            .clone();
+        Box::pin(async move { Ok(out) })
+    }
+}
+
+impl ferb_browser::tools::Host for MoreHost {
+    fn pair(
+        &self,
+        browser: &str,
+        folder: &str,
+    ) -> Option<BoxFuture<'_, ferb_browser::Result<Map<String, Value>>>> {
+        // the daemon's pair_profile runs (and is recorded) when the tool awaits it
+        let (log, browser, folder) = (self.log.clone(), browser.to_string(), folder.to_string());
+        Some(Box::pin(async move {
+            log.lock()
+                .unwrap()
+                .push(json!({"seam": ["pair", browser, folder]}));
+            let out = if folder == "Profile 8" {
+                json!({"paired": false, "reason": "the owner said No"})
+            } else {
+                json!({"paired": true, "profile": format!("{browser}/{folder}"), "name": "Home"})
+            };
+            Ok(out.as_object().unwrap().clone())
+        }))
+    }
+    fn handoff(
+        &self,
+        tab: TabRef,
+        message: String,
+        ctx: ferb_core::types::ToolContext,
+    ) -> Option<BoxFuture<'_, ferb_browser::Result<Map<String, Value>>>> {
+        let log = self.log.clone();
+        Some(Box::pin(async move {
+            log.lock().unwrap().push(json!({"seam": ["handoff",
+                {"device_id": tab.device_id, "browser": tab.browser, "profile": tab.profile,
+                 "generation": tab.generation, "tab_id": tab.tab_id}, message, ctx.task_id]}));
+            let out = if message.contains("puzzle") {
+                json!({"passed": false, "reason": "the page still shows it", "waited_s": 600})
+            } else {
+                json!({"passed": true, "waited_s": 12})
+            };
+            Ok(out.as_object().unwrap().clone())
+        }))
+    }
+    fn resolve(
+        &self,
+        p: &str,
+        _: &ferb_core::types::ToolContext,
+        must_exist: bool,
+    ) -> ferb_browser::Result<String> {
+        if must_exist && !std::path::Path::new(p).exists() {
+            // ferb/act/fs's PathRefused: not a FERB error, so it leaves the tool for the gateway
+            return Err(ferb_browser::Error {
+                subclass: Some("PathRefused"),
+                ..ferb_core::errors::FerbError::Ferb(format!("{p} does not exist")).into()
+            });
+        }
+        Ok(p.into())
+    }
+    fn owner_path(&self, p: &str, workspace: &str) -> String {
+        if p.starts_with('/') {
+            p.into()
+        } else {
+            format!("{workspace}/{p}")
+        }
+    }
+    fn read(&self, p: &str) -> ferb_browser::Result<Vec<u8>> {
+        std::fs::read(p).map_err(|e| ferb_browser::Error::refused(e.to_string()))
+    }
+    fn new_file(
+        &self,
+        p: &str,
+        data: &[u8],
+        _: &ferb_core::types::ToolContext,
+    ) -> ferb_browser::Result<()> {
+        use std::io::Write;
+        let mut f = std::fs::File::options()
+            .write(true)
+            .create_new(true)
+            .open(p)
+            .map_err(|e| ferb_browser::Error::refused(e.to_string()))?;
+        f.write_all(data)
+            .map_err(|e| ferb_browser::Error::refused(e.to_string()))
+    }
+    fn display_of(&self, rect: ferb_browser::mask::Rect) -> Option<i64> {
+        self.log
+            .lock()
+            .unwrap()
+            .push(json!({"seam": ["display_of", [rect.0, rect.1, rect.2, rect.3]]}));
+        if rect.0 < 300.0 {
+            Some(1)
+        } else if rect.0 < 1000.0 {
+            Some(2)
+        } else {
+            None
+        }
+    }
+    fn recordings(&self) -> Option<Arc<dyn ferb_browser::tools::Recordings>> {
+        Some(Arc::new(MoreRecordings {
+            log: self.log.clone(),
+        }))
+    }
+}
+
+// decisions: HAND-207, HAND-427, HAND-428, HAND-511
+#[tokio::test(start_paused = true)]
+async fn the_remaining_tool_runs_replay_python_transcripts() {
+    let _one = FIXED_FOLDERS.lock().await;
+    let f = fixture("tools_more.json");
+    let more = f["more"].as_str().unwrap();
+    let _ = std::fs::remove_dir_all(more);
+    std::fs::create_dir_all(more).unwrap();
+    std::fs::write(format!("{more}/resume.html"), f["html"].as_str().unwrap()).unwrap();
+    std::fs::write(
+        format!("{more}/big.html"),
+        vec![b'x'; ferb_browser::tools::PDF_HTML_MAX + 1],
+    )
+    .unwrap();
+    let _files = ops::upload_files(&f);
+    ops::policy(&f);
+    ferb_browser::tools::PAGE_PORT.store(
+        f["page_port"].as_u64().unwrap() as u16,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    let scenario = &f["scenarios"][0];
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            ops::set_host(None);
+        }
+    }
+    let _reset = Reset;
+    let n = replay(&f, scenario).await;
+    assert!(n > 90, "{n}");
+    // the PDFs written, byte for byte, and the downloaded file
+    for (name, data) in f["written"].as_object().unwrap() {
+        assert_eq!(
+            ferb_identity::py::b64encode(&std::fs::read(format!("{more}/{name}")).unwrap()),
+            data.as_str().unwrap(),
+            "{name}"
+        );
+    }
+    let mut got: Vec<String> = std::fs::read_dir(format!("{more}/downloads"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    got.sort();
+    assert_eq!(json!(got), f["downloads"]);
+    std::fs::remove_dir_all(more).unwrap();
+}
+
+/// The one-time local page (`_serve_once`): each raw request and the exact bytes Python answered.
+#[tokio::test]
+async fn the_one_time_page_answers_as_python_did() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let f = fixture("tools_more.json");
+    let s = &f["serve_once"];
+    let (url, server) = ferb_browser::tools::serve_once(
+        s["html"].as_str().unwrap().as_bytes().to_vec(),
+        &Counter::new(),
+    )
+    .await
+    .unwrap();
+    let (host_port, path) = url
+        .strip_prefix("http://")
+        .unwrap()
+        .split_once('/')
+        .unwrap();
+    assert_eq!(format!("/{path}"), s["path"].as_str().unwrap());
+    for case in s["cases"].as_array().unwrap() {
+        let mut c = tokio::net::TcpStream::connect(host_port).await.unwrap();
+        let req: Vec<u8> = case["request"]
+            .as_str()
+            .unwrap()
+            .chars()
+            .map(|ch| ch as u32 as u8)
+            .collect();
+        c.write_all(&req).await.unwrap();
+        c.shutdown().await.unwrap();
+        let mut got = vec![];
+        c.read_to_end(&mut got).await.unwrap();
+        let got: String = got.iter().map(|b| char::from(*b)).collect();
+        assert_eq!(
+            got,
+            case["response"].as_str().unwrap(),
+            "{:?}",
+            case["request"]
+        );
+    }
+    server.abort();
 }

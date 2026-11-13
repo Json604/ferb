@@ -18,7 +18,12 @@
 //! - [`tools`]: the model-facing tools, `browser.*` and `ferb_browser.*` (`tools.py`).
 //! - [`profiles`], [`autoinstall`]: profiles and the resolver (`profiles.py`, `resolver.py`), the
 //!   extension's install requests and package (`autoinstall.py`).
+//! - [`downloads`]: browser downloads taken as facts, the per-task budget shared with the shell, the disk floor
+//!   and the folder's cap (`downloads.py`).
+//! - [`staging`] (Unix): FERB's own copies of files a browser uploads (`uploads.py`, rule 17).
 //! - [`mime`]: `mimetypes.guess_type` for an upload's file type.
+//! - [`macos`] (Mac only): Launch Services, `pgrep`, a detached launch and the volume's free space
+//!   behind [`profiles::Platform`] and the downloads' disk floor.
 //!
 //! Portable: plain tokio and std. What belongs to another part comes in through a trait (listed in
 //! each module); the Mac's SQLite and the Unix socket are behind `cfg`.
@@ -29,10 +34,13 @@
 pub mod autoinstall;
 pub mod bridge;
 pub mod capture;
+pub mod downloads;
 pub mod driver;
 pub mod error;
 pub mod keys;
 pub mod lax;
+#[cfg(target_os = "macos")]
+pub mod macos;
 pub mod mask;
 pub mod mime;
 #[rustfmt::skip] // written by rust/fixtures/browser/hands.py
@@ -46,6 +54,8 @@ pub mod protocol;
 pub mod rules;
 pub mod seal;
 pub mod snapshot;
+#[cfg(unix)]
+pub mod staging;
 pub mod tools;
 
 #[rustfmt::skip] // written by rust/fixtures/browser/make.py

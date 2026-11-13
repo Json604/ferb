@@ -1,0 +1,5645 @@
+{
+ "mtime_ns": 1700000000123456789,
+ "scenarios": [
+  {
+   "name": "copy_and_origin",
+   "steps": [
+    {
+     "step": {
+      "write": "Desktop/clg:uni/submission.csv",
+      "data": "id,label\n1,a\n"
+     },
+     "out": null,
+     "files": [
+      [
+       "Desktop",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/clg:uni",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/clg:uni/submission.csv",
+       "file",
+       "aWQsbGFiZWwKMSxhCg=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "write": "ws/downloads/dl-0123456789ab-report.pdf",
+      "data": "%PDF from a website"
+     },
+     "out": null,
+     "files": [
+      [
+       "Desktop",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/clg:uni",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/clg:uni/submission.csv",
+       "file",
+       "aWQsbGFiZWwKMSxhCg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/downloads",
+       "dir",
+       493
+      ],
+      [
+       "ws/downloads/dl-0123456789ab-report.pdf",
+       "file",
+       "JVBERiBmcm9tIGEgd2Vic2l0ZQ=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "untrusted": [
+       "$ROOT/ws/downloads",
+       "~/nowhere"
+      ]
+     },
+     "out": null,
+     "files": [
+      [
+       "Desktop",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/clg:uni",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/clg:uni/submission.csv",
+       "file",
+       "aWQsbGFiZWwKMSxhCg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/downloads",
+       "dir",
+       493
+      ],
+      [
+       "ws/downloads/dl-0123456789ab-report.pdf",
+       "file",
+       "JVBERiBmcm9tIGEgd2Vic2l0ZQ=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree1",
+       "source": "Desktop/clg:uni/submission.csv"
+      }
+     },
+     "out": {
+      "ok": "$ROOT/ws/uploads/tree1/4dfc442c55b5/submission.csv"
+     },
+     "files": [
+      [
+       "Desktop",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/clg:uni",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/clg:uni/submission.csv",
+       "file",
+       "aWQsbGFiZWwKMSxhCg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/downloads",
+       "dir",
+       493
+      ],
+      [
+       "ws/downloads/dl-0123456789ab-report.pdf",
+       "file",
+       "JVBERiBmcm9tIGEgd2Vic2l0ZQ=="
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4dfc442c55b5",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4dfc442c55b5/submission.csv",
+       "file",
+       "aWQsbGFiZWwKMSxhCg==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree1",
+       "source": "ws/downloads/dl-0123456789ab-report.pdf"
+      }
+     },
+     "out": {
+      "ok": "$ROOT/ws/uploads/outside/tree1/48f2f3564a4c/dl-0123456789ab-report.pdf"
+     },
+     "files": [
+      [
+       "Desktop",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/clg:uni",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/clg:uni/submission.csv",
+       "file",
+       "aWQsbGFiZWwKMSxhCg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/downloads",
+       "dir",
+       493
+      ],
+      [
+       "ws/downloads/dl-0123456789ab-report.pdf",
+       "file",
+       "JVBERiBmcm9tIGEgd2Vic2l0ZQ=="
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/outside",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/outside/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/outside/tree1/48f2f3564a4c",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/outside/tree1/48f2f3564a4c/dl-0123456789ab-report.pdf",
+       "file",
+       "JVBERiBmcm9tIGEgd2Vic2l0ZQ==",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4dfc442c55b5",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4dfc442c55b5/submission.csv",
+       "file",
+       "aWQsbGFiZWwKMSxhCg==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "forget": "tree1"
+     },
+     "out": {
+      "ok": 2
+     },
+     "files": [
+      [
+       "Desktop",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/clg:uni",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/clg:uni/submission.csv",
+       "file",
+       "aWQsbGFiZWwKMSxhCg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/downloads",
+       "dir",
+       493
+      ],
+      [
+       "ws/downloads/dl-0123456789ab-report.pdf",
+       "file",
+       "JVBERiBmcm9tIGEgd2Vic2l0ZQ=="
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/outside",
+       "dir",
+       448
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "planted_tree_link",
+   "steps": [
+    {
+     "step": {
+      "write": "Desktop/cv.pdf",
+      "data": "%PDF cv"
+     },
+     "out": null,
+     "files": [
+      [
+       "Desktop",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/cv.pdf",
+       "file",
+       "JVBERiBjdg=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "mkdir": "ws/uploads"
+     },
+     "out": null,
+     "files": [
+      [
+       "Desktop",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/cv.pdf",
+       "file",
+       "JVBERiBjdg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ]
+     ]
+    },
+    {
+     "step": {
+      "mkdir": "elsewhere"
+     },
+     "out": null,
+     "files": [
+      [
+       "Desktop",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/cv.pdf",
+       "file",
+       "JVBERiBjdg=="
+      ],
+      [
+       "elsewhere",
+       "dir",
+       493
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ]
+     ]
+    },
+    {
+     "step": {
+      "symlink": [
+       "ws/uploads/tree1",
+       "$ROOT/elsewhere"
+      ]
+     },
+     "out": null,
+     "files": [
+      [
+       "Desktop",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/cv.pdf",
+       "file",
+       "JVBERiBjdg=="
+      ],
+      [
+       "elsewhere",
+       "dir",
+       493
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/tree1",
+       "link",
+       "$ROOT/elsewhere"
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree1",
+       "source": "Desktop/cv.pdf"
+      }
+     },
+     "out": {
+      "error": "StagingFailed",
+      "message": "$ROOT/ws/uploads/tree1 is not FERB's folder (a link or a file); nothing was copied"
+     },
+     "files": [
+      [
+       "Desktop",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/cv.pdf",
+       "file",
+       "JVBERiBjdg=="
+      ],
+      [
+       "elsewhere",
+       "dir",
+       493
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/tree1",
+       "link",
+       "$ROOT/elsewhere"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "changed_while_copied",
+   "steps": [
+    {
+     "step": {
+      "write": "a.txt",
+      "data": "now"
+     },
+     "out": null,
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "bm93"
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree1",
+       "source": "a.txt",
+       "sha": "before"
+      }
+     },
+     "out": {
+      "error": "StagingFailed",
+      "message": "the file changed while FERB copied it; inspect it again"
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "bm93"
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "trees_end_and_start_up",
+   "steps": [
+    {
+     "step": {
+      "write": "a.txt",
+      "data": "x"
+     },
+     "out": null,
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree1",
+       "source": "a.txt"
+      }
+     },
+     "out": {
+      "ok": "$ROOT/ws/uploads/tree1/2b129a85503c/a.txt"
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/2b129a85503c",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/2b129a85503c/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree2",
+       "source": "a.txt"
+      }
+     },
+     "out": {
+      "ok": "$ROOT/ws/uploads/tree2/b53c002331ea/a.txt"
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/2b129a85503c",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/2b129a85503c/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree2",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2/b53c002331ea",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2/b53c002331ea/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "forget": "tree1"
+     },
+     "out": {
+      "ok": 1
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2/b53c002331ea",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2/b53c002331ea/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "sweep": 1
+     },
+     "out": {
+      "ok": 1
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "links_for_tree_folders",
+   "steps": [
+    {
+     "step": {
+      "victim": 1
+     },
+     "out": null,
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "mkdir": "ws/uploads/outside"
+     },
+     "out": null,
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside",
+       "dir",
+       493
+      ]
+     ]
+    },
+    {
+     "step": {
+      "symlink": [
+       "ws/uploads/tree1",
+       "$ROOT/Documents/tree1"
+      ]
+     },
+     "out": null,
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/tree1",
+       "link",
+       "$ROOT/Documents/tree1"
+      ]
+     ]
+    },
+    {
+     "step": {
+      "symlink": [
+       "ws/uploads/outside/tree1",
+       "$ROOT/Documents/tree1"
+      ]
+     },
+     "out": null,
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside/tree1",
+       "link",
+       "$ROOT/Documents/tree1"
+      ],
+      [
+       "ws/uploads/tree1",
+       "link",
+       "$ROOT/Documents/tree1"
+      ]
+     ]
+    },
+    {
+     "step": {
+      "forget": "tree1"
+     },
+     "out": {
+      "ok": 2
+     },
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside",
+       "dir",
+       493
+      ]
+     ]
+    },
+    {
+     "step": {
+      "symlink": [
+       "ws/uploads/tree2",
+       "$ROOT/Documents/tree2"
+      ]
+     },
+     "out": null,
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/tree2",
+       "link",
+       "$ROOT/Documents/tree2"
+      ]
+     ]
+    },
+    {
+     "step": {
+      "symlink": [
+       "ws/uploads/outside/tree2",
+       "$ROOT/Documents/tree2"
+      ]
+     },
+     "out": null,
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside/tree2",
+       "link",
+       "$ROOT/Documents/tree2"
+      ],
+      [
+       "ws/uploads/tree2",
+       "link",
+       "$ROOT/Documents/tree2"
+      ]
+     ]
+    },
+    {
+     "step": {
+      "symlink": [
+       "ws/uploads/stray",
+       "$ROOT/Documents/tree1/keep.txt"
+      ]
+     },
+     "out": null,
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside/tree2",
+       "link",
+       "$ROOT/Documents/tree2"
+      ],
+      [
+       "ws/uploads/stray",
+       "link",
+       "$ROOT/Documents/tree1/keep.txt"
+      ],
+      [
+       "ws/uploads/tree2",
+       "link",
+       "$ROOT/Documents/tree2"
+      ]
+     ]
+    },
+    {
+     "step": {
+      "sweep": 1
+     },
+     "out": {
+      "ok": 3
+     },
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside",
+       "dir",
+       493
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "link_for_outside_folder",
+   "steps": [
+    {
+     "step": {
+      "victim": 1
+     },
+     "out": null,
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "mkdir": "ws/uploads"
+     },
+     "out": null,
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ]
+     ]
+    },
+    {
+     "step": {
+      "symlink": [
+       "ws/uploads/outside",
+       "$ROOT/Documents"
+      ]
+     },
+     "out": null,
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside",
+       "link",
+       "$ROOT/Documents"
+      ]
+     ]
+    },
+    {
+     "step": {
+      "forget": "tree1"
+     },
+     "out": {
+      "error": "CleanupLeft",
+      "message": "FERB couldn't remove [Errno 20] not FERB's folder (a link or a file); nothing under it was touched: '$ROOT/ws/uploads/outside'",
+      "left": [
+       "[Errno 20] not FERB's folder (a link or a file); nothing under it was touched: '$ROOT/ws/uploads/outside'"
+      ]
+     },
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside",
+       "link",
+       "$ROOT/Documents"
+      ]
+     ]
+    },
+    {
+     "step": {
+      "sweep": 1
+     },
+     "out": {
+      "ok": 1
+     },
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "link_for_uploads_folder",
+   "steps": [
+    {
+     "step": {
+      "victim": 1
+     },
+     "out": null,
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "mkdir": "ws"
+     },
+     "out": null,
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ]
+     ]
+    },
+    {
+     "step": {
+      "symlink": [
+       "ws/uploads",
+       "$ROOT/Documents"
+      ]
+     },
+     "out": null,
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "link",
+       "$ROOT/Documents"
+      ]
+     ]
+    },
+    {
+     "step": {
+      "forget": "tree1"
+     },
+     "out": {
+      "error": "CleanupLeft",
+      "message": "FERB couldn't remove [Errno 20] not FERB's folder (a link or a file); nothing under it was touched: '$ROOT/ws/uploads'",
+      "left": [
+       "[Errno 20] not FERB's folder (a link or a file); nothing under it was touched: '$ROOT/ws/uploads'"
+      ]
+     },
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "link",
+       "$ROOT/Documents"
+      ]
+     ]
+    },
+    {
+     "step": {
+      "sweep": 1
+     },
+     "out": {
+      "error": "_NotOurs",
+      "message": "[Errno 20] not FERB's folder (a link or a file); nothing under it was touched: '$ROOT/ws/uploads'"
+     },
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "link",
+       "$ROOT/Documents"
+      ]
+     ]
+    },
+    {
+     "step": {
+      "collect": 1
+     },
+     "out": {
+      "ok": 0
+     },
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside",
+       "dir",
+       493
+      ],
+      [
+       "Documents/outside/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree1",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree1/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "Documents/tree2",
+       "dir",
+       493
+      ],
+      [
+       "Documents/tree2/keep.txt",
+       "file",
+       "dGhlIG93bmVyJ3M="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "link",
+       "$ROOT/Documents"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "planted_uploads",
+   "steps": [
+    {
+     "step": {
+      "write": "downloads/report.pdf",
+      "data": "%PDF"
+     },
+     "out": null,
+     "files": [
+      [
+       "downloads",
+       "dir",
+       493
+      ],
+      [
+       "downloads/report.pdf",
+       "file",
+       "JVBERg=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "mkdir": "elsewhere"
+     },
+     "out": null,
+     "files": [
+      [
+       "downloads",
+       "dir",
+       493
+      ],
+      [
+       "downloads/report.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "elsewhere",
+       "dir",
+       493
+      ]
+     ]
+    },
+    {
+     "step": {
+      "untrusted": [
+       "$ROOT/downloads"
+      ]
+     },
+     "out": null,
+     "files": [
+      [
+       "downloads",
+       "dir",
+       493
+      ],
+      [
+       "downloads/report.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "elsewhere",
+       "dir",
+       493
+      ]
+     ]
+    },
+    {
+     "step": {
+      "mkdir": "ws"
+     },
+     "out": null,
+     "files": [
+      [
+       "downloads",
+       "dir",
+       493
+      ],
+      [
+       "downloads/report.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "elsewhere",
+       "dir",
+       493
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ]
+     ]
+    },
+    {
+     "step": {
+      "symlink": [
+       "ws/uploads",
+       "$ROOT/elsewhere"
+      ]
+     },
+     "out": null,
+     "files": [
+      [
+       "downloads",
+       "dir",
+       493
+      ],
+      [
+       "downloads/report.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "elsewhere",
+       "dir",
+       493
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "link",
+       "$ROOT/elsewhere"
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree1",
+       "source": "downloads/report.pdf"
+      }
+     },
+     "out": {
+      "error": "StagingFailed",
+      "message": "$ROOT/ws/uploads is not FERB's folder (a link or a file); nothing was copied"
+     },
+     "files": [
+      [
+       "downloads",
+       "dir",
+       493
+      ],
+      [
+       "downloads/report.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "elsewhere",
+       "dir",
+       493
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "link",
+       "$ROOT/elsewhere"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "planted_outside",
+   "steps": [
+    {
+     "step": {
+      "write": "downloads/report.pdf",
+      "data": "%PDF"
+     },
+     "out": null,
+     "files": [
+      [
+       "downloads",
+       "dir",
+       493
+      ],
+      [
+       "downloads/report.pdf",
+       "file",
+       "JVBERg=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "mkdir": "elsewhere"
+     },
+     "out": null,
+     "files": [
+      [
+       "downloads",
+       "dir",
+       493
+      ],
+      [
+       "downloads/report.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "elsewhere",
+       "dir",
+       493
+      ]
+     ]
+    },
+    {
+     "step": {
+      "untrusted": [
+       "$ROOT/downloads"
+      ]
+     },
+     "out": null,
+     "files": [
+      [
+       "downloads",
+       "dir",
+       493
+      ],
+      [
+       "downloads/report.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "elsewhere",
+       "dir",
+       493
+      ]
+     ]
+    },
+    {
+     "step": {
+      "mkdir": "ws/uploads"
+     },
+     "out": null,
+     "files": [
+      [
+       "downloads",
+       "dir",
+       493
+      ],
+      [
+       "downloads/report.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "elsewhere",
+       "dir",
+       493
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ]
+     ]
+    },
+    {
+     "step": {
+      "symlink": [
+       "ws/uploads/outside",
+       "$ROOT/elsewhere"
+      ]
+     },
+     "out": null,
+     "files": [
+      [
+       "downloads",
+       "dir",
+       493
+      ],
+      [
+       "downloads/report.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "elsewhere",
+       "dir",
+       493
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside",
+       "link",
+       "$ROOT/elsewhere"
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree1",
+       "source": "downloads/report.pdf"
+      }
+     },
+     "out": {
+      "error": "StagingFailed",
+      "message": "$ROOT/ws/uploads/outside is not FERB's folder (a link or a file); nothing was copied"
+     },
+     "files": [
+      [
+       "downloads",
+       "dir",
+       493
+      ],
+      [
+       "downloads/report.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "elsewhere",
+       "dir",
+       493
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside",
+       "link",
+       "$ROOT/elsewhere"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "planted_tree1",
+   "steps": [
+    {
+     "step": {
+      "write": "downloads/report.pdf",
+      "data": "%PDF"
+     },
+     "out": null,
+     "files": [
+      [
+       "downloads",
+       "dir",
+       493
+      ],
+      [
+       "downloads/report.pdf",
+       "file",
+       "JVBERg=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "mkdir": "elsewhere"
+     },
+     "out": null,
+     "files": [
+      [
+       "downloads",
+       "dir",
+       493
+      ],
+      [
+       "downloads/report.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "elsewhere",
+       "dir",
+       493
+      ]
+     ]
+    },
+    {
+     "step": {
+      "untrusted": [
+       "$ROOT/downloads"
+      ]
+     },
+     "out": null,
+     "files": [
+      [
+       "downloads",
+       "dir",
+       493
+      ],
+      [
+       "downloads/report.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "elsewhere",
+       "dir",
+       493
+      ]
+     ]
+    },
+    {
+     "step": {
+      "mkdir": "ws/uploads/outside"
+     },
+     "out": null,
+     "files": [
+      [
+       "downloads",
+       "dir",
+       493
+      ],
+      [
+       "downloads/report.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "elsewhere",
+       "dir",
+       493
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside",
+       "dir",
+       493
+      ]
+     ]
+    },
+    {
+     "step": {
+      "symlink": [
+       "ws/uploads/outside/tree1",
+       "$ROOT/elsewhere"
+      ]
+     },
+     "out": null,
+     "files": [
+      [
+       "downloads",
+       "dir",
+       493
+      ],
+      [
+       "downloads/report.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "elsewhere",
+       "dir",
+       493
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside/tree1",
+       "link",
+       "$ROOT/elsewhere"
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree1",
+       "source": "downloads/report.pdf"
+      }
+     },
+     "out": {
+      "error": "StagingFailed",
+      "message": "$ROOT/ws/uploads/outside/tree1 is not FERB's folder (a link or a file); nothing was copied"
+     },
+     "files": [
+      [
+       "downloads",
+       "dir",
+       493
+      ],
+      [
+       "downloads/report.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "elsewhere",
+       "dir",
+       493
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads/outside/tree1",
+       "link",
+       "$ROOT/elsewhere"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "no_task_owns_the_tab",
+   "steps": [
+    {
+     "step": {
+      "write": "a.txt",
+      "data": "x"
+     },
+     "out": null,
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "",
+       "source": "a.txt"
+      }
+     },
+     "out": {
+      "error": "StagingFailed",
+      "message": "no task owns this tab, so FERB has nowhere to keep its copy"
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "forget": ""
+     },
+     "out": {
+      "ok": 0
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": ".",
+       "source": "a.txt"
+      }
+     },
+     "out": {
+      "error": "StagingFailed",
+      "message": "no task owns this tab, so FERB has nowhere to keep its copy"
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "forget": "."
+     },
+     "out": {
+      "ok": 0
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "..",
+       "source": "a.txt"
+      }
+     },
+     "out": {
+      "error": "StagingFailed",
+      "message": "no task owns this tab, so FERB has nowhere to keep its copy"
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "forget": ".."
+     },
+     "out": {
+      "ok": 0
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "a/b",
+       "source": "a.txt"
+      }
+     },
+     "out": {
+      "error": "StagingFailed",
+      "message": "no task owns this tab, so FERB has nowhere to keep its copy"
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "forget": "a/b"
+     },
+     "out": {
+      "ok": 0
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": ".hidden",
+       "source": "a.txt"
+      }
+     },
+     "out": {
+      "error": "StagingFailed",
+      "message": "no task owns this tab, so FERB has nowhere to keep its copy"
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "forget": ".hidden"
+     },
+     "out": {
+      "ok": 0
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "outside",
+       "source": "a.txt"
+      }
+     },
+     "out": {
+      "error": "StagingFailed",
+      "message": "no task owns this tab, so FERB has nowhere to keep its copy"
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "forget": "outside"
+     },
+     "out": {
+      "ok": 0
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "folder_swapped_mid_copy_clone",
+   "steps": [
+    {
+     "step": {
+      "write": "Desktop/cv.pdf",
+      "data": "%PDF the owner's cv"
+     },
+     "out": null,
+     "files": [
+      [
+       "Desktop",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/cv.pdf",
+       "file",
+       "JVBERiB0aGUgb3duZXIncyBjdg=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "mkdir": "Documents"
+     },
+     "out": null,
+     "files": [
+      [
+       "Desktop",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/cv.pdf",
+       "file",
+       "JVBERiB0aGUgb3duZXIncyBjdg=="
+      ],
+      [
+       "Documents",
+       "dir",
+       493
+      ]
+     ]
+    },
+    {
+     "step": {
+      "race": "swap_folder",
+      "way": "clone"
+     },
+     "out": null,
+     "files": [
+      [
+       "Desktop",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/cv.pdf",
+       "file",
+       "JVBERiB0aGUgb3duZXIncyBjdg=="
+      ],
+      [
+       "Documents",
+       "dir",
+       493
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree1",
+       "source": "Desktop/cv.pdf"
+      }
+     },
+     "out": {
+      "error": "StagingFailed",
+      "message": "$ROOT/ws/uploads/tree1/6a180db33f21/cv.pdf no longer names FERB's copy (one of its folders was replaced)"
+     },
+     "files": [
+      [
+       "Desktop",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/cv.pdf",
+       "file",
+       "JVBERiB0aGUgb3duZXIncyBjdg=="
+      ],
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/6a180db33f21",
+       "dir",
+       493
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/moved",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "link",
+       "$ROOT/Documents"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "folder_swapped_mid_copy_byte_copy",
+   "steps": [
+    {
+     "step": {
+      "write": "Desktop/cv.pdf",
+      "data": "%PDF the owner's cv"
+     },
+     "out": null,
+     "files": [
+      [
+       "Desktop",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/cv.pdf",
+       "file",
+       "JVBERiB0aGUgb3duZXIncyBjdg=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "mkdir": "Documents"
+     },
+     "out": null,
+     "files": [
+      [
+       "Desktop",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/cv.pdf",
+       "file",
+       "JVBERiB0aGUgb3duZXIncyBjdg=="
+      ],
+      [
+       "Documents",
+       "dir",
+       493
+      ]
+     ]
+    },
+    {
+     "step": {
+      "race": "swap_folder",
+      "way": "byte copy"
+     },
+     "out": null,
+     "files": [
+      [
+       "Desktop",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/cv.pdf",
+       "file",
+       "JVBERiB0aGUgb3duZXIncyBjdg=="
+      ],
+      [
+       "Documents",
+       "dir",
+       493
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree1",
+       "source": "Desktop/cv.pdf"
+      }
+     },
+     "out": {
+      "error": "StagingFailed",
+      "message": "$ROOT/ws/uploads/tree1/53a52c65a3e5/cv.pdf no longer names FERB's copy (one of its folders was replaced)"
+     },
+     "files": [
+      [
+       "Desktop",
+       "dir",
+       493
+      ],
+      [
+       "Desktop/cv.pdf",
+       "file",
+       "JVBERiB0aGUgb3duZXIncyBjdg=="
+      ],
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "Documents/53a52c65a3e5",
+       "dir",
+       493
+      ],
+      [
+       "Documents/53a52c65a3e5/cv.pdf",
+       "file",
+       "dGhlIG93bmVyJ3Mgb3RoZXIgZmlsZQ=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/moved",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "link",
+       "$ROOT/Documents"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "tab_outlives_tree",
+   "steps": [
+    {
+     "step": {
+      "write": "cv.pdf",
+      "data": "%PDF"
+     },
+     "out": null,
+     "files": [
+      [
+       "cv.pdf",
+       "file",
+       "JVBERg=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree1",
+       "source": "cv.pdf",
+       "tab": "chrome/Profile 1#200"
+      }
+     },
+     "out": {
+      "ok": "$ROOT/ws/uploads/tree1/b3309c4b0fd5/cv.pdf"
+     },
+     "files": [
+      [
+       "cv.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/b3309c4b0fd5",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/b3309c4b0fd5/cv.pdf",
+       "file",
+       "JVBERg==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree1",
+       "source": "cv.pdf",
+       "tab": "chrome/Profile 1#7"
+      }
+     },
+     "out": {
+      "ok": "$ROOT/ws/uploads/tree1/5b678fa24f1b/cv.pdf"
+     },
+     "files": [
+      [
+       "cv.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/5b678fa24f1b",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/5b678fa24f1b/cv.pdf",
+       "file",
+       "JVBERg==",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree1/b3309c4b0fd5",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/b3309c4b0fd5/cv.pdf",
+       "file",
+       "JVBERg==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "closed": "chrome/Profile 1#7"
+     },
+     "out": {
+      "ok": false
+     },
+     "files": [
+      [
+       "cv.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/5b678fa24f1b",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/5b678fa24f1b/cv.pdf",
+       "file",
+       "JVBERg==",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree1/b3309c4b0fd5",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/b3309c4b0fd5/cv.pdf",
+       "file",
+       "JVBERg==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "forget": "tree1"
+     },
+     "out": {
+      "ok": 1
+     },
+     "files": [
+      [
+       "cv.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/b3309c4b0fd5",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/b3309c4b0fd5/cv.pdf",
+       "file",
+       "JVBERg==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "collect": 1
+     },
+     "out": {
+      "ok": 0
+     },
+     "files": [
+      [
+       "cv.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/b3309c4b0fd5",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/b3309c4b0fd5/cv.pdf",
+       "file",
+       "JVBERg==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "closed": "chrome/Profile 1#200"
+     },
+     "out": {
+      "ok": true
+     },
+     "files": [
+      [
+       "cv.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/b3309c4b0fd5",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/b3309c4b0fd5/cv.pdf",
+       "file",
+       "JVBERg==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "collect": 1
+     },
+     "out": {
+      "ok": 1
+     },
+     "files": [
+      [
+       "cv.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ]
+     ]
+    },
+    {
+     "step": {
+      "closed": "chrome/Profile 1#9"
+     },
+     "out": {
+      "ok": false
+     },
+     "files": [
+      [
+       "cv.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "several_and_a_failure",
+   "steps": [
+    {
+     "step": {
+      "write": "a.txt",
+      "data": "first"
+     },
+     "out": null,
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "Zmlyc3Q="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "write": "b.txt",
+      "data": "second"
+     },
+     "out": null,
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "Zmlyc3Q="
+      ],
+      [
+       "b.txt",
+       "file",
+       "c2Vjb25k"
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage_all": {
+       "tree": "tree1",
+       "tab": "p#1",
+       "sources": [
+        {
+         "source": "a.txt"
+        },
+        {
+         "source": "b.txt"
+        }
+       ]
+      }
+     },
+     "out": {
+      "ok": [
+       "$ROOT/ws/uploads/tree1/4c88784cc083/a.txt",
+       "$ROOT/ws/uploads/tree1/01877cd2ad6d/b.txt"
+      ]
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "Zmlyc3Q="
+      ],
+      [
+       "b.txt",
+       "file",
+       "c2Vjb25k"
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/01877cd2ad6d",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/01877cd2ad6d/b.txt",
+       "file",
+       "c2Vjb25k",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree1/4c88784cc083",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4c88784cc083/a.txt",
+       "file",
+       "Zmlyc3Q=",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage_all": {
+       "tree": "tree1",
+       "tab": "p#2",
+       "sources": [
+        {
+         "source": "a.txt"
+        },
+        {
+         "source": "b.txt",
+         "sha": "before"
+        }
+       ]
+      }
+     },
+     "out": {
+      "error": "StagingFailed",
+      "message": "the file changed while FERB copied it; inspect it again"
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "Zmlyc3Q="
+      ],
+      [
+       "b.txt",
+       "file",
+       "c2Vjb25k"
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/01877cd2ad6d",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/01877cd2ad6d/b.txt",
+       "file",
+       "c2Vjb25k",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree1/4c88784cc083",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4c88784cc083/a.txt",
+       "file",
+       "Zmlyc3Q=",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "closed": "p#2"
+     },
+     "out": {
+      "ok": false
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "Zmlyc3Q="
+      ],
+      [
+       "b.txt",
+       "file",
+       "c2Vjb25k"
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/01877cd2ad6d",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/01877cd2ad6d/b.txt",
+       "file",
+       "c2Vjb25k",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree1/4c88784cc083",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4c88784cc083/a.txt",
+       "file",
+       "Zmlyc3Q=",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "forget": "tree1"
+     },
+     "out": {
+      "ok": 0
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "Zmlyc3Q="
+      ],
+      [
+       "b.txt",
+       "file",
+       "c2Vjb25k"
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/01877cd2ad6d",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/01877cd2ad6d/b.txt",
+       "file",
+       "c2Vjb25k",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree1/4c88784cc083",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4c88784cc083/a.txt",
+       "file",
+       "Zmlyc3Q=",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "closed": "p#1"
+     },
+     "out": {
+      "ok": true
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "Zmlyc3Q="
+      ],
+      [
+       "b.txt",
+       "file",
+       "c2Vjb25k"
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/01877cd2ad6d",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/01877cd2ad6d/b.txt",
+       "file",
+       "c2Vjb25k",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree1/4c88784cc083",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4c88784cc083/a.txt",
+       "file",
+       "Zmlyc3Q=",
+       420,
+       1700000000123456789
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "cleanup_names_what_it_couldnt",
+   "steps": [
+    {
+     "step": {
+      "write": "a.txt",
+      "data": "x"
+     },
+     "out": null,
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree1",
+       "source": "a.txt"
+      }
+     },
+     "out": {
+      "ok": "$ROOT/ws/uploads/tree1/9ca3718df7e2/a.txt"
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/9ca3718df7e2",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/9ca3718df7e2/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree1",
+       "source": "a.txt"
+      }
+     },
+     "out": {
+      "ok": "$ROOT/ws/uploads/tree1/d9d4815ca2ad/a.txt"
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/9ca3718df7e2",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/9ca3718df7e2/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree1/d9d4815ca2ad",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/d9d4815ca2ad/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "lock_copy": 0
+     },
+     "out": null,
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/9ca3718df7e2",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/9ca3718df7e2/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree1/d9d4815ca2ad",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/d9d4815ca2ad/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "forget": "tree1"
+     },
+     "out": {
+      "error": "CleanupLeft",
+      "message": "FERB couldn't remove $ROOT/ws/uploads/tree1/9ca3718df7e2/a.txt: Operation not permitted; $ROOT/ws/uploads/tree1/9ca3718df7e2: Directory not empty",
+      "left": [
+       "$ROOT/ws/uploads/tree1/9ca3718df7e2/a.txt: Operation not permitted",
+       "$ROOT/ws/uploads/tree1/9ca3718df7e2: Directory not empty"
+      ]
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/9ca3718df7e2",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/9ca3718df7e2/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree2",
+       "source": "a.txt"
+      }
+     },
+     "out": {
+      "ok": "$ROOT/ws/uploads/tree2/7e969c6e8daf/a.txt"
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/9ca3718df7e2",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/9ca3718df7e2/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree2",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2/7e969c6e8daf",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2/7e969c6e8daf/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "sweep": 1
+     },
+     "out": {
+      "error": "CleanupLeft",
+      "message": "FERB couldn't remove $ROOT/ws/uploads/tree1/9ca3718df7e2/a.txt: Operation not permitted; $ROOT/ws/uploads/tree1/9ca3718df7e2: Directory not empty; $ROOT/ws/uploads/tree1: Directory not empty",
+      "left": [
+       "$ROOT/ws/uploads/tree1/9ca3718df7e2/a.txt: Operation not permitted",
+       "$ROOT/ws/uploads/tree1/9ca3718df7e2: Directory not empty",
+       "$ROOT/ws/uploads/tree1: Directory not empty"
+      ]
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/9ca3718df7e2",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/9ca3718df7e2/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "unlock": 1
+     },
+     "out": null,
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/9ca3718df7e2",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/9ca3718df7e2/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "sweep": 1
+     },
+     "out": {
+      "ok": 1
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "link_at_the_copys_name",
+   "steps": [
+    {
+     "step": {
+      "write": "cv.pdf",
+      "data": "%PDF the owner's cv"
+     },
+     "out": null,
+     "files": [
+      [
+       "cv.pdf",
+       "file",
+       "JVBERiB0aGUgb3duZXIncyBjdg=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "mkdir": "Documents"
+     },
+     "out": null,
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "cv.pdf",
+       "file",
+       "JVBERiB0aGUgb3duZXIncyBjdg=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "race": "plant_link"
+     },
+     "out": null,
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "cv.pdf",
+       "file",
+       "JVBERiB0aGUgb3duZXIncyBjdg=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree1",
+       "source": "cv.pdf"
+      }
+     },
+     "out": {
+      "error": "StagingFailed",
+      "message": "$ROOT/ws/uploads/tree1/ac583114e21a/cv.pdf was already taken (a link or a file put there); nothing was copied"
+     },
+     "files": [
+      [
+       "Documents",
+       "dir",
+       493
+      ],
+      [
+       "cv.pdf",
+       "file",
+       "JVBERiB0aGUgb3duZXIncyBjdg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "link_swapped_in_after_the_copy",
+   "steps": [
+    {
+     "step": {
+      "write": "cv.pdf",
+      "data": "%PDF the owner's cv"
+     },
+     "out": null,
+     "files": [
+      [
+       "cv.pdf",
+       "file",
+       "JVBERiB0aGUgb3duZXIncyBjdg=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "write": "elsewhere.pdf",
+      "data": "%PDF the owner's cv"
+     },
+     "out": null,
+     "files": [
+      [
+       "cv.pdf",
+       "file",
+       "JVBERiB0aGUgb3duZXIncyBjdg=="
+      ],
+      [
+       "elsewhere.pdf",
+       "file",
+       "JVBERiB0aGUgb3duZXIncyBjdg=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "race": "swap_after"
+     },
+     "out": null,
+     "files": [
+      [
+       "cv.pdf",
+       "file",
+       "JVBERiB0aGUgb3duZXIncyBjdg=="
+      ],
+      [
+       "elsewhere.pdf",
+       "file",
+       "JVBERiB0aGUgb3duZXIncyBjdg=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree1",
+       "source": "cv.pdf"
+      }
+     },
+     "out": {
+      "error": "StagingFailed",
+      "message": "$ROOT/ws/uploads/tree1/81fa66dcef2f/cv.pdf no longer names FERB's copy (one of its folders was replaced)"
+     },
+     "files": [
+      [
+       "cv.pdf",
+       "file",
+       "JVBERiB0aGUgb3duZXIncyBjdg=="
+      ],
+      [
+       "elsewhere.pdf",
+       "file",
+       "JVBERiB0aGUgb3duZXIncyBjdg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "closing_a_tab_asks_for_a_collect",
+   "steps": [
+    {
+     "step": {
+      "write": "a.txt",
+      "data": "x"
+     },
+     "out": null,
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree1",
+       "source": "a.txt",
+       "tab": "p#1"
+      }
+     },
+     "out": {
+      "ok": "$ROOT/ws/uploads/tree1/7ebd2f9fbc4c/a.txt"
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/7ebd2f9fbc4c",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/7ebd2f9fbc4c/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree2",
+       "source": "a.txt",
+       "tab": "p#2"
+      }
+     },
+     "out": {
+      "ok": "$ROOT/ws/uploads/tree2/a277f14846f7/a.txt"
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/7ebd2f9fbc4c",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/7ebd2f9fbc4c/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree2",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2/a277f14846f7",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2/a277f14846f7/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "forget": "tree1"
+     },
+     "out": {
+      "ok": 0
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/7ebd2f9fbc4c",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/7ebd2f9fbc4c/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree2",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2/a277f14846f7",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2/a277f14846f7/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "closed": "p#9"
+     },
+     "out": {
+      "ok": false
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/7ebd2f9fbc4c",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/7ebd2f9fbc4c/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree2",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2/a277f14846f7",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2/a277f14846f7/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "closed": "p#2"
+     },
+     "out": {
+      "ok": false
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/7ebd2f9fbc4c",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/7ebd2f9fbc4c/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree2",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2/a277f14846f7",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2/a277f14846f7/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "closed": "p#1"
+     },
+     "out": {
+      "ok": true
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/7ebd2f9fbc4c",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/7ebd2f9fbc4c/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree2",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2/a277f14846f7",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2/a277f14846f7/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "collect": 1
+     },
+     "out": {
+      "ok": 1
+     },
+     "files": [
+      [
+       "a.txt",
+       "file",
+       "eA=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2/a277f14846f7",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree2/a277f14846f7/a.txt",
+       "file",
+       "eA==",
+       420,
+       1700000000123456789
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "no_clone_a_byte_copy",
+   "steps": [
+    {
+     "step": {
+      "write": "cv.pdf",
+      "data": "%PDF",
+      "mode": 416
+     },
+     "out": null,
+     "files": [
+      [
+       "cv.pdf",
+       "file",
+       "JVBERg=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "race": "no_clone"
+     },
+     "out": null,
+     "files": [
+      [
+       "cv.pdf",
+       "file",
+       "JVBERg=="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "stage": {
+       "tree": "tree1",
+       "source": "cv.pdf"
+      }
+     },
+     "out": {
+      "ok": "$ROOT/ws/uploads/tree1/409336978e42/cv.pdf"
+     },
+     "files": [
+      [
+       "cv.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/409336978e42",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/409336978e42/cv.pdf",
+       "file",
+       "JVBERg==",
+       416,
+       1700000000123456789
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "identity_then_copy_with_the_lists_check",
+   "steps": [
+    {
+     "step": {
+      "write": "home/docs/cv.pdf",
+      "data": "%PDF mine"
+     },
+     "out": null,
+     "files": [
+      [
+       "home",
+       "dir",
+       493
+      ],
+      [
+       "home/docs",
+       "dir",
+       493
+      ],
+      [
+       "home/docs/cv.pdf",
+       "file",
+       "JVBERiBtaW5l"
+      ]
+     ]
+    },
+    {
+     "step": {
+      "write": "home/.ferb/run/cv.pdf",
+      "data": "secret-token"
+     },
+     "out": null,
+     "files": [
+      [
+       "home",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run/cv.pdf",
+       "file",
+       "c2VjcmV0LXRva2Vu"
+      ],
+      [
+       "home/docs",
+       "dir",
+       493
+      ],
+      [
+       "home/docs/cv.pdf",
+       "file",
+       "JVBERiBtaW5l"
+      ]
+     ]
+    },
+    {
+     "step": {
+      "write": "home/notes.txt",
+      "data": "my notes"
+     },
+     "out": null,
+     "files": [
+      [
+       "home",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run/cv.pdf",
+       "file",
+       "c2VjcmV0LXRva2Vu"
+      ],
+      [
+       "home/docs",
+       "dir",
+       493
+      ],
+      [
+       "home/docs/cv.pdf",
+       "file",
+       "JVBERiBtaW5l"
+      ],
+      [
+       "home/notes.txt",
+       "file",
+       "bXkgbm90ZXM="
+      ]
+     ]
+    },
+    {
+     "step": {
+      "sources": {
+       "paths": [
+        "home/notes.txt",
+        "home/docs/cv.pdf"
+       ],
+       "tree": "tree1",
+       "tab": "p#7"
+      }
+     },
+     "out": {
+      "ok": {
+       "identities": [
+        {
+         "path": "$ROOT/home/notes.txt",
+         "size": 8,
+         "modified_ns": 1700000000123456789,
+         "sha256": "f30ac2b5a20b28a0d9c367c2efb6369bc02fbe48604e4473b3c9fe259483f912",
+         "owner_uid": "$UID"
+        },
+        {
+         "path": "$ROOT/home/docs/cv.pdf",
+         "size": 9,
+         "modified_ns": 1700000000123456789,
+         "sha256": "6bd9bed7864a55c4ff43708bdd2520423e606996252620adbd60cd843e65b8ff",
+         "owner_uid": "$UID"
+        }
+       ],
+       "given": [
+        "$ROOT/ws/uploads/tree1/4fd9f82eb0fc/notes.txt",
+        "$ROOT/ws/uploads/tree1/e233ece83623/cv.pdf"
+       ]
+      }
+     },
+     "files": [
+      [
+       "home",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run/cv.pdf",
+       "file",
+       "c2VjcmV0LXRva2Vu"
+      ],
+      [
+       "home/docs",
+       "dir",
+       493
+      ],
+      [
+       "home/docs/cv.pdf",
+       "file",
+       "JVBERiBtaW5l"
+      ],
+      [
+       "home/notes.txt",
+       "file",
+       "bXkgbm90ZXM="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4fd9f82eb0fc",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4fd9f82eb0fc/notes.txt",
+       "file",
+       "bXkgbm90ZXM=",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree1/e233ece83623",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/e233ece83623/cv.pdf",
+       "file",
+       "JVBERiBtaW5l",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "rmtree": "home/docs"
+     },
+     "out": null,
+     "files": [
+      [
+       "home",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run/cv.pdf",
+       "file",
+       "c2VjcmV0LXRva2Vu"
+      ],
+      [
+       "home/notes.txt",
+       "file",
+       "bXkgbm90ZXM="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4fd9f82eb0fc",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4fd9f82eb0fc/notes.txt",
+       "file",
+       "bXkgbm90ZXM=",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree1/e233ece83623",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/e233ece83623/cv.pdf",
+       "file",
+       "JVBERiBtaW5l",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "symlink": [
+       "home/docs",
+       "$ROOT/home/.ferb/run"
+      ]
+     },
+     "out": null,
+     "files": [
+      [
+       "home",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run/cv.pdf",
+       "file",
+       "c2VjcmV0LXRva2Vu"
+      ],
+      [
+       "home/docs",
+       "link",
+       "$ROOT/home/.ferb/run"
+      ],
+      [
+       "home/notes.txt",
+       "file",
+       "bXkgbm90ZXM="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4fd9f82eb0fc",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4fd9f82eb0fc/notes.txt",
+       "file",
+       "bXkgbm90ZXM=",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree1/e233ece83623",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/e233ece83623/cv.pdf",
+       "file",
+       "JVBERiBtaW5l",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "sources": {
+       "paths": [
+        "home/docs/cv.pdf"
+       ],
+       "tree": "tree1",
+       "tab": "p#7"
+      }
+     },
+     "out": {
+      "error": "Refused",
+      "message": "closed by ferb_state"
+     },
+     "files": [
+      [
+       "home",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run/cv.pdf",
+       "file",
+       "c2VjcmV0LXRva2Vu"
+      ],
+      [
+       "home/docs",
+       "link",
+       "$ROOT/home/.ferb/run"
+      ],
+      [
+       "home/notes.txt",
+       "file",
+       "bXkgbm90ZXM="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4fd9f82eb0fc",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4fd9f82eb0fc/notes.txt",
+       "file",
+       "bXkgbm90ZXM=",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree1/e233ece83623",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/e233ece83623/cv.pdf",
+       "file",
+       "JVBERiBtaW5l",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "write": "locked.pdf",
+      "data": "%PDF",
+      "mode": 0
+     },
+     "out": null,
+     "files": [
+      [
+       "home",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run/cv.pdf",
+       "file",
+       "c2VjcmV0LXRva2Vu"
+      ],
+      [
+       "home/docs",
+       "link",
+       "$ROOT/home/.ferb/run"
+      ],
+      [
+       "home/notes.txt",
+       "file",
+       "bXkgbm90ZXM="
+      ],
+      [
+       "locked.pdf",
+       "file",
+       null
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4fd9f82eb0fc",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4fd9f82eb0fc/notes.txt",
+       "file",
+       "bXkgbm90ZXM=",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree1/e233ece83623",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/e233ece83623/cv.pdf",
+       "file",
+       "JVBERiBtaW5l",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "sources": {
+       "paths": [
+        "locked.pdf"
+       ],
+       "tree": "tree1",
+       "tab": "p#7"
+      }
+     },
+     "out": {
+      "error": "Refused",
+      "message": "FERB can't read the file to upload ($ROOT/locked.pdf: Permission denied); nothing was given to the browser"
+     },
+     "files": [
+      [
+       "home",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run/cv.pdf",
+       "file",
+       "c2VjcmV0LXRva2Vu"
+      ],
+      [
+       "home/docs",
+       "link",
+       "$ROOT/home/.ferb/run"
+      ],
+      [
+       "home/notes.txt",
+       "file",
+       "bXkgbm90ZXM="
+      ],
+      [
+       "locked.pdf",
+       "file",
+       null
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4fd9f82eb0fc",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4fd9f82eb0fc/notes.txt",
+       "file",
+       "bXkgbm90ZXM=",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree1/e233ece83623",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/e233ece83623/cv.pdf",
+       "file",
+       "JVBERiBtaW5l",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "chmod": [
+       "locked.pdf",
+       384
+      ]
+     },
+     "out": null,
+     "files": [
+      [
+       "home",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run/cv.pdf",
+       "file",
+       "c2VjcmV0LXRva2Vu"
+      ],
+      [
+       "home/docs",
+       "link",
+       "$ROOT/home/.ferb/run"
+      ],
+      [
+       "home/notes.txt",
+       "file",
+       "bXkgbm90ZXM="
+      ],
+      [
+       "locked.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4fd9f82eb0fc",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4fd9f82eb0fc/notes.txt",
+       "file",
+       "bXkgbm90ZXM=",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree1/e233ece83623",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/e233ece83623/cv.pdf",
+       "file",
+       "JVBERiBtaW5l",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "sources": {
+       "paths": [
+        "missing.pdf"
+       ],
+       "tree": "tree1",
+       "tab": "p#7"
+      }
+     },
+     "out": {
+      "error": "Refused",
+      "message": "no such file to upload: $ROOT/missing.pdf"
+     },
+     "files": [
+      [
+       "home",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run/cv.pdf",
+       "file",
+       "c2VjcmV0LXRva2Vu"
+      ],
+      [
+       "home/docs",
+       "link",
+       "$ROOT/home/.ferb/run"
+      ],
+      [
+       "home/notes.txt",
+       "file",
+       "bXkgbm90ZXM="
+      ],
+      [
+       "locked.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4fd9f82eb0fc",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4fd9f82eb0fc/notes.txt",
+       "file",
+       "bXkgbm90ZXM=",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree1/e233ece83623",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/e233ece83623/cv.pdf",
+       "file",
+       "JVBERiBtaW5l",
+       420,
+       1700000000123456789
+      ]
+     ]
+    },
+    {
+     "step": {
+      "sources": {
+       "paths": [
+        "home/notes.txt"
+       ],
+       "tree": "../x",
+       "tab": "p#7"
+      }
+     },
+     "out": {
+      "error": "Refused",
+      "message": "FERB couldn't make its own copy of the file to upload (no task owns this tab, so FERB has nowhere to keep its copy); nothing was given to the browser"
+     },
+     "files": [
+      [
+       "home",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run",
+       "dir",
+       493
+      ],
+      [
+       "home/.ferb/run/cv.pdf",
+       "file",
+       "c2VjcmV0LXRva2Vu"
+      ],
+      [
+       "home/docs",
+       "link",
+       "$ROOT/home/.ferb/run"
+      ],
+      [
+       "home/notes.txt",
+       "file",
+       "bXkgbm90ZXM="
+      ],
+      [
+       "locked.pdf",
+       "file",
+       "JVBERg=="
+      ],
+      [
+       "ws",
+       "dir",
+       493
+      ],
+      [
+       "ws/uploads",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4fd9f82eb0fc",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/4fd9f82eb0fc/notes.txt",
+       "file",
+       "bXkgbm90ZXM=",
+       420,
+       1700000000123456789
+      ],
+      [
+       "ws/uploads/tree1/e233ece83623",
+       "dir",
+       448
+      ],
+      [
+       "ws/uploads/tree1/e233ece83623/cv.pdf",
+       "file",
+       "JVBERiBtaW5l",
+       420,
+       1700000000123456789
+      ]
+     ]
+    }
+   ]
+  }
+ ]
+}

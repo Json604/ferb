@@ -658,3 +658,140 @@ an archive: "yes ofc , tahts what i want". Only the owner and one friend run the
 - FERB.app may change with the Rust release. So the finding in entry 29 (the app recognizes a checkout's service by
   Python arguments) is closed by a one-line change in the app, not by a marker in the Rust service definition.
   ENG-1's "FERB.app unchanged" stays the rule for verifying the port, not a rule for the release.
+
+## 2026-11-13 · 32 · Memory: items, profile, learning, distill, playbooks, the import job
+
+**What.** `ferb-learning` ports the rest of `ferb/memory`: the shared save path and forget (`items.py`), the core
+profile, learned nodes and episode cards, the daily summary and distill, playbooks, the Mac profile, the import
+job, the journal, questions, export, the upgrade steps and the `memory.learned` tool. Model calls go through the
+runtime trait with prompts composed byte for byte. The pure parts build for iOS and Android.
+
+**Evidence.** `rust/fixtures/learning/make.py` runs the Python code in a temp home with a fake clock, sequential
+ids and a scripted model: 15 scenarios (536 steps) comparing returns, events, composed prompts and every changed
+table; 1,167 pure cases; the distill failing at each of its 28 writes and run again; the import failing at each of
+its 116 writes and resumed. None differ apart from the fix. 8 test groups pass, re-run by the coordinator.
+
+**Fixed against Python.** Import writes are atomic (`import_job.py:186-190`): a chunk's source row, saved facts,
+done marks and progress commit together, and so do a run's closing writes. A restart at any write ends exactly as
+the uninterrupted run does. Python's own restarts lost or doubled work in 64 of the 116 cases.
+
+**Open.**
+- `card_reader.py` (the separate reader process with its home check, MEM-418) is not ported. The Rust daemon can
+  read cards on a read-only connection; whether a separate process is still wanted is decided with the daemon.
+- Not checked: the dashboard's request rules, the embedder path of `Learning.search`, the daemon's redactor walk,
+  the runtime's `retrying` event.
+- Jev's "worth keeping" branch in distill is left out (Jev is off).
+- Where Python iterates a set, Rust uses sorted order (the `on_joined` id list, `rollback` and `due` updates).
+- The runtime trait has no `limits` or `model`; `calls::Made` carries them (to fold into `ferb-core` with the
+  supervisor port).
+- T-1044 (the owner's open question on retry limits) is untouched: the hourly retry and the two-failure card rule
+  are ported as they are.
+
+## 2026-11-13 · 33 · Orchestration's building blocks
+
+**What.** `ferb-orchestrator` ports everything in `ferb/orchestrator` except `supervisor.py` and `worker.py`, plus
+`ferb/decide`: the answer models (`SupervisorOutcome`, `TaskSpec`, `WorkerReport`, `CheckerOutcome`) with
+pydantic's validation and exact error text; plans, the plan store and executor, parts, the task tree, the ledger,
+continuity, conversations; loops and steering; evidence, verification, cards, attention, episodes; answer marks,
+the reply stream, progress lines, probes. Everything owned by another part is a trait in `ports.rs`. The crate
+builds for iOS; store-backed modules sit behind a feature.
+
+**Why.** These bytes reach models, the app and the store (ENG-3), and the supervisor port is built on them.
+
+**Evidence.** `rust/fixtures/orchestrator`: 5,372 model answers, valid and invalid (1,222 for `SupervisorOutcome`,
+1,000 each for the other three), 2,803 composed-text cases, 513 store comparisons; none differ. 6 test groups pass,
+re-run by the coordinator.
+
+**Fixed against Python.** `probes.field_value` on a path with a non-decimal digit (`media.²`) raised ValueError
+and crashed the probe read; Rust reads it as missing, so the probe trips.
+
+**Open.**
+- Not started: `MemoryRead` (now possible: the memory items part landed in entry 32); `steering.apply` as one
+  function and `ExecutionState` (they are supervisor and gateway state).
+- Unverified: `guards`, `stop`, steering's helpers, the evidence-capture path of `task.evidence`,
+  `episodes::record`, the real fused search of `chat.history`.
+- For the supervisor port: some malformed legacy answers raise TypeError or AttributeError in Python and escape the
+  supervisor's `except ValidationError`. Rust marks them `raised()`; they must be handled as Python's crash path
+  is, or fixed by name under ENG-6, not treated as an ordinary repair.
+- Policy is a seam here; `ferb-policy` has no `site_key`, which the tests supply themselves.
+- Helpers copied from `ferb-trace` and `ferb-sanitize` belong in `ferb-py`.
+
+## 2026-11-13 · 34 · The gateway, first half (not yet a workspace member)
+
+**What.** `ferb-gateway`: the tool catalog served from the frozen schemas, pydantic-exact argument checks,
+admission, pending questions, ordered locks, stop, and the full `Gateway::call` pipeline on the store: the needs,
+authorize (first answer wins, an explicit No is final, the 30-minute window, standing scopes, one-run Yeses), the
+question cards, `owner.ask`, the undelivered result, the URL and form sinks, refused fills, tab-chain payments and
+sending a missing amount back once. One `Tool` trait and registry, with adapters for `ferb-fs` and `ferb-clock` as
+worked examples.
+
+**Evidence.** All 23 listings and 97 tool rows byte for byte against the frozen catalog; 627 validation replies
+plus 5 pre-validation refusals; `rust/fixtures/gateway/make.py` runs 45 scenarios through the real Python
+`Gateway`, comparing every reply, event, question card, journal entry and table: none differ. 8 recorded daemon
+file calls replay identically. 19 tests pass (run by the porting agent; the crate stays outside the workspace
+until its second half lands).
+
+**Fixed against Python.**
+- `browser.pdf`, `ferb_browser.pdf` and `audio.listen` left a `ValueError` in the reply so it could not be
+  serialized; the reply is now the error's text.
+- A file's `mtime_ns` was redacted as a card number about one time in ten: file tools now declare the numbers they
+  measured themselves, and the gateway leaves numbers at those places out of redaction. Text in the same result is
+  still redacted. The rule is structural (where the number came from), not a list of field names.
+
+**Open (a second agent is on these).** Hidden input (`hidden_input.py`) is not ported. No fixture is behind: the
+escape hatch, the terminal's one Return, GATE-580's press-time re-check, pay pictures, probes,
+`destination_allowed`. The real call hooks are a no-op seam. Redaction marks are not carried, so FERB's own text
+may be redacted twice. The scenario test uses a fixed folder under `/tmp`.
+
+## 2026-11-13 · 35 · Mac hands
+
+**What.** `ferb-mac-hands` ports `ferb/act/mac`, `listen.py`, `recording.py`, `point.py`, the locks, the
+after-action read, evidence, `ferb/device/permissions.py`, autorelease and `ferb/sanitize/images.py`: the 17
+`mac.*`, `audio.listen` and `recording.*` tools. Pure logic builds anywhere; Apple calls are in `native/` (AX,
+window list, ScreenCaptureKit, Vision, CGEvent and the optional SkyLight route by `dlopen`, pasteboard,
+permission probes by raw FFI), each `unsafe` with its reason.
+
+**Evidence.** About 600 pure cases (key combos, gestures, window and page masks, OCR region rules, the AX walk)
+and 8 driver scenarios on the Python tests' own fakes (108 steps compared): none differ. Declarations match the
+frozen catalog for all 17 tools. 20 tests pass, re-run by the coordinator.
+
+**Fixed against Python.** `type_steps` gave a code-point count as the UTF-16 length, so a character outside the
+BMP (an emoji) was sent as a lone surrogate; Rust sends the whole character.
+
+**Open.**
+- **The native layer has only been compiled.** It has never run against a real app. Four read-only tests exist and
+  were not run (one reads the TCC database outside a temp folder). Real clicks, keys, captures and permissions are
+  proven only by the owner on an installed build.
+- Not fixture-checked: the run paths of `mac.open`, `mac.applescript`, `mac.secret`, `mac.record`,
+  `mac.clipboard`, `audio.listen`, `recording.stop`/`inspect`.
+- Not started: the native run-loop threads for AX observers and event taps here (perception has its own),
+  `record_done`, `grant_target`, `open_pane`.
+- Differences: the recording review sheet draws no time labels; a window name in Unicode digits returns nothing
+  where Python raises; `accessBehavior` is not guarded for macOS older than 15.4.
+
+## 2026-11-13 · 36 · Browser hands: downloads, upload copies, the Mac profile lookups
+
+**What.** `ferb-browser` adds `downloads` (transfers, the per-tree budget shared with the shell, the disk floor,
+the over-cap fact, sweep, cleanup), `staging` (upload copies through folder handles, with the source's identity
+checked so a file swapped mid-copy is refused) and `macos` (Launch Services, `pgrep`, free space). pdf, record,
+pair, handoff and the cursor point are now verified at the tool level. `ferb-identity`'s mailbox takes an injected
+random source, so tokens match Python in tests.
+
+**Evidence.** New fixtures: 21 upload scenarios (133 steps, including the link and folder-swap races), 18
+download scenarios (245 steps), a 41-action tool transcript, Mac profile lookups on a fake platform. None differ
+except the named fix. 36 browser tests pass. Whole workspace, run by the coordinator: 452 tests pass, 11 ignored;
+format and clippy clean; the portable check passes.
+
+**Fixed against Python.** In the unsupported-browser scan, an Info.plist holding a number where a list belongs
+raised TypeError and broke the whole scan.
+
+**Open.**
+- The over-cap question itself (its text and the rule for asking again) is the daemon's code and not ported; only
+  the fact is.
+- Two tabs downloading at once: the order of calls and events is compared as a set, since the two schedulers
+  differ; rows and outcome match exactly.
+- The fixture folder is 3.85 MB. Never run against a real browser; `launch_detached` has never run.
+
+**Process note.** This follow-up worked inside a crate that was already a workspace member, and its half-edited
+files failed the tree-wide format check, which held four finished ports out of a commit for about an hour. A
+follow-up on a member crate now works on a copy, or the crate leaves `members` while it is edited.

@@ -9,7 +9,7 @@
 //! read. The bytes go nowhere else: no copy on disk, nothing logged.
 //!
 //! Seams: [`Files`] (opening and reading the files: [`unix::UnixFiles`] on the Mac), and the daemon's
-//! `uploads.Uploads` staging ([`crate::ops::Staging`], rule 17's copies: not ported here).
+//! `uploads.Uploads` staging ([`crate::ops::Staging`], rule 17's copies: [`crate::staging::Uploads`]).
 
 use std::sync::Arc;
 

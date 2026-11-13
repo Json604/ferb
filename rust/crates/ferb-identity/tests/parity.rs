@@ -384,3 +384,51 @@ fn the_mail_inventory_matches_python() {
         }
     }
 }
+
+/// The candidates' tokens come from the random source given (a replayed run's), and a source that
+/// gives nothing makes the inventory unavailable, as Python's `token_urlsafe` raising would.
+#[test]
+fn candidate_tokens_come_from_the_injected_random_source() {
+    use ferb_identity::mailbox::TokenRandom;
+    struct Fixed(std::sync::Mutex<u8>, bool);
+    impl TokenRandom for Fixed {
+        fn fill(&self, buf: &mut [u8]) -> bool {
+            let mut n = self.0.lock().unwrap();
+            *n += 1;
+            buf.fill(*n);
+            self.1
+        }
+    }
+    let feed = "<feed xmlns=\"http://purl.org/atom/ns#\" version=\"0.3\"><title>Gmail - Inbox for ferb@example.test</title>\
+<entry><title>Code</title><summary>Your code is 482913 or 1234</summary><id>tag:m1</id>\
+<issued>2026-01-01T09:00:00Z</issued><author><name>A</name><email>a@example.test</email></author></entry></feed>";
+    let mut mailbox = GmailFeedMailbox::with_random(
+        "ferb@example.test",
+        FEED_URL,
+        std::sync::Arc::new(Fixed(std::sync::Mutex::new(0), true)),
+    );
+    let shown = mailbox.candidates(feed);
+    let tokens: Vec<&str> = shown["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["candidate"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        tokens,
+        [
+            ferb_identity::py::b64encode_urlsafe_nopad(&[1; 18]),
+            ferb_identity::py::b64encode_urlsafe_nopad(&[2; 18]),
+        ]
+    );
+    assert_eq!(mailbox.take(tokens[0]).unwrap().code.expose(), "482913");
+    let mut broken = GmailFeedMailbox::with_random(
+        "ferb@example.test",
+        FEED_URL,
+        std::sync::Arc::new(Fixed(std::sync::Mutex::new(0), false)),
+    );
+    assert_eq!(
+        broken.candidates(feed),
+        json!({"available": false, "reason": "feed_unavailable", "candidates": []})
+    );
+}

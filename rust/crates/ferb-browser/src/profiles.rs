@@ -3,9 +3,9 @@
 //! a profile's settings) and `resolver.py` (the profile a task's words name; decisions: HAND-2,
 //! HAND-407, HAND-412, HAND-414, HAND-416, HAND-424).
 //!
-//! Seams: [`Platform`] (Launch Services: whether a browser's app is installed and where its
-//! executable is; whether it runs; starting it). Files are read with `std::fs` under the folders
-//! given.
+//! Seams: [`Platform`] (Launch Services: whether a browser's app is installed, where its executable
+//! is, which apps open https links; whether a program runs). The Mac's implementation is
+//! [`crate::mac_profiles::MacPlatform`]. Files are read with `std::fs` under the folders given.
 
 use std::path::{Path, PathBuf};
 
@@ -199,10 +199,244 @@ fn titlecase(c: char) -> String {
     c.to_uppercase().collect()
 }
 
-/// What the Mac tells about browsers (Launch Services, processes): the platform's part.
+/// What the Mac tells about browsers (Launch Services, processes): the platform's part. The
+/// methods after `has_app` default to "can't be asked" (Python's PyObjC-missing path).
 pub trait Platform: Send + Sync {
     /// `_app_installed`: Launch Services knows an app with this bundle id, not in a Trash.
     fn has_app(&self, bundle_id: &str) -> bool;
+    /// `_launch_services` (`locate`): the executable of the app Launch Services knows for this
+    /// bundle id; `Ok(None)` when it knows none, `Err` when it can't be asked.
+    fn locate(&self, _bundle_id: &str) -> std::result::Result<Option<PathBuf>, String> {
+        Err("Launch Services isn't available".into())
+    }
+    /// `_https_handlers` (`handlers`): every app bundle Launch Services lists as opening https
+    /// links; `Err` when it can't be asked.
+    fn https_handlers(&self) -> std::result::Result<Vec<PathBuf>, String> {
+        Err("Launch Services isn't available".into())
+    }
+    /// `pgrep -f <pattern>` exits 0: a process's full command line matches the extended regex.
+    fn pgrep(&self, _pattern: &str) -> bool {
+        false
+    }
+}
+
+/// `_app_installed`'s check of the bundle Launch Services named: a folder, in no Trash.
+pub fn app_path_ok(path: &Path) -> bool {
+    path.is_dir() && !path.components().any(|c| c.as_os_str() == ".Trash")
+}
+
+/// `Browser.binary`'s memory (`_located`): each browser's executable, found by bundle id through
+/// Launch Services (HAND-247), remembered while it is there.
+#[derive(Default)]
+pub struct Binaries {
+    located: std::sync::Mutex<std::collections::HashMap<String, PathBuf>>,
+}
+
+impl Binaries {
+    /// `Browser.binary`: the executable Launch Services knows (remembered while it is a file);
+    /// `/Applications/<app>.app/Contents/MacOS/<app>` when it knows none or can't be asked.
+    pub fn binary(&self, platform: &dyn Platform, b: &Browser) -> String {
+        let mut located = self
+            .located
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(known) = located.get(b.bundle_id) {
+            if known.is_file() {
+                return known.to_string_lossy().into_owned();
+            }
+        }
+        located.remove(b.bundle_id);
+        match platform.locate(b.bundle_id) {
+            Ok(Some(found)) => {
+                let out = found.to_string_lossy().into_owned();
+                located.insert(b.bundle_id.to_string(), found);
+                out
+            }
+            _ => format!("/Applications/{0}.app/Contents/MacOS/{0}", b.app),
+        }
+    }
+}
+
+/// Python's `re.escape`: a backslash before each of `()[]{}?*+-|^$\.&~#`, space, tab, CR, LF, VT and FF.
+pub fn re_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if "()[]{}?*+-|^$\\.&~# \t\n\r\x0b\x0c".contains(c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// `running`'s pattern: the browser's own binary as the start of a command line (`pgrep -x`
+/// would match only a 16-character process name).
+pub fn running_pattern(binary: &str) -> String {
+    format!("^{}( |$)", re_escape(binary))
+}
+
+/// `running`: whether that browser's own binary runs.
+pub fn running(platform: &dyn Platform, binaries: &Binaries, key: &str) -> bool {
+    browser(key).is_some_and(|b| platform.pgrep(&running_pattern(&binaries.binary(platform, b))))
+}
+
+/// `CHROMIUM_EXTENSION_TYPE`: Chromium's own file type for an extension package, which every
+/// Chromium-built browser's Info.plist declares (Electron apps don't).
+pub const CHROMIUM_EXTENSION_TYPE: &str = "org.chromium.extension";
+
+/// `_info`: an app's Info.plist (XML or binary), `{}` when it can't be read or isn't a dictionary.
+pub fn read_info(app: &Path) -> plist::Dictionary {
+    match plist::Value::from_file(app.join("Contents").join("Info.plist")) {
+        Ok(plist::Value::Dictionary(d)) => d,
+        _ => plist::Dictionary::new(),
+    }
+}
+
+/// A plist scalar as Python holds it (for `str()`, truthiness and `==`); `None` for an array, a
+/// dictionary, data or a date.
+fn scalar(v: &plist::Value) -> Option<Value> {
+    Some(match v {
+        plist::Value::String(s) => Value::from(s.as_str()),
+        plist::Value::Boolean(b) => Value::from(*b),
+        plist::Value::Integer(i) => match i.as_signed() {
+            Some(n) => Value::from(n),
+            None => Value::from(i.as_unsigned()?),
+        },
+        plist::Value::Real(f) => Value::from(*f),
+        _ => return None,
+    })
+}
+
+fn plist_truthy(v: &plist::Value) -> bool {
+    match v {
+        plist::Value::Array(a) => !a.is_empty(),
+        plist::Value::Dictionary(d) => !d.is_empty(),
+        plist::Value::Data(d) => !d.is_empty(),
+        plist::Value::Date(_) => true,
+        other => scalar(other).is_some_and(|s| ferb_py::value::truthy(&s)),
+    }
+}
+
+/// What Python's `for x in (value or [])` walks: an array's items, a dictionary's keys, a string's
+/// characters, data's bytes. A truthy number, boolean or date isn't iterable (Python's TypeError,
+/// which broke the whole scan): fixed against Python, it walks nothing.
+fn iterate(v: Option<&plist::Value>) -> Vec<plist::Value> {
+    let Some(v) = v.filter(|v| plist_truthy(v)) else {
+        return vec![];
+    };
+    match v {
+        plist::Value::Array(a) => a.clone(),
+        plist::Value::Dictionary(d) => d.keys().map(|k| plist::Value::from(k.as_str())).collect(),
+        plist::Value::String(s) => s
+            .chars()
+            .map(|c| plist::Value::from(c.to_string()))
+            .collect(),
+        plist::Value::Data(d) => d
+            .iter()
+            .map(|b| plist::Value::from(u64::from(*b)))
+            .collect(),
+        _ => vec![],
+    }
+}
+
+/// `chromium_family`: a structural fact from an app's Info.plist: it declares Chromium's extension
+/// file type (exported or imported), or opens it.
+pub fn chromium_family(info: &plist::Dictionary) -> bool {
+    let is_type = |v: &plist::Value| v.as_string() == Some(CHROMIUM_EXTENSION_TYPE);
+    for key in ["UTExportedTypeDeclarations", "UTImportedTypeDeclarations"] {
+        for t in iterate(info.get(key)) {
+            if let plist::Value::Dictionary(t) = t {
+                if t.get("UTTypeIdentifier").is_some_and(is_type) {
+                    return true;
+                }
+            }
+        }
+    }
+    for d in iterate(info.get("CFBundleDocumentTypes")) {
+        if let plist::Value::Dictionary(d) = d {
+            if iterate(d.get("LSItemContentTypes")).iter().any(is_type) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// `str(value or "")` for an Info.plist value; `None` when Python would write the `repr` of an
+/// array, dictionary, data or date (such an app is skipped: not reproduced).
+fn plist_text(v: Option<&plist::Value>) -> Option<String> {
+    match v.filter(|v| plist_truthy(v)) {
+        None => Some(String::new()),
+        Some(v) => scalar(v).map(|s| ferb_py::value::py_str(&s)),
+    }
+}
+
+/// `Path.stem`.
+fn stem(path: &Path) -> String {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    match name.rfind('.') {
+        Some(i) if i > 0 && i < name.len() - 1 => name[..i].to_string(),
+        _ => name,
+    }
+}
+
+/// An installed Chromium-family browser FERB doesn't know (HAND-415).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Unsupported {
+    pub app: String,
+    pub bundle_id: String,
+}
+
+/// `unsupported` (HAND-415): each installed app macOS lists as opening https links that is a
+/// Chromium-family browser [`BROWSERS`] doesn't know, by name. Read only; no list: none.
+pub fn unsupported(platform: &dyn Platform) -> Vec<Unsupported> {
+    let fold = ferb_sanitize::parity::casefold;
+    let known: Vec<String> = BROWSERS.iter().map(|b| fold(b.bundle_id)).collect();
+    let Ok(apps) = platform.https_handlers() else {
+        return vec![];
+    };
+    let mut out: Vec<(String, Unsupported)> = vec![];
+    for app in apps {
+        if app.components().any(|c| c.as_os_str() == ".Trash") {
+            continue;
+        }
+        let info = read_info(&app);
+        let Some(ident) = plist_text(info.get("CFBundleIdentifier")) else {
+            continue;
+        };
+        let key = fold(&ident);
+        if ident.is_empty()
+            || known.contains(&key)
+            || out.iter().any(|(k, _)| *k == key)
+            || !chromium_family(&info)
+        {
+            continue;
+        }
+        let shown = [info.get("CFBundleDisplayName"), info.get("CFBundleName")]
+            .into_iter()
+            .find(|v| v.is_some_and(plist_truthy))
+            .flatten();
+        let name = match shown {
+            Some(v) => match plist_text(Some(v)) {
+                Some(n) => n,
+                None => continue,
+            },
+            None => stem(&app),
+        };
+        out.push((
+            key,
+            Unsupported {
+                app: name,
+                bundle_id: ident,
+            },
+        ));
+    }
+    let mut found: Vec<Unsupported> = out.into_iter().map(|(_, u)| u).collect();
+    found.sort_by_key(|u| fold(&u.app));
+    found
 }
 
 /// `app_installed`: the browser's app is installed on this Mac (HAND-414).

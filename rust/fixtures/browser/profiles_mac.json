@@ -1,0 +1,380 @@
+{
+ "apps": {
+  "Applications/Comet.app": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCFET0NUWVBFIHBsaXN0IFBVQkxJQyAiLS8vQXBwbGUvL0RURCBQTElTVCAxLjAvL0VOIiAiaHR0cDovL3d3dy5hcHBsZS5jb20vRFREcy9Qcm9wZXJ0eUxpc3QtMS4wLmR0ZCI+CjxwbGlzdCB2ZXJzaW9uPSIxLjAiPgo8ZGljdD4KCTxrZXk+Q0ZCdW5kbGVEaXNwbGF5TmFtZTwva2V5PgoJPHN0cmluZz5Db21ldDwvc3RyaW5nPgoJPGtleT5DRkJ1bmRsZURvY3VtZW50VHlwZXM8L2tleT4KCTxhcnJheT4KCQk8ZGljdD4KCQkJPGtleT5MU0l0ZW1Db250ZW50VHlwZXM8L2tleT4KCQkJPGFycmF5PgoJCQkJPHN0cmluZz5vcmcuY2hyb21pdW0uZXh0ZW5zaW9uPC9zdHJpbmc+CgkJCTwvYXJyYXk+CgkJPC9kaWN0PgoJPC9hcnJheT4KCTxrZXk+Q0ZCdW5kbGVJZGVudGlmaWVyPC9rZXk+Cgk8c3RyaW5nPmFpLnBlcnBsZXhpdHkuY29tZXQ8L3N0cmluZz4KCTxrZXk+Q0ZCdW5kbGVOYW1lPC9rZXk+Cgk8c3RyaW5nPkNvbWV0IEJyb3dzZXI8L3N0cmluZz4KPC9kaWN0Pgo8L3BsaXN0Pgo=",
+  "Applications/Thorium.app": "YnBsaXN0MDDTAQIDBAUGXxASQ0ZCdW5kbGVJZGVudGlmaWVyXENGQnVuZGxlTmFtZV8QGlVURXhwb3J0ZWRUeXBlRGVjbGFyYXRpb25zXxAUb3JnLmNocm9taXVtLlRob3JpdW1XVGhvcml1baIHCtEICV8QEFVUVHlwZUlkZW50aWZpZXJfEBZvcmcuY2hyb21pdW0uZXh0ZW5zaW9uVXN0cmF5CA8kMU5lbXBzhp8AAAAAAAABAQAAAAAAAAALAAAAAAAAAAAAAAAAAAAApQ==",
+  "Applications/Electron App.app": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCFET0NUWVBFIHBsaXN0IFBVQkxJQyAiLS8vQXBwbGUvL0RURCBQTElTVCAxLjAvL0VOIiAiaHR0cDovL3d3dy5hcHBsZS5jb20vRFREcy9Qcm9wZXJ0eUxpc3QtMS4wLmR0ZCI+CjxwbGlzdCB2ZXJzaW9uPSIxLjAiPgo8ZGljdD4KCTxrZXk+Q0ZCdW5kbGVEb2N1bWVudFR5cGVzPC9rZXk+Cgk8YXJyYXk+CgkJPGRpY3Q+CgkJCTxrZXk+TFNJdGVtQ29udGVudFR5cGVzPC9rZXk+CgkJCTxhcnJheT4KCQkJCTxzdHJpbmc+cHVibGljLmh0bWw8L3N0cmluZz4KCQkJPC9hcnJheT4KCQk8L2RpY3Q+Cgk8L2FycmF5PgoJPGtleT5DRkJ1bmRsZUlkZW50aWZpZXI8L2tleT4KCTxzdHJpbmc+Y29tLmV4YW1wbGUuZWxlY3Ryb248L3N0cmluZz4KCTxrZXk+Q0ZCdW5kbGVOYW1lPC9rZXk+Cgk8c3RyaW5nPkVsZWN0cm9uPC9zdHJpbmc+CjwvZGljdD4KPC9wbGlzdD4K",
+  "Applications/Google Chrome.app": "YnBsaXN0MDDSAQIDCF8QFUNGQnVuZGxlRG9jdW1lbnRUeXBlc18QEkNGQnVuZGxlSWRlbnRpZmllcqEE0QUGXxASTFNJdGVtQ29udGVudFR5cGVzoQdfEBZvcmcuY2hyb21pdW0uZXh0ZW5zaW9uXxARQ09NLmdvb2dsZS5jaHJvbWUIDSU6PD9UVm8AAAAAAAABAQAAAAAAAAAJAAAAAAAAAAAAAAAAAAAAgw==",
+  "home/.Trash/Old.app": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCFET0NUWVBFIHBsaXN0IFBVQkxJQyAiLS8vQXBwbGUvL0RURCBQTElTVCAxLjAvL0VOIiAiaHR0cDovL3d3dy5hcHBsZS5jb20vRFREcy9Qcm9wZXJ0eUxpc3QtMS4wLmR0ZCI+CjxwbGlzdCB2ZXJzaW9uPSIxLjAiPgo8ZGljdD4KCTxrZXk+Q0ZCdW5kbGVJZGVudGlmaWVyPC9rZXk+Cgk8c3RyaW5nPmNvbS5leGFtcGxlLm9sZDwvc3RyaW5nPgoJPGtleT5VVEltcG9ydGVkVHlwZURlY2xhcmF0aW9uczwva2V5PgoJPGFycmF5PgoJCTxkaWN0PgoJCQk8a2V5PlVUVHlwZUlkZW50aWZpZXI8L2tleT4KCQkJPHN0cmluZz5vcmcuY2hyb21pdW0uZXh0ZW5zaW9uPC9zdHJpbmc+CgkJPC9kaWN0PgoJPC9hcnJheT4KPC9kaWN0Pgo8L3BsaXN0Pgo=",
+  "Applications/Dup.app": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCFET0NUWVBFIHBsaXN0IFBVQkxJQyAiLS8vQXBwbGUvL0RURCBQTElTVCAxLjAvL0VOIiAiaHR0cDovL3d3dy5hcHBsZS5jb20vRFREcy9Qcm9wZXJ0eUxpc3QtMS4wLmR0ZCI+CjxwbGlzdCB2ZXJzaW9uPSIxLjAiPgo8ZGljdD4KCTxrZXk+Q0ZCdW5kbGVEb2N1bWVudFR5cGVzPC9rZXk+Cgk8YXJyYXk+CgkJPGRpY3Q+CgkJCTxrZXk+TFNJdGVtQ29udGVudFR5cGVzPC9rZXk+CgkJCTxhcnJheT4KCQkJCTxzdHJpbmc+b3JnLmNocm9taXVtLmV4dGVuc2lvbjwvc3RyaW5nPgoJCQk8L2FycmF5PgoJCTwvZGljdD4KCTwvYXJyYXk+Cgk8a2V5PkNGQnVuZGxlSWRlbnRpZmllcjwva2V5PgoJPHN0cmluZz5BSS5QZXJwbGV4aXR5LkNvbWV0PC9zdHJpbmc+Cgk8a2V5PkNGQnVuZGxlTmFtZTwva2V5PgoJPHN0cmluZz5EdXA8L3N0cmluZz4KPC9kaWN0Pgo8L3BsaXN0Pgo=",
+  "Applications/Stemmed.v2.app": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCFET0NUWVBFIHBsaXN0IFBVQkxJQyAiLS8vQXBwbGUvL0RURCBQTElTVCAxLjAvL0VOIiAiaHR0cDovL3d3dy5hcHBsZS5jb20vRFREcy9Qcm9wZXJ0eUxpc3QtMS4wLmR0ZCI+CjxwbGlzdCB2ZXJzaW9uPSIxLjAiPgo8ZGljdD4KCTxrZXk+Q0ZCdW5kbGVJZGVudGlmaWVyPC9rZXk+Cgk8c3RyaW5nPmNvbS5leGFtcGxlLnN0ZW1tZWQ8L3N0cmluZz4KCTxrZXk+VVRJbXBvcnRlZFR5cGVEZWNsYXJhdGlvbnM8L2tleT4KCTxhcnJheT4KCQk8ZGljdD4KCQkJPGtleT5VVFR5cGVJZGVudGlmaWVyPC9rZXk+CgkJCTxzdHJpbmc+b3JnLmNocm9taXVtLmV4dGVuc2lvbjwvc3RyaW5nPgoJCTwvZGljdD4KCTwvYXJyYXk+CjwvZGljdD4KPC9wbGlzdD4K",
+  "Applications/IntId.app": "YnBsaXN0MDDUAQIDBAUGDA1fEBNDRkJ1bmRsZURpc3BsYXlOYW1lXxAVQ0ZCdW5kbGVEb2N1bWVudFR5cGVzXxASQ0ZCdW5kbGVJZGVudGlmaWVyXENGQnVuZGxlTmFtZVChB9EICV8QEkxTSXRlbUNvbnRlbnRUeXBlc9EKC18QFm9yZy5jaHJvbWl1bS5leHRlbnNpb24QARAqV0ludCBBcHAIESc/VGFiZGd8f5ianAAAAAAAAAEBAAAAAAAAAA4AAAAAAAAAAAAAAAAAAACk",
+  "Applications/Broken.app": "bm90IGEgcGxpc3QgYXQgYWxs",
+  "Applications/NotDict.app": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCFET0NUWVBFIHBsaXN0IFBVQkxJQyAiLS8vQXBwbGUvL0RURCBQTElTVCAxLjAvL0VOIiAiaHR0cDovL3d3dy5hcHBsZS5jb20vRFREcy9Qcm9wZXJ0eUxpc3QtMS4wLmR0ZCI+CjxwbGlzdCB2ZXJzaW9uPSIxLjAiPgo8YXJyYXk+Cgk8c3RyaW5nPm9yZy5jaHJvbWl1bS5leHRlbnNpb248L3N0cmluZz4KPC9hcnJheT4KPC9wbGlzdD4K",
+  "Applications/zeta.app": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCFET0NUWVBFIHBsaXN0IFBVQkxJQyAiLS8vQXBwbGUvL0RURCBQTElTVCAxLjAvL0VOIiAiaHR0cDovL3d3dy5hcHBsZS5jb20vRFREcy9Qcm9wZXJ0eUxpc3QtMS4wLmR0ZCI+CjxwbGlzdCB2ZXJzaW9uPSIxLjAiPgo8ZGljdD4KCTxrZXk+Q0ZCdW5kbGVEb2N1bWVudFR5cGVzPC9rZXk+Cgk8YXJyYXk+CgkJPHN0cmluZz5za2lwPC9zdHJpbmc+CgkJPGRpY3Q+CgkJCTxrZXk+TFNJdGVtQ29udGVudFR5cGVzPC9rZXk+CgkJCTxhcnJheS8+CgkJPC9kaWN0PgoJCTxkaWN0PgoJCQk8a2V5PkxTSXRlbUNvbnRlbnRUeXBlczwva2V5PgoJCQk8YXJyYXk+CgkJCQk8c3RyaW5nPng8L3N0cmluZz4KCQkJCTxzdHJpbmc+b3JnLmNocm9taXVtLmV4dGVuc2lvbjwvc3RyaW5nPgoJCQk8L2FycmF5PgoJCTwvZGljdD4KCTwvYXJyYXk+Cgk8a2V5PkNGQnVuZGxlSWRlbnRpZmllcjwva2V5PgoJPHN0cmluZz5jb20uZXhhbXBsZS56ZXRhPC9zdHJpbmc+Cgk8a2V5PkNGQnVuZGxlTmFtZTwva2V5PgoJPHN0cmluZz56ZXRhPC9zdHJpbmc+CjwvZGljdD4KPC9wbGlzdD4K",
+  "Applications/Str.app": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCFET0NUWVBFIHBsaXN0IFBVQkxJQyAiLS8vQXBwbGUvL0RURCBQTElTVCAxLjAvL0VOIiAiaHR0cDovL3d3dy5hcHBsZS5jb20vRFREcy9Qcm9wZXJ0eUxpc3QtMS4wLmR0ZCI+CjxwbGlzdCB2ZXJzaW9uPSIxLjAiPgo8ZGljdD4KCTxrZXk+Q0ZCdW5kbGVEb2N1bWVudFR5cGVzPC9rZXk+Cgk8c3RyaW5nPm9yZy5jaHJvbWl1bS5leHRlbnNpb248L3N0cmluZz4KCTxrZXk+Q0ZCdW5kbGVJZGVudGlmaWVyPC9rZXk+Cgk8c3RyaW5nPmNvbS5leGFtcGxlLnN0cjwvc3RyaW5nPgoJPGtleT5DRkJ1bmRsZU5hbWU8L2tleT4KCTxzdHJpbmc+U3RyPC9zdHJpbmc+Cgk8a2V5PlVURXhwb3J0ZWRUeXBlRGVjbGFyYXRpb25zPC9rZXk+Cgk8ZGljdD4KCQk8a2V5PlVUVHlwZUlkZW50aWZpZXI8L2tleT4KCQk8c3RyaW5nPm9yZy5jaHJvbWl1bS5leHRlbnNpb248L3N0cmluZz4KCTwvZGljdD4KPC9kaWN0Pgo8L3BsaXN0Pgo=",
+  "Applications/BoolId.app": "YnBsaXN0MDDTAQIDBAkKXxAVQ0ZCdW5kbGVEb2N1bWVudFR5cGVzXxASQ0ZCdW5kbGVJZGVudGlmaWVyXENGQnVuZGxlTmFtZaEF0QYHXxASTFNJdGVtQ29udGVudFR5cGVzoQhfEBZvcmcuY2hyb21pdW0uZXh0ZW5zaW9uCVRCb29sCA8nPElLTmNlfn8AAAAAAAABAQAAAAAAAAALAAAAAAAAAAAAAAAAAAAAhA==",
+  "Applications/Falsy.app": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCFET0NUWVBFIHBsaXN0IFBVQkxJQyAiLS8vQXBwbGUvL0RURCBQTElTVCAxLjAvL0VOIiAiaHR0cDovL3d3dy5hcHBsZS5jb20vRFREcy9Qcm9wZXJ0eUxpc3QtMS4wLmR0ZCI+CjxwbGlzdCB2ZXJzaW9uPSIxLjAiPgo8ZGljdD4KCTxrZXk+Q0ZCdW5kbGVEb2N1bWVudFR5cGVzPC9rZXk+Cgk8YXJyYXk+CgkJPGRpY3Q+CgkJCTxrZXk+TFNJdGVtQ29udGVudFR5cGVzPC9rZXk+CgkJCTxhcnJheT4KCQkJCTxzdHJpbmc+b3JnLmNocm9taXVtLmV4dGVuc2lvbjwvc3RyaW5nPgoJCQk8L2FycmF5PgoJCTwvZGljdD4KCTwvYXJyYXk+Cgk8a2V5PkNGQnVuZGxlSWRlbnRpZmllcjwva2V5PgoJPGZhbHNlLz4KCTxrZXk+Q0ZCdW5kbGVOYW1lPC9rZXk+Cgk8c3RyaW5nPkZhbHN5PC9zdHJpbmc+CjwvZGljdD4KPC9wbGlzdD4K",
+  "Applications/Weird.app": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCFET0NUWVBFIHBsaXN0IFBVQkxJQyAiLS8vQXBwbGUvL0RURCBQTElTVCAxLjAvL0VOIiAiaHR0cDovL3d3dy5hcHBsZS5jb20vRFREcy9Qcm9wZXJ0eUxpc3QtMS4wLmR0ZCI+CjxwbGlzdCB2ZXJzaW9uPSIxLjAiPgo8ZGljdD4KCTxrZXk+Q0ZCdW5kbGVEb2N1bWVudFR5cGVzPC9rZXk+Cgk8YXJyYXk+CgkJPGRpY3Q+CgkJCTxrZXk+TFNJdGVtQ29udGVudFR5cGVzPC9rZXk+CgkJCTxhcnJheT4KCQkJCTxzdHJpbmc+b3JnLmNocm9taXVtLmV4dGVuc2lvbjwvc3RyaW5nPgoJCQk8L2FycmF5PgoJCTwvZGljdD4KCTwvYXJyYXk+Cgk8a2V5PkNGQnVuZGxlSWRlbnRpZmllcjwva2V5PgoJPHN0cmluZz5jb20uZXhhbXBsZS53ZWlyZDwvc3RyaW5nPgoJPGtleT5DRkJ1bmRsZU5hbWU8L2tleT4KCTxzdHJpbmc+V2VpcmQ8L3N0cmluZz4KCTxrZXk+VVRFeHBvcnRlZFR5cGVEZWNsYXJhdGlvbnM8L2tleT4KCTxpbnRlZ2VyPjU8L2ludGVnZXI+CjwvZGljdD4KPC9wbGlzdD4K",
+  "Applications/Weird2.app": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCFET0NUWVBFIHBsaXN0IFBVQkxJQyAiLS8vQXBwbGUvL0RURCBQTElTVCAxLjAvL0VOIiAiaHR0cDovL3d3dy5hcHBsZS5jb20vRFREcy9Qcm9wZXJ0eUxpc3QtMS4wLmR0ZCI+CjxwbGlzdCB2ZXJzaW9uPSIxLjAiPgo8ZGljdD4KCTxrZXk+Q0ZCdW5kbGVEb2N1bWVudFR5cGVzPC9rZXk+Cgk8YXJyYXk+CgkJPGRpY3Q+CgkJCTxrZXk+TFNJdGVtQ29udGVudFR5cGVzPC9rZXk+CgkJCTx0cnVlLz4KCQk8L2RpY3Q+Cgk8L2FycmF5PgoJPGtleT5DRkJ1bmRsZUlkZW50aWZpZXI8L2tleT4KCTxzdHJpbmc+Y29tLmV4YW1wbGUud2VpcmQyPC9zdHJpbmc+Cgk8a2V5PkNGQnVuZGxlTmFtZTwva2V5PgoJPHN0cmluZz5XZWlyZCBUd288L3N0cmluZz4KPC9kaWN0Pgo8L3BsaXN0Pgo="
+ },
+ "unsupported": [
+  {
+   "name": "listed",
+   "handlers": [
+    "Applications/Comet.app",
+    "Applications/Thorium.app",
+    "Applications/Electron App.app",
+    "Applications/Google Chrome.app",
+    "home/.Trash/Old.app",
+    "Applications/NoPlist.app",
+    "Applications/Dup.app",
+    "Applications/Stemmed.v2.app",
+    "Applications/IntId.app",
+    "Applications/Broken.app",
+    "Applications/NotDict.app",
+    "Applications/zeta.app",
+    "Applications/Str.app",
+    "Applications/BoolId.app",
+    "Applications/Falsy.app"
+   ],
+   "out": {
+    "ok": [
+     {
+      "app": "Bool",
+      "bundle_id": "True"
+     },
+     {
+      "app": "Comet",
+      "bundle_id": "ai.perplexity.comet"
+     },
+     {
+      "app": "Int App",
+      "bundle_id": "42"
+     },
+     {
+      "app": "Stemmed.v2",
+      "bundle_id": "com.example.stemmed"
+     },
+     {
+      "app": "Thorium",
+      "bundle_id": "org.chromium.Thorium"
+     },
+     {
+      "app": "zeta",
+      "bundle_id": "com.example.zeta"
+     }
+    ]
+   }
+  },
+  {
+   "name": "type_error",
+   "handlers": [
+    "Applications/Comet.app",
+    "Applications/Thorium.app",
+    "Applications/Electron App.app",
+    "Applications/Google Chrome.app",
+    "home/.Trash/Old.app",
+    "Applications/NoPlist.app",
+    "Applications/Dup.app",
+    "Applications/Stemmed.v2.app",
+    "Applications/IntId.app",
+    "Applications/Broken.app",
+    "Applications/NotDict.app",
+    "Applications/zeta.app",
+    "Applications/Str.app",
+    "Applications/BoolId.app",
+    "Applications/Falsy.app",
+    "Applications/Weird.app"
+   ],
+   "out": {
+    "error": "TypeError",
+    "message": "'int' object is not iterable"
+   }
+  },
+  {
+   "name": "type_error_inner",
+   "handlers": [
+    "Applications/Comet.app",
+    "Applications/Thorium.app",
+    "Applications/Electron App.app",
+    "Applications/Google Chrome.app",
+    "home/.Trash/Old.app",
+    "Applications/NoPlist.app",
+    "Applications/Dup.app",
+    "Applications/Stemmed.v2.app",
+    "Applications/IntId.app",
+    "Applications/Broken.app",
+    "Applications/NotDict.app",
+    "Applications/zeta.app",
+    "Applications/Str.app",
+    "Applications/BoolId.app",
+    "Applications/Falsy.app",
+    "Applications/Weird2.app"
+   ],
+   "out": {
+    "error": "TypeError",
+    "message": "'bool' object is not iterable"
+   }
+  },
+  {
+   "name": "raises",
+   "handlers": null,
+   "out": {
+    "ok": []
+   }
+  },
+  {
+   "name": "empty",
+   "handlers": [],
+   "out": {
+    "ok": []
+   }
+  }
+ ],
+ "family": {
+  "Applications/Comet.app": true,
+  "Applications/Thorium.app": true,
+  "Applications/Electron App.app": false,
+  "Applications/Google Chrome.app": true,
+  "home/.Trash/Old.app": true,
+  "Applications/NoPlist.app": false,
+  "Applications/Dup.app": true,
+  "Applications/Stemmed.v2.app": true,
+  "Applications/IntId.app": true,
+  "Applications/Broken.app": false,
+  "Applications/NotDict.app": false,
+  "Applications/zeta.app": true,
+  "Applications/Str.app": false,
+  "Applications/BoolId.app": true,
+  "Applications/Falsy.app": true,
+  "Applications/Weird.app": {
+   "error": "TypeError"
+  },
+  "Applications/Weird2.app": {
+   "error": "TypeError"
+  }
+ },
+ "binary": {
+  "answers": {
+   "com.google.Chrome": [
+    "$ROOT/bin/Google Chrome",
+    null
+   ],
+   "com.brave.Browser": [
+    "raise"
+   ],
+   "com.microsoft.edgemac": [
+    "$ROOT/bin/edge-dir",
+    null
+   ]
+  },
+  "steps": [
+   {
+    "browser": "chrome",
+    "note": "",
+    "binary": "$ROOT/bin/Google Chrome",
+    "calls": [
+     "com.google.Chrome"
+    ]
+   },
+   {
+    "browser": "chrome",
+    "note": "remembered",
+    "binary": "$ROOT/bin/Google Chrome",
+    "calls": []
+   },
+   {
+    "browser": "chrome",
+    "note": "gone: asked again",
+    "binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "calls": [
+     "com.google.Chrome"
+    ]
+   },
+   {
+    "browser": "brave",
+    "note": "",
+    "binary": "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    "calls": [
+     "com.brave.Browser"
+    ]
+   },
+   {
+    "browser": "edge",
+    "note": "",
+    "binary": "$ROOT/bin/edge-dir",
+    "calls": [
+     "com.microsoft.edgemac"
+    ]
+   },
+   {
+    "browser": "edge",
+    "note": "not a file: asked again",
+    "binary": "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "calls": [
+     "com.microsoft.edgemac"
+    ]
+   },
+   {
+    "browser": "opera",
+    "note": "",
+    "binary": "/Applications/Opera.app/Contents/MacOS/Opera",
+    "calls": [
+     "com.operasoftware.Opera"
+    ]
+   }
+  ]
+ },
+ "running": [
+  {
+   "browser": "chrome",
+   "running": false,
+   "argv": [
+    [
+     "pgrep",
+     "-f",
+     "^/Applications/Google\\ Chrome\\.app/Contents/MacOS/Google\\ Chrome( |$)"
+    ]
+   ]
+  },
+  {
+   "browser": "chrome-beta",
+   "running": false,
+   "argv": [
+    [
+     "pgrep",
+     "-f",
+     "^/Applications/Google\\ Chrome\\ Beta\\.app/Contents/MacOS/Google\\ Chrome\\ Beta( |$)"
+    ]
+   ]
+  },
+  {
+   "browser": "chrome-dev",
+   "running": false,
+   "argv": [
+    [
+     "pgrep",
+     "-f",
+     "^/Applications/Google\\ Chrome\\ Dev\\.app/Contents/MacOS/Google\\ Chrome\\ Dev( |$)"
+    ]
+   ]
+  },
+  {
+   "browser": "chrome-canary",
+   "running": true,
+   "argv": [
+    [
+     "pgrep",
+     "-f",
+     "^/Applications/Google\\ Chrome\\ Canary\\.app/Contents/MacOS/Google\\ Chrome\\ Canary( |$)"
+    ]
+   ]
+  },
+  {
+   "browser": "chromium",
+   "running": false,
+   "argv": [
+    [
+     "pgrep",
+     "-f",
+     "^/Applications/Chromium\\.app/Contents/MacOS/Chromium( |$)"
+    ]
+   ]
+  },
+  {
+   "browser": "brave",
+   "running": true,
+   "argv": [
+    [
+     "pgrep",
+     "-f",
+     "^/Applications/Brave\\ Browser\\.app/Contents/MacOS/Brave\\ Browser( |$)"
+    ]
+   ]
+  },
+  {
+   "browser": "edge",
+   "running": false,
+   "argv": [
+    [
+     "pgrep",
+     "-f",
+     "^/Applications/Microsoft\\ Edge\\.app/Contents/MacOS/Microsoft\\ Edge( |$)"
+    ]
+   ]
+  },
+  {
+   "browser": "edge-beta",
+   "running": false,
+   "argv": [
+    [
+     "pgrep",
+     "-f",
+     "^/Applications/Microsoft\\ Edge\\ Beta\\.app/Contents/MacOS/Microsoft\\ Edge\\ Beta( |$)"
+    ]
+   ]
+  },
+  {
+   "browser": "edge-dev",
+   "running": false,
+   "argv": [
+    [
+     "pgrep",
+     "-f",
+     "^/Applications/Microsoft\\ Edge\\ Dev\\.app/Contents/MacOS/Microsoft\\ Edge\\ Dev( |$)"
+    ]
+   ]
+  },
+  {
+   "browser": "edge-canary",
+   "running": true,
+   "argv": [
+    [
+     "pgrep",
+     "-f",
+     "^/Applications/Microsoft\\ Edge\\ Canary\\.app/Contents/MacOS/Microsoft\\ Edge\\ Canary( |$)"
+    ]
+   ]
+  },
+  {
+   "browser": "vivaldi",
+   "running": false,
+   "argv": [
+    [
+     "pgrep",
+     "-f",
+     "^/Applications/Vivaldi\\.app/Contents/MacOS/Vivaldi( |$)"
+    ]
+   ]
+  },
+  {
+   "browser": "arc",
+   "running": false,
+   "argv": [
+    [
+     "pgrep",
+     "-f",
+     "^/Applications/Arc\\.app/Contents/MacOS/Arc( |$)"
+    ]
+   ]
+  },
+  {
+   "browser": "opera",
+   "running": false,
+   "argv": [
+    [
+     "pgrep",
+     "-f",
+     "^/Applications/Opera\\.app/Contents/MacOS/Opera( |$)"
+    ]
+   ]
+  }
+ ],
+ "app_path_ok": {
+  "Applications/Comet.app": true,
+  "home/.Trash/Old.app": false,
+  "file.app": false,
+  "missing.app": false,
+  "Applications/Comet.app/Contents": true
+ }
+}

@@ -36,17 +36,18 @@ the phone apps share; they reach the Mac's own parts only through traits.
 | What the models receive: tool schemas, answer schemas, prompt assembly, error text | (fixtures only) | - | `rust/fixtures/catalog` | frozen (journal 9) |
 | Prompt context, structured answers, answer schemas | `ferb/core/context.py`, `structured.py`, `orchestrator/schemas.py`, `runtimes/schema_shape.py` | ~1,500 | `ferb-context` | verified (journal 17); outcome models go with orchestration |
 | Policy: confirmations, protection, payments, destinations | `ferb/policy` | 4,666 | `ferb-policy` | verified on 10,769 cases (journal 26) |
-| Gateway, questions, stop, resources, registry | `ferb/daemon/gateway.py` and state files | ~6,000 | `ferb-gateway` | in progress |
+| Gateway, questions, stop, resources, registry | `ferb/daemon/gateway.py` and state files | ~6,000 | `ferb-gateway` | call pipeline verified on 45 scenarios (journal 34); hidden input and several paths in progress |
 | RPC handlers (106 methods), daemon composition | `ferb/daemon/main.py`, `areas/` | ~9,700 | `ferbd` | not started; recordings of the Python daemon done (journal 23) |
 | Files, recovery | `ferb/act/fs` | (in 21,723) | `ferb-fs` | verified (journal 18); Mac renderers and Trash locator not written |
 | Shell, sandbox, proxy | `ferb/act/shell` | (in 21,723) | `ferb-shell` | verified, live sandbox tests included (journal 20) |
-| Browser hands and extension bridge | `ferb/act/browser` | (in 21,723) | `ferb-browser` | verified: protocol, bridge, operations, 46 tools (journal 21, 28); downloads and upload staging not started |
-| Mac hands: AX, input, capture, recording, hearing | `ferb/act/mac` and `ferb/act/*.py` | (in 21,723) | - | not started |
+| Browser hands and extension bridge | `ferb/act/browser` | (in 21,723) | `ferb-browser` | verified: protocol, bridge, operations, 46 tools, downloads, upload copies (journal 21, 28, 36); no real browser run |
+| Mac hands: AX, input, capture, recording, hearing | `ferb/act/mac` and `ferb/act/*.py` | (in 21,723) | `ferb-mac-hands` | logic verified on fakes (journal 35); native layer compiled only |
 | Model runtimes: Codex, Claude, APIs, tool bridge | `ferb/runtimes`, `ferb/cli/mcp.py` | 4,876 | `ferb-runtimes` | verified against scripted programs and servers (journal 24); sign-in, keys, checks not started |
-| Orchestration: planner, workers, checker, plans | `ferb/orchestrator`, `ferb/decide` | 15,817 | - | not started |
+| Orchestration: answer models, plans, ledger, loops, steering, evidence, cards | `ferb/orchestrator` (not supervisor, worker), `ferb/decide` | ~7,300 | `ferb-orchestrator` | verified (journal 33) |
+| Orchestration: the supervisor and the worker | `ferb/orchestrator/supervisor.py`, `worker.py` | 8,477 | - | not started (needs the gateway) |
 | Time: timers, schedules, waits | `ferb/clock`, `orchestrator/schedules.py` | ~2,000 | `ferb-clock` | verified (journal 19); tz database to settle |
 | Memory: embeddings, search, import parsers | `ferb/memory` (4 files) | ~1,770 | `ferb-memory` | verified (journal 22); needs SQLite 3.53.4+ for trigram tables |
-| Memory: items, profile, learning, distill, playbooks, import job | `ferb/memory` (rest) | ~4,300 | - | not started |
+| Memory: items, profile, learning, distill, playbooks, import job | `ferb/memory` (rest) | ~4,300 | `ferb-learning` | verified (journal 32); card reader process not ported |
 | Perception | `ferb/sense` | 3,817 | `ferb-sense` | verified on fixtures (journal 30); native sources unverified on a build |
 | Device: install, service, profile, scan | `ferb/device` | 2,276 | `ferb-device` | verified on recorded flows (journal 29); permissions are in `ferb-mac-hands` |
 | Internal commands the app calls, toolbox | `ferb/cli` | 2,442 | `ferb-device` | verified (journal 29); no `ferb` program yet |

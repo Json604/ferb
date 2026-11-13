@@ -616,6 +616,15 @@ def main() -> None:
                 import driver_ops                            # noqa: E402 (next to this file)
                 write("ops.json", driver_ops.make(reset_random))
                 continue
+            if name in MORE:
+                import more                                  # noqa: E402 (next to this file)
+                reset_random()
+                write(f"{name}.json", getattr(more, f"{name}_fixture")())
+                continue
+            if name == "tools_more":
+                import tools_more                            # noqa: E402 (next to this file)
+                write("tools_more.json", tools_more.make(reset_random))
+                continue
             reset_random()
             write(f"{name}.json", getattr(hands, f"{name}_fixture")())
         return
@@ -635,6 +644,16 @@ def main() -> None:
     if os.environ.get("FIXTURE_SKIP_TRANSCRIPTS") != "1":
         import driver_ops                                    # noqa: E402 (next to this file)
         write("ops.json", driver_ops.make(reset_random))
+    import more                                              # noqa: E402 (next to this file)
+    for name in MORE:
+        reset_random()
+        write(f"{name}.json", getattr(more, f"{name}_fixture")())
+    if os.environ.get("FIXTURE_SKIP_TRANSCRIPTS") != "1":
+        import tools_more                                    # noqa: E402 (next to this file)
+        write("tools_more.json", tools_more.make(reset_random))
+
+
+MORE = ["profiles_mac", "uploads", "downloads"]             # more.py's, in this order
 
 
 def write(name: str, data: Any) -> None:

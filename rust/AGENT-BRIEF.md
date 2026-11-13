@@ -36,6 +36,9 @@ with `rust/fixtures/store/make_tables.py`, and `rust/crates/ferb-rpc` for async 
   "2021", license "Apache-2.0", `publish = false`; dependencies with explicit versions; workspace crates by
   `path = "../ferb-core"` and so on). Every cargo command:
   `. ~/.cargo/env && export CARGO_TARGET_DIR=<repo>/rust/target/agents/<crate> && cargo <cmd> --manifest-path <repo>/rust/crates/<crate>/Cargo.toml`.
+- If your brief sends you into a crate that is already a workspace member, keep every file formatted and compiling
+  at each step (`cargo fmt -p <crate>` after every edit session): the commit gate checks the whole tree, and a
+  half-edited member blocks every other commit.
 - Never commit, stash or reset. Never read `vibed/`. Never touch `~/.ferb`, `~/.codex`, `~/.claude`, the Keychain,
   the real secrets helper, a real browser or its folders, a model provider, or files outside temp folders.
 - Invented data only. Fixtures must pass the commit gate and GitHub's push protection: no personal strings and no

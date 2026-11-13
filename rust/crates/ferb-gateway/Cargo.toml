@@ -1,0 +1,46 @@
+[package]
+name = "ferb-gateway"
+version = "0.28.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.100"
+publish = false
+description = "The one path every model tool call takes: the tool catalog, argument checks, the owner's questions, stop, resource locks and the call's record (ferb/daemon/gateway.py and its state files)"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+# `store`: the gateway's records on the Mac's SQLite store (spans, confirmations, known destinations): Mac-side, as
+# ferb-store is (ENG-5). Everything else builds for iOS and Android.
+[features]
+default = ["store"]
+store = []
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+fancy-regex = "0.14"
+ferb-clock = { path = "../ferb-clock", default-features = false }
+ferb-core = { path = "../ferb-core" }
+ferb-policy = { path = "../ferb-policy" }
+ferb-py = { path = "../ferb-py" }
+ferb-rpc = { path = "../ferb-rpc" }
+ferb-sanitize = { path = "../ferb-sanitize" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+hex = "0.4"
+getrandom = "0.3"
+tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+ferb-trace = { path = "../ferb-trace" }
+ferb-store = { path = "../ferb-store" }
+ferb-fs = { path = "../ferb-fs" }
+rusqlite = { version = "0.42", features = ["bundled"] }
+
+[dev-dependencies]
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+hex = "0.4"
+sha2 = "0.10"
+tempfile = "3"
+tokio = { version = "1", features = ["sync", "time", "rt", "rt-multi-thread", "macros", "test-util"] }

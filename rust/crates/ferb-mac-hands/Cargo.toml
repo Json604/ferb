@@ -1,0 +1,49 @@
+[package]
+name = "ferb-mac-hands"
+version = "0.28.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.100"
+publish = false
+description = "FERB's Mac hands: Accessibility, input, window capture and masking, recording, hearing (ferb/act/mac)"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[dependencies]
+ferb-core = { path = "../ferb-core" }
+ferb-py = { path = "../ferb-py" }
+ferb-sanitize = { path = "../ferb-sanitize" }
+fancy-regex = "0.14"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+hex = "0.4"
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "process", "io-util"] }
+getrandom = "0.3"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+libc = "0.2"
+zeroize = "1"
+
+# The native layer: every Apple framework call lives behind `cfg(target_os = "macos")`.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.3"
+block2 = "0.6.2"
+objc2-foundation = { version = "0.3.2", features = ["objc2-core-services"] }
+objc2-app-kit = "0.3.2"
+objc2-core-foundation = "0.3.2"
+objc2-core-graphics = "0.3.2"
+objc2-application-services = "0.3.2"
+objc2-image-io = "0.3.2"
+objc2-screen-capture-kit = "0.3.2"
+objc2-vision = "0.3.2"
+objc2-core-media = { version = "0.3.2", features = ["objc2-core-audio-types"] }
+# The evidence table lives in the Mac's SQLite store (Mac-side, as ferb-store is).
+rusqlite = { version = "0.42", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile = "3"
+rusqlite = { version = "0.42", features = ["bundled"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "process", "io-util", "test-util"] }

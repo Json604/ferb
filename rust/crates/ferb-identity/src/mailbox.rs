@@ -6,8 +6,10 @@
 //! sealed (here: [`Secret`]s, as each candidate's code is), since the numeric grammar cannot mask
 //! other secret formats.
 //!
-//! Seam: Python's mailbox is given an async `fetch` (the extension bridge's `_read_feed`); here
+//! Seams: Python's mailbox is given an async `fetch` (the extension bridge's `_read_feed`); here
 //! the caller fetches and passes the feed's text, and a transport failure stays the caller's.
+//! Candidate tokens' random bytes (Python's `secrets.token_urlsafe(18)`) come from a
+//! [`TokenRandom`]: the system's by default ([`OsRandom`]), injected so a run can be replayed.
 //!
 //! Differences from Python, each failing closed (the feed counts as unavailable):
 //! - dates: `datetime.fromisoformat`'s extended forms only (`YYYY-MM-DD`, then optionally any one
@@ -15,6 +17,7 @@
 //! - XML: `roxmltree` instead of expat (a feed with a DTD is refused).
 
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::sync::Arc;
 
 use regex::Regex;
 use serde_json::{json, Value};
@@ -259,6 +262,21 @@ pub fn parse_feed(xml_text: &str) -> Result<(String, Vec<Message>), FeedError> {
     Ok((title, messages))
 }
 
+/// Random bytes for candidate tokens (Python's `secrets.token_bytes`). `false`: none could be had
+/// (the inventory then counts as unavailable).
+pub trait TokenRandom: Send + Sync {
+    fn fill(&self, buf: &mut [u8]) -> bool;
+}
+
+/// The system's random source.
+pub struct OsRandom;
+
+impl TokenRandom for OsRandom {
+    fn fill(&self, buf: &mut [u8]) -> bool {
+        getrandom::fill(buf).is_ok()
+    }
+}
+
 /// `mailbox.py:50-101`: the candidates of one mailbox (FERB's own address), by opaque token.
 pub struct GmailFeedMailbox {
     address: String,
@@ -266,15 +284,23 @@ pub struct GmailFeedMailbox {
     /// The ids of messages whose code was used; their candidates are no longer listed.
     pub used: HashSet<String>,
     candidates: HashMap<String, CodeCandidate>,
+    random: Arc<dyn TokenRandom>,
 }
 
 impl GmailFeedMailbox {
+    /// Tokens from the system's random source.
     pub fn new(address: &str, feed_url: &str) -> Self {
+        Self::with_random(address, feed_url, Arc::new(OsRandom))
+    }
+
+    /// Tokens from `random` (a replayed run's source).
+    pub fn with_random(address: &str, feed_url: &str, random: Arc<dyn TokenRandom>) -> Self {
         GmailFeedMailbox {
             address: address.to_lowercase(),
             feed_url: feed_url.to_owned(),
             used: HashSet::new(),
             candidates: HashMap::new(),
+            random,
         }
     }
 
@@ -319,7 +345,7 @@ impl GmailFeedMailbox {
             }
             for (i, code) in found.into_iter().enumerate() {
                 let mut random = [0u8; 18];
-                if getrandom::fill(&mut random).is_err() {
+                if !self.random.fill(&mut random) {
                     self.candidates.clear();
                     return json!({"available": false, "reason": "feed_unavailable", "candidates": []});
                 }

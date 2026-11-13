@@ -1,0 +1,3516 @@
+{
+ "oracle": {
+  "[\"can_host\", \"net.whatsapp.WhatsApp\", [], false]": false,
+  "[\"surface\", \"net.whatsapp.WhatsApp\", [], [], false, true]": null,
+  "[\"surface\", \"com.apple.Notes\", [], [], false, true]": null,
+  "[\"typed_destination\", \" <a@example.com>, \"]": "a@example.com",
+  "[\"typed_destination\", \"+91 98765 43210;\"]": "+91 98765 43210",
+  "[\"surface\", \"com.microsoft.VSCode\", [{\"role\": \"AXTextField\", \"role_description\": \"text field\", \"dom_classes\": [\"xterm-helper-textarea\"], \"description\": \"Terminal 108, zsh Use \\u2325F1 for terminal accessibility help\"}, {\"role\": \"AXGroup\", \"dom_classes\": [\"xterm-helpers\"]}, {\"role\": \"AXGroup\", \"dom_classes\": [\"xterm-screen\"]}, {\"role\": \"AXGroup\", \"dom_classes\": [\"terminal\", \"xterm\", \"xterm-dom-renderer-owner-84\", \"focus\"]}, {\"role\": \"AXGroup\", \"dom_classes\": [\"terminal-xterm-host\"]}, {\"role\": \"AXGroup\", \"dom_classes\": [\"terminal-groups-container\"]}, {\"role\": \"AXGroup\", \"dom_classes\": [\"pane-body\", \"shell-integration\", \"integrated-terminal\", \"wide\"]}, {\"role\": \"AXGroup\", \"dom_classes\": [\"composite\", \"panel\"], \"dom_identifier\": \"terminal\"}, {\"role\": \"AXGroup\", \"dom_classes\": [\"monaco-split-view2\", \"horizontal\"]}, {\"role\": \"AXGroup\", \"dom_classes\": [\"split-view-container\"]}, {\"role\": \"AXWebArea\", \"title\": \"FERB\", \"dom_classes\": [\"monaco-workbench\", \"mac\"]}, {\"role\": \"AXWindow\", \"title\": \"FERB\"}, {\"role\": \"AXApplication\", \"title\": \"Code\"}], [], false, false]": "a terminal in the page (xterm.js: DOM class xterm-helper-textarea)",
+  "[\"newline\", \"ls -la\"]": false,
+  "[\"unasked\", \"a terminal in the page (xterm.js: DOM class xterm-helper-textarea)\", \"Code\"]": "FERB types into a terminal only after the owner's Yes to that exact input (D31): this input would reach a terminal in the page (xterm.js: DOM class xterm-helper-textarea) in Code, and the call carries no Yes for it, so nothing was typed. Run commands with FERB's shell tool; if FERB's sandbox blocks a command you need, request the escape hatch (shell.rules lists what it lifts), which asks the owner once",
+  "[\"editor_app\", \"com.microsoft.VSCode\"]": true,
+  "[\"run_control\", [{\"role\": \"AXTextField\", \"role_description\": \"text field\", \"dom_classes\": [\"xterm-helper-textarea\"], \"description\": \"Terminal 108, zsh Use \\u2325F1 for terminal accessibility help\"}, {\"role\": \"AXGroup\", \"dom_classes\": [\"xterm-helpers\"]}, {\"role\": \"AXGroup\", \"dom_classes\": [\"xterm-screen\"]}, {\"role\": \"AXGroup\", \"dom_classes\": [\"terminal\", \"xterm\", \"xterm-dom-renderer-owner-84\", \"focus\"]}, {\"role\": \"AXGroup\", \"dom_classes\": [\"terminal-xterm-host\"]}, {\"role\": \"AXGroup\", \"dom_classes\": [\"terminal-groups-container\"]}, {\"role\": \"AXGroup\", \"dom_classes\": [\"pane-body\", \"shell-integration\", \"integrated-terminal\", \"wide\"]}, {\"role\": \"AXGroup\", \"dom_classes\": [\"composite\", \"panel\"], \"dom_identifier\": \"terminal\"}, {\"role\": \"AXGroup\", \"dom_classes\": [\"monaco-split-view2\", \"horizontal\"]}, {\"role\": \"AXGroup\", \"dom_classes\": [\"split-view-container\"]}, {\"role\": \"AXWebArea\", \"title\": \"FERB\", \"dom_classes\": [\"monaco-workbench\", \"mac\"]}, {\"role\": \"AXWindow\", \"title\": \"FERB\"}, {\"role\": \"AXApplication\", \"title\": \"Code\"}], true]": null,
+  "[\"newline\", \"codex\"]": false,
+  "[\"run_control\", [{\"role\": \"AXButton\", \"title\": \"Run Python File\"}, {\"role\": \"AXGroup\", \"dom_classes\": [\"monaco-split-view2\", \"horizontal\"]}, {\"role\": \"AXGroup\", \"dom_classes\": [\"split-view-container\"]}, {\"role\": \"AXWebArea\", \"title\": \"FERB\", \"dom_classes\": [\"monaco-workbench\", \"mac\"]}, {\"role\": \"AXWindow\", \"title\": \"FERB\"}, {\"role\": \"AXApplication\", \"title\": \"Code\"}], true]": "a control labelled \"Run Python File\" (a label only: FERB asks rather than guess)",
+  "[\"unasked\", \"a menu or control that runs code (Send)\", \"Code\"]": "FERB types into a terminal only after the owner's Yes to that exact input (D31): this input would reach a menu or control that runs code (Send) in Code, and the call carries no Yes for it, so nothing was typed. Run commands with FERB's shell tool; if FERB's sandbox blocks a command you need, request the escape hatch (shell.rules lists what it lifts), which asks the owner once",
+  "[\"run_menu\", [\"Edit\", \"Paste\"]]": false
+ },
+ "scenarios": [
+  {
+   "name": "chat_background",
+   "fake": {
+    "kind": "chat",
+    "cfg": {}
+   },
+   "steps": [
+    {
+     "op": "snapshot",
+     "args": {
+      "app": "WhatsApp"
+     },
+     "out": {
+      "ok": {
+       "app": "WhatsApp",
+       "bundle_id": "net.whatsapp.WhatsApp",
+       "window": "Chat",
+       "elements": [
+        {
+         "id": "s1e1",
+         "role": "textbox",
+         "label": "Message"
+        },
+        {
+         "id": "s1e2",
+         "role": "button",
+         "label": "Send"
+        }
+       ],
+       "text": "",
+       "offset": 0,
+       "next_offset": null,
+       "profile": {
+        "bundle": "net.whatsapp.WhatsApp",
+        "updated": "",
+        "seeded_from": null,
+        "mechanisms": {},
+        "diagnostics": []
+       },
+       "repeated_ax_nodes": 0
+      }
+     },
+     "posted": [],
+     "calls": [
+      "expose"
+     ]
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "type",
+       "element": "s1e1",
+       "text": "hi there",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "ok": {
+       "ok": true,
+       "detail": "typing delivered in the background; a value change was observed",
+       "facts": {
+        "method": "pid",
+        "delivered": true,
+        "observed_change": true,
+        "outcome_verified": false,
+        "replayed": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "net.whatsapp.WhatsApp"
+        },
+        "secure_field": false,
+        "terminal_target": false
+       }
+      }
+     },
+     "posted": [
+      "type 'hi there' to pid"
+     ],
+     "calls": [
+      "focus"
+     ]
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "press",
+       "element": "s1e2",
+       "text": null,
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "ok": {
+       "ok": true,
+       "detail": "AX press request accepted; inspect the outcome",
+       "facts": {
+        "method": "ax",
+        "accepted": true,
+        "outcome_verified": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "net.whatsapp.WhatsApp"
+        },
+        "secure_field": false,
+        "terminal_target": false
+       }
+      }
+     },
+     "posted": [],
+     "calls": [
+      "press"
+     ]
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "set_value",
+       "element": "s1e1",
+       "text": "x",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "ok": {
+       "ok": false,
+       "detail": "AXValue result not confirmed; no typing attempted. The field may already hold text: read it in a fresh snapshot before typing again (typing adds to what is there)",
+       "facts": {
+        "method": "ax_value",
+        "accepted": false,
+        "value_matches": false,
+        "field_empty": false,
+        "field_length": 8
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "net.whatsapp.WhatsApp"
+        },
+        "secure_field": false,
+        "terminal_target": false
+       }
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "key",
+       "element": null,
+       "text": "return",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "ok": {
+       "ok": true,
+       "detail": "return sent in the background; state changed; inspect the outcome",
+       "facts": {
+        "method": "pid",
+        "delivered": true,
+        "observed_change": true,
+        "outcome_verified": false,
+        "replayed": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "net.whatsapp.WhatsApp"
+        },
+        "terminal_target": false
+       }
+      }
+     },
+     "posted": [
+      "key return to pid"
+     ],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "key",
+       "element": null,
+       "text": "cmd+tab",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "error": "Refused",
+      "message": "this key combination acts on the owner's whole Mac (switching apps or desktops, Spotlight, Mission Control, Force Quit, locking or logging out), not on one app, so FERB doesn't press it: work in the app itself (HAND-200)"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "key",
+       "element": null,
+       "text": "cmd+q",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "error": "Refused",
+      "message": "FERB quits or hides only apps it opened for the task, and it can't tell that here, so it didn't send cmd+q to WhatsApp"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "key",
+       "element": null,
+       "text": "opt+cmd+h",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "error": "Refused",
+      "message": "⌥⌘H hides every other app, the owner's included, so FERB doesn't press it (HAND-200)"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "key",
+       "element": null,
+       "text": "nope+x",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "error": "Refused",
+      "message": "unsupported key 'nope+x'"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "key",
+       "element": null,
+       "text": null,
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "error": "Refused",
+      "message": "key requires explicit text; omitted text never means clear or Return"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "focus",
+       "element": "s1e1",
+       "text": null,
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": "pid"
+      }
+     },
+     "out": {
+      "error": "Refused",
+      "message": "focus takes mechanism ax, not pid; nothing was sent"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "select",
+       "element": "s1e1",
+       "text": "a",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": "pid"
+      }
+     },
+     "out": {
+      "error": "Refused",
+      "message": "select takes mechanism ax, not pid; nothing was sent"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "press",
+       "element": "s0e1",
+       "text": null,
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "error": "StaleRef",
+      "message": "element s0e1 is from an older snapshot of this app; take a new one"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "press",
+       "element": null,
+       "text": null,
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "error": "Refused",
+      "message": "this action needs an element id from a snapshot (only type with mechanism foreground and allow_foreground true goes to whatever has the app's keyboard focus without one)"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "key",
+       "element": null,
+       "text": "cmd+s",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": "ax"
+      }
+     },
+     "out": {
+      "ok": {
+       "ok": false,
+       "detail": "no unique menu item exposes that key equivalent; inspect mac.menu",
+       "facts": {
+        "method": "ax",
+        "performed": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "net.whatsapp.WhatsApp"
+        },
+        "terminal_target": false
+       }
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "type",
+       "element": "s1e1",
+       "text": "fg",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": "foreground"
+      }
+     },
+     "out": {
+      "ok": {
+       "ok": false,
+       "detail": "This explicit route needs task-wide foreground permission.",
+       "facts": {
+        "code": "needs_foreground",
+        "method": "foreground",
+        "performed": false
+       },
+       "observed": null
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "cancel",
+       "element": "s1e2",
+       "text": null,
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "ok": {
+       "ok": true,
+       "detail": "AXCancel accepted",
+       "facts": {
+        "method": "ax",
+        "accepted": true,
+        "outcome_verified": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "net.whatsapp.WhatsApp"
+        },
+        "secure_field": false,
+        "terminal_target": false
+       }
+      }
+     },
+     "posted": [],
+     "calls": [
+      "cancel send"
+     ]
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "edit",
+       "element": "s1e1",
+       "text": "Z",
+       "select": "end",
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "error": "AttributeError",
+      "message": "'Ax' object has no attribute 'set_selected_range'"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "edit",
+       "element": "s1e1",
+       "text": "Q",
+       "select": [
+        0,
+        2
+       ],
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "error": "AttributeError",
+      "message": "'Ax' object has no attribute 'set_selected_range'"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "edit",
+       "element": "s1e1",
+       "text": null,
+       "select": "all",
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "error": "AttributeError",
+      "message": "'Ax' object has no attribute 'set_selected_range'"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "edit",
+       "element": "s1e1",
+       "text": "Q",
+       "select": "bogus",
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "error": "Refused",
+      "message": "select must be (start, length), \"all\", \"end\" or \"start\", not 'bogus'"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "element_identity",
+     "args": {
+      "element": "s1e2"
+     },
+     "out": {
+      "ok": {
+       "window": null,
+       "path": "",
+       "role": "",
+       "subrole": "",
+       "label": "Send"
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "element_identity",
+     "args": {
+      "element": "s9e1"
+     },
+     "out": {
+      "ok": null
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "snapshot",
+     "args": {
+      "app": "WhatsApp"
+     },
+     "out": {
+      "ok": {
+       "app": "WhatsApp",
+       "bundle_id": "net.whatsapp.WhatsApp",
+       "window": "Chat",
+       "elements": [
+        {
+         "id": "s2e1",
+         "role": "textbox",
+         "label": "Message",
+         "value": "hi there"
+        },
+        {
+         "id": "s2e2",
+         "role": "button",
+         "label": "Send"
+        }
+       ],
+       "text": "[return]",
+       "offset": 0,
+       "next_offset": null,
+       "profile": {
+        "bundle": "net.whatsapp.WhatsApp",
+        "updated": "2026-01-01T00:00:00+00:00",
+        "seeded_from": null,
+        "mechanisms": {
+         "pid_keys": {
+          "landed": 1,
+          "failed": 0,
+          "streak": 0,
+          "attempted_at": "2026-01-01T00:00:00+00:00",
+          "last": "landed"
+         },
+         "ax_press": {
+          "landed": 1,
+          "failed": 0,
+          "streak": 0,
+          "attempted_at": "2026-01-01T00:00:00+00:00",
+          "last": "landed"
+         },
+         "ax_value": {
+          "landed": 0,
+          "failed": 1,
+          "streak": 1,
+          "attempted_at": "2026-01-01T00:00:00+00:00",
+          "last": "failed"
+         },
+         "pid_keycodes": {
+          "landed": 1,
+          "failed": 0,
+          "streak": 0,
+          "attempted_at": "2026-01-01T00:00:00+00:00",
+          "last": "landed"
+         }
+        },
+        "diagnostics": []
+       },
+       "repeated_ax_nodes": 0
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "type",
+       "element": "s1e1",
+       "text": "late",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "error": "StaleRef",
+      "message": "element s1e1 is from an older snapshot of this app; take a new one"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "app",
+     "args": {
+      "q": "Nope"
+     },
+     "out": {
+      "error": "Refused",
+      "message": "Nope isn't running (open it first)"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "app",
+     "args": {
+      "q": "pid:23"
+     },
+     "out": {
+      "ok": "RunningApp(bundle_id='com.microsoft.VSCode', name='Code', pid=23, active=True)"
+     },
+     "posted": [],
+     "calls": []
+    }
+   ]
+  },
+  {
+   "name": "chat_deaf",
+   "fake": {
+    "kind": "chat",
+    "cfg": {
+     "takes_background": false,
+     "press_ok": false
+    }
+   },
+   "steps": [
+    {
+     "op": "snapshot",
+     "args": {
+      "app": "WhatsApp"
+     },
+     "out": {
+      "ok": {
+       "app": "WhatsApp",
+       "bundle_id": "net.whatsapp.WhatsApp",
+       "window": "Chat",
+       "elements": [
+        {
+         "id": "s1e1",
+         "role": "textbox",
+         "label": "Message"
+        },
+        {
+         "id": "s1e2",
+         "role": "button",
+         "label": "Send"
+        }
+       ],
+       "text": "",
+       "offset": 0,
+       "next_offset": null,
+       "profile": {
+        "bundle": "net.whatsapp.WhatsApp",
+        "updated": "",
+        "seeded_from": null,
+        "mechanisms": {},
+        "diagnostics": []
+       },
+       "repeated_ax_nodes": 0
+      }
+     },
+     "posted": [],
+     "calls": [
+      "expose"
+     ]
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "type",
+       "element": "s1e1",
+       "text": "hello",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "ok": {
+       "ok": true,
+       "detail": "typing delivered in the background; result unconfirmed; inspect before retrying",
+       "facts": {
+        "method": "pid",
+        "delivered": true,
+        "observed_change": false,
+        "outcome_verified": false,
+        "replayed": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "net.whatsapp.WhatsApp"
+        },
+        "secure_field": false,
+        "terminal_target": false
+       }
+      }
+     },
+     "posted": [
+      "type 'hello' to pid"
+     ],
+     "calls": [
+      "focus"
+     ]
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "press",
+       "element": "s1e2",
+       "text": null,
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "ok": {
+       "ok": false,
+       "detail": "AX press request refused; check what happened before trying again (if it may have gone through, a repeat needs the owner)",
+       "facts": {
+        "method": "ax",
+        "accepted": false,
+        "outcome_verified": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "net.whatsapp.WhatsApp"
+        },
+        "secure_field": false,
+        "terminal_target": false
+       }
+      }
+     },
+     "posted": [],
+     "calls": [
+      "press"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "chat_sheet",
+   "fake": {
+    "kind": "chat",
+    "cfg": {
+     "box_has_focus": false,
+     "send_button": false
+    }
+   },
+   "steps": [
+    {
+     "op": "snapshot",
+     "args": {
+      "app": "WhatsApp"
+     },
+     "out": {
+      "ok": {
+       "app": "WhatsApp",
+       "bundle_id": "net.whatsapp.WhatsApp",
+       "window": "Chat",
+       "elements": [
+        {
+         "id": "s1e1",
+         "role": "textbox",
+         "label": "Message"
+        }
+       ],
+       "text": "",
+       "offset": 0,
+       "next_offset": null,
+       "profile": {
+        "bundle": "net.whatsapp.WhatsApp",
+        "updated": "",
+        "seeded_from": null,
+        "mechanisms": {},
+        "diagnostics": []
+       },
+       "repeated_ax_nodes": 0
+      }
+     },
+     "posted": [],
+     "calls": [
+      "expose"
+     ]
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "type",
+       "element": "s1e1",
+       "text": "hello",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "error": "Refused",
+      "message": "something else in the app has the keyboard focus (a dialog or sheet may be open), so nothing was typed; take a new snapshot"
+     },
+     "posted": [],
+     "calls": [
+      "focus"
+     ]
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "type",
+       "element": "s1e1",
+       "text": "hello",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": true,
+       "mechanism": "foreground"
+      }
+     },
+     "out": {
+      "error": "Refused",
+      "message": "something else in the app has the keyboard focus (a dialog or sheet may be open), so nothing was typed; take a new snapshot"
+     },
+     "posted": [],
+     "calls": [
+      "focus"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "chat_foreground",
+   "fake": {
+    "kind": "chat",
+    "cfg": {},
+    "owner": [
+     true,
+     true,
+     false
+    ]
+   },
+   "steps": [
+    {
+     "op": "snapshot",
+     "args": {
+      "app": "WhatsApp"
+     },
+     "out": {
+      "ok": {
+       "app": "WhatsApp",
+       "bundle_id": "net.whatsapp.WhatsApp",
+       "window": "Chat",
+       "elements": [
+        {
+         "id": "s1e1",
+         "role": "textbox",
+         "label": "Message"
+        },
+        {
+         "id": "s1e2",
+         "role": "button",
+         "label": "Send"
+        }
+       ],
+       "text": "",
+       "offset": 0,
+       "next_offset": null,
+       "profile": {
+        "bundle": "net.whatsapp.WhatsApp",
+        "updated": "",
+        "seeded_from": null,
+        "mechanisms": {},
+        "diagnostics": []
+       },
+       "repeated_ax_nodes": 0
+      }
+     },
+     "posted": [],
+     "calls": [
+      "expose"
+     ]
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "key",
+       "element": null,
+       "text": "cmd+s",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": true,
+       "mechanism": "foreground"
+      }
+     },
+     "out": {
+      "ok": {
+       "ok": true,
+       "detail": "cmd+s (1 steps, explicit foreground input); inspect the result",
+       "facts": {
+        "method": "foreground",
+        "delivered_steps": 1,
+        "outcome_verified": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "net.whatsapp.WhatsApp"
+        },
+        "terminal_target": false
+       }
+      }
+     },
+     "posted": [
+      "key cmd+s foreground"
+     ],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "type",
+       "element": "s1e1",
+       "text": "abc",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": true,
+       "mechanism": "foreground"
+      }
+     },
+     "out": {
+      "ok": {
+       "ok": true,
+       "detail": "typing (1 steps, explicit foreground input); inspect the result",
+       "facts": {
+        "method": "foreground",
+        "delivered_steps": 1,
+        "outcome_verified": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "net.whatsapp.WhatsApp"
+        },
+        "secure_field": false,
+        "terminal_target": false
+       }
+      }
+     },
+     "posted": [
+      "type 'abc' foreground"
+     ],
+     "calls": [
+      "focus"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "chat_facts",
+   "fake": {
+    "kind": "facts",
+    "cfg": {
+     "focused": "textbox"
+    }
+   },
+   "steps": [
+    {
+     "op": "snapshot",
+     "args": {
+      "app": "WhatsApp"
+     },
+     "out": {
+      "ok": {
+       "app": "WhatsApp",
+       "bundle_id": "net.whatsapp.WhatsApp",
+       "window": "Chat",
+       "elements": [
+        {
+         "id": "s1e1",
+         "role": "textbox",
+         "label": "Message"
+        },
+        {
+         "id": "s1e2",
+         "role": "button",
+         "label": "Send"
+        }
+       ],
+       "text": "",
+       "offset": 0,
+       "next_offset": null,
+       "profile": {
+        "bundle": "net.whatsapp.WhatsApp",
+        "updated": "",
+        "seeded_from": null,
+        "mechanisms": {},
+        "diagnostics": []
+       },
+       "repeated_ax_nodes": 0
+      }
+     },
+     "posted": [],
+     "calls": [
+      "expose"
+     ]
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "press",
+       "element": "s1e2",
+       "text": null,
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "ok": {
+       "ok": true,
+       "detail": "AX press request accepted; inspect the outcome",
+       "facts": {
+        "method": "ax",
+        "accepted": true,
+        "outcome_verified": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "net.whatsapp.WhatsApp",
+         "window": "Chat with Asha",
+         "role": "AXButton"
+        },
+        "secure_field": false,
+        "terminal_target": false,
+        "target_role": "AXButton"
+       }
+      }
+     },
+     "posted": [],
+     "calls": [
+      "press"
+     ]
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "type",
+       "element": "s1e1",
+       "text": "yo",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "ok": {
+       "ok": true,
+       "detail": "typing delivered in the background; a value change was observed",
+       "facts": {
+        "method": "pid",
+        "delivered": true,
+        "observed_change": true,
+        "outcome_verified": false,
+        "replayed": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "net.whatsapp.WhatsApp",
+         "window": "Chat with Asha",
+         "role": "AXTextField"
+        },
+        "secure_field": false,
+        "terminal_target": false,
+        "target_role": "AXTextField"
+       }
+      }
+     },
+     "posted": [
+      "type 'yo' to pid"
+     ],
+     "calls": [
+      "focus"
+     ]
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "key",
+       "element": null,
+       "text": "a",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "ok": {
+       "ok": true,
+       "detail": "a sent in the background; state changed; inspect the outcome",
+       "facts": {
+        "method": "pid",
+        "delivered": true,
+        "observed_change": true,
+        "outcome_verified": false,
+        "replayed": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "net.whatsapp.WhatsApp",
+         "window": "Chat with Asha",
+         "role": "AXTextField"
+        },
+        "secure_field": false,
+        "terminal_target": false,
+        "target_role": "AXTextField"
+       }
+      }
+     },
+     "posted": [
+      "key a to pid"
+     ],
+     "calls": []
+    },
+    {
+     "op": "set_focus",
+     "args": "pw",
+     "out": {
+      "ok": null
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "key",
+       "element": null,
+       "text": "a",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "error": "Refused",
+      "message": "that's a password field, and this key would put text into it; FERB never types passwords for the owner (the owner fills it, or mac.secret does from the Keychain)"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "key",
+       "element": null,
+       "text": "cmd+v",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "error": "Refused",
+      "message": "that's a password field, and this key would put text into it; FERB never types passwords for the owner (the owner fills it, or mac.secret does from the Keychain)"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "key",
+       "element": null,
+       "text": "return",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "ok": {
+       "ok": true,
+       "detail": "return sent in the background; state changed; inspect the outcome",
+       "facts": {
+        "method": "pid",
+        "delivered": true,
+        "observed_change": true,
+        "outcome_verified": false,
+        "replayed": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "net.whatsapp.WhatsApp",
+         "window": "Chat with Asha",
+         "role": "AXSecureTextField"
+        },
+        "secure_field": true,
+        "terminal_target": false,
+        "target_role": "AXSecureTextField",
+        "target_subrole": "AXSecureTextField"
+       }
+      }
+     },
+     "posted": [
+      "key return to pid"
+     ],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "type",
+       "element": null,
+       "text": "typed",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": true,
+       "mechanism": "foreground"
+      }
+     },
+     "out": {
+      "error": "Refused",
+      "message": "that's a password field; FERB never types passwords for the owner"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "set_focus",
+     "args": "box",
+     "out": {
+      "ok": null
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "WhatsApp",
+      "action": {
+       "kind": "type",
+       "element": null,
+       "text": "typed",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": true,
+       "mechanism": "foreground"
+      }
+     },
+     "out": {
+      "ok": {
+       "ok": true,
+       "detail": "typing (1 steps, explicit foreground input); inspect the result",
+       "facts": {
+        "method": "foreground",
+        "delivered_steps": 1,
+        "outcome_verified": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "net.whatsapp.WhatsApp",
+         "window": "Chat with Asha",
+         "role": "AXTextField"
+        },
+        "secure_field": false,
+        "terminal_target": false,
+        "target_role": "AXTextField"
+       }
+      }
+     },
+     "posted": [
+      "type 'typed' foreground"
+     ],
+     "calls": []
+    },
+    {
+     "op": "terminal_input",
+     "args": {
+      "action": {
+       "kind": "key",
+       "element": null,
+       "text": "return",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "ok": null
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "terminal_input",
+     "args": {
+      "action": {
+       "kind": "type",
+       "element": "s1e1",
+       "text": "ls\n",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "ok": null
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "browser_page",
+     "args": {
+      "action": {
+       "kind": "type",
+       "element": "s1e1",
+       "text": "chrome://settings",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "ok": null
+     },
+     "posted": [],
+     "calls": []
+    }
+   ]
+  },
+  {
+   "name": "vision",
+   "fake": {
+    "kind": "vision",
+    "cfg": {
+     "secret_rects": [
+      [
+       120.0,
+       160.0,
+       200.0,
+       24.0
+      ]
+     ]
+    }
+   },
+   "steps": [
+    {
+     "op": "screenshot",
+     "args": {},
+     "out": {
+      "ok": {
+       "app": "Notes",
+       "shot": "shot1",
+       "window": 110,
+       "bounds": [
+        100.0,
+        50.0,
+        800.0,
+        600.0
+       ],
+       "size": [
+        1600,
+        1200
+       ],
+       "pid": 11,
+       "masking": "",
+       "masks": [
+        [
+         120.0,
+         160.0,
+         200.0,
+         24.0
+        ]
+       ],
+       "jpeg": "painted",
+       "painted": [
+        [
+         40,
+         220,
+         400,
+         48
+        ]
+       ],
+       "captured": [
+        110
+       ]
+      }
+     },
+     "posted": [],
+     "calls": [
+      "ax.expose"
+     ]
+    },
+    {
+     "op": "click_identity",
+     "args": {
+      "x": 50,
+      "y": 60
+     },
+     "out": {
+      "ok": {
+       "window": 110,
+       "point": [
+        1,
+        1
+       ]
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "shot_point",
+     "args": {
+      "x": 50,
+      "y": 60
+     },
+     "out": {
+      "ok": [
+       11,
+       110,
+       [
+        125.0,
+        80.0
+       ]
+      ]
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "click_at",
+     "args": {
+      "shot": null,
+      "x": 50.0,
+      "y": 60.0,
+      "mechanism": "pointer",
+      "allow_foreground": false
+     },
+     "out": {
+      "ok": {
+       "ok": true,
+       "detail": "click input delivered to the app process; visible state changed; verify with a fresh screenshot",
+       "facts": {
+        "method": "pid_pointer",
+        "delivered": true,
+        "observed_change": true,
+        "outcome_verified": false,
+        "replayed": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "com.apple.Notes",
+         "window": "w"
+        }
+       }
+      }
+     },
+     "posted": [
+      "move 125.0,80.0 to pid",
+      "click 125.0,80.0 to pid"
+     ],
+     "calls": []
+    },
+    {
+     "op": "screenshot",
+     "args": {},
+     "out": {
+      "ok": {
+       "app": "Notes",
+       "shot": "shot2",
+       "window": 110,
+       "bounds": [
+        100.0,
+        50.0,
+        800.0,
+        600.0
+       ],
+       "size": [
+        1600,
+        1200
+       ],
+       "pid": 11,
+       "masking": "",
+       "masks": [
+        [
+         120.0,
+         160.0,
+         200.0,
+         24.0
+        ]
+       ],
+       "jpeg": "painted",
+       "painted": [
+        [
+         40,
+         220,
+         400,
+         48
+        ]
+       ],
+       "captured": [
+        110,
+        110
+       ]
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "click_at",
+     "args": {
+      "shot": null,
+      "x": 5000.0,
+      "y": 60.0,
+      "mechanism": "pointer",
+      "allow_foreground": false
+     },
+     "out": {
+      "error": "Refused",
+      "message": "(5000.0, 60.0) is outside the 1600x1200 screenshot"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "click_at",
+     "args": {
+      "shot": null,
+      "x": 50.0,
+      "y": 60.0,
+      "mechanism": "ax",
+      "allow_foreground": false
+     },
+     "out": {
+      "ok": {
+       "ok": false,
+       "detail": "AX hit test unavailable; no pointer input attempted",
+       "facts": {
+        "method": "ax",
+        "performed": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "com.apple.Notes",
+         "window": "w"
+        }
+       }
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "click_at",
+     "args": {
+      "shot": null,
+      "x": 50.0,
+      "y": 60.0,
+      "mechanism": "foreground",
+      "allow_foreground": false
+     },
+     "out": {
+      "ok": {
+       "ok": false,
+       "detail": "no control under (50, 60) could be pressed",
+       "facts": {
+        "code": "needs_foreground",
+        "performed": false
+       },
+       "observed": null
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "click_at",
+     "args": {
+      "shot": null,
+      "x": 50.0,
+      "y": 60.0,
+      "mechanism": "foreground",
+      "allow_foreground": true
+     },
+     "out": {
+      "ok": {
+       "ok": true,
+       "detail": "clicked (50, 60) in shot2; click (2 steps, explicit foreground input); inspect the result",
+       "facts": {
+        "method": "foreground",
+        "delivered_steps": 2,
+        "outcome_verified": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "com.apple.Notes",
+         "window": "w"
+        }
+       }
+      }
+     },
+     "posted": [
+      "move 125.0,80.0",
+      "click 125.0,80.0"
+     ],
+     "calls": []
+    },
+    {
+     "op": "click_at",
+     "args": {
+      "shot": null,
+      "x": 50.0,
+      "y": 60.0,
+      "mechanism": "bogus",
+      "allow_foreground": false
+     },
+     "out": {
+      "error": "Refused",
+      "message": "click mechanism must be pointer, ax or foreground"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "screenshot",
+     "args": {},
+     "out": {
+      "ok": {
+       "app": "Notes",
+       "shot": "shot3",
+       "window": 110,
+       "bounds": [
+        100.0,
+        50.0,
+        800.0,
+        600.0
+       ],
+       "size": [
+        1600,
+        1200
+       ],
+       "pid": 11,
+       "masking": "",
+       "masks": [
+        [
+         120.0,
+         160.0,
+         200.0,
+         24.0
+        ]
+       ],
+       "jpeg": "painted",
+       "painted": [
+        [
+         40,
+         220,
+         400,
+         48
+        ]
+       ],
+       "captured": [
+        110,
+        110,
+        110
+       ]
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "click_at",
+     "args": {
+      "shot": "shot1",
+      "x": 50.0,
+      "y": 60.0,
+      "mechanism": "pointer",
+      "allow_foreground": false
+     },
+     "out": {
+      "error": "StaleRef",
+      "message": "shot1 isn't Notes's latest screenshot; take a new one"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "pointer",
+     "args": {
+      "kind": "hover"
+     },
+     "out": {
+      "ok": {
+       "ok": true,
+       "detail": "hover input delivered to the app process; visible state changed; verify with a fresh screenshot",
+       "facts": {
+        "method": "pid_pointer",
+        "delivered": true,
+        "observed_change": true,
+        "outcome_verified": false,
+        "replayed": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "com.apple.Notes",
+         "window": "w"
+        }
+       }
+      }
+     },
+     "posted": [
+      "move 105.0,55.0 to pid",
+      "click 105.0,55.0 to pid"
+     ],
+     "calls": []
+    },
+    {
+     "op": "screenshot",
+     "args": {},
+     "out": {
+      "ok": {
+       "app": "Notes",
+       "shot": "shot4",
+       "window": 110,
+       "bounds": [
+        100.0,
+        50.0,
+        800.0,
+        600.0
+       ],
+       "size": [
+        1600,
+        1200
+       ],
+       "pid": 11,
+       "masking": "",
+       "masks": [
+        [
+         120.0,
+         160.0,
+         200.0,
+         24.0
+        ]
+       ],
+       "jpeg": "painted",
+       "painted": [
+        [
+         40,
+         220,
+         400,
+         48
+        ]
+       ],
+       "captured": [
+        110,
+        110,
+        110,
+        110
+       ]
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "pointer",
+     "args": {
+      "kind": "drag"
+     },
+     "out": {
+      "ok": {
+       "ok": true,
+       "detail": "drag input delivered to the app process; visible state changed; verify with a fresh screenshot",
+       "facts": {
+        "method": "pid_pointer",
+        "delivered": true,
+        "observed_change": true,
+        "outcome_verified": false,
+        "replayed": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "com.apple.Notes",
+         "window": "w"
+        }
+       }
+      }
+     },
+     "posted": [
+      "move 105.0,55.0 to pid",
+      "click 105.0,55.0 to pid"
+     ],
+     "calls": []
+    },
+    {
+     "op": "screenshot",
+     "args": {},
+     "out": {
+      "ok": {
+       "app": "Notes",
+       "shot": "shot5",
+       "window": 110,
+       "bounds": [
+        100.0,
+        50.0,
+        800.0,
+        600.0
+       ],
+       "size": [
+        1600,
+        1200
+       ],
+       "pid": 11,
+       "masking": "",
+       "masks": [
+        [
+         120.0,
+         160.0,
+         200.0,
+         24.0
+        ]
+       ],
+       "jpeg": "painted",
+       "painted": [
+        [
+         40,
+         220,
+         400,
+         48
+        ]
+       ],
+       "captured": [
+        110,
+        110,
+        110,
+        110,
+        110
+       ]
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "pointer",
+     "args": {
+      "kind": "scroll"
+     },
+     "out": {
+      "ok": {
+       "ok": false,
+       "detail": "scroll down (300px/step): sent 1/3 viewport-sized steps, 0 observed changes; movement not confirmed; take a fresh screenshot; end not established",
+       "facts": {},
+       "observed": {
+        "received_by": {
+         "bundle_id": "com.apple.Notes",
+         "window": "w"
+        }
+       }
+      }
+     },
+     "posted": [
+      "scroll -300 at 105.0,55.0 to pid"
+     ],
+     "calls": []
+    },
+    {
+     "op": "pointer",
+     "args": {
+      "kind": "zoom"
+     },
+     "out": {
+      "error": "StaleRef",
+      "message": "take a fresh screenshot before pointer input"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "screenshot",
+     "args": {
+      "secure": [
+       null,
+       false
+      ]
+     },
+     "out": {
+      "ok": {
+       "app": "Notes",
+       "shot": "shot6",
+       "window": 110,
+       "bounds": [
+        100.0,
+        50.0,
+        800.0,
+        600.0
+       ],
+       "size": [
+        1600,
+        1200
+       ],
+       "pid": 11,
+       "masking": "Accessibility couldn't read this window in one look around the capture: the secret fields the other look found are painted where it saw them; anything else is left to text recognition (a secret it can't read as text could show)",
+       "masks": [
+        [
+         120.0,
+         160.0,
+         200.0,
+         24.0
+        ]
+       ],
+       "jpeg": "painted",
+       "painted": [
+        [
+         40,
+         220,
+         400,
+         48
+        ]
+       ],
+       "captured": [
+        110,
+        110,
+        110,
+        110,
+        110,
+        110
+       ]
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "screenshot",
+     "args": {
+      "browser": true
+     },
+     "out": {
+      "ok": "masked from Accessibility only: the browser extension couldn't read this page (not paired with this window's profile, an incognito window, or a page scripts can't reach)"
+     },
+     "posted": [],
+     "calls": [
+      "ax.expose"
+     ]
+    },
+    {
+     "op": "app",
+     "args": {
+      "q": "Passwords"
+     },
+     "out": {
+      "error": "Refused",
+      "message": "Passwords is on the owner's exclusion list"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "own_point",
+     "args": {
+      "x": 10,
+      "y": 10
+     },
+     "out": {
+      "ok": null
+     },
+     "posted": [],
+     "calls": []
+    }
+   ]
+  },
+  {
+   "name": "tools_chat",
+   "fake": {
+    "kind": "facts",
+    "cfg": {
+     "focused": "textbox"
+    }
+   },
+   "steps": [
+    {
+     "op": "run mac.snapshot",
+     "args": {
+      "app": "WhatsApp"
+     },
+     "out": {
+      "ok": {
+       "content": {
+        "app": "WhatsApp",
+        "bundle_id": "net.whatsapp.WhatsApp",
+        "window": "Chat",
+        "elements": [
+         {
+          "id": "s1e1",
+          "role": "textbox",
+          "label": "Message"
+         },
+         {
+          "id": "s1e2",
+          "role": "button",
+          "label": "Send"
+         }
+        ],
+        "text": "",
+        "offset": 0,
+        "next_offset": null,
+        "profile": {
+         "bundle": "net.whatsapp.WhatsApp",
+         "updated": "",
+         "seeded_from": null,
+         "mechanisms": {},
+         "diagnostics": []
+        },
+        "repeated_ax_nodes": 0
+       },
+       "is_error": false,
+       "read_sources": [
+        [
+         "message",
+         "net.whatsapp.WhatsApp"
+        ],
+        [
+         "owner_account",
+         "net.whatsapp.WhatsApp|"
+        ]
+       ],
+       "facts": null,
+       "image": false
+      }
+     },
+     "posted": [],
+     "calls": [
+      "expose"
+     ]
+    },
+    {
+     "op": "run mac.act",
+     "args": {
+      "app": "WhatsApp",
+      "action": "press",
+      "element": "s1e2"
+     },
+     "out": {
+      "ok": {
+       "content": {
+        "ok": true,
+        "detail": "AX press request accepted; inspect the outcome",
+        "facts": {
+         "method": "ax",
+         "accepted": true,
+         "outcome_verified": false
+        },
+        "next": "take a new snapshot to see the result"
+       },
+       "is_error": false,
+       "read_sources": [
+        [
+         "message",
+         "net.whatsapp.WhatsApp"
+        ],
+        [
+         "owner_account",
+         "net.whatsapp.WhatsApp|"
+        ]
+       ],
+       "facts": {
+        "received_by": {
+         "bundle_id": "net.whatsapp.WhatsApp",
+         "window": "Chat with Asha",
+         "role": "AXButton"
+        },
+        "secure_field": false,
+        "terminal_target": false,
+        "target_role": "AXButton"
+       },
+       "image": false
+      }
+     },
+     "posted": [],
+     "calls": [
+      "press"
+     ]
+    },
+    {
+     "op": "run mac.act",
+     "args": {
+      "app": "WhatsApp",
+      "action": "type",
+      "element": "s1e1",
+      "text": "hey"
+     },
+     "out": {
+      "ok": {
+       "content": {
+        "ok": true,
+        "detail": "typing delivered in the background; a value change was observed",
+        "facts": {
+         "method": "pid",
+         "delivered": true,
+         "observed_change": true,
+         "outcome_verified": false,
+         "replayed": false
+        },
+        "next": "take a new snapshot to see the result"
+       },
+       "is_error": false,
+       "read_sources": [
+        [
+         "message",
+         "net.whatsapp.WhatsApp"
+        ],
+        [
+         "owner_account",
+         "net.whatsapp.WhatsApp|"
+        ]
+       ],
+       "facts": {
+        "received_by": {
+         "bundle_id": "net.whatsapp.WhatsApp",
+         "window": "Chat with Asha",
+         "role": "AXTextField"
+        },
+        "secure_field": false,
+        "terminal_target": false,
+        "target_role": "AXTextField"
+       },
+       "image": false
+      }
+     },
+     "posted": [
+      "type 'hey' to pid"
+     ],
+     "calls": [
+      "focus"
+     ]
+    },
+    {
+     "op": "run mac.act",
+     "args": {
+      "app": "WhatsApp",
+      "action": "press",
+      "element": "s0e2"
+     },
+     "out": {
+      "ok": {
+       "content": {
+        "error": "element s0e2 is from an older snapshot of this app; take a new one"
+       },
+       "is_error": true,
+       "read_sources": [],
+       "facts": null,
+       "image": false
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "run mac.apps",
+     "args": {},
+     "out": {
+      "error": "AttributeError",
+      "message": "'Apps' object has no attribute 'running'"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "describe mac.act",
+     "args": {
+      "app": "WhatsApp",
+      "action": "type",
+      "element": "s1e1",
+      "text": " <a@example.com>, "
+     },
+     "out": {
+      "ok": {
+       "kind": "mac_input",
+       "site": "net.whatsapp.WhatsApp",
+       "recipients": [
+        "a@example.com"
+       ],
+       "path": null,
+       "contact": null,
+       "content": " <a@example.com>, ",
+       "declared": null,
+       "place": null
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "describe mac.act",
+     "args": {
+      "app": "WhatsApp",
+      "action": "focus",
+      "element": "s1e1"
+     },
+     "out": {
+      "ok": {
+       "kind": "navigate",
+       "site": "net.whatsapp.WhatsApp",
+       "recipients": [],
+       "path": null,
+       "contact": null,
+       "content": null,
+       "declared": null,
+       "place": null
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "describe mac.act",
+     "args": {
+      "app": "WhatsApp",
+      "action": "type",
+      "element": "s1e1",
+      "text": "+91 98765 43210;"
+     },
+     "out": {
+      "ok": {
+       "kind": "mac_input",
+       "site": "net.whatsapp.WhatsApp",
+       "recipients": [
+        "+91 98765 43210"
+       ],
+       "path": null,
+       "contact": null,
+       "content": "+91 98765 43210;",
+       "declared": null,
+       "place": null
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "describe mac.click",
+     "args": {
+      "app": "WhatsApp",
+      "shot": "shot1",
+      "x": 1,
+      "y": 2,
+      "purpose": "call",
+      "contact": {
+       "name": "Asha",
+       "selected": "Asha K",
+       "detail": "+1 555"
+      }
+     },
+     "out": {
+      "ok": {
+       "kind": "mac_input",
+       "site": "net.whatsapp.WhatsApp",
+       "recipients": [],
+       "path": null,
+       "contact": "Asha K",
+       "content": null,
+       "declared": "call",
+       "place": "WhatsApp"
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "describe mac.pointer",
+     "args": {
+      "app": "WhatsApp",
+      "shot": "shot1",
+      "x": 1,
+      "y": 2,
+      "action": "hover",
+      "purpose": "send"
+     },
+     "out": {
+      "ok": {
+       "kind": "read",
+       "site": "net.whatsapp.WhatsApp",
+       "recipients": [],
+       "path": null,
+       "contact": null,
+       "content": "{'action': 'hover', 'direction': 'down', 'amount': 1, 'distance': 0.8}",
+       "declared": null,
+       "place": null
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "describe mac.pointer",
+     "args": {
+      "app": "WhatsApp",
+      "shot": "shot1",
+      "x": 1,
+      "y": 2,
+      "action": "scroll",
+      "amount": 3,
+      "distance": 0.25,
+      "direction": "up"
+     },
+     "out": {
+      "ok": {
+       "kind": "mac_input",
+       "site": "net.whatsapp.WhatsApp",
+       "recipients": [],
+       "path": null,
+       "contact": null,
+       "content": "{'action': 'scroll', 'direction': 'up', 'amount': 3, 'distance': 0.25}",
+       "declared": null,
+       "place": null
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "describe mac.menu",
+     "args": {
+      "app": "WhatsApp",
+      "path": "File>Search"
+     },
+     "out": {
+      "ok": {
+       "kind": "mac_input",
+       "site": "net.whatsapp.WhatsApp",
+       "recipients": [],
+       "path": null,
+       "contact": null,
+       "content": null,
+       "declared": null,
+       "place": null
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "describe mac.menu",
+     "args": {
+      "app": "WhatsApp"
+     },
+     "out": {
+      "ok": {
+       "kind": "read",
+       "site": "net.whatsapp.WhatsApp",
+       "recipients": [],
+       "path": null,
+       "contact": null,
+       "content": null,
+       "declared": null,
+       "place": null
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "describe mac.applescript",
+     "args": {
+      "app": "WhatsApp",
+      "script": "get x"
+     },
+     "out": {
+      "ok": {
+       "kind": "applescript",
+       "site": "net.whatsapp.WhatsApp",
+       "recipients": [],
+       "path": null,
+       "contact": null,
+       "content": "get x",
+       "declared": null,
+       "place": null
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "precheck",
+     "args": {
+      "tool": "mac.applescript"
+     },
+     "out": {
+      "ok": "FERB never operates its own app; questions are answered by the owner"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "precheck",
+     "args": {
+      "tool": "mac.applescript",
+      "shell": true
+     },
+     "out": {
+      "ok": "mac.applescript runs no shell code: `do shell script` would run a program outside the shell's own checks. Run the command with shell.run, where FERB's sandbox, terminal question and change record apply"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "precheck",
+     "args": {
+      "tool": "mac.secret"
+     },
+     "out": {
+      "ok": null
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "precheck",
+     "args": {
+      "tool": "mac.pointer"
+     },
+     "out": {
+      "ok": "drag requires end_x and end_y from the same screenshot"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "locks",
+     "args": {
+      "tool": "mac.act"
+     },
+     "out": {
+      "ok": [
+       "app:net.whatsapp.WhatsApp"
+      ]
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "ledger_args",
+     "args": {
+      "tool": "mac.act"
+     },
+     "out": {
+      "ok": {
+       "app": "net.whatsapp.WhatsApp",
+       "action": "press",
+       "element": {
+        "window": null,
+        "path": "",
+        "role": "",
+        "subrole": "",
+        "label": "Send"
+       }
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "menu_path",
+     "args": {
+      "path": " File >Search > "
+     },
+     "out": {
+      "ok": "File > Search"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "menu_path",
+     "args": {
+      "path": " > "
+     },
+     "out": {
+      "ok": null
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "preview_target",
+     "args": {
+      "tool": "mac.act",
+      "action": "key"
+     },
+     "out": {
+      "ok": [
+       "app:WhatsApp",
+       "WhatsApp",
+       false
+      ]
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "preview_target",
+     "args": {
+      "tool": "mac.act",
+      "action": "press"
+     },
+     "out": {
+      "ok": [
+       "app:WhatsApp",
+       "WhatsApp",
+       true
+      ]
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "preview_target",
+     "args": {
+      "tool": "mac.snapshot",
+      "observed": true
+     },
+     "out": {
+      "ok": null
+     },
+     "posted": [],
+     "calls": []
+    }
+   ]
+  },
+  {
+   "name": "terminal",
+   "fake": {
+    "kind": "facts",
+    "cfg": {
+     "focused": "textbox"
+    },
+    "chains": {
+     "box": [
+      {
+       "role": "AXTextField",
+       "role_description": "text field",
+       "dom_classes": [
+        "xterm-helper-textarea"
+       ],
+       "description": "Terminal 108, zsh Use ⌥F1 for terminal accessibility help"
+      },
+      {
+       "role": "AXGroup",
+       "dom_classes": [
+        "xterm-helpers"
+       ]
+      },
+      {
+       "role": "AXGroup",
+       "dom_classes": [
+        "xterm-screen"
+       ]
+      },
+      {
+       "role": "AXGroup",
+       "dom_classes": [
+        "terminal",
+        "xterm",
+        "xterm-dom-renderer-owner-84",
+        "focus"
+       ]
+      },
+      {
+       "role": "AXGroup",
+       "dom_classes": [
+        "terminal-xterm-host"
+       ]
+      },
+      {
+       "role": "AXGroup",
+       "dom_classes": [
+        "terminal-groups-container"
+       ]
+      },
+      {
+       "role": "AXGroup",
+       "dom_classes": [
+        "pane-body",
+        "shell-integration",
+        "integrated-terminal",
+        "wide"
+       ]
+      },
+      {
+       "role": "AXGroup",
+       "dom_classes": [
+        "composite",
+        "panel"
+       ],
+       "dom_identifier": "terminal"
+      },
+      {
+       "role": "AXGroup",
+       "dom_classes": [
+        "monaco-split-view2",
+        "horizontal"
+       ]
+      },
+      {
+       "role": "AXGroup",
+       "dom_classes": [
+        "split-view-container"
+       ]
+      },
+      {
+       "role": "AXWebArea",
+       "title": "FERB",
+       "dom_classes": [
+        "monaco-workbench",
+        "mac"
+       ]
+      },
+      {
+       "role": "AXWindow",
+       "title": "FERB"
+      },
+      {
+       "role": "AXApplication",
+       "title": "Code"
+      }
+     ],
+     "send": [
+      {
+       "role": "AXButton",
+       "title": "Run Python File"
+      },
+      {
+       "role": "AXGroup",
+       "dom_classes": [
+        "monaco-split-view2",
+        "horizontal"
+       ]
+      },
+      {
+       "role": "AXGroup",
+       "dom_classes": [
+        "split-view-container"
+       ]
+      },
+      {
+       "role": "AXWebArea",
+       "title": "FERB",
+       "dom_classes": [
+        "monaco-workbench",
+        "mac"
+       ]
+      },
+      {
+       "role": "AXWindow",
+       "title": "FERB"
+      },
+      {
+       "role": "AXApplication",
+       "title": "Code"
+      }
+     ]
+    }
+   },
+   "steps": [
+    {
+     "op": "snapshot",
+     "args": {
+      "app": "Code"
+     },
+     "out": {
+      "ok": {
+       "app": "Code",
+       "bundle_id": "com.microsoft.VSCode",
+       "window": "Chat",
+       "elements": [
+        {
+         "id": "s1e1",
+         "role": "textbox",
+         "label": "Message"
+        },
+        {
+         "id": "s1e2",
+         "role": "button",
+         "label": "Send"
+        }
+       ],
+       "text": "",
+       "offset": 0,
+       "next_offset": null,
+       "profile": {
+        "bundle": "com.microsoft.VSCode",
+        "updated": "",
+        "seeded_from": null,
+        "mechanisms": {},
+        "diagnostics": []
+       },
+       "repeated_ax_nodes": 0
+      }
+     },
+     "posted": [],
+     "calls": [
+      "expose"
+     ]
+    },
+    {
+     "op": "terminal_input",
+     "args": {
+      "app": "Code",
+      "action": {
+       "kind": "type",
+       "element": "s1e1",
+       "text": "ls -la",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "ok": {
+       "app": "Code",
+       "bundle_id": "com.microsoft.VSCode",
+       "surface": "a terminal in the page (xterm.js: DOM class xterm-helper-textarea)",
+       "text": "ls -la",
+       "keys": null,
+       "paste": false,
+       "concealed": false,
+       "clipboard": null,
+       "enter": true,
+       "covered_by": null,
+       "window": "Chat with Asha",
+       "menu": null,
+       "secret": null,
+       "script": null,
+       "drag": false,
+       "runs": false,
+       "control": null,
+       "selection": null,
+       "file": null,
+       "runs_where": "",
+       "files": [],
+       "label": "box",
+       "opens": false,
+       "named": []
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "Code",
+      "action": {
+       "kind": "type",
+       "element": "s1e1",
+       "text": "ls -la",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      },
+      "grant": null
+     },
+     "out": {
+      "error": "Refused",
+      "message": "FERB types into a terminal only after the owner's Yes to that exact input (D31): this input would reach a terminal in the page (xterm.js: DOM class xterm-helper-textarea) in Code, and the call carries no Yes for it, so nothing was typed. Run commands with FERB's shell tool; if FERB's sandbox blocks a command you need, request the escape hatch (shell.rules lists what it lifts), which asks the owner once"
+     },
+     "posted": [],
+     "calls": [
+      "focus"
+     ]
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "Code",
+      "action": {
+       "kind": "type",
+       "element": "s1e1",
+       "text": "ls -la",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      },
+      "grant": {
+       "input": {
+        "app": "Code",
+        "bundle_id": "com.microsoft.VSCode",
+        "surface": "",
+        "text": "ls -la",
+        "keys": null,
+        "paste": false,
+        "concealed": false,
+        "clipboard": null,
+        "enter": true,
+        "covered_by": null,
+        "window": "",
+        "menu": null,
+        "secret": null,
+        "script": null,
+        "drag": false,
+        "runs": false,
+        "control": null,
+        "selection": null,
+        "file": null,
+        "runs_where": "",
+        "files": [],
+        "label": "",
+        "opens": false,
+        "named": []
+       },
+       "confirmation_id": "c1"
+      }
+     },
+     "out": {
+      "ok": {
+       "ok": true,
+       "detail": "typing delivered in the background; a value change was observed",
+       "facts": {
+        "method": "pid",
+        "delivered": true,
+        "observed_change": true,
+        "outcome_verified": false,
+        "replayed": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "com.microsoft.VSCode",
+         "window": "Chat with Asha",
+         "role": "AXTextField"
+        },
+        "secure_field": false,
+        "terminal_target": true,
+        "target_role": "AXTextField"
+       }
+      }
+     },
+     "posted": [
+      "type 'ls -la' to pid"
+     ],
+     "calls": [
+      "focus"
+     ]
+    },
+    {
+     "op": "terminal_input",
+     "args": {
+      "app": "Code",
+      "action": {
+       "kind": "key",
+       "element": null,
+       "text": "return",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "ok": {
+       "app": "Code",
+       "bundle_id": "com.microsoft.VSCode",
+       "surface": "a terminal in the page (xterm.js: DOM class xterm-helper-textarea)",
+       "text": null,
+       "keys": "return",
+       "paste": false,
+       "concealed": false,
+       "clipboard": null,
+       "enter": false,
+       "covered_by": "c1",
+       "window": "Chat with Asha",
+       "menu": null,
+       "secret": null,
+       "script": null,
+       "drag": false,
+       "runs": false,
+       "control": null,
+       "selection": null,
+       "file": null,
+       "runs_where": "",
+       "files": [],
+       "label": "box",
+       "opens": false,
+       "named": []
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "Code",
+      "action": {
+       "kind": "key",
+       "element": null,
+       "text": "return",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      },
+      "grant": {
+       "input": {
+        "app": "Code",
+        "bundle_id": "com.microsoft.VSCode",
+        "surface": "",
+        "text": null,
+        "keys": "return",
+        "paste": false,
+        "concealed": false,
+        "clipboard": null,
+        "enter": false,
+        "covered_by": "c1",
+        "window": "",
+        "menu": null,
+        "secret": null,
+        "script": null,
+        "drag": false,
+        "runs": false,
+        "control": null,
+        "selection": null,
+        "file": null,
+        "runs_where": "",
+        "files": [],
+        "label": "",
+        "opens": false,
+        "named": []
+       },
+       "confirmation_id": "c1"
+      }
+     },
+     "out": {
+      "ok": {
+       "ok": true,
+       "detail": "return sent in the background; state changed; inspect the outcome",
+       "facts": {
+        "method": "pid",
+        "delivered": true,
+        "observed_change": true,
+        "outcome_verified": false,
+        "replayed": false
+       },
+       "observed": {
+        "received_by": {
+         "bundle_id": "com.microsoft.VSCode",
+         "window": "Chat with Asha",
+         "role": "AXTextField"
+        },
+        "secure_field": false,
+        "terminal_target": true,
+        "target_role": "AXTextField"
+       }
+      }
+     },
+     "posted": [
+      "key return to pid"
+     ],
+     "calls": []
+    },
+    {
+     "op": "terminal_input",
+     "args": {
+      "app": "Code",
+      "action": {
+       "kind": "key",
+       "element": null,
+       "text": "cmd+v",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "ok": {
+       "app": "Code",
+       "bundle_id": "com.microsoft.VSCode",
+       "surface": "a terminal in the page (xterm.js: DOM class xterm-helper-textarea)",
+       "text": "codex",
+       "keys": null,
+       "paste": true,
+       "concealed": false,
+       "clipboard": 7,
+       "enter": true,
+       "covered_by": null,
+       "window": "Chat with Asha",
+       "menu": null,
+       "secret": null,
+       "script": null,
+       "drag": false,
+       "runs": false,
+       "control": null,
+       "selection": null,
+       "file": null,
+       "runs_where": "",
+       "files": [],
+       "label": "box",
+       "opens": false,
+       "named": []
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "Code",
+      "action": {
+       "kind": "key",
+       "element": null,
+       "text": "cmd+v",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      },
+      "grant": null
+     },
+     "out": {
+      "error": "Refused",
+      "message": "FERB types into a terminal only after the owner's Yes to that exact input (D31): this input would reach a terminal in the page (xterm.js: DOM class xterm-helper-textarea) in Code, and the call carries no Yes for it, so nothing was typed. Run commands with FERB's shell tool; if FERB's sandbox blocks a command you need, request the escape hatch (shell.rules lists what it lifts), which asks the owner once"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "terminal_input",
+     "args": {
+      "app": "Code",
+      "action": {
+       "kind": "key",
+       "element": null,
+       "text": "ctrl+c",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "ok": {
+       "app": "Code",
+       "bundle_id": "com.microsoft.VSCode",
+       "surface": "a terminal in the page (xterm.js: DOM class xterm-helper-textarea)",
+       "text": null,
+       "keys": "ctrl+c",
+       "paste": false,
+       "concealed": false,
+       "clipboard": null,
+       "enter": false,
+       "covered_by": null,
+       "window": "Chat with Asha",
+       "menu": null,
+       "secret": null,
+       "script": null,
+       "drag": false,
+       "runs": false,
+       "control": null,
+       "selection": null,
+       "file": null,
+       "runs_where": "",
+       "files": [],
+       "label": "box",
+       "opens": false,
+       "named": []
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "Code",
+      "action": {
+       "kind": "key",
+       "element": null,
+       "text": "ctrl+c",
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      },
+      "grant": null
+     },
+     "out": {
+      "error": "Refused",
+      "message": "FERB types into a terminal only after the owner's Yes to that exact input (D31): this input would reach a terminal in the page (xterm.js: DOM class xterm-helper-textarea) in Code, and the call carries no Yes for it, so nothing was typed. Run commands with FERB's shell tool; if FERB's sandbox blocks a command you need, request the escape hatch (shell.rules lists what it lifts), which asks the owner once"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "terminal_input",
+     "args": {
+      "app": "Code",
+      "action": {
+       "kind": "press",
+       "element": "s1e2",
+       "text": null,
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      }
+     },
+     "out": {
+      "ok": {
+       "app": "Code",
+       "bundle_id": "com.microsoft.VSCode",
+       "surface": "a control labelled \"Run Python File\" (a label only: FERB asks rather than guess)",
+       "text": null,
+       "keys": null,
+       "paste": false,
+       "concealed": false,
+       "clipboard": null,
+       "enter": false,
+       "covered_by": null,
+       "window": "",
+       "menu": null,
+       "secret": null,
+       "script": null,
+       "drag": false,
+       "runs": true,
+       "control": "Send",
+       "selection": null,
+       "file": null,
+       "runs_where": "Code",
+       "files": [],
+       "label": "",
+       "opens": false,
+       "named": []
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "act",
+     "args": {
+      "app": "Code",
+      "action": {
+       "kind": "press",
+       "element": "s1e2",
+       "text": null,
+       "select": null,
+       "direction": null,
+       "amount": null,
+       "window": null,
+       "allow_foreground": false,
+       "mechanism": null
+      },
+      "grant": null
+     },
+     "out": {
+      "error": "Refused",
+      "message": "FERB types into a terminal only after the owner's Yes to that exact input (D31): this input would reach a menu or control that runs code (Send) in Code, and the call carries no Yes for it, so nothing was typed. Run commands with FERB's shell tool; if FERB's sandbox blocks a command you need, request the escape hatch (shell.rules lists what it lifts), which asks the owner once"
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "secret_terminal_input",
+     "args": {
+      "app": "Code",
+      "element": "s1e1"
+     },
+     "out": {
+      "ok": {
+       "app": "Code",
+       "bundle_id": "com.microsoft.VSCode",
+       "surface": "a terminal in the page (xterm.js: DOM class xterm-helper-textarea)",
+       "text": null,
+       "keys": null,
+       "paste": false,
+       "concealed": false,
+       "clipboard": null,
+       "enter": false,
+       "covered_by": null,
+       "window": "Chat with Asha",
+       "menu": null,
+       "secret": "the server password",
+       "script": null,
+       "drag": false,
+       "runs": false,
+       "control": null,
+       "selection": null,
+       "file": null,
+       "runs_where": "",
+       "files": [],
+       "label": "box",
+       "opens": false,
+       "named": []
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "menu_terminal_input",
+     "args": {
+      "app": "Code",
+      "path": [
+       "Edit",
+       "Paste"
+      ]
+     },
+     "out": {
+      "ok": {
+       "app": "Code",
+       "bundle_id": "com.microsoft.VSCode",
+       "surface": "a terminal in the page (xterm.js: DOM class xterm-helper-textarea)",
+       "text": "codex",
+       "keys": null,
+       "paste": true,
+       "concealed": false,
+       "clipboard": 7,
+       "enter": true,
+       "covered_by": null,
+       "window": "Chat with Asha",
+       "menu": null,
+       "secret": null,
+       "script": null,
+       "drag": false,
+       "runs": false,
+       "control": null,
+       "selection": null,
+       "file": null,
+       "runs_where": "",
+       "files": [],
+       "label": "box",
+       "opens": false,
+       "named": []
+      }
+     },
+     "posted": [],
+     "calls": []
+    },
+    {
+     "op": "press_menu",
+     "args": {
+      "app": "Code",
+      "path": [
+       "Edit",
+       "Paste"
+      ]
+     },
+     "out": {
+      "error": "Refused",
+      "message": "FERB types into a terminal only after the owner's Yes to that exact input (D31): this input would reach a terminal in the page (xterm.js: DOM class xterm-helper-textarea) in Code, and the call carries no Yes for it, so nothing was typed. Run commands with FERB's shell tool; if FERB's sandbox blocks a command you need, request the escape hatch (shell.rules lists what it lifts), which asks the owner once"
+     },
+     "posted": [],
+     "calls": []
+    }
+   ]
+  }
+ ]
+}

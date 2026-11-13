@@ -23,12 +23,14 @@ members = [
     "crates/ferb-browser",
     "crates/ferb-device",
     "crates/ferb-sense",
-]
-exclude = [
-    "crates/ferb-gateway",
+    "crates/ferb-learning",
     "crates/ferb-orchestrator",
     "crates/ferb-mac-hands",
-    "crates/ferb-learning",
+]
+exclude = [
+    "crates/ferb-supervisor",
+    "crates/ferb-worker",
+    "crates/ferb-gateway",
 ]
 
 [workspace.package]

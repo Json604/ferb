@@ -18,7 +18,6 @@ use ferb_identity::secrets::SecretRef;
 use serde_json::{json, Map, Value};
 
 use super::{outcome, Log, Run};
-use crate::common::Counter;
 
 const UPLOADS: &str = "/private/tmp/ferb-browser-ops-fixture";
 
@@ -589,10 +588,10 @@ fn uid_free(v: &mut Value) {
     }
 }
 
-/// What differs by nature: the owner's uid; the inbox inventory's tokens (ferb-identity's mailbox
-/// draws them from the system, Python's from the fixtures' counter: the counter is moved on as
-/// Python's was, and Rust's tokens stand in Python's place); an error's step times (the harness
-/// records none).
+/// What differs by nature: the owner's uid; an error's step times (the harness records none). The
+/// inbox inventory's tokens are drawn from the fixtures' counter on both sides (the driver hands its
+/// random source to ferb-identity's mailbox), so they are the same; the latest are kept for
+/// "$candidate-<n>".
 pub fn normalize(run: &mut Run, mut got: Value, want: &Value) -> Value {
     uid_free(&mut got);
     if got.get("error").is_some() {
@@ -603,34 +602,11 @@ pub fn normalize(run: &mut Run, mut got: Value, want: &Value) -> Value {
     } else {
         "/ok/candidates"
     };
-    let (Some(g), Some(w)) = (
-        got.pointer(at).and_then(Value::as_array).cloned(),
-        want.pointer(at).and_then(Value::as_array),
-    ) else {
-        return got;
-    };
-    run.tokens = g
-        .iter()
-        .map(|c| c["candidate"].as_str().unwrap().to_string())
-        .collect();
-    run.py_tokens = w
-        .iter()
-        .map(|c| c["candidate"].as_str().unwrap().to_string())
-        .collect();
-    for _ in &run.tokens {
-        ferb_browser::pairing::Random::bytes(run.random.as_ref() as &Counter, 18);
-    }
-    for (i, c) in got
-        .pointer_mut(at)
-        .unwrap()
-        .as_array_mut()
-        .unwrap()
-        .iter_mut()
-        .enumerate()
-    {
-        if let Some(p) = run.py_tokens.get(i) {
-            c["candidate"] = p.clone().into();
-        }
+    if let Some(g) = got.pointer(at).and_then(Value::as_array) {
+        run.tokens = g
+            .iter()
+            .map(|c| c["candidate"].as_str().unwrap().to_string())
+            .collect();
     }
     got
 }
@@ -714,6 +690,12 @@ impl ferb_browser::tools::Host for NoHost {
 
 thread_local! {
     static POLICY: std::cell::RefCell<Value> = const { std::cell::RefCell::new(Value::Null) };
+    static HOST: std::cell::RefCell<Option<Arc<dyn ferb_browser::tools::Host>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The daemon's part of the tools for the transcripts that follow (`None`: none of it).
+pub fn set_host(host: Option<Arc<dyn ferb_browser::tools::Host>>) {
+    HOST.with(|h| *h.borrow_mut() = host);
 }
 
 pub fn policy(f: &Value) {
@@ -729,7 +711,9 @@ fn tools_for(d: &Arc<Driver>, family: &str) -> ferb_browser::tools::Tools {
         },
         driver: d.clone(),
         policy: Arc::new(PolicyTable(POLICY.with(|p| p.borrow().clone()))),
-        host: Arc::new(NoHost),
+        host: HOST
+            .with(|h| h.borrow().clone())
+            .unwrap_or_else(|| Arc::new(NoHost)),
     }
 }
 
@@ -747,7 +731,16 @@ fn ctx_of(c: &Value, family: &str) -> ferb_core::types::ToolContext {
         } else {
             ferb_core::types::Identity::Owner
         },
-        scopes: Default::default(),
+        scopes: c
+            .get("scopes")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(String::from)
+                    .collect()
+            })
+            .unwrap_or_default(),
         device_id: "dev-1".into(),
         span_id: None,
         workspace: "/tmp/ferb-ws".into(),
@@ -766,8 +759,12 @@ fn ctx_of(c: &Value, family: &str) -> ferb_core::types::ToolContext {
     }
 }
 
+/// The arguments of the tool call running now (a test host keys its scripted answers by them).
+pub static TOOL_ARGS: std::sync::Mutex<Value> = std::sync::Mutex::new(Value::Null);
+
 /// A tool's method (`tcall` in driver_ops.py).
 pub async fn tool(d: &Arc<Driver>, a: &Value) -> Value {
+    *TOOL_ARGS.lock().unwrap() = a["args"].clone();
     let family = a["family"].as_str().unwrap();
     let t = tools_for(d, family);
     let v = ferb_browser::tools::verb(a["verb"].as_str().unwrap()).unwrap();
@@ -797,6 +794,12 @@ pub async fn tool(d: &Arc<Driver>, a: &Value) -> Value {
         "ledger_args" => ok(Value::Object(
             t.ledger_args(args, a["hashed"].as_object().unwrap()),
         )),
+        "point" => {
+            let task = a.get("task").and_then(Value::as_str).unwrap_or("task-a");
+            ok(t.point(v, args, task).await.map_or(Value::Null, |p| {
+                json!({"kind": p.kind, "rect": [p.rect.0, p.rect.1, p.rect.2, p.rect.3], "display": p.display})
+            }))
+        }
         "terminal_input" => ok(t
             .terminal_input(args)
             .map_or(Value::Null, |x| serde_json::to_value(x).unwrap())),
