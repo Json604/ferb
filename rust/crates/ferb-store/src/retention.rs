@@ -417,8 +417,13 @@ pub fn plan(
 }
 
 /// `_with_descendants` (`retention.py:190-204`): these spans and every span under them, deepest
-/// first: a parent is never deleted before its child (spans.parent_id is a foreign key). Like
-/// Python's, it does not end on a parent cycle (which the foreign key alone does not forbid).
+/// first: a parent is never deleted before its child (spans.parent_id is a foreign key).
+///
+/// Fixed against Python (ENG-6): Python's walk deepens a span each time it is found deeper, so a
+/// parent cycle (which the foreign key alone does not forbid) never ends it. Here a walk that goes
+/// deeper than the number of spans it has seen has repeated one, so it holds a cycle, and the
+/// answer comes from `without_cycles`, which reads each span once. Without a cycle the answer is
+/// Python's, step for step.
 fn with_descendants(conn: &Connection, seeds: Vec<String>) -> Result<Vec<String>> {
     // Python's dict: first-seen order kept, a depth updated in place.
     let mut order: Vec<String> = Vec::new();
@@ -429,9 +434,14 @@ fn with_descendants(conn: &Connection, seeds: Vec<String>) -> Result<Vec<String>
             order.push(seed);
         }
     }
+    let seeds = order.len();
     let mut frontier = order.clone();
     let mut level = 0i64;
     while !frontier.is_empty() {
+        // a span at depth `level` ends a path of `level + 1` spans; past the spans seen, one repeats
+        if level >= order.len() as i64 {
+            return without_cycles(conn, &order[..seeds]);
+        }
         level += 1;
         let mut children: Vec<String> = Vec::new();
         for chunk in frontier.chunks(500) {
@@ -457,6 +467,100 @@ fn with_descendants(conn: &Connection, seeds: Vec<String>) -> Result<Vec<String>
     }
     order.sort_by_key(|ident| -depth[ident]); // stable, as Python's sorted
     Ok(order)
+}
+
+/// `with_descendants` for spans whose parents form a cycle: every span under `seeds` (distinct,
+/// in order), each read and returned once, in the order first found, then deepest first. A walk
+/// from the seeds in order drops each parent link that closes a cycle; a span's depth is its
+/// longest path from a seed over the links left, so every other child still goes before its
+/// parent. A cycle's own spans cannot all go after their children; they are adjacent in the
+/// answer, so a batch usually takes them in one statement.
+fn without_cycles(conn: &Connection, seeds: &[String]) -> Result<Vec<String>> {
+    let mut index: HashMap<String, usize> = HashMap::new();
+    let mut order: Vec<String> = Vec::new();
+    for seed in seeds {
+        if !index.contains_key(seed) {
+            index.insert(seed.clone(), order.len());
+            order.push(seed.clone());
+        }
+    }
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); order.len()];
+    let mut frontier: Vec<usize> = (0..order.len()).collect();
+    while !frontier.is_empty() {
+        let mut next = Vec::new();
+        for chunk in frontier.chunks(500) {
+            let mut statement = conn.prepare(&format!(
+                "SELECT id, parent_id FROM spans WHERE parent_id IN ({})",
+                marks(chunk.len())
+            ))?;
+            let ids = chunk.iter().map(|&i| &order[i]);
+            let mut rows = statement.query(params_from_iter(ids))?;
+            while let Some(row) = rows.next()? {
+                let (id, parent): (String, String) = (row.get(0)?, row.get(1)?);
+                let child = match index.get(&id) {
+                    Some(&seen) => seen,
+                    None => {
+                        index.insert(id.clone(), order.len());
+                        order.push(id);
+                        children.push(Vec::new());
+                        next.push(order.len() - 1);
+                        order.len() - 1
+                    }
+                };
+                children[index[&parent]].push(child);
+            }
+        }
+        frontier = next;
+    }
+    // depth first from each span in order: a link to a span still on the path closes a cycle
+    let n = order.len();
+    let (mut state, mut kept) = (vec![0u8; n], vec![Vec::new(); n]); // 0 new, 1 on the path, 2 done
+    for start in 0..n {
+        if state[start] != 0 {
+            continue;
+        }
+        state[start] = 1;
+        let mut path: Vec<(usize, usize)> = vec![(start, 0)];
+        while let Some(&(node, at)) = path.last() {
+            let Some(&child) = children[node].get(at) else {
+                state[node] = 2;
+                path.pop();
+                continue;
+            };
+            if let Some(top) = path.last_mut() {
+                top.1 += 1;
+            }
+            match state[child] {
+                1 => {} // closes a cycle: dropped
+                0 => {
+                    kept[node].push(child);
+                    state[child] = 1;
+                    path.push((child, 0));
+                }
+                _ => kept[node].push(child),
+            }
+        }
+    }
+    // longest path from a seed over the links kept, in topological order
+    let mut parents = vec![0usize; n];
+    for &child in kept.iter().flatten() {
+        parents[child] += 1;
+    }
+    let mut depth = vec![0i64; n];
+    let mut ready: std::collections::VecDeque<usize> =
+        (0..n).filter(|&i| parents[i] == 0).collect();
+    while let Some(node) = ready.pop_front() {
+        for &child in &kept[node] {
+            depth[child] = depth[child].max(depth[node] + 1);
+            parents[child] -= 1;
+            if parents[child] == 0 {
+                ready.push_back(child);
+            }
+        }
+    }
+    let mut out: Vec<usize> = (0..n).collect();
+    out.sort_by_key(|&i| -depth[i]); // stable: the order first found among equals
+    Ok(out.into_iter().map(|i| order[i].clone()).collect())
 }
 
 /// `operational` (`retention.py:207-231`; decisions: STORE-401, STORE-404, STORE-407,

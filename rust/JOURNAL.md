@@ -276,3 +276,30 @@ and `ferb-core::paths` both find the installed FERB.app.
 
 **Running now (nine agents):** policy, prompt context and answers, files, shell, browser, runtimes, time, memory
 (embeddings, search, import parsers), and recordings of the Python daemon's RPC and chat scenarios.
+
+## 2026-11-13 · 16 · Three Python bugs fixed in the ports (ENG-6)
+
+**What.**
+- `ferb-sanitize`: a private key's lines spread across items are masked whatever holds them (a dict, a nested
+  list, bytes, a node's text); booleans, None and floats between the lines are kept.
+- `ferb-store`: the retention walk ends on a span parent cycle; without a cycle it is Python's walk step for step.
+- `ferb-platform-macos`: the secrets helper is started suspended and resumed only once its running code and its
+  file match the pin; nothing is written to it before that. macOS has no way to run an already-open file.
+
+**Why.** ENG-6: known bugs are fixed in the port, not mirrored. One left a secret unredacted (rule 7).
+
+**Evidence.** Whole workspace, run by the coordinator: format and clippy clean, 170 tests pass, 3 ignored.
+The porting agent reports: each helper check, when removed, fails its test; two fresh corpora made by a patched
+Python (12,679 and 20,598 cases) match Rust with no exceptions.
+
+**Fixed against Python.** `redact.py:342,393,395` (named parity exceptions: walk 21, 22; py 134, 187),
+`retention.py:190`, `helper.py:29-43`. A patch for the Python build that is installed today is at
+`rust/fixtures/sanitize/python-redact-fix.patch` (applies cleanly; 146 tests pass with it in a throwaway worktree).
+It is not applied: shipping a Python build is the owner's.
+
+**Open.**
+- A key line used as a dict key, and nodes inside dict values, are still not read as key lines.
+- `rust/fixtures/sanitize/make.py` did not reproduce the tracked random cases on a re-run (from walk 70 / py 52
+  on); the cause is not known. A fixture script must write the same bytes every run: to investigate.
+- A cycle split across delete batches may still fail its foreign key (not tested).
+- Not checked with a certificate pin or the real helper; the cost of the extra check is not measured.

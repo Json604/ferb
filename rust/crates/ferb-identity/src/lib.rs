@@ -72,9 +72,12 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// An `io::Error` that carries one of these (`io::Error::other(Error::Refused(..))`, as a
+/// [`helper::Launcher`] refuses a started program that is not the pinned code) is that error
+/// again; any other is [`Error::Io`].
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
-        Error::Io(e)
+        e.downcast::<Error>().unwrap_or_else(Error::Io)
     }
 }
 

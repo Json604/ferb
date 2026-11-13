@@ -634,10 +634,103 @@ fn same_json(a: &Value, b: &Value) -> bool {
     }
 }
 
+/// Fixed against Python (ENG-6): the cases whose Python output carries the bug in a private key's lines read
+/// across items (redact.py:342, 393, 395). Python masked a bare boolean between the BEGIN and END items, left a
+/// key body under a non-text key (or in a nested list, in bytes) unmasked, read no node's text as a key line, and
+/// in a dict never looked for a key when no value was a short text with a digit. The Rust port keeps a boolean
+/// and masks every text, integer and byte string between the lines. Each case here must still differ from Python
+/// (a stale entry fails) and differ only that way (`only_the_key_fix`); every other case is compared exactly.
+const FIXED_AGAINST_PYTHON: &[(&str, usize, &str)] = &[
+    (
+        "walk",
+        21,
+        "a bare boolean between BEGIN and END items is kept",
+    ),
+    (
+        "walk",
+        22,
+        "a bare boolean between BEGIN and END values of a dict is kept",
+    ),
+    (
+        "py",
+        134,
+        "a dict with a BEGIN value and no short digit text: the key's later values are masked",
+    ),
+    (
+        "py",
+        187,
+        "a dict with a BEGIN value and no short digit text: the key's later values are masked",
+    ),
+];
+
+/// The list names cases of the tracked corpus only: a wider corpus (`FERB_SANITIZE_FIXTURES`) is compared exactly,
+/// so one made by a Python build with the same fix must match it everywhere.
+fn fixed_against_python(group: &str, index: usize) -> bool {
+    std::env::var_os("FERB_SANITIZE_FIXTURES").is_none()
+        && FIXED_AGAINST_PYTHON
+            .iter()
+            .any(|&(g, i, _)| g == group && i == index)
+}
+
+/// Whether `rust` differs from `python` only as the key fix makes it: where they differ, Rust has a mask (one of
+/// `masked`: the mask as written, and marked when an outer pass read it again) and Python a text, a number or
+/// bytes (a key line Python left), or Rust a boolean and Python a mask. The first other difference otherwise.
+fn only_the_key_fix(rust: &Value, python: &Value, masked: &[Value]) -> Result<(), String> {
+    if rust == python {
+        return Ok(());
+    }
+    let leaf = |v: &Value| match v {
+        Value::String(_) | Value::Number(_) => true,
+        Value::Object(o) => o.len() == 1 && ["s", "m", "i", "b"].iter().any(|k| o.contains_key(*k)),
+        _ => false,
+    };
+    if masked.contains(rust) && leaf(python) || masked.contains(python) && rust.is_boolean() {
+        return Ok(());
+    }
+    match (rust, python) {
+        (Value::Array(a), Value::Array(b)) if a.len() == b.len() => a
+            .iter()
+            .zip(b)
+            .try_for_each(|(x, y)| only_the_key_fix(x, y, masked)),
+        (Value::Object(a), Value::Object(b))
+            if a.len() == b.len() && a.keys().zip(b.keys()).all(|(x, y)| x == y) =>
+        {
+            a.values()
+                .zip(b.values())
+                .try_for_each(|(x, y)| only_the_key_fix(x, y, masked))
+        }
+        _ => Err(format!("rust {rust} where python has {python}")),
+    }
+}
+
+/// An excepted case: it must differ from Python, and only by the key fix.
+fn check_fixed(
+    c: &mut Check,
+    group: &str,
+    index: usize,
+    rust: &Value,
+    python: &Value,
+    masked: &[Value],
+) {
+    c.eq(
+        &format!("{group} case {index} (fixed against Python) differs from Python"),
+        &index,
+        rust != python,
+        true,
+    );
+    c.eq(
+        &format!("{group} case {index} differs only by the key fix"),
+        &index,
+        only_the_key_fix(rust, python, masked),
+        Ok(()),
+    );
+}
+
 #[test]
 fn structures_match_python() {
     let (all, mut c) = (cases("walk"), Check::new("walk"));
-    for case in &all {
+    let masked = [Value::String(ferb_sanitize::REDACTED.to_string())];
+    for (index, case) in all.iter().enumerate() {
         let (op, args, out) = (case["op"].as_str().unwrap_or(""), &case["in"], &case["out"]);
         let source = s(&args["json"]);
         let obj: Value = serde_json::from_str(&source).expect("a JSON input");
@@ -645,6 +738,10 @@ fn structures_match_python() {
             "walk" => {
                 let want: Value = serde_json::from_str(&s(&out["walk"])).expect("a JSON output");
                 let got = redactor(args).value(&obj);
+                if fixed_against_python("walk", index) {
+                    check_fixed(&mut c, "walk", index, &got, &want, &masked);
+                    continue;
+                }
                 let (shown, wanted) = if same_json(&got, &want) {
                     (String::new(), String::new())
                 } else {
@@ -748,7 +845,11 @@ fn py_want(v: &Value) -> Value {
 #[test]
 fn marks_bytes_and_big_integers_match_python() {
     let (all, mut c) = (cases("py"), Check::new("py"));
-    for case in &all {
+    let masked = [
+        serde_json::json!({ "s": ferb_sanitize::REDACTED }),
+        serde_json::json!({ "m": ferb_sanitize::REDACTED }),
+    ];
+    for (index, case) in all.iter().enumerate() {
         let (args, out) = (&case["in"], &case["out"]);
         let r = redactor(args);
         let built = py_build(&r, &args["tree"]);
@@ -764,6 +865,19 @@ fn marks_bytes_and_big_integers_match_python() {
         }
         let got = r.py(&built);
         let shown = args["tree"].to_string();
+        if fixed_against_python("py", index) {
+            let (once, twice) = (py_show(&r, &got), py_show(&r, &r.py(&got)));
+            check_fixed(&mut c, "py", index, &once, &py_want(&out["out"]), &masked);
+            check_fixed(
+                &mut c,
+                "py twice",
+                index,
+                &twice,
+                &py_want(&out["twice"]),
+                &masked,
+            );
+            continue;
+        }
         c.eq("py", &shown, py_show(&r, &got), py_want(&out["out"]));
         c.eq(
             "py twice",

@@ -17,7 +17,7 @@ mod common;
 
 use std::{
     collections::BTreeSet,
-    fs,
+    fs, io,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -26,16 +26,19 @@ use std::{
 
 use common::{cases, hex, same, strings, unb64, unb64_text, unhex, Recorded};
 use ferb_identity::{
-    helper::{Helper, Reply, Request},
+    helper::{Helper, Launcher, Reply, Request},
     owner_secrets::{self, OwnerSecrets},
     py,
     secret_tools::secrets_list,
     secrets::{origin_allowed, specs_from_config, KeychainSecretStore, SecretRef},
     Error, HelperFacts, Secret, Service,
 };
-use ferb_platform_macos::identity::{helper, owner_secrets as mac_owner_secrets, PASSED_ENV};
+use ferb_platform_macos::identity::{
+    helper, owner_secrets as mac_owner_secrets, SignedHelper, PASSED_ENV,
+};
 use serde_json::{json, Map, Value};
 use tempfile::TempDir;
+use zeroize::Zeroizing;
 
 // ---------- the fake helper ----------
 
@@ -466,6 +469,127 @@ fn a_value_travels_only_on_stdin() {
         "{:?}",
         calls[0].env
     );
+    assert!(String::from_utf8_lossy(&calls[0].stdin).contains("invented canary"));
+}
+
+// ---------- the program that runs is the pinned code ----------
+
+/// The Mac's launcher with a change to the helper's file made after its check and before its run:
+/// the window Python leaves (`helper.py:29-43`).
+struct SwapAfterCheck {
+    swap: Box<dyn Fn(&Path) + Send + Sync>,
+}
+
+impl Launcher for SwapAfterCheck {
+    fn verified(&self, home: &Path) -> ferb_identity::Result<PathBuf> {
+        let program = SignedHelper.verified(home)?;
+        (self.swap)(&program);
+        Ok(program)
+    }
+
+    fn run(&self, program: &Path, body: &[u8]) -> io::Result<(bool, Zeroizing<Vec<u8>>)> {
+        SignedHelper.run(program, body)
+    }
+}
+
+/// Put `bytes` at the helper's path as a new file (a rename, as a swap would), executable.
+fn replace(program: &Path, bytes: &[u8]) {
+    let next = program.with_file_name("swapped-in");
+    fs::write(&next, bytes).unwrap();
+    fs::set_permissions(&next, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::rename(&next, program).unwrap();
+}
+
+/// Store a canary through a helper that `swap` changes after its check; what came back.
+fn store_with_swap(home: &Home, swap: impl Fn(&Path) + Send + Sync + 'static) -> Result<(), Error> {
+    home.script(&json!([{"argv": ["x"], "code": 0, "reply": py::b64encode(b"{\"ok\":true}")}]));
+    Helper::new(
+        home.path(),
+        Arc::new(SwapAfterCheck {
+            swap: Box::new(swap),
+        }),
+    )
+    .store(
+        Service::OwnerSecrets,
+        "account",
+        &Secret::from("invented canary"),
+    )
+}
+
+// decision: ENG-6 (fixed against Python: helper.py:29-43 runs whatever is at the path after the check)
+#[test]
+fn a_helper_swapped_after_its_check_is_refused_before_it_reads_anything() {
+    let signature = "the secret helper signature does not match the installed identity";
+    let refused = |home: &Home, got: Result<(), Error>, what: &str| {
+        let error = got.expect_err(what);
+        assert!(matches!(error, Error::Refused(_)), "{what}: {error:?}");
+        assert_eq!(error.to_string(), signature, "{what}");
+        assert!(
+            home.calls().is_empty(),
+            "{what}: the swapped-in program ran"
+        );
+        let bin = fs::read_dir(home.path().join("bin")).unwrap();
+        for entry in bin {
+            let name = entry.unwrap().file_name().into_string().unwrap();
+            assert!(
+                !name.starts_with("stolen"),
+                "{what}: the request reached {name}"
+            );
+        }
+    };
+
+    // the same fake signed as other code: it would log its stdin, canary included, if it ran
+    let home = Home::new();
+    let got = store_with_swap(&home, |program| {
+        let other = program.with_file_name("other");
+        fs::copy(&signed_fake().1, &other).unwrap();
+        let signed = codesign(
+            &[
+                "--force",
+                "--sign",
+                "-",
+                "--identifier",
+                "com.ferb.secrets.other",
+            ],
+            &other,
+        );
+        assert!(signed.status.success());
+        fs::rename(&other, program).unwrap();
+    });
+    refused(&home, got, "other signed code");
+
+    // a script that keeps what it is given: what runs is /bin/sh, which the pin does not name
+    let home = Home::new();
+    let got = store_with_swap(&home, |program| {
+        replace(
+            program,
+            b"#!/bin/sh\ncat > \"$(dirname \"$0\")/stolen\"\necho '{\"ok\":true}'\n",
+        )
+    });
+    refused(&home, got, "a script");
+
+    // the pinned program with one byte changed and its signature left as it was: the code the
+    // kernel loads carries the pinned hash, so only the check of its file's pages refuses it
+    let home = Home::new();
+    let got = store_with_swap(&home, |program| {
+        let mut bytes = fs::read(program).unwrap();
+        let middle = bytes.len() / 2;
+        bytes[middle] ^= 1;
+        replace(program, &bytes);
+    });
+    refused(&home, got, "a changed byte under the pinned signature");
+}
+
+/// What is checked is the code: the same pinned program put back as a new file still runs.
+#[test]
+fn the_pinned_code_swapped_for_itself_still_runs() {
+    let home = Home::new();
+    store_with_swap(&home, |program| {
+        replace(program, &fs::read(program).unwrap())
+    })
+    .unwrap();
+    let calls = home.calls();
+    assert_eq!(calls.len(), 1);
     assert!(String::from_utf8_lossy(&calls[0].stdin).contains("invented canary"));
 }
 

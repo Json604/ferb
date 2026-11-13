@@ -44,6 +44,8 @@ const INPUT_TEXT_FIELDS: &[&str] = &["text", "unmodifiedText", "key", "code"];
 pub const NODE_TEXT: &[&str] = &["value", "text", "name", "label", "title", "content"];
 const SIBLING_ID_EXTRA: &[&str] = &["id", "intent_id", "episode", "evidence"];
 const FIXED_POINT: usize = 8;
+/// What makes neighbouring items be read as a private key's lines (redact.py:413).
+const KEY_BEGIN: &str = "-----BEGIN";
 
 fn part_of(kind: &str) -> Option<&'static str> {
     // redact.py:36 `_PART_OF`
@@ -750,21 +752,62 @@ impl Redactor {
                 _ => String::new(),
             })
             .collect();
-        if !lines
-            .iter()
-            .any(|t| !u::longer_than(t, 63) && t.bytes().any(|b| b.is_ascii_digit()))
-        {
-            return;
-        }
         let raw: Vec<&str> = order
             .iter()
             .map(|(ks, _)| dict_get(d, ks).and_then(Py::as_str).unwrap_or(""))
             .collect();
-        for i in self.sibling_hits(&lines, &raw) {
+        // Fixed against Python (ENG-6, redact.py:342): Python returns here before it looks for a private key's
+        // lines, so a key none of whose values is a short text with a digit was never read.
+        if !lines
+            .iter()
+            .any(|t| !u::longer_than(t, 63) && t.bytes().any(|b| b.is_ascii_digit()))
+            && !raw.iter().any(|line| line.contains(KEY_BEGIN))
+        {
+            return;
+        }
+        let (codes, keys) = self.sibling_hits(&lines, &raw);
+        for &i in codes.difference(&keys) {
             let v = &mut out[order[i].1].1;
             if str_or_int(v) {
                 *v = redacted();
             }
+        }
+        for i in keys {
+            let at = order[i].1;
+            out[at].1 = self.key_item(&out[at].1);
+        }
+    }
+
+    /// What a private key's block leaves of an item from its BEGIN item to its END item: a text or an integer is
+    /// masked whole, as Python does; a structure has every text, integer and byte string anywhere in it masked,
+    /// its keys and shape kept; a byte string is masked as `hidden` masks one; a boolean, None or a float cannot
+    /// carry a key's lines and stays.
+    ///
+    /// Fixed against Python (ENG-6, redact.py:346 and 395): Python masks only a text or an integer item (a
+    /// boolean with them, as an int) and, of a dict, only its node text, so a key body under any other key, in a
+    /// nested list or in bytes went out unredacted, while a bare boolean was masked.
+    fn key_item(&self, v: &Py) -> Py {
+        match v {
+            Py::Str(_) | Py::Int(_) => redacted(),
+            _ => self.key_body(v),
+        }
+    }
+
+    fn key_body(&self, v: &Py) -> Py {
+        match v {
+            Py::Dict(d) => {
+                let mut out = Dict::new();
+                for (k, x) in d {
+                    let x = self.key_body(x);
+                    self.put(&mut out, k, x);
+                }
+                Py::Dict(out)
+            }
+            Py::List(items) => Py::List(items.iter().map(|x| self.key_body(x)).collect()),
+            Py::Str(s) if s.text.is_empty() => v.clone(),
+            Py::Bytes(b) if b.is_empty() => v.clone(),
+            Py::Str(_) | Py::Int(_) | Py::Bytes(_) => redacted(),
+            Py::None | Py::Bool(_) | Py::Float(_) => v.clone(),
         }
     }
 
@@ -808,8 +851,26 @@ impl Redactor {
                     .to_string(),
             });
         }
-        let raw_lines: Vec<&str> = raw.iter().map(|v| v.as_str().unwrap_or("")).collect();
-        for i in self.sibling_hits(&lines, &raw_lines) {
+        // Fixed against Python (ENG-6, redact.py:393): a node's own text (as given, before redaction) is one of
+        // the lines a private key is read from too; Python read only plain text items, so a key whose lines were
+        // nodes' texts went out unredacted.
+        let raw_lines: Vec<&str> = raw
+            .iter()
+            .map(|v| match v {
+                Py::Str(s) => s.text.as_str(),
+                Py::Dict(_) => NODE_TEXT
+                    .iter()
+                    .find_map(|k| {
+                        v.get(k)
+                            .and_then(Py::as_str)
+                            .filter(|t| !u::strip(t).is_empty())
+                    })
+                    .unwrap_or(""),
+                _ => "",
+            })
+            .collect();
+        let (codes, key_lines) = self.sibling_hits(&lines, &raw_lines);
+        for &i in codes.difference(&key_lines) {
             let item = &mut out[i];
             if str_or_int(item) {
                 *item = redacted();
@@ -819,11 +880,15 @@ impl Redactor {
                 }
             }
         }
+        for i in key_lines {
+            out[i] = self.key_item(&out[i]);
+        }
     }
 
-    /// redact.py:401: which of neighbouring texts read as lines hold a secret only together.
-    fn sibling_hits(&self, lines: &[String], raw: &[&str]) -> BTreeSet<usize> {
-        let mut hits = BTreeSet::new();
+    /// redact.py:401: which of neighbouring texts read as lines hold a secret only together: (the items a code
+    /// alone under or over its label lies in, the items a private key's block spans from BEGIN to END).
+    fn sibling_hits(&self, lines: &[String], raw: &[&str]) -> (BTreeSet<usize>, BTreeSet<usize>) {
+        let (mut hits, mut keys) = (BTreeSet::new(), BTreeSet::new());
         if lines
             .iter()
             .any(|line| !line.is_empty() && code_alone(line))
@@ -838,7 +903,7 @@ impl Redactor {
                 hits.insert(starts.partition_point(|&x| x <= a) - 1);
             }
         }
-        if raw.iter().any(|line| line.contains("-----BEGIN")) {
+        if raw.iter().any(|line| line.contains(KEY_BEGIN)) {
             let (mut joined, mut starts) = (String::new(), Vec::new());
             for line in raw {
                 starts.push(joined.len());
@@ -849,10 +914,10 @@ impl Redactor {
                 let first = starts.partition_point(|&x| x <= a) - 1;
                 let last = starts.partition_point(|&x| x < b) - 1; // bisect_right(starts, b - 1) - 1
                 if first != last {
-                    hits.extend(first..=last);
+                    keys.extend(first..=last);
                 }
             }
         }
-        hits
+        (hits, keys)
     }
 }

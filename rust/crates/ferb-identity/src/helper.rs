@@ -37,7 +37,10 @@ pub trait Launcher: Send + Sync {
     fn verified(&self, home: &Path) -> Result<PathBuf>;
     /// Runs `program` with `body` on its stdin: whether it failed (any exit but 0, a signal
     /// included) and everything it wrote on stdout, in a buffer zeroed on drop. No argument,
-    /// private pipes, stderr discarded.
+    /// private pipes, stderr discarded. A platform that can check the started program itself
+    /// writes `body` only once it is the pinned code; otherwise it refuses with
+    /// `io::Error::other(Error::Refused(..))`, which [`Error`]'s `From<io::Error>` turns back
+    /// into that refusal (decision: ENG-6).
     fn run(&self, program: &Path, body: &[u8]) -> io::Result<(bool, Zeroizing<Vec<u8>>)>;
 }
 

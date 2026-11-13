@@ -254,14 +254,14 @@ Lines are Python lines at `63369cb3`. "Fixtures" names what exists; a part witho
 Fixed in Rust when the part is ported (AGENTS.md); the test names the deliberate difference. The redaction leak is
 also worth fixing in the Python build on `main`, since that build is installed today; the rest end at cutover.
 
-| Where | What | Entry |
+| Where | What | State (journal entry) |
 |---|---|---|
-| `ferb/sanitize/redact.py:395` | A key body under a non-text key between BEGIN and END items is left | 8+ (hardening) |
-| `ferb/native_host/main.py:53-57` | A parse error leaves the relay alive and deaf | 6 |
-| `ferb/native_host/main.py:61` | The rewrite inflates a 1 MiB non-ASCII frame past the daemon's limit | 6 |
-| `ferb/store/db.py:212` | `migrate` rolls back unconditionally and can hide the real error | 3 |
+| `ferb/sanitize/redact.py:395` | A key body under a non-text key between BEGIN and END items is left | fixed in Rust (16); Python patch ready |
+| `ferb/native_host/main.py:53-57` | A parse error leaves the relay alive and deaf | fixed in Rust (6) |
+| `ferb/native_host/main.py:61` | The rewrite inflates a 1 MiB non-ASCII frame past the daemon's limit | fixed in Rust (6) |
+| `ferb/store/db.py:212` | `migrate` rolls back unconditionally and can hide the real error | fixed in Rust (3) |
 | `ferb/daemon/areas/schedules.py:659-687` | A crash between booking the next run and creating the task loses a run | plan, part 9 |
 | `ferb/memory/import_job.py:186-190` | Import writes are not atomic | plan, part 10 |
 | gateway validators (`browser.pdf`, `ferb_browser.pdf`, `audio.listen`) | A reply that cannot be serialized | catalog fixtures |
-| `ferb/store/retention.py` `_with_descendants` | Never ends on a span parent cycle | typed stores |
-| `ferb/identity/helper.py` | The helper is verified, then run by path (a swap window) | identity |
+| `ferb/store/retention.py` `_with_descendants` | Never ends on a span parent cycle | fixed in Rust (16) |
+| `ferb/identity/helper.py` | The helper is verified, then run by path (a swap window) | fixed in Rust (16) |
