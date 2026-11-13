@@ -300,3 +300,39 @@ def test_rust_bundles_agent_refuses_and_runs_on_a_development_home(rust_bundle: 
         assert not sock.exists()
     finally:
         shutil.rmtree(home, ignore_errors=True)
+
+
+# decision: REL-424
+def test_a_local_developer_id_build_is_signed_by_the_team_but_never_notarized_and_never_shipped(
+        tmp_path: Path) -> None:
+    """FERB_NOTARIZE=0 with SIGN_IDENTITY=devid: every piece is signed by the team (so macOS keeps the permissions of
+    the developer's own Mac across builds), nothing reaches Apple's notary and no credentials are needed. Such an app
+    carries no stapled ticket: build-dmg.sh refuses the switch, and ferb_check_devid_app (what an appcast checks)
+    still refuses the app."""
+    from tests.test_packaging import BUILD_DMG, DEVID_SHA, _devid_env, _sign_only, _stubs
+
+    local = {k: v for k, v in _devid_env().items() if k != "NOTARY_KEYCHAIN_PROFILE"}
+    app, calls, done = _sign_only(tmp_path, **local, FERB_NOTARIZE="0")
+    assert done.returncode == 0, done.stderr + done.stdout
+    sign_calls = [c for c in calls if "|--sign|" in c and "--verify" not in c]
+    assert sign_calls and all(f"|--sign|{DEVID_SHA}|" in c and "|--timestamp|" in c for c in sign_calls)
+    assert not any(c.startswith("xcrun") for c in calls)                     # nothing sent to Apple, nothing stapled
+    assert "Not notarized" in done.stdout
+    (tmp_path / "plain").mkdir()
+    without = _sign_only(tmp_path / "plain", **local)[2]                     # without the switch: credentials needed
+    assert without.returncode != 0 and "NOTARY_KEYCHAIN_PROFILE" in without.stderr
+
+    (tmp_path / "dmg").mkdir()
+    env = {**_stubs(tmp_path / "dmg"), **_devid_env(), "FERB_NOTARIZE": "0", "FERB_DMG_DIR": str(tmp_path / "dist")}
+    del env["FERB_DEV_DMG"]
+    refused = subprocess.run([str(BUILD_DMG), str(app)], capture_output=True, text=True, env=env)
+    assert refused.returncode != 0 and "always notarized" in refused.stderr
+    assert not (tmp_path / "dist").exists()
+
+    (tmp_path / "check").mkdir()
+    check = {**_stubs(tmp_path / "check"), **_devid_env(), "FERB_NOTARIZE": "0", "STUB_STAPLE_MISSING": "1",
+             "ROOT": str(ROOT)}
+    unstapled = subprocess.run(["/bin/zsh", "-f", "-c", f'source "$ROOT/scripts/signing.sh" && '
+                                f'ferb_check_devid_app {shlex.quote(str(app))}'],
+                               capture_output=True, text=True, env=check)
+    assert unstapled.returncode != 0 and "no stapled notarization ticket" in unstapled.stderr

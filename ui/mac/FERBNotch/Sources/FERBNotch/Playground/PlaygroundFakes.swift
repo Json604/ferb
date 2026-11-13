@@ -111,6 +111,7 @@ final class PlaygroundBackground: BackgroundServiceManaging {
     func unregister() async throws {}
     func switchedOff() async -> Bool { state.saved.loginItemsNeedOK && !state.saved.loginItemsAllowed }
     func openLoginItems() { opener.showLoginItems() }
+    func spawnFailure() -> String? { nil }
 }
 
 /// Dictation, faked: holding the talk keys "hears" a short sentence; the microphone is never opened.

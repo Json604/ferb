@@ -1032,6 +1032,14 @@ impl Hub {
         record(out);
     }
 
+    /// `server.on_native_refused` → `note_refusal("host", why, origin=origin)` (HAND-406): a native
+    /// host's hello the daemon's socket refused before the hub saw the connection.
+    pub fn note_host_refusal(&self, why: &str, origin: &str) {
+        let mut facts = Map::new();
+        facts.insert("origin".into(), origin.into());
+        self.note_refusal("host", why, None, None, facts);
+    }
+
     /// `problem`: why this paired profile's extension can't be used, as far as FERB knows: its
     /// refusal in this run, else the version it last reported when FERB needs a newer one.
     pub fn problem(&self, binding: &Binding) -> Option<String> {

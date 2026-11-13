@@ -217,6 +217,7 @@ pub fn deps(p: Parts<'_>) -> Deps {
             .browsers
             .as_ref()
             .map(|b| ferb_daemon::areas_b::browsers::Cx::new(&p.b.deps.host, b));
+    let the_mac = mac(opts, &p.tools);
     Deps {
         home,
         user_home: opts.user_home.clone(),
@@ -239,7 +240,8 @@ pub fn deps(p: Parts<'_>) -> Deps {
         },
         browsers,
         extensions,
-        mac: mac(opts, &p.tools),
+        automation_checks: crate::areas_c::automation_checks(the_mac.clone()),
+        mac: the_mac,
         facts: areas_c::Facts::real(),
         containment,
         hearing,

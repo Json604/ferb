@@ -94,6 +94,8 @@ make_dmg() {                          # $1: an assembled FERB.app, $2: the image
   print "Built: $dmg ($(du -h "$dmg" | cut -f1), window: $variant)"
 }
 
+# a disk image is what people download: always notarized, never a local FERB_NOTARIZE=0 build
+[[ "${FERB_NOTARIZE:-1}" != 0 ]] || die "a disk image is always notarized: unset FERB_NOTARIZE (=0 is for a build on this Mac only)"
 ferb_check_notary_credentials
 if (( $# == 0 )); then
   ferb_check_release_app || exit 1                # before the builds, not after

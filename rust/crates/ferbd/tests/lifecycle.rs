@@ -14,6 +14,7 @@ fn call(run: &Run, method: &str, params: Value) -> Value {
     serde_json::from_str(&c.recv().expect("an answer")).unwrap()
 }
 
+// decision: DMN-592
 #[test]
 fn start_stop_restart_and_one_daemon_per_home() {
     let tmp = root();
@@ -42,6 +43,16 @@ fn start_stop_restart_and_one_daemon_per_home() {
     // SIGTERM: a clean exit (0), the socket gone, `daemon.stopped` journaled
     let (status, err) = run.stop();
     assert_eq!(status.code(), Some(0), "{err}");
+    // its own log: the start's steps with their timings, then the stop (logs/daemon.err.log under launchd)
+    for said in [
+        "FERB: starting: pid ",
+        "FERB: serving on its socket ",
+        "FERB: started: every call answered ",
+        "FERB: stopping (asked to)",
+        "FERB: stopped",
+    ] {
+        assert!(err.contains(said), "{said:?} not in {err}");
+    }
     assert!(!run.socket().exists());
     let db = rusqlite::Connection::open(run.home.join("ferb.db")).unwrap();
     let kinds: Vec<String> = db

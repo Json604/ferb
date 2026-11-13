@@ -684,6 +684,26 @@ public enum LaunchctlPlan {
         return nil
     }
 
+    /// From `launchctl print gui/<uid>/<label>`: launchd can't start FERB's job, in launchd's words ("last exit code =
+    /// 78: EX_CONFIG"), or nil while it runs, waits for its throttle, or launchd prints nothing to judge by. Live
+    /// 2026-11-14: an in-app (SMAppService) job whose Background Task Management record was gone printed `job state =
+    /// spawn failed` and `last exit code = 78: EX_CONFIG` on every attempt, every 5 s. Read as plain text (launchctl's
+    /// print format is not an API): a job that runs, or output without these lines, is never a failure.
+    public static func spawnFailure(_ output: String) -> String? {
+        var failed = false, running = false
+        var exit: String?
+        for line in output.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed == "job state = spawn failed" { failed = true }
+            if trimmed.hasPrefix("pid = ") { running = true }
+            if exit == nil, trimmed.hasPrefix("last exit code = ") {
+                exit = String(trimmed.dropFirst("last exit code = ".count))
+            }
+        }
+        if running || !failed { return nil }
+        return "launchd couldn't start it" + (exit.map { " (last exit code \($0))" } ?? "")
+    }
+
     /// From `launchctl print-disabled gui/<uid>`: FERB's service is switched off (Login Items → Allow in the
     /// Background). Older macOS prints `=> true`, newer `=> disabled` (ferb/device/install.py Installer.disabled).
     public static func disabled(_ output: String) -> Bool {

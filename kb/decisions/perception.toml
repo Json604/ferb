@@ -168,3 +168,12 @@ words = "yes lets give it if that actually helps"
 words_source = "Owner 2026-11-09, asked whether trail.query should take a from/until range (as chat.history's since/until), so \"what happened 2-4 pm on day X\" is one call instead of paging back with since_hours."
 rule = "trail.query takes optional since and until (ISO dates or date-times; the clock's zone, the Mac's, when none is named; a bare date as an end covers its whole day; the end is excluded). since replaces since_hours, which keeps working when since is absent. A malformed value is the caller's error before anything is read."
 paths = ["ferb/sense/tools.py::TrailQuery", "ferb/sense/tools.py::time_bound", "ferb/sense/trail.py::Trail.query"]
+
+[SENSE-409]
+title = "No Accessibility call before macOS says FERB is trusted"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "The watchers' Accessibility elements (ferb-sense Ax::system and Ax::app, which every focused-app, window-title and focused-field read goes through) exist only while AXIsProcessTrusted (a preflight that never prompts) says FERB is trusted, read at most every 2 s; untrusted, they read nothing, as an unreadable element already did. Setup's own request and the Mac tools at a task's first use are unchanged."
+why = "Live 2026-11-14: macOS answers an untrusted process's first Accessibility call by listing it switched off and showing its own 'control this computer' alert; the watchers made that call in the daemon's first second, outside setup's Allow all (APP-508). Python's focused_app did the same (ENG-6)."
+paths = ["rust/crates/ferb-sense/src/mac/apps.rs"]

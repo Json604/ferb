@@ -206,6 +206,32 @@ fn grant_target(d: &Deps) -> String {
     }
 }
 
+/// rpc.py:505-510: each app's Automation status, every app at once, each at most `limit` (then "unknown"), through
+/// the shared check, so a stalled native call is shared by the next poll, never stacked.
+pub async fn automation_rows(
+    checks: &ferb_mac_hands::permissions::AutomationChecks,
+    apps: &[(String, String)],
+    limit: Duration,
+) -> Vec<Value> {
+    let statuses = futures_util::future::join_all(apps.iter().map(|(_, bundle)| {
+        let checks = checks.clone();
+        let b = bundle.clone();
+        async move {
+            match tokio::time::timeout(limit, checks.check(&b, false)).await {
+                Ok(status) => status.value().to_string(),
+                Err(_) => "unknown".to_string(),
+            }
+        }
+    }))
+    .await;
+    apps.iter()
+        .zip(statuses)
+        .map(
+            |((name, bundle), status)| json!({"name": name, "bundle_id": bundle, "status": status}),
+        )
+        .collect()
+}
+
 /// `_setup_permissions` (rpc.py:493): each grant as this daemon's process holds it, never a prompt; the scriptable
 /// running apps' Automation; a grant FERB.app waits on (`fresh`) read again by a fresh process.
 async fn setup_permissions(d: Deps, p: Params) -> Result<Map<String, Value>, HandlerError> {
@@ -218,19 +244,7 @@ async fn setup_permissions(d: Deps, p: Params) -> Result<Map<String, Value>, Han
         .filter(|(_, b, scriptable)| *scriptable && running.contains(b))
         .map(|(n, b, _)| (n, b))
         .collect();
-    let mut automation = Vec::new();
-    for (name, bundle) in &apps {
-        let (mac, b) = (d.mac.clone(), bundle.clone());
-        let status = tokio::time::timeout(
-            Duration::from_secs(2),
-            tokio::task::spawn_blocking(move || mac.automation(&b, false)),
-        )
-        .await
-        .ok()
-        .and_then(Result::ok)
-        .unwrap_or_else(|| "unknown".into());
-        automation.push(json!({"name": name, "bundle_id": bundle, "status": status}));
-    }
+    let automation = automation_rows(&d.automation_checks, &apps, Duration::from_secs(2)).await;
     let mac = d.mac.clone();
     let clipboard = perm::clipboard_row(blocking(move || mac.clipboard_access()).await?.as_deref());
     let waiting: Vec<String> = match p.get("fresh") {
@@ -494,4 +508,59 @@ async fn identity_check(d: Deps, p: Params) -> Result<Map<String, Value>, Handle
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod automation_tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use ferb_mac_hands::permissions::{AutomationChecks, Status};
+
+    /// rpc.py:505-510 with permissions.py:185-221: six apps whose native read stalls answer together within the limit
+    /// ("unknown"), not one after another; a second poll while those reads still run starts none of its own; reads
+    /// that answer give their status.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn every_app_is_read_at_once_and_a_stalled_read_is_shared() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let c = calls.clone();
+        let checks = AutomationChecks::new(Arc::new(move |bundle: &str, _ask: bool| {
+            c.fetch_add(1, Ordering::SeqCst);
+            if bundle.starts_with("slow") {
+                std::thread::sleep(Duration::from_millis(600));
+            }
+            if bundle.ends_with("granted") {
+                Status::Granted
+            } else {
+                Status::NotDetermined
+            }
+        }));
+        let apps: Vec<(String, String)> = (0..6)
+            .map(|i| (format!("App {i}"), format!("slow.app{i}")))
+            .chain([("Fast".to_string(), "fast.granted".to_string())])
+            .collect();
+        let began = Instant::now();
+        let rows = super::automation_rows(&checks, &apps, Duration::from_millis(200)).await;
+        assert!(
+            began.elapsed() < Duration::from_millis(500),
+            "{:?}",
+            began.elapsed()
+        );
+        assert_eq!(rows.len(), 7);
+        assert!(
+            rows[..6].iter().all(|r| r["status"] == "unknown"),
+            "{rows:?}"
+        );
+        assert_eq!(rows[6]["status"], "granted");
+        assert_eq!(rows[6]["bundle_id"], "fast.granted");
+        assert_eq!(calls.load(Ordering::SeqCst), 7);
+        // the next poll while the six stalled reads still run: they are shared, none started again
+        let _ = super::automation_rows(&checks, &apps[..6], Duration::from_millis(50)).await;
+        assert_eq!(calls.load(Ordering::SeqCst), 7);
+        // once they answered, a poll reads again and gets their status
+        tokio::time::sleep(Duration::from_millis(700)).await;
+        let rows = super::automation_rows(&checks, &apps[..1], Duration::from_secs(2)).await;
+        assert_eq!(rows[0]["status"], "not_determined");
+    }
 }

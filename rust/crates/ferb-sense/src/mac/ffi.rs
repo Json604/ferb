@@ -26,6 +26,8 @@ pub type AXObserverCallback = unsafe extern "C" fn(
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
     pub fn AXUIElementCreateSystemWide() -> AXUIElementRef;
+    /// Whether this process is trusted for Accessibility; never prompts (a TCC preflight).
+    pub fn AXIsProcessTrusted() -> u8;
     pub fn AXUIElementCreateApplication(pid: libc::pid_t) -> AXUIElementRef;
     pub fn AXUIElementCopyAttributeValue(
         el: AXUIElementRef,

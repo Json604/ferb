@@ -108,3 +108,37 @@ fn fsevents_report_a_file_made_in_a_temporary_folder() {
         "{got:?}"
     );
 }
+
+mod trust {
+    use ferb_sense::mac::apps::{trusted_with, TRUST_FRESH_S};
+    use std::time::{Duration, Instant};
+
+    // decision: SENSE-409
+    #[test]
+    fn trust_is_read_again_only_after_it_goes_stale() {
+        let cache = std::sync::Mutex::new(None);
+        let t0 = Instant::now();
+        let mut reads = 0;
+        assert!(!trusted_with(&cache, t0, || {
+            reads += 1;
+            false
+        }));
+        // within the window the last reading serves, whatever the API would say now
+        assert!(!trusted_with(
+            &cache,
+            t0 + Duration::from_millis(500),
+            || {
+                reads += 1;
+                true
+            }
+        ));
+        assert_eq!(reads, 1);
+        // past it, read again: the owner's Allow is seen within TRUST_FRESH_S
+        let later = t0 + Duration::from_secs_f64(TRUST_FRESH_S + 0.1);
+        assert!(trusted_with(&cache, later, || {
+            reads += 1;
+            true
+        }));
+        assert_eq!(reads, 2);
+    }
+}

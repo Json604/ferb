@@ -300,3 +300,12 @@ status = "active"
 rule = "For APP-903. release-appcast.sh reads the DMG app's TeamIdentifier; the first team-signed release writes its build (the earlier of the two architectures') to scripts/developer-id-first-build.txt, to be committed, and make_appcast.py puts it in every later item as sparkle:minimumAutoupdateVersion. A minimum above the build being published is refused."
 why = "Sparkle shows an item whose minimum is above the installed build as a major upgrade, never installed in the background, so self-signed builds ask and Developer ID builds update silently. The installed build can't be changed."
 paths = ["scripts/make_appcast.py::appcast", "scripts/release-appcast.sh"]
+
+[REL-424]
+title = "A Developer ID build for the developer's own Mac can skip notarization; nothing shipped can"
+by = "agent"
+date = 2026-11-13
+status = "active"
+rule = "FERB_NOTARIZE=0 with SIGN_IDENTITY=devid signs every piece with the team's Developer ID exactly as REL-421 (timestamp, team requirement, library validation) and skips notarization and stapling, needing no notary credentials. build-dmg.sh refuses FERB_NOTARIZE=0, and ferb_check_devid_app (a DMG's app, release-appcast.sh) still requires a stapled, Gatekeeper-notarized app, so such a build is never shipped."
+why = "Installing builds on the developer's own Mac needs the team signature to keep macOS's permissions across builds; notarization needs the unlocked keychain's notary profile and minutes per build and adds nothing there."
+paths = ["scripts/signing.sh", "scripts/build-dmg.sh", "scripts/build-app-rust.sh"]

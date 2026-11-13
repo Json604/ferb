@@ -465,6 +465,158 @@ pub struct Browsers {
     ferb: Option<Arc<Tools>>,
     /// The browser area, once group B builds it (browser.pair, browser.handoff).
     area: Arc<OnceLock<ferb_daemon::areas_b::browsers::Cx>>,
+    /// `WakeServer`: the blank local page a profile with no window is loaded with before its pairing page (None: no
+    /// runtime to serve it on, a test's build).
+    pub wake: Option<Arc<WakePage>>,
+}
+
+/// `WakeServer` (ext_bridge.py:809): a unique blank local page per wake (not about:blank: its fragment is dropped, so
+/// it couldn't be told apart from the owner's tabs), served on 127.0.0.1 for the daemon's life.
+pub struct WakePage {
+    port: u16,
+}
+
+impl WakePage {
+    /// Listens on 127.0.0.1 (any free port) and answers each connection with the page, on this runtime.
+    pub fn start() -> std::io::Result<Arc<WakePage>> {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
+        listener.set_nonblocking(true)?;
+        let port = listener.local_addr()?.port();
+        let handle = tokio::runtime::Handle::try_current().map_err(std::io::Error::other)?;
+        let _entered = handle.enter();
+        let listener = tokio::net::TcpListener::from_std(listener)?;
+        handle.spawn(async move {
+            loop {
+                match listener.accept().await {
+                    Ok((stream, _)) => {
+                        tokio::spawn(wake_answer(stream));
+                    }
+                    Err(_) => tokio::time::sleep(std::time::Duration::from_millis(100)).await,
+                }
+            }
+        });
+        Ok(Arc::new(WakePage { port }))
+    }
+
+    /// `url()`: `http://127.0.0.1:<port>/wake/<token_hex(8)>`.
+    pub fn url(&self) -> String {
+        format!(
+            "http://127.0.0.1:{}/wake/{}",
+            self.port,
+            ferb_runtimes::codex::token_hex(8)
+        )
+    }
+}
+
+/// One connection: its request line read (a browser may open a connection and send nothing: 5 s), then the page.
+async fn wake_answer(stream: tokio::net::TcpStream) {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let mut reader = BufReader::new(stream);
+    let mut first = String::new();
+    let read = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        reader.read_line(&mut first),
+    )
+    .await;
+    if matches!(read, Ok(Ok(_))) {
+        let body = b"<!doctype html><title>FERB</title>";
+        let mut out = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        out.extend_from_slice(body);
+        let mut stream = reader.into_inner();
+        let _ = stream.write_all(&out).await;
+        let _ = stream.shutdown().await;
+    }
+}
+
+/// The drivers' wake (`Router._connected`, HAND-403): a profile that isn't connected is loaded with no window
+/// (`open_known_profile(browser, folder, None, known, is_running=…)`), or with its own window the second time, through
+/// the browser area's launcher. Nothing before the area is built.
+struct ProfileWake {
+    area: Arc<OnceLock<ferb_daemon::areas_b::browsers::Cx>>,
+    pairings: Arc<Pairings>,
+}
+
+impl ferb_browser::driver::Wake for ProfileWake {
+    fn start(&self, browser: &str, folder: &str, window: bool) {
+        use ferb_browser::profiles;
+        let Some(cx) = self.area.get() else { return };
+        let platform = cx.deps.platform.as_ref();
+        let paired: Vec<(String, String)> = self
+            .pairings
+            .all()
+            .map(|all| all.into_iter().map(|b| (b.browser, b.folder)).collect())
+            .unwrap_or_default();
+        let known = profiles::with_paired(platform, &cx.profiles(), &paired);
+        let binary = profiles::browser(browser)
+            .map(|b| cx.deps.binaries.binary(platform, b))
+            .unwrap_or_default();
+        let running = profiles::running(platform, &cx.deps.binaries, browser);
+        match profiles::open_command(
+            browser, folder, None, &known, &binary, true, running, window,
+        ) {
+            Ok(args) => {
+                if let Err(e) = (cx.deps.launch)(&args) {
+                    crate::log::line(&format!("couldn't start {browser}/{folder}: {e}"));
+                }
+            }
+            Err(why) => crate::log::line(&format!("didn't start {browser}/{folder}: {why}")),
+        }
+    }
+}
+
+/// The native host's two kernel facts on the Mac (`_browser_pid`, `_app_bundle`): the relay's parent (the browser)
+/// from its socket, and that process's app from its executable's bundle.
+#[cfg(target_os = "macos")]
+pub fn peer_seams() -> (
+    ferb_browser::bridge::native::BrowserPid,
+    ferb_browser::bridge::AppOf,
+) {
+    (
+        Arc::new(ferb_browser::macos::native_host_parent),
+        Arc::new(ferb_browser::macos::app_bundle),
+    )
+}
+
+/// Elsewhere nothing can be told, so every native-host connection is refused (fails closed).
+#[cfg(not(target_os = "macos"))]
+pub fn peer_seams() -> (
+    ferb_browser::bridge::native::BrowserPid,
+    ferb_browser::bridge::AppOf,
+) {
+    (Arc::new(|_fd| None), Arc::new(|_pid| None))
+}
+
+/// HAND-406 (areas/browsers.py:255-259): each refused connection or message journaled
+/// `browser.connection_refused`, the first at once and then counted per reason and profile or app (`_Repeats`); and
+/// what the socket refused before the hub saw it (`server.on_native_refused`) noted as a "host" refusal.
+pub fn wire_refusals(p: &Parts, server: &ferb_rpc::Server, repeats: &ferb_daemon::shared::Repeats) {
+    let Some(b) = p.browsers() else { return };
+    let hub = b.hub.clone();
+    let mut hooks = hub.hooks();
+    let r = repeats.clone();
+    hooks.record_refusal = Arc::new(move |facts: Map<String, Value>| {
+        let text = |k: &str| match facts.get(k) {
+            Some(Value::String(s)) => s.clone(),
+            Some(v) if !v.is_null() => ferb_py::value::py_str(v),
+            _ => String::new(),
+        };
+        let reason = match facts.get("reason") {
+            None | Some(Value::Null) => "None".to_string(),
+            _ => text("reason"),
+        };
+        let who = Some(text("profile"))
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| text("app"));
+        let kind = ferb_daemon::areas_b::browsers::REFUSED;
+        r.record(kind, &[kind, &reason, &who], facts);
+    });
+    hub.set_hooks(hooks);
+    let h = hub.clone();
+    server.on_native_refused(move |why, origin| h.note_host_refusal(why, origin));
 }
 
 impl Browsers {
@@ -497,10 +649,14 @@ impl Browsers {
             }),
             random.clone(),
             Arc::new(Apps),
-            Arc::new(|_pid| None),
+            peer_seams().1,
         );
         let tasks = driver_tasks(p);
         let area: Arc<OnceLock<ferb_daemon::areas_b::browsers::Cx>> = Arc::new(OnceLock::new());
+        let wake: Arc<dyn ferb_browser::driver::Wake> = Arc::new(ProfileWake {
+            area: area.clone(),
+            pairings: pairings.clone(),
+        });
         let router = Driver::new(
             hub.clone(),
             Kind::Owner {
@@ -508,7 +664,7 @@ impl Browsers {
                 input: Some(Arc::new(GatewayInput(p.downgrade()))),
             },
             tasks,
-            None,
+            Some(wake.clone()),
             random.clone(),
         );
         let host: Arc<dyn ferb_browser::tools::Host> = Arc::new(BrowserHost {
@@ -547,7 +703,7 @@ impl Browsers {
                 secrets: Arc::new(OwnSecrets(secrets)),
             },
             driver_tasks(p),
-            None,
+            Some(wake),
             random,
         );
         let ferb = Arc::new(Tools {
@@ -564,6 +720,13 @@ impl Browsers {
             owner,
             ferb: Some(ferb),
             area,
+            wake: match WakePage::start() {
+                Ok(w) => Some(w),
+                Err(e) => {
+                    crate::log::line(&format!("the browsers' wake page didn't start: {e}"));
+                    None
+                }
+            },
         }
     }
 
@@ -737,11 +900,25 @@ pub fn browsers_deps(
         browser_support: opts.browser_support.clone(),
         browser_data_dirs: None,
         launch,
-        wake_url: Arc::new(String::new),
+        wake_url: match br.wake.clone() {
+            Some(w) => Arc::new(move || w.url()),
+            None => Arc::new(String::new),
+        },
         tabs: None,
         notifier: Arc::new(NoBanner),
         activity: None,
-        identity_browser: Arc::new(NoIdentity),
+        identity_browser: Arc::new(IdentityAttach {
+            registry: {
+                let gw = s.gateway.clone();
+                Arc::new(
+                    move |f: &mut dyn FnMut(&mut ferb_gateway::tool::Registry)| {
+                        f(&mut gw.registry())
+                    },
+                )
+            },
+            tools: br.ferb_tools(),
+            driver: br.identity.clone(),
+        }),
         native_host: b::NativeHost {
             launcher: s.home.join("bin/ferb-native-host"),
             exec_part: ferb_device::py::shlex_quote(&relay.to_string_lossy()),
@@ -772,16 +949,64 @@ impl ferb_daemon::areas_b::browsers::Notifier for NoBanner {
     }
 }
 
-struct NoIdentity;
-impl ferb_daemon::areas_b::browsers::IdentityBrowser for NoIdentity {
+/// `use_identity_browser` / `_detach_identity_browser` (browsers.py:44-65): FERB's own browser's `ferb_browser.*`
+/// tools in the gateway's registry, and its tabs closed when its account is cleared.
+pub struct IdentityAttach {
+    /// The gateway's registry, held for one change or read.
+    pub registry: WithRegistry,
+    /// FERB's own profile's tools (`Browsers::ferb_tools`).
+    pub tools: Vec<Arc<dyn Tool>>,
+    /// FERB's own profile's driver (`self.ferb_identity`); None: not built.
+    pub driver: Option<Arc<Driver>>,
+}
+
+/// One visit to the gateway's registry.
+pub type WithRegistry =
+    Arc<dyn Fn(&mut dyn FnMut(&mut ferb_gateway::tool::Registry)) + Send + Sync>;
+
+impl IdentityAttach {
+    fn prefix() -> String {
+        format!("{}.", FERB_BROWSER.prefix)
+    }
+}
+
+impl ferb_daemon::areas_b::browsers::IdentityBrowser for IdentityAttach {
     fn ready(&self) -> bool {
-        false
+        self.driver.is_some() && !self.tools.is_empty()
     }
     fn attached(&self) -> bool {
-        false
+        let prefix = Self::prefix();
+        let mut found = false;
+        (self.registry)(&mut |reg| found = reg.names().iter().any(|n| n.starts_with(&prefix)));
+        found
     }
-    fn attach(&self) {}
-    fn detach(&self) {}
+    fn attach(&self) {
+        (self.registry)(&mut |reg| {
+            for t in &self.tools {
+                reg.set(t.clone());
+            }
+        });
+    }
+    fn detach(&self) {
+        let prefix = Self::prefix();
+        let mut names: Vec<String> = Vec::new();
+        (self.registry)(&mut |reg| {
+            names = reg
+                .names()
+                .into_iter()
+                .filter(|n| n.starts_with(&prefix))
+                .collect();
+            for n in &names {
+                reg.remove(n);
+            }
+        });
+        // the tabs it opened close (no task can release them through it any more)
+        if let (false, Some(d)) = (names.is_empty(), self.driver.clone()) {
+            if let Ok(rt) = tokio::runtime::Handle::try_current() {
+                rt.spawn(async move { d.shutdown().await });
+            }
+        }
+    }
 }
 
 /// The native host's channel on the RPC server: each connection after its hello is served by the hub.
@@ -789,7 +1014,7 @@ pub fn native_channel(p: &Parts) -> Option<ferb_browser::bridge::native::Channel
     let hub = p.browsers()?.hub.clone();
     Some(ferb_browser::bridge::native::Channel {
         hub,
-        browser_pid: Arc::new(|_fd| None),
+        browser_pid: peer_seams().0,
     })
 }
 
@@ -808,4 +1033,114 @@ pub fn extension_ids(config: &ferb_core::config::Config) -> std::collections::Ha
     ferb_browser::autoinstall::accepted_extension_ids(configured.as_ref(), &store)
         .into_iter()
         .collect()
+}
+
+#[cfg(test)]
+mod wake_tests {
+    use super::WakePage;
+
+    /// `WakeServer`: each wake is its own address on 127.0.0.1 (a pairing's blank page must never be about:blank or
+    /// empty: an empty address opened the browsers with nothing the pairing could close), and it answers a page.
+    #[tokio::test]
+    async fn each_wake_is_a_unique_local_page_that_answers() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let wake = WakePage::start().expect("the wake page starts");
+        let (a, b) = (wake.url(), wake.url());
+        assert_ne!(a, b);
+        let rest = a
+            .strip_prefix("http://127.0.0.1:")
+            .expect("a local address");
+        let (port, path) = rest.split_once('/').unwrap();
+        assert!(
+            path.starts_with("wake/") && path.len() == "wake/".len() + 16,
+            "{a}"
+        );
+        let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port.parse::<u16>().unwrap()))
+            .await
+            .unwrap();
+        s.write_all(format!("GET /{path} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes())
+            .await
+            .unwrap();
+        let mut got = String::new();
+        s.read_to_string(&mut got).await.unwrap();
+        assert!(got.starts_with("HTTP/1.1 200 OK\r\n"), "{got}");
+        assert!(got.ends_with("<!doctype html><title>FERB</title>"), "{got}");
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use std::sync::{Arc, Mutex};
+
+    use ferb_core::interfaces::BoxFuture;
+    use ferb_core::types::{ActionSpec, ToolContext};
+    use ferb_daemon::areas_b::browsers::IdentityBrowser;
+    use ferb_gateway::tool::{Args, Registry, Tool, ToolError, ToolOutput};
+
+    use super::{IdentityAttach, WithRegistry};
+
+    struct Named(&'static str);
+    impl Tool for Named {
+        fn name(&self) -> &str {
+            self.0
+        }
+        fn describe(&self, _args: &Args) -> ActionSpec {
+            ActionSpec::default()
+        }
+        fn run<'a>(
+            &'a self,
+            _args: &'a Args,
+            _ctx: &'a ToolContext,
+        ) -> BoxFuture<'a, Result<ToolOutput, ToolError>> {
+            Box::pin(async {
+                Err(ToolError {
+                    class: "Unused".into(),
+                    message: String::new(),
+                    before_acting: true,
+                })
+            })
+        }
+    }
+
+    /// browsers.py:44-65, 342-350: FERB's own browser, once its profile is paired as FERB, puts its `ferb_browser.*`
+    /// tools in the gateway's registry (so `identity.check` says paired and tasks can use FERB's own account); clearing
+    /// the account removes exactly those, never the owner's `browser.*`. Not built (no tools): never ready.
+    #[test]
+    fn ferbs_own_browser_attaches_and_detaches_its_tools_only() {
+        let shared = Arc::new(Mutex::new(Registry::new()));
+        shared.lock().unwrap().set(Arc::new(Named("browser.open")));
+        let s = shared.clone();
+        let registry: WithRegistry = Arc::new(move |f| f(&mut s.lock().unwrap()));
+        let none = IdentityAttach {
+            registry: registry.clone(),
+            tools: vec![],
+            driver: None,
+        };
+        assert!(!none.ready());
+        let tools: Vec<Arc<dyn Tool>> = vec![
+            Arc::new(Named("ferb_browser.open")),
+            Arc::new(Named("ferb_browser.fill_secret")),
+        ];
+        let ferb = IdentityAttach {
+            registry,
+            tools,
+            driver: None,
+        };
+        assert!(!ferb.attached());
+        ferb.attach();
+        assert!(ferb.attached());
+        let mut names = shared.lock().unwrap().names();
+        names.sort();
+        assert_eq!(
+            names,
+            [
+                "browser.open",
+                "ferb_browser.fill_secret",
+                "ferb_browser.open"
+            ]
+        );
+        ferb.detach();
+        assert!(!ferb.attached());
+        assert_eq!(shared.lock().unwrap().names(), ["browser.open"]);
+    }
 }

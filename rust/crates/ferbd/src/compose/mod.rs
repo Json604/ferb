@@ -200,6 +200,8 @@ pub struct Daemon {
     pub memory_stop: std::sync::OnceLock<Arc<std::sync::atomic::AtomicBool>>,
     /// The resource log (None: off, or it couldn't start: journaled).
     pub resource_log: Mutex<Option<crate::resources::ResourceLog>>,
+    /// A problem that keeps happening, journaled bounded (`_repeats`); flushed at shutdown.
+    pub repeats: ferb_daemon::shared::Repeats,
     /// Set by SIGTERM, SIGINT or `update.prepare` (`_stop`).
     pub quit: Arc<tokio::sync::Notify>,
     loops: Mutex<Vec<JoinHandle<()>>>,
@@ -308,6 +310,7 @@ impl Daemon {
         };
         let redactor = Arc::new(Redactor::new(&[], &[]));
         apply_privacy(&config, &redactor);
+        crate::log::set_redactor(redactor.clone());
 
         let db: SharedDb = Arc::new(Mutex::new(
             open_store(&home.join("ferb.db")).map_err(StartError::Failed)?,
@@ -327,6 +330,45 @@ impl Daemon {
         });
         for entry in &set_aside {
             journal.note("store.set_aside", Value::Object(entry.clone()));
+        }
+        // `_repeats` (main.py:279): a problem that keeps happening, journaled bounded; each row also one log line
+        let repeats = ferb_daemon::shared::Repeats::new(
+            {
+                let j = journal.clone();
+                move |kind: &str, data: Map<String, Value>| {
+                    crate::log::line(&format!(
+                        "{kind} {}",
+                        ferb_py::json::dumps(&Value::Object(data.clone()))
+                    ));
+                    j.note(kind, Value::Object(data));
+                }
+            },
+            clock.clone(),
+        );
+        // a panic is journaled `daemon.unhandled` (Python's `_loop_exception`): handed over a channel, so a panic on
+        // a thread that holds the store's lock never waits for it
+        {
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Map<String, Value>>();
+            crate::log::set_unhandled(move |row| {
+                let _ = tx.send(row);
+            });
+            let r = repeats.clone();
+            tokio::spawn(async move {
+                while let Some(row) = rx.recv().await {
+                    let last = row
+                        .get("frames")
+                        .and_then(Value::as_array)
+                        .and_then(|f| f.last())
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    r.record(
+                        ferb_daemon::shared::UNHANDLED,
+                        &[ferb_daemon::shared::UNHANDLED, "panic", &last],
+                        row,
+                    );
+                }
+            });
         }
         // the resource log: its first window starts here, so start-up's own work is in it (L30); the previews'
         // counts join it once the tools are built (`hooks.previews.snapshot()`, main.py:399)
@@ -411,7 +453,29 @@ impl Daemon {
         };
         match opts.app_check {
             Some(answer) => server.set_is_app(move |_| answer),
-            None => ferb_platform_macos::rpc::attach(&server, &home),
+            None => {
+                ferb_platform_macos::rpc::attach(&server, &home);
+                // DMN-402: the same check, each verdict also a log line (the first FERB.app peer accepted, every one
+                // refused), so "FERB isn't running" can be told apart from FERB.app's calls being refused
+                let check = ferb_platform_macos::rpc::system(&home).into_check();
+                let seen_app = std::sync::atomic::AtomicBool::new(false);
+                server.set_is_app(move |token| {
+                    let pid = token.map(|t| u32::from_ne_bytes([t[20], t[21], t[22], t[23]]));
+                    let verdict = check(token);
+                    if !verdict {
+                        crate::log::line(&format!(
+                            "a FERB.app-only call was refused: the caller (pid {}) isn't this FERB.app",
+                            pid.map_or("unknown".into(), |p| p.to_string())
+                        ));
+                    } else if !seen_app.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                        crate::log::line(&format!(
+                            "FERB.app (pid {}) is answered as FERB.app",
+                            pid.map_or("unknown".into(), |p| p.to_string())
+                        ));
+                    }
+                    verdict
+                });
+            }
         }
         {
             let j = journal.clone();
@@ -511,6 +575,8 @@ impl Daemon {
             let cfg = config.clone();
             server.set_extension_ids(move || tools::browser::extension_ids(&cfg));
         }
+        // HAND-406: every native-host connection or extension message FERB doesn't take is journaled
+        tools::browser::wire_refusals(&tool_parts, &server, &repeats);
 
         // the learners' model calls go through the runtimes area, built with group B below
         let learning_area: Arc<std::sync::OnceLock<ferb_daemon::areas_b::runtimes::Runtimes>> =
@@ -803,6 +869,10 @@ impl Daemon {
             .start()
             .await
             .map_err(|e| StartError::Running(format!("FERB: {e}")))?;
+        crate::log::line(&format!(
+            "serving on its socket {} ms after the process started (only ping until the start is done)",
+            crate::log::since_start_ms()
+        ));
 
         let daemon = Arc::new(Daemon {
             opts,
@@ -824,6 +894,7 @@ impl Daemon {
             claude_proxy,
             memory_stop: std::sync::OnceLock::new(),
             resource_log: Mutex::new(resource_log),
+            repeats,
             quit,
             loops: Mutex::new(Vec::new()),
             _lock: lock_file,
@@ -844,10 +915,20 @@ impl Daemon {
 
     /// The slow part of `_start` after the socket serves, then the start is done (`server.ready.set()`).
     async fn finish_start(self: &Arc<Self>) -> Result<(), String> {
+        let step = |what: &str, began: std::time::Instant| {
+            crate::log::line(&format!(
+                "start: {what} took {} ms",
+                began.elapsed().as_millis()
+            ))
+        };
         if self.opts.preload_secrets {
+            let began = std::time::Instant::now();
             self.b.preload_secrets(&self.journal, &self.redactor).await;
+            step("FERB's API keys for the redactor", began);
         }
+        let began = std::time::Instant::now();
         self.b.prepare_codex().await;
+        step("Codex's catalog and version check", began);
         let pid = std::process::id();
         let login = if self.opts.native {
             login_session()
@@ -948,6 +1029,10 @@ impl Daemon {
         // main.py:472: the trees a shutdown or crash cut off run again in place, in the background
         self.supervisor.supervisor.start_resume();
         self.server.set_ready();
+        crate::log::line(&format!(
+            "started: every call answered {} ms after the process started",
+            crate::log::since_start_ms()
+        ));
         Ok(())
     }
 
@@ -990,6 +1075,7 @@ impl Daemon {
         self.server.close().await;
         // the minutes since the last sample (L30)
         self.sample_resources();
+        self.repeats.flush();
         self.journal
             .note("daemon.stopped", json!({"pid": std::process::id()}));
     }

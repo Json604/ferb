@@ -19,7 +19,10 @@ pub fn main(args: &[String]) -> i32 {
         return status;
     }
     match args.first().map(String::as_str) {
-        Some("daemon") => daemon(),
+        Some("daemon") => {
+            crate::log::mark_process_start();
+            daemon()
+        }
         Some("mcp") => mcp(),
         // `python -m ferb.device.grant_probe` (APP-662): a fresh process's reading of the grants macOS caches per
         // process; the daemon starts this program so for `setup.permissions`
@@ -77,6 +80,18 @@ fn daemon() -> i32 {
     if let Err(e) = crate::home::service_streams(&home) {
         eprintln!("FERB: can't open FERB's logs: {e}");
     }
+    crate::log::install_panic_hook();
+    crate::log::line(&format!(
+        "starting: pid {}, FERB {}, build {}, started by {}",
+        std::process::id(),
+        crate::compose::VERSION,
+        std::env::var("FERB_APP_BUILD").unwrap_or_else(|_| "none".into()),
+        std::env::var("XPC_SERVICE_NAME")
+            .ok()
+            .filter(|s| !s.is_empty() && s != "0")
+            .map(|s| format!("launchd ({s})"))
+            .unwrap_or_else(|| "a command".into())
+    ));
     #[allow(unused_mut)]
     let mut opts = Options::real(home);
     #[cfg(feature = "stand-ins")]
@@ -106,11 +121,11 @@ fn daemon() -> i32 {
                 Ok(d) => d,
                 Err(StartError::NewerStore(m)) => {
                     // not a crash: nothing was changed, and a clean exit keeps launchd from starting it again
-                    eprintln!("FERB: {m}");
+                    crate::log::line(&m);
                     return 0;
                 }
                 Err(e) => {
-                    eprintln!("FERB: the daemon didn't start: {e}");
+                    crate::log::line(&format!("the daemon didn't start: {e}"));
                     return 1;
                 }
             };
@@ -123,7 +138,9 @@ fn daemon() -> i32 {
                 _ = stop.notified() => {}
                 _ = quit.notified() => {}
             }
+            crate::log::line("stopping (asked to)");
             daemon.shutdown().await;
+            crate::log::line("stopped");
             0
         })
     })

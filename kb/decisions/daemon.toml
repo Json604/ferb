@@ -930,3 +930,21 @@ status = "active"
 rule = "Setup writes the new ferb-secrets and its .requirement whole as staged files first; only then are both renamed into place, one right after the other. A failure while writing either (a full disk, a quit) leaves the helper in use with its own pin and removes the staged files."
 why = "Plan developer-id.md §5: the helper was swapped before its pin was written, so a failure in between left the new helper checked against the old pin, and every secret was refused until the next setup."
 paths = ["ferb/device/install.py::Installer._swap_helper"]
+
+[DMN-591]
+title = "A background service launchd can't start is registered again once, then runs as the LaunchAgent"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "Refines DMN-587. FERB.app reads launchctl print for FERB's job (LaunchctlPlan.spawnFailure: job state = spawn failed, no pid). At setup's wait for its registration and after every restart or start it makes (a grant's restart-to-check, a silent service, the menu's Restart), when launchd says it can't start the job, the registration is made again once at once; if launchd still can't, or the service is the LaunchAgent, setup installs the LaunchAgent with launchd's words as the reason. A running or throttled job is left alone."
+why = "Live 2026-11-14: the in-app job resolved its program through the Background Task Management record of the user LaunchAgent it replaced; once macOS dropped that record every start failed (EX_CONFIG) after kickstart said yes, and the tour hung. Any Mac that ran a LaunchAgent build has such a record."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::SetupModel.repairService", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift::LaunchctlPlan.spawnFailure"]
+
+[DMN-592]
+title = "The Rust daemon's own log says when it came up, what it refused and what panicked"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "Beyond DMN-14's redirect, the Rust daemon writes timestamped, redacted lines to stderr (logs/daemon.err.log under launchd): its start (pid, version, build, who started it), when its socket serves and when every call is answered (ms since the process started) with slow steps' durations, its stop, FERB.app-only verdicts (the first app accepted, every caller refused), each bounded journal problem (_Repeats, e.g. browser.connection_refused), and a panic with place, redacted message and backtrace, journaled daemon.unhandled."
+why = "The first live run of the Rust build left both log files empty: Python wrote only redacted tracebacks there and relied on the journal, so nothing showed whether the daemon started, how fast, or whether FERB.app's calls were refused."
+paths = ["rust/crates/ferbd/src/compose/mod.rs", "rust/crates/ferbd/src/run.rs"]

@@ -125,6 +125,18 @@ pub fn peer_refusal(
     None
 }
 
+/// `_app_bundle`'s path part (HAND-438): the outermost `.app` or `.app.bundle` around an executable
+/// (Chrome may run from its code-signing clone, ".../code_sign_clone.XXXX/Google Chrome.app.bundle/
+/// Contents/MacOS/Google Chrome"), or `None` when the path is in no bundle. Its Info.plist is
+/// `<bundle>/Contents/Info.plist`.
+pub fn outermost_bundle(executable: &str) -> Option<&str> {
+    [".app/Contents/", ".app.bundle/Contents/"]
+        .iter()
+        .filter_map(|suffix| executable.find(suffix).map(|at| (at, suffix.len())))
+        .min()
+        .map(|(at, size)| &executable[..at + size - "/Contents/".len()])
+}
+
 /// What each step of a read is, for "the page isn't responding" (extension 0.19.6 names the step).
 pub const READ_STEPS: [(&str, &str); 10] = [
     ("wake", "keeping the tab awake"),
@@ -270,5 +282,35 @@ pub fn frame_id(f: &Value) -> i64 {
     match f.get("frame_id") {
         Some(v) if ferb_py::value::truthy(v) => crate::lax::int(v).unwrap_or(0),
         _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod bundle_tests {
+    use super::outermost_bundle;
+
+    // decision: HAND-438
+    #[test]
+    fn the_outermost_app_or_app_bundle_is_the_browser() {
+        assert_eq!(
+            outermost_bundle("/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"),
+            Some("/Applications/Brave Browser.app")
+        );
+        // a helper app inside the browser counts as the browser (the outermost bundle)
+        assert_eq!(
+            outermost_bundle(
+                "/Applications/Google Chrome.app/Contents/Frameworks/X.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper"
+            ),
+            Some("/Applications/Google Chrome.app")
+        );
+        // Chrome's code-signing clone
+        assert_eq!(
+            outermost_bundle(
+                "/private/var/folders/x/T/com.google.Chrome.code_sign_clone/code_sign_clone.Ab12/Google Chrome.app.bundle/Contents/MacOS/Google Chrome"
+            ),
+            Some("/private/var/folders/x/T/com.google.Chrome.code_sign_clone/code_sign_clone.Ab12/Google Chrome.app.bundle")
+        );
+        assert_eq!(outermost_bundle("/bin/zsh"), None);
+        assert_eq!(outermost_bundle("/Applications/X.app"), None);
     }
 }

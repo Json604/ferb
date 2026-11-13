@@ -169,6 +169,7 @@ final class SetupModel: ObservableObject {
                 if unanswered == serviceStartAfter {
                     moveGrant(.startingService)
                     _ = await service.start()
+                    if let why = await serviceSpawnFailure(within: serviceCheckAfterStart) { _ = await repairService(why) }
                 } else if grantWait?.step != .startingService {
                     moveGrant(.waitingForSwitch)
                 }
@@ -195,6 +196,10 @@ final class SetupModel: ObservableObject {
     /// Reads without an answer before a grant's wait starts the background service (about 4.5 s at `grantPoll`): a
     /// daemon that is only slow is never killed, `start` leaves a running one alone.
     var serviceStartAfter = 3
+
+    /// How long after a restart or start launchd's state is read for a job it can't start (its attempt comes at once;
+    /// a failure repeats every ThrottleInterval, 5 s).
+    var serviceCheckAfterStart: Duration = .seconds(3)
 
     /// The background service answers `ping`.
     func serviceAnswers() async -> Bool { (try? await rpc.call("ping", params: [:])) != nil }
@@ -270,18 +275,76 @@ final class SetupModel: ObservableObject {
             serviceError = ServicePlan.approval
             completion(false)
         case .waitForFERB:
-            let end = ContinuousClock.now + serviceStartWait
-            while ContinuousClock.now < end {
-                if await serviceAnswers() {
-                    serviceRunning = false
-                    serviceAction = .none
-                    return completion(true)
-                }
-                try? await Task.sleep(for: .milliseconds(500))
+            if let why = await waitForAppService(background, registeredAgain: false) {
+                await fallBack(why, completion: completion)
+            } else {
+                serviceRunning = false
+                serviceAction = .none
+                completion(true)
             }
-            await fallBack(AppServicePlan.notStarted, completion: completion)
         case .fallback(let why):
             await fallBack(why, completion: completion)
+        }
+    }
+
+    /// How often a wait for the background service reads it (tests shorten it).
+    var serviceWaitPoll: Duration = .milliseconds(500)
+
+    /// Waits until FERB.app's registered service answers (DMN-587): nil then, else why not. When launchd says it can't
+    /// start the job (`spawnFailure`; live 2026-11-14: the registration had been tied to the Background Task Management
+    /// record of the user LaunchAgent it replaced, and once macOS dropped that record every start failed with
+    /// EX_CONFIG), the job is registered once more at once, a fresh record, instead of waiting out `serviceStartWait`;
+    /// failing again, launchd's words are the reason.
+    private func waitForAppService(_ background: BackgroundServiceManaging, registeredAgain: Bool) async -> String? {
+        var again = registeredAgain
+        let end = ContinuousClock.now + serviceStartWait
+        while ContinuousClock.now < end {
+            if await serviceAnswers() { return nil }
+            if let why = background.spawnFailure() {
+                if again { return why }
+                again = true
+                serviceLine = "Registering FERB's background service again…"
+                NSLog("FERB service: %@; registering it again", why)
+                try? await background.unregister()
+                do { try background.register() } catch { return why }
+                try? await Task.sleep(for: serviceWaitPoll * 2)    // launchd's first attempt for the new job
+                continue
+            }
+            try? await Task.sleep(for: serviceWaitPoll)
+        }
+        return AppServicePlan.notStarted
+    }
+
+    /// After FERB.app restarted or started the background service (a grant's restart-to-check, a silence, the menu's
+    /// Restart): launchd's own word that it can't start the job, read for `within` while FERB doesn't answer; nil once
+    /// FERB answers or launchd says nothing of the kind. Restarting goes through `launchctl kickstart`, which reports
+    /// success before launchd's attempt (live 2026-11-14: kickstart -k returned, then every respawn failed and the
+    /// tour waited on Input Monitoring for good).
+    func serviceSpawnFailure(within: Duration) async -> String? {
+        guard let background else { return nil }
+        let end = ContinuousClock.now + within
+        while ContinuousClock.now < end {
+            try? await Task.sleep(for: serviceWaitPoll)        // the old process may still answer as it exits
+            if await serviceAnswers() { return nil }
+            if let why = background.spawnFailure() { return why }
+        }
+        return nil
+    }
+
+    /// launchd can't start FERB's background service: a Developer ID build's registration is made again once
+    /// (DMN-587), and if launchd still can't start it, or the service is the LaunchAgent, setup installs the LaunchAgent
+    /// again (`fallBack`, DMN-513), so FERB runs again instead of the tour waiting on a service that never comes.
+    /// True when FERB answers afterwards.
+    func repairService(_ why: String) async -> Bool {
+        serviceRunning = true
+        if let background, appService, background.registration.listed || background.status.listed {
+            if await waitForAppService(background, registeredAgain: false) == nil {
+                serviceRunning = false
+                return true
+            }
+        }
+        return await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            Task { @MainActor in await self.fallBack(why) { ok in done.resume(returning: ok) } }
         }
     }
 
@@ -633,7 +696,8 @@ final class SetupModel: ObservableObject {
     func restartService() async {
         restarting = true
         message = "Restarting FERB's background service…"
-        let ok = await service.restart()
+        var ok = await service.restart()
+        if let why = await serviceSpawnFailure(within: serviceCheckAfterStart) { ok = await repairService(why) }
         restarting = false
         message = ok ? nil : "FERB's background service couldn't be restarted."
         if ok { askedRestart.removeAll() }

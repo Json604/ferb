@@ -15,7 +15,8 @@
 # Code (rust/packaging/package-lock.json); the pinned secret helper; the local embedding model; the background
 # service's definition naming `FERB daemon`. The database migrations and the o200k tokenizer are compiled into ferbd.
 # Pins (version, Codex, Claude Code, embedding model) come from the Rust sources (scripts/rust-parts.sh), not Python's.
-# Env: SIGN_IDENTITY as for build-app.sh (default "-", ad hoc). Every Mach-O file in the bundle ends up signed.
+# Env: SIGN_IDENTITY as for build-app.sh (default "-", ad hoc); FERB_NOTARIZE=0 with devid signs for this Mac only
+# (scripts/signing.sh). Every Mach-O file in the bundle ends up signed.
 # Never installs, registers or starts anything.
 set -euo pipefail
 ROOT="${0:A:h:h}"
@@ -235,7 +236,7 @@ LEFT=$(ferb_rust_python_left "$APP")
 
 print "==> Signing (identity: $SIGN_IDENTITY)"
 ferb_sign_app "$APP" "$WORK/sign"
-if ferb_developer_id; then ferb_notarize_app "$APP" "$WORK"; fi
+ferb_notarize_built "$APP" "$WORK"
 
 print "Built: $APP ($(du -sh "$APP" | cut -f1); FERB $VERSION, build $BUILD, $REVISION; Rust engine)"
 ferb_rust_size_report "$APP"

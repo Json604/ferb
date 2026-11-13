@@ -311,3 +311,128 @@ pub fn launch_detached(args: &[String]) -> std::io::Result<()> {
     });
     Ok(())
 }
+
+/// `_browser_pid`: the browser process behind a native-host connection, the native host's parent (the
+/// browser starts it, and FERB's launcher execs the relay in place). Kernel facts (LOCAL_PEERPID, then
+/// libproc's `pbi_ppid`), never a name or window lookup; `None` when either can't be read or the parent
+/// is launchd or the kernel.
+pub fn native_host_parent(socket: std::os::fd::BorrowedFd<'_>) -> Option<i32> {
+    use std::os::fd::AsRawFd;
+    const SOL_LOCAL: libc::c_int = 0;
+    const LOCAL_PEERPID: libc::c_int = 0x002;
+    let mut host: libc::pid_t = 0;
+    let mut len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
+    // SAFETY: `host` is a writable pid_t of exactly `len` bytes; the descriptor is open while borrowed.
+    let status = unsafe {
+        libc::getsockopt(
+            socket.as_raw_fd(),
+            SOL_LOCAL,
+            LOCAL_PEERPID,
+            (&mut host as *mut libc::pid_t).cast(),
+            &mut len,
+        )
+    };
+    if status != 0 || len as usize != std::mem::size_of::<libc::pid_t>() || host <= 0 {
+        return None;
+    }
+    let parent = parent_pid(host)?;
+    (parent > 1).then_some(parent)
+}
+
+/// A process's parent as the kernel reports it (`proc_pidinfo(PROC_PIDTBSDINFO).pbi_ppid`).
+pub fn parent_pid(pid: i32) -> Option<i32> {
+    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    // SAFETY: the buffer is one proc_bsdinfo of the size passed; the kernel writes at most that many bytes.
+    let n = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size,
+        )
+    };
+    if n != size {
+        return None;
+    }
+    // SAFETY: proc_pidinfo filled the whole struct (n == size), and it was zeroed before.
+    let info = unsafe { info.assume_init() };
+    i32::try_from(info.pbi_ppid).ok()
+}
+
+/// A process's executable path (`proc_pidpath`).
+pub fn pid_path(pid: i32) -> Option<String> {
+    let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    // SAFETY: the buffer is writable for the size passed; proc_pidpath writes a NUL-terminated path.
+    let n = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
+    if n <= 0 {
+        return None;
+    }
+    buf.truncate(n as usize);
+    String::from_utf8(buf).ok()
+}
+
+/// `_app_bundle` (HAND-223, HAND-438): the bundle id of the app whose executable this process runs, from
+/// its path (libproc) and the outermost `.app` / `.app.bundle`'s Info.plist: kernel and file facts, never
+/// a window or a name the process claims. `None` for no pid, no bundle or no readable id.
+pub fn app_bundle(pid: Option<i32>) -> Option<String> {
+    let pid = pid.filter(|p| *p > 1)?;
+    bundle_id_of_executable(&pid_path(pid)?)
+}
+
+/// The `CFBundleIdentifier` of the outermost bundle around `executable` (XML or binary Info.plist).
+pub fn bundle_id_of_executable(executable: &str) -> Option<String> {
+    let bundle = crate::rules::outermost_bundle(executable)?;
+    let info = plist::Value::from_file(Path::new(bundle).join("Contents/Info.plist")).ok()?;
+    let id = info
+        .as_dictionary()?
+        .get("CFBundleIdentifier")?
+        .as_string()?;
+    (!id.is_empty()).then(|| id.to_string())
+}
+
+#[cfg(test)]
+mod peer_tests {
+    use super::*;
+    use std::os::fd::AsFd;
+
+    // decision: HAND-223
+    #[test]
+    fn a_native_hosts_parent_is_read_from_the_socket() {
+        // the peer of one end of a pair is this process; its parent is the one that started the test
+        let (a, _b) = std::os::unix::net::UnixStream::pair().unwrap();
+        let parent = native_host_parent(a.as_fd());
+        // SAFETY: getppid has no preconditions.
+        let expected = unsafe { libc::getppid() };
+        assert_eq!(parent, (expected > 1).then_some(expected));
+        let file = tempfile::tempfile().unwrap();
+        assert_eq!(native_host_parent(file.as_fd()), None); // not a socket: nothing
+    }
+
+    // decision: HAND-438
+    #[test]
+    fn the_outermost_bundles_info_plist_names_the_app() {
+        let dir = tempfile::tempdir().unwrap();
+        let clone = dir
+            .path()
+            .join("code_sign_clone.Ab12/Google Chrome.app.bundle");
+        std::fs::create_dir_all(clone.join("Contents/Frameworks/Helper.app/Contents/MacOS"))
+            .unwrap();
+        let mut d = plist::Dictionary::new();
+        d.insert("CFBundleIdentifier".into(), "com.google.Chrome".into());
+        plist::Value::Dictionary(d)
+            .to_file_binary(clone.join("Contents/Info.plist"))
+            .unwrap();
+        let exe = clone.join("Contents/Frameworks/Helper.app/Contents/MacOS/Helper");
+        assert_eq!(
+            bundle_id_of_executable(exe.to_str().unwrap()).as_deref(),
+            Some("com.google.Chrome")
+        );
+        assert_eq!(bundle_id_of_executable("/usr/bin/true"), None);
+        // this test binary runs from no bundle; launchd and the kernel never count
+        assert_eq!(app_bundle(Some(std::process::id() as i32)), None);
+        assert_eq!(app_bundle(Some(1)), None);
+        assert_eq!(app_bundle(None), None);
+    }
+}

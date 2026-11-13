@@ -69,6 +69,8 @@ protocol BackgroundServiceManaging: AnyObject {
     /// The owner switched FERB's LaunchAgent off (launchd lists com.ferb.daemon as disabled).
     func switchedOff() async -> Bool
     func openLoginItems()
+    /// launchd can't start FERB's job (`LaunchctlPlan.spawnFailure` of `launchctl print`): its words, nil otherwise.
+    func spawnFailure() -> String?
 }
 
 /// SMAppService.agent for Contents/Library/LaunchAgents/com.ferb.daemon.plist (a Developer ID build registers it,
@@ -131,6 +133,8 @@ final class LaunchAgentService: BackgroundServiceManaging {
         guard registration.listed else { return }
         try await service.unregister()
     }
+
+    func spawnFailure() -> String? { Self.launchdJob().flatMap(LaunchctlPlan.spawnFailure) }
 
     /// `launchctl print-disabled gui/<uid>` only reads launchd's state.
     func switchedOff() async -> Bool {

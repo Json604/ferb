@@ -31,7 +31,7 @@ if [[ "${1:-}" == --sign-only ]]; then
   WORK="${APP:h}/.sign-work"
   trap 'rm -rf "$WORK"' EXIT
   ferb_sign_app "$APP" "$WORK"
-  if ferb_developer_id; then ferb_notarize_app "$APP" "$WORK"; fi
+  ferb_notarize_built "$APP" "$WORK"
   print "Signed: $APP (identity: $SIGN_IDENTITY)"
   exit 0
 fi
@@ -233,7 +233,7 @@ ferb_check_arch "$APP" "$ARCH" || die "FERB.app ($ARCH) holds code for another a
 
 print "==> Signing (identity: $SIGN_IDENTITY)"
 ferb_sign_app "$APP" "$WORK/sign"
-if ferb_developer_id; then ferb_notarize_app "$APP" "$WORK"; fi
+ferb_notarize_built "$APP" "$WORK"
 
 print "Built: $APP ($(du -sh "$APP" | cut -f1); FERB $VERSION, build $BUILD, $REVISION)"
 ferb_size_report "$APP"

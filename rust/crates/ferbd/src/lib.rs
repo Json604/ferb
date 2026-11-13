@@ -7,6 +7,7 @@
 //! - [`basics`]: the shared store connection, journal, events and the global stop.
 //! - [`compose`]: [`compose::Daemon::start`] and `shutdown`, the gateway and its tools, the handler areas' seams,
 //!   the runtime factory, the background loops.
+//! - [`log`]: what the daemon writes to its own output (logs/daemon.err.log): its start and stop, refusals, panics.
 //! - [`run`]: the program's modes (`daemon`, `mcp`, the internal commands).
 
 pub mod areas_c;
@@ -16,6 +17,7 @@ pub mod compose;
 pub mod device;
 pub mod home;
 pub mod host;
+pub mod log;
 pub mod mainloop;
 #[cfg(target_os = "macos")]
 pub mod native;

@@ -261,6 +261,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     var onInstallUpdate: (() -> Void)?
     var onOpenSettings: (() -> Void)?            // the FERB window at Settings (L34 Phase E): ⌘, and Settings…
     var service: DaemonServicing = DaemonService()
+    /// launchd's words when it can't start FERB's job (`LaunchctlPlan.spawnFailure`); nil otherwise.
+    var serviceSpawnFailure: @MainActor () -> String? = { LaunchAgentService().spawnFailure() }
     private var statusRefresh: AnyCancellable?
     /// The sticky window (APP-745), created the first time window mode shows the chat; never in notch mode.
     private(set) var chatWindow: ChatWindowController?
@@ -2081,6 +2083,10 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             guard let self else { return }
             if await self.service.restart() {
                 self.model.daemonLink.restarting()
+                // kickstart answers before launchd's attempt: a job launchd can't start is set up again (DMN-587's
+                // registration once more, else the LaunchAgent) instead of "restarting" for good (live 2026-11-14)
+                try? await Task.sleep(for: .seconds(3))
+                if self.serviceSpawnFailure() != nil, let repair = self.onRepair { repair() }
             } else if let repair = self.onRepair {
                 repair()
             } else {

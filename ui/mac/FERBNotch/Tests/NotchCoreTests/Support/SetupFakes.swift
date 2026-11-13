@@ -124,7 +124,11 @@ final class FakeBackgroundService: BackgroundServiceManaging {
         if let registerError { throw registerError }
         status = afterRegister
         registration = afterRegister
+        if failingRegistrations > 0 { failingRegistrations -= 1 } else { spawnFails = nil }
+        onRegister?()
     }
+    /// What a registration changes beyond macOS's lists (a test's daemon starting to answer).
+    var onRegister: (() -> Void)?
 
     func unregister() async throws {
         unregistrations += 1
@@ -135,6 +139,11 @@ final class FakeBackgroundService: BackgroundServiceManaging {
     }
     func switchedOff() async -> Bool { off }
     func openLoginItems() { openedSettings += 1 }
+    /// launchd's words for a job it can't start, while `spawnFails` (a registration it starts again clears it after
+    /// `failingRegistrations` more registrations).
+    var spawnFails: String?
+    var failingRegistrations = 0
+    func spawnFailure() -> String? { spawnFails }
 }
 
 /// One setup window's collaborators, all faked.

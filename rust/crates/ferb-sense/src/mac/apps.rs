@@ -41,6 +41,42 @@ pub const SURFACE_ATTRS: [(&str, &str); 8] = [
 
 static SYSTEM_TIMEOUT: Once = Once::new();
 
+/// How long a reading of Accessibility trust serves before it is read again (the watchers poll every 0.5 s).
+pub const TRUST_FRESH_S: f64 = 2.0;
+static TRUST: std::sync::Mutex<Option<(std::time::Instant, bool)>> = std::sync::Mutex::new(None);
+
+/// Whether FERB is trusted for Accessibility (`AXIsProcessTrusted`, a preflight that never prompts), read at most
+/// every [`TRUST_FRESH_S`]. Fixed against Python: base.py `focused_app` and the window-title watcher called the
+/// Accessibility API from the daemon's first second, before the owner's Allow all; macOS answers an untrusted
+/// process's first such call by adding FERB to Accessibility switched off and showing its own "would like to control
+/// this computer" alert, outside FERB's setup (live 2026-11-13: during the browser pairing). Untrusted, every element
+/// here is None, as an unreadable one already was; the watchers start reading once the owner allows it.
+pub fn trusted() -> bool {
+    trusted_with(&TRUST, std::time::Instant::now(), || {
+        // SAFETY: AXIsProcessTrusted takes no arguments and only asks TCC; it never prompts.
+        unsafe { AXIsProcessTrusted() != 0 }
+    })
+}
+
+/// [`trusted`] over a given cache, clock and reading (tests).
+pub fn trusted_with(
+    cache: &std::sync::Mutex<Option<(std::time::Instant, bool)>>,
+    now: std::time::Instant,
+    read: impl FnOnce() -> bool,
+) -> bool {
+    let mut held = cache
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((at, verdict)) = *held {
+        if now.saturating_duration_since(at).as_secs_f64() < TRUST_FRESH_S {
+            return verdict;
+        }
+    }
+    let verdict = read();
+    *held = Some((now, verdict));
+    verdict
+}
+
 /// An Accessibility element FERB holds (retained), read one attribute at a time.
 pub struct Ax(Owned);
 
@@ -50,8 +86,12 @@ impl Ax {
         Owned::new(p as CFTypeRef).map(Ax)
     }
 
-    /// The system-wide element (with FERB's messaging timeout set on it once).
+    /// The system-wide element (with FERB's messaging timeout set on it once); None while FERB isn't trusted for
+    /// Accessibility ([`trusted`]: no call reaches the API that would make macOS prompt).
     pub fn system() -> Option<Ax> {
+        if !trusted() {
+            return None;
+        }
         // SAFETY: creating the system-wide element has no preconditions; it is owned (Create rule).
         let el = Ax::owned(unsafe { AXUIElementCreateSystemWide() })?;
         SYSTEM_TIMEOUT.call_once(|| {
@@ -61,9 +101,9 @@ impl Ax {
         Some(el)
     }
 
-    /// An app's element, with the messaging timeout set.
+    /// An app's element, with the messaging timeout set; None while FERB isn't trusted for Accessibility.
     pub fn app(pid: i64) -> Option<Ax> {
-        Ax::system();
+        Ax::system()?;
         // SAFETY: any pid is accepted (a stale one gives an element whose reads fail); owned (Create rule).
         let el = Ax::owned(unsafe { AXUIElementCreateApplication(pid as libc::pid_t) })?;
         // SAFETY: a valid element.

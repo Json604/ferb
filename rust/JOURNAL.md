@@ -1425,3 +1425,79 @@ not the fixtures. Caching each file's names would bring it to seconds and stop c
 
 **Open.** Unverified on the real Mac: the persona scan, previews of real windows and tabs, the resolver with a
 paired browser. The owner's setup on the Developer ID build is in progress.
+
+## 2026-11-14 · 56 · The first live run, debugged: the browser connection, the in-app service, Accessibility's alert
+
+**What.**
+- `ferbd` refused every native-host connection: `compose/tools/browser.rs` composed the relay's parent as `|_fd| None`
+  and its app as `|_pid| None`, so `ferb-browser` `bridge.rs:1189-1191` answered every browser "FERB couldn't tell
+  which app started this browser connection". Now `peer_seams()` reads them as Python does (`ext_bridge.py:131-160,
+  249-260`): LOCAL_PEERPID, libproc's parent, the outermost `.app`/`.app.bundle`'s Info.plist (`ferb-browser`
+  `macos.rs` `native_host_parent`, `app_bundle`; `rules.rs` `outermost_bundle`).
+- The pairing's wake page was `""` (`wake_url: String::new`) and both drivers had no `Wake` (HAND-403's start of a
+  profile that isn't running). `WakePage` serves Python's `WakeServer` page; `ProfileWake` runs `open_known_profile`.
+- HAND-406: the hub's `record_refusal` and the socket's `on_native_refused` were never set, so no refusal was
+  journaled. Now through `_Repeats` (`ferb-daemon` `Repeats`, first use in `ferbd`), flushed at shutdown.
+- The daemon's own log (DMN-592, `src/log.rs`): start, socket serving, every call answered (ms since the process
+  started), slow start steps, stop, FERB.app-only verdicts, each bounded journal problem, a redacted panic with a
+  backtrace (also `daemon.unhandled`). Python wrote only redacted tracebacks there (checked: the archived Python
+  `daemon.err.log` is 84 lines of tracebacks, `daemon.out.log` empty).
+- SENSE-409 (fixed against Python): ferb-sense's Accessibility elements exist only while `AXIsProcessTrusted` says
+  FERB is trusted.
+- DMN-591 (FERB.app): launchd's "spawn failed" for FERB's job is read from `launchctl print`; the in-app registration
+  is made again once, then the LaunchAgent; after every restart or start the app makes.
+- `setup.permissions` reads Automation for all apps at once through the shared check (`rpc.py:505-510`).
+- FERB's own browser attaches (`IdentityAttach`: `ferb_browser.*` in the registry; `identity.check` can say paired).
+- REL-424: `FERB_NOTARIZE=0` with `SIGN_IDENTITY=devid` signs for this Mac only; DMGs and appcasts still refuse it.
+
+**Why (the owner's three complaints).**
+- "Didn't start from the startup sound, settings said FERB isn't running": not the Rust start (it answers every call
+  0.4-0.5 s after launchd spawns it, three runs). In the first run FERB.app registered its own service (DMN-587,
+  never run live before) and launchd failed it every 5 s ("The specified path is not a bundle", error 128); the app
+  waited 30 s, fell back to the LaunchAgent (23:35:14) and only then started the tour. Reproduced on 2026-11-14 with the
+  exact cause: the in-app job resolves its program through the Background Task Management record of the user
+  LaunchAgent it replaced (same label); once macOS dropped that record, launchd failed every start ("copy_bundle_path
+  (91943C9A…) record not found", EX_CONFIG), after FERB.app's restart-to-check `kickstart -k` had already reported
+  success, so the tour hung at Input Monitoring.
+- "Pairing opened all browsers but not the pairing page": every connection was refused (above), so the page's token
+  never arrived; the empty wake address opened a window in every profile and nothing could close it. The pairing
+  page opens and closes itself by design (`pair.js`).
+- "Mac control permission midway": macOS's own Accessibility alert (`universalAccessAuthWarn`), raised by the
+  untrusted daemon's first Accessibility call from its watchers (`TCCAccessRequest kTCCServiceAccessibility` from the
+  daemon's pid, then `TCCAccessSetInternal client=com.ferb.daemon`). Python's watchers make the same call
+  (`base.py:focused_app`); its builds kept their grant across releases, so it rarely showed. Not Automation: the
+  daemon's only Apple Events during pairing were `ask=false` checks.
+
+**Evidence.** Tests: `ferbd` `tests/native_host.rs` (a relay whose parent is a compiled program in a fake
+`Google Chrome.app` is taken; one from a fake `com.example.other` and one from no app are refused and journaled; a
+foreign origin is a "host" refusal); `lifecycle` asserts the log lines; wake page, identity attach, Automation
+concurrency, trust cache, bundle lookup units; Swift `ServiceSpawnFailureTests` (6); pytest for REL-424. Workspace:
+format, clippy and tests clean (counts in the coordinator's run).
+
+**Ran on the owner's Mac.** Two Developer ID builds without notarization, installed at `/Applications/FERB.app`;
+`ferb setup --service` once (00:12), FERB.app launched once by me (00:19:21; the owner then went through the tour
+himself and quit it at 00:23:24), `launchctl submit -l com.ferb.daemon` once (00:36); `launchctl bootout` of
+`com.ferb.daemon` three times; `~/.ferb` removed three times. FERB's native-host manifest and launcher written by
+hand (Full Disk Access isn't granted, so FERB's own writer is gated, DMN-507/508) in Brave's and Chrome's
+`NativeMessagingHosts`, removed at the end. One `chrome-extension://jaclnph…/pair.html` (no token) opened in Brave
+Default to wake the extension (it did not load: that copy's folder had moved with the old `~/.ferb`, inferred).
+Brave's FERB extension (`jaclnph…`, unpacked) then connected and was taken: relay parent Brave pid 12972,
+`browsers.list` `unpaired_connections {"brave": 1}`, no refusal (00:17:52 and again on the final build 00:41:11).
+A relay run from a shell was refused and journaled `browser.connection_refused {"reason": "peer"}` (00:16:40).
+`setup.permissions` answered in 0.05-0.09 s with Brave and Chrome running. My `ferb setup --service` at 00:12 left
+the LaunchAgent record that the 00:19 registration bound to: it caused the owner's hang at 00:21:30 (not a stop
+of mine; FERB.app's `launchctl kickstart`, pid 78147). Left: the final build installed, no service, no `~/.ferb`.
+
+**Open.**
+- Pairing end to end is unproven: profile discovery needs Full Disk Access (`browsers.pair` → "no brave profile in
+  folder 'Default'", `setup.browsers` → `waiting: full_disk_access`).
+- SENSE-409 live: the owner granted Accessibility at 00:21, so the after-fix start (00:36) was trusted and can't show
+  the alert's absence; only the cache is tested.
+- DMN-591's repair is tested on fakes only; whether a fresh registration always gets its own record is unproven. The
+  root fix is that `setup --service --app-service` should not leave a LaunchAgent record the registration can bind
+  to; macOS gives no API to see or drop that record.
+- The audit's other ten mismatches (`scratchpad/app-daemon-audit.md` 4-13), and: browser downloads, uploads, tab
+  trail, owner-tab ownership and sound hooks are not composed in `ferbd` (the hub's `on_download`, `on_tab`, `owned`,
+  `paused`, `on_sound`, `on_tab_closed` stay defaults; `Downloads`/`Uploads` are never built).
+- The new files (`ferbd/src/log.rs`, `ferbd/tests/native_host.rs`, `ServiceSpawnFailureTests.swift`) are untracked:
+  kb sees DMN-591's tests once the Swift file is added.

@@ -155,6 +155,20 @@ pub type Closed = Arc<dyn Fn(&str, &str) -> Option<String> + Send + Sync>;
 pub type SessionCheck = Arc<dyn Fn() -> BoxFuture<'static, Result<bool, String>> + Send + Sync>;
 
 /// Everything these handlers read.
+/// The shared Automation reads over this Mac's native check (the status names `Mac::automation` answers).
+pub fn automation_checks(mac: Arc<dyn Mac>) -> ferb_mac_hands::permissions::AutomationChecks {
+    use ferb_mac_hands::permissions::Status;
+    ferb_mac_hands::permissions::AutomationChecks::new(Arc::new(move |bundle: &str, ask: bool| {
+        match mac.automation(bundle, ask).as_str() {
+            "granted" => Status::Granted,
+            "denied" => Status::Denied,
+            "not_determined" => Status::NotDetermined,
+            "target_not_running" => Status::TargetNotRunning,
+            _ => Status::Unknown,
+        }
+    }))
+}
+
 #[derive(Clone)]
 pub struct Deps {
     pub home: PathBuf,
@@ -176,6 +190,9 @@ pub struct Deps {
     /// The browsers' versions for a report (`_report_facts`' extensions).
     pub extensions: Arc<dyn Fn() -> Vec<String> + Send + Sync>,
     pub mac: Arc<dyn Mac>,
+    /// `automation_check` (permissions.py:185-221): one in-flight Automation read per app, shared by every caller,
+    /// over `mac.automation(bundle, false)` ([`automation_checks`]).
+    pub automation_checks: ferb_mac_hands::permissions::AutomationChecks,
     pub facts: Facts,
     pub containment: Containment,
     pub hearing: Hearing,

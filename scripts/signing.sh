@@ -26,6 +26,10 @@
 # are never written to a file or printed:
 #   NOTARY_KEYCHAIN_PROFILE                     a profile saved with `xcrun notarytool store-credentials`, or
 #   NOTARY_KEY, NOTARY_KEY_ID [, NOTARY_ISSUER]  an App Store Connect API key file, its ID (and issuer).
+# FERB_NOTARIZE=0 signs a Developer ID build without notarizing it (no notary credentials needed, nothing sent to Apple):
+# a build for the developer's own Mac, where the team signature alone keeps macOS's permissions from one build to the
+# next. Such an app carries no stapled ticket, so a disk image (build-dmg.sh refuses the switch outright) and an appcast
+# (ferb_check_devid_app) still refuse it.
 #
 # The release certificate, created once by the owner (the private key never enters the repo):
 #   umask 077; D=$(mktemp -d "$HOME/.ferb-release-cert.XXXXXX"); cd "$D"
@@ -207,8 +211,20 @@ ferb_check_release_app() {
   return 1
 }
 
+# ferb_notarizes: this build is notarized (a Developer ID, unless FERB_NOTARIZE=0 asks for a local build)
+ferb_notarizes() { ferb_developer_id && [[ "${FERB_NOTARIZE:-1}" != 0 ]] }
+
+# ferb_notarize_built APP WORKDIR: what a build does after signing: notarize and staple, or say it didn't
+ferb_notarize_built() {
+  if ferb_notarizes; then
+    ferb_notarize_app "$1" "$2"
+  elif ferb_developer_id; then
+    print "Not notarized (FERB_NOTARIZE=0): a Developer ID build for this Mac only; a disk image or appcast refuses it."
+  fi
+}
+
 ferb_check_notary_credentials() {
-  ferb_developer_id || return 0
+  ferb_notarizes || return 0
   [[ -n "${NOTARY_KEYCHAIN_PROFILE:-}" ]] && return 0
   [[ -n "${NOTARY_KEY:-}" && -n "${NOTARY_KEY_ID:-}" ]] && return 0
   print -u2 "A Developer ID build is notarized: set NOTARY_KEYCHAIN_PROFILE (saved with \`xcrun notarytool store-credentials\`), or NOTARY_KEY and NOTARY_KEY_ID (plus NOTARY_ISSUER for a team key)."
