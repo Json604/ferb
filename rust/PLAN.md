@@ -243,9 +243,12 @@ Lines are Python lines at `63369cb3`. "Fixtures" names what exists; a part witho
 
 ## Open with the owner
 
-- **Pushing the branch.** GitHub's push protection refuses `rust/fixtures/sanitize` (invented key-shaped test
-  values). Commits are local until the owner allows them on GitHub or chooses another way. Never re-encode fixtures
-  to pass a scanner.
+- **Pushing the branch.** GitHub's push protection refused `rust/fixtures/sanitize` (invented key-shaped test
+  values; journal 8). On 2026-11-13 the owner switched off "Push protection for yourself" in their GitHub account
+  and said it stays off until the rewrite is done. `rust` is pushed. **Remind the owner to switch it back on when
+  the rewrite is finished.** While it is off nothing on GitHub's side stops a real secret in a push to any of the
+  owner's public repos: the repo's own commit gate (`secrets`) is the only check, so never bypass it. Never
+  re-encode fixtures to pass a scanner.
 - The owner's words from the conversation with the other agent are not in the kb yet (stages 2 and 5 above).
 - T-27's open question (a bridge release before the Developer ID release) is unchanged by the rewrite.
 
