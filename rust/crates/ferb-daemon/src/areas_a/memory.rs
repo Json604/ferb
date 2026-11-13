@@ -4,9 +4,9 @@
 //! FERB saw on this Mac, and the handlers `memory.*`, `timeline.get` and `setup.persona`. Must not let memory
 //! authorize an action or save a secret (MEM-12).
 //!
-//! Not ported here (each named in the journal entry): chat capture (`_remember`, `_until`, `_save_login_name`), the
-//! prompt's memory candidates and chat search (`_learning_candidates`, `_chat_search`, `_memory_item_search`), the
-//! episode cards' capture through the card reader process, the hourly memory pass and its loops (distill, cards,
+//! Chat capture (`_remember`, `_until`, `_save_login_name`) is in [`super::remember`]. Not ported here (each named in
+//! the journal entry): the prompt's memory candidates and chat search (`_learning_candidates`, `_chat_search`,
+//! `_memory_item_search`), the episode cards' capture, the hourly memory pass and its loops (distill, cards,
 //! playbooks, embeddings, the search re-index).
 
 use std::collections::BTreeSet;
@@ -388,6 +388,16 @@ pub fn ask_owner(
     Ok(id)
 }
 
+/// The open question of FERB's own of this kind (`_owner_followups` with a pending approval), whichever task asked
+/// it (areas/browsers.py `_browsing`'s one-question-at-a-time).
+pub fn pending_own(st: &State, kind: &str) -> Option<String> {
+    st.followups
+        .borrow()
+        .iter()
+        .find(|(id, (k, _))| k == kind && st.questions.waiting(id))
+        .map(|(id, _)| id.clone())
+}
+
 /// `_chat_forget`: a forget the owner asked for in chat. Nothing is deleted now: FERB asks a plain Yes/No question
 /// naming exactly what goes and what stays; [`question_answered`] forgets on the Yes.
 pub fn chat_forget(st: &State, item_id: &str, request_id: &str) -> ferb_learning::Result<String> {
@@ -469,8 +479,12 @@ pub fn question_answered(st: &State, ap: &Answered<'_>) -> ferb_learning::Result
         return Ok(super::retention::downloads_answered(st, ap, &ident));
     }
     if what == "browsing" {
-        // APP-777's browsing choice is the browser area's (group B): nothing to do here
-        return Ok(String::new());
+        // APP-777's browsing choice is the browser area's (group B), once it is built
+        let hook = st.browsing_answered.borrow().clone();
+        return Ok(match hook {
+            Some(f) => f(ap.state, ap.choice.unwrap_or(""), &ident),
+            None => String::new(),
+        });
     }
     if !(ap.state == "granted" && ap.choice == Some("Yes")) {
         return Ok("Kept: nothing was forgotten.".into());

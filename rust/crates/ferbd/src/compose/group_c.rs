@@ -262,5 +262,6 @@ pub fn deps(p: Parts<'_>) -> Deps {
                 None => (false, json!({"off": true})),
             })
         },
+        tools: p.tools.clone(),
     }
 }

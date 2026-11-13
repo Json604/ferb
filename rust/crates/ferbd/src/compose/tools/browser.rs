@@ -475,6 +475,11 @@ impl Browsers {
         let _ = self.area.set(cx);
     }
 
+    /// The browser area, once group B has built it.
+    pub fn area(&self) -> Option<ferb_daemon::areas_b::browsers::Cx> {
+        self.area.get().cloned()
+    }
+
     /// `_attach_identity_if_paired` at start: FERB's tools exist only once its own profile is paired as FERB.
     pub fn identity_paired(&self, config: &ferb_core::config::Config) -> bool {
         let Some((b, f)) = identity_profile(config) else {

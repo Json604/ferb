@@ -368,6 +368,8 @@ struct Script {
     note: Value,
     /// The front windows the recorder's daemon captured at send (`captures`), by request.
     captures: Value,
+    /// The memory and browser ports' recorded answers (`port` records), in order.
+    ports: Vec<Value>,
 }
 
 fn catalogs() -> &'static Value {
@@ -467,6 +469,7 @@ fn script_of(sc: &Value, recs: &[Value], catalogs: &Value, workspace: &str) -> S
         spans,
         note,
         captures: sc["captures"].clone(),
+        ports: of("port"),
     }
 }
 
@@ -535,7 +538,7 @@ fn write_script(path: &Path, sc: &Script, used: &Used, run: &RunRoot) {
         "systems": sc.systems[used.systems.min(sc.systems.len())..],
         "contexts": sc.contexts[used.contexts.min(sc.contexts.len())..],
         "availability": sc.availability, "spans": spans, "root": run.root, "root_resolved": run.resolved,
-        "note": sc.note, "questions_from": used.questions, "captures": sc.captures,
+        "note": sc.note, "questions_from": used.questions, "captures": sc.captures, "ports": sc.ports,
         "state_out": path.with_extension("state.json").to_string_lossy(),
     });
     std::fs::write(path, file.to_string()).unwrap();
@@ -778,6 +781,10 @@ fn run_scenario(
                     poll(&run, 30, |r| {
                         r.control(json!({"do": "loop_watching"})) == json!(true)
                     })
+                } else if until == "the conversation waits" {
+                    poll(&run, 30, |r| {
+                        r.control(json!({"do": "conversation_waits"})) == json!(true)
+                    })
                 } else if until == "the plan waits" {
                     poll(&run, 30, |r| {
                         r.control(json!({"do": "plan_waits"})) == json!(true)
@@ -814,6 +821,34 @@ fn run_scenario(
             }
             "mention_paused" => {
                 run.control(json!({"do": "mention_paused"}));
+                settle(&run);
+            }
+            // make_more.py: `Supervisor.preview` on the daemon's loop, its events collected
+            "preview" => {
+                let got = run.control(json!({"do": "preview", "session_id": st["session_id"],
+                                             "text": st["text"]}));
+                let got: Value = serde_json::from_str(&run_root.mask(&got.to_string())).unwrap();
+                report.checked += 1;
+                let want = resolve(&st["events"]);
+                if got != want {
+                    report
+                        .frames
+                        .push(format!("preview\n    python: {want}\n    rust:   {got}"));
+                }
+                settle(&run);
+            }
+            // make_more.py: the attention check (`Supervisor.attention`)
+            "attention" => {
+                let got = run.control(json!({"do": "attention", "source_refs": st["source_refs"],
+                                             "observations": st["observations"],
+                                             "already_told": st["already_told"]}));
+                report.checked += 1;
+                let want = resolve(&st["result"]);
+                if got != want {
+                    report
+                        .frames
+                        .push(format!("attention\n    python: {want}\n    rust:   {got}"));
+                }
                 settle(&run);
             }
             "plan_event" => {
@@ -947,12 +982,20 @@ fn run_scenario(
                 .push(format!("call {} ({}) was not made", i + 1, s(&want["key"])));
             break;
         };
+        // the recorder names a schema only from ferb/context/schemas.py; the attention check's (supervisor.py:5509) is
+        // the catalog's ATTENTION_SCHEMA, which the recorder names by its hash
         let schema_name = schemas
             .iter()
-            .find(|(_, v)| **v == made["schema"])
+            .find(|(k, v)| **v == made["schema"] && k.as_str() != "ATTENTION_SCHEMA")
             .map(|(k, _)| k.clone())
-            .or_else(|| schema_by_sha(&made["schema"]))
-            .unwrap_or_else(|| "(unknown schema)".into());
+            .or_else(|| schema_by_sha(&made["schema"]).filter(|n| n != "ATTENTION_SCHEMA"))
+            .unwrap_or_else(|| {
+                use sha2::Digest;
+                let sha = hex::encode(sha2::Sha256::digest(
+                    ferb_py::json::dumps(&made["schema"]).as_bytes(),
+                ));
+                format!("sha256:{sha}")
+            });
         let started = used.started.iter().find(|c| c["n"] == json!(i));
         let parts: Vec<String> = strs(&want["parts"]).iter().map(|p| unhash(p)).collect();
         let expected = json!({"runtime_role": want["runtime_role"], "mode": want["mode"], "tools": want["tools"],
@@ -1252,18 +1295,16 @@ fn the_more_scenarios_through_the_program() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
-/// Recordings of paths not judged here yet, replayed and printed: delegated conversations (ferb-supervisor's port,
-/// another agent's work as this was written), and a scope the owner stated for a task (`stated_scope`: the named
-/// destinations and standing permissions need a public store on ferb-gateway, which ferbd can't fill: its known
-/// destinations are never written).
-const IN_PROGRESS: [&str; 2] = ["conversation_", "stated_scope"];
+/// Recordings of paths not judged here yet (none: every recording is judged).
+const IN_PROGRESS: [&str; 0] = [];
 
 /// What still differs in the newer recordings through the program, with the reason:
 /// - loop_steer_finish: a steer wakes the loop (`wake_loops`) before the turn has written its reply. Python's one
 ///   event loop runs the woken round only once the turn awaits, so the planner's reply span and `chat.reply` come
 ///   first; the program's runtime has several threads and the round's worker span starts at once, taking two ids
-///   before the reply's. Every frame and model call matches; ferb-supervisor's in-process replay (one thread) matches
-///   whole. To fix in ferb-supervisor: wake the loop after the turn's reply is recorded.
+///   before the reply's (most runs: a loaded machine sometimes orders them as Python does, and it replays whole).
+///   Every frame and model call matches; ferb-supervisor's in-process replay (one thread) matches whole. To fix in
+///   ferb-supervisor: wake the loop after the turn's reply is recorded.
 const MORE_GAPS: [(&str, &str); 1] = [(
     "loop_steer_finish",
     "tables: journal row 21 id at char 9\n    python: …\"id-000046\"\n    rust:   …\"id-000048\"\n  tables: spans row 19 parent_id at char 0\n    python: …null\n    rust:   …\"id-000045\"",

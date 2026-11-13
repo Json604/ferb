@@ -1317,3 +1317,42 @@ plain words.
 - If the store fails while forgetting a conversation's trail copies, Rust journals `conversation.forget_failed`
   where Python would raise.
 - The fixture folder is about 6.3 MB.
+
+## 2026-11-13 · 53 · The daemon program's wiring closed; the whole engine in one checked workspace
+
+**What.**
+- `ferbd`: chat capture (`areas_a::remember`: `_remember`, `_until`, `_save_login_name`); a sleep woken by its
+  timer instead of a one-second poll; the owner's presence and input tap feeding timers, notices and foreground
+  input; episode cards read in-process on a read-only connection (MEM-418 is a path boundary, the reader opens
+  only its own home, not a requirement for a separate process); the weekly Mac-profile refresh;
+  `setup --cleanup`; the front window captured at send over its own window list (a window's missing layer counts
+  as not normal, Python's rule); the disturbance sentinel over a native desktop probe; literal checks; the hearing
+  probe; standing permissions and named destinations written through `ferb-policy`'s stores; the supervisor's new
+  seams; `intro.preview` and `conversations.change resume` no longer refuse.
+- `ferb-rpc`: a handler outcome that closes the connection with no line (Python's behavior when a call is
+  cancelled by stop), and an injectable token source for `RunTokens`.
+- `ferb-supervisor` and `ferbd` are workspace members: nothing is outside the gate any more. The debug profile
+  optimizes `sha2`, because the daemon hashes its own executable at start and unoptimized that took over 30 s and
+  hung a start.
+
+**Evidence.** Through the running binary: all 28 base and 27 newer recorded scenarios (55), confirm_stop_pending
+now with no differing line. Whole workspace, run by the coordinator: format clean, clippy with warnings refused
+clean, **684 tests pass, 14 ignored**, the engine crates build for iOS and Android.
+
+**Ran on the owner's Mac.** `ferbd` on temp homes; two runs of a front-window capture (one redacted picture kept
+in the temp home's evidence store and deleted with it; only key names printed) and a disturbance sample around
+`/usr/bin/true` in the sandbox. One manual start hung (the hash above); the agent killed its own process. Checked
+by the coordinator: no `ferbd` left.
+
+**A mistake in the commits.** `be6e8f3c` (the packaging) swept in a half-finished snapshot of `ferbd` that called
+code not yet committed in `ferb-daemon` and `ferb-rpc`, so that commit alone does not build. This commit makes the
+tree whole. A snapshot of a crate another agent is editing is not to be committed again.
+
+**Open.**
+- Not started: a task's live previews (they need a `try_hold` on the gateway's locks), the memory push
+  (`_learning_candidates`), the persona scan behind the weekly refresh, embedding vectors for the prompt's chat
+  and memory search.
+- loop_steer_finish can differ in id order through the binary: on a multi-threaded runtime a steer can wake the
+  loop before the reply is written. It passed in this run; the fix belongs in the supervisor.
+- `ferb-sense`'s presence has no setter for "present since"; `ferb-mac-hands`' window list still defaults a
+  missing layer to 0; the gateway's `probe` future is not Send and `question_sites` is private.

@@ -79,6 +79,8 @@ pub struct Script {
     pub file: Value,
     pub state: Mutex<ScriptState>,
     supervise: Mutex<VecDeque<Value>>,
+    /// The memory and browser ports' recorded answers, in order.
+    ports: Mutex<VecDeque<Value>>,
     systems: Mutex<VecDeque<Value>>,
     contexts: Mutex<VecDeque<Value>>,
     pub released: AtomicBool,
@@ -124,6 +126,7 @@ impl Script {
             .unwrap_or_default();
         Some(Arc::new(Script {
             supervise: queue("supervise"),
+            ports: queue("ports"),
             systems: queue("systems"),
             contexts: queue("contexts"),
             state: Mutex::new(ScriptState {
@@ -267,7 +270,57 @@ impl ScriptReads {
     }
 }
 
+impl ScriptReads {
+    /// The next recorded answer of this port (a port the recording didn't call is a problem).
+    fn port(&self, name: &str, got: Value) -> Value {
+        let rec = {
+            let mut q = lock(&self.0.ports);
+            let at = q.iter().position(|r| r["port"] == name);
+            at.and_then(|i| q.remove(i))
+        };
+        let Some(rec) = rec else {
+            self.0
+                .problem(format!("port {name}: not called in the recording"));
+            return Value::Null;
+        };
+        let want = json!({"args": rec["args"], "kwargs": rec["kwargs"]});
+        if want != got {
+            self.0.problem(format!(
+                "port {name} arguments\n    python: {want}\n    rust:   {got}"
+            ));
+        }
+        rec["answer"].clone()
+    }
+}
+
 impl Reads for ScriptReads {
+    fn memory_blocks<'a>(
+        &'a self,
+        message: &'a str,
+        focus: &'a str,
+    ) -> BoxFuture<'a, Option<Vec<ferb_supervisor::history::Sourced>>> {
+        // the memory port's candidates, as recorded: ranked blocks of recorded candidates aren't rebuilt here
+        let answer = self.port(
+            "memory_candidates",
+            json!({"args": [message, focus], "kwargs": {}}),
+        );
+        if answer.as_array().is_some_and(|a| !a.is_empty()) {
+            self.0
+                .problem("port memory_candidates: recorded candidates aren't replayed".into());
+        }
+        Box::pin(async { Some(Vec::new()) })
+    }
+    fn browsing(&self, attended: bool, request_id: &str) -> Option<Map<String, Value>> {
+        Some(
+            self.port(
+                "browsing",
+                json!({"args": [attended, request_id], "kwargs": {}}),
+            )
+            .as_object()
+            .cloned()
+            .unwrap_or_default(),
+        )
+    }
     fn captures_at_send(&self) -> Option<bool> {
         Some(
             self.0.file["captures"]

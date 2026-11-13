@@ -185,6 +185,44 @@ impl Owner for OwnerSide {
     }
 }
 
+/// FERB's own questions outside a task (group A's `_ask_owner`), as the browser area asks its one question (APP-777).
+pub struct GroupAQuestions(pub ferb_daemon::shared::Local<ferb_daemon::areas_a::State>);
+
+impl ferb_daemon::areas_b::browsers::OwnerQuestions for GroupAQuestions {
+    fn pending(&self, kind: &str) -> Option<String> {
+        let kind = kind.to_string();
+        self.0
+            .call_blocking(move |st| async move {
+                ferb_daemon::areas_a::memory::pending_own(&st, &kind)
+            })
+            .ok()
+            .flatten()
+    }
+    fn ask(&self, kind: &str, ident: &str, reason: &str, key: &str, options: &[String]) -> String {
+        let (kind, ident, reason, key, options) = (
+            kind.to_string(),
+            ident.to_string(),
+            reason.to_string(),
+            key.to_string(),
+            options.to_vec(),
+        );
+        self.0
+            .call_blocking(move |st| async move {
+                ferb_daemon::areas_a::memory::ask_owner(
+                    &st,
+                    &kind,
+                    &ident,
+                    &reason,
+                    &key,
+                    None,
+                    Some(&options),
+                )
+                .unwrap_or_default()
+            })
+            .unwrap_or_default()
+    }
+}
+
 /// The owner's saved logins (`OwnerSecrets(home).clear_usernames`).
 pub struct SavedLogins(pub Arc<OwnerSecrets>);
 
@@ -692,8 +730,47 @@ pub fn group_b(
     }));
 
     // intro: the suggestion needs the Mac profile scan (MEM-13, not started in this build: its state stays
-    // `not_started`, so the model call is never reached) and the preview needs `Supervisor::preview` (not ported)
+    // `not_started`, so the model call is never reached); the preview is the supervisor's `preview_events`
     let shutting = Arc::new(|| false);
+    let tools = s.tools.clone();
+    let preview: intro::PreviewStart = Arc::new(move |session: &str, text: &str| {
+        let (tx, rx) = tokio::sync::mpsc::channel(16);
+        let sup = tools.supervisor().cloned();
+        let (session, text) = (session.to_string(), text.to_string());
+        tokio::spawn(async move {
+            let Some(sup) = sup else {
+                let _ = tx
+                    .send(Err(intro::PreviewEnd::Ferb("daemon not started".into())))
+                    .await;
+                return;
+            };
+            match sup.preview_events(&session, &text).await {
+                Ok(events) => {
+                    for e in events {
+                        let ev = match e {
+                            Value::Object(m) => m,
+                            _ => continue,
+                        };
+                        if tx.send(Ok(ev)).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+                // intro.py: a FERB error ends the stream with its words; anything else as `couldnt(...)`
+                Err(ferb_supervisor::flow::Failure::Raised { class, message })
+                    if class == "FerbError" || class == "Refused" =>
+                {
+                    let _ = tx.send(Err(intro::PreviewEnd::Ferb(message))).await;
+                }
+                Err(ferb_supervisor::flow::Failure::Cancelled) => {}
+                Err(f) => {
+                    let line = format!("I couldn't show that plan: {}", f.message());
+                    let _ = tx.send(Err(intro::PreviewEnd::Other(line))).await;
+                }
+            }
+        });
+        rx
+    });
     d.intro = Some(Arc::new(intro::Deps {
         scan: Arc::new(|| json!({"state": "not_started"})),
         ask: Arc::new(|_system, _ctx| {
@@ -712,7 +789,7 @@ pub fn group_b(
         },
         limit: Duration::from_secs(55),
         shutting_down: shutting,
-        preview: None,
+        preview: Some(preview),
     }));
 
     // runtimes

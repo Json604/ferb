@@ -295,13 +295,29 @@ impl GrantSpec {
 pub struct RunTokens {
     clock: Arc<dyn Clock>,
     grants: Mutex<HashMap<String, Arc<RunGrant>>>, // sha256(token) in hex -> grant
+    source: Option<Arc<TokenSource>>,
 }
+
+/// Where a new token's text comes from instead of the system's random bytes (`secrets.token_urlsafe(32)`): a test's
+/// recorded tokens. A daemon never sets one.
+pub type TokenSource = dyn Fn() -> String + Send + Sync;
 
 impl RunTokens {
     pub fn new(clock: Arc<dyn Clock>) -> Self {
         RunTokens {
             clock,
             grants: Mutex::new(HashMap::new()),
+            source: None,
+        }
+    }
+
+    /// As [`RunTokens::new`], with each token's text from `source` (Python's `secrets.token_urlsafe` patched in a
+    /// recorder): the tests that replay recorded token values.
+    pub fn with_source(clock: Arc<dyn Clock>, source: Arc<TokenSource>) -> Self {
+        RunTokens {
+            clock,
+            grants: Mutex::new(HashMap::new()),
+            source: Some(source),
         }
     }
 
@@ -318,10 +334,16 @@ impl RunTokens {
     /// A new token for `worker_id` of `task_id`: 32 random bytes as URL-safe base64 without padding, like
     /// `secrets.token_urlsafe(32)` (auth.py:106-112).
     pub fn issue(&self, task_id: &str, worker_id: &str, spec: GrantSpec) -> String {
-        let mut random = [0u8; 32];
-        // No token is better than a guessable one: without the system's random source the daemon must not go on.
-        getrandom::fill(&mut random).expect("the system's random source is unavailable");
-        let token = base64_url(&random);
+        let token = match &self.source {
+            Some(source) => source(),
+            None => {
+                let mut random = [0u8; 32];
+                // No token is better than a guessable one: without the system's random source the daemon must not
+                // go on.
+                getrandom::fill(&mut random).expect("the system's random source is unavailable");
+                base64_url(&random)
+            }
+        };
         let grant = RunGrant {
             task_id: task_id.to_owned(),
             worker_id: worker_id.to_owned(),

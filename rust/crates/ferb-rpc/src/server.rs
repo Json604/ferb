@@ -89,6 +89,10 @@ pub enum Failure {
     Refusal,
     /// Anything else: the caller learns only its type; the daemon records the rest (`on_internal`).
     Fault,
+    /// The call was cancelled (Python's `asyncio.CancelledError`, a `BaseException` no handler catches): nothing is
+    /// answered and nothing recorded; the connection ends, as Python's `_dispatch` lets it out of `_connection`
+    /// (server.py:325-332, 425).
+    Cancelled,
 }
 
 /// A handler's error. A unary call answers a refusal with `FAILED` and its message, a fault with `INTERNAL` and
@@ -117,6 +121,16 @@ impl HandlerError {
             failure: Failure::Fault,
             type_name: type_name.to_owned(),
             message: message.into(),
+        }
+    }
+
+    /// A call cancelled under its handler (a global stop ending a tool call that waited): the connection closes
+    /// without a reply ([`Failure::Cancelled`]).
+    pub fn cancelled() -> Self {
+        HandlerError {
+            failure: Failure::Cancelled,
+            type_name: "CancelledError".to_owned(),
+            message: String::new(),
         }
     }
 }
@@ -832,6 +846,8 @@ async fn dispatch(
         };
         let answered = match outcome {
             None => Flow::End,
+            // CancelledError leaves `_dispatch`: no line, the connection ends
+            Some(Err(error)) if error.failure == Failure::Cancelled => Flow::End,
             Some(Ok(result)) => flow(writer.send(&wire::result_line(&req.id, &result)).await),
             Some(Err(error)) if error.failure == Failure::Refusal => flow(
                 writer
@@ -1069,6 +1085,7 @@ async fn stream_call(
                     return Flow::Serve;
                 }
             }
+            Some(Err(error)) if error.failure == Failure::Cancelled => return Flow::End,
             Some(Err(error)) => return flow(writer.send(&failed(&error)).await),
             None => return flow(writer.send(&wire::ended_line(&req.id)).await),
         }

@@ -7,11 +7,13 @@
 //! [`Deps`], and each handler runs there (Python's one event loop). What belongs to other parts comes in through the
 //! seams in [`seams`].
 
+pub mod cards;
 pub mod chat_history;
 pub mod memory;
 pub mod memory_import;
 pub mod persona;
 pub mod records;
+pub mod remember;
 pub mod retention;
 pub mod schedules;
 pub mod seams;
@@ -133,7 +135,30 @@ pub struct State {
     pub(crate) timer_wake: Rc<tokio::sync::Notify>,
     pub(crate) runs: RefCell<Vec<tokio::task::JoinHandle<()>>>,
     pub(crate) sleepers: RefCell<std::collections::HashMap<String, Rc<tokio::sync::Notify>>>,
+    /// The Mac's presence (ORCH-317) the timers hold reminders for (`timers.owner_away`, `timers.present_since`):
+    /// set once the daemon has the platform's watcher ([`State::set_presence`]); none: always present.
+    presence: RefCell<Option<Arc<dyn ferb_clock::timers::Presence + Send + Sync>>>,
+    /// Episode cards are captured one at a time (`_card_lock`).
+    pub(crate) card_lock: Rc<tokio::sync::Mutex<()>>,
+    /// `_browsing_answered(ap, ident)` (APP-777, the browser area's): the owner's answer to FERB's browsing question,
+    /// (state, choice, ident) to the owner's line; set once the browser area is built.
+    pub browsing_answered: RefCell<Option<BrowsingAnswered>>,
     me: RefCell<Weak<State>>,
+}
+
+/// The browser area's answer to its question: (state, choice, ident) to the owner's line.
+pub type BrowsingAnswered = Arc<dyn Fn(&str, &str, &str) -> String + Send + Sync>;
+
+/// A shared presence as the timer store takes it.
+struct SharedPresence(Arc<dyn ferb_clock::timers::Presence + Send + Sync>);
+
+impl ferb_clock::timers::Presence for SharedPresence {
+    fn owner_away(&self) -> bool {
+        self.0.owner_away()
+    }
+    fn present_since(&self) -> Option<Time> {
+        self.0.present_since()
+    }
 }
 
 // ---------- adapters between the engines' clocks, ids and zones ----------
@@ -317,6 +342,9 @@ impl State {
             timer_wake: Rc::new(tokio::sync::Notify::new()),
             runs: RefCell::default(),
             sleepers: RefCell::default(),
+            presence: RefCell::new(None),
+            card_lock: Rc::new(tokio::sync::Mutex::new(())),
+            browsing_answered: RefCell::new(None),
             me: RefCell::new(Weak::new()),
         });
         *state.me.borrow_mut() = Rc::downgrade(&state);
@@ -365,12 +393,21 @@ impl State {
         self.config.get(section, key).ok().flatten()
     }
 
+    /// `_build_timers` (ORCH-317): the timers hold what is held for the owner while the Mac is out of use, by the
+    /// platform's presence watcher.
+    pub fn set_presence(&self, presence: Arc<dyn ferb_clock::timers::Presence + Send + Sync>) {
+        *self.presence.borrow_mut() = Some(presence);
+    }
+
     /// The timer store on the store's connection (`self.timers`), telling `timer.changed` (DMN-548).
     pub fn timers(&self) -> ferb_clock::timers::Timers<'_> {
         let ids = self.ids.clone();
         let mut t = ferb_clock::timers::Timers::new(self.db(), &*self.clock, move || ids.new_id());
         if let Some(tokens) = self.timer_tokens.clone() {
             t = t.tokens(move || tokens());
+        }
+        if let Some(p) = self.presence.borrow().clone() {
+            t.set_presence(SharedPresence(p));
         }
         let me = self.me.borrow().clone();
         t.on_change = Some(Box::new(move |timer, state| {
@@ -391,7 +428,11 @@ impl State {
     /// The timer store without the change and error reports (for reads, and inside those reports).
     pub fn timers_plain(&self) -> ferb_clock::timers::Timers<'_> {
         let ids = self.ids.clone();
-        ferb_clock::timers::Timers::new(self.db(), &*self.clock, move || ids.new_id())
+        let mut t = ferb_clock::timers::Timers::new(self.db(), &*self.clock, move || ids.new_id());
+        if let Some(p) = self.presence.borrow().clone() {
+            t.set_presence(SharedPresence(p));
+        }
+        t
     }
 
     /// The schedule store (`self.schedules`).

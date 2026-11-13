@@ -595,3 +595,55 @@ async fn a_refused_native_host_hello_is_told_with_its_reason_and_origin() {
     );
     server.close().await;
 }
+
+// server.py:325-332: a CancelledError leaves `_dispatch`, so the call gets no line and its connection ends; nothing
+// is told to the daemon. Python's recorded scenario confirm_stop_pending (a tool call the global stop cancels).
+#[tokio::test]
+async fn a_cancelled_call_closes_its_connection_without_a_reply() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, _) = new_server(dir.path());
+    let told: Arc<Mutex<Vec<String>>> = Arc::default();
+    {
+        let told = told.clone();
+        server.on_internal(move |method, _| told.lock().unwrap().push(method.to_owned()));
+    }
+    server.register_unary("tools.call", |_: Session, _: Params| async move {
+        Err(HandlerError::cancelled())
+    });
+    server.register_unary("ps.list", |_: Session, _: Params| async move {
+        Err(HandlerError::cancelled())
+    });
+    server.start().await.unwrap();
+    let mut caller = shim(&server).await;
+    caller.request("tools.call", json!({"call_id": "c1"})).await;
+    assert!(caller.at_end().await, "no line, and the connection ends");
+    let mut cli = Raw::cli(server.path()).await;
+    cli.request("ps.list", json!({})).await;
+    assert!(cli.at_end().await);
+    assert!(told.lock().unwrap().is_empty(), "a cancel is not a fault");
+    // a stream cancelled under its handler ends the same way
+    server.register_stream("ps.attach", |_: Session, _: Params| {
+        common::events(vec![Err(HandlerError::cancelled())])
+    });
+    let mut cli = Raw::cli(server.path()).await;
+    cli.request("ps.attach", json!({})).await;
+    assert!(cli.at_end().await);
+    server.close().await;
+}
+
+// A recorder's tokens: `RunTokens::with_source` gives each token's text from the source; validate and revoke as ever.
+#[tokio::test]
+async fn run_tokens_take_their_text_from_an_injected_source() {
+    let counter = Arc::new(AtomicUsize::new(0));
+    let source = {
+        let counter = counter.clone();
+        Arc::new(move || format!("tok-{}", counter.fetch_add(1, Ordering::SeqCst)))
+    };
+    let tokens = ferb_rpc::RunTokens::with_source(common::FakeClock::new(), source);
+    let a = tokens.issue("task-1", "w-1", GrantSpec::new(Identity::Owner, 60.0));
+    let b = tokens.issue("task-1", "w-2", GrantSpec::new(Identity::Owner, 60.0));
+    assert_eq!((a.as_str(), b.as_str()), ("tok-0", "tok-1"));
+    assert_eq!(tokens.validate("tok-1").unwrap().worker_id, "w-2");
+    assert_eq!(tokens.revoke_worker("w-1"), 1);
+    assert!(tokens.validate("tok-0").is_err());
+}

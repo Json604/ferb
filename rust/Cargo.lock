@@ -854,6 +854,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferb-supervisor"
+version = "0.28.0"
+dependencies = [
+ "chrono",
+ "ferb-clock",
+ "ferb-context",
+ "ferb-core",
+ "ferb-daemon",
+ "ferb-fs",
+ "ferb-gateway",
+ "ferb-identity",
+ "ferb-learning",
+ "ferb-memory",
+ "ferb-orchestrator",
+ "ferb-policy",
+ "ferb-py",
+ "ferb-rpc",
+ "ferb-sanitize",
+ "ferb-store",
+ "ferb-supervisor",
+ "ferb-trace",
+ "ferb-worker",
+ "futures-util",
+ "hex",
+ "regex",
+ "rusqlite",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "ferb-trace"
 version = "0.28.0"
 dependencies = [
@@ -879,6 +912,56 @@ dependencies = [
  "indexmap",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "ferbd"
+version = "0.28.0"
+dependencies = [
+ "base64 0.22.1",
+ "block2",
+ "chrono",
+ "ferb-browser",
+ "ferb-clock",
+ "ferb-context",
+ "ferb-core",
+ "ferb-daemon",
+ "ferb-device",
+ "ferb-fs",
+ "ferb-gateway",
+ "ferb-identity",
+ "ferb-learning",
+ "ferb-mac-hands",
+ "ferb-memory",
+ "ferb-orchestrator",
+ "ferb-platform-macos",
+ "ferb-policy",
+ "ferb-py",
+ "ferb-rpc",
+ "ferb-runtimes",
+ "ferb-sanitize",
+ "ferb-sense",
+ "ferb-shell",
+ "ferb-store",
+ "ferb-supervisor",
+ "ferb-trace",
+ "ferb-worker",
+ "ferbd",
+ "futures-util",
+ "hex",
+ "libc",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-foundation",
+ "objc2-image-io",
+ "rusqlite",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]

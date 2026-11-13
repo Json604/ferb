@@ -84,8 +84,3 @@ hex = "0.4"
 # The test build's binary honors FERBD_STAND_INS (cargo unifies a dev-dependency's features into what the tests
 # build); `cargo build` and a release build never enable it.
 ferbd = { path = ".", features = ["stand-ins"] }
-
-# A debug build's start hashes its own executable (areas_c `code_hash`, about 160 MB unoptimized): the hash compiled
-# without optimization took over the tests' 30 s start limit.
-[profile.dev.package.sha2]
-opt-level = 3

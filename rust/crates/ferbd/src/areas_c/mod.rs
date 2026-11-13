@@ -193,6 +193,8 @@ pub struct Deps {
     pub relay_default: String,
     /// The snapshot facts for `doctor.check`: (snapshots on, the last failure).
     pub snapshots: Arc<dyn Fn() -> (bool, Value) + Send + Sync>,
+    /// The tools' parts (the supervisor, once built: a delegated conversation's changes).
+    pub tools: crate::compose::tools::Parts,
 }
 
 /// Registers every method of this group.

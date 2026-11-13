@@ -126,4 +126,19 @@ pub enum LoginError {
 pub trait Logins: Send + Sync {
     /// `clear_usernames(sources)`: the places whose username came from one of these memory refs.
     fn clear_usernames(&self, sources: &BTreeSet<String>) -> Result<Vec<String>, LoginError>;
+    /// `_save_login_name`'s write (memory.py:1010): with `save`, `set_username(place, name, source)`; then
+    /// `replace_usernames(older, name, source)`: the places whose username came from an older version of the fact,
+    /// sorted. A store without login records (the default) refuses, said in the owner's line and journaled.
+    fn save_username(
+        &self,
+        _place: &str,
+        _name: &str,
+        _source: &str,
+        _save: bool,
+        _older: &BTreeSet<String>,
+    ) -> Result<Vec<String>, LoginError> {
+        Err(LoginError::Refused(
+            "login records aren't kept in this build".to_owned(),
+        ))
+    }
 }

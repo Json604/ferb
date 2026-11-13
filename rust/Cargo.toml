@@ -28,10 +28,10 @@ members = [
     "crates/ferb-worker",
     "crates/ferb-gateway",
     "crates/ferb-daemon",
+    "crates/ferb-supervisor",
+    "crates/ferbd",
 ]
 exclude = [
-    "crates/ferbd",
-    "crates/ferb-supervisor",
 ]
 
 [workspace.package]
@@ -42,7 +42,6 @@ rust-version = "1.100"
 publish = false
 
 [workspace.dependencies]
-anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 # float_roundtrip: a float read from JSON is the one Python reads (recorded costs, timings); without it the last
@@ -73,3 +72,8 @@ unsafe_op_in_unsafe_fn = "deny"
 lto = "thin"
 codegen-units = 4
 strip = "symbols"
+
+# A debug build's start hashes its own executable (areas_c `code_hash`, about 160 MB unoptimized): the hash compiled
+# without optimization took over the tests' 30 s start limit.
+[profile.dev.package.sha2]
+opt-level = 3

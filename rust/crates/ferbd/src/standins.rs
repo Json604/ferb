@@ -560,6 +560,55 @@ async fn control(d: &Arc<Daemon>, s: &StandIns, req: &Value) -> Result<Value, St
                                       .unwrap_or("").to_string()).collect::<Vec<_>>()}),
             })
         }
+        // make_more.py: `Supervisor.preview(session, text)`, its events collected (or the class it raised)
+        "preview" => {
+            let (session, text) = (
+                req["session_id"].as_str().unwrap_or_default().to_string(),
+                req["text"].as_str().unwrap_or_default().to_string(),
+            );
+            Ok(
+                match d
+                    .supervisor
+                    .supervisor
+                    .preview_events(&session, &text)
+                    .await
+                {
+                    Ok(events) => Value::Array(events),
+                    Err(e) => json!({"raised": e.class()}),
+                },
+            )
+        }
+        // make_more.py: the attention check (`Supervisor.attention`)
+        "attention" => {
+            let refs: Vec<String> = req["source_refs"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let obs = req["observations"].as_array().cloned().unwrap_or_default();
+            let told = req["already_told"].as_array().cloned().unwrap_or_default();
+            Ok(
+                match d.supervisor.supervisor.attention(&refs, &obs, &told).await {
+                    Ok(v) => v,
+                    Err(e) => json!({"raised": e.class()}),
+                },
+            )
+        }
+        // make_more.py `conv_status`: a delegated conversation waits for a reply
+        "conversation_waits" => {
+            let db = crate::basics::lock(&d.db);
+            Ok(json!(db
+                .conn()
+                .query_row(
+                    "SELECT 1 FROM delegated_conversations WHERE status='waiting'",
+                    [],
+                    |_| Ok(())
+                )
+                .is_ok()))
+        }
         // the desktop observer's start and end of a task tree (the supervisor's on_task_start / on_task_finish)
         "sentinel_start" => {
             let tree = req["tree"].as_str().unwrap_or("task-1").to_string();

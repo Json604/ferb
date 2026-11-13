@@ -11,12 +11,11 @@
 //! Also here: chat capture (`remember`, group A), the task questions in the gateway's one store
 //! (`GatewayTaskQuestions`), the front window at send (L12, [`super::front`]), the desktop observer
 //! ([`super::desktop`]), episode cards (`on_episode`), the literal checks ([`super::checks`]), the browser drivers'
-//! tabs, a loop's rest, notices and probes.
+//! tabs, a loop's rest, notices and probes, the standing permissions and named destinations (ferb-policy's stores on
+//! the daemon's store), the browsing choice (APP-777), what the owner typed behind memory, FERB's own observing calls.
 //!
-//! Not wired, each named where it sits: the standing permissions and the named destinations (no public store on the
-//! gateway), memory's push and Tier 1 (`identity_context`, `memory_push`: empty), the intro's preview (not ported in
-//! ferb-supervisor: [`PREVIEW_NOT_PORTED`]). The supervisor never asks for the front window yet (its chat RPC sends
-//! `screen: false`, and its planner answers NotPorted for a turn that has one).
+//! Not wired: the memory port's candidates (`_learning_candidates`: the attention check's and a worker's memory
+//! answer none) and Tier 1's identity context.
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -45,10 +44,6 @@ use serde_json::{json, Map, Value};
 
 use crate::basics::{lock, Events, Journal, SharedDb, Stop};
 
-/// What `intro.preview` answers: ferb-supervisor's `Supervisor::preview` (ORCH-500) is not ported.
-pub const PREVIEW_NOT_PORTED: &str =
-    "not available in this build: the intro's plan-only preview (supervisor.py `preview`) isn't ported yet";
-
 // ---------------------------------------------------------------------------------------------------------------
 // what a real daemon computes; a test build answers from recordings
 // ---------------------------------------------------------------------------------------------------------------
@@ -76,6 +71,19 @@ pub trait Reads: Send + Sync {
     fn shutdown(&self) {}
     /// `_worker_types()`: the default and each runtime available now.
     fn worker_types(&self) -> Vec<String>;
+    /// supervisor.py:3808 `_memory_blocks` (the attention check's memory): the memory port's candidates, ranked.
+    /// `_learning_candidates` is not ported here: the port answers none (as Python's does when nothing matches).
+    fn memory_blocks<'a>(
+        &'a self,
+        _message: &'a str,
+        _focus: &'a str,
+    ) -> BoxFuture<'a, Option<Vec<ferb_supervisor::history::Sourced>>> {
+        Box::pin(async { Some(Vec::new()) })
+    }
+    /// areas/browsers.py `_browsing(attended, request_id)`; None: this daemon's own answer.
+    fn browsing(&self, _attended: bool, _request_id: &str) -> Option<Map<String, Value>> {
+        None
+    }
     /// areas/chat.py:355 `self.front_window is not None`: messages are captured at send. None: as this daemon's parts
     /// say (the Mac's parts on).
     fn captures_at_send(&self) -> Option<bool> {
@@ -279,6 +287,8 @@ pub struct SupDaemon {
     pub ledger: Arc<super::gateway::RealLedger>,
     /// The environment area's seams: the browser drivers' tabs a checker, a loop round and a task's end read.
     pub env: Arc<super::env_seams::EnvSeams>,
+    /// FERB's protection lists (`roots.protection`): what a plan's inventory walk may read.
+    pub protection: Arc<ferb_gateway::gateway::SyncProtection>,
     pub reads: Arc<dyn Reads>,
     pub home: String,
     pub user_home: String,
@@ -320,6 +330,7 @@ pub struct SupParts {
     pub stop: Arc<Stop>,
     pub ledger: Arc<super::gateway::RealLedger>,
     pub env: Arc<super::env_seams::EnvSeams>,
+    pub protection: Arc<ferb_gateway::gateway::SyncProtection>,
     pub reads: Arc<dyn Reads>,
     pub home: String,
     pub user_home: String,
@@ -345,6 +356,7 @@ impl SupDaemon {
             stop: p.stop,
             ledger: p.ledger,
             env: p.env,
+            protection: p.protection,
             reads: p.reads,
             home: p.home,
             user_home: p.user_home,
@@ -668,14 +680,46 @@ impl Daemon for SupDaemon {
         self.gateway
             .set_task_folders(tree_id, folders.map(<[String]>::to_vec).unwrap_or_default())
     }
-    fn record_named(&self, _words: &str, _request_id: &str) {
-        // SQ6's named destinations: ferb-gateway keeps its destination store private (seam gap, reported)
+    /// `gateway.destinations`: every destination in the owner's words, recorded as named (SQ6).
+    fn record_named(&self, words: &str, request_id: &str) {
+        let db = lock(&self.db);
+        let known = ferb_policy::stores::KnownDestinations {
+            db: &db,
+            clock: self.clock.as_ref(),
+            ids: self.ids.as_ref(),
+            redact: self.redactor.as_ref(),
+        };
+        for (kind, value) in ferb_policy::destinations::from_words(words) {
+            let _ = known.record(&kind, &value, "named", Some(request_id), None);
+        }
     }
-    fn standing_revoke(&self, _tree_id: &str) {
-        // standing permissions: ferb-gateway keeps its standing store private (seam gap, reported)
+    /// `standing.revoke(tree_id)`: a tree's standing permissions end with it.
+    fn standing_revoke(&self, tree_id: &str) {
+        let db = lock(&self.db);
+        let _ = ferb_policy::stores::StandingPermissions { db: &db }.revoke(tree_id);
     }
-    fn standing_scopes(&self, _tree_id: &str) -> Vec<Value> {
-        Vec::new()
+    /// `standing.scopes(tree_id)`: the scopes the owner granted this tree, as stored.
+    fn standing_scopes(&self, tree_id: &str) -> Vec<Value> {
+        let db = lock(&self.db);
+        ferb_policy::stores::StandingPermissions { db: &db }
+            .scopes(tree_id)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|s| serde_json::from_str(&s.dump_json()).ok())
+            .collect()
+    }
+    /// `standing.grant(tree_id, scopes, approval_id)`.
+    fn standing_grant(&self, tree_id: &str, scopes: &[Value], approval_id: &str) {
+        let scopes: Vec<ferb_policy::standing::SendScope> = scopes
+            .iter()
+            .filter_map(|s| serde_json::from_value(s.clone()).ok())
+            .collect();
+        let db = lock(&self.db);
+        let _ = ferb_policy::stores::StandingPermissions { db: &db }.grant(
+            tree_id,
+            &scopes,
+            approval_id,
+        );
     }
     fn record_request(&self, request: &Request) {
         let set = |v: &Vec<String>| v.iter().cloned().collect::<BTreeSet<String>>();
@@ -1075,6 +1119,87 @@ impl Daemon for SupDaemon {
         let tmp = p.with_extension("tmp-notes");
         std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
         std::fs::rename(&tmp, p).map_err(|e| e.to_string())
+    }
+    fn memory_blocks<'a>(
+        &'a self,
+        message: &'a str,
+        focus: &'a str,
+    ) -> BoxFuture<'a, Option<Vec<ferb_supervisor::history::Sourced>>> {
+        self.reads.memory_blocks(message, focus)
+    }
+    /// `roots.protection.fs_denied(path, 'read')`.
+    fn read_denied(&self, path: &str) -> bool {
+        self.protection.0.fs_denied(path, "read").is_some()
+    }
+    /// areas/browsers.py `_browsing` (APP-777): the browser area's answer, its question asked as FERB's own.
+    fn browsing(&self, attended: bool, request_id: &str) -> Map<String, Value> {
+        if let Some(recorded) = self.reads.browsing(attended, request_id) {
+            return recorded;
+        }
+        let (Some(cx), Some(a)) = (
+            self.tools.browsers().and_then(|b| b.area()),
+            self.a.get().cloned(),
+        ) else {
+            return Map::new();
+        };
+        let questions = super::areas::GroupAQuestions(a);
+        match ferb_daemon::areas_b::browsers::browsing(&cx, &questions, attended) {
+            Ok(Value::Object(m)) => m,
+            _ => Map::new(),
+        }
+    }
+    /// areas/schedules.py `_typed_behind_memory`: what the owner typed behind each active owner-stated memory item.
+    fn typed_behind_memory(&self, request_id: &str) -> Vec<String> {
+        let Some(a) = self.a.get() else {
+            return Vec::new();
+        };
+        let rid = request_id.to_string();
+        a.call_blocking(move |st| async move {
+            ferb_daemon::areas_a::remember::typed_behind_memory(&st, &rid)
+        })
+        .unwrap_or_default()
+    }
+    /// `gateway.call(RunGrant(task_id, worker_id, scopes, identity, inf, observe_only=True), tool, args)`: a call FERB
+    /// itself makes for a task (`conversation.read`), through the gateway's whole pipeline.
+    fn observe_call<'a>(
+        &'a self,
+        task_id: &'a str,
+        worker_id: &'a str,
+        scopes: &'a BTreeSet<String>,
+        identity: &'a str,
+        tool: &'a str,
+        args: &'a Map<String, Value>,
+    ) -> BoxFuture<'a, Result<Value, String>> {
+        let grant = RunGrant {
+            task_id: task_id.to_string(),
+            worker_id: worker_id.to_string(),
+            scopes: scopes.clone(),
+            identity: if identity == "ferb" {
+                ferb_rpc::auth::Identity::Ferb
+            } else {
+                ferb_rpc::auth::Identity::Owner
+            },
+            expires_at: f64::INFINITY,
+            observe_only: true,
+            tools: BTreeSet::new(),
+            max_calls: 0,
+        };
+        Box::pin(async move {
+            self.tools
+                .call(
+                    self.gateway.clone(),
+                    Arc::new(grant),
+                    tool.to_string(),
+                    args.clone(),
+                    Arc::new(|| false),
+                )
+                .await
+                .map(|r| r.to_json())
+                .map_err(|e| match e {
+                    ferb_gateway::gateway::CallError::Cancelled => "CancelledError: ".to_string(),
+                    ferb_gateway::gateway::CallError::Internal(m) => format!("RuntimeError: {m}"),
+                })
+        })
     }
     /// L12 (desktop.py `_front_window`, supervisor.py `_screen_at_send`): the owner's front window as the message
     /// arrived, waited for at most `FRONT_WINDOW_WAIT_S`.

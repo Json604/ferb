@@ -546,6 +546,11 @@ impl Daemon {
                 Some(o) => o.supervisor_reads(real),
                 None => real,
             };
+            // the inventory walk's protection check (`roots.protection`), the same lists the gateway was given
+            let sup_protection = Arc::new(ferb_gateway::gateway::SyncProtection(
+                gateway::protection(&config, &opts.user_home, &home, opts.app_bundle.as_deref())
+                    .map_err(|e| StartError::Failed(format!("FERB's protection lists: {e}")))?,
+            ));
             let seam = supervisor::SupDaemon::new(supervisor::SupParts {
                 gateway: gw.clone(),
                 tokens: tokens.clone(),
@@ -559,6 +564,7 @@ impl Daemon {
                 stop: stop.clone(),
                 ledger: ledger.clone(),
                 env: seams,
+                protection: sup_protection,
                 reads,
                 home: home.to_string_lossy().into_owned(),
                 user_home: opts.user_home.to_string_lossy().into_owned(),
@@ -703,7 +709,16 @@ impl Daemon {
         ferb_daemon::areas_b::register(&mut server, &b.deps);
         // browser.pair and browser.handoff run through the browser area (`_pair_for_task`, `_handoff`)
         if let (Some(br), Some(deps)) = (tool_parts.browsers(), b.deps.browsers.as_ref()) {
-            br.attach_area(ferb_daemon::areas_b::browsers::Cx::new(&b.deps.host, deps));
+            let cx = ferb_daemon::areas_b::browsers::Cx::new(&b.deps.host, deps);
+            br.attach_area(cx.clone());
+            // the owner's answer to FERB's browsing question (APP-777) is the browser area's
+            let hook: areas_a::BrowsingAnswered = Arc::new(move |state, choice, ident| {
+                ferb_daemon::areas_b::browsers::browsing_answered(&cx, state, choice, ident)
+                    .unwrap_or_default()
+            });
+            let _ = a.spawn(move |st| async move {
+                *st.browsing_answered.borrow_mut() = Some(hook);
+            });
         }
         // the runtimes area as registered (its deps after any test's replacement), for the learners
         let _ = learning_area.set(match &b.deps.runtimes {

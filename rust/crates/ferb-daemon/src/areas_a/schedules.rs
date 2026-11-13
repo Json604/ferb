@@ -252,6 +252,40 @@ pub async fn run_timers(st: Rc<State>) {
     }
 }
 
+/// `_sleep_until`'s durable sleep (time.sleep_until): a "sleep" timer for the task, woken by the timer loop when it
+/// fires (and redelivered after a restart), its timer cancelled however the wait ends. `cancelled` ends the wait early
+/// (the call was cancelled: the task ended). Its timer's id when it fired; None when cancelled or the timer couldn't
+/// be added. The supervisor's side (the worker counts as waiting, the task's status) is the caller's.
+pub async fn sleep_until(
+    st: &Rc<State>,
+    task_id: &str,
+    at: &Time,
+    cancelled: impl std::future::Future<Output = ()>,
+) -> Option<String> {
+    let t = st
+        .timers()
+        .add("sleep", at, "", Some(task_id), None, false, None, "", None)
+        .ok()?;
+    st.timer_wake.notify_waiters();
+    let ev = Rc::new(tokio::sync::Notify::new());
+    st.sleepers.borrow_mut().insert(t.id.clone(), ev.clone());
+    struct Leave(Rc<State>, String);
+    impl Drop for Leave {
+        fn drop(&mut self) {
+            self.0.sleepers.borrow_mut().remove(&self.1);
+            let _ = self.0.timers().cancel(&self.1);
+        }
+    }
+    let _leave = Leave(st.clone(), t.id.clone());
+    let woken = ev.notified();
+    tokio::pin!(woken);
+    woken.as_mut().enable();
+    tokio::select! {
+        _ = woken => Some(t.id.clone()),
+        _ = cancelled => None,
+    }
+}
+
 /// Wait until every scheduled run the timer loop started has ended (tests; shutdown).
 pub async fn settle_runs(st: &State) {
     loop {

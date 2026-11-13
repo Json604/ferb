@@ -15,12 +15,6 @@ use crate::basics::lock;
 /// `RESTORE_LIST` (rpc.py:30): `ferb restore` lists the newest this many records.
 pub const RESTORE_LIST: i64 = 100;
 
-/// What the conversations' changes still need: a resumed conversation's plan restarts through the supervisor's
-/// delegated conversations (`_resume_conversation_plans`), which ferb-supervisor doesn't port yet (journal 46).
-pub const RESUME_NEEDS_SUPERVISOR: &str =
-    "not available in this build: resuming a delegated conversation restarts its \
-plan through FERB's delegated conversations, which aren't ported to the Rust planner yet";
-
 type Handler =
     fn(
         Deps,
@@ -607,22 +601,29 @@ async fn conversations_change(d: Deps, p: Params) -> Result<Map<String, Value>, 
         )),
     };
     let (id, action, words) = (field("id")?, field("action")?, field("owner_words")?);
+    // the supervisor's own store: a resumed conversation's saved plan runs again (`_resume_conversation_plans`)
+    match d.tools.supervisor() {
+        Some(sup) => sup
+            .inner()
+            .change_conversation(&id, &action, &words)
+            .map_err(ferb_error)?,
+        None => {
+            let db = lock(&d.db);
+            let store = conversations(&d, &db);
+            store.get(&id).map_err(conversation_error)?;
+            if action == "resume" {
+                return Err(ferb_error("daemon not started"));
+            }
+            store
+                .owner_change(&id, &action, &words)
+                .map_err(conversation_error)?;
+        }
+    }
     let row = {
         let db = lock(&d.db);
-        let store = conversations(&d, &db);
-        store.get(&id).map_err(conversation_error)?;
-        if action == "resume" {
-            if d.stop.engaged() {
-                return Err(ferb_error(
-                    "FERB is stopped; lift the emergency stop before resuming a conversation.",
-                ));
-            }
-            return Err(ferb_error(RESUME_NEEDS_SUPERVISOR));
-        }
-        store
-            .owner_change(&id, &action, &words)
-            .map_err(conversation_error)?;
-        store.get(&id).map_err(conversation_error)?
+        conversations(&d, &db)
+            .get(&id)
+            .map_err(conversation_error)?
     };
     if let Err(e) = d.journal.append(
         "conversation.owner_change",
