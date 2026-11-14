@@ -21,13 +21,16 @@ bug in FERB, not something you asked wrong.";
 pub const HEARTBEAT_POLL_S: f64 = 5.0;
 pub const FRONT_WINDOW_WAIT_S: f64 = 10.0;
 pub const WAITING_TOKENS: usize = 2000;
-pub const PLANNER_TOOLS: [&str; 6] = [
+/// Python's six, then `about.diagnostics` (DMN-595: FERB's own diagnostics, a Rust addition); the planner is offered
+/// each one that is installed.
+pub const PLANNER_TOOLS: [&str; 7] = [
     "memory.read",
     "chat.history",
     "task.evidence",
     "trail.query",
     "trail.days",
     "about.read",
+    "about.diagnostics",
 ];
 pub const PLANNER_SCOPES: [&str; 2] = ["task:read", "trail:read"];
 pub const PLANNER_LOOKUPS: usize = 10;

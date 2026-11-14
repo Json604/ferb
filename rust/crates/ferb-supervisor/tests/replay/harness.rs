@@ -48,7 +48,8 @@ pub fn bodies() -> &'static HashMap<String, String> {
         ]
         .iter()
         .flat_map(|rel| read(rel).as_object().cloned().unwrap_or_default())
-        .map(|(k, v)| (k, v.as_str().unwrap().to_string()))
+        // the deliberate prompt changes since the recording (ENG-6)
+        .map(|(k, v)| (k, crate::common::prompt_changes::apply(v.as_str().unwrap())))
         .collect()
     })
 }
@@ -75,9 +76,11 @@ pub fn expand(text: &str) -> String {
 pub fn cell(v: &Value) -> Value {
     match v {
         Value::Object(m) if m.len() == 1 && m.contains_key("sha256") => {
-            json!(expand(&bodies()[m["sha256"].as_str().unwrap()]))
+            json!(crate::common::prompt_changes::shift_with_system(&expand(
+                &bodies()[m["sha256"].as_str().unwrap()]
+            )))
         }
-        Value::String(s) => json!(expand(s)),
+        Value::String(s) => json!(crate::common::prompt_changes::shift_with_system(&expand(s))),
         other => other.clone(),
     }
 }
@@ -2914,9 +2917,16 @@ pub fn run_scenario(
                 .push(format!("call {} ({}) was not made", i + 1, s(&want["key"])));
             break;
         };
+        // the recorded budget lines reserve for the system as changed since (ENG-6)
+        let shift = crate::common::prompt_changes::reserved_shift(&s(&want["system"]));
         let parts: Vec<String> = strs(&want["parts"])
             .iter()
-            .map(|p| fixed(&name, &unhash(p)))
+            .map(|p| {
+                fixed(
+                    &name,
+                    &crate::common::prompt_changes::shift_reserved(&unhash(p), shift),
+                )
+            })
             .collect();
         let expected = json!({"runtime_role": want["runtime_role"], "mode": want["mode"], "tools": want["tools"],
             "schema": want["schema"], "effort": want["effort"], "task_id": want["task_id"], "system": want["system"],

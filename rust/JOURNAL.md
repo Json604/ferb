@@ -1728,3 +1728,84 @@ one returned AudioRelay.
 - FERB plays to the default output (Audio Relay here) while macOS's interface sounds use the system output device:
   the owner's call.
 - Live checks of both fixes wait for the next installed build.
+
+## 2026-11-14 · 61 · What a running task has so far; one message for what cleanup left; a dropped profile woken to close its tabs; pairing's visible fallback; FERB reads its own diagnostics
+
+**What.**
+- ORCH-640: progress questions are answered from the task's records. `supervisor.md` sends the planner to
+  `task.evidence` (worker reports, one being checked included, else tool results) and says what it has, not yet
+  checked. The status row's `last_report` shows the latest report's first line; the running worker's latest words,
+  redacted and kept in memory only, ride the row while its run runs. Recorded prompts are compared through the named
+  change list `rust/fixtures/catalog/prompt_changes.json`.
+- HAND-521: a cleanup's leftovers are one message: tabs grouped by profile, up to three titles (two per profile when
+  there are several), the rest counted, one "close them if they're still open".
+- HAND-522: before closing, cleanup wakes each disconnected profile holding the task's tabs with no window and waits
+  up to 35 s for it to connect and re-adopt (`driver.rs` `wake_for_cleanup`, `bridge.rs` `settled`).
+  `browser.task_profile_disconnected` / `_reconnected` are journaled while tasks hold tabs.
+- HAND-523: with no paired connection 10 s after the windowless start, pairing opens the profile's window with FERB's
+  wake page and the pairing page again. The wake page (`areas_b/browsers/wake.rs`) closes itself on every outcome by
+  asking FERB's local server; `browsers.pair_fallback` and `browsers.pair_abandoned` are journaled.
+- DMN-595: `about.diagnostics` (planner lookup and every worker) returns the running build, each profile's
+  connection, permissions, FERB's own log lines and its own journal rows by kind: redacted, labelled ferb, bounded to
+  16,000 characters, read-only. The catalog's one named addition is `ferb-gateway/src/catalog_additions.json`.
+- ferbd tests: `wait_ready` waits until the stand-ins socket takes a connection (its file exists from `bind()`, a
+  moment before `listen()`): the "control: Connection refused" failures seen under whole-workspace load.
+
+**Why.** Owner, task 254ed34c: asked "whats the list so far???" and FERB said it couldn't give the names, while two
+`task.evidence` lookups would have returned the 31-agent list (`last_report` was always empty: `supervisor.py:2155`
+reads a report's `summary`, which no report has). The same answer ended in seven one-line tab notices, its tabs
+stayed open after the profile dropped, and the owner asked for the old pairing method as a fallback ("the pairing and
+closing them after paired is priority") and for FERB to see its own errors.
+
+**Evidence.** `progress_answers`, `running_records`, `texts::several_leftover_tabs_are_one_grouped_message`,
+`cleanup_wake` (3), `browser_keepalive`, `b_browsers::a_windowless_start_that_gets_no_answer_falls_back_and_leaves_no_tab`,
+`diagnostics` (2), the catalog tests.
+
+**Fixed against Python.** The empty `last_report`; one line per tab (`leftovers.py:28-52`); the wake page closed only
+after a pairing that succeeded.
+
+**Additions (not in Python).** The cleanup wake; the task-profile and pairing-fallback journal rows; the worker's
+in-run words in the status row; `about.diagnostics` (`PLANNER_TOOLS` 6 → 7, token reserves grow by its row).
+
+**Open.**
+- Live: a real model reading `task.evidence` and `about.diagnostics`; a real browser's reconnect within 35 s; the
+  wake page closing itself on Chrome, Brave, Edge and Arc.
+- Why the live profile dropped mid-task is unknown; the keepalive runs in the composed daemon.
+- The runtime check's `PLANNER_TOOLS` copy (`ferb-daemon/src/areas_b/runtimes/mod.rs`) still lists six; ORCH-516's
+  rule still names five.
+- Owner's: a length limit on the worker's latest words; which of FERB's own records diagnostics shows (profile
+  names, memory rows); redacted log lines reaching the provider; log retention; grouping apps left running.
+
+## 2026-11-14 · 62 · The sink rule covers the owner's files: browser uploads, AppleScript addresses, plain shell sends
+
+**What.** GATE-587 (owner) with GATE-588.
+- After outside content was read, a browser upload of the owner's file to a site the owner neither named nor approved
+  asks the form's question, keyed `(sink:new_destination, host)`, once per site per task; a Yes carries to the submit
+  (`Gateway::file_send_needs`, `owner_file`).
+- `mac.applescript` records the email addresses and phone numbers in its string literals as recipients
+  (`script_recipients`), so an address found only outside asks.
+- `ferb-policy/src/sends.rs` `file_sends` reads plain file-send shapes from the command's shlex words (curl, wget,
+  httpie, scp, rsync, sftp, nc, ssh, socat); a command sending an owner file to a host found only in outside content
+  asks before it runs. `destination_allowed` also refuses a host after a No under that key.
+
+**Why.** The owner believed "it cant send something to a webpage if the webpage says so"; `outside_destinations.rs`
+measured three routes around it (shell upload, browser upload then Send, AppleScript mail). The owner: "ok we can
+buil it", choosing the narrow shell version.
+
+**Evidence.** `outside_destinations.rs` (25 tests: a Yes and a No per route, contrasts, documented limits),
+`ferb-policy/tests/sends.rs`, `ferb-mac-hands/tests/script_recipients.rs`. Python parity holds apart from one named
+difference (5 of 490 generated `decide` cases word an AppleScript recipient "recipient"). On the archived history
+(4–13 Nov, 274 task trees): narrow shell 0 questions of 614 commands; AppleScript 0 of 27; uploads 3 questions in 1
+task; the full shell variant would have asked 109 times in 23 tasks. Whole workspace: 794 pass, 0 fail.
+
+**Ran on the owner's Mac.** Read-only, immutable reads of both archive databases for counts (no personal content
+kept); an independent red-team review of a wider link rule (P1/P2/P3), not built: its verdict, exact rule text,
+25 tests to add and eleven holes that exist today (F1–F11: a Yes approving a whole host for good, prefill-then-click,
+values in shell addresses, typing without submit, and others) are in the session report and wait for the owner's
+decisions.
+
+**Open.**
+- Uploads written in scripts or one-liners, cloud CLIs and variable hosts are not caught (recorded by the proxy).
+- Workspace and task-made files are not asked about.
+- Owner's: the application-task case (3 questions), the workspace exception, how long each Yes lasts.
+- The link rule: lock the tightened version, close prefill-then-click (F3), scope of a Yes (F1).

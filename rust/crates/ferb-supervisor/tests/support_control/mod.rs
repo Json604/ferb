@@ -63,7 +63,11 @@ fn daemon_bodies() -> &'static HashMap<String, String> {
             "rust/fixtures/supervisor/control_bodies.json",
         ] {
             for (k, v) in read(rel).as_object().unwrap() {
-                out.insert(k.clone(), v.as_str().unwrap().to_string());
+                // the deliberate prompt changes since the recording (ENG-6)
+                out.insert(
+                    k.clone(),
+                    crate::common::prompt_changes::apply(v.as_str().unwrap()),
+                );
             }
         }
         out
@@ -122,9 +126,11 @@ fn expand(text: &str) -> String {
 pub fn cell(v: &Value) -> Value {
     match v {
         Value::Object(m) if m.len() == 1 && m.contains_key("sha256") => {
-            json!(expand(&daemon_bodies()[m["sha256"].as_str().unwrap()]))
+            json!(crate::common::prompt_changes::shift_with_system(&expand(
+                &daemon_bodies()[m["sha256"].as_str().unwrap()]
+            )))
         }
-        Value::String(s) => json!(expand(s)),
+        Value::String(s) => json!(crate::common::prompt_changes::shift_with_system(&expand(s))),
         other => other.clone(),
     }
 }
@@ -1129,7 +1135,12 @@ impl EventSource for ScriptEvents {
             if self.cancelled.0.load(Ordering::SeqCst) {
                 return None;
             }
-            if let Some(gate) = self.gate.clone() {
+            // an event marked `before_gate` (a test's own script, never a recording) arrives while the call is held
+            let early = self
+                .events
+                .get(self.at)
+                .is_some_and(|e| e["before_gate"] == json!(true));
+            if let Some(gate) = self.gate.clone().filter(|_| !early) {
                 tokio::select! {
                     _ = gate.wait() => {}
                     _ = self.until_cancelled() => return None,
@@ -1365,7 +1376,7 @@ pub struct World {
     home: String,
     question_ids: Arc<AtomicUsize>,
     /// Deliberate differences from Python (ENG-6): (recorded text, what the port says instead), applied to every
-    /// expected frame line and table cell before they are compared.
+    /// expected frame line, table cell and model call part before they are compared.
     pub fixes: Vec<(String, String)>,
 }
 
@@ -1485,6 +1496,12 @@ fn records_of(name: &str) -> Vec<Value> {
 
 /// The scenario's world, before its first step.
 pub fn world(name: &str) -> World {
+    world_with(name, |_| {})
+}
+
+/// The scenario's world with its recorded model calls (bodies resolved) changed by `edit`: a test's own script on a
+/// recorded scenario's steps.
+pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
     let (index, sc) = scenario(name);
     let (tools, schemas, root) = catalog_parts();
     let records: Vec<Value> = records_of(name);
@@ -1529,12 +1546,13 @@ pub fn world(name: &str) -> World {
         .first()
         .map(|r| s(&r["inputs"]["capabilities"]))
         .unwrap_or_default();
-    let recorded: Vec<Value> = sc["model_calls"]
+    let mut recorded: Vec<Value> = sc["model_calls"]
         .as_array()
         .unwrap()
         .iter()
         .map(resolve)
         .collect();
+    edit(&mut recorded);
     let question_ids = Arc::new(AtomicUsize::new(0));
     // the calls held until `release_model`: each the call the wait before it named
     let mut gates: HashMap<usize, Arc<Gate>> = HashMap::new();
@@ -1678,6 +1696,11 @@ type Streams = HashMap<
 
 /// Walks the scenario's steps. `upto`: stop before the step at this index (None: every step).
 pub fn run(w: &mut World, name: &str) -> Report {
+    run_with(w, name, |_| {})
+}
+
+/// `run` with the scenario's steps changed by `edit` (a test's own script on a recorded scenario).
+pub fn run_with(w: &mut World, name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> Report {
     let (_, sc) = scenario(name);
     let mut report = Report::default();
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -1685,7 +1708,8 @@ pub fn run(w: &mut World, name: &str) -> Report {
         .start_paused(true)
         .build()
         .unwrap();
-    let steps = sc["steps"].as_array().unwrap().clone();
+    let mut steps = sc["steps"].as_array().unwrap().clone();
+    edit(&mut steps);
     rt.block_on(async {
         let mut streams: Streams = HashMap::new();
         for st in &steps {
@@ -2025,7 +2049,12 @@ fn compare_calls(w: &World, _sc: &Value, report: &mut Report) {
                 .push(format!("call {} ({}) was not made", i + 1, s(&want["key"])));
             break;
         };
-        let parts: Vec<String> = strs(&want["parts"]);
+        // the recorded budget lines reserve for the system as changed since (ENG-6)
+        let shift = crate::common::prompt_changes::reserved_shift(&s(&want["system"]));
+        let parts: Vec<String> = strs(&want["parts"])
+            .iter()
+            .map(|p| w.fixed(&crate::common::prompt_changes::shift_reserved(p, shift)))
+            .collect();
         let continued = if want["continued_with"].is_null() {
             json!([])
         } else {

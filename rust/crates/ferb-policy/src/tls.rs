@@ -4,8 +4,8 @@
 use crate::rx::once;
 use crate::{py, pyurl, shlex};
 
-const OPERATORS: &[&str] = &[";", "&&", "||", "|", "&", "\n", "(", ")", ";;", "|&"];
-const WRAPPERS: &[&str] = &[
+pub(crate) const OPERATORS: &[&str] = &[";", "&&", "||", "|", "&", "\n", "(", ")", ";;", "|&"];
+pub(crate) const WRAPPERS: &[&str] = &[
     "env",
     "sudo",
     "command",
@@ -27,11 +27,11 @@ const WRAPPERS: &[&str] = &[
 ];
 const FALSE: &[&str] = &["false", "0", "no", "off"];
 const NOTHING: &[&str] = &["", "/dev/null"];
-const CURL_VALUED: &str = "AbcCdDeEFHKmoPQrtTuUwxXyYz";
-const SSH_VALUED: &str = "BbcDEeFIiJLlmOoPpQRSWw";
+pub(crate) const CURL_VALUED: &str = "AbcCdDeEFHKmoPQrtTuUwxXyYz";
+pub(crate) const SSH_VALUED: &str = "BbcDEeFIiJLlmOoPpQRSWw";
 const CURL_CONFIG: &str = "a config file FERB can't read";
 
-fn valued(wrapper: &str) -> &'static str {
+pub(crate) fn valued(wrapper: &str) -> &'static str {
     match wrapper {
         "nice" => "n",
         "sudo" => "ugCDhprtUT",
@@ -49,7 +49,7 @@ fn valued(wrapper: &str) -> &'static str {
     }
 }
 
-fn leading(wrapper: &str) -> usize {
+pub(crate) fn leading(wrapper: &str) -> usize {
     match wrapper {
         "timeout" | "gtimeout" => 1,
         _ => 0,
@@ -67,11 +67,11 @@ fn is_false(s: &str) -> bool {
     FALSE.contains(&py::lower(s).as_str())
 }
 
-fn base(word: &str) -> &str {
+pub(crate) fn base(word: &str) -> &str {
     py::rpartition(word, "/").2
 }
 
-fn shells(program: &str) -> bool {
+pub(crate) fn shells(program: &str) -> bool {
     let rest = ["ba", "z", "da", "k", "fi"]
         .iter()
         .find_map(|p| program.strip_prefix(p).filter(|r| *r == "sh"))
@@ -80,7 +80,7 @@ fn shells(program: &str) -> bool {
 }
 
 /// `_ASSIGNMENT.fullmatch`: (name, value).
-fn assignment(word: &str) -> Option<(&str, &str)> {
+pub(crate) fn assignment(word: &str) -> Option<(&str, &str)> {
     let (name, value) = word.split_once('=')?;
     let mut cs = name.chars();
     let first = cs.next()?;
@@ -154,7 +154,7 @@ fn heredocs(line: &str) -> Vec<(usize, String)> {
     out
 }
 
-fn bodies(command: &str) -> (String, Vec<(String, String)>) {
+pub(crate) fn bodies(command: &str) -> (String, Vec<(String, String)>) {
     let lines: Vec<&str> = command.split('\n').collect();
     let mut kept: Vec<&str> = Vec::new();
     let mut found = Vec::new();
@@ -177,7 +177,7 @@ fn bodies(command: &str) -> (String, Vec<(String, String)>) {
     (kept.join("\n"), found)
 }
 
-fn words(text: &str) -> Vec<String> {
+pub(crate) fn words(text: &str) -> Vec<String> {
     match shlex::split(text) {
         Ok(w) => w,
         Err(shlex::Unclosed) => once!(plain, r"&&|\|\||[;&|()\n]|[^{S};&|()]+")
@@ -213,7 +213,7 @@ fn stripped(cmd: &[String]) -> &[String] {
     &cmd[i..]
 }
 
-fn printed(cmd: &[String]) -> Option<String> {
+pub(crate) fn printed(cmd: &[String]) -> Option<String> {
     let args = stripped(cmd);
     let first = args.first()?;
     let program = base(first);
@@ -262,7 +262,7 @@ fn ssh_command(args: &[String]) -> Option<String> {
     (i + 1 < args.len()).then(|| args[i + 1..].join(" "))
 }
 
-fn host(value: &str) -> Option<String> {
+pub(crate) fn host(value: &str) -> Option<String> {
     let value = py::strip(value);
     if value.is_empty() {
         return None;
@@ -296,7 +296,7 @@ fn unescape(text: &str) -> String {
     out
 }
 
-fn dedup(items: Vec<String>) -> Vec<String> {
+pub(crate) fn dedup(items: Vec<String>) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     items
         .into_iter()

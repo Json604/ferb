@@ -11,6 +11,8 @@ use ferb_context::prompts::PromptRoot;
 use ferb_supervisor::history::Sourced;
 use serde_json::Value;
 
+pub mod prompt_changes;
+
 pub fn repo() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
@@ -33,7 +35,8 @@ fn bodies() -> &'static HashMap<String, String> {
         ] {
             if let Value::Object(map) = read(rel) {
                 for (k, v) in map {
-                    out.insert(k, v.as_str().expect("a body").to_string());
+                    // the deliberate prompt changes since the recording (ENG-6)
+                    out.insert(k, prompt_changes::apply(v.as_str().expect("a body")));
                 }
             }
         }

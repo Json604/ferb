@@ -17,6 +17,10 @@
 //!
 //! Fixed against Python: the tab cap counts every driver's tabs through the hub (HAND-234), as
 //! Python's does; a cleanup leftover names the browser, profile and account (HAND-419).
+//!
+//! Added against Python (HAND-522): a task's cleanup wakes a disconnected profile holding its tabs (no window) and
+//! waits up to [`CLEANUP_WAKE_S`] for it before closing; Python's release failed at once and left the tabs to the
+//! profile's next connection (ext_bridge.py:1646, :2940-2959).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
@@ -41,6 +45,10 @@ use crate::snapshot;
 pub const WINDOWLESS_WAIT_S: f64 = 35.0;
 /// `WINDOW_WAIT_S`: then the profile's window.
 pub const WINDOW_WAIT_S: f64 = 15.0;
+/// HAND-522: how long a task's cleanup waits for a profile it woke (no window) to connect and re-adopt its tabs: the
+/// windowless wake's own wait, which covers the extension's 30-second reconnect alarm when the browser was running.
+/// The profiles woken at one cleanup wait together.
+pub const CLEANUP_WAKE_S: f64 = WINDOWLESS_WAIT_S;
 /// A task tab opens blank, then loads its URL (D35).
 pub const BLANK: &str = "about:blank";
 /// A media element's state fields (L26).
@@ -464,6 +472,8 @@ pub(crate) struct State {
     /// Tasks that let go of their tabs.
     pub(crate) released: HashSet<String>,
     keep_roots: HashSet<String>,
+    /// HAND-522: tasks whose cleanup is closing their tabs now (a hello's re-adoption leaves those tabs to it).
+    releasing: HashSet<String>,
 }
 
 fn alias_number(alias: &str) -> Option<u64> {
@@ -500,6 +510,15 @@ fn text(v: &Value, key: &str) -> String {
 
 fn facts_of(v: &Value) -> Dict {
     v.as_object().cloned().unwrap_or_default()
+}
+
+/// HAND-522: a task's cleanup is under way until this is dropped (finished or cancelled).
+struct Releasing<'a>(&'a Driver, String);
+
+impl Drop for Releasing<'_> {
+    fn drop(&mut self) {
+        self.0.st().releasing.remove(&self.1);
+    }
 }
 
 /// `_TabDriver` with its `Router` / `FerbIdentity` half.
@@ -1436,6 +1455,43 @@ impl Driver {
             s.released.retain(|o| running(o));
             s.released.insert(owner.to_string());
         }
+        self.st().releasing.insert(owner.to_string());
+        let _releasing = Releasing(self, owner.to_string());
+        self.release_owned(owner, keep_all).await
+    }
+
+    /// HAND-522: a profile holding this task's tabs whose connection is down is woken the quiet way (no window, never
+    /// the owner's focus), and the cleanup waits up to [`CLEANUP_WAKE_S`] for its extension to connect and re-adopt
+    /// the tabs. A profile whose extension FERB knows it can't use (refused, too old) isn't woken. Nothing is closed
+    /// here: what still can't be confirmed afterwards is the cleanup's leftover, closed at the profile's next
+    /// connection (`readopt`).
+    async fn wake_for_cleanup(&self, owner: &str) {
+        let Some(wake) = self.wake.clone() else {
+            return;
+        };
+        let mut down: Vec<Arc<Bridge>> = vec![];
+        for t in self.st().tabs.values() {
+            if t.owner.as_deref() == Some(owner)
+                && !t.closed
+                && !t.bridge.is_connected()
+                && !down.iter().any(|b| Arc::ptr_eq(b, &t.bridge))
+            {
+                down.push(Arc::clone(&t.bridge));
+            }
+        }
+        down.retain(|br| self.hub.problem(&br.binding).is_none());
+        for br in &down {
+            wake.start(&br.binding.browser, &br.binding.folder, false);
+        }
+        let until = tokio::time::Instant::now() + Duration::from_secs_f64(CLEANUP_WAKE_S);
+        for br in down {
+            let left = until.saturating_duration_since(tokio::time::Instant::now());
+            br.settled(left).await;
+        }
+    }
+
+    async fn release_owned(&self, owner: &str, keep_all: bool) -> Result<Vec<Map<String, Value>>> {
+        self.wake_for_cleanup(owner).await;
         let aliases: Vec<String> = self
             .st()
             .tabs
@@ -2675,8 +2731,10 @@ impl TabDriver for Driver {
                 y.snapshot_json.clear();
             });
             let owner = t.owner.clone().unwrap_or_default();
+            let releasing = !owner.is_empty() && self.st().releasing.contains(&owner);
             if !(!owner.is_empty() && (self.tasks.running)(&owner))
                 && !(!owner.is_empty() && (self.tasks.paused)(&owner))
+                && !releasing
             {
                 let mut tab = t.tab.clone();
                 tab.generation = gen;
@@ -2804,6 +2862,16 @@ impl TabDriver for Driver {
 
     fn open_count(&self, root: &str) -> i64 {
         Driver::open_count(self, root)
+    }
+
+    fn held_tasks(&self, br: &Arc<Bridge>) -> Vec<String> {
+        self.st()
+            .tabs
+            .values()
+            .filter(|t| Arc::ptr_eq(&t.bridge, br) && !t.closed)
+            .filter_map(|t| t.owner.clone())
+            .filter(|o| !o.is_empty() && (self.tasks.running)(o))
+            .collect()
     }
 
     fn download_tab_done(&self, br: Arc<Bridge>, chrome_id: i64) -> BoxFuture<'static, ()> {

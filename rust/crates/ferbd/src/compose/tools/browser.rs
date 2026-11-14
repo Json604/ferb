@@ -717,6 +717,17 @@ pub fn wire_parts(
             },
         );
     }
+    // HAND-522 (an addition: Python journaled none): a profile's connection ending, or a new one coming, while running
+    // tasks hold tabs in it, journaled for diagnosis (`browser.task_profile_disconnected` / `_reconnected`)
+    {
+        let journal = p.journal();
+        hooks.on_task_link = Arc::new(
+            move |br: &Arc<ferb_browser::bridge::Bridge>, link: &ferb_browser::bridge::TaskLink| {
+                let (kind, data) = link.journal(&br.name());
+                journal.note(kind, data);
+            },
+        );
+    }
     b.hub.set_hooks(hooks);
 
     // each driver's seams (browsers.py:300-321)
@@ -1365,6 +1376,10 @@ pub fn browsers_deps(
             .join("Library/Application Support/Google/Chrome"),
         new_handoff_id: Arc::new(|| ferb_runtimes::codex::token_hex(6)),
         pair_load_wait_s: 2.0,
+        // HAND-523: a windowless start's pairing page that has no paired connection after this long falls back to
+        // the profile's window with FERB's wake page
+        pair_quiet_wait_s: 10.0,
+        log: Arc::new(|text: &str| crate::log::line(text)),
         pair_timeout_s: 60.0,
         handoff_poll_s: 2.0,
         state: Arc::new(b::State::default()),

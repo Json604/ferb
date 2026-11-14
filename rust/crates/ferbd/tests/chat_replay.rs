@@ -14,6 +14,9 @@
 //! `CHAT_REPLAY=<name>` runs one scenario; `CHAT_REPLAY_DEBUG=1` prints every difference.
 
 mod support;
+// the deliberate prompt changes since the recording (ENG-6, rust/fixtures/catalog/prompt_changes.json)
+#[path = "../../ferb-supervisor/tests/common/prompt_changes.rs"]
+mod prompt_changes;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -27,6 +30,75 @@ use support::*;
 // the fixtures
 // ---------------------------------------------------------------------------------------------------------------
 
+/// Every context budget line in a text: (reserved_tokens, content_tokens_estimate), the line raw or JSON-escaped.
+fn budget_lines(text: &str) -> Vec<(i64, i64)> {
+    let number = |key: &str, from: &str| -> Option<(i64, usize)> {
+        let at = from.find(key)? + key.len();
+        let rest = from[at..].trim_start_matches(['\\', '"', ':', ' ']);
+        let n = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+        Some((rest[..n].parse().ok()?, from.len() - rest.len() + n))
+    };
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some((r, end)) = number("reserved_tokens", rest) {
+        rest = &rest[end..];
+        if let Some((c, _)) = number("content_tokens_estimate", rest) {
+            out.push((r, c));
+        }
+    }
+    out
+}
+
+/// A budget line `from` (reserved_tokens, content_tokens_estimate) moved `to`, raw or JSON-escaped once or twice.
+fn moved_budget(text: &str, from: (i64, i64), to: (i64, i64)) -> String {
+    let mut out = text.to_string();
+    for q in ["\"", "\\\"", "\\\\\\\""] {
+        let line = |(r, c): (i64, i64)| {
+            format!("{q}reserved_tokens{q}: {r}, {q}content_tokens_estimate{q}: {c}")
+        };
+        out = out.replace(&line(from), &line(to));
+    }
+    out
+}
+
+/// A recorded table cell with the Rust engine's own tools named and each model call's budget line moved as that
+/// call's was (decision: DMN-595), found by the line's own numbers (the calls are compared first).
+fn with_tool_shifts(v: &Value, shifts: &BTreeMap<(i64, i64), (i64, i64)>) -> Value {
+    let Value::String(text) = v else {
+        return v.clone();
+    };
+    let mut out = prompt_changes::with_tool_names(text).0;
+    for (from, to) in shifts {
+        out = moved_budget(&out, *from, *to);
+    }
+    json!(out)
+}
+
+/// A recorded call's tool names with the Rust engine's own tools added (the one named difference; decision: DMN-595):
+/// each addition right after the tool it follows wherever that one was offered; the planner's lookups (`sorted`) are
+/// listed in name order.
+fn with_additions(tools: &Value, sorted: bool) -> Value {
+    let Some(list) = tools.as_array() else {
+        return tools.clone();
+    };
+    let mut names: Vec<String> = list
+        .iter()
+        .filter_map(|t| t.as_str().map(str::to_owned))
+        .collect();
+    if names.len() != list.len() {
+        return tools.clone();
+    }
+    for a in ferb_gateway::catalog::additions() {
+        if let Some(i) = names.iter().position(|n| *n == a.after) {
+            names.insert(i + 1, a.name.clone());
+        }
+    }
+    if sorted {
+        names.sort();
+    }
+    json!(names)
+}
+
 fn bodies() -> &'static HashMap<String, String> {
     static B: OnceLock<HashMap<String, String>> = OnceLock::new();
     B.get_or_init(|| {
@@ -39,7 +111,7 @@ fn bodies() -> &'static HashMap<String, String> {
         ] {
             if let Value::Object(m) = fixture(rel) {
                 for (k, v) in m {
-                    out.insert(k, v.as_str().unwrap().to_string());
+                    out.insert(k, prompt_changes::apply(v.as_str().unwrap()));
                 }
             }
         }
@@ -89,9 +161,11 @@ fn expand(text: &str) -> String {
 fn cell(v: &Value) -> Value {
     match v {
         Value::Object(m) if m.len() == 1 && m.contains_key("sha256") => {
-            json!(expand(&bodies()[m["sha256"].as_str().unwrap()]))
+            json!(prompt_changes::shift_with_system(&expand(
+                &bodies()[m["sha256"].as_str().unwrap()]
+            )))
         }
-        Value::String(t) => json!(expand(t)),
+        Value::String(t) => json!(prompt_changes::shift_with_system(&expand(t))),
         other => other.clone(),
     }
 }
@@ -1004,6 +1078,7 @@ fn run_scenario(
     }
     report.calls.extend(used.problems.iter().cloned());
     // the model calls
+    let mut tool_shifts: BTreeMap<(i64, i64), (i64, i64)> = BTreeMap::new();
     for (i, want) in script.calls.iter().enumerate() {
         let Some(made) = used.made.get(i) else {
             report
@@ -1026,11 +1101,34 @@ fn run_scenario(
                 format!("sha256:{sha}")
             });
         let started = used.started.iter().find(|c| c["n"] == json!(i));
-        let parts: Vec<String> = strs(&want["parts"])
+        // the recorded budget lines reserve for the system as changed since (ENG-6)
+        let shift = prompt_changes::reserved_shift(&s(&want["system"]));
+        // decision: DMN-595: the Rust engine's own tools offered beside the recorded ones are reserved for too; the
+        // span that records this call's context has the same budget line, moved the same (`tool_shifts`)
+        let by_tools = prompt_changes::tool_shift(&strs(&want["tools"]));
+        let recorded: Vec<(String, i64)> = strs(&want["parts"])
             .iter()
-            .map(|p| fixed(&name, &unhash(p)))
+            .map(|p| {
+                prompt_changes::with_tool_names(&prompt_changes::shift_reserved(&unhash(p), shift))
+            })
             .collect();
-        let expected = json!({"runtime_role": want["runtime_role"], "mode": want["mode"], "tools": want["tools"],
+        let named: i64 = recorded.iter().map(|(_, n)| n).sum();
+        let parts: Vec<String> = recorded
+            .iter()
+            .map(|(p, _)| {
+                let mut p = p.clone();
+                for (r, c) in budget_lines(&p) {
+                    let to = (r + by_tools, c + named);
+                    if to != (r, c) {
+                        tool_shifts.insert((r, c), to);
+                        p = moved_budget(&p, (r, c), to);
+                    }
+                }
+                fixed(&name, &p)
+            })
+            .collect();
+        let expected = json!({"runtime_role": want["runtime_role"], "mode": want["mode"],
+            "tools": with_additions(&want["tools"], want["runtime_role"] == "orchestrator"),
             "schema": want["schema"], "effort": want["effort"], "task_id": want["task_id"], "system": want["system"],
             "parts": parts, "cacheable": want["cacheable"], "images": want["images"]});
         let actual = match started {
@@ -1107,7 +1205,7 @@ fn run_scenario(
                 r.as_array()
                     .unwrap()
                     .iter()
-                    .map(|c| match scrub(&cell(c)) {
+                    .map(|c| match scrub(&with_tool_shifts(&cell(c), &tool_shifts)) {
                         Value::String(t) => json!(fixed(&name, &unhash(&t))),
                         other => other,
                     })

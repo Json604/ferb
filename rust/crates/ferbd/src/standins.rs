@@ -694,6 +694,13 @@ async fn control(d: &Arc<Daemon>, s: &StandIns, req: &Value) -> Result<Value, St
                 .store(req["n"].as_u64().unwrap_or(0), Ordering::SeqCst);
             Ok(Value::Null)
         }
+        "keepalive" => {
+            // the extension keepalive's period (15 s in a real daemon), shortened so a test sees it run
+            let every = std::time::Duration::from_secs_f64(req["seconds"].as_f64().unwrap_or(15.0));
+            let hub = d.tools.browsers().ok_or("no browsers")?.hub.clone();
+            hub.set_keepalive(every);
+            Ok(Value::Null)
+        }
         "is_app" => {
             let answer = req["answer"].as_bool().unwrap_or(true);
             d.server.set_is_app(move |_| answer);

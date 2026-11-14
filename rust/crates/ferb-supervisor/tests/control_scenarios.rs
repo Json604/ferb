@@ -150,11 +150,58 @@ fn control_fixtures() {
     // open questions block lists it: `_task_state`'s cards, `open_questions`)
     let partly = ["pause_plus_new_task"];
     for name in names {
-        let r = replay(&name);
+        let r = if name == "steer_during_check_in" {
+            with_report_lines(&name)
+        } else {
+            replay(&name)
+        };
         if !partly.contains(&name.as_str()) {
             assert!(r.full(), "{name}: {}", r.verdict());
         }
     }
+}
+
+/// The one deliberate difference from Python here (ENG-6, ORCH-640): the planner's task status row shows the first
+/// line of the latest worker report's answer, else its reason, as `last_report`. Python's `_task_state` read the
+/// report's `summary`, which no worker report has, so its row said `"last_report": ""` whatever the worker reported.
+/// In this scenario the five reports are not done with the reason "The site errored." (make_control.py
+/// `check_in_model`): the recording is compared with that one value changed, in the planner's parts and in the
+/// model turn spans that hold them (JSON-escaped twice there), and that call's budget line counting its bytes.
+// decision: ORCH-640
+fn with_report_lines(name: &str) -> Report {
+    let (_, sc) = support_control::scenario(name);
+    let recorded = serde_json::to_string(sc).unwrap();
+    assert!(
+        recorded.contains("last_report"),
+        "the Python recording shows the task status row's last_report"
+    );
+    let mut w = world(name);
+    let escaped = |t: &str| {
+        let d = ferb_py::json::dumps(&json!(t));
+        d[1..d.len() - 1].to_string()
+    };
+    let line = "The site errored.";
+    // the one call whose row shows it: its budget line counts the line's bytes too
+    let content = 2591;
+    for (python, port) in [
+        (
+            r#""last_report": """#.to_string(),
+            format!(r#""last_report": "{line}""#),
+        ),
+        (
+            format!(r#""content_tokens_estimate": {content},"#),
+            format!(r#""content_tokens_estimate": {},"#, content + line.len()),
+        ),
+    ] {
+        let once = (escaped(&python), escaped(&port));
+        let twice = (escaped(&once.0), escaped(&once.1));
+        w.fixes.push((twice.0, twice.1));
+        w.fixes.push((once.0, once.1));
+        w.fixes.push((python, port));
+    }
+    let r = run(&mut w, name);
+    eprintln!("{name} (ORCH-640 fixed): {}", r.verdict());
+    r
 }
 
 /// The journal's rows of `kind` after a run (their data).

@@ -1166,3 +1166,26 @@ why = "One shared path (the Need and _authorize) serves every Mac route and web 
 rejected = ["Keying the No by app too: the owner said a No stays a No for that call", "An in-memory set per tree: lost on restart and outside the confirmations record"]
 paths = ["ferb/policy/terminal.py::app_wide", "ferb/policy/terminal.py::app_key", "ferb/policy/terminal.py::need", "ferb/policy/confirm.py::TERMINAL_APP", "ferb/policy/confirm.py::_covers", "ferb/policy/confirm.py::_terminal_card", "ferb/daemon/gateway.py::Gateway._authorize", "ferb/daemon/gateway.py::Gateway._grants"]
 live = ["LIVE-582", "LIVE-939"]
+
+[GATE-587]
+title = "After outside content, giving the owner's file to a site or address from a page asks"
+by = "owner"
+date = 2026-11-14
+status = "active"
+words = "ok we can buil it. also you can refer to the old ferb data for qualitative task test"
+words_source = "Answer, 2026-11-14, to the coordinator's proposal quoted in `evidence`, after outside_destinations.rs measured three unasked routes."
+rule = "After a task read outside content, FERB asks before giving the owner's file to a site or person the owner neither named nor approved, as it asks for the owner's data in a form. A browser upload asks at upload, once per site per task; a Yes carries to the submit. An address in an AppleScript is its recipient. A shell command whose own words send a file from the owner's home to a host found only in outside content asks (narrow): fetches, installs, clones, named hosts and uploads inside scripts aren't asked."
+why = "The rule the owner relies on (a page can't make FERB send the owner's things where the owner didn't say) had three routes around it; the owner chose the narrow shell version to keep questions few."
+evidence = "Proposal: \"Fix the browser upload and the AppleScript mail routes. They are the same rule you already have, extended to files... Shell: the narrow version. It catches the obvious case without questioning ordinary research. The full version is the kind of noise you've said you don't want.\""
+rejected = ["The full shell version (any command reaching a page's host after outside content): questions ordinary research"]
+paths = ["rust/crates/ferb-gateway/src/gateway.rs::Gateway.file_send_needs", "rust/crates/ferb-policy/src/sends.rs::file_sends", "rust/crates/ferb-mac-hands/src/tools.rs::script_recipients"]
+
+[GATE-588]
+title = "File sends: which files are the owner's, one key per site, the shell shapes read"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "For GATE-587. Owner's file: under home, not in FERB's workspace or download roots, not made by this tree, not a path the owner's words name. Upload: a page's form fill whose input is files (file_paths read). Shell: sends::file_sends over shlex words, host found only in outside content. Both ask sink:new_destination keyed (sink:new_destination, host), the form's key, for this task only; a No there also makes the proxy refuse the host. mac.applescript records each email or phone in its string literals as a recipient; decide calls it a recipient."
+why = "One key per site: one answer covers upload, command and form, and a No stands for the host. Workspace and task-made files are FERB's; downloads are outside. Words only: a script's upload can't be seen without running it; the proxy still records the host."
+rejected = ["Comparing an uploaded file's bytes with the owner's values: file reads in the gateway, misses binaries", "A new question kind for files: the form's question already names the site"]
+paths = ["rust/crates/ferb-gateway/src/gateway.rs::Gateway.owner_file", "rust/crates/ferb-gateway/src/gateway.rs::Gateway.destination_allowed", "rust/crates/ferb-policy/src/confirm.rs::decide"]

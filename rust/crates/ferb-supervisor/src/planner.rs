@@ -763,6 +763,8 @@ pub struct TreeView {
     /// Its open cards, each as `_card_row` writes it.
     pub cards: Vec<Map<String, Value>>,
     pub last_step: Option<Value>,
+    /// ORCH-640: the running worker's latest words (`{"at", "text"}`), while a worker run of the tree runs.
+    pub latest_words: Option<Value>,
     /// `time.sleep_until`'s state: `line`, or `until` and `reason`.
     pub asleep: Option<Map<String, Value>>,
     /// `preview_status(key, "")`: (status, text).
@@ -784,6 +786,28 @@ pub struct WaitingTask {
     pub status: String,
     pub prior_task: Option<String>,
     pub origins: BTreeSet<String>,
+}
+
+/// The status row's key for the running worker's latest words (ORCH-640).
+pub const LATEST_WORDS: &str = "latest_words (the worker's, model-written, not checked)";
+
+/// The status row's `last_report`: the first line of the latest report's answer, else of its reason. Fixed against
+/// Python (ENG-6, ORCH-640): supervisor.py:2155 read the report's `summary`, which no worker report has
+/// (supervisor.py:6200 writes worker_type, status, answer, reason, artifacts and check), so the line was always "".
+fn report_line(report: &Map<String, Value>) -> String {
+    let said = |k: &str| {
+        report
+            .get(k)
+            .filter(|v| !v.is_null())
+            .map(py_str)
+            .unwrap_or_default()
+    };
+    let answer = first_line(&said("answer"));
+    if answer.is_empty() {
+        first_line(&said("reason"))
+    } else {
+        answer
+    }
 }
 
 fn first_line(text: &str) -> String {
@@ -880,11 +904,12 @@ pub fn task_state(
             }
         }
         if let Some(last) = &t.last_report {
-            let summary = last.get("summary").filter(|v| !v.is_null()).map(py_str);
-            row.insert(
-                "last_report".into(),
-                Value::String(first_line(&summary.unwrap_or_default())),
-            );
+            row.insert("last_report".into(), Value::String(report_line(last)));
+        }
+        // ORCH-640: what the running worker last wrote, while it runs (model-written; the block carries the task's
+        // origins)
+        if let Some(words) = &t.latest_words {
+            row.insert(LATEST_WORDS.into(), words.clone());
         }
         if let Some(goals) = &t.goals {
             let steps: Vec<Value> = t

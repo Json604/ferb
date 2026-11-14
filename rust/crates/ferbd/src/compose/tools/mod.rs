@@ -1,6 +1,7 @@
 //! Every tool the gateway runs, registered through its `Tool` trait in Python's registry order (`ferb/registry.py`
 //! `build`, `add_recording`, `add_recovery`, `add_owner_browsers`, `add_mac`, the shell, `add_trail`, the context
-//! readers, `add_identity_browser`): the 97 tools of `rust/fixtures/catalog/tools.json`.
+//! readers, `add_identity_browser`): the 97 tools of `rust/fixtures/catalog/tools.json`, and
+//! the Rust engine's own additions (ferb-gateway `catalog_additions.json`: `about.diagnostics`, DMN-595).
 //!
 //! A tool's schema, description, scopes, identities and facts come from the frozen catalog through the trait's
 //! defaults, so a Rust tool can't serve a schema the models were never given. Each family's `describe` and `run`
@@ -9,6 +10,7 @@
 
 pub mod browser;
 pub mod context;
+pub mod diagnostics;
 pub mod mac;
 pub mod misc;
 pub mod shell;
@@ -103,6 +105,8 @@ struct Inner {
     group_a: OnceLock<ferb_daemon::shared::Local<ferb_daemon::areas_a::State>>,
     /// The About area's document (`_about_document`), once group B is built.
     about: OnceLock<AboutDocument>,
+    /// The permissions' states `about.diagnostics` reads (the About area's), once group B is built (DMN-595).
+    diagnostics_permissions: OnceLock<diagnostics::Permissions>,
     owner_secrets: OnceLock<Arc<ferb_identity::owner_secrets::OwnerSecrets>>,
     /// The live task records the gateway holds (`self.tasks`), mirrored for the tools that read a task's tree or
     /// deadline (the gateway keeps its own private).
@@ -309,6 +313,7 @@ impl Parts {
             secrets: Mutex::new(Vec::new()),
             group_a: OnceLock::new(),
             about: OnceLock::new(),
+            diagnostics_permissions: OnceLock::new(),
             owner_secrets: OnceLock::new(),
             tasks: Mutex::new(std::collections::HashMap::new()),
             shutting_down: std::sync::atomic::AtomicBool::new(false),
@@ -449,6 +454,12 @@ impl Parts {
     }
     pub fn about_document(&self) -> Option<AboutDocument> {
         self.0.about.get().cloned()
+    }
+    pub fn set_diagnostics_permissions(&self, f: diagnostics::Permissions) {
+        let _ = self.0.diagnostics_permissions.set(f);
+    }
+    pub fn diagnostics_permissions(&self) -> Option<diagnostics::Permissions> {
+        self.0.diagnostics_permissions.get().cloned()
     }
     pub fn set_owner_secrets(&self, s: Arc<ferb_identity::owner_secrets::OwnerSecrets>) {
         let _ = self.0.owner_secrets.set(s);

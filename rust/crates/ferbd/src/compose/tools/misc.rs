@@ -303,7 +303,7 @@ impl ferb_clock::tools::TimerBook for DbBook {
 }
 
 /// add_trail, task.evidence, time, wait.for, skills.read, the context readers, secrets.list, about.read,
-/// conversation.read, memory.learned.
+/// about.diagnostics, conversation.read, memory.learned.
 pub fn rest(p: &Parts) -> Vec<Arc<dyn Tool>> {
     let book: Arc<dyn ferb_clock::tools::TimerBook + Send + Sync> = Arc::new(DbBook {
         db: p.db(),
@@ -333,6 +333,8 @@ pub fn rest(p: &Parts) -> Vec<Arc<dyn Tool>> {
         ctx("memory.read"),
         ctx("secrets.list"),
         ctx("about.read"),
+        // DMN-595: FERB's own diagnostics, after about.read (a Rust addition to Python's registry)
+        super::diagnostics::tool(p),
         ctx("conversation.read"),
         ctx("memory.learned"),
     ]

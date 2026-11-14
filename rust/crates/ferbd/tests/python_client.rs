@@ -116,7 +116,9 @@ fn the_python_client_talks_to_the_rust_daemon() {
             "owner.ask",
             "recording.inspect",
             "recovery.snapshot",
-            "about.read"
+            "about.read",
+            // decision: DMN-595: the Rust engine's own addition, after about.read (not in Python's listing)
+            "about.diagnostics"
         ])
     );
     // fs.list of the workspace through the gateway's whole path: the empty folder listed

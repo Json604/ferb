@@ -93,6 +93,8 @@ struct Inner {
     tools_offered: HashMap<String, bool>,
     live: HashMap<String, mpsc::UnboundedSender<Map<String, Value>>>,
     last_steps: HashMap<String, Value>,
+    /// ORCH-640: per tree, the worker run that wrote last (its task id) and its latest words (`{"at", "text"}`).
+    latest_words: HashMap<String, (String, Value)>,
 }
 
 /// The running calls, shared by the worker and the supervisor.
@@ -183,6 +185,15 @@ impl Runs {
 
     pub fn forget_last_step(&self, tree_id: &str) {
         self.lock().last_steps.remove(tree_id);
+    }
+
+    /// ORCH-640: what a worker run of the tree last wrote (redacted, `{"at", "text"}`), while that run runs; the
+    /// planner's task status row shows it.
+    pub fn latest_words(&self, tree_id: &str) -> Option<Value> {
+        self.lock()
+            .latest_words
+            .get(tree_id)
+            .map(|(_, words)| words.clone())
     }
 
     /// `_connection.get(worker_id)`.
@@ -291,6 +302,23 @@ impl Runs {
         tree_id: &str,
     ) -> Option<mpsc::UnboundedSender<Map<String, Value>>> {
         self.lock().live.get(tree_id).cloned()
+    }
+
+    pub(crate) fn set_latest_words(&self, tree_id: &str, task_id: &str, words: Value) {
+        self.lock()
+            .latest_words
+            .insert(tree_id.to_string(), (task_id.to_string(), words));
+    }
+
+    /// A worker run ended: its words go, unless another run of the tree has written since.
+    pub(crate) fn end_latest_words(&self, tree_id: &str, task_id: &str) {
+        let mut i = self.lock();
+        if i.latest_words
+            .get(tree_id)
+            .is_some_and(|(by, _)| by == task_id)
+        {
+            i.latest_words.remove(tree_id);
+        }
     }
 
     pub(crate) fn set_last_step(&self, tree_id: &str, step: Value) {

@@ -2042,6 +2042,7 @@ impl Inner {
                 question,
                 cards,
                 last_step: self.runs.last_step(&tree.id),
+                latest_words: self.runs.latest_words(&tree.id),
                 asleep,
                 preview,
                 goals: spec.plan.as_ref().map(|p| {

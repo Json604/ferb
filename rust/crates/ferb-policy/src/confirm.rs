@@ -2331,9 +2331,10 @@ pub fn decide(
                 continue;
             }
         }
+        // GATE-588: an address written in an AppleScript addresses someone; it isn't typed
         let what = if k == "amount" {
             "amount"
-        } else if !sends.is_empty() {
+        } else if !sends.is_empty() || kind == Kind::APPLESCRIPT {
             "recipient"
         } else {
             "typed"

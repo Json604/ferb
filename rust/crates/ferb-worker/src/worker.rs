@@ -324,6 +324,19 @@ impl<'a> Cleanup<'a> {
     }
 }
 
+/// ORCH-640: a worker run's latest words go when the run ends, on every path (its report is in the records then).
+struct WordsGuard<'a> {
+    runs: &'a Runs,
+    tree_id: String,
+    task_id: String,
+}
+
+impl Drop for WordsGuard<'_> {
+    fn drop(&mut self) {
+        self.runs.end_latest_words(&self.tree_id, &self.task_id);
+    }
+}
+
 impl Drop for Cleanup<'_> {
     fn drop(&mut self) {
         if !self.armed {
@@ -1155,6 +1168,15 @@ impl Worker {
         }
 
         let mut final_text = String::new();
+        // ORCH-640: a worker run's latest words, for the planner's task status row while the run runs
+        let words_tree = tree
+            .filter(|_| task.role == TaskRole::Worker)
+            .map(|t| t.id());
+        let _words = words_tree.as_ref().map(|tree_id| WordsGuard {
+            runs: &self.runs,
+            tree_id: tree_id.clone(),
+            task_id: task.id.clone(),
+        });
         let mut made_up: u64 = 0; // RUN-445: calls to tools this run wasn't offered
         let mut progressed = false;
         let body = async {
@@ -1213,6 +1235,20 @@ impl Worker {
                         }
                         if let Some(on_delta) = &hooks.on_delta {
                             on_delta(&get_str(data, "text", Some("")));
+                        }
+                    }
+                    RuntimeEventKind::Message => {
+                        if let Some(tree_id) = &words_tree {
+                            let text = redact_text(host, &get_str(data, "text", Some("")));
+                            if !ferb_py::value::strip(&text).is_empty() {
+                                let local = host.clock().zone().local(&host.clock().now());
+                                let at = local.format("%H:%M").to_string();
+                                self.runs.set_latest_words(
+                                    tree_id,
+                                    &task.id,
+                                    json!({"at": at, "text": text}),
+                                );
+                            }
                         }
                     }
                     RuntimeEventKind::ToolCall => {

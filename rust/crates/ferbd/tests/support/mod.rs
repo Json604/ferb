@@ -108,8 +108,10 @@ impl Run {
                     c.send(
                         r#"{"jsonrpc": "2.0", "id": 900, "method": "memory.list", "params": {}}"#,
                     );
+                    // the control socket takes a connection: its file exists from bind(), a moment before
+                    // listen(), and a connection in between is refused
                     if c.recv().is_some()
-                        && Path::new(&self.home.join("run/stand-ins.sock")).exists()
+                        && UnixStream::connect(self.home.join("run/stand-ins.sock")).is_ok()
                     {
                         return;
                     }
@@ -152,7 +154,13 @@ impl Run {
 
     /// One request on the control socket.
     pub fn control(&self, req: Value) -> Value {
-        let s = UnixStream::connect(self.home.join("run/stand-ins.sock")).expect("control");
+        let s = match UnixStream::connect(self.home.join("run/stand-ins.sock")) {
+            Ok(s) => s,
+            Err(e) => panic!(
+                "control {req}: {e}; the daemon wrote: {}",
+                self.stderr_now()
+            ),
+        };
         s.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
         let mut w = s.try_clone().unwrap();
         writeln!(w, "{req}").unwrap();

@@ -84,6 +84,7 @@ fn tree_view(t: &Value) -> TreeView {
             .map(|c| c.as_object().cloned().unwrap())
             .collect(),
         last_step: (!t["last_step"].is_null()).then(|| t["last_step"].clone()),
+        latest_words: None,
         asleep: t["asleep"].as_object().cloned(),
         preview: t["preview"].as_array().map(|p| (s(&p[0]), s(&p[1]))),
         goals: if t["plan"].as_bool().unwrap() {

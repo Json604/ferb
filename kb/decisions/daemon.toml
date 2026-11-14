@@ -972,3 +972,14 @@ rule = "For DMN-593. A packaged FERB.app with no Python inside (the Rust build) 
 why = "DMN-593: one mechanism under the label; the Rust commands never write the LaunchAgent from FERB.app, so an ad-hoc build can only run in-app. Live 2026-11-14: kickstart says yes before launchd tries, and a fresh registration cleared a broken Background Task Management record."
 supersedes = ["DMN-591"]
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::SetupModel.repairService", "ui/mac/FERBNotch/Sources/NotchCore/AppService.swift::AppServicePlan", "ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift::LaunchctlPlan.spawnFailure", "rust/crates/ferb-device/src/install.rs::Installer.in_app"]
+
+[DMN-595]
+title = "FERB can read its own diagnostics to help the owner"
+by = "owner"
+date = 2026-11-14
+status = "active"
+words = "this wont have misfires on any other laptop ,right??? if you dont know add the current method as fallback when pairign isnt happenign this way or somethign and can FERB read these failure logs too??? shoudl it? so it can help the suer find the error n all?? Casue if ferb cant see its own apps diagnosis and errors/logs how will it help the user?"
+words_source = "Owner 2026-11-14, on HAND-520's windowless pairing (journal 60), relayed by the coordinator. The first half (the pairing fallback) is HAND-523."
+rule = "One read-only tool, about.diagnostics, on the shared gateway path for the planner (a lookup) and every worker: the running version and build, each browser profile's connection, FERB's permissions, the last lines FERB wrote to its daemon log and FERB's own journal records by kind (origin ferb, the chat's kinds left out). Redacted like every result, labelled Origin: ferb, bounded (16,000 characters, a technical bound), read through a read-only connection. supervisor.md: asked why FERB itself failed, the planner reads it first and never guesses a cause it doesn't show."
+why = "FERB could not see its own errors, so it could not help the owner find why something of its own didn't work."
+paths = ["rust/crates/ferb-gateway/src/catalog.rs", "rust/crates/ferb-supervisor/src/words.rs", "ferb/orchestrator/prompts/supervisor.md", "rust/crates/ferbd/src/compose/tools/misc.rs"]

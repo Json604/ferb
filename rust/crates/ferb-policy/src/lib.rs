@@ -33,6 +33,7 @@ pub mod py;
 pub mod pyurl;
 pub mod rules;
 pub(crate) mod rx;
+pub mod sends;
 pub mod shlex;
 pub mod small;
 pub mod standing;

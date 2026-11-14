@@ -230,6 +230,20 @@ fn tls_line(v: &Values) -> R<String> {
         .replace("{site}", &site))
 }
 
+/// GATE-588: the owner's files a send names, on one line.
+fn files_said(v: &Values) -> String {
+    let files: Vec<&str> = v
+        .opt("files")
+        .split('\n')
+        .filter(|x| !x.is_empty())
+        .collect();
+    format!(
+        "your file{} {}",
+        if files.len() > 1 { "s" } else { "" },
+        files.join(", ")
+    )
+}
+
 fn clicking(v: &Values) -> String {
     if v.has("control") {
         format!(" by clicking {}", shown_quoted(v.opt("control")))
@@ -329,6 +343,14 @@ fn part(n: &Need, alongside: &[&str]) -> R<String> {
             v.req("verb")?,
             v.req("recipients")?
         ),
+        "sink:new_destination" if v.has("files") => {
+            format!(
+                "this {} {} to {}, a place you haven't named",
+                if v.get("how") == Some("upload") { "uploads" } else { "command sends" },
+                files_said(v),
+                v.req("destination")?
+            ) + &(if v.has("read") { format!("; this task read {}", v.opt("read")) } else { String::new() })
+        }
         "sink:new_destination" if v.has("form") => {
             format!(
                 "this sends the page's answers to {}{}, a place you haven't named: {}",
@@ -496,6 +518,9 @@ fn short(n: &Need, alongside: &[&str]) -> R<Option<String>> {
             },
             v.req("recipients")?
         ),
+        "sink:new_destination" if v.has("files") => {
+            format!("send {} to {}", files_said(v), v.req("destination")?)
+        }
         "sink:new_destination" if v.has("form") => format!(
             "send {} to {}{}",
             if v.has("sent") {
@@ -959,6 +984,24 @@ fn card_of(n: &Need, alongside: &[&str]) -> Option<Card> {
                 if v.has("url") { v.opt("url").to_string() } else { dest.to_string() },
                 "Open it",
                 "Don't open",
+            ))
+        }
+        "sink:new_destination" if v.has("files") => {
+            let dest = v.opt("destination");
+            let files: Vec<&str> = v.opt("files").split('\n').filter(|x| !x.is_empty()).collect();
+            let (one, which) = if files.len() > 1 { ("files", "the files below") } else { ("file", "the file below") };
+            let found = if v.has("found_via") { format!("; it found it {}", v.opt("found_via")) } else { String::new() };
+            let does = if v.get("how") == Some("upload") {
+                format!("This upload gives {dest} {which} from your own files.")
+            } else {
+                format!("This command sends {which} from your own files to {dest}.")
+            };
+            Some(c(
+                format!("Send your {one} to {dest}?"),
+                format!("{does} You haven't named this site to FERB{found}. Yes covers {dest} for this task."),
+                files.join("\n"),
+                "Send",
+                "Don't send",
             ))
         }
         "sink:new_destination" if v.has("form") => {

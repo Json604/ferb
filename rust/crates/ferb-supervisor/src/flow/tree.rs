@@ -2963,11 +2963,15 @@ impl Inner {
         if !sites.is_empty() {
             lines.push(crate::lines::sites_line(sites));
         }
-        lines.extend(self.apps_left_running(&tree.id));
+        // HAND-521: what the cleanup left (apps FERB left running, then what it couldn't release) is one message
+        let mut left = self.apps_left_running(&tree.id);
         if !errors.is_empty() {
-            lines.extend(ferb_orchestrator::leftovers::leftover_lines(
+            left.extend(ferb_orchestrator::leftovers::leftover_lines(
                 &resources, &errors,
             ));
+        }
+        if !left.is_empty() {
+            lines.push(left.join(" "));
         }
         lines
     }

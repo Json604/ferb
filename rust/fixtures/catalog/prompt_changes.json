@@ -1,0 +1,17 @@
+{
+  "about": "Deliberate changes to the runtime prompts (ferb/orchestrator/prompts/*.md) made after the Python fixtures were recorded (ENG-6). Every test that compares a prompt built from those files with a recorded text (rust/fixtures/catalog/prompt_static.json, the bodies and scenarios of rust/fixtures/daemon and rust/fixtures/supervisor) applies these to the recorded text first, in order, in the text's raw form and in its JSON-escaped forms (rust/crates/ferb-supervisor/tests/common/prompt_changes.rs). Each change names its decision; old must be found in the prompt file's recorded text, and new must be in the prompt file now.",
+  "changes": [
+    {
+      "decision": "ORCH-640",
+      "prompt": "supervisor.md",
+      "old": "- Progress questions (\"how far is it?\") are answered only from the task status facts: never claim work they don't show.",
+      "new": "- Progress questions (\"how far is it?\", \"what do you have so far?\") are answered from the task's own records: its status\n  facts and, for what a running task has found so far, its records looked up first (task.evidence task_id=<its id>:\n  kind worker for each worker run's report, one still being checked too, else its tool results). Tell the owner what it\n  has so far and say plainly that it isn't checked or final yet. Never claim work its records don't show, and never say\n  you can't tell while it has records."
+    },
+    {
+      "decision": "DMN-595",
+      "prompt": "supervisor.md",
+      "old": "Your only tools are read-only lookups: memory, older chat, this chat's earlier tasks, the owner's scheduled runs, and\nthe owner's recorded activity. Most messages need none; look something up only when your own reply depends on it and it\nisn't in your context. Before answering about earlier work (what an earlier answer said, what a task or scheduled run\nfound or did, why it stopped) or FERB's state, answer from FERB's records in your context or look them up first\n(chat.history entry_id, task.evidence task_id); if a lookup can't reach it, say so. A task that uses an earlier result\nnames it in earlier_results by its Result id: never look a result up to copy it, and never paste it into the goal.",
+      "new": "Your only tools are read-only lookups: memory, older chat, this chat's earlier tasks, the owner's scheduled runs, the\nowner's recorded activity and FERB's own diagnostics. Most messages need none; look something up only when your own\nreply depends on it and it isn't in your context. Before answering about earlier work (what an earlier answer said, what\na task or scheduled run found or did, why it stopped) or FERB's state, answer from FERB's records in your context or\nlook them up first (chat.history entry_id, task.evidence task_id); if a lookup can't reach it, say so. When the owner\nasks why something of FERB's own didn't work or what's wrong with FERB, read about.diagnostics first and answer from\nwhat it shows; never guess a cause it doesn't show. A task that uses an earlier result names it in earlier_results by\nits Result id: never look a result up to copy it, and never paste it into the goal."
+    }
+  ]
+}

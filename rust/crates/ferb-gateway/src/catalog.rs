@@ -3,6 +3,10 @@
 //! Python daemon), never regenerated. pydantic writes those schemas; Rust can't regenerate their bytes, so the frozen
 //! data is the registry's data.
 //!
+//! The Rust engine's own tools beyond Python's (`catalog_additions.json`, each with the decision that adds it) join the
+//! entries after the tool each names; [`Catalog::raw`] stays Python's file as frozen, and [`additions`] names them for
+//! the tests that compare the two (decision: DMN-595, `about.diagnostics`).
+//!
 //! What the gateway adds to a tool's own schema (`gateway.py:717-733`): `effect` for a tool that acts, `destination`
 //! for a generic input with no field of that name, and `why`, in that order, at the end of `properties`.
 
@@ -13,6 +17,20 @@ use serde_json::{Map, Value};
 
 /// The frozen catalog (key order kept: `serde_json` with `preserve_order`).
 const TOOLS_JSON: &str = include_str!("../../../fixtures/catalog/tools.json");
+/// The Rust engine's own tools (not Python's), each with its decision and the tool it follows.
+const ADDITIONS_JSON: &str = include_str!("catalog_additions.json");
+
+/// One tool the Rust engine adds to Python's catalog.
+#[derive(Debug, Clone)]
+pub struct Addition {
+    /// The decision that adds it.
+    pub decision: String,
+    /// The Python tool it follows in registry order.
+    pub after: String,
+    pub name: String,
+    /// Its row as written in `catalog_additions.json` (the same fields as a tools.json row).
+    pub row: Value,
+}
 
 /// One tool of the frozen catalog, as its capability declared it.
 #[derive(Debug, Clone)]
@@ -32,6 +50,8 @@ pub struct Entry {
 #[derive(Debug)]
 pub struct Catalog {
     pub entries: Vec<Entry>,
+    /// The Rust engine's own tools, also among `entries`.
+    pub additions: Vec<Addition>,
     pub constants: Map<String, Value>,
     raw: Value,
 }
@@ -47,30 +67,53 @@ fn strings(v: &Value) -> BTreeSet<String> {
         .unwrap_or_default()
 }
 
+fn entry_of(t: &Value) -> Entry {
+    let mut schema = t["input_schema"].clone();
+    let added = strings(&t["added_by_gateway"]);
+    if let Some(Value::Object(props)) = schema.get_mut("properties") {
+        for key in &added {
+            props.shift_remove(key);
+        }
+    }
+    Entry {
+        name: t["name"].as_str().unwrap_or_default().to_string(),
+        description: t["description"].as_str().unwrap_or_default().to_string(),
+        schema,
+        scopes: strings(&t["scopes"]),
+        identities: strings(&t["identities"]),
+        facts: t["facts"].as_object().cloned().unwrap_or_default(),
+    }
+}
+
 impl Catalog {
     fn load() -> Catalog {
         let raw: Value = serde_json::from_str(TOOLS_JSON).expect("the frozen catalog is JSON");
-        let mut entries = Vec::new();
-        for t in raw["tools"].as_array().expect("tools is a list") {
-            let mut schema = t["input_schema"].clone();
-            let added = strings(&t["added_by_gateway"]);
-            if let Some(Value::Object(props)) = schema.get_mut("properties") {
-                for key in &added {
-                    props.shift_remove(key);
-                }
-            }
-            entries.push(Entry {
+        let mut entries: Vec<Entry> = raw["tools"]
+            .as_array()
+            .expect("tools is a list")
+            .iter()
+            .map(entry_of)
+            .collect();
+        let extra: Value = serde_json::from_str(ADDITIONS_JSON).expect("the additions are JSON");
+        let mut additions = Vec::new();
+        for t in extra["tools"].as_array().expect("tools is a list") {
+            let a = Addition {
+                decision: t["decision"].as_str().unwrap_or_default().to_string(),
+                after: t["after"].as_str().unwrap_or_default().to_string(),
                 name: t["name"].as_str().unwrap_or_default().to_string(),
-                description: t["description"].as_str().unwrap_or_default().to_string(),
-                schema,
-                scopes: strings(&t["scopes"]),
-                identities: strings(&t["identities"]),
-                facts: t["facts"].as_object().cloned().unwrap_or_default(),
-            });
+                row: t.clone(),
+            };
+            let at = entries
+                .iter()
+                .position(|e| e.name == a.after)
+                .expect("an addition follows a catalog tool");
+            entries.insert(at + 1, entry_of(t));
+            additions.push(a);
         }
         let constants = raw["constants"].as_object().cloned().unwrap_or_default();
         Catalog {
             entries,
+            additions,
             constants,
             raw,
         }
@@ -85,10 +128,20 @@ impl Catalog {
         self.constants.get(name).unwrap_or(&Value::Null)
     }
 
-    /// The whole frozen file, for tests.
+    /// The whole frozen file (Python's, without the additions), for tests.
     pub fn raw(&self) -> &Value {
         &self.raw
     }
+}
+
+/// The Rust engine's own tools, in the order they were added.
+pub fn additions() -> &'static [Addition] {
+    &catalog().additions
+}
+
+/// Whether `name` is one of the Rust engine's own tools (not in Python's frozen catalog).
+pub fn is_addition(name: &str) -> bool {
+    additions().iter().any(|a| a.name == name)
 }
 
 /// The catalog, read once.

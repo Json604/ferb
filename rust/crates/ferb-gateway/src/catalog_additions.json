@@ -1,0 +1,57 @@
+{
+ "about": "Tools the Rust engine adds to the Python build's frozen catalog (rust/fixtures/catalog/tools.json), each with the decision that adds it and the tool it follows in registry order. Written by hand, never generated; the catalog tests compare tools.json byte for byte with these taken out and check each one here by name.",
+ "tools": [
+  {
+   "decision": "DMN-595",
+   "after": "about.read",
+   "name": "about.diagnostics",
+   "description": "Read FERB's own recent diagnostics: the running version and build, each browser profile's connection to FERB (paired, connected, extension version, why a connection was refused), FERB's permissions, the latest lines of FERB's own log (its starts and stops, refused connections and callers, errors) and FERB's own journal records grouped by kind (how many in the window, the first and last time, the latest one's data: failures, refusals, timeouts, pairing, setup). Use it when the owner asks why something of FERB's own didn't work or what's wrong with FERB. Read-only and redacted: FERB's own records, not the owner's activity or chat. `kind` lists one kind's records, or a family's (a prefix ending in a dot), newest first, instead of the summary.",
+   "input_schema": {
+    "additionalProperties": false,
+    "properties": {
+     "since_hours": {
+      "default": 24,
+      "description": "how far back the journal records reach, in hours",
+      "exclusiveMinimum": 0,
+      "title": "Since Hours",
+      "type": "number"
+     },
+     "kind": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "one record kind (e.g. browsers.pair_failed), or a family ending in a dot (e.g. browser.); omit for the summary by kind",
+      "title": "Kind"
+     },
+     "why": {
+      "type": "string",
+      "description": "Optional short explanation of what this action does toward the owner's request."
+     }
+    },
+    "title": "Input",
+    "type": "object"
+   },
+   "added_by_gateway": [
+    "why"
+   ],
+   "acts": false,
+   "scopes": [],
+   "identities": [
+    "ferb",
+    "owner"
+   ],
+   "facts": {
+    "risk": 1,
+    "reversible": true,
+    "observation": true,
+    "origin": "ferb"
+   }
+  }
+ ]
+}

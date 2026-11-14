@@ -1469,3 +1469,36 @@ status = "active"
 rule = "To pair a profile that isn't connected, FERB first loads it with no window (the browser run with --no-startup-window, as the drivers' wake loads one, HAND-403), waits the load time (2 s), then opens the extension's pairing page there, which closes itself once it has handed over its token (pair.js). No blank local wake page is opened, so nothing is left to close whether the pairing succeeds, fails, is refused, times out or its caller leaves. FERB quits no browser and closes no tab it didn't open."
 why = "Owner, 2026-11-14, after blank \"FERB\" tabs were left: \"not quit browsers ... BUT close the tabs it opened to pair when paired\". Python's wake page closed only after a pairing that succeeded (its recording: seven opened, two closed); ENG-6."
 paths = ["rust/crates/ferb-daemon/src/areas_b/browsers/mod.rs"]
+
+[HAND-521]
+title = "What a task's cleanup left open is told in one short message per answer"
+by = "owner"
+date = 2026-11-14
+status = "active"
+words = "i sjut got shi pammed in the latest reposens of ferb · make it smart so its nto toooo long not toooo short"
+words_source = "Owner 2026-11-14, on an answer ending in seven lines \"I couldn't close one tab I opened: … Close it if it's still open.\" (task 254ed34c); relayed by the coordinator."
+rule = "Refines HAND-419. What one cleanup couldn't release is one message. One tab keeps HAND-419's sentence; several in one profile are counted with up to three titles named and the rest counted (\"\u2026 and four more. Close them if they're still open.\"); across profiles, one short sentence per profile with its count and up to two titles. FERB's tabs first, then the owner's borrowed ones; the other kinds (shell, apps, listening, recording, cleanup cut short) keep their sentences once each in the same message. No raw error or tab id reaches the owner."
+why = "One line per tab filled the owner's answer with seven near-identical lines."
+paths = ["rust/crates/ferb-orchestrator/src/leftovers.rs", "rust/crates/ferb-supervisor/src/flow/tree.rs"]
+
+[HAND-522]
+title = "Cleanup wakes a disconnected profile to close the task's own tabs"
+by = "owner"
+date = 2026-11-14
+status = "active"
+words = "ok fix it"
+words_source = "Owner 2026-11-14, on the coordinator's report (journal 59): a task's tabs stay open when its profile's connection is down at cleanup, closed only at the next reconnect."
+rule = "Refines HAND-403 and HAND-419. Before a task's cleanup closes its tabs, each disconnected profile holding them (no known refusal) is woken with no window (--no-startup-window, never the owner's focus), all under one 35 s bound (a method detail), until connected and its tabs re-adopted; then FERB closes the tabs it opened and lets go of borrowed ones. What still can't be confirmed is told (HAND-521) and closed at the next connection. Never closes a tab FERB didn't open or quits a browser. A profile's drop and return while tasks hold tabs there are journaled."
+why = "Live 2026-11-14 (task 254ed34c): the profile's connection dropped mid-task and seven of the task's tabs stayed open."
+paths = ["rust/crates/ferb-browser/src/driver.rs", "rust/crates/ferb-browser/src/bridge.rs", "rust/crates/ferbd/src/compose/tools/browser.rs"]
+
+[HAND-523]
+title = "Pairing falls back to the visible wake page, and closes it on every outcome"
+by = "owner"
+date = 2026-11-14
+status = "active"
+words = "this wont have misfires on any other laptop ,right??? if you dont know add the current method as fallback when pairign isnt happenign this way or somethign and can FERB read these failure logs too??? shoudl it? so it can help the suer find the error n all?? Casue if ferb cant see its own apps diagnosis and errors/logs how will it help the user?"
+words_source = "Owner 2026-11-14, on HAND-520's windowless pairing (journal 60), relayed by the coordinator. The second half (FERB reading its own logs) is DMN-595."
+rule = "Refines HAND-520. Pairing first loads the profile with no window and opens the self-closing pairing page; with no paired connection within 10 s (a method detail) it falls back to the visible method: the profile's window with FERB's local wake page, then the pairing page again. The wake page closes itself on every outcome: its script asks FERB's local server whether its pairing is over and closes when told or when the server is gone. The fallback is journaled (browsers.pair_fallback) and logged. FERB quits no browser and closes no tab it didn't open."
+why = "The windowless start was measured on one Mac only; the owner asked for the old method as a fallback."
+paths = ["rust/crates/ferb-daemon/src/areas_b/browsers/mod.rs", "rust/crates/ferbd/src/compose/tools/browser.rs"]

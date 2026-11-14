@@ -1,6 +1,10 @@
 //! The composed registry against the frozen catalog (rust/fixtures/catalog/tools.json, made by Python's
 //! `Gateway.tools_for`): all 97 tools in registry order, and the 23 listings by grant byte for byte (their
 //! `json.dumps` SHA-256). Then `ferbd mcp` over stdio with a run token: the tool bridge lists the catalog for it.
+//!
+//! The one named difference: the Rust engine's own tools (`ferb_gateway::catalog::additions`, each with its
+//! decision; DMN-595 `about.diagnostics`) are taken out before comparing with Python's catalog, and each is checked to
+//! be listed right after the tool it follows.
 
 mod support;
 
@@ -15,6 +19,40 @@ fn sha(text: &str) -> String {
     hex::encode(Sha256::digest(text.as_bytes()))
 }
 
+/// A listing without the Rust engine's own tools, after checking each is listed right after the tool it follows
+/// wherever that one is listed and the grant doesn't name its tools without it (decision: DMN-595).
+fn python_s(listing: &Value, grant_tools: &Value, label: &str) -> Value {
+    let names: Vec<&str> = listing
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    let named = |n: &str| match grant_tools.as_array() {
+        Some(t) if !t.is_empty() => t.iter().any(|x| x == n),
+        _ => true,
+    };
+    for a in ferb_gateway::catalog::additions() {
+        let want = names.contains(&a.after.as_str()) && named(&a.name);
+        match names.iter().position(|n| *n == a.name) {
+            Some(i) => {
+                assert!(want, "{label}: {} listed", a.name);
+                assert_eq!(names[i - 1], a.after, "{label}");
+            }
+            None => assert!(!want, "{label}: {} not listed", a.name),
+        }
+    }
+    Value::Array(
+        listing
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|t| !ferb_gateway::catalog::is_addition(t["name"].as_str().unwrap()))
+            .cloned()
+            .collect(),
+    )
+}
+
 #[test]
 fn the_registry_is_the_frozen_catalog() {
     let catalog = fixture("catalog/tools.json");
@@ -26,6 +64,8 @@ fn the_registry_is_the_frozen_catalog() {
         "scopes": catalog["listings"]["worker_owner_all_scopes"]["grant"]["scopes"]}));
     let ferb = run.control(json!({"do": "listing", "identity": "ferb",
         "scopes": catalog["listings"]["worker_ferb_all_scopes"]["grant"]["scopes"]}));
+    let full = python_s(&full, &Value::Null, "full");
+    let ferb = python_s(&ferb, &Value::Null, "ferb");
     // every catalog tool, once, in the registry's order
     let mut names: Vec<String> = Vec::new();
     for l in [&full, &ferb] {
@@ -62,6 +102,7 @@ fn the_registry_is_the_frozen_catalog() {
             json!({"do": "listing", "identity": g["identity"], "scopes": g["scopes"],
             "observe_only": g["observe_only"], "tools": g["tools"], "max_calls": g["max_calls"]}),
         );
+        let got = python_s(&got, &g["tools"], name);
         let got_names: Vec<&str> = got
             .as_array()
             .unwrap()

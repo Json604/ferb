@@ -1,5 +1,9 @@
 //! The tool catalog against the frozen `rust/fixtures/catalog/tools.json` (ENG-3): which tools each of the 23 grants
 //! is offered, in registry order, and the exact bytes of every listing as `json.dumps` writes it.
+//!
+//! The Rust engine's own tools (`catalog::additions`, each with its decision) are the one named difference: each
+//! listing is Python's byte for byte with them taken out, and each addition is listed right after the tool it follows
+//! wherever that tool is listed.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -70,7 +74,25 @@ fn every_listing_is_python_s_byte_for_byte() {
             tools: set(&g["tools"]),
             max_calls: g["max_calls"].as_u64().unwrap(),
         };
-        let listed = tools_for(&r, &grant, &Live::default());
+        let all = tools_for(&r, &grant, &Live::default());
+        // decision: DMN-595: about.diagnostics follows about.read in every listing that holds it, unless the grant
+        // names its tools without it
+        let all_names: Vec<&str> = all.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        for a in catalog::additions() {
+            let named = grant.tools.is_empty() || grant.tools.contains(&a.name);
+            let want = all_names.contains(&a.after.as_str()) && named;
+            match all_names.iter().position(|n| *n == a.name) {
+                Some(i) => {
+                    assert!(want, "{label}: {} listed", a.name);
+                    assert_eq!(all_names[i - 1], a.after, "{label}");
+                }
+                None => assert!(!want, "{label}: {} not listed", a.name),
+            }
+        }
+        let listed: Vec<Value> = all
+            .into_iter()
+            .filter(|t| !catalog::is_addition(t["name"].as_str().unwrap()))
+            .collect();
         let names: Vec<&str> = listed.iter().map(|t| t["name"].as_str().unwrap()).collect();
         let want: Vec<&str> = l["names"]
             .as_array()
@@ -124,6 +146,49 @@ fn every_tool_row_is_python_s() {
             t["acts"].as_bool().unwrap(),
             "{name}"
         );
+    }
+}
+
+// decision: DMN-595
+#[test]
+fn the_rust_additions_are_listed_as_written() {
+    let r = registry();
+    assert_eq!(
+        catalog::catalog().entries.len(),
+        catalog::catalog().raw()["tools"].as_array().unwrap().len() + catalog::additions().len()
+    );
+    let a = catalog::additions();
+    assert_eq!(
+        a.iter()
+            .map(|a| (a.decision.as_str(), a.name.as_str()))
+            .collect::<Vec<_>>(),
+        [("DMN-595", "about.diagnostics")]
+    );
+    for a in a {
+        let tool = r.get(&a.name).unwrap();
+        let schema = ferb_gateway::listing::listed_schema(tool.as_ref());
+        assert_eq!(
+            ferb_py::json::dumps(&schema),
+            ferb_py::json::dumps(&a.row["input_schema"]),
+            "{}",
+            a.name
+        );
+        assert_eq!(
+            tool.description(&Live::default()),
+            a.row["description"].as_str().unwrap()
+        );
+        assert_eq!(
+            ferb_gateway::listing::acts(tool.as_ref()),
+            a.row["acts"].as_bool().unwrap()
+        );
+        let f = tool.facts();
+        assert!(
+            f.observation && f.reversible && !f.generic_input,
+            "{}",
+            a.name
+        );
+        assert_eq!(f.origin.as_deref(), Some("ferb"));
+        assert!(tool.scopes().is_empty());
     }
 }
 

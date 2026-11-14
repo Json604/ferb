@@ -24,6 +24,49 @@ use crate::point::{Point, PreviewTarget, ResolveFn};
 pub const PERMISSION_PRECHECK_S: f64 = 3.0;
 pub const TYPED: [&str; 3] = ["type", "set_value", "edit"];
 
+/// GATE-588: each email address or phone number an AppleScript writes in a string literal (`"…"`, `\"` escapes
+/// kept), by `typed`'s shape check on the whole string, else on each of its words; in order, once each.
+pub fn script_recipients(script: &str, typed: &dyn Fn(&str) -> Option<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut add = |r: Option<String>| {
+        if let Some(r) = r {
+            if !out.contains(&r) {
+                out.push(r);
+            }
+        }
+    };
+    let mut chars = script.chars();
+    while let Some(c) = chars.next() {
+        if c != '"' {
+            continue;
+        }
+        let mut literal = String::new();
+        let mut closed = false;
+        while let Some(n) = chars.next() {
+            match n {
+                '\\' => literal.extend(chars.next()),
+                '"' => {
+                    closed = true;
+                    break;
+                }
+                _ => literal.push(n),
+            }
+        }
+        if !closed {
+            break;
+        }
+        match typed(&literal) {
+            Some(r) => add(Some(r)),
+            None => {
+                for word in literal.split_whitespace() {
+                    add(typed(word));
+                }
+            }
+        }
+    }
+    out
+}
+
 /// What a capability declares to the gateway (the `facts` of rust/fixtures/catalog/tools.json, plus its words).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Declared {
@@ -587,8 +630,15 @@ impl MacTools {
                     ..ActionSpec::new(if hover { "read" } else { "mac_input" })
                 }
             }
+            // GATE-588: the email addresses and phone numbers written in the script's strings are its recipients,
+            // by typing's shape check (GATE-509), so the outside-value rule sees an address taken from a page
             "mac.applescript" => ActionSpec {
-                target: site(self),
+                target: Target {
+                    recipients: script_recipients(s(args, "script").unwrap_or(""), &|t| {
+                        self.driver.policy.typed_destination(t)
+                    }),
+                    ..site(self)
+                },
                 content: s(args, "script").map(String::from),
                 ..ActionSpec::new("applescript")
             },

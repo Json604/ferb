@@ -14,7 +14,8 @@ fn roles(v: &Value) -> Vec<String> {
 
 #[test]
 fn prompt_static_systems_byte_for_byte() {
-    let fx = read("rust/fixtures/catalog/prompt_static.json");
+    // the recorded systems with the deliberate prompt changes since (ENG-6, rust/fixtures/catalog/prompt_changes.json)
+    let fx = prompt_changes::apply_value(&read("rust/fixtures/catalog/prompt_static.json"));
     let root = root();
     let mut checked = 0;
     for variant in ["minimal", "rich"] {
@@ -145,4 +146,46 @@ fn every_recorded_system_text() {
         );
     }
     assert_eq!(checked, 118);
+}
+
+/// Each deliberate prompt change (rust/fixtures/catalog/prompt_changes.json) is in its prompt file now, its old text
+/// is gone from it, and it changes recorded texts: the recordings' other bytes are compared unchanged.
+// decision: ORCH-640
+#[test]
+fn the_deliberate_prompt_changes_are_the_only_ones() {
+    let dir = repo().join("ferb/orchestrator/prompts");
+    let fx = read("rust/fixtures/catalog/prompt_static.json");
+    let recorded: Vec<String> = fx["variants"]
+        .as_object()
+        .unwrap()
+        .values()
+        .flat_map(|v| {
+            v["systems"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|sys| s(&sys["system"]))
+        })
+        .collect();
+    let file = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap();
+    let raw: Value = serde_json::from_str(
+        &std::fs::read_to_string(repo().join("rust/fixtures/catalog/prompt_changes.json")).unwrap(),
+    )
+    .unwrap();
+    for (n, (decision, old, new)) in prompt_changes::changes().iter().enumerate() {
+        let prompt = s(&raw["changes"][n]["prompt"]);
+        let now = file(&prompt);
+        assert!(
+            now.contains(new.as_str()),
+            "{decision}: the new text is in {prompt}"
+        );
+        assert!(
+            !now.contains(old.as_str()),
+            "{decision}: the old text is gone from {prompt}"
+        );
+        assert!(
+            recorded.iter().any(|r| r.contains(old.as_str())),
+            "{decision}: the old text is what the recording holds"
+        );
+    }
 }

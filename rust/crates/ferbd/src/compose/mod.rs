@@ -820,6 +820,14 @@ impl Daemon {
         // about.read's document: the About area's, as FERB.app's About page reads it
         if let Some(about) = b.deps.about.clone() {
             let host = b.deps.host.clone();
+            // about.diagnostics' permissions (DMN-595): the About area's rows, as about.read's `permissions`
+            let grants = about.clone();
+            tool_parts.set_diagnostics_permissions(Arc::new(move || {
+                ferb_mac_hands::permissions::rows(&(grants.grants)(), &(grants.containment)(), &[])
+                    .iter()
+                    .map(|r| serde_json::json!({"id": r["id"], "status": r["status"]}))
+                    .collect()
+            }));
             tool_parts.set_about_document(Arc::new(move || {
                 ferb_daemon::areas_b::about::document(&host, &about).map_err(|e| e.message)
             }));

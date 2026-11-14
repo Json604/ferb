@@ -1789,3 +1789,14 @@ evidence = "Owner's database, tool.call spans of tree 7da1d919: mac.act 00:11:44
 rejected = ["Waking on any new output: a running command prints all the time, and code can't tell an error line from progress without reading its words (rule 4); the worker names the text it waits for", "Waking on an unconfirmed action: the action may have worked, and the wait is how the worker learns whether it did", "Watching only commands running when the wait starts: a command that failed right away, before the worker's next call, would never wake it"]
 paths = ["ferb/clock/wait.py::WaitFor._commands", "ferb/clock/wait.py::WaitFor._ended", "ferb/clock/wait.py::WaitFor.run", "ferb/clock/wait.py::COMMAND_ENDED", "ferb/clock/wait.py::ACTION_FAILED", "ferb/daemon/gateway.py::failed_act", "ferb/daemon/gateway.py::Gateway.failed_act", "ferb/daemon/gateway.py::Gateway.call", "ferb/act/shell/manager.py::ShellManager.exit_told", "ferb/act/shell/manager.py::ShellManager.told", "ferb/orchestrator/worker.py"]
 live = ["LIVE-940"]
+
+[ORCH-640]
+title = "Asked what a running task has so far, FERB reads its records and says what it has, not yet verified"
+by = "owner"
+date = 2026-11-14
+status = "active"
+words = "it shoud see hte trace/log and tell teh resutls with stating taht its not yet verified btu so far so its the response · i mean its the planenr but it is the one talkign to me and it has all the read tools so that he can tell, so it shoudl"
+words_source = "Owner 2026-11-14, after FERB answered his mid-task \"whats the list so far???\" (task 254ed34c) that it couldn't give the names yet; relayed by the coordinator."
+rule = "Refines ORCH-516. Asked what a running task has so far, the planner looks up its records first (task.evidence: worker reports, one being checked included, else tool results) and says what it has, plainly not checked or final yet; never that it can't tell while records exist (supervisor.md). The status row carries the latest report's first line and, while a worker runs, its latest words (redacted, in memory only, cleared at the run's end). Origins and the sink rule hold. Code decides nothing about which message is a progress question (rule 4)."
+why = "The planner answered progress only from the status row (supervisor.md) and did not look at the task's records it could read."
+paths = ["ferb/orchestrator/prompts/supervisor.md", "rust/crates/ferb-supervisor/src/planner.rs", "rust/crates/ferb-supervisor/src/flow/turn.rs", "rust/crates/ferb-worker/src/worker.rs", "rust/crates/ferb-worker/src/runs.rs"]

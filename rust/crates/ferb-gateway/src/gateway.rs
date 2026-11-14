@@ -2603,6 +2603,172 @@ impl Gateway {
         Ok(Some(n))
     }
 
+    /// GATE-587, GATE-588: the form sink's rule extended to the owner's files. After outside content was read, a call
+    /// that hands one of the owner's files to a site the owner neither named nor approved asks the form's question
+    /// for that site (one key per site per task, so a Yes carries to the form's submit): an upload into a page (a
+    /// form fill whose input is files, `file_paths` read), or a shell command whose words plainly send a file
+    /// (`sends::file_sends`) to a host this task learned only from outside content.
+    fn file_send_needs(&self, c: &Call, outside: &[String]) -> R<Vec<Need>> {
+        if outside.is_empty() {
+            return Ok(Vec::new());
+        }
+        let root = c.root();
+        let content = c.spec.content.clone().unwrap_or_default();
+        // (host, the files given as written, the base relative paths are read against)
+        let mut sends: Vec<(String, Vec<String>, String)> = Vec::new();
+        let page = c.spec.target.page.as_deref().is_some_and(|p| !p.is_empty());
+        if c.spec.kind == Kind::FILL_FORM && page {
+            let host = dest::normalize("host", c.spec.target.site.as_deref().unwrap_or(""));
+            let files: Vec<String> = c
+                .tool
+                .file_paths(&c.args)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|(_, mode)| mode == "read")
+                .map(|(p, _)| p)
+                .collect();
+            if !host.is_empty() && !files.is_empty() {
+                sends.push((host, files, self.d.roots.workspace.clone()));
+            }
+        } else if c.spec.kind == Kind::RUN_SHELL && !content.is_empty() {
+            let cwd = c
+                .spec
+                .target
+                .path
+                .clone()
+                .filter(|p| !p.is_empty())
+                .unwrap_or_else(|| ".".into());
+            let base =
+                ferb_fs::files::normalize_path(&cwd, &self.d.roots.workspace, &self.d.roots.home)
+                    .unwrap_or_else(|_| self.d.roots.workspace.clone());
+            for send in ferb_policy::sends::file_sends(&content) {
+                for host in &send.hosts {
+                    let host = dest::normalize("host", host);
+                    match sends.iter_mut().find(|(h, _, _)| *h == host) {
+                        Some((_, files, _)) => files.extend(send.paths.iter().cloned()),
+                        None => sends.push((host, send.paths.clone(), base.clone())),
+                    }
+                }
+            }
+        }
+        let mut needs = Vec::new();
+        for (host, given, base) in sends {
+            if self.destinations(|d| d.approved("host", &host))? || self.host_named(&host, &root)? {
+                continue;
+            }
+            if c.spec.kind == Kind::RUN_SHELL {
+                // the narrow shell rule: only a host this task found in outside content and nowhere of the owner's
+                let site = Target {
+                    site: Some(host.clone()),
+                    ..Target::default()
+                };
+                let sources = self.arg_sources(&site, &c.rec, &c.grant)?;
+                let found: Vec<String> = provenance::get(&sources, "site")
+                    .iter()
+                    .filter(|s| *s != "unknown")
+                    .cloned()
+                    .collect();
+                if found.is_empty()
+                    || confirm::owner_named(&found)
+                    || found.iter().any(|s| s == origin::PRIVATE)
+                {
+                    continue;
+                }
+            }
+            let mut shown: Vec<String> = Vec::new();
+            for p in given {
+                if let Some(s) = self.owner_file(&root, &p, &base, c)? {
+                    if !shown.contains(&s) {
+                        shown.push(s);
+                    }
+                }
+            }
+            if shown.is_empty() {
+                continue;
+            }
+            let visited = self.visited_outside(&root)?;
+            // the records read so far, for where this site was found (`found_via` reads them)
+            self.sink_texts(&root)?;
+            let how = if c.spec.kind == Kind::RUN_SHELL {
+                "command"
+            } else {
+                "upload"
+            };
+            let mut n = Need::new(
+                "sink:new_destination",
+                confirm::key(&[json!("sink:new_destination"), json!(host)]),
+                Values::of(&[
+                    ("destination", &host),
+                    ("files", &shown.join("\n")),
+                    ("how", how),
+                    (
+                        "read",
+                        &confirm::shown_origins(visited.iter().map(String::as_str)),
+                    ),
+                    ("found_via", &self.found_via(&root, &host)),
+                ]),
+            );
+            n.reaches = Some(Target {
+                site: Some(host.clone()),
+                ..c.spec.target.clone()
+            });
+            needs.push(n);
+        }
+        Ok(needs)
+    }
+
+    /// GATE-588: `given` (as the call wrote it, relative to `base`) as the owner's file it is, shown with `~`; None for
+    /// what isn't the owner's: outside the home folder, in FERB's workspace, where downloads land, made by this task
+    /// tree, or a path the owner's own words in this task name.
+    fn owner_file(&self, root: &str, given: &str, base: &str, c: &Call) -> R<Option<String>> {
+        let home = &self.d.roots.home;
+        let typed = given
+            .strip_prefix("$HOME/")
+            .or_else(|| given.strip_prefix("${HOME}/"))
+            .map(|rest| format!("~/{rest}"))
+            .unwrap_or_else(|| given.to_string());
+        let Ok(raw) = ferb_fs::files::normalize_path(&typed, base, home) else {
+            return Ok(None);
+        };
+        let real = ferb_fs::files::real_path(&raw, base, home).unwrap_or_else(|_| raw.clone());
+        let resolved =
+            |p: &str| ferb_fs::files::real_path(p, "/", home).unwrap_or_else(|_| p.to_string());
+        let under = |p: &str, r: &str| {
+            !r.is_empty()
+                && (ferb_fs::pypath::is_relative_to(p, r)
+                    || ferb_fs::pypath::is_relative_to(p, &resolved(r)))
+        };
+        if !(under(&raw, home) || under(&real, home)) {
+            return Ok(None);
+        }
+        let ferb_own = std::iter::once(self.d.roots.workspace.clone())
+            .chain(self.d.roots.untrusted_roots.iter().cloned());
+        for r in ferb_own {
+            let r = ferb_fs::files::normalize_path(&r, "/", home).unwrap_or(r);
+            if under(&raw, &r) || under(&real, &r) {
+                return Ok(None);
+            }
+        }
+        if self.made_here(root, &real) {
+            return Ok(None);
+        }
+        let named = Target {
+            path: Some(raw.clone()),
+            ..Target::default()
+        };
+        let sources = self.arg_sources(&named, &c.rec, &c.grant)?;
+        if confirm::owner_named(provenance::get(&sources, "path")) {
+            return Ok(None);
+        }
+        let shown = [home.clone(), resolved(home)].iter().find_map(|h| {
+            let prefix = format!("{}/", h.trim_end_matches('/'));
+            raw.strip_prefix(&prefix)
+                .or_else(|| real.strip_prefix(&prefix))
+                .map(|rest| format!("~/{rest}"))
+        });
+        Ok(Some(shown.unwrap_or(raw)))
+    }
+
     /// `_floor_needs` (D23 floor, D33, S4, SQ6, L39): `confirm.decide` over the call's kinds and its facts' kinds.
     async fn floor_needs(&self, c: &mut Call) -> R<Result<Vec<Need>, Map<String, Value>>> {
         let root = c.root();
@@ -2667,6 +2833,11 @@ impl Gateway {
                     if let Some(p) = fact_target.path.clone() {
                         deletes.push((p, fact_sources));
                     }
+                }
+            }
+            for n in self.file_send_needs(c, &outside)? {
+                if !needs.iter().any(|m| m.key == n.key) {
+                    needs.push(n);
                 }
             }
             (needs, deletes)
@@ -5967,6 +6138,14 @@ impl Gateway {
             ));
         };
         if let Some(row) = self.find(&root, &confirm::destination_key(&norm), &[])? {
+            if !row.granted {
+                return Ok((false, DEST_REFUSED_NO.into()));
+            }
+        }
+        // GATE-588: a No to sending the owner's data or files to this site in this task (the form's, an upload's or a
+        // command's question) is a No for the host too
+        let sent_key = confirm::key(&[json!("sink:new_destination"), json!(norm)]);
+        if let Some(row) = self.find(&root, &sent_key, &[])? {
             if !row.granted {
                 return Ok((false, DEST_REFUSED_NO.into()));
             }

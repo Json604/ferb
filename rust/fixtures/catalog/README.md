@@ -150,6 +150,17 @@ Others that reach a model: `ferb/runtimes/schema_shape.py:77` (`ensure_ascii=Fal
 (`ensure_ascii=False`); `ferb/memory/mac_profile.py:41` (`ensure_ascii=False, indent=1`). `evidence.py:360` and
 `conversation_tools.py:39` page the text by **Python string index** (code points), not bytes.
 
+## prompt_changes.json
+
+Written by hand, never by make.py: the deliberate changes to the runtime prompts (`ferb/orchestrator/prompts/*.md`)
+made after these recordings (ENG-6), each with its decision, the prompt file, the recorded text and the new one.
+Every test that compares a prompt built from those files with a recorded text applies them first, in the raw and
+JSON-escaped forms, through `rust/crates/ferb-supervisor/tests/common/prompt_changes.rs` (`apply`); a replay that
+compares a model call's budget line also moves its `reserved_tokens` by the bytes the change added to the system
+(`reserved_shift`, `shift_reserved`, `shift_with_system`). `prompts.rs`
+`the_deliberate_prompt_changes_are_the_only_ones` checks each change is in its file now and the old text is what
+the recording holds. Every other byte is compared as recorded.
+
 ## repair_notes.json
 
 - **Produced by** `check_final` (`ferb/core/structured.py:15-27`): `json.loads`, then

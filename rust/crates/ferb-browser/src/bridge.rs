@@ -98,6 +98,10 @@ pub trait TabDriver: Send + Sync {
     /// This driver's still-open tabs of a task tree and the opens in flight (HAND-234: the tab cap
     /// counts every driver's).
     fn open_count(&self, root: &str) -> i64;
+    /// HAND-522: the running task of each tab this driver holds in this profile (one entry per tab).
+    fn held_tasks(&self, _br: &Arc<Bridge>) -> Vec<String> {
+        vec![]
+    }
 }
 
 type BridgeHook<T> = Arc<dyn Fn(&Arc<Bridge>, &T) + Send + Sync>;
@@ -125,6 +129,40 @@ pub struct Hooks {
     pub on_download: Option<BridgeHook<Event>>,
     /// HAND-406: every connection or message FERB doesn't take (never a message's contents).
     pub record_refusal: Arc<dyn Fn(Map<String, Value>) + Send + Sync>,
+    /// HAND-522: a profile's connection ended, or a new one came, while running tasks hold tabs in it.
+    pub on_task_link: BridgeHook<TaskLink>,
+}
+
+/// HAND-522: the journal kinds of a [`TaskLink`] (data: `profile`, `tasks`, `tabs`, `gen`).
+pub const TASK_PROFILE_DISCONNECTED: &str = "browser.task_profile_disconnected";
+pub const TASK_PROFILE_RECONNECTED: &str = "browser.task_profile_reconnected";
+
+/// HAND-522: a profile's connection changed while running tasks hold tabs in it (a fact for diagnosis; Python had
+/// none).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TaskLink {
+    /// The profile is connected now (a new connection came), or its connection ended.
+    pub connected: bool,
+    /// Each task holding tabs there, once, in the order of their tabs.
+    pub tasks: Vec<String>,
+    /// How many of its tabs those tasks hold.
+    pub tabs: usize,
+    /// The connection's generation (the new one's, or the one that ended).
+    pub gen: i64,
+}
+
+impl TaskLink {
+    /// Its journal kind and plain data (no page's address or title).
+    pub fn journal(&self, profile: &str) -> (&'static str, Value) {
+        (
+            if self.connected {
+                TASK_PROFILE_RECONNECTED
+            } else {
+                TASK_PROFILE_DISCONNECTED
+            },
+            json!({"profile": profile, "tasks": self.tasks, "tabs": self.tabs, "gen": self.gen}),
+        )
+    }
 }
 
 impl Default for Hooks {
@@ -138,6 +176,7 @@ impl Default for Hooks {
             on_sound: Arc::new(|_, _| {}),
             on_download: None,
             record_refusal: Arc::new(|_| {}),
+            on_task_link: Arc::new(|_, _| {}),
         }
     }
 }
@@ -250,6 +289,10 @@ pub struct Bridge {
     random: Arc<dyn Random>,
     state: Mutex<BridgeState>,
     connected: watch::Sender<bool>,
+    /// The generation whose hello's tabs the drivers have re-adopted (HAND-522: cleanup waits for it).
+    adopted: watch::Sender<i64>,
+    /// The keepalive's period in milliseconds (the hub's, [`KEEPALIVE_S`] unless set).
+    keepalive_ms: Arc<AtomicU64>,
 }
 
 /// What a bridge's state looks like now (for the tools, the daemon's listings and the tests).
@@ -277,6 +320,7 @@ impl Bridge {
         ledger: Arc<dyn Ledger>,
         random: Arc<dyn Random>,
         device_id: String,
+        keepalive_ms: Arc<AtomicU64>,
     ) -> Bridge {
         Bridge {
             binding,
@@ -299,6 +343,8 @@ impl Bridge {
                 keepalive: None,
             }),
             connected: watch::channel(false).0,
+            adopted: watch::channel(0).0,
+            keepalive_ms,
         }
     }
 
@@ -379,6 +425,18 @@ impl Bridge {
         let mut rx = self.connected.subscribe();
         let done = tokio::time::timeout(wait, rx.wait_for(|c| *c)).await;
         done.is_ok_and(|r| r.is_ok()) || self.is_connected()
+    }
+
+    /// HAND-522: waits until the bridge is connected and its hello's tabs re-adopted (each task tab's generation is
+    /// the connection's), or `wait` passes.
+    pub async fn settled(&self, wait: Duration) -> bool {
+        let ready = |adopted: i64| {
+            let s = lock(&self.state);
+            s.conn.is_some() && adopted == s.gen
+        };
+        let mut rx = self.adopted.subscribe();
+        let done = tokio::time::timeout(wait, rx.wait_for(|g| ready(*g))).await;
+        done.is_ok_and(|r| r.is_ok()) || ready(*self.adopted.borrow())
     }
 
     /// `envelope`: a signed daemon message for this connection: the next counter, the hello's
@@ -721,7 +779,8 @@ impl Bridge {
                         Err(e) if e.is_driver_error() => {} // a dropped connection: the next hello restarts the loop
                         Err(_) => break, // Python's loop dies on anything else (a stale reply)
                     }
-                    tokio::time::sleep(Duration::from_secs_f64(KEEPALIVE_S)).await;
+                    let every = br.keepalive_ms.load(Ordering::Relaxed);
+                    tokio::time::sleep(Duration::from_millis(every)).await;
                 }
             }));
         }
@@ -883,6 +942,7 @@ pub struct Hub {
     app_of: AppOf,
     hooks: Mutex<Hooks>,
     state: Mutex<HubState>,
+    keepalive_ms: Arc<AtomicU64>,
 }
 
 impl Hub {
@@ -912,7 +972,43 @@ impl Hub {
                 unpaired_version: vec![],
                 drivers: vec![],
             }),
+            keepalive_ms: Arc::new(AtomicU64::new((KEEPALIVE_S * 1000.0) as u64)),
         })
+    }
+
+    /// The keepalive's period for every bridge ([`KEEPALIVE_S`] unless set: a test's daemon shortens it).
+    pub fn set_keepalive(&self, every: Duration) {
+        self.keepalive_ms
+            .store(every.as_millis().max(1) as u64, Ordering::Relaxed);
+    }
+
+    /// HAND-522: the running task of each tab any driver holds in this profile.
+    pub fn held_tasks(&self, br: &Arc<Bridge>) -> Vec<String> {
+        self.drivers()
+            .iter()
+            .flat_map(|d| d.held_tasks(br))
+            .collect()
+    }
+
+    /// HAND-522: tells the hook when running tasks hold tabs in a profile whose connection changed.
+    fn task_link(&self, br: &Arc<Bridge>, connected: bool, held: Vec<String>, gen: i64) {
+        if held.is_empty() {
+            return;
+        }
+        let mut tasks: Vec<String> = Vec::new();
+        for t in &held {
+            if !tasks.contains(t) {
+                tasks.push(t.clone());
+            }
+        }
+        let link = TaskLink {
+            connected,
+            tasks,
+            tabs: held.len(),
+            gen,
+        };
+        let hook = Arc::clone(&lock(&self.hooks).on_task_link);
+        hook(br, &link);
     }
 
     pub fn set_hooks(&self, hooks: Hooks) {
@@ -1181,6 +1277,7 @@ impl Hub {
             Arc::clone(&self.ledger),
             Arc::clone(&self.random),
             (self.device_id)(),
+            Arc::clone(&self.keepalive_ms),
         ));
         set(&mut s.bridges, key, Arc::clone(&br));
         Ok(Some(br))
@@ -1250,6 +1347,7 @@ impl Hub {
                 let mut data = Map::new();
                 data.insert("profile".into(), br.name().into());
                 self.publish("browser.disconnected", data);
+                self.task_link(&br, false, self.held_tasks(&br), conn.gen());
             }
         }
     }
@@ -1423,7 +1521,14 @@ impl Hub {
             c.key = key;
             c.dseq = 0;
         }
+        let before = br.gen();
         br.attach(conn, &hello);
+        // HAND-522: the tasks that held tabs here while it was down (a new connection only)
+        let held = if br.gen() != before {
+            self.held_tasks(&br)
+        } else {
+            vec![]
+        };
         // identity: in FERB's own profile every download is FERB's (D35)
         let welcome = Bridge::envelope(
             conn,
@@ -1443,6 +1548,8 @@ impl Hub {
                 }
             }
         }
+        br.adopted.send_replace(br.gen());
+        self.task_link(&br, true, held, br.gen());
         self.disarm_unheld(&br, &hello.armed);
         Ok(())
     }

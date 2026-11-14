@@ -537,7 +537,22 @@ fn decide_matches_python() {
         let got = json!({"ok": needs.iter().map(need_json).collect::<Vec<_>>()});
         let mut got_all = json!({"out": got, "missed": missed.borrow().clone(),
             "own_calls": own_called.get()});
-        let want_all = json!({"out": c["out"], "missed": [], "own_calls": log["own"].as_array().map_or(0, Vec::len)});
+        let mut out = c["out"].clone();
+        // Deliberate difference (GATE-588, owner 2026-11-14 GATE-587): an address an AppleScript writes is its
+        // recipient, so the outside-value question says "recipient" (Send to …?) where Python said "typed" (Type
+        // this …?) for an applescript call without a declared send. Nothing else of these cases differs.
+        if s(&case["kind"]) == "applescript" {
+            for n in out["ok"].as_array_mut().into_iter().flatten() {
+                if n["rule"] == "sink:outside_value" {
+                    for pair in n["values"].as_array_mut().into_iter().flatten() {
+                        if pair[0] == "what" && pair[1] == "typed" {
+                            pair[1] = json!("recipient");
+                        }
+                    }
+                }
+            }
+        }
+        let want_all = json!({"out": out, "missed": [], "own_calls": log["own"].as_array().map_or(0, Vec::len)});
         if !same(&want_all, &got_all) {
             got_all["missed"] = json!(missed.borrow().clone());
         }

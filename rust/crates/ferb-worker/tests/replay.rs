@@ -170,6 +170,35 @@ fn live_json(
     Value::Object(out)
 }
 
+/// The one addition to Python's worker here (ORCH-640): a worker run's words (each `message` event) are redacted as
+/// they arrive and kept, while the run runs, for the planner's task status row; Python dropped them. The log is
+/// compared without those redactions (one per scripted message, with its text), everything else as recorded.
+// decision: ORCH-640
+fn without_words(sc: &Value, log: Vec<Value>) -> Vec<Value> {
+    let said: Vec<Value> = sc["runtimes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|r| r["calls"].as_array().cloned().unwrap_or_default())
+        .flat_map(|c| c["steps"].as_array().cloned().unwrap_or_default())
+        .filter(|step| step["event"] == "message")
+        .map(|step| step["data"]["text"].clone())
+        .collect();
+    let mut left = said.clone();
+    log.into_iter()
+        .filter(|entry| {
+            let redacted = entry[0] == "gateway.redact";
+            match left.iter().position(|t| redacted && entry[1] == *t) {
+                Some(at) => {
+                    left.remove(at);
+                    false
+                }
+                None => true,
+            }
+        })
+        .collect()
+}
+
 #[tokio::test(start_paused = true)]
 async fn worker_runs_match_python() {
     let fx = fixture("worker", "worker.json");
@@ -226,7 +255,7 @@ async fn worker_runs_match_python() {
                 .await
                 .unwrap_or_else(|e| panic!("{name}: escaped: {e:?}"));
             let what = format!("{name}#{i}");
-            d.log(&what, &rec["log"], &host.take_log());
+            d.log(&what, &rec["log"], &without_words(sc, host.take_log()));
             let mut got = result_json(&result);
             if let Attempt::Report(py) = &result {
                 got["report"] = report_value(py);

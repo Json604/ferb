@@ -619,6 +619,168 @@ fn deliberate(section: &str, f: &str, case: &Value) -> bool {
     section == "probes" && f == "field_value" && case.get("raised").is_some()
 }
 
+// decision: HAND-521
+/// Fixed against Python (HAND-521): leftovers.py:31 `leftover_lines` gave one line per leftover and per tab; Rust gives
+/// the cleanup's leftovers as one message. Where at most one tab is named, Python's sentences are kept word for word,
+/// so the comparison is Python's lines joined with a space, the one named substitution. A case naming several tabs is
+/// grouped by profile instead: its exact text is checked in `several_leftover_tabs_are_one_grouped_message`.
+fn one_message(section: &str, f: &str, case: &Value) -> Option<Value> {
+    if (section, f) != ("leftovers", "leftover_lines") {
+        return None;
+    }
+    let tabs: usize = case["args"][0]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r.get("error").is_some_and(|e| e != "" && !e.is_null()))
+        .filter_map(|r| r.get("tabs").and_then(Value::as_array))
+        .map(|t| t.iter().filter(|x| x.is_object()).count())
+        .sum();
+    let lines = strs(&expected(case));
+    Some(if tabs > 1 {
+        json!(leftovers::leftover_lines(
+            case["args"][0].as_array().unwrap(),
+            &strs(&case["args"][1])
+        ))
+    } else if lines.is_empty() {
+        json!([])
+    } else {
+        json!([lines.join(" ")])
+    })
+}
+
+fn tab(browser: &str, profile: &str, account: &str, title: &str) -> Value {
+    json!({"browser": browser, "profile": profile, "account": account, "title": title, "borrowed": false,
+           "kept_open": false, "error": "browser cleanup incomplete"})
+}
+
+fn said(tabs: Vec<Value>, more: Vec<Value>) -> Vec<String> {
+    let mut resources = vec![
+        json!({"resource": "browser", "error": "DriverError: browser cleanup incomplete",
+                                    "released": false, "tabs": tabs}),
+    ];
+    resources.extend(more);
+    let errors: Vec<String> = resources
+        .iter()
+        .map(|r| r["error"].as_str().unwrap().to_string())
+        .collect();
+    leftovers::leftover_lines(&resources, &errors)
+}
+
+// decision: HAND-521
+/// The owner's words for 1, 2, 3 and 7 tabs left open, in one profile and across two, with the sibling kinds in the
+/// same message; titles past 48 characters are cut at a word.
+#[test]
+fn several_leftover_tabs_are_one_grouped_message() {
+    let personal = |t: &str| tab("Google Chrome", "Personal", "sam@example.com", t);
+    let work = |t: &str| tab("Brave", "Work", "", t);
+    let titles = [
+        "Inbox",
+        "Flights to Lisbon, May",
+        "Hotel search",
+        "Weather",
+        "Train times",
+        "Maps",
+        "Reviews",
+    ];
+    let one = |n: usize| -> Vec<Value> { titles[..n].iter().map(|t| personal(t)).collect() };
+    let cases: Vec<(Vec<Value>, &str)> = vec![
+        (
+            one(1),
+            "I couldn't close one tab I opened: Google Chrome “Personal” (sam@example.com), Inbox. Close it if it's still open.",
+        ),
+        (
+            one(2),
+            "I couldn't close two tabs I opened in Google Chrome “Personal” (sam@example.com): “Inbox” and “Flights to Lisbon, May”. Close them if they're still open.",
+        ),
+        (
+            one(3),
+            "I couldn't close three tabs I opened in Google Chrome “Personal” (sam@example.com): “Inbox”, “Flights to Lisbon, May” and “Hotel search”. Close them if they're still open.",
+        ),
+        (
+            one(7),
+            "I couldn't close seven tabs I opened in Google Chrome “Personal” (sam@example.com): “Inbox”, “Flights to Lisbon, May”, “Hotel search” and four more. Close them if they're still open.",
+        ),
+        (
+            vec![personal("Inbox"), work("Standup notes")],
+            "I couldn't close two tabs I opened. One in Google Chrome “Personal” (sam@example.com): “Inbox”. One in Brave “Work”: “Standup notes”. Close them if they're still open.",
+        ),
+        (
+            vec![personal("Inbox"), work("Standup notes"), personal("Weather")],
+            "I couldn't close three tabs I opened. Two in Google Chrome “Personal” (sam@example.com): “Inbox” and “Weather”. One in Brave “Work”: “Standup notes”. Close them if they're still open.",
+        ),
+        (
+            vec![
+                personal("Inbox"),
+                personal("Flights to Lisbon, May"),
+                work("Standup notes"),
+                personal("Hotel search"),
+                personal("Weather"),
+                work("Sprint board"),
+                work("Design review"),
+            ],
+            "I couldn't close seven tabs I opened. Four in Google Chrome “Personal” (sam@example.com): “Inbox”, “Flights to Lisbon, May” and two more. Three in Brave “Work”: “Standup notes”, “Sprint board” and one more. Close them if they're still open.",
+        ),
+        (
+            vec![personal(""), personal("")],
+            "I couldn't close two tabs I opened in Google Chrome “Personal” (sam@example.com). Close them if they're still open.",
+        ),
+        (
+            vec![personal("Best noise cancelling headphones of 2026, tested and ranked by our experts")],
+            "I couldn't close one tab I opened: Google Chrome “Personal” (sam@example.com), Best noise cancelling headphones of 2026… Close it if it's still open.",
+        ),
+    ];
+    for (tabs, want) in cases {
+        assert_eq!(said(tabs, vec![]), vec![want.to_string()]);
+    }
+    // the Python fixture's case with four tabs (texts.json, leftovers), as Rust now says it
+    let case = fixture("texts.json")["leftovers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| {
+            c["args"][0][0]["tabs"]
+                .as_array()
+                .is_some_and(|t| t.len() == 5)
+                && c["args"][1] == json!(["other"])
+        })
+        .cloned()
+        .unwrap();
+    assert_eq!(
+        leftovers::leftover_lines(case["args"][0].as_array().unwrap(), &strs(&case["args"][1])),
+        vec![
+            "I couldn't close three tabs I opened. One in the browser: “A page”. One in the browser “P”. One in Arc. \
+             Close them if they're still open. I couldn't fully let go of one of your tabs: Chrome “Work” \
+             (me@example.com), Inbox. It's still open as you left it; if Chrome says FERB started debugging it, press \
+             Cancel there. I couldn't finish tidying up after this task. The details are in the task's record."
+                .to_string()
+        ]
+    );
+    // the owner's borrowed tabs, and the sibling kinds, in the same one message
+    let mut borrowed = personal("Bank");
+    borrowed["borrowed"] = json!(true);
+    let mut borrowed2 = work("Calendar");
+    borrowed2["borrowed"] = json!(true);
+    assert_eq!(
+        said(
+            vec![personal("Inbox"), personal("Weather"), borrowed, borrowed2],
+            vec![
+                json!({"resource": "shell", "error": "boom"}),
+                json!({"resource": "listen", "error": "boom"}),
+            ]
+        ),
+        vec![
+            "I couldn't close two tabs I opened in Google Chrome “Personal” (sam@example.com): “Inbox” and “Weather”. \
+             Close them if they're still open. I couldn't fully let go of two of your tabs. One in Google Chrome \
+             “Personal” (sam@example.com): “Bank”. One in Brave “Work”: “Calendar”. They're still open as you \
+             left them; if Google Chrome or Brave says FERB started debugging them, press Cancel there. I couldn't \
+             confirm that this task's terminal commands all stopped. Activity Monitor shows anything still running. \
+             I couldn't confirm that listening stopped when this task ended."
+                .to_string()
+        ]
+    );
+}
+
 #[test]
 fn texts_match_python() {
     let all = fixture("texts.json");
@@ -638,6 +800,8 @@ fn texts_match_python() {
             let got = run_case(section, case, &root, &home).unwrap();
             let want = if let Some(raised) = case.get("raised") {
                 json!({"raised": raised[1]})
+            } else if let Some(one) = one_message(section, f, case) {
+                one
             } else {
                 expected(case)
             };

@@ -728,7 +728,7 @@ fn load_prompt_reads_as_python_does() {
     let real = PromptRoot::new(repo().join("ferb")).unwrap();
     for case in list(&fixture, "real") {
         let path = s(&case["path"]);
-        let text = real.load(path, &[]).unwrap();
+        let text = as_recorded(path, real.load(path, &[]).unwrap());
         assert_eq!(sha(&text), s(&case["sha256"]), "{path}");
         assert_eq!(text.chars().count() as u64, case["chars"].as_u64().unwrap());
         let replacements: Vec<(String, String)> = case["replacements"]
@@ -742,10 +742,34 @@ fn load_prompt_reads_as_python_does() {
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect();
         assert_eq!(
-            sha(&real.load(path, &pairs).unwrap()),
+            sha(&as_recorded(path, real.load(path, &pairs).unwrap())),
             s(&case["replaced_sha256"])
         );
     }
+}
+
+/// A prompt file's text as Python read it when the fixture was recorded: the deliberate changes made since
+/// (rust/fixtures/catalog/prompt_changes.json, each naming its decision: ORCH-640, DMN-595) undone, newest first.
+/// Every other byte of the file is still compared with what Python read.
+fn as_recorded(path: &str, mut text: String) -> String {
+    let changes: Value = serde_json::from_str(
+        &std::fs::read_to_string(repo().join("rust/fixtures/catalog/prompt_changes.json")).unwrap(),
+    )
+    .unwrap();
+    for change in list(&changes, "changes").iter().rev() {
+        if !path.ends_with(&format!("prompts/{}", s(&change["prompt"]))) {
+            continue;
+        }
+        let (old, new) = (s(&change["old"]), s(&change["new"]));
+        assert_eq!(
+            text.matches(new).count(),
+            1,
+            "{path}: {}",
+            s(&change["decision"])
+        );
+        text = text.replacen(new, old, 1);
+    }
+    text
 }
 
 fn b64(text: &str) -> Vec<u8> {
