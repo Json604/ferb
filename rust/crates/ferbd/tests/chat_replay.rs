@@ -1362,24 +1362,15 @@ fn the_more_scenarios_through_the_program() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
-/// A correction that wakes a resting loop (loop_steer_finish), many times through the program on its several
-/// threads: the round's span, the reply and the round's worker come in Python's order every time (`SteerHold` in
-/// ferb-supervisor's loops.rs). `STEER_RUNS` sets how many (100 by default). Ignored in the gate (each run starts
-/// the program); run it with `cargo test -p ferbd --test chat_replay -- --ignored a_correction_and_a_woken_loop`.
-#[test]
-#[ignore]
-fn a_correction_and_a_woken_loop_keep_pythons_order_every_time() {
-    let runs: usize = std::env::var("STEER_RUNS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(100);
+/// One recording through the program `runs` times: each run's first differences, if any.
+fn every_time(name: &str, runs: usize) {
     let m = More::new();
     let (i, sc) = m.more["scenarios"]
         .as_array()
         .unwrap()
         .iter()
         .enumerate()
-        .find(|(_, sc)| sc["name"] == "loop_steer_finish")
+        .find(|(_, sc)| sc["name"] == name)
         .expect("the recording");
     let mut partly = Vec::new();
     for n in 0..runs {
@@ -1389,10 +1380,38 @@ fn a_correction_and_a_woken_loop_keep_pythons_order_every_time() {
         }
     }
     eprintln!(
-        "loop_steer_finish: {} of {runs} runs replay fully",
+        "{name}: {} of {runs} runs replay fully",
         runs - partly.len()
     );
     assert!(partly.is_empty(), "{partly:#?}");
+}
+
+/// How many times a stress test runs its recording (`STEER_RUNS`, 100 by default).
+fn stress_runs() -> usize {
+    std::env::var("STEER_RUNS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100)
+}
+
+/// A correction that wakes a resting loop (loop_steer_finish), many times through the program on its several
+/// threads: the round's span, the reply and the round's worker come in Python's order every time (`SteerHold` in
+/// ferb-supervisor's loops.rs). `STEER_RUNS` sets how many (100 by default). Ignored in the gate (each run starts
+/// the program); run it with `cargo test -p ferbd --test chat_replay -- --ignored a_correction_and_a_woken_loop`.
+#[test]
+#[ignore]
+fn a_correction_and_a_woken_loop_keep_pythons_order_every_time() {
+    every_time("loop_steer_finish", stress_runs());
+}
+
+/// A delegated conversation's turn (conversation_handover), many times through the program: what its thread read made
+/// ready on the bus (`tool.called`, `action.observed`) reaches the chat before the hand-over's reply every time, however
+/// the stream's task is woken (the wake mark, `python_wakes_here` in ferb-supervisor's tree.rs). `STEER_RUNS` sets how
+/// many (100 by default); run it with `cargo test -p ferbd --test chat_replay -- --ignored a_conversation_turn`.
+#[test]
+#[ignore]
+fn a_conversation_turn_keeps_pythons_order_every_time() {
+    every_time("conversation_handover", stress_runs());
 }
 
 /// Recordings of paths not judged here yet (none: every recording is judged).

@@ -66,22 +66,67 @@ enum AudioOutputFacts {
         return seconds.isFinite && seconds <= 1 ? seconds : 0
     }
 
-    /// The processes running microphone input now: Core Audio's process objects (macOS 14) with an active input stream,
-    /// by pid. A few property reads, made when a sound is about to play; empty when Core Audio doesn't say.
+    /// The processes running microphone input now (APP-908): Core Audio's process objects (macOS 14) with an active
+    /// input stream, each with the input devices Core Audio names for it, kept when that input is a microphone
+    /// (MicrophoneUse.microphoneInputs). A few property reads, made when a sound is about to play; empty when Core
+    /// Audio doesn't say.
     static func processesRunningInput() -> [pid_t] {
-        let system = AudioObjectID(kAudioObjectSystemObject)
-        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList,
-                                                 mScope: kAudioObjectPropertyScopeGlobal,
+        let uses = objects(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyProcessObjectList)
+            .compactMap { process -> InputUse? in
+                guard let running: UInt32 = property(process, kAudioProcessPropertyIsRunningInput), running != 0,
+                      let pid: pid_t = property(process, kAudioProcessPropertyPID) else { return nil }
+                let devices = objects(process, kAudioProcessPropertyDevices, scope: kAudioObjectPropertyScopeInput)
+                return InputUse(pid: pid, sources: devices.compactMap { source(of: $0) })
+            }
+        return MicrophoneUse.microphoneInputs(uses, microphoneRunning: microphoneRunning(),
+                                              isOwn: { isFerbProcess($0) })
+    }
+
+    /// What an input device is: virtual by its transport; an aggregate by its active sub-devices (a microphone when
+    /// one of them is, virtual when all are); else a microphone when it has input streams. Nil for a device with no
+    /// input; unknown when Core Audio can't read it.
+    static func source(of device: AudioObjectID, depth: Int = 0) -> InputSource? {
+        guard let transport: UInt32 = property(device, kAudioDevicePropertyTransportType) else { return .unknown }
+        switch transport {
+        case kAudioDeviceTransportTypeVirtual:
+            return .virtual
+        case kAudioDeviceTransportTypeAggregate, kAudioDeviceTransportTypeAutoAggregate:
+            guard depth < 4 else { return .unknown }
+            let parts = objects(device, kAudioAggregateDevicePropertyActiveSubDeviceList).compactMap {
+                source(of: $0, depth: depth + 1)
+            }
+            if parts.contains(.microphone) { return .microphone }
+            return !parts.isEmpty && parts.allSatisfy { $0 == .virtual } ? .virtual : .unknown
+        default:
+            return objects(device, kAudioDevicePropertyStreams, scope: kAudioObjectPropertyScopeInput).isEmpty
+                ? nil : .microphone
+        }
+    }
+
+    /// A device that only hears (no output streams, so a running one is recording) and isn't virtual or an aggregate
+    /// runs now: the Mac's own microphone, a USB microphone. A headset that also plays isn't counted here, as its
+    /// playing would read as running too.
+    static func microphoneRunning() -> Bool {
+        objects(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDevices).contains { device in
+            guard source(of: device) == .microphone,
+                  let transport: UInt32 = property(device, kAudioDevicePropertyTransportType),
+                  transport != kAudioDeviceTransportTypeAggregate, transport != kAudioDeviceTransportTypeAutoAggregate,
+                  objects(device, kAudioDevicePropertyStreams, scope: kAudioObjectPropertyScopeOutput).isEmpty,
+                  let running: UInt32 = property(device, kAudioDevicePropertyDeviceIsRunningSomewhere) else { return false }
+            return running != 0
+        }
+    }
+
+    /// A property that is a list of Core Audio objects (devices, processes, streams); empty when it can't be read.
+    private static func objects(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector,
+                                scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal) -> [AudioObjectID] {
+        var address = AudioObjectPropertyAddress(mSelector: selector, mScope: scope,
                                                  mElement: kAudioObjectPropertyElementMain)
         var size = UInt32(0)
-        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr, size > 0 else { return [] }
-        var objects = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
-        guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &objects) == noErr else { return [] }
-        return objects.prefix(Int(size) / MemoryLayout<AudioObjectID>.size).compactMap { process in
-            guard let running: UInt32 = property(process, kAudioProcessPropertyIsRunningInput), running != 0,
-                  let pid: pid_t = property(process, kAudioProcessPropertyPID) else { return nil }
-            return pid
-        }
+        guard AudioObjectGetPropertyDataSize(object, &address, 0, nil, &size) == noErr, size > 0 else { return [] }
+        var out = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(object, &address, 0, nil, &size, &out) == noErr else { return [] }
+        return Array(out.prefix(Int(size) / MemoryLayout<AudioObjectID>.size))
     }
 
     /// FERB's own processes: this app (its dictation) and anything run from inside its bundle (its helpers).

@@ -375,7 +375,7 @@ impl Inner {
                 })?;
             // Python's loop runs what the call made ready (the bus's `tool.called`, `action.observed`) before the turn
             // goes on: the chat stream takes them here, before the turn's own next events
-            tokio::task::yield_now().await;
+            self.python_wakes_here(&h.tree.id);
             if read.get("is_error").is_some_and(ferb_py::value::truthy) {
                 return Ok(
                     json!({"status": "blocked", "summary": "Conversation evidence could not be read.",

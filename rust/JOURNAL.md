@@ -1584,3 +1584,147 @@ self-signed build with its LaunchAgent could, which DMN-593 removes from the pro
 - DMN-587's text still says an ad-hoc build keeps the LaunchAgent; DMN-594 registers ad-hoc Rust builds in-app
   (unverified live). LIVE-943 and LIVE-946 test removed behavior.
 - Not composed by design: Jev (off), FERB.app as the sending client's pid at send.
+
+## 2026-11-14 · 58 · A chat's frames in Python's order however the stream's task is woken
+
+**What.**
+- `conversation_handover` differed in about a third of runs through the program, always the same way: the chat
+  stream's line 9 was the hand-over's `reply` where Python sent the thread read's bus events. The whole Rust stream
+  of failing runs was ack, plan, subtask, step, paused, needs_you, approval.requested, step running, progress, reply,
+  step done, subtask done, verification, **tool.called, action.observed**, outcome: the read's two bus events came
+  after the turn's own events instead of before the reply. In process (replay_more) it never failed (0 of 30 with the
+  old code).
+- Cause (traced with temporary logging of every poll of the turn's task): the bus events ride the tree's line
+  (`chat.rs` subscription, `worker.tell_tree`), `run_tree` forwards that line into the turn's queue, and the turn's
+  stream takes whatever its queue holds when its task is polled, grouped by `as_python_wakes` (bus group after the
+  turn's group). The tree runs inside the same task, so its line reaches the turn's queue one poll after it was told.
+  The `tokio::task::yield_now()` after `conversation.read` (`conversations.rs`) was meant to let the stream take the
+  read's events before the turn goes on; but its one `Pending` often came before `run_tree` had forwarded them, and
+  the next poll forwarded them and ran the worker and its check to the end without another `Pending` (the program's
+  scripted model answers at once). The stream then took step, tool.called, progress, action.observed, reply, step,
+  subtask, verification as one batch and put the two bus events last. Python (`conversations.py:299`
+  `ConversationRunner.run`, `supervisor.py` `_conversation_step`): `await self.turn(...)` reads the thread through the
+  gateway; Python's loop runs the chat's queue readers at the gateway call's own awaits, so the read's bus events
+  reach the chat before the worker's first model call. Whether the yield worked depended on thread timing; wiring the
+  day's activity consumer only shifted that timing (with temporary logging on, it failed 4 of 4 times with the
+  activity consumer off).
+- Fix: `Inner::python_wakes_here(tree_id)` (`tree.rs`) puts a wake mark on the tree's line; the stream ends a burst
+  at each mark whenever it takes the batch (`chat.rs` `as_python_wakes` splits, `one_burst` groups; the mark goes no
+  further; a resumed run's `resumed_event` drops it). Used after `conversation.read` and before a step's question is
+  asked (`owner_wait.rs`, the same yield-as-boundary pattern), in place of the two `yield_now`s.
+- Python's consumer order (`compose.py` `_wire_events`): plans, activity, conversations, attention, bus, approval
+  banner, GATE-562, `_question_record`, ORCH-312. Rust had the bus first, then plans, the turn's bus,
+  `_question_record`, then activity and conversations. Now `consumers::wire_first` adds plans, activity and
+  conversations before the bus (each takes its parts once they exist, as before), so a conversation's
+  `conversation.paused` reaches the bus before the trail event that caused it, as in Python. The day's activity row is
+  written inside the publish again (the thread of entry 57 drew `when` from the clock later than Python).
+
+**Evidence.** `conversation_handover` through the program: 100 of 100 (new ignored test
+`a_conversation_turn_keeps_pythons_order_every_time`; the loop test now shares `every_time`). Its 100 runs ran while
+two other agents built and tested (the coordinator measured a load average of 155 around then). Every recorded
+scenario once: ferb-supervisor `replay` (2 tests), `control_scenarios` (12), `replay_more` (33), ferbd `chat_replay`
+(the 28 and the 33 through the program).
+Whole workspace on a copy of HEAD with only these changes (another agent's half-made browser edits in the shared
+checkout did not compile): format and clippy clean, `cargo test --workspace` three times in a row, 742 passed, 0
+failed, 16 ignored each time, `./gate.sh portable` clean. Six tests of ferb-platform-macos `tests/identity.rs` were
+left out of those three runs (see Open).
+
+**Open.**
+- From 04:39 the Mac could not start a copied signed program: syspolicyd (started on demand at 04:39:45) logged
+  "Unable to initialize qtn_proc: 3" without end, and a copy of `/bin/echo` in any folder, inside the sandbox or out,
+  stayed at `_dyld_start` until killed. A program cargo had just built still ran. So ferb-platform-macos `identity.rs`'s
+  six tests that run a copy of the signed helper (`owner_secrets_flows_match_python_step_by_step`,
+  `configured_secrets_match_python`, `a_value_travels_only_on_stdin`, `the_helper_is_called_and_read_as_python_does`,
+  `helper_seal_gives_the_nonce_and_the_ciphertext`, `the_pinned_code_swapped_for_itself_still_runs`) hung for 10
+  minutes and failed once their helpers were stopped. That comes from the Mac's state, not from this change (no
+  identity code changed); they need running again once syspolicyd works, which may take a restart of the Mac or of the
+  daemon.
+- The consumers Python `_spawn`s (the approval banner, GATE-562's notice, ORCH-312's pause and resume) run in Python
+  at the publisher's next await; Rust spawns them on another worker at once. No recording reaches them with an order
+  that depends on it; their journal rows could interleave differently from Python's.
+- `_question_record` still runs before the approval banner and GATE-562 (Python: after); both are only a spawn at
+  publish time, so nothing observable differs.
+- Other yields that stand for Python's suspension points remain where they order tasks rather than a chat's frames
+  (`loops.rs` with `SteerHold`, `control.rs` a woken loop, `tree.rs` the episode capture).
+- A bus event about a resumed tree that a chat turn's subscription puts on that tree's line reaches
+  `resumed_event`, which publishes it as `task.resumed_event` (no `type`); not seen in any recording, not changed.
+
+## 2026-11-14 · 59 · The first real tasks on the Rust engine: a frozen app, steps stalled behind one question, calls that ran for nobody, the owner's profile ignored
+
+**What.**
+- The gateway: a call queued behind its tree's open question (one FERB question per tree) waits on the owner (the
+  stall clock stops) and is cancelled when its attempt ends (`queue_behind_question`, `forget_calls`; `Inner.queued`).
+- FERB.app: a message's text goes into its text view on the next main-queue turn, measured meanwhile with a detached
+  layout (`NativeMessageText.swift` `stage`/`applyPending`), so an Accessibility notification can't re-enter SwiftUI's
+  update.
+- ferb-browser: a task browsing in the owner's chosen profile can't name another one (`picked_only`,
+  `Tasks::browses_as_owner`, read from the live tree in `ferb-supervisor/src/flow/browse.rs`).
+- The shop-link question rebuilt as `rust/fixtures/gateway/tab_link.json` (`make_tab_link.py`): Python asks it too.
+
+**Why.** The owner ran real tasks with real Codex on build 202611132139 and reported: "it shifted the screen focus …
+ferb is stuck", then "i entered a profile in chrome BUT it anyways used the one in brave". The app froze at 03:57:08
+(an attribute-graph cycle through `NSHostingView.accessibilityChildren` from `MessageTextView.update`), 0.6 s after
+step cameras' confirmation was published, and stayed frozen until the coordinator force-quit it at 04:04 on the
+owner's word. Steps claude and blender queued confirmations behind that question with the stall clock running, so
+each attempt was stopped after 180 s and retried; at the owner's answer (04:03:44) the queued calls of the stopped
+attempts ran: RETURN and ctrl+c in Terminal, an owner.ask for Blender. The 03:56:28 "focus shift" was the owner's
+hover opening the notch with focus (WindowServer "key thief", frontmost stayed Code); the Space switches at
+03:56:53 and 03:57:00 were the owner-approved foreground typing in Terminal; Blender's launch tried to come forward
+and macOS refused it. In task 6b2b3266 the owner's pick (chrome/Profile 15, saved 04:15:26) lost to the worker's
+`"profile": "brave/Work"` because a named profile is resolved before the pick.
+
+**Evidence.** Spans and journal of tasks a5255913, 6b2b3266, 254ed34c (read-only copies, since deleted); the unified
+log of FERBNotch and WindowServer; the app's sample. Tests: ferb-gateway
+`a_call_queued_behind_another_steps_question_waits_on_the_owner_and_ends_with_its_attempt` (fails without the fix),
+`the_shop_link_case_replays_as_python_ran_it`; ferb-browser `tests/owner_pick.rs`; Swift `MessageTextStagingTests` (6).
+
+**Fixed against Python.** `gateway.py:1716-1732` holds `_confirming` while asking with the stall clock running for
+queued calls, and their calls survive their attempt. `resolver.py:48-60` returns a named profile before the owner's
+pick (APP-777 says the pick is always used). The Swift hang is in the app the Python build shares.
+
+**Corrected.** The coordinator first told the owner there were two unapproved focus shifts and a three-minute model
+silence; both were wrong, as above.
+
+**Ran on the owner's Mac.** Read-only reads and backups of `~/.ferb/ferb.db`; `sample` of the daemon and the app;
+`log show`; the frozen FERB.app force-quit and reopened at the owner's request. Load average reached about 155 from
+three agents' builds between 04:14 and 04:31: slow page reads and a capture timeout then may be artefacts.
+
+**Open.**
+- The shop-link question is Python's too (GATE-541; GATE-568 decided, not built, T-1075).
+- `browser.tabs` labels the owner's other tabs as pages the task read (both builds).
+- Progress answers come only from status facts (`supervisor.md:201`); the owner wants what the task has so far,
+  marked not verified.
+- Leftover-tab lines are one per tab and cleanup doesn't wake a disconnected profile (both builds); whether the
+  keepalive ran live is unverified.
+- bad_mac repeats (242) from install 232158e2: sender unidentified.
+- Which outside client observed FERB.app is unknown; UI cost under load not measured.
+- The owner's four questions on profile choice (refuse, redirect or ask; planner-chosen owner identity; reading
+  other profiles' tabs; the facts wording).
+- No test drives `Inner::browses_as_owner` in a live supervisor.
+
+## 2026-11-14 · 60 · Pairing leaves no tab; a relay's input is not a call
+
+**What.**
+- HAND-520 (fixed against Python): pairing loads a profile that isn't connected with no window
+  (`--no-startup-window`, as the drivers' wake does) and opens only the self-closing pairing page. `WakePage`,
+  `wake_url` and `close_wake` are gone. The daemon log names each browser command it runs, token left out.
+- APP-908: only input on a microphone counts as a call (`MicrophoneUse.swift` `InputUse`, `microphoneInputs`); each
+  sound played is logged with its file.
+
+**Why.** The owner's first setup: "it didn't close the tabs it opened … close the tabs it opened to pair when
+paired", and "no sound whatsoever". Every profile kept a "FERB" wake page: Python closes that page only after a
+pairing that succeeds (its recording opened 7 and closed 2), and live the close got no answer. The system log shows
+every sound "stayed silent: PairIt - AudioRelay is using the microphone": that relay runs input on a tap naming no
+device, with the microphone off. The coordinator's guess (a resumed tour) was wrong.
+
+**Evidence.** `b_browsers` replays Python's recording with the one named difference; new test
+`pair_all_leaves_each_profile_with_only_the_owners_tabs`. Swift `testInputThatIsntAMicrophoneIsntACall`,
+`testARelaysInputDoesntSilenceTheFirstLaunchClip`. On this Mac the new reader returns no calling process; the old
+one returned AudioRelay.
+
+**Open.**
+- Why `wake_close` got no answer live is unverified (about 10 s per profile: inferred, no reply); commands sent
+  right after pairing should be checked live.
+- FERB plays to the default output (Audio Relay here) while macOS's interface sounds use the system output device:
+  the owner's call.
+- Live checks of both fixes wait for the next installed build.

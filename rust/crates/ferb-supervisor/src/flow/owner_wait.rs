@@ -413,7 +413,7 @@ impl Inner {
             // the question's bus event reaches a chat stream after what is already on the tree's line (the waiting
             // step's paused and needs_you lines), as Python's queues deliver them; the question, its record and its
             // event then come together
-            tokio::task::yield_now().await;
+            self.python_wakes_here(&tree.id);
             match self.deps.daemon.questions() {
                 None => {
                     // no question store here: nobody can answer, so the step waits as a stop would end it

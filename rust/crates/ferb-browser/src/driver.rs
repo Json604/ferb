@@ -89,6 +89,9 @@ pub struct Tasks {
     pub redact: Arc<dyn Fn(&str) -> String + Send + Sync>,
     /// `tools.check_url` (policy's URL parse, S4): `Err(why)` refuses a link's new tab.
     pub check_url: CheckUrl,
+    /// APP-777: the task's tree browses as the owner in the profile they picked for FERB's web work (the
+    /// supervisor's `tree.as_owner`): that pick is its only profile.
+    pub browses_as_owner: Arc<dyn Fn(&str) -> bool + Send + Sync>,
 }
 
 impl Default for Tasks {
@@ -104,6 +107,7 @@ impl Default for Tasks {
             owner_input_near: Arc::new(|| None),
             redact: Arc::new(|t| t.to_string()),
             check_url: Arc::new(|_| Ok(())),
+            browses_as_owner: Arc::new(|_| false),
         }
     }
 }
@@ -464,6 +468,23 @@ pub(crate) struct State {
 
 fn alias_number(alias: &str) -> Option<u64> {
     alias.strip_prefix('t')?.parse().ok()
+}
+
+/// APP-777 (rule 3, where web work happens): a task that browses as the owner because FERB has no profile of
+/// its own works only in the profile the owner picked for that (`picked`: the resolver's choice with no name,
+/// HAND-2). A name that resolves to another of their profiles is refused, nothing opened. Fixed against Python:
+/// ext_bridge.py:3016 `Router.open_for` took any named owner profile there (live, 2026-11-14: a search ran in
+/// Brave right after the owner picked a Chrome profile).
+fn picked_only(picked: (String, String), named: (&str, &str)) -> Result<()> {
+    if (picked.0.as_str(), picked.1.as_str()) == named {
+        return Ok(());
+    }
+    Err(Error::refused(format!(
+        "{}/{} isn't the profile this task browses in: FERB has no browser profile of its own, and the owner picked \
+         {}/{} for FERB's web work, so this task's tabs open there. Leave profile out (or name {}/{}); nothing was \
+         opened",
+        named.0, named.1, picked.0, picked.1, picked.0, picked.1
+    )))
 }
 
 /// `_status`: a reply's `http_status`, only as a plain HTTP status number.
@@ -1831,6 +1852,9 @@ impl Driver {
         let br = match &self.kind {
             Kind::Owner { choose, .. } => {
                 let (browser, folder) = choose(profile)?;
+                if profile.is_some_and(|p| !p.is_empty()) && (self.tasks.browses_as_owner)(owner) {
+                    picked_only(choose(None)?, (&browser, &folder))?;
+                }
                 let br = self.hub.bridge(&browser, &folder)?.ok_or_else(|| {
                     Error::refused(format!("{browser}/{folder} isn't paired with FERB"))
                 })?;

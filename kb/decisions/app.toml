@@ -3651,3 +3651,13 @@ rule = "The setup tour shows no elapsed time on a waiting line. The spinner stay
 why = "The owner asked for it on seeing the counter in the tour."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift"]
 untestable = "A look rule: the waiting indicator draws a spinner and no text."
+
+[APP-908]
+title = "Only input on a microphone counts as a call"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "Refines APP-660. Input counts for APP-528 only when it is a microphone: a device Core Audio names for the process is one (not virtual; an aggregate holding one is); or it names none or can't say, and an input-only microphone runs now while no FERB process runs input. Input only on virtual devices or a tap of other apps' sound (an audio relay, a loopback) is not a call. Each sound FERB plays is logged (com.ferb.FERB, category sound) with its file, beside the silenced ones."
+why = "Owner's first Rust setup, 2026-11-14: every sound logged \"FERB stayed silent (…): PairIt - AudioRelay is using the microphone\"; that relay ran input on a tap naming no device with the microphone off. A device's kind is a structural fact."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/MicrophoneUse.swift", "ui/mac/FERBNotch/Sources/FERBNotch/AudioOutputFacts.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FerbSoundEngine.swift"]
+live = ["LIVE-724"]

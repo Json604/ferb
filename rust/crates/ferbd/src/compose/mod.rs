@@ -417,6 +417,8 @@ impl Daemon {
             None
         };
         let events = Events::new(redactor.clone());
+        // the consumers Python runs before the bus (compose.py `_wire_events`: plans, the day's activity, conversations)
+        let first = consumers::wire_first(&events);
         // the bus as a consumer of every event (compose.py:237): `logs.subscribe` reads it; a topic the bus doesn't
         // declare is not offered (Python's bus raises for it)
         let bus = ferb_core::bus::Bus::new(clock.clone());
@@ -686,6 +688,7 @@ impl Daemon {
                 o.supervisor_build(&mut parts);
             }
             let _ = publisher.set(Arc::downgrade(&seam));
+            let _ = first.daemon.set(Arc::downgrade(&seam));
             let built = supervisor::build(seam, parts);
             let _ = router.0.set(built.supervisor.clone());
             built
@@ -802,6 +805,7 @@ impl Daemon {
             });
             consumers::wire(
                 &events,
+                &first,
                 b.notifier.clone(),
                 sup.supervisor.clone(),
                 sup.daemon.env.clone(),

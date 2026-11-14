@@ -51,6 +51,38 @@ final class FerbSoundEngineTests: XCTestCase {
         XCTAssertFalse(engine.isRunning)                     // stopAll ended keeping warm too
     }
 
+    /// 2026-11-14: with an audio relay's tap running input (no device named, the Mac's microphone off), the first-launch
+    /// clip and the tour's sounds are played from their files; the same app on the microphone still silences them.
+    // decision: APP-908, APP-529
+    func testARelaysInputDoesntSilenceTheFirstLaunchClip() throws {
+        func engine(_ use: InputUse) throws -> FerbSoundEngine {
+            let audio = AVAudioEngine()
+            try audio.enableManualRenderingMode(.offline, format: AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!,
+                                                maximumFrameCount: 4096)
+            // invented process facts (TEST-508): pid 4242 is an app
+            return FerbSoundEngine(engine: audio, defaults: scratchDefaults("FerbSoundEngineTests"),
+                                   preference: { _ in nil }, headphones: { false }, screens: { [] },
+                                   measureLatency: { 0 }, idleSleep: { _ in },
+                                   inputProcesses: { MicrophoneUse.microphoneInputs([use], microphoneRunning: false,
+                                                                                     isOwn: { _ in false }) },
+                                   ownProcess: { _ in false },
+                                   processFacts: { _ in ProcessFacts(appName: "Example Relay") })
+        }
+        let relayed = try engine(InputUse(pid: 4242, sources: []))
+        relayed.play(.firstLaunch, at: nil)
+        XCTAssertEqual(relayed.lastPlayed?.lastPathComponent, "ferb-first-launch.caf")
+        XCTAssertTrue(relayed.isRunning)
+        relayed.play(.orbDrip, at: nil)
+        XCTAssertEqual(relayed.lastPlayed?.lastPathComponent, "ferb-orb-drip.caf")
+
+        let calling = try engine(InputUse(pid: 4242, sources: [.microphone]))
+        calling.play(.firstLaunch, at: nil)
+        XCTAssertNil(calling.lastPlayed)
+        XCTAssertFalse(calling.isRunning)
+        calling.stopAll()
+        relayed.stopAll()
+    }
+
     private func settle() async {
         for _ in 0..<10 { await Task.yield() }
     }

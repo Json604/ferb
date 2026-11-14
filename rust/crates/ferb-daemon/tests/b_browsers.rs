@@ -174,6 +174,27 @@ struct FakeHub {
     unpaired: Vec<(String, String, String)>,
     next: AtomicUsize,
     calls: Mutex<Vec<Value>>,
+    /// The open tabs of each profile ("chrome/Profile 1"), as the browsers would hold them.
+    tabs: OpenTabs,
+}
+
+/// Each profile's open tabs by address: the owner's, and what FERB's launches opened.
+type OpenTabs = Arc<Mutex<BTreeMap<String, Vec<String>>>>;
+
+/// The profile a browser command names ("chrome/Profile 1"): the browser from its executable (or `open -b`'s bundle
+/// id), the folder from `--profile-directory`.
+fn launched_profile(argv: &[String]) -> String {
+    let all = argv.join(" ");
+    let browser = if all.contains("Brave") || all.contains("com.brave.") {
+        "brave"
+    } else {
+        "chrome"
+    };
+    let folder = argv
+        .iter()
+        .find_map(|a| a.strip_prefix("--profile-directory="))
+        .unwrap_or("Default");
+    format!("{browser}/{folder}")
 }
 
 impl FakeHub {
@@ -259,10 +280,23 @@ impl Extensions for FakeHub {
         args: Value,
         timeout: f64,
     ) -> BoxFut<Result<Value, String>> {
-        self.calls
-            .lock()
-            .unwrap()
-            .push(json!([format!("{browser}/{folder}"), op, args, timeout]));
+        self.calls.lock().unwrap().push(json!([
+            format!("{browser}/{folder}"),
+            op,
+            args.clone(),
+            timeout
+        ]));
+        // the extension's `wake_close`: every tab of that profile at exactly that address closes
+        if op == "wake_close" {
+            if let Some(tabs) = self
+                .tabs
+                .lock()
+                .unwrap()
+                .get_mut(&format!("{browser}/{folder}"))
+            {
+                tabs.retain(|t| Some(t.as_str()) != args["url"].as_str());
+            }
+        }
         Box::pin(async { Ok(json!({})) })
     }
 }
@@ -363,6 +397,7 @@ struct World {
     go: tokio::sync::watch::Sender<bool>,
     waits: Arc<Mutex<Vec<Value>>>,
     store: Arc<MemInstalls>,
+    open_tabs: OpenTabs,
 }
 
 const DIRS: [(&str, &str); 2] = [
@@ -418,6 +453,7 @@ fn world(setup: &Value, access: bool) -> World {
             .collect(),
         next: AtomicUsize::new(0),
         calls: Mutex::new(vec![]),
+        tabs: OpenTabs::default(),
     });
     for b in setup["bridges"].as_array().into_iter().flatten() {
         hub.connect(
@@ -439,6 +475,16 @@ fn world(setup: &Value, access: bool) -> World {
         Arc::new(move |argv: &[String]| {
             launched.lock().unwrap().push(json!(argv));
             let url = argv.last().cloned().unwrap_or_default();
+            // a command whose last word is an address opens it as a tab of that profile
+            let opened = !url.starts_with("--") && argv.len() > 1;
+            if opened {
+                hub.tabs
+                    .lock()
+                    .unwrap()
+                    .entry(launched_profile(argv))
+                    .or_default()
+                    .push(url.clone());
+            }
             if answer.load(Ordering::SeqCst) {
                 if let Some((_, token)) = url.split_once("/pair.html#token=") {
                     let n = installs.fetch_add(1, Ordering::SeqCst) + 1;
@@ -453,6 +499,10 @@ fn world(setup: &Value, access: bool) -> World {
                     assert!(verdict.accepted, "{}", verdict.reason);
                     let b = verdict.binding.unwrap();
                     hub.connect(&b.browser, &b.folder, "0.19.5");
+                    // pair.js: the page hands over its token, then closes itself
+                    if let Some(tabs) = hub.tabs.lock().unwrap().get_mut(&launched_profile(argv)) {
+                        tabs.retain(|t| *t != url);
+                    }
                 }
             }
             Ok(())
@@ -480,7 +530,6 @@ fn world(setup: &Value, access: bool) -> World {
                 .collect(),
         ),
         launch,
-        wake_url: Arc::new(|| "http://127.0.0.1:9/wake#w1".to_string()),
         tabs: Some(tabs.clone()),
         notifier: notes.clone(),
         activity: Some({
@@ -502,6 +551,7 @@ fn world(setup: &Value, access: bool) -> World {
         handoff_poll_s: 0.0,
         state: Arc::new(State::default()),
     };
+    let open_tabs = hub.tabs.clone();
     World {
         home,
         support,
@@ -514,6 +564,7 @@ fn world(setup: &Value, access: bool) -> World {
         tabs,
         go,
         waits,
+        open_tabs,
         store,
     }
 }
@@ -617,6 +668,35 @@ fn python_journal(sc: &Value, home: &Path) -> Vec<Value> {
         .filter(|r| r[0] != "daemon.internal_error")
         .map(|r| serde_json::from_str(&localize(&r.to_string(), home)).unwrap())
         .collect()
+}
+
+/// Fixed against Python (ENG-6): a profile that isn't connected is loaded for its pairing page with no window
+/// (`--no-startup-window`) instead of with Python's blank local wake page, so there is no page to close afterwards
+/// (`wake_close`). Python's recording opened seven wake pages and closed two: the five pairings that didn't succeed left
+/// theirs open. Python's launches and bridge calls with that one difference.
+const WAKE_PAGE: &str = "http://127.0.0.1:9/wake#w1";
+
+fn without_wake_pages(launched: &Value, calls: &Value) -> (Value, Value) {
+    let launched: Vec<Value> = launched
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|argv| {
+            let mut argv = argv.as_array().unwrap().clone();
+            if argv.last().and_then(Value::as_str) == Some(WAKE_PAGE) {
+                *argv.last_mut().unwrap() = json!("--no-startup-window");
+            }
+            json!(argv)
+        })
+        .collect();
+    let calls: Vec<Value> = calls
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c[1] != "wake_close")
+        .cloned()
+        .collect();
+    (json!(launched), json!(calls))
 }
 
 fn same_calls(python: &Value, rust: &[Value]) {
@@ -749,8 +829,14 @@ async fn with_full_disk_access_every_call_answers_writes_and_launches_as_python(
     assert_eq!(json!(*w.waits.lock().unwrap()), h["waiting"]);
 
     assert_eq!(w.home.journal_rows(), python_journal(sc, &home));
-    assert_eq!(json!(*w.launched.lock().unwrap()), sc["launched"]);
-    same_calls(&sc["bridge_calls"], &w.hub.calls.lock().unwrap());
+    assert_eq!(
+        json!(*w.launched.lock().unwrap()),
+        without_wake_pages(&sc["launched"], &sc["bridge_calls"]).0
+    );
+    same_calls(
+        &without_wake_pages(&sc["launched"], &sc["bridge_calls"]).1,
+        &w.hub.calls.lock().unwrap(),
+    );
     let after = &sc["after"];
     let config = std::fs::read_to_string(home.join("config.toml")).unwrap();
     assert_eq!(config, line_text(&after["config"]));
@@ -767,4 +853,85 @@ async fn with_full_disk_access_every_call_answers_writes_and_launches_as_python(
         after["identity_attached"]
     );
     assert!(w.home.events().is_empty());
+}
+
+/// The owner (2026-11-14): FERB closes the tabs it opened to pair once the profile is paired, never quits a browser
+/// and never closes a tab it didn't open. Pair all over profiles that aren't connected: each is loaded with no window,
+/// then gets its pairing page, which closes itself once it has handed over its token; nothing else opens, no command
+/// closes any tab, and every profile is left with exactly the owner's own tabs.
+// decision: HAND-520, HAND-411, HAND-412
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pair_all_leaves_each_profile_with_only_the_owners_tabs() {
+    let file = fixture("daemon-b/browsers.json");
+    let sc = scenario(&file, "with_access");
+    let w = world(&sc["setup"], true);
+    let owners: BTreeMap<String, Vec<String>> = [
+        ("chrome/Default", vec!["https://mail.example.test/inbox"]),
+        (
+            "chrome/Profile 1",
+            vec!["https://docs.example.test/a", "https://news.example.test/"],
+        ),
+        ("chrome/Profile 7", vec!["https://shop.example.test/cart"]),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v.into_iter().map(String::from).collect()))
+    .collect();
+    *w.open_tabs.lock().unwrap() = owners.clone();
+    w.answer.store(true, Ordering::SeqCst);
+    let d = start(&w).await;
+    let mut c = d.connect().await;
+    c.send(r#"{"jsonrpc": "2.0", "id": 1, "method": "auth.hello", "params": {"role": "cli"}}"#)
+        .await;
+    c.recv().await.unwrap();
+    c.send(r#"{"jsonrpc": "2.0", "id": 2, "method": "setup.browsers_pair_all", "params": {"timeout_s": 5}}"#)
+        .await;
+    let reply: Value = serde_json::from_str(&c.recv().await.unwrap()).unwrap();
+    let results = reply["result"]["results"].as_array().unwrap().clone();
+    let paired: Vec<String> = results
+        .iter()
+        .filter(|r| r["paired"] == true)
+        .map(|r| {
+            format!(
+                "{}/{}",
+                r["browser"].as_str().unwrap(),
+                r["folder"].as_str().unwrap()
+            )
+        })
+        .collect();
+    assert!(!paired.is_empty(), "{reply}");
+
+    // exactly two commands per profile it paired: the windowless load, then the pairing page; no other page
+    let launched: Vec<Vec<String>> = w
+        .launched
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|a| serde_json::from_value(a.clone()).unwrap())
+        .collect();
+    assert_eq!(launched.len(), 2 * results.len(), "{launched:?}");
+    for profile in &paired {
+        let mine: Vec<&Vec<String>> = launched
+            .iter()
+            .filter(|a| launched_profile(a) == *profile)
+            .collect();
+        assert_eq!(mine.len(), 2, "{profile}: {mine:?}");
+        assert_eq!(
+            mine[0].last().unwrap(),
+            "--no-startup-window",
+            "{profile}: {mine:?}"
+        );
+        assert!(
+            mine[1].last().unwrap().contains("/pair.html#token="),
+            "{profile}: {mine:?}"
+        );
+    }
+    // no browser was quit and no tab was closed by a command: the pairing pages closed themselves
+    assert!(
+        w.hub.calls.lock().unwrap().is_empty(),
+        "{:?}",
+        w.hub.calls.lock().unwrap()
+    );
+    let mut left = w.open_tabs.lock().unwrap().clone();
+    left.retain(|_, tabs| !tabs.is_empty());
+    assert_eq!(left, owners);
 }

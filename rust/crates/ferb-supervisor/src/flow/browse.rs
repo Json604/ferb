@@ -23,6 +23,17 @@ fn text(found: &Map<String, Value>, key: &str) -> String {
 }
 
 impl Inner {
+    /// APP-777: whether `task_id` (a tree, its worker, a step or a checker) belongs to a live tree that browses
+    /// as the owner in the profile they picked (`as_owner`): the browser tools keep that tree to the pick
+    /// (ferb-browser `Tasks::browses_as_owner`). A tree the planner gave the owner's identity itself is not one.
+    pub fn browses_as_owner(&self, task_id: &str) -> bool {
+        let Some(root) = self.tree_of(task_id) else {
+            return false;
+        };
+        let tree = self.live().tree_of.get(&root).cloned();
+        tree.is_some_and(|t| t.id == root && t.lock().as_owner)
+    }
+
     /// supervisor.py:3004 `_browse_as`: before the tree's first worker starts.
     pub(crate) async fn browse_as(&self, tree: &Arc<Tree>) {
         if tree.spec().identity != "ferb" {

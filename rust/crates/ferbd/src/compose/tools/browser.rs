@@ -284,8 +284,9 @@ fn driver_tasks(p: &Parts) -> Tasks {
         parts.clone(),
         parts.clone(),
         parts.clone(),
-        parts,
+        parts.clone(),
     );
+    let p9 = parts;
     Tasks {
         running: Arc::new(move |task| p1().is_some_and(|p| p.task(task).is_some())),
         paused: Arc::new(move |task| {
@@ -345,6 +346,11 @@ fn driver_tasks(p: &Parts) -> Tasks {
             }
             Some(u) => Err(format!("only http(s) URLs can be opened, not {}", u.scheme)),
             None => Err("only http(s) URLs can be opened, not this".into()),
+        }),
+        // APP-777: a tree that browses as the owner in their pick opens tabs only there (driver `picked_only`)
+        browses_as_owner: Arc::new(move |task| {
+            p9().and_then(|p| p.supervisor().map(|s| s.inner().browses_as_owner(task)))
+                .unwrap_or(false)
         }),
     }
 }
@@ -470,9 +476,6 @@ pub struct Browsers {
     ferb: Option<Arc<Tools>>,
     /// The browser area, once group B builds it (browser.pair, browser.handoff).
     area: Arc<OnceLock<ferb_daemon::areas_b::browsers::Cx>>,
-    /// `WakeServer`: the blank local page a profile with no window is loaded with before its pairing page (None: no
-    /// runtime to serve it on, a test's build).
-    pub wake: Option<Arc<WakePage>>,
     /// D35: a download in a task tab becomes a file in the workspace plus facts, never a dialog
     /// (`downloads.Downloads`, browsers.py:269).
     pub downloads: Arc<ferb_browser::downloads::Downloads>,
@@ -781,68 +784,6 @@ pub fn sound_change(e: &ferb_browser::protocol::TabEvent) -> Map<String, Value> 
     out
 }
 
-/// `WakeServer` (ext_bridge.py:809): a unique blank local page per wake (not about:blank: its fragment is dropped, so
-/// it couldn't be told apart from the owner's tabs), served on 127.0.0.1 for the daemon's life.
-pub struct WakePage {
-    port: u16,
-}
-
-impl WakePage {
-    /// Listens on 127.0.0.1 (any free port) and answers each connection with the page, on this runtime.
-    pub fn start() -> std::io::Result<Arc<WakePage>> {
-        let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
-        listener.set_nonblocking(true)?;
-        let port = listener.local_addr()?.port();
-        let handle = tokio::runtime::Handle::try_current().map_err(std::io::Error::other)?;
-        let _entered = handle.enter();
-        let listener = tokio::net::TcpListener::from_std(listener)?;
-        handle.spawn(async move {
-            loop {
-                match listener.accept().await {
-                    Ok((stream, _)) => {
-                        tokio::spawn(wake_answer(stream));
-                    }
-                    Err(_) => tokio::time::sleep(std::time::Duration::from_millis(100)).await,
-                }
-            }
-        });
-        Ok(Arc::new(WakePage { port }))
-    }
-
-    /// `url()`: `http://127.0.0.1:<port>/wake/<token_hex(8)>`.
-    pub fn url(&self) -> String {
-        format!(
-            "http://127.0.0.1:{}/wake/{}",
-            self.port,
-            ferb_runtimes::codex::token_hex(8)
-        )
-    }
-}
-
-/// One connection: its request line read (a browser may open a connection and send nothing: 5 s), then the page.
-async fn wake_answer(stream: tokio::net::TcpStream) {
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    let mut reader = BufReader::new(stream);
-    let mut first = String::new();
-    let read = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        reader.read_line(&mut first),
-    )
-    .await;
-    if matches!(read, Ok(Ok(_))) {
-        let body = b"<!doctype html><title>FERB</title>";
-        let mut out = format!(
-            "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
-            body.len()
-        )
-        .into_bytes();
-        out.extend_from_slice(body);
-        let mut stream = reader.into_inner();
-        let _ = stream.write_all(&out).await;
-        let _ = stream.shutdown().await;
-    }
-}
-
 /// The drivers' wake (`Router._connected`, HAND-403): a profile that isn't connected is loaded with no window
 /// (`open_known_profile(browser, folder, None, known, is_running=…)`), or with its own window the second time, through
 /// the browser area's launcher. Nothing before the area is built.
@@ -1038,13 +979,6 @@ impl Browsers {
             area,
             downloads,
             uploads,
-            wake: match WakePage::start() {
-                Ok(w) => Some(w),
-                Err(e) => {
-                    crate::log::line(&format!("the browsers' wake page didn't start: {e}"));
-                    None
-                }
-            },
         }
     }
 
@@ -1357,7 +1291,15 @@ pub fn browsers_deps(
     let br = s.tools.browsers().expect("built with the tools");
     let native = opts.native;
     let launch: b::Launch = if opts.launch_browsers {
-        Arc::new(|args: &[String]| ferb_browser::macos::launch_detached(args))
+        Arc::new(|args: &[String]| {
+            // each browser command in the daemon's log (DMN-592), a pairing page's one-time token left out
+            let shown: Vec<&str> = args
+                .iter()
+                .map(|a| a.split_once("#token=").map_or(a.as_str(), |(page, _)| page))
+                .collect();
+            crate::log::line(&format!("browser command: {}", shown.join(" ")));
+            ferb_browser::macos::launch_detached(args)
+        })
     } else {
         Arc::new(|_args: &[String]| {
             Err(std::io::Error::other(
@@ -1387,11 +1329,6 @@ pub fn browsers_deps(
         browser_support: opts.browser_support.clone(),
         browser_data_dirs: crate::off::off("browser.data_dirs", None),
         launch,
-        wake_url: match br.wake.clone() {
-            Some(w) => Arc::new(move || w.url()),
-            // no runtime to serve it on (a failed bind is logged at start): no wake page to open
-            None => crate::off::off("browser.no_wake_page", Arc::new(String::new)),
-        },
         // the router's tabs (`self.router.shows`, `show_tab`, `tab_profile`): a human check handed to the owner
         tabs: Some(Arc::new(crate::compose::areas::RouterTabs(
             br.router.clone(),
@@ -1518,39 +1455,6 @@ pub fn extension_ids(config: &ferb_core::config::Config) -> std::collections::Ha
     ferb_browser::autoinstall::accepted_extension_ids(configured.as_ref(), &store)
         .into_iter()
         .collect()
-}
-
-#[cfg(test)]
-mod wake_tests {
-    use super::WakePage;
-
-    /// `WakeServer`: each wake is its own address on 127.0.0.1 (a pairing's blank page must never be about:blank or
-    /// empty: an empty address opened the browsers with nothing the pairing could close), and it answers a page.
-    #[tokio::test]
-    async fn each_wake_is_a_unique_local_page_that_answers() {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        let wake = WakePage::start().expect("the wake page starts");
-        let (a, b) = (wake.url(), wake.url());
-        assert_ne!(a, b);
-        let rest = a
-            .strip_prefix("http://127.0.0.1:")
-            .expect("a local address");
-        let (port, path) = rest.split_once('/').unwrap();
-        assert!(
-            path.starts_with("wake/") && path.len() == "wake/".len() + 16,
-            "{a}"
-        );
-        let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port.parse::<u16>().unwrap()))
-            .await
-            .unwrap();
-        s.write_all(format!("GET /{path} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes())
-            .await
-            .unwrap();
-        let mut got = String::new();
-        s.read_to_string(&mut got).await.unwrap();
-        assert!(got.starts_with("HTTP/1.1 200 OK\r\n"), "{got}");
-        assert!(got.ends_with("<!doctype html><title>FERB</title>"), "{got}");
-    }
 }
 
 #[cfg(test)]

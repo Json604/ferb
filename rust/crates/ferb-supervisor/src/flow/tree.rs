@@ -164,6 +164,15 @@ impl Inner {
         }
     }
 
+    /// A suspension point of Python's (an `await` that yields to its event loop) where the order of a chat's frames
+    /// depends on it: what the tree's line and the bus hold now reaches a chat stream as one burst, before anything
+    /// told after it, however the stream's task is woken (a wake mark on the line: chat.rs `as_python_wakes`).
+    pub(crate) fn python_wakes_here(&self, tree_id: &str) {
+        let mut mark = Map::new();
+        mark.insert(super::chat::WAKE.into(), Value::Bool(true));
+        self.tell_tree(tree_id, mark);
+    }
+
     /// A subtask event on the tree's line (Python: `queue.put` on the same queue).
     fn subtask(&self, tree_id: &str, event: Value) {
         let mut event = obj(event);

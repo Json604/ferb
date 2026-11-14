@@ -133,6 +133,8 @@ final class FerbSoundEngine: FerbSoundPlaying {
     }
 
     var isRunning: Bool { engine.isRunning }
+    /// The file the last sound was scheduled from (also in the system log, beside the silenced ones).
+    private(set) var lastPlayed: URL?
     private var feedbackEnabled: Bool { defaults.object(forKey: "feedback.enabled") as? Bool ?? true }
 
     /// Whether and how the sound plays now (SoundPolicy.decide), read at play time: the system's UI sounds, FERB's
@@ -170,6 +172,9 @@ final class FerbSoundEngine: FerbSoundPlaying {
               let data = library.data(for: url, roomSend: FerbSoundFiles.isFinishedMix(s)
                                           ? nil : FerbSoundFiles.roomSend(s, subtle: subtle)),
               startIfNeeded() else { return }
+        lastPlayed = url
+        let sound = String(describing: s)
+        Self.log.notice("FERB played \(sound, privacy: .public): \(url.lastPathComponent, privacy: .public)")
         let start = AVAudioTime(hostTime: mach_absolute_time() + AVAudioTime.hostTime(forSeconds: Self.scheduleLead))
         var seconds = Double(data.channels[0].count) / FerbSoundData.sampleRate
         if data.channels.count == 2 {

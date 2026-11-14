@@ -57,7 +57,7 @@ struct NativeMessageText: NSViewRepresentable {
 
     func makeNSView(context: Context) -> MessageTextView { MessageTextView() }
     func updateNSView(_ view: MessageTextView, context: Context) {
-        view.update(text, generation: generation)
+        view.stage(text, generation: generation)
         view.fold = context.environment.messageTextFold
         if view.fold == nil { view.shownHeight = shownHeight }
     }
@@ -180,11 +180,11 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
 
     private func tailText(_ tail: NSAttributedString) -> MessageTextView {
         if let tailView {
-            if !tailView.attributedString().isEqual(to: tail) { tailView.update(tail, generation: 0) }
+            tailView.stage(tail, generation: 0)            // measured and laid out here, inside SwiftUI's pass
             return tailView
         }
         let view = MessageTextView()
-        view.update(tail, generation: 0)
+        view.update(tail, generation: 0)                   // in no view hierarchy yet: nothing above it to ask
         view.isHidden = true
         addSubview(view)
         tailView = view
@@ -250,31 +250,112 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    /// The text SwiftUI last gave while its update pass ran, not yet in the text storage; nil when none waits.
+    private(set) var pendingText: NSAttributedString?
+    private var pendingScheduled = false
+
+    /// The text now, put in at once. Only for a view outside SwiftUI's update and layout pass (one not in a window
+    /// yet); from inside the pass `stage` is the way in.
     func update(_ value: NSAttributedString, generation: Int) {
-        if !attributedString().isEqual(to: value) {
-            let selection = selectedRange()
-            textStorage?.setAttributedString(value)
-            let location = min(selection.location, value.length)
-            setSelectedRange(NSRange(location: location, length: min(selection.length, value.length - location)))
+        if pendingText != nil {                            // this text is newer than any staged one
+            pendingText = nil
+            measuredWidths.removeAll(keepingCapacity: true)
+        }
+        replaceText(value)
+        reveal(generation)
+    }
+
+    /// The text from SwiftUI's update or layout pass (`updateNSView`, `sizeThatFits`). Changing the text storage there
+    /// makes the text view move its selection and post Accessibility's selected-text notification; whenever an outside
+    /// Accessibility client observes FERB, AppKit then asks the hosting view for its children, which re-enters the
+    /// SwiftUI graph that is mid-update, and the app hangs in an attribute-graph cycle (2026-11-14, FERB.app's sample).
+    /// So the text goes in on the next main-queue turn, outside the pass; meanwhile it is measured as it will show, so
+    /// sizes and the fold (APP-809) are the same as before. The latest text wins: a staged one that was replaced before
+    /// its turn never goes in. A view in no window yet (SwiftUI fills a new one before placing it, with nothing above it
+    /// but its own host) takes the text at once, so a row built into view shows its words in its first frame (APP-815).
+    func stage(_ value: NSAttributedString, generation: Int) {
+        if window == nil {
+            update(value, generation: generation)
+            return
+        }
+        let shown = attributedString().isEqual(to: value)
+        if let pendingText {
+            if !pendingText.isEqual(to: value) {
+                self.pendingText = shown ? nil : NSAttributedString(attributedString: value)
+                measuredWidths.removeAll(keepingCapacity: true)
+                invalidateIntrinsicContentSize()
+            }
+        } else if !shown {
+            pendingText = NSAttributedString(attributedString: value)
             measuredWidths.removeAll(keepingCapacity: true)
             invalidateIntrinsicContentSize()
-            refreshGlyphDisplay()
         }
+        reveal(generation)
+        guard pendingText != nil, !pendingScheduled else { return }
+        pendingScheduled = true
+        DispatchQueue.main.async { [weak self] in self?.applyPending() }
+    }
+
+    /// The staged text into the text storage, on a main-queue turn of its own.
+    func applyPending() {
+        pendingScheduled = false
+        guard let value = pendingText else { return }
+        pendingText = nil                                  // a text staged while this one goes in gets its own turn
+        replaceText(value)
+        needsLayout = true                                 // the fold and the links' areas follow the text in place
+    }
+
+    private func replaceText(_ value: NSAttributedString) {
+        guard !attributedString().isEqual(to: value) else { return }
+        let selection = selectedRange()
+        textStorage?.setAttributedString(value)
+        let location = min(selection.location, value.length)
+        setSelectedRange(NSRange(location: location, length: min(selection.length, value.length - location)))
+        measuredWidths.removeAll(keepingCapacity: true)
+        invalidateIntrinsicContentSize()
+        refreshGlyphDisplay()
+    }
+
+    private func reveal(_ generation: Int) {
         if revealGeneration != generation {
             revealGeneration = generation
             refreshGlyphDisplay()
         }
     }
 
+    /// Measures a staged text with a layout of its own, set up as this view's: no text view is attached to it, so
+    /// nothing is posted to Accessibility.
+    private lazy var pendingLayout: (storage: NSTextStorage, manager: NSLayoutManager, container: NSTextContainer) = {
+        let storage = NSTextStorage()
+        let manager = NSLayoutManager()
+        let container = NSTextContainer(size: CGSize(width: 1, height: CGFloat.greatestFiniteMagnitude))
+        storage.addLayoutManager(manager)
+        manager.addTextContainer(container)
+        container.lineFragmentPadding = textContainer?.lineFragmentPadding ?? 0
+        if let own = layoutManager {
+            manager.usesFontLeading = own.usesFontLeading
+            manager.typesetterBehavior = own.typesetterBehavior
+        }
+        return (storage, manager, container)
+    }()
+
     func measuredSize(width proposedWidth: CGFloat?) -> CGSize {
         let width = max(1, proposedWidth.flatMap { $0.isFinite ? $0 : nil } ?? 1_000_000)
         if let cached = measuredWidths[width] { return cached }
+        if let pendingText {
+            let (storage, manager, container) = pendingLayout
+            if !storage.isEqual(to: pendingText) { storage.setAttributedString(pendingText) }
+            container.containerSize = CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+            manager.ensureLayout(for: container)
+            let size = Self.size(of: manager, in: container, width: width)
+            measuredWidths[width] = size
+            return size
+        }
         guard let container = textContainer, let manager = layoutManager else { return .zero }
         let previousSize = container.containerSize
         container.containerSize = CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
         manager.ensureLayout(for: container)
-        let used = manager.boundingRect(forGlyphRange: NSRange(location: 0, length: manager.numberOfGlyphs), in: container)
-        let size = CGSize(width: min(width, ceil(used.maxX)), height: ceil(max(used.maxY, manager.usedRect(for: container).maxY, manager.extraLineFragmentUsedRect.maxY)))
+        let size = Self.size(of: manager, in: container, width: width)
         // The text stays laid out at the width it was measured at when that is (or will be) its own width: laying it out
         // again at a 1-point width before its first layout typeset every glyph on a line of its own (APP-815)
         if bounds.width > 1, abs(previousSize.width - bounds.width) < 0.5, abs(width - bounds.width) >= 0.5 {
@@ -282,6 +363,11 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
         }
         measuredWidths[width] = size
         return size
+    }
+
+    private static func size(of manager: NSLayoutManager, in container: NSTextContainer, width: CGFloat) -> CGSize {
+        let used = manager.boundingRect(forGlyphRange: NSRange(location: 0, length: manager.numberOfGlyphs), in: container)
+        return CGSize(width: min(width, ceil(used.maxX)), height: ceil(max(used.maxY, manager.usedRect(for: container).maxY, manager.extraLineFragmentUsedRect.maxY)))
     }
 
     override func layout() {

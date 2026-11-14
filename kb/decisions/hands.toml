@@ -1460,3 +1460,12 @@ why = "Owner 2026-11-12 (\"yes build it\"). Live, tree 6f4532ba 23:15:56: VS Cod
 rejected = ["Background (pid) typing with no element: process-directed keystrokes go to the app's focus unseen, with no foreground Yes covering it"]
 paths = ["ferb/act/mac/driver.py::focused_typing", "ferb/act/mac/driver.py::MacComputerDriver._type_focused", "ferb/act/mac/driver.py::MacComputerDriver.act", "ferb/act/mac/driver.py::MacComputerDriver.terminal_input", "ferb/act/mac/tools.py::MacAct"]
 live = ["LIVE-939"]
+
+[HAND-520]
+title = "Pairing opens no tab but its own self-closing page"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "To pair a profile that isn't connected, FERB first loads it with no window (the browser run with --no-startup-window, as the drivers' wake loads one, HAND-403), waits the load time (2 s), then opens the extension's pairing page there, which closes itself once it has handed over its token (pair.js). No blank local wake page is opened, so nothing is left to close whether the pairing succeeds, fails, is refused, times out or its caller leaves. FERB quits no browser and closes no tab it didn't open."
+why = "Owner, 2026-11-14, after blank \"FERB\" tabs were left: \"not quit browsers ... BUT close the tabs it opened to pair when paired\". Python's wake page closed only after a pairing that succeeded (its recording: seven opened, two closed); ENG-6."
+paths = ["rust/crates/ferb-daemon/src/areas_b/browsers/mod.rs"]

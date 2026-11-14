@@ -1826,6 +1826,35 @@ fn every_scenario_replays_as_python_ran_it() {
     );
 }
 
+/// The live run of 2026-11-14 (step `cameras`) rebuilt with invented data (`make_tab_link.py`): a search opened in
+/// the owner's paired profile, its results read, the profile's tabs listed (the owner's own tabs on two other sites),
+/// then the shop's `/dp/<id>` opened with an id read in a result link's address. Python asks the sink question too,
+/// with the other tabs' sites in its outside list: the Rust gateway must ask exactly the same.
+// decision: GATE-506
+// decision: GATE-541
+#[test]
+fn the_shop_link_case_replays_as_python_ran_it() {
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/gateway/tab_link.json"
+    ))
+    .unwrap();
+    let f: Value = serde_json::from_str(&text).unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let root = root();
+    let sc = &f["scenarios"][0];
+    let asked = &sc["results"][5]["asked"][0]["reason"];
+    assert!(asked
+        .as_str()
+        .unwrap()
+        .contains("the web page on jobs.example.net"));
+    let problems = rt.block_on(replay(sc, &root));
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
 /// `_known_from` (SQ6, GATE-205): Python records a Yes's destinations in its set's order, which changes from run to
 /// run (string hashing is seeded per process), so the fixture compares them as a set. Rust records them in the
 /// order the needs list them (first seen), the same on every run: the ids follow the recipients as given.
@@ -1881,6 +1910,103 @@ fn luhn(digits: &str) -> bool {
         })
         .sum();
     sum.is_multiple_of(10)
+}
+
+/// The observer's owner waits, as the supervisor's stall clock receives them.
+#[derive(Default)]
+struct Waits(Mutex<Vec<(String, bool)>>);
+impl ferb_gateway::seams::Observer for Waits {
+    fn waiting(&self, worker: &str, on: bool) {
+        self.0.lock().unwrap().push((worker.to_string(), on));
+    }
+}
+
+/// The live run of 2026-11-14: three parallel steps of one task, one step's question open for minutes; the other
+/// steps' calls that needed a confirmation queued behind it (one FERB question at a time per tree) with the stall
+/// clock running, so each was stopped as silent after 180 s and retried, and the queued calls of the stopped
+/// attempts later asked and typed for nobody. Fixed against Python (`_authorize` waits the same way): a call queued
+/// behind another call's question is waiting on the owner (the stall clock stops), and a call whose attempt ended
+/// meanwhile is cancelled before it asks or acts. A queued call of a live attempt goes on once the owner answers.
+// decision: GATE-585
+// decision: ENG-6
+#[test]
+fn a_call_queued_behind_another_steps_question_waits_on_the_owner_and_ends_with_its_attempt() {
+    let sc = json!({
+        "name": "queued_behind_question",
+        "tools": [{"name": "probe.type", "kind": "mac_input", "site": "com.apple.Terminal",
+            "terminal": {"app": "Terminal", "bundle_id": "com.apple.Terminal", "surface": "terminal app",
+                "window": "bash"}}],
+        "tool_schemas": {"probe.type": {"properties": {"text": {"default": "", "title": "Text", "type": "string"}},
+            "title": "Input", "type": "object"}},
+        "requests": [{"id": "req-1", "words": "run the build"}],
+        "tasks": [
+            {"id": "task-1", "worker": "w1"},
+            {"id": "task-1.a", "tree": "task-1", "worker": "w2", "grant": "a"},
+            {"id": "task-1.b", "tree": "task-1", "worker": "w3", "grant": "b"}
+        ]
+    });
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let root = root();
+    let mut r = build(&sc, &root);
+    setup(&mut r, &sc);
+    let waits = Arc::new(Waits::default());
+    r.gw.attach(waits.clone());
+    let call = |label: &str, text: &str| {
+        let gw = r.gw.clone();
+        let grant = r.grant(label);
+        let mut args = Map::new();
+        args.insert("text".into(), json!(text));
+        let cancel = Cancel::new();
+        async move {
+            gw.call_as(&grant, "probe.type", &args, cancel, Arc::new(|| false))
+                .await
+        }
+    };
+    rt.block_on(async {
+        let settle = || async {
+            for _ in 0..50 {
+                tokio::task::yield_now().await;
+            }
+        };
+        // the first step asks about its terminal input and the owner hasn't answered
+        let first = tokio::spawn(call("task-1", "make build"));
+        settle().await;
+        let open = r.gw.pending();
+        assert_eq!(open.len(), 1, "the first step's question is open");
+        // two other steps' terminal inputs queue behind it, each waiting on the owner
+        let gone = tokio::spawn(call("a", "make test"));
+        let live = tokio::spawn(call("b", "make lint"));
+        settle().await;
+        assert_eq!(r.gw.pending().len(), 1, "one question at a time per tree");
+        {
+            let w = waits.0.lock().unwrap();
+            assert!(w.contains(&("w2".into(), true)) && w.contains(&("w3".into(), true)));
+            assert!(!w.contains(&("w2".into(), false)) && !w.contains(&("w3".into(), false)));
+        }
+        // the second step's attempt ends (its run stopped): its queued call ends unrun and unasked
+        r.gw.forget_calls("w2");
+        let ended = gone.await.unwrap();
+        assert!(
+            matches!(ended, Err(CallError::Cancelled)),
+            "{:?}",
+            ended.map(|x| x.to_json())
+        );
+        assert!(waits.0.lock().unwrap().contains(&("w2".into(), false)));
+        assert_eq!(*r.tool("probe.type").calls.lock().unwrap(), 0);
+        // the owner's Yes covers Terminal for the task (GATE-586): the live queued call runs without a question
+        let yes = open[0].options.iter().position(|o| o == "Yes").unwrap() + 1;
+        r.gw.resolve(&open[0].id, true, Some(yes), None).unwrap();
+        let done = first.await.unwrap().unwrap();
+        assert!(!done.is_error, "{}", done.to_json());
+        let after = live.await.unwrap().unwrap();
+        assert!(!after.is_error, "{}", after.to_json());
+        assert!(r.gw.pending().is_empty(), "nothing else was asked");
+        assert_eq!(*r.tool("probe.type").calls.lock().unwrap(), 2);
+        assert!(waits.0.lock().unwrap().contains(&("w3".into(), false)));
+    });
 }
 
 /// Fixed against Python (journal 23, `ferb/act/fs/files.py:51`): a file's 19-digit `mtime_ns` passing the Luhn

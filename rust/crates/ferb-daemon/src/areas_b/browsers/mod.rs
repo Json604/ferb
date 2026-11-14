@@ -236,8 +236,6 @@ pub struct Deps {
     pub browser_data_dirs: Option<Vec<(String, PathBuf)>>,
     /// Runs a browser command.
     pub launch: Launch,
-    /// The wake page's address (`self.wake.url()`).
-    pub wake_url: Arc<dyn Fn() -> String + Send + Sync>,
     /// The router's tabs; None before the router is built.
     pub tabs: Option<Arc<dyn Tabs>>,
     /// The owner's banners.
@@ -678,27 +676,30 @@ impl Cx {
         }
     }
 
-    /// `_open_pairing`: the extension's pairing page in that profile (a profile with no window loaded first with
-    /// the wake page). Returns the wake page's address when one was opened.
+    /// `_open_pairing`: the extension's pairing page in that profile, which closes itself once it has handed over
+    /// its token (pair.js). A profile that isn't connected is loaded first with no window (`--no-startup-window`, as
+    /// the drivers' wake loads one: HAND-403), so its extension is running when the page arrives.
+    ///
+    /// Fixed against Python (ENG-6): Python loaded it with a blank local page (`WakeServer`) and closed that page
+    /// only after a pairing that succeeded (`wake_close`), so every failed, refused, timed-out or abandoned pairing
+    /// left a "FERB" tab behind; on the owner's first Rust setup (2026-11-14) every profile kept one. FERB now opens
+    /// no tab but the self-closing pairing page.
     async fn open_pairing(
         &self,
         browser: &str,
         folder: &str,
         token: &str,
-    ) -> Result<Option<String>, HandlerError> {
+    ) -> Result<(), HandlerError> {
         let value_error = |why: String| HandlerError::fault("ValueError", why);
         let known = self.blocking(|c| c.profiles()).await;
-        let mut wake = None;
         if !self
             .deps
             .hub
             .bridge(browser, folder)
             .is_some_and(|b| b.connected)
         {
-            let url = (self.deps.wake_url)();
-            self.open_known(browser, folder, Some(&url), &known, false)?
+            self.open_known(browser, folder, None, &known, false)?
                 .map_err(value_error)?;
-            wake = Some(url);
             sleep_s(self.deps.pair_load_wait_s).await;
         }
         let ids = self.accepted_ids()?;
@@ -712,18 +713,7 @@ impl Cx {
         let ext = found.map_or_else(|| ids[0].clone(), |f| f.0);
         let page = format!("chrome-extension://{ext}/pair.html#token={token}");
         self.open_known(browser, folder, Some(&page), &known, false)?
-            .map_err(value_error)?;
-        Ok(wake)
-    }
-
-    async fn close_wake(&self, browser: &str, folder: &str, wake: Option<&str>) {
-        if let Some(url) = wake {
-            let _ = self
-                .deps
-                .hub
-                .call(browser, folder, "wake_close", json!({"url": url}), 5.0)
-                .await;
-        }
+            .map_err(value_error)
     }
 
     /// `_answered_but_refused` (HAND-412): the pairing page was answered and FERB then refused that profile's hello.
@@ -834,7 +824,7 @@ impl Cx {
             .pairings
             .issue_token(&p.browser, &p.folder, Identity::Owner);
         let _revoke = Revoke(self.deps.pairings.clone(), token.clone());
-        let wake = self.open_pairing(&p.browser, &p.folder, &token).await?;
+        self.open_pairing(&p.browser, &p.folder, &token).await?;
         let clock = self.host.clock.clone();
         let end = clock.monotonic() + timeout;
         let mut recheck = clock.monotonic() + self.deps.pair_load_wait_s;
@@ -845,8 +835,6 @@ impl Cx {
                 .bridge(&p.browser, &p.folder)
                 .is_some_and(|b| b.connected);
             if self.deps.pairings.was_paired(&token) && connected {
-                self.close_wake(&p.browser, &p.folder, wake.as_deref())
-                    .await;
                 self.host.journal(
                     "browsers.paired",
                     json!({"browser": p.browser, "folder": p.folder}),
@@ -1955,7 +1943,7 @@ async fn identity_pair(cx: Cx, params: Params) -> HandlerResult {
         .pairings
         .issue_token(&browser, &folder, Identity::Ferb);
     let _revoke = Revoke(cx.deps.pairings.clone(), token.clone());
-    let wake = cx.open_pairing(&browser, &folder, &token).await?;
+    cx.open_pairing(&browser, &folder, &token).await?;
     let clock = cx.host.clock.clone();
     let end = clock.monotonic() + timeout_s(&params, 60.0)?;
     while clock.monotonic() < end {
@@ -1971,7 +1959,6 @@ async fn identity_pair(cx: Cx, params: Params) -> HandlerResult {
                 && b.is_some_and(|b| b.identity == Identity::Ferb)
                 && fresh
             {
-                cx.close_wake(&browser, &folder, wake.as_deref()).await;
                 cx.attach_identity_if_paired()?;
                 return Ok(object(json!({"paired": true, "profile": folder})));
             }

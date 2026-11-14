@@ -444,12 +444,33 @@ pub const BUS_TOPICS: [&str; 3] = ["tool.called", "approval.requested", "action.
 const BUS: &str = "\u{0}bus";
 /// The turn (its request id) whose subscription queued a bus event.
 const TURN: &str = "\u{0}turn";
+/// The key of a wake mark on a tree's line ([`Inner::python_wakes_here`]); never sent on.
+pub(crate) const WAKE: &str = "\u{0}wake";
 
 /// The events that became ready together (between two suspensions of the work that made them), in the order Python's
 /// loop hands them over: `_chat_send` reads two queues, the turn's own events (one task) and the bus's (another), and
 /// each task, once woken, takes everything queued for it. So the events of one burst come grouped by their queue,
 /// the queue that got the first of them first, each group in its own order.
+///
+/// A burst ends where the work that made it suspends in Python. The stream's own wake-ups don't mark that (the work
+/// and the stream share a task, and a tree's line reaches the turn's queue one hop later), so the work marks it on its
+/// line: the events before a wake mark are one burst whenever the stream takes them, and the mark goes no further.
 fn as_python_wakes(batch: Vec<Value>) -> Vec<Value> {
+    let mut out = Vec::with_capacity(batch.len());
+    let mut burst = Vec::new();
+    for ev in batch {
+        if ev.get(WAKE).is_some() {
+            out.extend(one_burst(std::mem::take(&mut burst)));
+        } else {
+            burst.push(ev);
+        }
+    }
+    out.extend(one_burst(burst));
+    out
+}
+
+/// One burst's events, grouped by the queue Python took them from (the queue that got the first of them first).
+fn one_burst(batch: Vec<Value>) -> Vec<Value> {
     let is_bus = |ev: &Value| ev.get(BUS).is_some();
     let Some(first) = batch.first().map(is_bus) else {
         return batch;

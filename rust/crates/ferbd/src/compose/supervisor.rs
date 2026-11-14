@@ -487,18 +487,10 @@ impl SupDaemon {
             asked_kinds: Mutex::default(),
             answered_ids: Mutex::default(),
         });
-        // the daemon's event consumers a chat turn and the questions need (compose.py `_wire_events`): the plans that
-        // wait for an event, the bus a turn subscribes to, then `_question_record`
+        // the daemon's event consumers a chat turn and the questions need (compose.py `_wire_events`): the bus a turn
+        // subscribes to, then `_question_record` (the plans that wait for an event come before the bus:
+        // consumers.rs `wire_first`)
         {
-            let me = Arc::downgrade(&d);
-            d.events.events.on(
-                None,
-                Arc::new(move |topic: &str, data: Map<String, Value>| {
-                    if let Some(sup) = me.upgrade().and_then(|d| d.sup.get().cloned()) {
-                        sup.inner().notify_plan_event(topic, &Value::Object(data));
-                    }
-                }),
-            );
             let me = Arc::downgrade(&d);
             d.events.events.on(
                 None,

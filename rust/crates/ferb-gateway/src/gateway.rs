@@ -369,6 +369,10 @@ struct Inner {
     pictures: PayPictures,
     task_folders: HashMap<String, Vec<String>>,
     confirming: HashMap<String, Arc<tokio::sync::Mutex<()>>>,
+    /// Calls waiting for their tree's question lock while another call's question is open: (job, worker, cancel).
+    /// Nothing of theirs has run yet; when their attempt ends (`forget_calls`), they are cancelled before they ask
+    /// or act.
+    queued: Vec<(u64, String, Cancel)>,
     /// GATE-562: per tree, each field's refusals by (place, key).
     refusals: HashMap<String, Vec<RefusalAt>>,
 }
@@ -1091,6 +1095,13 @@ impl Gateway {
         i.refused_over.remove(worker_id);
         i.last_act.remove(worker_id);
         i.lookup_answers.retain(|k, _| k.0 != worker_id);
+        // fixed against Python: a call of this ended attempt still queued behind another call's question would
+        // otherwise ask or act, for nobody, once that question is answered
+        for (_, w, c) in &i.queued {
+            if w == worker_id {
+                c.cancel();
+            }
+        }
     }
 
     async fn inner_call(
@@ -3237,6 +3248,30 @@ impl Gateway {
             .clone()
     }
 
+    /// The tree's question lock, taken by a call that found it held: one FERB question at a time per tree, so this
+    /// call waits on the owner's answer to another call's question. Fixed against Python (`_authorize` waits under
+    /// `_confirming` with the stall clock running, so a parallel step queued behind an open question was stopped as
+    /// silent after 180 s and retried, and its queued call later ran for nobody): the wait counts as a wait on the
+    /// owner (the stall clock stops, as for its own question), and an attempt that ends meanwhile cancels the call
+    /// (`forget_calls`) before it asks or acts.
+    async fn queue_behind_question(
+        &self,
+        c: &Call,
+        tree: Arc<tokio::sync::Mutex<()>>,
+    ) -> R<tokio::sync::OwnedMutexGuard<()>> {
+        let job = NEXT_JOB.fetch_add(1, Ordering::SeqCst);
+        let worker = c.grant.worker_id.clone();
+        lock(&self.inner)
+            .queued
+            .push((job, worker.clone(), c.cancel.clone()));
+        let observer = self.observer();
+        observer.waiting(&worker, true);
+        let held = c.cancel.guard(tree.lock_owned()).await;
+        observer.waiting(&worker, false);
+        lock(&self.inner).queued.retain(|(j, _, _)| *j != job);
+        held
+    }
+
     /// `_typed_into` (L3): the text this worker last typed into the page a send-declared input acts on. Display only.
     fn typed_into(
         &self,
@@ -3281,7 +3316,10 @@ impl Gateway {
             String::new()
         };
         let tree = self.tree_lock(&root);
-        let _held = c.cancel.guard(tree.lock_owned()).await?;
+        let _held = match tree.clone().try_lock_owned() {
+            Ok(held) => held,
+            Err(_) => self.queue_behind_question(c, tree).await?,
+        };
         let result = self
             .authorize_held(c, &needs, &mut out, &root, &call, &typed)
             .await;

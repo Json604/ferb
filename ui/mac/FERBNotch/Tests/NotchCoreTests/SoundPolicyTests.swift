@@ -107,4 +107,30 @@ final class MicrophoneUseTests: XCTestCase {
         XCTAssertNil(caller([90]))
         XCTAssertNil(caller([91]))
     }
+
+    private func onMicrophone(_ uses: [InputUse], running: Bool) -> [pid_t] {
+        MicrophoneUse.microphoneInputs(uses, microphoneRunning: running, isOwn: { $0 == 90 })
+    }
+
+    /// 2026-11-14: an audio relay app (a menu-bar app, pid 50 here) ran input all the time on a tap of the Mac's own
+    /// sound, naming no device, with the Mac's microphone off; every sound of the owner's first setup was silenced as
+    /// "a call". Input on virtual devices or a tap isn't the microphone; input on a microphone still is.
+    // decision: APP-908, APP-528
+    func testInputThatIsntAMicrophoneIsntACall() {
+        let relay = InputUse(pid: 50, sources: [])
+        XCTAssertEqual(onMicrophone([relay], running: false), [])
+        XCTAssertEqual(decide(.firstLaunch, inputs: onMicrophone([relay], running: false)), SoundDecision(subtle: false))
+        let loopback = InputUse(pid: 50, sources: [.virtual, .virtual])
+        XCTAssertEqual(onMicrophone([loopback], running: true), [])           // the room's microphone is someone else's
+        XCTAssertEqual(onMicrophone([InputUse(pid: 50, sources: [.virtual, .microphone])], running: false), [50])
+        // a call app on the microphone, directly or through an aggregate holding it
+        XCTAssertEqual(onMicrophone([InputUse(pid: 50, sources: [.microphone])], running: true), [50])
+        XCTAssertNil(decide(.firstLaunch, inputs: onMicrophone([InputUse(pid: 50, sources: [.microphone])],
+                                                                running: true)))
+        // Core Audio names nothing or can't say: a call only while a microphone runs that FERB's dictation doesn't explain
+        XCTAssertEqual(onMicrophone([relay], running: true), [50])
+        XCTAssertEqual(onMicrophone([InputUse(pid: 50, sources: [.unknown])], running: true), [50])
+        XCTAssertEqual(onMicrophone([relay, InputUse(pid: 90, sources: [.microphone])], running: true), [90])
+        XCTAssertNil(caller(onMicrophone([relay, InputUse(pid: 90, sources: [.microphone])], running: true)))
+    }
 }

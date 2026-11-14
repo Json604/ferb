@@ -22,7 +22,6 @@ off runtime.retried | Codex and Claude retry inside their own programs; only the
 off browser.ask_without_context | The driver asks for a login code or a secret without a tool context only when no context exists; every gateway call carries one, so `ask_code_for`/`ask_secret_for` are the paths used.
 off browser.peer_elsewhere | Off macOS nothing can tell which app started a native host, so every connection is refused (fails closed); FERB.app runs only on macOS (PROJ-506).
 off browser.data_dirs | `browser_data_dirs` replaces discovery only in Python's tests (main.py:182 passes None in the real daemon).
-off browser.no_wake_page | The wake page couldn't bind 127.0.0.1 (logged at start): no wake address exists; Python's WakeServer always starts, so this happens only on a broken host.
 off desktop.app_window | The gateway's first look at a Mac app runs through the call hooks' AppWindows (tools/mac.rs), the one path; nothing in this program calls the desktop area's `app_window`.
 off front.client | The supervisor's front-window seam carries no sending client's pid; FERB.app is the only client and FERB's own processes are never the front window (`own`), so the window it would skip is never chosen.
 off applescript.sandbox_rest | desktop.py:317 gives AppleScript's sandbox only the apps and the events' socket; the rest of the shell's options stay at their defaults.

@@ -400,6 +400,9 @@ impl Inner {
         request_id: &str,
         schedule: Option<&Map<String, Value>>,
     ) {
+        if ev.get(super::chat::WAKE).is_some() {
+            return; // a chat stream's burst mark (`python_wakes_here`)
+        }
         let kind = ev.get("type").and_then(Value::as_str).unwrap_or("");
         if (quiet && kind == "plan") || kind == "part" || kind == "step" {
             return; // a row's or step's change is on the bus already (task.part, task.step)
