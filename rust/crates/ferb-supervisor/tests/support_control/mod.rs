@@ -404,6 +404,12 @@ pub struct TestDaemon {
     pub episode_hang: AtomicBool,
     /// The daemon shuts the supervisor down after the scenario's last step (main.py `shutdown`).
     pub shut_down_at_end: AtomicBool,
+    /// The browser area's answers to `browsing` (APP-777, ORCH-648), one per call, then `{}`; and each call's
+    /// (attended, request id).
+    pub browsing: Mutex<std::collections::VecDeque<Map<String, Value>>>,
+    pub browsing_calls: Mutex<Vec<(bool, String)>>,
+    /// The owner's profiles' names, emails and folders (`names_profile`).
+    pub profile_names: Mutex<Vec<String>>,
 }
 
 pub struct Gate {
@@ -997,6 +1003,24 @@ impl Daemon for TestDaemon {
         let q = self.questions.lock().unwrap().clone();
         let store = q.store.lock().unwrap();
         store.pending().into_iter().cloned().collect()
+    }
+    fn browsing(&self, attended: bool, request_id: &str) -> Map<String, Value> {
+        self.browsing_calls
+            .lock()
+            .unwrap()
+            .push((attended, request_id.to_string()));
+        self.browsing
+            .lock()
+            .unwrap()
+            .pop_front()
+            .unwrap_or_default()
+    }
+    fn names_profile(&self, words: &str) -> bool {
+        self.profile_names
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|n| ferb_memory::terms::contains_words(words, n))
     }
     fn approval(&self, id: &str) -> Option<ferb_gateway::questions::Approval> {
         let q = self.questions.lock().unwrap().clone();
@@ -1620,6 +1644,9 @@ pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
         episode_fault: Mutex::default(),
         episode_hang: AtomicBool::new(false),
         shut_down_at_end: AtomicBool::new(false),
+        browsing: Mutex::default(),
+        browsing_calls: Mutex::default(),
+        profile_names: Mutex::default(),
     });
     let clock = Arc::new(
         FakeClock::new(ferb_clock::py::parse("2026-01-01T09:00:00+00:00")).with_zone(Zone::utc()),

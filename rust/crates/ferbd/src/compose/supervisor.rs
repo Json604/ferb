@@ -1370,6 +1370,14 @@ impl Daemon for SupDaemon {
             _ => Map::new(),
         }
     }
+    /// ORCH-648: whether the owner's words name one of the profiles FERB may browse in for them.
+    fn names_profile(&self, words: &str) -> bool {
+        let Some(cx) = self.tools.browsers().and_then(|b| b.area()) else {
+            return false;
+        };
+        let known = cx.browsing_profiles().unwrap_or_default();
+        ferb_daemon::areas_b::browsers::names_profile(&known, words)
+    }
     /// areas/schedules.py `_typed_behind_memory`: what the owner typed behind each active owner-stated memory item.
     fn typed_behind_memory(&self, request_id: &str) -> Vec<String> {
         let Some(a) = self.a.get() else {

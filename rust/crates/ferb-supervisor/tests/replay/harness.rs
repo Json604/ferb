@@ -299,6 +299,8 @@ pub struct TestDaemon {
     /// The ports another part fills that the recorder recorded (`port` records, make_more.py): each call's
     /// arguments are compared and its answer, its ids and its journal rows given back.
     ports: Mutex<Vec<Value>>,
+    /// The scenario's name (its named differences, `OWNER_BROWSING`).
+    scenario: String,
     /// The recorded journal rows (a port's own rows are written back from here).
     journal_rows: Vec<Value>,
     /// The front windows the recorder's daemon captured at send (make_more.py `capture_at_send`), by request; one
@@ -1134,6 +1136,15 @@ impl Daemon for TestDaemon {
         Box::pin(async { Some(Vec::new()) })
     }
     fn browsing(&self, attended: bool, request_id: &str) -> Map<String, Value> {
+        let recorded = self
+            .ports
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r["port"] == "browsing");
+        if !recorded && OWNER_BROWSING.contains(&self.scenario.as_str()) {
+            return Map::new();
+        }
         self.port(
             "browsing",
             json!({"args": [attended, request_id], "kwargs": {}}),
@@ -2060,6 +2071,7 @@ pub fn run_scenario(
         tool_diffs: Mutex::default(),
         refusals: Mutex::default(),
         ports: Mutex::new(of("port")),
+        scenario: s(&sc["name"]),
         captures: sc["captures"]
             .as_array()
             .map(|a| a.iter().map(|c| (s(&c["request_id"]), c.clone())).collect())
@@ -2445,7 +2457,10 @@ pub fn run_scenario(
                                 };
                                 let Some(ev) = next else { break };
                                 let ev: Value = serde_json::from_str(&run.mask(&line(&ev))).unwrap();
-                                lines.push(line(&json!({"jsonrpc": "2.0", "method": "chat.send.event", "params": ev})));
+                                let frame = line(&json!({"jsonrpc": "2.0", "method": "chat.send.event", "params": ev}));
+                                if !wait_line_frame(&name, &frame) {
+                                    lines.push(frame);
+                                }
                             }
                             if report.stopped.is_some() {
                                 break;
@@ -3112,6 +3127,30 @@ pub const FIXES: [(&str, &str, &str); 10] = [
     ),
     ("plan_repair", "\": 2139,", "\": 2181,"),
 ];
+
+/// ORCH-647 (fixed against Python): in these scenarios the task's only live step is a wait, so the port also tells
+/// the wait's own line (a `progress` frame whose step task is the task itself, "Waiting …") that Python never sent;
+/// those frames are left out before the frames are compared, and only those.
+pub const WAIT_LINES: [&str; 2] = ["event_wait", "wait_step"];
+
+/// ORCH-648 (fixed against Python): in these scenarios the planner gives the owner's identity to a task naming sites,
+/// so the port also asks the browser area where it browses (`browsing`), which Python asked only for identity "ferb";
+/// the recording has no answer, so it is `{}` (nothing picked, nothing asked: the task runs as Python ran it).
+pub const OWNER_BROWSING: [&str; 1] = ["login_sites"];
+
+/// A frame ORCH-647 added: a task-level `progress` frame with a wait's line.
+pub fn wait_line_frame(scenario: &str, line: &str) -> bool {
+    if !WAIT_LINES.contains(&scenario) {
+        return false;
+    }
+    let v: Value = serde_json::from_str(line).unwrap_or(Value::Null);
+    let p = &v["params"];
+    p["type"] == "progress"
+        && p["step_task_id"] == p["task_id"]
+        && p["text"]
+            .as_str()
+            .is_some_and(|t| t.starts_with("Waiting "))
+}
 
 pub fn fixed(scenario: &str, text: &str) -> String {
     FIXES

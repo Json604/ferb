@@ -964,9 +964,80 @@ impl Inner {
         event.extend(state);
         self.tell_tree(tree_id, event.clone());
         self.deps.daemon.publish("task.step", Value::Object(event));
+        self.say_waiting(&root);
         if status == "wont_run" && row.is_some() {
             // ORCH-532: a row whose step can never run is settled at once
             self.settle_wont_run(&root, step_id);
+        }
+    }
+
+    /// ORCH-647: when every live step of a tree is a wait step waiting (no step works, checks or asks), the tree's live
+    /// line (`task.progress`, what FERB.app's Tasks list, short view and work box show) is the wait's own line, so a
+    /// waiting task never shows its last finished step's words. Python's plan run told only the step's state.
+    fn say_waiting(&self, root: &Arc<Tree>) {
+        let states = root.lock().step_states.clone();
+        let live = |s: &Value| {
+            s.get("status")
+                .and_then(Value::as_str)
+                .is_some_and(|st| STEP_LIVE.contains(&st))
+        };
+        if states.values().any(live) {
+            return;
+        }
+        // a wait step's own waiting state carries its time, event or line; a step waiting on earlier ones carries none
+        let mut waits: Vec<&Value> = states
+            .values()
+            .filter(|s| s.get("status").and_then(Value::as_str) == Some("waiting"))
+            .filter(|s| {
+                ["until", "event", "line"]
+                    .iter()
+                    .any(|k| s.get(*k).is_some())
+            })
+            .collect();
+        waits.sort_by_key(|s| {
+            s.get("seq")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        });
+        let Some(wait) = waits.first() else {
+            return;
+        };
+        let text = self.wait_line(wait);
+        let Some(worker) = self.worker.get() else {
+            return;
+        };
+        let text = self.redact(&Value::String(text));
+        worker.progress_line(&root.id, &root.id, text);
+    }
+
+    /// A waiting wait step's line from its state (ORCH-644, ORCH-647): what it waits for in plain words.
+    pub(crate) fn wait_line(&self, state: &Value) -> String {
+        if let Some(line) = state
+            .get("line")
+            .and_then(Value::as_str)
+            .filter(|l| !l.is_empty())
+        {
+            return line.to_string();
+        }
+        let until = state
+            .get("until")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if let Some(at) = ferb_clock::py::parse(&until.replace('Z', "+00:00")) {
+            let local = self.deps.clock.zone().local(&at);
+            let today =
+                self.deps.clock.zone().local(&self.now()).date_naive() == local.date_naive();
+            let when = if today {
+                ferb_clock::py::fmt(&local, "%H:%M")
+            } else {
+                ferb_clock::py::fmt(&local, "%a %d %b %H:%M")
+            };
+            return format!("Waiting until {when}");
+        }
+        match state.get("event").and_then(Value::as_str) {
+            Some(topic) if !topic.is_empty() => format!("Waiting for the event {topic}"),
+            _ => "Waiting".to_string(),
         }
     }
 

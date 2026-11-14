@@ -147,20 +147,17 @@ fn split_blank_lines(text: &str) -> Vec<&str> {
 }
 
 /// items.py:157 `quoted`: every blank-line-separated part of `quote` is whole words (with `clause`, whole
-/// clauses) of `owner_words`.
+/// clauses) of `owner_words`. Without `clause` it is `ferb-memory`'s one check, which also compares words
+/// (MEM-430); a clause check (a forget's rule) stays Python's: it is about where the owner's clause ends.
 pub fn quoted(owner_words: &str, quote: &str, clause: bool) -> bool {
+    if !clause {
+        return terms::quoted(owner_words, quote);
+    }
     let parts: Vec<&str> = split_blank_lines(quote)
         .into_iter()
         .filter(|p| !pystr::strip(p).is_empty())
         .collect();
-    !parts.is_empty()
-        && parts.iter().all(|p| {
-            if clause {
-                whole_clauses(owner_words, p)
-            } else {
-                contains_words(owner_words, p)
-            }
-        })
+    !parts.is_empty() && parts.iter().all(|p| whole_clauses(owner_words, p))
 }
 
 /// items.py:179 `Capture`.

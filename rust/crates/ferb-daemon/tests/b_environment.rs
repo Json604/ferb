@@ -450,9 +450,24 @@ fn run_case(c: &Value) -> Vec<String> {
     got
 }
 
+/// ORCH-648 (fixed against Python): with no profile picked, the planner's fact says FERB asks once by itself and a plan
+/// never asks which profile, instead of Python's "in a profile the owner names (none chosen for it)", which led a plan
+/// to ask as a step of its own. Applied to the recorded `out` of the three `_facts` cases without FERB's account.
+const NOT_PICKED: (&str, &str) = (
+    "in a profile the owner names (none chosen for it).",
+    ferb_orchestrator::browsing::NOT_PICKED_TAIL,
+);
+
 fn expected(c: &Value) -> Vec<String> {
+    let recorded = dumps(&c["out"]);
+    let out_line = match c["out"].as_str() {
+        Some(text) if text.contains(NOT_PICKED.0) => {
+            dumps(&json!(text.replace(NOT_PICKED.0, NOT_PICKED.1)))
+        }
+        _ => recorded,
+    };
     let mut out = vec![
-        format!("out {}", dumps(&c["out"])),
+        format!("out {out_line}"),
         format!("journal {}", dumps(&c["journal"])),
         format!("log {}", dumps(&c["log"])),
     ];
@@ -466,10 +481,19 @@ fn expected(c: &Value) -> Vec<String> {
     out
 }
 
+// decision: ORCH-648
 #[test]
 fn environment_matches_python() {
     let fx = fixture("daemon-b/environment.json");
     let cases = fx["cases"].as_array().unwrap();
+    let named = cases
+        .iter()
+        .filter(|c| c["out"].as_str().is_some_and(|t| t.contains(NOT_PICKED.0)))
+        .count();
+    assert_eq!(
+        named, 3,
+        "the one named difference covers exactly three cases"
+    );
     let (mut same, mut diffs) = (0usize, Vec::new());
     for c in cases {
         let (want, got) = (expected(c), run_case(c));

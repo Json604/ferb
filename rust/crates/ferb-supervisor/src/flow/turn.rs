@@ -1023,10 +1023,11 @@ impl Inner {
                 ));
                 let said = self.said_in_chat(turn);
                 for part in &task.parts {
-                    if !said.iter().any(|w| {
-                        ferb_learning::text::quoted(w, &part.quote, false)
-                            || crate::words::said_as_words(w, &part.quote)
-                    }) {
+                    // decision: MEM-430
+                    if !said
+                        .iter()
+                        .any(|w| ferb_learning::text::quoted(w, &part.quote, false))
+                    {
                         problems.push(format!(
                             "part {}: its quote must be the owner's own words from this message or their recent \
                              messages in this chat: {}",

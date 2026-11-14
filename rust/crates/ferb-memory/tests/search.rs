@@ -359,6 +359,8 @@ fn ranking(v: &Value) -> Ranking {
     r
 }
 
+// MEM-430 (fixed against Python): `quoted` also compares words; none of the 18 recorded `quoted` cases flips (none
+// holds a pasted mark between the owner's words), so they still compare exactly. The new cases: quote_words.rs.
 // decision: MEM-6, MEM-27
 #[test]
 fn the_pure_helpers_match_python() {

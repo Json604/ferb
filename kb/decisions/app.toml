@@ -3707,3 +3707,12 @@ rule = "Refines APP-888, APP-889, APP-890 and APP-898. A click on a running card
 why = "The row's picture only enlarged (APP-889), with no way to keep watching that step in a window as the main picture allows."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::RowPreview", "ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift::TaskShortView", "ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift::PreviewSubject", "ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift::DetachedTaskActivityView", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
 untestable = "The popover and the window on the owner's screen are the live check; the tests check the subject, the step's picture and the windows."
+
+[APP-913]
+title = "A cancelled daemon call closes its connection; a slow call is logged by phase"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "DaemonRPC.call ends with its caller: a cancelled Swift task (a preview loop stopped when its view goes) shuts its call's socket at once, so the daemon ends the call (DMN-403) and the thread waiting for the reply is freed instead of both lasting up to the 10 s reply wait. A call taking 3 s or more is logged (os_log com.ferb.FERB, category rpc) with its method and its time queued, connecting with its hello, and waiting for the reply; never its parameters."
+why = "Journal 66: an answer's call stayed out over 15 s with no slow call in the daemon, and nothing recorded where. Each app call is its own connection, but a stopped preview loop left its blocked call and the daemon's capture running for nobody."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/DaemonRPC.swift::call", "ui/mac/FERBNotch/Sources/NotchCore/DaemonRPC.swift::RPCTimings"]

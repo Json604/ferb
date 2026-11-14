@@ -1979,3 +1979,77 @@ the owner's own request.
 **Open.** Memory's `remember` quote check still compares characters (`ferb-memory` `contains_words`): the same paste
 would refuse a remembered preference. The same run asked "Which Chrome profile should I use for the Google Sheet?"
 as a plan step on a fresh install with no profile picked: not examined.
+
+## 2026-11-15 · 68 · Quotes compared as words everywhere; a waiting task says so; the browsing question for owner-identity tasks; a cancelled app call ends
+
+**What.**
+- MEM-430 (supersedes ORCH-646): the one quote check, `ferb-memory` `terms::quoted`, accepts a part by Python's
+  character match or when its words, in order and unbroken, are the owner's (`said_as_words`, moved from
+  ferb-supervisor). Every acceptance check uses it: plan parts, remembered items and their end dates, schedules and
+  reminders, side entries, imports. What is saved as the owner's words is still their exact clause; a forget's clause
+  check stays Python's.
+- ORCH-647: when every live step of a tree is a waiting wait step, its live line (`task.progress`) is the wait's own
+  line (tree.rs `say_waiting`), so FERB.app's Tasks list no longer shows the last finished step's words.
+- ORCH-648: a tree the planner gives identity "owner" whose task names sites, and whose request words name none of
+  the owner's profiles (`names_profile`), goes through `browse_as`: without a pick FERB's one browsing question is
+  asked before the plan runs (answer saved); with a pick the tree is `as_owner`. The no-pick fact says FERB asks once
+  itself and a plan never asks (`NOT_PICKED_TAIL`).
+- APP-913: `DaemonRPC.call` closes its connection when its Swift task is cancelled; a call of 3 s or more is logged
+  by phase (queued, connect and hello, reply), method name only.
+
+**Why.** The owner's live checks on build 202611142038 ("all passed. works, we can move forward") left journal 65–67's
+open items: the Tasks list showed a finished step's words for a waiting tree; on the fresh install the plan asked
+"Which Chrome profile should I use for the Google Sheet?" as a step (02:29:53) with `browsing.choose` never asked and
+nothing saved, and asked again at 02:39:33; an answer's call had stayed out over 15 s on 11-14.
+
+**Evidence.** ferb-memory `quote_words.rs`, ferb-learning `capture_words.rs`, supervisor `task_waits.rs` (+3) and
+`owner_browsing.rs` (4), daemon `b_browsers` names_profile, ferb-rpc `a_call_held_open_on_one_connection_…`, Swift
+`testACancelledCallClosesItsConnectionAtOnce`.
+
+**Fixed against Python.** items.py:157 compares characters; plan_executor.py:47 told a wait's state, never a line;
+supervisor.py:3004 asked the browsing question only for identity "ferb".
+
+**Named differences.** 0 of 18 (memory) and 0 of 1,116 (learning) recorded quote cases flip. `event_wait`,
+`wait_step`: the task-level wait progress frames are left out before comparing. `login_sites`: an unrecorded
+`browsing` call is answered `{}`. daemon-b environment: three `_facts` cases carry the new no-pick fact.
+
+**Not a drift.** FERB.app opens one connection per call, and Python's server, like the Rust one, serves each
+connection's calls in turn: the daemon cannot hold an answer behind a preview. The coordinator's hypothesis was wrong.
+
+**Open.**
+- Owner's: remembered preferences as the owner's words for a profile; whether `picked_only` stays a refusal.
+- A plan built before the pick exists can still add its own ask step; owner-identity tasks with no sites still browse
+  where the worker names.
+- Where the 22:47 answer's 15 s went: not determined; the new rpc log line will show it next time.
+
+## 2026-11-15 · 69 · Stage 2 begins: the chat as entries, projected in the engine and folded back to FERB.app's transcript
+
+**What.** ENG-8: `ferb-core::chat_entry`, the entry contract (kinds, states, `pos`, `seq`, `rev`, placement, typed
+bodies; portable). ENG-9: `ferb-supervisor/src/flow/entries.rs` `ChatProjector`, a pure port of FERB.app's reducer
+that turns frames and events into entry changes or live state. `NotchCore/EntryFold.swift` folds entries into
+`ConversationArchive`. Nothing is wired; no schema, no RPC, no runtime change.
+
+**Why.** Stage 2 (ENG-1): one conversation for every client, computed once in the engine. Today FERB.app writes the
+history rows (`chat_history`, last writer wins, paged inside one day), a stream's frames reach only the connection
+that sent the message, `chat.send` has no idempotency key, and "shown" is one global flag. The design (a
+`chat_entries` table written by the engine where it emits frames; the journal stays the model-facing record) was
+chosen over deriving from the journal (append-only; plan steps deleted after 90 days) and over moving the app's
+opaque rows (a Swift shape as the cross-platform contract).
+
+**Evidence.** 71 recorded scenarios turned into timelines give `rust/fixtures/chat-entries/scenarios.json` (not
+Python-recorded: there is no Python counterpart). `ferb-supervisor/tests/chat_entries.rs` (8: golden bytes; one
+message per ack, no live frame stored, `seq` only grows, `pos` set once, each revision changes something).
+`EntryFoldTests`: 71 of 71 transcripts equal the app's own reducer's, with a sensitivity test and a legacy test.
+The agent corrected 13 points of the coordinator's frame mapping against the code (step states are live only; the
+engine never emits an `error` frame; notices are never revised; and others).
+
+**Seen once, not explained.** In the coordinator's combined workspace run, ferbd `chat_replay`
+`the_more_scenarios_through_the_program` failed once (which scenario was not captured) and passed three times alone
+afterwards.
+
+**Open.**
+- App bugs found by the fold, not fixed: every stream frame after a turn's first answer is dropped
+  (`Conversation.swift:72-90`, `NotchSession.swift:226`: in `conversation_change` three of four replies never show);
+  a one-ask outcome's `unconfirmed` is read as `note`.
+- Questions are never closed by a restart in the entries (wiring's job).
+- The schema (slice 3) waits for stage 1 recorded as cut over and the owner's word on the shared conversation.

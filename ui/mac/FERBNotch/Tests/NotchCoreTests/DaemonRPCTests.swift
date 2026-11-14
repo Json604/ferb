@@ -35,6 +35,28 @@ final class DaemonRPCTests: XCTestCase {
             XCTAssertFalse(error.localizedDescription.contains("private-test-value"))
         }
     }
+
+    // decision: APP-913
+    // A stopped preview loop's call ends with it (journal 66): its connection closes at once, so the daemon stops the
+    // capture nobody waits for and the thread waiting for the reply is freed, not held for the 10 s reply wait.
+    func testACancelledCallClosesItsConnectionAtOnce() async throws {
+        let release = DispatchSemaphore(value: 0)
+        let server = try RPCFixture { request in
+            if request["method"] as? String != "auth.hello" { _ = release.wait(timeout: .now() + 8) }
+            return ["id": request["id"]!, "result": ["ok": true]]
+        }
+        defer { release.signal(); server.close() }
+        let rpc = DaemonRPC(socketPath: server.path)
+        let call = Task { try await rpc.call("tasks.preview", params: ["task_id": "t-example"]) }
+        try await Task.sleep(for: .milliseconds(300))
+        let cancelled = Date()
+        call.cancel()
+        do {
+            _ = try await call.value
+            XCTFail("A cancelled call has no answer")
+        } catch {}
+        XCTAssertLessThan(Date().timeIntervalSince(cancelled), 2, "the call ended with its caller, not at the reply wait")
+    }
 }
 
 private final class RPCFixture {
@@ -55,6 +77,8 @@ private final class RPCFixture {
             let peer = Darwin.accept(listener, nil, nil)
             guard peer >= 0 else { return }
             defer { Darwin.close(peer) }
+            var noSignal: Int32 = 1        // a reply to a caller that left fails, never kills the test process
+            setsockopt(peer, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
             var buffer = Data()
             var byte: UInt8 = 0
             while Darwin.recv(peer, &byte, 1, 0) == 1 {

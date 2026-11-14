@@ -272,6 +272,30 @@ const FIXES: [(&str, &str, &str); 10] = [
     ("plan_repair", "\": 2139,", "\": 2181,"),
 ];
 
+/// ORCH-647 (fixed against Python): in these scenarios the task's only live step is a wait, so the port also tells
+/// the wait's own line (a `progress` frame whose step task is the task itself, "Waiting …") that Python never sent;
+/// those frames are left out before the frames are compared, and only those.
+const WAIT_LINES: [&str; 2] = ["event_wait", "wait_step"];
+
+/// ORCH-648 (fixed against Python): in these scenarios the planner gives the owner's identity to a task naming sites,
+/// so the port also asks the browser area where it browses (`browsing`), which Python asked only for identity "ferb";
+/// the recording has no answer, so it is `{}` (nothing picked, nothing asked: the task runs as Python ran it).
+const OWNER_BROWSING: [&str; 1] = ["login_sites"];
+
+/// A frame ORCH-647 added: a task-level `progress` frame with a wait's line.
+fn wait_line_frame(scenario: &str, line: &str) -> bool {
+    if !WAIT_LINES.contains(&scenario) {
+        return false;
+    }
+    let v: Value = serde_json::from_str(line).unwrap_or(Value::Null);
+    let p = &v["params"];
+    p["type"] == "progress"
+        && p["step_task_id"] == p["task_id"]
+        && p["text"]
+            .as_str()
+            .is_some_and(|t| t.starts_with("Waiting "))
+}
+
 fn fixed(scenario: &str, text: &str) -> String {
     FIXES
         .iter()
@@ -846,6 +870,9 @@ fn run_scenario(
                     let id = streams.get(&conn).cloned().unwrap_or(Value::Null);
                     while let Some(l) = c.recv() {
                         let v: Value = serde_json::from_str(&l).unwrap_or(Value::Null);
+                        if wait_line_frame(&name, &l) {
+                            continue;
+                        }
                         got.push(run_root.mask(&l));
                         if v["id"] == id {
                             break;
@@ -1094,7 +1121,15 @@ fn run_scenario(
             used.tool_calls
         ));
     }
-    report.calls.extend(used.problems.iter().cloned());
+    report.calls.extend(
+        used.problems
+            .iter()
+            .filter(|p| {
+                !(OWNER_BROWSING.contains(&name.as_str())
+                    && p.as_str() == "port browsing: not called in the recording")
+            })
+            .cloned(),
+    );
     // the model calls
     let mut tool_shifts: BTreeMap<(i64, i64), (i64, i64)> = BTreeMap::new();
     for (i, want) in script.calls.iter().enumerate() {

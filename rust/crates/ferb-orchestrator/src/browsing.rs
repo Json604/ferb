@@ -17,6 +17,9 @@ pub const GONE_RUN: &str = "This run had no browser: the profile FERB used for w
 /// ORCH-645: what an open browsing question's answer settles, beside it in the planner's open questions.
 pub const QUESTION_SETTLES: &str = "the browser profile every web task uses, this message's tasks included; a plan \
      never asks the owner which profile again while this is open, and FERB uses the answer by itself";
+/// ORCH-648: the planner's fact while the owner hasn't picked a profile for FERB's web work (was environment.py's "in
+/// a profile the owner names (none chosen for it)", which led plans to ask which profile as a step of their own).
+pub const NOT_PICKED_TAIL: &str = "in the profile the owner picks for it: none picked yet. The first time a task browses as the owner, FERB asks them once by itself which profile to use (a plan never asks it as a step) and uses that profile from then on, unless the owner's words name another one for a task.";
 pub const UNASKED_FACT: &str = "not set up; when a task does web work as FERB, FERB asks the owner once which of their browser profiles to use, and works there as the owner";
 pub const CHOSEN_FACT: &str =
     "not set up; web work as FERB runs as the owner in their {label}, the profile they picked";

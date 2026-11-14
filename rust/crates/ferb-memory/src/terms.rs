@@ -93,15 +93,38 @@ pub fn contains_words(text: &str, part: &str) -> bool {
     false
 }
 
-/// `quoted(owner_words, quote)` (clause=False): every blank-line-separated part of `quote` is whole words of
-/// `owner_words`.
+/// `quoted(owner_words, quote)` (clause=False), the one check that a quote is the owner's own words: every
+/// blank-line-separated part of `quote` is whole words of `owner_words` (Python's character comparison) or, failing
+/// that, [`said_as_words`]. What gets saved is never taken from the quote, so only acceptance is loosened.
 pub fn quoted(owner_words: &str, quote: &str) -> bool {
     let parts = split_blank_lines(quote);
     let parts: Vec<&str> = parts
         .into_iter()
         .filter(|p| !pystr::strip(p).is_empty())
         .collect();
-    !parts.is_empty() && parts.iter().all(|p| contains_words(owner_words, p))
+    !parts.is_empty()
+        && parts
+            .iter()
+            .all(|p| contains_words(owner_words, p) || said_as_words(owner_words, p))
+}
+
+/// decision: MEM-430
+/// One part of a quote is the owner's words when its words (runs of letters, numbers, marks and private-use
+/// characters, as `query_terms` reads them), in order and unbroken, are words the owner typed (case aside): punctuation, quote styles, line breaks and stray marks a paste carries (a terminal's
+/// "▎", ">") are not words. Python's `quoted` compares characters, so one pasted mark between two of the owner's
+/// words refused the owner's own request (a plan part, ORCH-646; a remembered preference; a schedule's words).
+pub fn said_as_words(owner_words: &str, part: &str) -> bool {
+    fn words(text: &str) -> Vec<String> {
+        text.split(|c: char| !pystr::word_char(c))
+            .filter(|w| !w.is_empty())
+            .map(pystr::casefold)
+            .collect()
+    }
+    let part = words(part);
+    !part.is_empty()
+        && words(owner_words)
+            .windows(part.len())
+            .any(|run| run == part.as_slice())
 }
 
 /// `re.split(r"\n[ \t]*\n", text)`.

@@ -279,25 +279,3 @@ pub const FERB_CHECKS: [&str; 6] = [
     ferb_orchestrator::steering::DOWNLOADS_ASK,
     ferb_orchestrator::browsing::BROWSING_ASK,
 ];
-
-/// decision: ORCH-646
-/// A part's quote is the owner's words when its words, in order and unbroken, are words the owner typed: letters and
-/// digits compared, case aside; punctuation, quote styles, line breaks and stray marks a paste carries (a terminal's
-/// "▎", ">") are not words. Every blank-line-separated part of the quote must be such a run. Python's `quoted`
-/// compares the characters, so one pasted mark between two words refused the owner's own request.
-pub fn said_as_words(owner: &str, quote: &str) -> bool {
-    fn words(text: &str) -> Vec<String> {
-        text.split(|c: char| !c.is_alphanumeric())
-            .filter(|w| !w.is_empty())
-            .map(|w| w.to_lowercase())
-            .collect()
-    }
-    let said = words(owner);
-    let mut parts = quote
-        .split("\n\n")
-        .map(words)
-        .filter(|p| !p.is_empty())
-        .peekable();
-    parts.peek().is_some()
-        && parts.all(|part| said.windows(part.len()).any(|run| run == part.as_slice()))
-}

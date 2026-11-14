@@ -1,0 +1,887 @@
+//! The chat as entries (stage 2, ENG-8): `flow::entries::ChatProjector` folded over every recorded chat scenario, and
+//! its rules.
+//!
+//! **These goldens are not Python-recorded.** Python has no counterpart: the entries are the engine's own projection of
+//! what FERB.app's reducer keeps today. `rust/fixtures/chat-entries/scenarios.json` is written by this test from the
+//! recorded scenarios (`UPDATE_GOLDEN=1 cargo test -p ferb-supervisor --test chat_entries` writes it again) and
+//! compared byte for byte otherwise; FERB.app's own reducer is the reference it is checked against
+//! (`ui/mac/FERBNotch/Tests/NotchCoreTests/EntryFoldTests.swift`: the same timelines through the app's code give the
+//! same transcript as the entries folded).
+//!
+//! Each scenario's timeline comes from the recordings of the real Python daemon (rust/fixtures/daemon/chat_scenarios.json,
+//! rust/fixtures/supervisor/control_scenarios.json and more_scenarios.json): every `chat.send` stream (its `ack` when
+//! the message was sent, the rest of its frames where its stream ended), the `task.result` the engine publishes with
+//! every outcome (chat.rs `task_result`), the results, notices and questions `chat.status` read back, the answers given
+//! (`approval.resolved`, with the facts of the scenario's `question.answered` row) and the reminder banners. A recording
+//! keeps each connection's lines in order but not their order across connections; the timeline's order (a stream's
+//! frames where it ended) is a choice, the same for the engine and the app.
+
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::PathBuf;
+
+use ferb_core::chat_entry::{
+    AnswerBody, Entry, EntryKind, EntryState, MessageBody, Placement, QuestionBody,
+};
+use ferb_supervisor::flow::entries::{ChatProjector, Input, Projected, Seams};
+use serde_json::{json, Map, Value};
+
+fn fixtures() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures")
+}
+
+const SOURCES: [&str; 3] = [
+    "daemon/chat_scenarios.json",
+    "supervisor/control_scenarios.json",
+    "supervisor/more_scenarios.json",
+];
+const BODIES: [&str; 3] = [
+    "daemon/bodies.json",
+    "supervisor/control_bodies.json",
+    "supervisor/more_bodies.json",
+];
+const GOLDEN: &str = "chat-entries/scenarios.json";
+
+fn read(path: &str) -> Value {
+    let text = std::fs::read_to_string(fixtures().join(path)).unwrap();
+    serde_json::from_str(&text).unwrap()
+}
+
+/// A recorded line: its text, or the body it names (`{"sha256"}`).
+fn line(v: &Value, bodies: &Map<String, Value>) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        Value::Object(m) => bodies[m["sha256"].as_str().unwrap()]
+            .as_str()
+            .unwrap()
+            .to_string(),
+        _ => panic!("a line is a string or a body"),
+    }
+}
+
+fn s(v: &Value, k: &str) -> Option<String> {
+    v.get(k).and_then(Value::as_str).map(str::to_string)
+}
+
+/// One scenario as a timeline of the conversation: what was sent, the frames, the events.
+struct Scenario {
+    name: String,
+    source: String,
+    timeline: Vec<Value>,
+}
+
+/// The timeline of one recorded scenario (see the file's comment).
+fn timeline(scenario: &Value, bodies: &Map<String, Value>) -> Vec<Value> {
+    let steps = scenario["steps"].as_array().unwrap();
+    // the journal's question.answered rows: the facts approval.resolved goes with
+    let mut answered: BTreeMap<String, Value> = BTreeMap::new();
+    if let Some(j) = scenario["tables"].get("journal") {
+        let cols: Vec<&str> = j["columns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c.as_str().unwrap())
+            .collect();
+        for row in j["rows"].as_array().unwrap() {
+            let row: Map<String, Value> = cols
+                .iter()
+                .map(|c| c.to_string())
+                .zip(row.as_array().unwrap().iter().cloned())
+                .collect();
+            if row["kind"] != "question.answered" {
+                continue;
+            }
+            let data: Value = serde_json::from_str(&line(&row["data_json"], bodies)).unwrap();
+            if let Some(a) = s(&data, "approval_id") {
+                answered.insert(a, data);
+            }
+        }
+    }
+    // each stream's lines, by the step that ended it: `conn` streams in order
+    let mut ends: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, st) in steps.iter().enumerate() {
+        if matches!(
+            st["do"].as_str(),
+            Some("stream_end" | "stream_end_at_shutdown")
+        ) {
+            ends.entry(s(st, "conn").unwrap()).or_default().push(i);
+        }
+    }
+    let frames_of = |i: usize| -> Vec<Value> {
+        steps[i]["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|l| l.get("recv"))
+            .map(|l| serde_json::from_str::<Value>(&line(l, bodies)).unwrap())
+            .filter(|m| m["method"] == "chat.send.event")
+            .map(|m| m["params"].clone())
+            .collect()
+    };
+    let mut out = Vec::new();
+    let mut at = "2026-01-01T09:00:00+00:00".to_string();
+    let mut streams: HashMap<String, (usize, String, String)> = HashMap::new(); // end step → (stream, session, request)
+    let mut sessions: HashMap<String, String> = HashMap::new(); // request → session
+    let mut first_session: Option<String> = None;
+    let mut taken: HashMap<String, usize> = HashMap::new();
+    let mut seen_results: HashSet<String> = HashSet::new();
+    let mut seen_notices: HashSet<String> = HashSet::new();
+    let mut seen_questions: HashSet<String> = HashSet::new();
+    let mut resolved: HashSet<String> = HashSet::new();
+    let mut count = 0usize;
+    let route =
+        |data: &Value, sessions: &HashMap<String, String>, first: &Option<String>| -> String {
+            s(data, "request_id")
+                .and_then(|r| sessions.get(&r).cloned())
+                .or_else(|| first.clone())
+                .unwrap_or_else(|| "s1".into())
+        };
+    for st in steps {
+        let conn = s(st, "conn").unwrap_or_default();
+        match st["do"].as_str().unwrap() {
+            "stream" => {
+                let sent: Value =
+                    serde_json::from_str(&line(&st["lines"][0]["send"], bodies)).unwrap();
+                if sent["method"] != "chat.send" {
+                    continue;
+                }
+                let n = taken.entry(conn.clone()).or_default();
+                let end = ends[&conn][*n];
+                *n += 1;
+                let frames = frames_of(end);
+                let Some(ack) = frames.first().filter(|f| f["type"] == "ack") else {
+                    continue; // refused before its ack: no message was accepted
+                };
+                let session = s(&sent["params"], "session_id").unwrap_or_else(|| "default".into());
+                let request = s(ack, "request_id").unwrap();
+                first_session.get_or_insert(session.clone());
+                sessions.insert(request.clone(), session.clone());
+                let stream = count;
+                count += 1;
+                at = s(ack, "at").unwrap_or(at);
+                let paths = sent["params"]
+                    .get("input_paths")
+                    .cloned()
+                    .unwrap_or(json!([]));
+                out.push(json!({"do": "send", "stream": stream, "session": session, "request_id": request,
+                                "text": sent["params"]["text"], "input_paths": paths, "at": at}));
+                out.push(
+                    json!({"do": "frame", "stream": stream, "session": session, "frame": ack}),
+                );
+                streams.insert(format!("{conn}#{end}"), (stream, session, request));
+            }
+            "stream_end" | "stream_end_at_shutdown" => {
+                let me = steps.iter().position(|x| std::ptr::eq(x, st)).unwrap();
+                let Some((stream, session, _)) = streams.get(&format!("{conn}#{me}")).cloned()
+                else {
+                    continue;
+                };
+                for frame in frames_of(me).into_iter().skip(1) {
+                    if let Some(a) = s(&frame, "at") {
+                        at = a;
+                    }
+                    let outcome = frame["type"] == "outcome";
+                    out.push(json!({"do": "frame", "stream": stream, "session": session, "frame": frame}));
+                    if outcome {
+                        // chat.rs `task_result`: the outcome, published as task.result
+                        let mut data = frame.clone();
+                        data["shown"] = json!(true);
+                        if let Some(t) = s(&frame, "task_id") {
+                            seen_results.insert(t);
+                        }
+                        out.push(json!({"do": "bus", "session": session, "topic": "task.result", "data": data, "at": at}));
+                    }
+                    if frame["type"] == "event" && frame["topic"] == "approval.requested" {
+                        if let Some(a) = s(&frame["data"], "approval_id") {
+                            seen_questions.insert(a);
+                        }
+                    }
+                }
+                out.push(json!({"do": "end", "stream": stream, "session": session}));
+            }
+            "call" => {
+                let lines = st["lines"].as_array().unwrap();
+                let mut sent: Option<Value> = None;
+                for l in lines {
+                    if let Some(x) = l.get("send") {
+                        sent = Some(serde_json::from_str(&line(x, bodies)).unwrap());
+                        continue;
+                    }
+                    let got: Value = serde_json::from_str(&line(&l["recv"], bodies)).unwrap();
+                    let Some(sent) = sent.as_ref().filter(|q| q.get("id") == got.get("id")) else {
+                        continue;
+                    };
+                    let method = sent["method"].as_str().unwrap_or("");
+                    let result = &got["result"];
+                    if method == "chat.status" && result.is_object() {
+                        for q in result["approvals"].as_array().into_iter().flatten() {
+                            let a = s(q, "approval_id").unwrap_or_default();
+                            if seen_questions.insert(a) {
+                                let session = route(q, &sessions, &first_session);
+                                out.push(json!({"do": "bus", "session": session, "topic": "approval.requested", "data": q, "at": at}));
+                            }
+                        }
+                        for r in result["results"].as_array().into_iter().flatten() {
+                            let t = s(r, "task_id").unwrap_or_default();
+                            if seen_results.insert(t) {
+                                let session = route(r, &sessions, &first_session);
+                                out.push(json!({"do": "result", "session": session, "data": r}));
+                            }
+                        }
+                        for n in result["notices"].as_array().into_iter().flatten() {
+                            let id = s(n, "id").unwrap_or_default();
+                            if seen_notices.insert(id) {
+                                let session = route(n, &sessions, &first_session);
+                                out.push(json!({"do": "notice", "session": session, "data": n}));
+                            }
+                        }
+                    }
+                    if ["chat.approve", "chat.answer", "chat.correct"].contains(&method) {
+                        if let Some(a) = s(&sent["params"], "approval_id") {
+                            if result.is_object() && resolved.insert(a.clone()) {
+                                let mut data = answered.get(&a).cloned().unwrap_or_else(
+                                    || json!({"approval_id": a, "state": result["state"]}),
+                                );
+                                data["approval_id"] = json!(a);
+                                let session = first_session.clone().unwrap_or_else(|| "s1".into());
+                                out.push(json!({"do": "bus", "session": session, "topic": "approval.resolved", "data": data, "at": at}));
+                            }
+                        }
+                    }
+                }
+            }
+            "stream_cut" => {
+                for l in st["lines"].as_array().unwrap() {
+                    let Some(x) = l.get("recv") else { continue };
+                    let text = line(x, bodies);
+                    let Ok(m) = serde_json::from_str::<Value>(&text) else {
+                        continue;
+                    };
+                    if m["method"] == "notifications.subscribe.event" {
+                        let session = first_session.clone().unwrap_or_else(|| "s1".into());
+                        out.push(
+                            json!({"do": "notification", "session": session, "item": m["params"]}),
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    // questions answered by no call (a stop or a steer set them aside): at the end
+    for (a, data) in answered {
+        if seen_questions.contains(&a) && resolved.insert(a.clone()) {
+            let session = first_session.clone().unwrap_or_else(|| "s1".into());
+            out.push(json!({"do": "bus", "session": session, "topic": "approval.resolved", "data": data, "at": at}));
+        }
+    }
+    out
+}
+
+fn scenarios() -> Vec<Scenario> {
+    let mut bodies = Map::new();
+    for b in BODIES {
+        if let Value::Object(m) = read(b) {
+            bodies.extend(m);
+        }
+    }
+    let mut out = Vec::new();
+    for source in SOURCES {
+        for sc in read(source)["scenarios"].as_array().unwrap() {
+            out.push(Scenario {
+                name: s(sc, "name").unwrap(),
+                source: source.to_string(),
+                timeline: timeline(sc, &bodies),
+            });
+        }
+    }
+    out
+}
+
+/// The seams: the timeline's clock, ids counted per scenario, one change counter per conversation.
+struct Fixed {
+    at: String,
+    ids: u64,
+    seq: u64,
+}
+
+impl Seams for Fixed {
+    fn now(&mut self) -> String {
+        self.at.clone()
+    }
+    fn new_id(&mut self) -> String {
+        self.ids += 1;
+        format!("ce-{:06}", self.ids)
+    }
+    fn next_seq(&mut self) -> u64 {
+        self.seq += 1;
+        self.seq
+    }
+}
+
+/// One timeline run: per item, the conversation and what it made.
+struct Run {
+    made: Vec<(String, Value, Projected)>,
+    entries: BTreeMap<String, Vec<Entry>>,
+}
+
+fn run(timeline: &[Value]) -> Run {
+    let mut projectors: BTreeMap<String, (ChatProjector, Fixed)> = BTreeMap::new();
+    let mut ids = 0u64;
+    let mut at = "2026-01-01T09:00:00+00:00".to_string();
+    let mut requests: HashMap<u64, String> = HashMap::new();
+    let mut made = Vec::new();
+    for item in timeline {
+        let session = s(item, "session").unwrap();
+        let (projector, seams) = projectors.entry(session.clone()).or_insert_with(|| {
+            (
+                ChatProjector::new(&session, 1),
+                Fixed {
+                    at: at.clone(),
+                    ids: 0,
+                    seq: 0,
+                },
+            )
+        });
+        if let Some(a) = s(item, "at").or_else(|| item.get("frame").and_then(|f| s(f, "at"))) {
+            at = a;
+        }
+        seams.at = at.clone();
+        seams.ids = ids;
+        let stream = item.get("stream").and_then(Value::as_u64);
+        let out = match item["do"].as_str().unwrap() {
+            "send" => {
+                requests.insert(stream.unwrap(), s(item, "request_id").unwrap());
+                continue;
+            }
+            "frame" => {
+                let request = requests[&stream.unwrap()].clone();
+                let mut frame = item["frame"].clone();
+                if frame["type"] == "ack" {
+                    // what the engine knows at its ack: the message's files
+                    let paths = timeline
+                        .iter()
+                        .find(|x| x["do"] == "send" && x["stream"] == item["stream"])
+                        .map(|x| x["input_paths"].clone())
+                        .unwrap_or(json!([]));
+                    frame["input_paths"] = paths;
+                }
+                projector.apply(
+                    Input::Frame {
+                        request_id: &request,
+                        frame: &frame,
+                    },
+                    seams,
+                )
+            }
+            "end" => {
+                let request = requests[&stream.unwrap()].clone();
+                projector.apply(
+                    Input::StreamEnded {
+                        request_id: &request,
+                    },
+                    seams,
+                )
+            }
+            "bus" => projector.apply(
+                Input::Bus {
+                    topic: item["topic"].as_str().unwrap(),
+                    data: &item["data"],
+                },
+                seams,
+            ),
+            "result" => projector.apply(
+                Input::Bus {
+                    topic: "task.result",
+                    data: &item["data"],
+                },
+                seams,
+            ),
+            "notice" => projector.apply(
+                Input::Bus {
+                    topic: "attention.notice",
+                    data: &item["data"],
+                },
+                seams,
+            ),
+            "notification" => projector.apply(Input::Notification(&item["item"]), seams),
+            other => panic!("unknown timeline step {other}"),
+        };
+        ids = seams.ids;
+        made.push((session, item.clone(), out));
+    }
+    let entries = projectors
+        .into_iter()
+        .map(|(k, (p, _))| (k, p.entries()))
+        .collect();
+    Run { made, entries }
+}
+
+/// The golden file: each scenario's timeline and the entries it ends with, one JSON value per line.
+fn golden(all: &[Scenario]) -> String {
+    let mut out = String::from("{\"about\": ");
+    out += &serde_json::to_string(
+        "Generated by rust/crates/ferb-supervisor/tests/chat_entries.rs (UPDATE_GOLDEN=1). Not Python-recorded: Python \
+         has no counterpart. Each scenario's timeline is built from the recorded scenarios named in `source`; `entries` \
+         are what ChatProjector made of it, each entry as it stands at the end, per conversation in creation order.",
+    )
+    .unwrap();
+    out += ",\n\"scenarios\": [\n";
+    for (i, sc) in all.iter().enumerate() {
+        let r = run(&sc.timeline);
+        let changes: usize = r.made.iter().map(|m| m.2.changes.len()).sum();
+        out += &format!(
+            "{{\"name\": {}, \"source\": {}, \"changes\": {changes},\n\"timeline\": [\n",
+            serde_json::to_string(&sc.name).unwrap(),
+            serde_json::to_string(&sc.source).unwrap()
+        );
+        let items: Vec<String> = sc
+            .timeline
+            .iter()
+            .map(|t| serde_json::to_string(t).unwrap())
+            .collect();
+        out += &items.join(",\n");
+        out += "],\n\"entries\": [\n";
+        let entries: Vec<String> = r
+            .entries
+            .values()
+            .flatten()
+            .map(|e| serde_json::to_string(e).unwrap())
+            .collect();
+        out += &entries.join(",\n");
+        out += if i + 1 == all.len() { "]}\n" } else { "]},\n" };
+    }
+    out += "]}\n";
+    out
+}
+
+// decision: ENG-9
+#[test]
+fn the_recorded_scenarios_fold_into_the_golden_entries() {
+    let all = scenarios();
+    assert_eq!(all.len(), 71, "28 daemon, 10 control and 33 more scenarios");
+    let made = golden(&all);
+    let path = fixtures().join(GOLDEN);
+    if std::env::var_os("UPDATE_GOLDEN").is_some() {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &made).unwrap();
+    }
+    let kept = std::fs::read_to_string(&path).expect("the golden file (UPDATE_GOLDEN=1 writes it)");
+    assert!(
+        kept == made,
+        "the entries differ from {GOLDEN}; UPDATE_GOLDEN=1 writes them again, then review the diff"
+    );
+}
+
+/// Live frames store nothing and come back live.
+const LIVE: [&str; 11] = [
+    "progress",
+    "step",
+    "subtask",
+    "verification",
+    "memory",
+    "timer",
+    "plan_delta",
+    "plan_abort",
+    "plan_end",
+    "reply_delta",
+    "reply_abort",
+];
+
+// decision: ENG-8
+// decision: ENG-9
+#[test]
+fn every_rule_holds_over_every_scenario() {
+    let mut acks = 0;
+    let mut live = 0;
+    for sc in scenarios() {
+        let r = run(&sc.timeline);
+        let ctx = |what: &str| format!("{}: {what}", sc.name);
+        // every ack makes exactly one message (one per request)
+        for (session, entries) in &r.entries {
+            let sent: Vec<String> = sc
+                .timeline
+                .iter()
+                .filter(|t| {
+                    t["do"] == "frame"
+                        && t["frame"]["type"] == "ack"
+                        && s(t, "session").as_deref() == Some(session)
+                })
+                .map(|t| s(&t["frame"], "request_id").unwrap())
+                .collect();
+            acks += sent.len();
+            let messages: Vec<String> = entries
+                .iter()
+                .filter(|e| e.kind == EntryKind::Message)
+                .map(|e| e.request_id.clone().unwrap())
+                .collect();
+            assert_eq!(messages, sent, "{}", ctx("one message per ack, in order"));
+        }
+        // nothing live is stored
+        for (_, item, out) in &r.made {
+            if item["do"] == "frame" {
+                let ty = item["frame"]["type"].as_str().unwrap_or("");
+                let topic = item["frame"]["topic"].as_str().unwrap_or("");
+                if LIVE.contains(&ty) || (ty == "event" && topic != "approval.requested") {
+                    live += 1;
+                    assert!(
+                        out.changes.is_empty(),
+                        "{}",
+                        ctx(&format!("a {ty} frame stored something"))
+                    );
+                }
+            }
+        }
+        // seq only grows and is unique; pos is given once; a revision bumps rev by one and changes something stored
+        let mut by_session: BTreeMap<String, Vec<&Entry>> = BTreeMap::new();
+        for (session, _, out) in &r.made {
+            for c in &out.changes {
+                assert_eq!(c.seq, c.entry.seq);
+                by_session
+                    .entry(session.clone())
+                    .or_default()
+                    .push(&c.entry);
+            }
+        }
+        for changes in by_session.values() {
+            let mut last = 0;
+            let mut seen: HashMap<&str, &Entry> = HashMap::new();
+            let mut positions: HashMap<u64, &str> = HashMap::new();
+            for e in changes {
+                assert!(e.seq > last, "{}", ctx("seq grows"));
+                last = e.seq;
+                match seen.get(e.id.as_str()) {
+                    None => {
+                        assert_eq!(e.rev, 1, "{}", ctx("a new entry is rev 1"));
+                        assert!(
+                            positions.insert(e.pos, &e.id).is_none(),
+                            "{}",
+                            ctx("pos is unique")
+                        );
+                    }
+                    Some(before) => {
+                        assert_eq!(e.rev, before.rev + 1, "{}", ctx("rev counts revisions"));
+                        assert_eq!(e.pos, before.pos, "{}", ctx("pos never changes"));
+                        assert_eq!(e.created_at, before.created_at);
+                        assert!(
+                            !e.same_content(before),
+                            "{}",
+                            ctx(&format!("{} revised with nothing changed", e.id))
+                        );
+                    }
+                }
+                seen.insert(&e.id, e);
+            }
+        }
+        for entries in r.entries.values() {
+            for e in entries {
+                // a merged message names the request it was read with (ORCH-529)
+                if e.kind == EntryKind::Message && e.state == EntryState::Merged {
+                    assert!(e.body_as::<MessageBody>().unwrap().merged_into.is_some());
+                }
+                // an answer names its message, and a late one says what it shows
+                if e.kind == EntryKind::Answer {
+                    let a: AnswerBody = e.body_as().unwrap();
+                    assert!(e.placement.is_some());
+                    assert_eq!(
+                        e.placement == Some(Placement::Below),
+                        a.part.is_some(),
+                        "{}",
+                        ctx("a late answer's part")
+                    );
+                    if a.name.is_none() && a.goal.is_none() && e.request_id.is_some() {
+                        assert!(
+                            e.answers.is_some() || a.from == "task",
+                            "{}",
+                            ctx("an answer names its message")
+                        );
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(acks, 101, "every ack of the 71 scenarios");
+    assert_eq!(live, 669, "the live frames of the 71 scenarios");
+}
+
+// ---- the rules on invented frames ----
+
+struct Clock {
+    n: u64,
+    seq: u64,
+}
+
+impl Seams for Clock {
+    fn now(&mut self) -> String {
+        "2026-02-03T10:00:00+05:30".into()
+    }
+    fn new_id(&mut self) -> String {
+        self.n += 1;
+        format!("e{}", self.n)
+    }
+    fn next_seq(&mut self) -> u64 {
+        self.seq += 1;
+        self.seq
+    }
+}
+
+fn frame(p: &mut ChatProjector, c: &mut Clock, request: &str, f: Value) -> Projected {
+    p.apply(
+        Input::Frame {
+            request_id: request,
+            frame: &f,
+        },
+        c,
+    )
+}
+
+fn by_kind(p: &ChatProjector, kind: EntryKind) -> Vec<Entry> {
+    p.entries().into_iter().filter(|e| e.kind == kind).collect()
+}
+
+// decision: APP-580
+#[test]
+fn an_answer_to_a_message_the_chat_no_longer_ends_on_goes_below_and_names_it() {
+    let (mut p, mut c) = (ChatProjector::new("s1", 1), Clock { n: 0, seq: 0 });
+    frame(
+        &mut p,
+        &mut c,
+        "r1",
+        json!({"type": "ack", "request_id": "r1", "message": "count my files"}),
+    );
+    frame(
+        &mut p,
+        &mut c,
+        "r1",
+        json!({"type": "plan", "task_id": "t1", "text": "Counting.", "request_id": "r1"}),
+    );
+    frame(
+        &mut p,
+        &mut c,
+        "r2",
+        json!({"type": "ack", "request_id": "r2", "message": "hi"}),
+    );
+    frame(
+        &mut p,
+        &mut c,
+        "r2",
+        json!({"type": "reply", "text": "Hello.", "request_id": "r2"}),
+    );
+    let out = frame(
+        &mut p,
+        &mut c,
+        "r1",
+        json!({"type": "outcome", "task_id": "t1", "status": "done", "answer": "3 files.", "request_id": "r1"}),
+    );
+    let answers = by_kind(&p, EntryKind::Answer);
+    assert_eq!(answers.len(), 2);
+    let late = &answers[1];
+    assert_eq!(late.placement, Some(Placement::Below));
+    assert_eq!(
+        late.answers,
+        by_kind(&p, EntryKind::Message)[0].id.clone().into()
+    );
+    assert_eq!(
+        late.body_as::<AnswerBody>().unwrap().part.as_deref(),
+        Some("answer")
+    );
+    assert!(out
+        .changes
+        .iter()
+        .any(|ch| ch.entry.id == late.id && ch.entry.rev == 1));
+    // the reply to the newest message was in place
+    assert_eq!(answers[0].placement, Some(Placement::Inline));
+    // the plan closes with its task
+    assert_eq!(by_kind(&p, EntryKind::Plan)[0].state, EntryState::Done);
+    // the same end told again (its task.result) changes nothing
+    let again = p.apply(
+        Input::Bus { topic: "task.result", data: &json!({"task_id": "t1", "status": "done", "answer": "3 files.", "request_id": "r1"}) },
+        &mut c,
+    );
+    assert!(again.changes.is_empty());
+}
+
+// decision: ORCH-579
+#[test]
+fn a_stop_told_in_another_reply_is_filed_on_its_own_turn() {
+    let (mut p, mut c) = (ChatProjector::new("s1", 1), Clock { n: 0, seq: 0 });
+    frame(
+        &mut p,
+        &mut c,
+        "r1",
+        json!({"type": "ack", "request_id": "r1", "message": "watch the build"}),
+    );
+    frame(
+        &mut p,
+        &mut c,
+        "r1",
+        json!({"type": "plan", "task_id": "t1", "text": "Watching.", "request_id": "r1"}),
+    );
+    frame(
+        &mut p,
+        &mut c,
+        "r2",
+        json!({"type": "ack", "request_id": "r2", "message": "stop it"}),
+    );
+    frame(
+        &mut p,
+        &mut c,
+        "r2",
+        json!({"type": "reply", "text": "Stopped.", "request_id": "r2"}),
+    );
+    frame(
+        &mut p,
+        &mut c,
+        "r1",
+        json!({"type": "outcome", "task_id": "t1", "status": "cancelled", "answer": "Stopped.", "told_in": "r2", "request_id": "r1"}),
+    );
+    let answers = by_kind(&p, EntryKind::Answer);
+    assert!(answers
+        .iter()
+        .all(|a| a.placement == Some(Placement::Inline)));
+}
+
+// decision: ORCH-529
+#[test]
+fn a_merged_message_says_which_message_answers_it_and_an_ended_stream_alone_interrupts() {
+    let (mut p, mut c) = (ChatProjector::new("s1", 1), Clock { n: 0, seq: 0 });
+    frame(
+        &mut p,
+        &mut c,
+        "r1",
+        json!({"type": "ack", "request_id": "r1", "message": "weather in Avalon"}),
+    );
+    frame(
+        &mut p,
+        &mut c,
+        "r2",
+        json!({"type": "ack", "request_id": "r2", "message": "and Brindle"}),
+    );
+    frame(
+        &mut p,
+        &mut c,
+        "r2",
+        json!({"type": "merged", "into": "r1", "request_id": "r2"}),
+    );
+    p.apply(Input::StreamEnded { request_id: "r2" }, &mut c);
+    let m = by_kind(&p, EntryKind::Message);
+    assert_eq!(m[1].state, EntryState::Merged);
+    assert_eq!(
+        m[1].body_as::<MessageBody>()
+            .unwrap()
+            .merged_into
+            .as_deref(),
+        Some("r1")
+    );
+    // r1's stream ends with nothing said and no task: interrupted, with the app's words
+    p.apply(Input::StreamEnded { request_id: "r1" }, &mut c);
+    let m = by_kind(&p, EntryKind::Message);
+    assert_eq!(m[0].state, EntryState::Interrupted);
+    assert_eq!(
+        m[0].body_as::<MessageBody>().unwrap().notice.as_deref(),
+        Some(ferb_supervisor::flow::entries::ENDED_UNCONFIRMED)
+    );
+}
+
+// decision: ENG-9
+#[test]
+fn an_error_fails_the_message() {
+    let (mut p, mut c) = (ChatProjector::new("s1", 1), Clock { n: 0, seq: 0 });
+    frame(
+        &mut p,
+        &mut c,
+        "r1",
+        json!({"type": "ack", "request_id": "r1", "message": "do it"}),
+    );
+    frame(
+        &mut p,
+        &mut c,
+        "r1",
+        json!({"type": "error", "request_id": "r1"}),
+    );
+    assert_eq!(by_kind(&p, EntryKind::Message)[0].state, EntryState::Failed);
+    let e = &by_kind(&p, EntryKind::Error)[0];
+    assert_eq!(e.state, EntryState::Failed);
+    assert_eq!(
+        e.body_as::<AnswerBody>().unwrap().text,
+        "FERB could not start this request."
+    );
+}
+
+// decision: DMN-583
+#[test]
+fn a_hidden_inputs_answer_and_a_hidden_secret_are_never_kept() {
+    let (mut p, mut c) = (ChatProjector::new("s1", 1), Clock { n: 0, seq: 0 });
+    for (id, kind) in [
+        ("a1", "owner_login_code"),
+        ("a2", "owner_question"),
+        ("a3", "owner_question"),
+    ] {
+        p.apply(
+            Input::Bus {
+                topic: "approval.requested",
+                data: &json!({"approval_id": id, "kind": kind, "reason": "Code?"}),
+            },
+            &mut c,
+        );
+    }
+    let said = |p: &ChatProjector, id: &str| -> Option<String> {
+        let q = p
+            .entries()
+            .into_iter()
+            .find(|e| e.approval_id.as_deref() == Some(id))
+            .unwrap();
+        q.body_as::<QuestionBody>().unwrap().answer.unwrap().said
+    };
+    p.apply(Input::Bus { topic: "approval.resolved", data: &json!({"approval_id": "a1", "state": "granted", "answer": "words", "said": "123456"}) }, &mut c);
+    p.apply(Input::Bus { topic: "approval.resolved", data: &json!({"approval_id": "a2", "state": "granted", "answer": "words", "said": "pw is x", "hidden": ["saved secret"]}) }, &mut c);
+    p.apply(Input::Bus { topic: "approval.resolved", data: &json!({"approval_id": "a3", "state": "granted", "answer": "words", "said": "the blue one"}) }, &mut c);
+    assert_eq!(said(&p, "a1"), None);
+    assert_eq!(said(&p, "a2"), None);
+    assert_eq!(said(&p, "a3").as_deref(), Some("the blue one"));
+    let q = by_kind(&p, EntryKind::Question);
+    assert!(q.iter().all(|e| e.state == EntryState::Answered && !e.open));
+}
+
+// decision: ENG-8
+#[test]
+fn a_card_is_revised_only_when_a_row_really_changes() {
+    let (mut p, mut c) = (ChatProjector::new("s1", 1), Clock { n: 0, seq: 0 });
+    frame(
+        &mut p,
+        &mut c,
+        "r1",
+        json!({"type": "ack", "request_id": "r1", "message": "two things"}),
+    );
+    frame(
+        &mut p,
+        &mut c,
+        "r1",
+        json!({"type": "plan", "task_id": "t1", "text": "On it.", "request_id": "r1",
+        "card": {"request_id": "r1", "rows": [{"part": "p1", "label": "A", "state": "working"}], "done": 0, "total": 1}}),
+    );
+    let part = json!({"type": "part", "task_id": "t1", "request_id": "r1", "part": "p1", "state": "done", "text": "Done A.",
+                      "seq": "2026-01-01T09:00:00.000001+00:00", "done": 1, "total": 1});
+    let first = frame(&mut p, &mut c, "r1", part.clone());
+    assert_eq!(first.changes.len(), 1);
+    // the same change again (the stream and task.part both carry it), and a step's state: nothing stored changes
+    assert!(p
+        .apply(
+            Input::Bus {
+                topic: "task.part",
+                data: &part
+            },
+            &mut c
+        )
+        .changes
+        .is_empty());
+    let step = frame(
+        &mut p,
+        &mut c,
+        "r1",
+        json!({"type": "step", "task_id": "t1", "step": "worker", "status": "running", "seq": "x"}),
+    );
+    assert!(step.changes.is_empty());
+    assert!(step.live.is_some());
+    let plan = &by_kind(&p, EntryKind::Plan)[0];
+    assert_eq!(plan.rev, 2);
+}

@@ -209,6 +209,21 @@ Lines are Python lines at `63369cb3`. "Fixtures" names what exists; a part witho
   supersedes APP-805 and must be squared with STORE-401 (history is kept).
 - The Mac app moves to the new calls here; old archives are imported once and their bytes kept.
 
+- Slices 1 and 2 are done (ENG-8, ENG-9, journal 69): the entry contract (`ferb-core::chat_entry`), the pure
+  projector (`ferb-supervisor/src/flow/entries.rs`) and FERB.app's fold (`NotchCore/EntryFold.swift`), 71 of 71
+  recorded conversations folding to the app's own transcript. Nothing is wired; no schema, no RPC.
+- Next: slice 3, the `chat_entries` table (the first schema above 0062: needs stage 1 recorded as cut over and the
+  owner's word on the shared conversation), the legacy import, and rebuilding the projector from stored entries after
+  a restart; slice 4, wiring into `chat.rs` `take()` and the bus (add `input_paths` to the ack's entry; expire
+  questions at restart); slice 5, the RPCs (`chat.entries.page|changes|get|days|watch|mark`, `chat.send` with
+  `client_id` and `submission_id`); then the Mac app in three steps (ids on send; history from the engine; live from
+  the watch), each leaving the app working. The phone lab sends no `session_id`: the default must become the current
+  conversation, not "default".
+- Owner decisions open: the shared conversation (confirm the words), day tabs or continuous scroll, importing the
+  pre-Rust archive, retention, "seen" across devices, and whether stage 1 is cut over.
+- App bugs found by the fold, not fixed: frames after a turn's first answer are dropped (`Conversation.swift:72-90`,
+  `NotchSession.swift:226`); a one-ask outcome's `unconfirmed` is read as `note` (`ConversationArchive.swift:806`).
+
 ## Stage 3: the phone role and Android
 
 - Source: `~/Desktop/ferb-phone-link` at `57b3f34` (read only): `rust/src` (transport on iroh 1.4.1 with a small

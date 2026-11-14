@@ -61,7 +61,7 @@ the phone apps share; they reach the Mac's own parts only through traits.
 
 | Stage | What | State |
 |---|---|---|
-| 2 | History owned by the engine, shared by every client | not started |
+| 2 | History owned by the engine, shared by every client | in progress: entry contract, projector and app fold verified on 71 scenarios (journal 69); store and wiring not started |
 | 3 | Phone role in the daemon; Android app (from the phone lab) | not started |
 | 4 | iPhone app | not started |
 | 5 | Closed-app notifications | not started |

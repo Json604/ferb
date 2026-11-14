@@ -1853,7 +1853,26 @@ paths = ["rust/crates/ferb-orchestrator/src/browsing.rs", "rust/crates/ferb-supe
 title = "A part's quote is the owner's words when its words are, in order; pasted marks and punctuation aside"
 by = "agent"
 date = 2026-11-15
-status = "active"
+status = "superseded"
+superseded_by = "MEM-430"
 rule = "A plan part's quote passes when its letters-and-digits words, in order and unbroken, are words the owner typed in this message or their recent ones (case aside); punctuation, quote styles, line breaks and marks a paste carries are not words. Words the owner didn't type, or in another order, are still refused."
 why = "Live 2026-11-15 02:27: the owner pasted requests carrying a terminal's quote bar and line breaks between words; the planner quoted the plain words, the character comparison refused them twice, and the request ended as 'something broke inside FERB'. Python's quoted compares characters too."
-paths = ["rust/crates/ferb-supervisor/src/words.rs::said_as_words"]
+paths = ["rust/crates/ferb-memory/src/terms.rs::said_as_words"]
+
+[ORCH-647]
+title = "A task whose only live step is a wait says what it waits for"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "When every live step of a task (none starting, running, checking, retrying or asking) is a wait step waiting, the task's live line (task.progress, the one source of FERB.app's Tasks list row, short view and work box) is that wait's own line: \"Waiting for “<task>” to finish\" (ORCH-644), \"Waiting until HH:MM\" (with its day when not today) or \"Waiting for the event <topic>\". Told on the one step-state path (Supervisor.step_state), so every client gets it; a wait beside a working or asking step says nothing, that step's line or the question stands."
+why = "Live 2026-11-14 23:34: the Tasks list row of a tree whose only live step was a wait showed its last finished step's words (\"Blender task cancelled. No scene was created or saved.\") with Stop task. Python's plan run told only the step's state, never a live line."
+paths = ["rust/crates/ferb-supervisor/src/flow/tree.rs::say_waiting", "rust/crates/ferb-supervisor/src/flow/tree.rs::wait_line"]
+
+[ORCH-648]
+title = "A task as the owner that browses meets the one browsing question; with a pick it browses there"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "Refines APP-777 while FERB has no profile of its own: a task the planner gives the owner's identity whose task names sites, and whose request words name none of the owner's profiles (a name or account email, as whole words), goes through FERB's one browsing question before its plan runs when nothing is picked (answer saved as browsing.owner_profile), and browses in the pick when one is (picked_only refuses another). Without a pick the planner's fact says FERB asks once by itself and a plan never asks it."
+why = "Live 2026-11-15 02:29, fresh install: the plan asked which Chrome profile as its own step (its fact said \"in a profile the owner names\"); browsing.choose was never asked, nothing was saved; the 02:39 task asked again. Open (owner's): remembered preferences as owner words; a refused named profile."
+paths = ["rust/crates/ferb-supervisor/src/flow/browse.rs::browse_as", "rust/crates/ferb-daemon/src/areas_b/browsers/mod.rs::names_profile", "rust/crates/ferb-orchestrator/src/browsing.rs::NOT_PICKED_TAIL", "rust/crates/ferb-daemon/src/areas_b/environment.rs"]

@@ -1412,6 +1412,18 @@ pub fn browsing(
     Ok(json!({"ask": questions.ask(words::KIND, &ident, &reason, &key, &labels)}))
 }
 
+/// ORCH-648: whether `words` (the owner's) name one of `known` (the profiles FERB may browse in for them): its name or
+/// its account's email, as whole words, case aside (a folder such as "Default" is not a name the owner uses). A fact
+/// about values in the owner's words. A name that is also a common word ("old") counts too: the task then browses
+/// as before the pick was applied (where the worker names, else the pick, HAND-2).
+pub fn names_profile(known: &[BrowserProfile], words: &str) -> bool {
+    known.iter().any(|p| {
+        [&p.display_name, &p.email]
+            .iter()
+            .any(|v| !v.trim().is_empty() && ferb_memory::terms::contains_words(words, v))
+    })
+}
+
 /// `_browsing_answered`: the owner's answer to the browsing question (`state`, `choice`): a profile is stored as
 /// `browsing.owner_profile` through the settings path, None stores none; either way FERB doesn't ask again unless
 /// that profile goes. A line for the owner ("" when nothing was stored).

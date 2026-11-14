@@ -37,6 +37,8 @@ pub mod browse;
 pub mod card;
 pub mod chat;
 pub mod conversations;
+// stage 2: the chat as entries, projected from the frames and events (not wired yet)
+pub mod entries;
 pub mod fold;
 pub mod host;
 pub mod loops;
@@ -509,6 +511,12 @@ pub trait Daemon: Send + Sync {
     /// question, asked now with the owner here) or `{"note"}` (nobody here: it goes on without a browser).
     fn browsing(&self, _attended: bool, _request_id: &str) -> Map<String, Value> {
         Map::new()
+    }
+    /// ORCH-648: whether the owner's `words` name one of the browser profiles FERB may use for them (its name or its
+    /// account's email, as whole words): a task as the owner then browses where those words say, not
+    /// in the pick. A fact about values in the owner's words, never their intent.
+    fn names_profile(&self, _words: &str) -> bool {
+        false
     }
 
     // --- a stated plan's standing scope (standing.rs) ---

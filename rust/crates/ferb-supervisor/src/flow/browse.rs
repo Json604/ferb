@@ -34,11 +34,24 @@ impl Inner {
         tree.is_some_and(|t| t.id == root && t.lock().as_owner)
     }
 
-    /// supervisor.py:3004 `_browse_as`: before the tree's first worker starts.
+    /// supervisor.py:3004 `_browse_as`: before the tree's first worker starts. ORCH-648: a tree the planner gave the
+    /// owner's identity whose task names sites (it will browse) is one too, unless the owner's words name one of
+    /// their profiles: without a pick FERB's one browsing question is asked first and its answer saved; with a pick
+    /// the tree browses there (`as_owner`, the browser tools' `picked_only`). Python asked only for identity "ferb",
+    /// so an owner-identity task let the worker take any paired profile and a plan asked which one as its own step.
     pub(crate) async fn browse_as(&self, tree: &Arc<Tree>) {
-        if tree.spec().identity != "ferb" {
-            return;
-        }
+        let spec = tree.spec();
+        let as_owner_already = match spec.identity.as_str() {
+            "ferb" => false,
+            "owner" => {
+                let words = self.deps.daemon.request(&tree.worker.request_id).words;
+                if spec.targets.sites.is_empty() || self.deps.daemon.names_profile(&words) {
+                    return;
+                }
+                true
+            }
+            _ => return,
+        };
         let task = tree.worker_task();
         let attended = !self.unattended_task(&task);
         let mut found = self.deps.daemon.browsing(attended, &task.request_id);
@@ -52,6 +65,15 @@ impl Inner {
             found = self.deps.daemon.browsing(false, &task.request_id);
         }
         if found.get("as_owner").is_some_and(ferb_py::value::truthy) {
+            if as_owner_already {
+                tree.lock().as_owner = true;
+                self.journal("task.browses_as_owner", json!({"task_id": tree.id}), None);
+                if !asked.is_empty() {
+                    let line = browsing::CHOSEN.replace("{label}", &text(&found, "label"));
+                    tree.lock().side_lines.push(line);
+                }
+                return;
+            }
             {
                 let mut st = tree.lock();
                 if let Some(spec) = st.spec.as_mut() {
@@ -78,7 +100,8 @@ impl Inner {
             tree.lock()
                 .side_lines
                 .push(browsing::NONE_CHOSEN.to_string());
-        } else if found.get("note").is_some_and(ferb_py::value::truthy) {
+        } else if found.get("note").is_some_and(ferb_py::value::truthy) && !as_owner_already {
+            // (a task as the owner with nobody here and no pick goes on as before: it browses where the worker says)
             let note = text(&found, "note");
             tree.lock().side_lines.push(note);
         }

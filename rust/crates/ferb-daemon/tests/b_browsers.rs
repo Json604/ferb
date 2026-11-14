@@ -1248,3 +1248,22 @@ async fn the_wake_page_closes_itself_however_the_pairing_ends() {
         assert_eq!(rows, want_rows, "{ending:?}");
     }
 }
+
+// ORCH-648: the owner's words name one of their profiles by its name or its account's email, as whole words; a word
+// inside another word, a folder, or no profile's value at all, names none.
+// decision: ORCH-648
+#[test]
+fn the_owner_s_words_name_a_profile_by_its_name_email_or_folder() {
+    use ferb_browser::profiles::BrowserProfile;
+    use ferb_daemon::areas_b::browsers::names_profile;
+    let known = [
+        BrowserProfile::new("chrome", "Profile 3", "Work", "someone@example.com"),
+        BrowserProfile::new("brave", "Default", "", ""),
+    ];
+    assert!(names_profile(&known, "make the sheet in my work profile"));
+    assert!(names_profile(&known, "use someone@example.com for it"));
+    assert!(!names_profile(&known, "open it with the default browser"));
+    assert!(!names_profile(&known, "put the top 3 in a google sheet"));
+    assert!(!names_profile(&known, "my homework list"));
+    assert!(!names_profile(&[], "make the sheet in my work profile"));
+}

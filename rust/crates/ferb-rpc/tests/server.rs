@@ -647,3 +647,49 @@ async fn run_tokens_take_their_text_from_an_injected_source() {
     assert_eq!(tokens.revoke_worker("w-1"), 1);
     assert!(tokens.validate("tok-0").is_err());
 }
+
+// Journal 66's open item: an answer stayed out over 15 s while previews ran. FERB.app opens one connection per call
+// (DaemonRPC.swift), so a slow call on one connection never holds another's: here a call held open on one connection
+// while a second connection's call is answered (Python's server.py:222-257 serves each connection's calls in turn,
+// as this one does, and each connection on its own).
+#[tokio::test]
+async fn a_call_held_open_on_one_connection_never_delays_another_connection_s_call() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, _) = new_server(dir.path());
+    let (running, release) = (Arc::new(AtomicUsize::new(0)), Arc::new(Notify::new()));
+    let (running2, release2) = (running.clone(), release.clone());
+    server.register_unary("chat.status", move |_: Session, _: Params| {
+        let (running, release) = (running2.clone(), release2.clone());
+        async move {
+            running.fetch_add(1, Ordering::SeqCst);
+            release.notified().await;
+            ok(json!({"slow": true}))
+        }
+    });
+    server.register_unary("chat.approve", |_: Session, _: Params| async {
+        ok(json!({"state": "granted"}))
+    });
+    server.start().await.unwrap();
+    let mut slow = Raw::cli(server.path()).await;
+    slow.request("chat.status", json!({})).await;
+    until("the slow call runs", || running.load(Ordering::SeqCst) == 1).await;
+    let answered = tokio::time::timeout(
+        Duration::from_secs(2),
+        Raw::cli(server.path()).await.call(
+            "chat.approve",
+            json!({"approval_id": "ap-1", "granted": true}),
+        ),
+    )
+    .await
+    .expect("the answer isn't held behind the slow call");
+    assert_eq!(
+        answered.unwrap(),
+        common::object(json!({"state": "granted"}))
+    );
+    release.notify_one();
+    assert_eq!(
+        slow.incoming().await.result,
+        Some(common::object(json!({"slow": true})))
+    );
+    server.close().await;
+}

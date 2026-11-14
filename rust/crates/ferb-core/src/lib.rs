@@ -7,6 +7,7 @@
 
 pub mod bus;
 pub mod call_facts;
+pub mod chat_entry;
 #[cfg(unix)]
 pub mod config;
 pub mod errors;

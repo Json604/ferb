@@ -431,7 +431,10 @@ fn distill_restart_at_every_write_matches_python() {
     assert!(diffs.is_empty());
 }
 
-// decision: MEM-419, MEM-420, MEM-30, MEM-31
+// MEM-430 (fixed against Python): `quoted` also accepts a part whose words, in order, are the owner's when a pasted
+// mark or line break sits between them; none of the 372 recorded text cases nor the 744 capture cases flips (none
+// holds such a mark), so the comparison stays exact. The new cases are in capture_words.rs.
+// decision: MEM-419, MEM-420, MEM-30, MEM-31, MEM-430
 #[test]
 fn pure_rules() {
     let data = fixture("pure.json");

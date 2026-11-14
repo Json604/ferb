@@ -67,3 +67,22 @@ rule = "In FERB.app's Rust build ferbd is the nested agent app's executable (com
 why = "macOS attaches FERB's permissions to the agent app, so it must run nothing but FERB's own entry points (rule 3), as the C host did. Without Python there is no SDK to carry Claude Code. What ships accepts only ~/.ferb, yet the packaging needs proof short of installing."
 rejected = ["One program for the agent and the internal commands: the permission-holding executable would accept toolbox commands that take paths.", "A compile-time feature for the development home: the proof would not be of the binary that ships.", "Claude Code from the Python SDK's wheel: it ends with the Python build."]
 paths = ["rust/crates/ferbd/src/host.rs", "rust/crates/ferbd/src/setup_env.rs", "scripts/build-app-rust.sh", "scripts/rust-parts.sh", "rust/packaging/package-lock.json"]
+
+[ENG-8]
+title = "Stage 2's chat entries: one record per thing the owner sees, with an order and a change number"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "A conversation is entries (ferb-core chat_entry, a portable client contract; fields are added, never renamed): kind message, plan, answer, question, notice, post, error or legacy; a state per kind and `open`; `pos` (creation order, set once); `seq` from one per-conversation counter, bumped at creation and each revision (changes after X: seq > X), and `rev`; an answer's `placement` (inline or below, decided once, APP-580) and the message it `answers`; redacted JSON bodies. A revision only when something stored changed. Live state is never an entry."
+why = "Stage 2 (ENG-1) makes the engine own the chat so FERB.app and the phones read one conversation; the app saves opaque rows today (APP-805). A projection made once in the engine was chosen over each client folding the journal."
+rejected = ["Each client folding the journal's chat.* rows itself: every client would carry the reducer and drift from it.", "FERB.app's own turn JSON as the contract: Swift-shaped, one row holding things that change separately."]
+paths = ["rust/crates/ferb-core/src/chat_entry.rs", "ui/mac/FERBNotch/Sources/NotchCore/EntryFold.swift"]
+
+[ENG-9]
+title = "The chat entries are FERB.app's reducer computed in the engine; the app is the reference"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "ChatProjector (ferb-supervisor flow/entries.rs) is pure: a chat.send frame, stream end, bus event or reminder banner in; entries made or revised, or the input back as live state, out; time, ids and the counter injected. It reproduces FERB.app's reducer and stores what the app saves (a turn: message, plan with its card or checklist, answers). A reply the app drops is kept as an answer that `follows`. EntryFoldTests proves the fold equals the app's transcript on every recorded scenario; the goldens are not Python's."
+why = "The owner sees the app's transcript today; computing the same thing once in the engine keeps it exactly while making it shared. A difference from the app would change what the owner sees without the owner."
+paths = ["rust/crates/ferb-supervisor/src/flow/entries.rs", "rust/crates/ferb-supervisor/tests/chat_entries.rs", "rust/fixtures/chat-entries/scenarios.json", "ui/mac/FERBNotch/Tests/NotchCoreTests/EntryFoldTests.swift"]

@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import os
 
 /// Owner-authenticated local transport. Request bodies (including secrets) are never logged or persisted.
 public protocol DaemonRPCTransport {
@@ -25,15 +26,33 @@ public final class DaemonRPC: DaemonRPCTransport, @unchecked Sendable {
         try await call(method, params: params, wait: UnixRPCConnection.replyWait)
     }
 
+    /// One connection per call. A caller's cancellation (a preview loop stopped) closes the call's connection at once:
+    /// the daemon ends the call (a capture nobody waits for, DMN-403) and the thread blocked on its reply is freed,
+    /// instead of both lasting up to the reply wait. A call slower than `slowCall` is logged by phase (queued, connect
+    /// and hello, reply), with its method only, never its parameters (journal 66: an answer stayed out over 15 s and
+    /// nothing recorded where).
     public func call(_ method: String, params: [String: Any], wait seconds: Int) async throws -> [String: Any] {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async { [socketPath] in
-                do {
-                    let connection = try UnixRPCConnection(path: socketPath, wait: seconds)
-                    defer { connection.close() }
-                    continuation.resume(returning: try connection.call(method, params: params))
-                } catch { continuation.resume(throwing: error) }
+        let cancellation = StreamCancellation()
+        let asked = DispatchTime.now()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async { [socketPath] in
+                    let started = DispatchTime.now()
+                    var connected = started
+                    defer {
+                        RPCTimings.note(method, asked: asked, started: started, connected: connected, ended: .now())
+                    }
+                    do {
+                        let connection = try UnixRPCConnection(path: socketPath, wait: seconds)
+                        defer { connection.close() }
+                        connected = .now()
+                        cancellation.attach(connection)
+                        continuation.resume(returning: try connection.call(method, params: params))
+                    } catch { continuation.resume(throwing: error) }
+                }
             }
+        } onCancel: {
+            cancellation.cancel()
         }
     }
 
@@ -51,6 +70,24 @@ public final class DaemonRPC: DaemonRPCTransport, @unchecked Sendable {
                 } catch { continuation.finish(throwing: error) }
             }
         }
+    }
+}
+
+/// A call's time in its phases (`call`): logged only past `slowCall`, by method name.
+enum RPCTimings {
+    static let slowCall: Double = 3
+    private static let log = Logger(subsystem: "com.ferb.FERB", category: "rpc")
+
+    static func seconds(_ from: DispatchTime, _ to: DispatchTime) -> Double {
+        Double(to.uptimeNanoseconds &- from.uptimeNanoseconds) / 1_000_000_000
+    }
+
+    static func note(_ method: String, asked: DispatchTime, started: DispatchTime, connected: DispatchTime,
+                     ended: DispatchTime) {
+        let total = seconds(asked, ended)
+        guard total >= slowCall else { return }
+        let queued = seconds(asked, started), hello = seconds(started, connected), reply = seconds(connected, ended)
+        log.notice("slow call \(method, privacy: .public): \(total, format: .fixed(precision: 2)) s (queued \(queued, format: .fixed(precision: 2)) s, connect and hello \(hello, format: .fixed(precision: 2)) s, reply \(reply, format: .fixed(precision: 2)) s)")
     }
 }
 

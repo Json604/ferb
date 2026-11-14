@@ -699,7 +699,8 @@ pub fn facts(host: &Host, s: &dyn Seams) -> Result<String, HandlerError> {
             );
             format!("in the owner's {browser} profile {chosen} (folder “{folder}”), which they chose for it.")
         } else {
-            "in a profile the owner names (none chosen for it).".to_owned()
+            // decision: ORCH-648
+            ferb_orchestrator::browsing::NOT_PICKED_TAIL.to_owned()
         };
         lines.push(format!(
             "- FERB has no Google account or browser profile of its own (the owner can add one in FERB.app → \

@@ -672,3 +672,13 @@ rule = "Every role's instructions carry Tier 1's settled block; entries joined s
 why = "MEM-428. On a fake turn a join cost 1,845 of 8,759 cached-prefix tokens before (all the conversation after the change point; on Anthropic's breakpoints all of it) and 0 now (104 tokens lost were the new exchange)."
 paths = ["ferb/memory/profile.py::CoreProfile.settle", "ferb/orchestrator/supervisor.py", "ferb/orchestrator/worker.py", "ferb/orchestrator/ports.py", "ferb/daemon/areas/memory.py"]
 live = ["LIVE-738"]
+
+[MEM-430]
+title = "A quote is the owner's words when its words are, in order; pasted marks and punctuation aside"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "Supersedes ORCH-646 for every check that a quote is the owner's own words (ferb-memory terms::quoted, one implementation): plan parts, remembered items and their end dates, schedules and reminders, imported conversations. Each blank-line part passes by Python's character comparison or when its words (letters, numbers, marks), in order and unbroken, are words the owner typed, case aside. Only acceptance is loosened: owner_stated text is still their exact clause, and a forget's clause check stays Python's."
+why = "Journal 67: the live paste's quote bar and line breaks refused the owner's own plan parts; the same paste would refuse a remembered preference or a schedule. One helper in the lowest crate every caller uses (ferb-memory) instead of a second comparison in the supervisor."
+supersedes = ["ORCH-646"]
+paths = ["rust/crates/ferb-memory/src/terms.rs::quoted", "rust/crates/ferb-memory/src/terms.rs::said_as_words", "rust/crates/ferb-learning/src/text.rs::quoted"]

@@ -305,3 +305,94 @@ fn a_wait_on_an_event_ferb_never_publishes_is_refused_and_asked_again() {
     let (status, _, _) = wait_row(&w);
     assert_eq!(status, "done", "the repaired plan ran");
 }
+
+/// The task lines FERB.app's Tasks list shows (`task.progress` on the bus), in order.
+fn progress_lines(w: &World) -> Vec<String> {
+    w.daemon
+        .published
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(topic, _)| topic == "task.progress")
+        .filter_map(|(_, d)| d["text"].as_str().map(str::to_string))
+        .collect()
+}
+
+// Live 2026-11-14 23:34: a tree whose only live step was a wait showed its last finished step's words in the Tasks
+// list. While only a wait is live, the task's own line is the wait's.
+// decision: ORCH-647
+#[test]
+fn a_task_whose_only_live_step_is_a_wait_says_what_it_waits_for() {
+    let mut w = world_waiting("running");
+    one_turn(
+        &mut w,
+        vec![
+            json!({"do": "wait", "until": "a plan step waits"}),
+            json!({"do": "plan_event", "topic": "task.finished",
+                   "sql": format!("UPDATE tasks SET status = 'done' WHERE id = '{AWAITED}'"),
+                   "data": {"task_id": AWAITED, "status": "done"}}),
+        ],
+    );
+    let lines = progress_lines(&w);
+    assert!(
+        lines
+            .iter()
+            .any(|l| l == "Waiting for \u{201c}Research the invented laptops\u{201d} to finish"),
+        "{lines:?}"
+    );
+}
+
+fn time_wait() -> Value {
+    json!({"id": "wait_noon", "kind": "wait", "label": "", "goal": "Wait for the morning", "depends_on": [],
+        "inputs": [], "worker_type": "default", "conditions": [], "until": "2030-01-01T09:00:00+00:00",
+        "event": null, "event_match": [], "question": "", "options": [], "conversation": null, "repeat": null,
+        "earlier_results": []})
+}
+
+/// The plan's steps run until `until` (the harness's condition), then the owner's stop; the task lines published.
+fn lines_until_stopped(steps: Vec<Value>, until: &str) -> Vec<String> {
+    let text = plan_answer(steps);
+    let mut w = world_with("stop_while_step_asks", |calls| {
+        let planner = calls.iter_mut().find(|c| c["key"] == "supervisor").unwrap();
+        planner["events"] = final_text(&text);
+    });
+    let until = until.to_string();
+    let report = run_with(&mut w, "stop_while_step_asks", |steps| {
+        for st in steps.iter_mut() {
+            if st["do"] == "wait" {
+                st["until"] = json!(until);
+            }
+        }
+        let at = steps.iter().position(|st| st["do"] == "close").unwrap();
+        steps.insert(at + 1, json!({"do": "wait", "until": "the task ended"}));
+    });
+    eprintln!("scripted: {}", report.verdict());
+    progress_lines(&w)
+}
+
+// A wait on a time says the time (a day ahead: with its day).
+// decision: ORCH-647
+#[test]
+fn a_time_wait_says_its_time() {
+    let lines = lines_until_stopped(vec![time_wait()], "a plan step waits");
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("Waiting until ") && l.contains(" Jan ")),
+        "{lines:?}"
+    );
+}
+
+// A wait beside a question to the owner says nothing: the task is asking, and the Tasks list says so.
+// decision: ORCH-647
+#[test]
+fn a_wait_beside_an_open_question_stays_quiet() {
+    let mut ask = time_wait();
+    ask["id"] = json!("choose");
+    ask["kind"] = json!("ask");
+    ask["until"] = Value::Null;
+    ask["question"] = json!("Which one?");
+    ask["options"] = json!(["One", "Two"]);
+    let lines = lines_until_stopped(vec![ask, time_wait()], "an approval is pending");
+    assert!(!lines.iter().any(|l| l.starts_with("Waiting")), "{lines:?}");
+}
