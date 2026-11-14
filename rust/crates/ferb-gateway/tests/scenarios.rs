@@ -1828,12 +1828,14 @@ fn every_scenario_replays_as_python_ran_it() {
 
 /// The live run of 2026-11-14 (step `cameras`) rebuilt with invented data (`make_tab_link.py`): a search opened in
 /// the owner's paired profile, its results read, the profile's tabs listed (the owner's own tabs on two other sites),
-/// then the shop's `/dp/<id>` opened with an id read in a result link's address. Python asks the sink question too,
-/// with the other tabs' sites in its outside list: the Rust gateway must ask exactly the same.
+/// then the shop's `/dp/<id>` opened with an id read in a result link's address. Python asks the sink question; the
+/// one deliberate difference (GATE-589, the owner's widening): the id goes back to the host whose page wrote it in
+/// an address (C3, one source unit), so the open goes through unasked. Every other step replays byte for byte; the
+/// open's own step, the question's rows and its journal are the named difference.
 // decision: GATE-506
-// decision: GATE-541
+// decision: GATE-589
 #[test]
-fn the_shop_link_case_replays_as_python_ran_it() {
+fn the_shop_link_case_opens_unasked_and_replays_as_python_ran_it_otherwise() {
     let text = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../fixtures/gateway/tab_link.json"
@@ -1845,14 +1847,31 @@ fn the_shop_link_case_replays_as_python_ran_it() {
         .build()
         .unwrap();
     let root = root();
-    let sc = &f["scenarios"][0];
+    let mut sc = f["scenarios"][0].clone();
     let asked = &sc["results"][5]["asked"][0]["reason"];
     assert!(asked
         .as_str()
         .unwrap()
         .contains("the web page on jobs.example.net"));
-    let problems = rt.block_on(replay(sc, &root));
-    assert!(problems.is_empty(), "{}", problems.join("\n"));
+    // Python's Yes is never asked for now
+    sc["steps"][5]["answers"] = json!([]);
+    let name = sc["name"].as_str().unwrap().to_string();
+    let problems = rt.block_on(replay(&sc, &root));
+    let named = [
+        format!("{name} step 5"),
+        format!("{name} tables"),
+        format!("{name} journal"),
+    ];
+    let other: Vec<&String> = problems
+        .iter()
+        .filter(|p| !named.iter().any(|n| p.starts_with(n.as_str())))
+        .collect();
+    assert!(other.is_empty(), "{other:?}");
+    let step5 = problems
+        .iter()
+        .find(|p| p.starts_with(&named[0]))
+        .expect("the open differs from Python's asked one");
+    assert!(step5.contains("asked"), "{step5}");
 }
 
 /// `_known_from` (SQ6, GATE-205): Python records a Yes's destinations in its set's order, which changes from run to

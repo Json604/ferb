@@ -220,20 +220,61 @@ are (HAND-200)",
     }
 }
 
-/// launched.py:188: the owner's line for each app FERB launched and left running.
+/// Each reason an app is left running, as said of several apps.
+const KEPT_PLURAL: [(&str, &str); 4] = [
+    (KEPT_OWNER, "you used them during the task"),
+    (KEPT_UNSAVED, "they have unsaved changes"),
+    (
+        KEPT_UNKNOWN,
+        "FERB couldn't tell whether they have unsaved changes",
+    ),
+    (KEPT_REFUSED, "they didn't accept FERB's request to quit"),
+];
+
+/// "a", "a and b", "a, b and c".
+fn listed(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [head @ .., last] => format!("{} and {last}", head.join(", ")),
+    }
+}
+
+/// launched.py:188: the owner's words for the apps FERB launched and left running. Apps left running for the same
+/// reason are one sentence ("Blender and Terminal are still open: FERB opened them for this task and left them running
+/// because you used them during the task."); one app keeps Python's sentence. Groups and the apps in each keep the
+/// order the records give; an app recorded twice with the same reason is named once. A reason with no plural form
+/// here keeps one sentence per app.
 pub fn left_running(resources: &[Value]) -> Vec<String> {
-    resources
-        .iter()
-        .filter(|r| {
-            r.get("resource") == Some(&json!("app"))
-                && r.get("left_running").is_some_and(ferb_py::value::truthy)
-        })
-        .map(|r| {
-            format!(
-                "{} is still open: FERB opened it for this task and left it running because {}.",
-                ferb_py::value::py_str(&r["app"]),
-                ferb_py::value::py_str(&r["left_running"])
-            )
-        })
-        .collect()
+    let mut groups: Vec<(String, Vec<String>)> = Vec::new();
+    for r in resources.iter().filter(|r| {
+        r.get("resource") == Some(&json!("app"))
+            && r.get("left_running").is_some_and(ferb_py::value::truthy)
+    }) {
+        let (app, why) = (
+            ferb_py::value::py_str(&r["app"]),
+            ferb_py::value::py_str(&r["left_running"]),
+        );
+        match groups.iter_mut().find(|(w, _)| *w == why) {
+            Some((_, apps)) if !apps.contains(&app) => apps.push(app),
+            Some(_) => {}
+            None => groups.push((why, vec![app])),
+        }
+    }
+    let mut out = Vec::new();
+    for (why, apps) in groups {
+        let plural = KEPT_PLURAL.iter().find(|(one, _)| *one == why);
+        match (apps.as_slice(), plural) {
+            ([_, _, ..], Some((_, many))) => out.push(format!(
+                "{} are still open: FERB opened them for this task and left them running because {many}.",
+                listed(&apps)
+            )),
+            _ => out.extend(apps.iter().map(|app| {
+                format!(
+                    "{app} is still open: FERB opened it for this task and left it running because {why}."
+                )
+            })),
+        }
+    }
+    out
 }

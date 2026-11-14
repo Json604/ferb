@@ -443,6 +443,45 @@ async fn ferb_quits_only_an_app_it_opened_and_only_without_unsaved_work() {
     assert_eq!(ferb_mac_hands::launched::left_running(&released), vec!["Pages is still open: FERB opened it for this task and left it running because it has unsaved changes.".to_string()]);
 }
 
+// decision: HAND-525
+#[test]
+fn apps_left_running_for_one_reason_are_one_sentence() {
+    use ferb_mac_hands::launched::{left_running, KEPT_OWNER, KEPT_REFUSED};
+    let app = |name: &str, why: &str| json!({"resource": "app", "app": name, "released": true, "closed": false, "left_running": why});
+    let closed = json!({"resource": "app", "app": "Notes", "released": true, "closed": true});
+    // one app: Python's sentence, unchanged
+    assert_eq!(
+        left_running(&[app("Blender", KEPT_OWNER), closed.clone()]),
+        ["Blender is still open: FERB opened it for this task and left it running because you used it during the task."]
+    );
+    // two apps, one reason; an app recorded twice is named once
+    assert_eq!(
+        left_running(&[app("Blender", KEPT_OWNER), closed.clone(), app("Terminal", KEPT_OWNER), app("Blender", KEPT_OWNER)]),
+        ["Blender and Terminal are still open: FERB opened them for this task and left them running because you used them during the task."]
+    );
+    // four apps, one reason
+    assert_eq!(
+        left_running(&[app("Blender", KEPT_UNSAVED), app("Terminal", KEPT_UNSAVED), app("Pages", KEPT_UNSAVED), app("Preview", KEPT_UNSAVED)]),
+        ["Blender, Terminal, Pages and Preview are still open: FERB opened them for this task and left them running because they have unsaved changes."]
+    );
+    // two reasons: one sentence each, in the order the records give
+    assert_eq!(
+        left_running(&[app("Blender", KEPT_OWNER), app("Pages", KEPT_REFUSED), app("Terminal", KEPT_OWNER), app("Preview", KEPT_REFUSED)]),
+        [
+            "Blender and Terminal are still open: FERB opened them for this task and left them running because you used them during the task.",
+            "Pages and Preview are still open: FERB opened them for this task and left them running because they didn't accept FERB's request to quit.",
+        ]
+    );
+    // a reason with no plural form keeps one sentence per app
+    assert_eq!(
+        left_running(&[app("Blender", "it is busy"), app("Pages", "it is busy")]),
+        [
+            "Blender is still open: FERB opened it for this task and left it running because it is busy.",
+            "Pages is still open: FERB opened it for this task and left it running because it is busy.",
+        ]
+    );
+}
+
 // ---------- recording text ----------
 
 #[test]

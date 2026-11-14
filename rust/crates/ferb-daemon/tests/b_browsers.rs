@@ -1212,3 +1212,135 @@ async fn a_windowless_start_that_gets_no_answer_falls_back_and_leaves_no_tab() {
         );
     }
 }
+
+/// Pair all's stream says when one profile's pairing falls back to its window (HAND-523): a `fallback` event naming
+/// that profile as the plan named it (browser, folder, name, email, label), sent as the fallback starts and before
+/// that profile's `result`; a profile whose windowless start answered gets none. The app shows one line for it. The
+/// event is an addition to Python's events (its recordings never fall back: the fake clock stands still there).
+// decision: HAND-523
+// decision: HAND-524
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pair_all_tells_the_owner_when_a_profile_falls_back_to_its_window() {
+    let file = fixture("daemon-b/browsers.json");
+    let sc = scenario(&file, "with_access");
+    let w = world(&sc["setup"], true);
+    {
+        let (tabs, pairings, hub, clock) = (
+            w.open_tabs.clone(),
+            w.deps.pairings.clone(),
+            w.hub.clone(),
+            w.home.clock.clone(),
+        );
+        let n = AtomicUsize::new(0);
+        *w.hook.lock().unwrap() = Some(Box::new(move |argv: &[String]| {
+            let profile = launched_profile(argv);
+            let url = argv.last().cloned().unwrap_or_default();
+            let Some((_, token)) = url.split_once("/pair.html#token=") else {
+                return;
+            };
+            let window = tabs
+                .lock()
+                .unwrap()
+                .get(&profile)
+                .is_some_and(|t| t.iter().any(|t| t.contains("/wake/")));
+            if profile == "chrome/Profile 1" && !window {
+                // this profile's windowless start can't reach FERB: its time runs out
+                *clock.mono.lock().unwrap() += 10.0;
+                return;
+            }
+            let m = ExtMessage {
+                install_id: format!("inst-told-{}", n.fetch_add(1, Ordering::SeqCst)),
+                mtype: ExtType::Pair,
+                body_json: json!({"token": token}).to_string(),
+                seq: None,
+                mac: None,
+            };
+            let verdict = pairings.handle(&m).unwrap();
+            assert!(verdict.accepted, "{}", verdict.reason);
+            let b = verdict.binding.unwrap();
+            hub.connect(&b.browser, &b.folder, "0.19.5");
+        }));
+    }
+    let d = start(&w).await;
+    let mut c = d.connect().await;
+    c.send(r#"{"jsonrpc": "2.0", "id": 1, "method": "auth.hello", "params": {"role": "cli"}}"#)
+        .await;
+    c.recv().await.unwrap();
+    c.send(r#"{"jsonrpc": "2.0", "id": 2, "method": "setup.browsers_pairing", "params": {"timeout_s": 30}}"#)
+        .await;
+    let mut events: Vec<Value> = vec![];
+    loop {
+        let line: Value = serde_json::from_str(&c.recv().await.unwrap()).unwrap();
+        if line["method"] == "setup.browsers_pairing.event" {
+            let done = line["params"]["type"] == "done";
+            events.push(line["params"].clone());
+            if done {
+                break;
+            }
+        } else {
+            assert!(line.get("error").is_none(), "{line}");
+            break;
+        }
+    }
+    let kinds: Vec<&str> = events.iter().map(|e| e["type"].as_str().unwrap()).collect();
+    assert_eq!(kinds.first(), Some(&"plan"), "{events:?}");
+    assert_eq!(kinds.last(), Some(&"done"), "{events:?}");
+    let todo = events[0]["todo"].as_array().unwrap();
+    assert!(todo.len() > 1, "{events:?}");
+    let shown = todo
+        .iter()
+        .find(|p| p["folder"] == "Profile 1" && p["browser"] == "chrome")
+        .expect("chrome/Profile 1 is paired by Pair all")
+        .clone();
+
+    // exactly one fallback, for that profile, as the plan named it, before its result
+    let told: Vec<usize> = (0..events.len())
+        .filter(|&i| events[i]["type"] == "fallback")
+        .collect();
+    assert_eq!(told.len(), 1, "{events:?}");
+    let mut want = shown.as_object().unwrap().clone();
+    want.insert("type".into(), json!("fallback"));
+    assert_eq!(events[told[0]], Value::Object(want));
+    assert_eq!(events[told[0]]["name"], "Work");
+    assert_eq!(events[told[0]]["email"], "work@example.test");
+    assert_eq!(events[told[0]]["label"], "Google Chrome");
+    let result = events
+        .iter()
+        .position(|e| {
+            e["type"] == "result" && e["folder"] == "Profile 1" && e["browser"] == "chrome"
+        })
+        .expect("its result");
+    assert!(told[0] < result, "{events:?}");
+    assert_eq!(events[result]["paired"], true, "{events:?}");
+    // every profile still gets its result, and `done` keeps Python's shape
+    assert_eq!(
+        kinds.iter().filter(|k| **k == "result").count(),
+        todo.len(),
+        "{events:?}"
+    );
+    let done = events.last().unwrap().as_object().unwrap();
+    let mut keys: Vec<&str> = done.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        [
+            "paired",
+            "profiles",
+            "results",
+            "skipped",
+            "store_url",
+            "type"
+        ]
+    );
+    assert!(done["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|r| r.get("type").is_none()));
+    // the journal row is the one HAND-523 already writes
+    assert!(w
+        .home
+        .journal_rows()
+        .iter()
+        .any(|r| r[0] == browsers::PAIR_FALLBACK && r[1]["folder"] == "Profile 1"));
+}

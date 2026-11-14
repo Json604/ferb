@@ -211,6 +211,9 @@ Existing tasks (control; null for an unrelated new request; never a time label s
   what to do ("yes, but the cheaper one") are a correction of that question's task (continue), not an answer. When the
   answer could be for more than one question or task, ask which in plain words, never with ids. Passwords and codes are
   never answered here. When the message also asks for something else, return that too. Otherwise null.
+- An answer or request asking for a permission, condition or lasting rule FERB may not have ("yes to every file
+  forever", "never ask again", "only job sites"): look it up (about.read section=answers), then tell the owner plainly
+  what was and wasn't applied and the nearest choice FERB has; never say one is in force unless that lists it.
 
 Schedules and reminders:
 - "schedules": work to run later or repeatedly ("every morning at 9 summarize my unread email", "in 10 minutes, …"),

@@ -983,3 +983,14 @@ words_source = "Owner 2026-11-14, on HAND-520's windowless pairing (journal 60),
 rule = "One read-only tool, about.diagnostics, on the shared gateway path for the planner (a lookup) and every worker: the running version and build, each browser profile's connection, FERB's permissions, the last lines FERB wrote to its daemon log and FERB's own journal records by kind (origin ferb, the chat's kinds left out). Redacted like every result, labelled Origin: ferb, bounded (16,000 characters, a technical bound), read through a read-only connection. supervisor.md: asked why FERB itself failed, the planner reads it first and never guesses a cause it doesn't show."
 why = "FERB could not see its own errors, so it could not help the owner find why something of its own didn't work."
 paths = ["rust/crates/ferb-gateway/src/catalog.rs", "rust/crates/ferb-supervisor/src/words.rs", "ferb/orchestrator/prompts/supervisor.md", "rust/crates/ferbd/src/compose/tools/misc.rs"]
+
+[DMN-596]
+title = "Diagnostics names each profile with its account"
+by = "owner"
+date = 2026-11-14
+status = "active"
+words = "no it shosud show email, another peopel have same named profiles"
+words_source = "Owner 2026-11-14, on DMN-595's about.diagnostics naming profiles without their email."
+rule = "Refines DMN-595. about.diagnostics names each browser profile as the environment facts do: browser, folder, display name and account_hint (the account email) when the profile is signed in. The owner's own account is not masked there (the redactor has no email rule); the 16,000-character bound stands."
+why = "Two profiles with the same name could not be told apart in FERB's own diagnostics."
+paths = ["rust/crates/ferbd/src/compose/tools/diagnostics.rs"]

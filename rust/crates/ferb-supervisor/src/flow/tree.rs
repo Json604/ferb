@@ -2963,6 +2963,8 @@ impl Inner {
         if !sites.is_empty() {
             lines.push(crate::lines::sites_line(sites));
         }
+        // GATE-593: each site that got one of the owner's files under "Send to every site in this task"
+        lines.extend(self.deps.daemon.file_sent_lines(&tree.id));
         // HAND-521: what the cleanup left (apps FERB left running, then what it couldn't release) is one message
         let mut left = self.apps_left_running(&tree.id);
         if !errors.is_empty() {

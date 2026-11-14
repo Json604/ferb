@@ -7,10 +7,12 @@
 //! Mac-side (`store`): the call pipeline itself, on the Mac's SQLite store (spans, confirmations, destinations).
 
 pub mod admit;
+pub mod answers;
 pub mod args;
 #[cfg(target_os = "macos")]
 pub mod call_hooks;
 pub mod catalog;
+pub mod file_grants;
 pub mod hidden_words;
 pub mod listing;
 pub mod locks;

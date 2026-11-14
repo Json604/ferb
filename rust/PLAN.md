@@ -242,6 +242,24 @@ Lines are Python lines at `63369cb3`. "Fixtures" names what exists; a part witho
   for the same case.
 - Needs from the owner: an Apple push key, where the small sender runs, how an install enrols.
 
+## Second last: an independent full-device security audit (T-1098)
+
+After stage 5 and before the knowledge transfer. The owner, 2026-11-14: a fresh Fable agent, independent of the
+agents that built the engine, treats this repo as its own and runs live security testing "at the extreme" with the
+access the owner grants when it starts (the owner's Mac, their Motorola phone, and whatever else it needs). Its
+starting material: the red-team review of the link rule and its eleven holes that exist today (journal 62), the
+documented `today_…_is_not_asked` tests, the data-exit audit (shell egress recorded not blocked; uploads; AppleScript),
+and rule 16 (real third parties only in a run the owner approves). Findings are fixed or recorded as decisions before
+the rewrite is called done.
+
+## Last: knowledge transfer to the owner (T-1097)
+
+After stage 5. The owner, 2026-11-14: a system way to navigate the code, every process at the macro level with
+interactive zoom down to its micro working, so the owner is sure what is built where, how it works, and its edge
+cases. Generated from the code and kb so it cannot drift (processes: app, daemon, gateway, workers, browser bridge,
+store, phone link; each opening into its code path with file:line, decisions, tests, known limits). Propose the form
+to the owner before building it.
+
 ## Open with the owner
 
 - **Pushing the branch.** GitHub's push protection refused `rust/fixtures/sanitize` (invented key-shaped test

@@ -358,6 +358,25 @@ pub fn owner_said(payload: &str, segments: &[Segment]) -> String {
     said.join("\n")
 }
 
+/// GATE-589 B1: what of a stored record of FERB's conversation may hold an address the task follows: the owner's own
+/// messages, and each value FERB's earlier rows stored as held by a record of their task (classes `owner` or a site's).
+/// A value stored only as `private` is one no record of that task had: FERB's own writing, never counted by its text.
+pub fn link_parts(payload: &str, segments: &[Segment]) -> String {
+    let mut kept = vec![owner_said(payload, segments)];
+    for seg in segments.iter().filter(|s| !s.whole) {
+        for (value, classes) in seg.values.iter().flatten() {
+            if classes
+                .iter()
+                .any(|c| c == origin::OWNER || c.starts_with("site:"))
+            {
+                kept.push(value.clone());
+            }
+        }
+    }
+    kept.retain(|k| !k.is_empty());
+    kept.join("\n")
+}
+
 /// `sink_text`: `sink_parts`, every value together.
 pub fn sink_text(payload: &str, segments: &[Segment]) -> String {
     let (main, by_site) = sink_parts(payload, segments);

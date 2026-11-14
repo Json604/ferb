@@ -590,3 +590,23 @@ rule = "For GATE-584. EFFECT_HELP's pay entry (the worker's Effects, written onc
 untestable = "Prompt text: TEST-500 keeps no wording tests; LIVE-936 judges it."
 paths = ["ferb/daemon/gateway.py::EFFECT_HELP"]
 live = ["LIVE-936"]
+
+[PRM-355]
+title = "FERB says plainly when an answer or request asks for something it does not support"
+by = "owner"
+date = 2026-11-14
+status = "active"
+words = "i thoruhgt someone mught enter it, if its n ot supported onour end, it shoudl be cinveyed and ferb shdosl kniw about all this. this si sfor any case, any questiosn answer or ra request · ok, but it isnt int eh generela prompt, right??? also this has to be miantainalbe, what if this is old and nswers worg n all"
+words_source = "Owner 2026-11-14 on typed conditions for file questions (GATE-593), then on where the list lives and how it stays right."
+rule = "When the owner's answer or request asks for a permission, scope or lasting rule FERB does not have, FERB says plainly what was and wasn't applied and the nearest choice it has, never that it applied. What FERB supports is a lookup only (about.read section=answers), computed at call time from the gateway's own question kinds, choices and lifetimes, not in the prompt or every turn's facts; one prompt line tells the planner to look it up."
+why = "FERB answered as if a condition it cannot enforce was in force; a hand-written list would go stale."
+paths = ["rust/crates/ferb-gateway/src/answers.rs::lookup", "rust/crates/ferbd/src/compose/tools/context.rs", "ferb/orchestrator/prompts/supervisor.md"]
+
+[PRM-356]
+title = "The answers lookup: one source, a guard scan, and a lead line for non-choices"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "For PRM-355. about.read's answers section stays off the catalog's frozen section list. Each kind's question and Yes sentence come from confirm::card on example facts; each choice's lifetime from an exhaustive match. A guard test scans the policy and gateway sources for every floor:, sink: and escape: rule and fails when one maps to no kind. Chat words to a FERB check that aren't a choice get \"Nothing was applied: this check takes only one of its choices.\" before the choices."
+why = "Derived from the tables the gateway enforces, so a new kind, choice or lifetime fails a test instead of going stale. Still hand-written: the typed/cannot/standing lines and No's text."
+paths = ["rust/crates/ferb-gateway/src/answers.rs", "rust/crates/ferb-supervisor/src/flow/answer.rs"]

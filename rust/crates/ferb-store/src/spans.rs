@@ -94,6 +94,8 @@ pub struct PayloadOutput {
     pub segments: Option<Vec<Value>>,
     /// The page a browser result was read from (its `url`, GATE-528).
     pub page: String,
+    /// The tool whose result this is ("" for a context record): which kind of record it is (GATE-589 B1).
+    pub tool: String,
 }
 
 /// What `finish` records beside the end time (`spans.py:74-76`).
@@ -642,9 +644,13 @@ impl<'a> SpanStore<'a> {
                 next_offset: Value::Null,
                 segments: None,
                 page: String::new(),
+                tool: String::new(),
             };
             let tool = get(&input, "tool").cloned().unwrap_or(json!(""));
             let tool = tool.as_str().unwrap_or("");
+            if kind == "tool.call" {
+                result.tool = tool.to_string();
+            }
             let mut payload = &body;
             if body.is_object() {
                 if kind == "tool.call" {
@@ -681,6 +687,30 @@ impl<'a> SpanStore<'a> {
             });
             result.text = parts.join("\n");
             out.push(result);
+        }
+        Ok(out)
+    }
+
+    /// GATE-589 B2: each tool call's arguments in this task tree after `after_rowid`, as one text (every string in
+    /// them, joined by newlines), by rowid. A call refused before it ran is a `tool.refused` span, never listed.
+    pub fn call_arguments(&self, root_id: &str, after_rowid: i64) -> Result<Vec<(i64, String)>> {
+        let (tree, p) = tree_where(root_id);
+        let mut statement = self.db.conn().prepare(&format!(
+            "SELECT rowid,input_json FROM spans WHERE kind = 'tool.call' AND {tree} AND rowid > ? ORDER BY rowid"
+        ))?;
+        let mut rows = statement.query(params![p[0], p[1], p[2], after_rowid])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            let rowid: i64 = row.get(0)?;
+            let input = loads(&row.get::<_, String>(1)?)?;
+            let mut parts: Vec<String> = Vec::new();
+            if let Some(args) = get(&input, "args") {
+                strings(args, &mut |text| {
+                    parts.push(text.to_owned());
+                    true
+                });
+            }
+            out.push((rowid, parts.join("\n")));
         }
         Ok(out)
     }

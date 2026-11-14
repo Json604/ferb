@@ -21,6 +21,13 @@ public struct PairProgress: Equatable {
         /// Why Pair all skipped it, as the daemon names it (HAND-411: removed, requested, not_added, off, too_old, or
         /// a connection problem's own); "" otherwise.
         public var reason: String = ""
+        /// Its windowless start got no answer, so its pairing went on in the profile's window (HAND-523: the
+        /// stream's `fallback` event); false until then, and again once its result lands.
+        public var fellBack = false
+        /// The line the owner sees while that pairing goes on in the profile's window; "" otherwise.
+        public var fallbackLine: String {
+            fellBack && state == .pairing ? "\(text) didn't answer quietly, so I'm opening it to finish pairing." : ""
+        }
         public var shown: ProfileName { ProfileName(label: label, name: name, email: email) }
         /// The browser and the name, for a list row (its email drawn beside it).
         public var title: String { shown.title }
@@ -44,6 +51,8 @@ public struct PairProgress: Equatable {
     /// Of those, the ones whose result has landed.
     public var landed: Int { rows.filter { $0.state == .paired || $0.state == .failed }.count }
     public var allPaired: Bool { finished && rows.allSatisfy { $0.state == .paired } }
+    /// The lines of profiles whose pairing went on in their window (HAND-523), in the rows' order.
+    public var fallbackLines: [String] { rows.map(\.fallbackLine).filter { !$0.isEmpty } }
 
     public mutating func apply(_ event: [String: Any]) {
         switch event["type"] as? String {
@@ -54,6 +63,11 @@ public struct PairProgress: Equatable {
         case "result":
             guard let row = Self.row(event, event["paired"] as? Bool == true ? .paired : .failed) else { return }
             if let index = rows.firstIndex(where: { $0.id == row.id }) { rows[index] = row } else { rows.append(row) }
+        case "fallback":                // HAND-523; a daemon that never sends it leaves no line
+            guard let browser = event["browser"] as? String, let folder = event["folder"] as? String,
+                  let index = rows.firstIndex(where: { $0.id == browser + "/" + folder }),
+                  rows[index].state == .pairing else { return }
+            rows[index].fellBack = true
         case "done":
             finished = true
             var whole = event

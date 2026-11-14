@@ -221,7 +221,8 @@ enum IntroCopy {
         let text = open.count == 1 ? "Pairing \(progress.landed + 1) of \(progress.tried): \(open[0].text)…"
             : open.count > 1 ? "Pairing \(progress.tried) profiles…" : "Pairing your browsers…"
         var line = IntroLine(text: text, detail: progress.tried == 0 ? nil
-                             : "\(progress.landed) of \(progress.tried) done. If a browser asks, turn FERB on there.")
+                             : (["\(progress.landed) of \(progress.tried) done. If a browser asks, turn FERB on there."]
+                                + progress.fallbackLines).joined(separator: "\n"))
         line.checklist = pairChecklist(progress)
         line.checklistHint = "A browser may open a page for a moment while it pairs."
         return line
@@ -258,7 +259,8 @@ enum IntroCopy {
             }
             return IntroChecklistItem(id: row.id, title: oneBrowser ? ProfileName(name: row.name).title : row.title,
                                       secondary: row.email,
-                                      detail: row.why.isEmpty ? status : row.why, complete: row.state == .paired,
+                                      detail: !row.fallbackLine.isEmpty ? row.fallbackLine
+                                          : row.why.isEmpty ? status : row.why, complete: row.state == .paired,
                                       actionID: row.canAdd && row.state != .paired ? Pick.add(row.id) : nil,
                                       active: row.state == .pairing, status: status)
         }

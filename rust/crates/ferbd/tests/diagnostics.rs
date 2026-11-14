@@ -226,6 +226,53 @@ fn the_diagnostics_read_ferb_s_own_records_bounded_and_change_nothing() {
     assert!(last.chars().count() <= d::LINE_CHARS + 1);
 }
 
+// decision: DMN-596
+#[test]
+fn each_profile_is_named_with_its_account_so_same_named_profiles_are_told_apart() {
+    use ferb_browser::profiles::BrowserProfile;
+    let work = BrowserProfile::new("chrome", "Profile 1", "Work", "sam@example.com");
+    let other = BrowserProfile::new("chrome", "Profile 2", "Work", "sam.other@example.org");
+    let signed_out = BrowserProfile::new("brave", "Default", "Work", "");
+    let rows: Vec<Value> = [&work, &other, &signed_out]
+        .iter()
+        .map(|p| Value::Object(d::named(p)))
+        .collect();
+    assert_eq!(
+        rows[0],
+        json!({"browser": "chrome", "folder": "Profile 1", "name": "Work", "account_hint": "sam@example.com"})
+    );
+    // a profile signed in to no account has no account_hint
+    assert_eq!(
+        rows[2],
+        json!({"browser": "brave", "folder": "Default", "name": "Work"})
+    );
+    // the same name, two accounts: told apart
+    assert_eq!(rows[0]["name"], rows[1]["name"]);
+    assert_ne!(rows[0]["account_hint"], rows[1]["account_hint"]);
+
+    // through the whole result and the redaction every result gets: the owner's accounts stay readable, and the
+    // result keeps its bound
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path();
+    drop(ferbd::basics::open_store(&home.join("ferb.db")).unwrap());
+    let out = d::compose(
+        home,
+        "2025-12-31T09:00:00+00:00",
+        None,
+        json!({}),
+        json!({"profiles": rows, "unpaired_connections": 0}),
+        vec![],
+    )
+    .unwrap();
+    let redacted = ferb_sanitize::redact::Redactor::new(&[], &[]).value(&Value::Object(out));
+    let text = redacted.to_string();
+    assert!(
+        text.contains("sam@example.com") && text.contains("sam.other@example.org"),
+        "{text}"
+    );
+    assert!(ferb_py::json::dumps_utf8(&redacted).chars().count() <= d::MAX_CHARS);
+}
+
 // decision: DMN-595
 #[test]
 fn the_planner_and_workers_get_it_and_a_call_through_the_gateway_is_redacted_and_labelled() {

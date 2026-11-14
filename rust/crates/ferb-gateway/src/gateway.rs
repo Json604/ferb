@@ -331,6 +331,30 @@ type RefusalAt = ((String, String), Refusal);
 /// What S1 does before a call: (snapshot facts, the copy's record, the change record's counts).
 type Before = (Map<String, Value>, Option<String>, Map<String, Value>);
 
+/// Which records' links count for the link rule (GATE-589 B1), by the tool that read them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LinkKind {
+    /// A page read by a browser tool; a mail, message or app read on the Mac.
+    Read,
+    /// A file read: counts unless FERB wrote it.
+    File,
+    /// FERB's own writing (shell or script output, its memory, notes and records) or anything else.
+    None,
+}
+
+/// GATE-589 B1: the kind of record a tool's result is.
+fn link_kind(tool: &str) -> LinkKind {
+    if tool.starts_with("browser.") || tool.starts_with("ferb_browser.") {
+        return LinkKind::Read;
+    }
+    match tool {
+        "mac.snapshot" | "mac.screenshot" | "mac.record" | "mac.clipboard"
+        | "recording.inspect" | "audio.listen" | "trail.query" | "trail.days" => LinkKind::Read,
+        "fs.read" | "fs.look" => LinkKind::File,
+        _ => LinkKind::None,
+    }
+}
+
 /// `OutsideTexts`: what a tree read, prepared once.
 #[derive(Default)]
 struct OutsideTexts {
@@ -346,6 +370,13 @@ struct OutsideTexts {
     owners: BTreeMap<i64, Vec<(BTreeSet<String>, Text)>>,
     pages: HashMap<i64, String>,
     said: BTreeMap<i64, String>,
+    /// GATE-589 B1: each tool result's tool and file path, by span order.
+    tools: HashMap<i64, (String, String)>,
+    /// GATE-589 B1: what of each record of FERB's conversation may hold a link (`carried::link_parts`).
+    convo_links: BTreeMap<i64, Text>,
+    /// GATE-589 B2: each tool call's arguments in the tree, by span order, and the last span order read.
+    args: Vec<(i64, Text)>,
+    args_floor: i64,
 }
 
 #[derive(Default)]
@@ -375,6 +406,8 @@ struct Inner {
     queued: Vec<(u64, String, Cancel)>,
     /// GATE-562: per tree, each field's refusals by (place, key).
     refusals: HashMap<String, Vec<RefusalAt>>,
+    /// GATE-593: the owner's "Send to every site in this task" answers and the sites sent to under them, per tree.
+    file_grants: crate::file_grants::FileGrants,
 }
 
 /// `refused_fills.Refusal`: one field's refusals in a task tree.
@@ -454,6 +487,8 @@ pub struct Answer {
     pub error: String,
     pub next: String,
     pub declined: String,
+    /// GATE-593: the owner chose "Send to every site in this task" on a file question.
+    pub every_site: bool,
 }
 
 /// `Covered` (`gateway.py:236`): how a call stands with the owner.
@@ -525,6 +560,8 @@ struct Call {
     pay_cid: Option<String>,
     pay_key: Option<String>,
     pay_values: Values,
+    /// GATE-593: (file as shown, site) this call sends under a "Send to every site in this task" answer.
+    file_sent: Vec<(String, String)>,
     cancel: Cancel,
     left: Left,
 }
@@ -778,6 +815,12 @@ impl Gateway {
     /// The owner's "don't ask for 30 min", if it runs now.
     pub fn allow_until(&self) -> Option<DateTime> {
         lock(&self.inner).allow_until
+    }
+
+    /// GATE-593: the task answer's lines naming every site that received a file under the owner's "Send to every site
+    /// in this task" in this tree (until the tree is forgotten).
+    pub fn file_sent_lines(&self, tree_id: &str) -> Vec<String> {
+        lock(&self.inner).file_grants.sent_lines(tree_id)
     }
 
     // ---------- the stores ----------
@@ -1053,6 +1096,7 @@ impl Gateway {
         for t in task_ids {
             i.refusals.remove(t);
         }
+        i.file_grants.forget(task_ids);
         i.terminal_arms
             .retain(|k, _| !task_ids.contains(k.split('.').next().unwrap_or(k)));
         i.undelivered.retain(|k, _| !task_ids.contains(&k.0));
@@ -1401,6 +1445,7 @@ impl Gateway {
             pay_cid: None,
             pay_key: None,
             pay_values: Values::new(),
+            file_sent: Vec::new(),
             cancel,
             left,
         };
@@ -2166,9 +2211,18 @@ impl Gateway {
                 if !result.page.is_empty() {
                     known.pages.insert(result.rowid, result.page.clone());
                 }
+                if !result.tool.is_empty() {
+                    known
+                        .tools
+                        .insert(result.rowid, (result.tool.clone(), result.path.clone()));
+                }
                 if let Some(segments) = &result.segments {
                     let segs: Vec<carried::Segment> =
                         segments.iter().map(carried::Segment::from_json).collect();
+                    known.convo_links.insert(
+                        result.rowid,
+                        provenance::prepare(&carried::link_parts(&result.text, &segs)),
+                    );
                     known
                         .owners
                         .insert(result.rowid, owner_parts(&result.text, &segs));
@@ -2278,6 +2332,82 @@ impl Gateway {
             .map(|(r, _, t)| (*r, t.clone()))
             .collect();
         Ok((private, outside_only, sites))
+    }
+
+    /// GATE-589: what the link rule reads besides the sink's records: the records of a counting kind (B1), FERB's own
+    /// arguments (B2) and the owner's files (single-author records, C2). Call after `sink_texts`.
+    #[allow(clippy::type_complexity)]
+    fn link_facts(&self, root: &str) -> R<(Vec<(i64, Text)>, Vec<(i64, Text)>, Vec<i64>)> {
+        let floor = lock(&self.inner)
+            .outside
+            .get(root)
+            .map_or(0, |k| k.args_floor);
+        let new_args = self.spans(|s| s.call_arguments(root, floor))?;
+        let (records, tools, convo, args) = {
+            let mut i = lock(&self.inner);
+            let known = i.outside.entry(root.to_string()).or_default();
+            for (rowid, text) in new_args {
+                known.args_floor = known.args_floor.max(rowid);
+                known.args.push((rowid, provenance::prepare(&text)));
+            }
+            let mut records: Vec<(i64, Text)> = known
+                .payloads
+                .iter()
+                .map(|(r, (_, t))| (*r, t.clone()))
+                .collect();
+            for (_, j) in &known.joined_files {
+                records.extend(j.iter().map(|(r, _, t)| (*r, t.clone())));
+            }
+            (
+                records,
+                known.tools.clone(),
+                known.convo_links.clone(),
+                known.args.clone(),
+            )
+        };
+        let mut sources: Vec<(i64, Text)> = Vec::new();
+        let mut single: Vec<i64> = Vec::new();
+        for (rowid, text) in records {
+            if let Some(t) = convo.get(&rowid) {
+                if !t.folded.is_empty() {
+                    sources.push((rowid, t.clone()));
+                }
+                continue;
+            }
+            let Some((tool, path)) = tools.get(&rowid) else {
+                continue;
+            };
+            match link_kind(tool) {
+                LinkKind::Read => sources.push((rowid, text)),
+                LinkKind::File if !self.ferb_wrote(root, path) => {
+                    single.push(rowid);
+                    sources.push((rowid, text));
+                }
+                _ => {}
+            }
+        }
+        sources.sort_by_key(|(r, _)| *r);
+        Ok((sources, args, single))
+    }
+
+    /// A file FERB wrote (GATE-589): in FERB's workspace, or made or changed by this task tree (its change records).
+    fn ferb_wrote(&self, root: &str, path: &str) -> bool {
+        if path.is_empty() {
+            return true;
+        }
+        let home = &self.d.roots.home;
+        let raw =
+            ferb_fs::files::normalize_path(path, "/", home).unwrap_or_else(|_| path.to_string());
+        let real = ferb_fs::files::real_path(&raw, "/", home).unwrap_or_else(|_| raw.clone());
+        let workspace = &self.d.roots.workspace;
+        let ws_real =
+            ferb_fs::files::real_path(workspace, "/", home).unwrap_or_else(|_| workspace.clone());
+        let under = |p: &str| {
+            !workspace.is_empty()
+                && (ferb_fs::pypath::is_relative_to(p, workspace)
+                    || ferb_fs::pypath::is_relative_to(p, &ws_real))
+        };
+        under(&raw) || under(&real) || self.made_here(root, &real)
     }
 
     /// `_sink_owner_text`: this request's words, the owner's answers and their earlier messages (GATE-534).
@@ -2430,6 +2560,7 @@ impl Gateway {
             .get(&root)
             .map(|k| k.pages.clone())
             .unwrap_or_default();
+        let (sources, args, single) = self.link_facts(&root)?;
         let values = confirm::url_private_values(
             &url,
             &private,
@@ -2438,6 +2569,11 @@ impl Gateway {
             Some(&origins),
             Some(&sites),
             Some(&pages),
+            &confirm::LinkFacts {
+                sources: &sources,
+                args: &args,
+                single_author: &single,
+            },
         );
         let Some(first) = values.first() else {
             return Ok(None);
@@ -2537,6 +2673,21 @@ impl Gateway {
         if let (Some(content), true) = (&c.spec.content, c.spec.kind == Kind::FILL_FORM) {
             typed.push(content.clone());
         }
+        // GATE-589 F3: a form filled by its address: the values the page's own address (as the tool reports it) puts
+        // in the form count as typed into it
+        let mut shown: Vec<String> = Vec::new();
+        for page in [
+            target.page.clone(),
+            c.facts().and_then(|f| f.page_url.clone()),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !page.is_empty() && !shown.contains(&page) {
+                typed.extend(confirm::address_fields(&page));
+                shown.push(page);
+            }
+        }
         if typed.is_empty() {
             return Ok(None);
         }
@@ -2608,7 +2759,14 @@ impl Gateway {
     /// for that site (one key per site per task, so a Yes carries to the form's submit): an upload into a page (a
     /// form fill whose input is files, `file_paths` read), or a shell command whose words plainly send a file
     /// (`sends::file_sends`) to a host this task learned only from outside content.
-    fn file_send_needs(&self, c: &Call, outside: &[String]) -> R<Vec<Need>> {
+    /// A file the owner let go to every site in this task (`file_grants`) isn't asked about; `sent` gets (file, site)
+    /// for each such file this call sends.
+    fn file_send_needs(
+        &self,
+        c: &Call,
+        outside: &[String],
+        sent: &mut Vec<(String, String)>,
+    ) -> R<Vec<Need>> {
         if outside.is_empty() {
             return Ok(Vec::new());
         }
@@ -2683,6 +2841,15 @@ impl Gateway {
                     }
                 }
             }
+            // GATE-593, GATE-594: "Send to every site in this task" covers that file, unchanged, in this tree
+            shown.retain(|s| {
+                let granted = crate::file_grants::id_of(s, &self.d.roots.home)
+                    .is_some_and(|id| lock(&self.inner).file_grants.covers(&root, &id));
+                if granted {
+                    sent.push((s.clone(), host.clone()));
+                }
+                !granted
+            });
             if shown.is_empty() {
                 continue;
             }
@@ -2789,6 +2956,7 @@ impl Gateway {
         let declared_refs: Vec<&str> = declared.iter().map(String::as_str).collect();
         // The policy's facts hold plain `&dyn Fn` lookups (not `Sync`): they live only in this block, never across
         // the counting await below, so the call's future stays `Send`.
+        let mut file_sent: Vec<(String, String)> = Vec::new();
         let (mut needs, deletes) = {
             let facts = confirm::Facts {
                 read_private: read.contains(origin::PRIVATE),
@@ -2835,13 +3003,14 @@ impl Gateway {
                     }
                 }
             }
-            for n in self.file_send_needs(c, &outside)? {
+            for n in self.file_send_needs(c, &outside, &mut file_sent)? {
                 if !needs.iter().any(|m| m.key == n.key) {
                     needs.push(n);
                 }
             }
             (needs, deletes)
         };
+        c.file_sent = file_sent;
         for (path, path_sources) in deletes {
             let real =
                 ferb_fs::files::real_path(&path, &self.d.roots.workspace, &self.d.roots.home)
@@ -3614,6 +3783,15 @@ impl Gateway {
                 )
                 .await?;
             out.ids.extend(answer.ids.iter().cloned());
+            if answer.granted && answer.every_site {
+                let granted = crate::file_grants::grant_asked(
+                    &mut lock(&self.inner).file_grants,
+                    root,
+                    &ask,
+                    &self.d.roots.home,
+                );
+                c.file_sent.extend(granted);
+            }
             if answer.granted {
                 for (need, cid) in ask.iter().zip(answer.ids.iter()) {
                     out.set_row(&need.key, cid);
@@ -3734,10 +3912,8 @@ impl Gateway {
         let root = rec.tree_id.clone().unwrap_or_else(|| grant.task_id.clone());
         let text = self.ferb_line(needs, call, why, typed)?;
         let routine = needs.iter().all(confirm::routine);
-        let mut options = vec![YES.to_string(), NO.to_string()];
-        if routine {
-            options.push(ALLOW_WINDOW.to_string());
-        }
+        let options = crate::answers::options(needs);
+        let file_card = options.iter().any(|o| o == crate::file_grants::EVERY_SITE);
         let confirm_list: Vec<Value> = needs
             .iter()
             .map(|n| json!({"rule": n.rule, "key": n.key}))
@@ -3855,6 +4031,9 @@ impl Gateway {
                 ap.labels.push(ALLOW_WINDOW_LABEL.into());
                 ap.note = ALLOW_WINDOW_NOTE.into();
             }
+            if file_card {
+                crate::file_grants::card(&mut ap.labels, &mut ap.note, needs);
+            }
             let why_q = if ferb_py::value::strip(why).is_empty() {
                 String::new()
             } else {
@@ -3885,7 +4064,7 @@ impl Gateway {
             event.extend(card_flags(&ap));
             // FERB's own built words keep their mark (`built`); the exact part is joined from them (unmarked)
             let mut built = Marks::of(&[&text, &ap.summary, &ap.why, &ap.detail]);
-            for l in ap.labels.iter().take(2) {
+            for l in ap.labels.iter().take(if file_card { 3 } else { 2 }) {
                 built.add(l);
             }
             self.store_approval(ap);
@@ -3914,8 +4093,13 @@ impl Gateway {
             }
         };
         let choice = self.approval(&ap_id).and_then(|a| a.choice);
+        let every_site = file_card
+            && state == "granted"
+            && choice.as_deref() == Some(crate::file_grants::EVERY_SITE);
         let yes = state == "granted"
-            && (choice.as_deref() == Some(YES) || choice.as_deref() == Some(ALLOW_WINDOW));
+            && (choice.as_deref() == Some(YES)
+                || choice.as_deref() == Some(ALLOW_WINDOW)
+                || every_site);
         if state == "granted" && choice.as_deref() == Some(ALLOW_WINDOW) && routine {
             let until = self.now() + chrono::Duration::seconds(confirm::ALLOW_WINDOW_S as i64);
             lock(&self.inner).allow_until = Some(until);
@@ -3985,6 +4169,9 @@ impl Gateway {
         }
         let mut given = obj(json!({"answer": if yes { YES } else { NO }}));
         given.insert(if yes { "confirmed" } else { "refused" }.into(), json!(ids));
+        if every_site {
+            given.insert("every_site_in_task".into(), Value::Bool(true));
+        }
         if state == "denied" {
             given.insert("skipped".into(), Value::Bool(true));
         }
@@ -4011,6 +4198,7 @@ impl Gateway {
                 OWNER_DECIDED_NEXT.into()
             },
             declined: if yes { String::new() } else { "no".into() },
+            every_site,
         })
     }
 
@@ -5479,6 +5667,12 @@ impl Gateway {
         );
         if out.result.is_error {
             covered.started = false;
+        } else if !c.file_sent.is_empty() {
+            // GATE-593: the sites a file went to under the owner's "Send to every site in this task", for the answer
+            let mut i = lock(&self.inner);
+            for (file, host) in &c.file_sent {
+                i.file_grants.sent(&root, file, host);
+            }
         }
         if let Some(pay) = &c.pay {
             lock(&self.payments).ran(&root, pay, !out.result.is_error);

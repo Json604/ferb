@@ -580,12 +580,13 @@ fn hits_json(h: &[confirm::PrivateValue]) -> Value {
 }
 
 // decision: GATE-506, GATE-507, GATE-516, GATE-517, GATE-518, GATE-524, GATE-526, GATE-527, GATE-528, GATE-532,
-// GATE-533, GATE-535, GATE-536, GATE-541, GATE-570, GATE-571
+// GATE-533, GATE-535, GATE-570, GATE-571, GATE-589
 #[test]
 fn the_sink_rule_matches_python() {
     let fx = fixture("sink.json");
     let mut d = Diffs::new();
-    for c in fx["urls"].as_array().unwrap() {
+    let mut changed = 0;
+    for (index, c) in fx["urls"].as_array().unwrap().iter().enumerate() {
         let private = records(&c["private"]);
         let outside = records(&c["outside"]);
         let owner = provenance::prepare(&s(&c["owner"]));
@@ -602,6 +603,14 @@ fn the_sink_rule_matches_python() {
         let pages: Option<confirm::Pages> = c["pages"]
             .as_object()
             .map(|m| m.iter().map(|(k, v)| (k.parse().unwrap(), s(v))).collect());
+        // Python's cases name no record kinds and no arguments: every record read counts for B1, nothing FERB
+        // wrote holds a value (B2)
+        let mut sources = private.clone();
+        sources.extend(outside.iter().cloned());
+        let link = confirm::LinkFacts {
+            sources: &sources,
+            ..confirm::LinkFacts::default()
+        };
         let hits = confirm::url_private_values(
             &s(&c["url"]),
             &private,
@@ -610,8 +619,17 @@ fn the_sink_rule_matches_python() {
             origins.as_ref(),
             sites.as_ref(),
             pages.as_ref(),
+            &link,
         );
-        d.check("url sink", c, &c["out"], &json!({"ok": hits_json(&hits)}));
+        let got = json!({"ok": hits_json(&hits)});
+        if let Some((_, asks, _)) = LINK_RULE_CHANGES.iter().find(|(i, _, _)| *i == index) {
+            // the one deliberate difference, named: Python asked where GATE-589 lets it go, or the reverse
+            assert!(!same(&c["out"], &got), "case {index} now matches Python");
+            assert_eq!(!hits.is_empty(), *asks, "case {index}");
+            changed += 1;
+            continue;
+        }
+        d.check("url sink", c, &c["out"], &got);
     }
     for c in fx["texts"].as_array().unwrap() {
         let hits = confirm::text_private_values(
@@ -622,8 +640,22 @@ fn the_sink_rule_matches_python() {
         );
         d.check("form sink", c, &c["out"], &json!({"ok": hits_json(&hits)}));
     }
+    assert_eq!(changed, LINK_RULE_CHANGES.len());
     d.finish("the sink rule");
 }
+
+/// The URL-sink cases where GATE-589 (the owner's widening of the page-only rule, the review's same-host rule) decides otherwise
+/// than Python: (case, asks now, why). Every other case of the 524 stays byte-strict.
+const LINK_RULE_CHANGES: [(usize, bool, &str); 8] = [
+    (81, false, "an id read in an instagram.com address goes to another path of that host (C3: one address)"),
+    (88, true, "help.instagram.com is not instagram.com: a host under the source host is another host"),
+    (121, false, "a value read on www.class.example (no page known) goes back to that host (C, value unit)"),
+    (123, false, "a value read on /problems/999 goes to /problems/5560731 on the same host (C widens the page)"),
+    (135, false, "the doc id of a docs.google.com address in a query of that host, with a letters-only word added"),
+    (200, false, "the same, another history"),
+    (216, false, "the same, another history"),
+    (274, false, "the same, another history"),
+];
 
 fn card_json(c: &confirm::Card) -> Value {
     json!({"question": c.question, "detail": c.detail, "exact": c.exact, "yes": c.yes, "no": c.no,

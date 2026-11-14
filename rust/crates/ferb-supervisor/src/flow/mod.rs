@@ -242,6 +242,11 @@ pub trait Daemon: Send + Sync {
     // --- records other parts own ---
     /// policy/sites.py `sites_contacted(tree)`.
     fn sites_contacted(&self, tree_id: &str) -> Vec<String>;
+    /// GATE-593: the gateway's lines naming every site that received one of the owner's files under the owner's "Send to
+    /// every site in this task" in this tree (`Gateway::file_sent_lines`). None by default.
+    fn file_sent_lines(&self, _tree_id: &str) -> Vec<String> {
+        Vec::new()
+    }
     /// `_schedule_label(schedule_id)`: its name, else its instruction's first clause; the id when unknown.
     fn schedule_label(&self, schedule_id: &str) -> String;
     /// launched.py `left_running(records)`: code's line for each app a task launched and left running.

@@ -5,7 +5,8 @@
 //! What it reads, and nothing else:
 //! - the running FERB: version, FERB.app's build (`FERB_APP_BUILD`, as the log's start line says it) and the pid;
 //! - each browser profile's connection: found or paired, connected, the extension's version, why a connection was
-//!   refused (the browser area's facts, as `browsers.list` reads them, without the profile's email);
+//!   refused (the browser area's facts, as `browsers.list` reads them), each profile named as the environment facts
+//!   name it: browser, folder, display name and the account it is signed in to, so same-named profiles are told apart;
 //! - FERB's permissions (the About area's, as `about.read` reads them);
 //! - the last lines FERB's own log writer wrote to `logs/daemon.err.log` (DMN-592: `<time> FERB: <text>`); anything
 //!   else on that stream (another program's output, a backtrace's frames) is left out;
@@ -188,8 +189,21 @@ pub fn journal(db: &Path, since: &str, kind: Option<&str>) -> Result<Value, Stri
     }
 }
 
-/// Each browser profile found or paired: its pairing and connection, as the browser area's `browsers.list` reads them
-/// (the profile's email left out: the owner's account, not FERB's state).
+/// A profile named as the environment facts' profile list names it (`account_hint`, the account it is signed in to,
+/// only when it is signed in): two profiles both called "Work" are told apart by their accounts.
+pub fn named(p: &ferb_browser::profiles::BrowserProfile) -> Map<String, Value> {
+    let mut out = Map::new();
+    out.insert("browser".into(), json!(p.browser));
+    out.insert("folder".into(), json!(p.folder));
+    out.insert("name".into(), json!(p.display_name));
+    if !p.email.is_empty() {
+        out.insert("account_hint".into(), json!(p.email));
+    }
+    out
+}
+
+/// Each browser profile found or paired: its name and account ([`named`]), its pairing and connection, as the browser
+/// area's `browsers.list` reads them.
 pub fn browsers(cx: &ferb_daemon::areas_b::browsers::Cx) -> Result<Value, String> {
     let d = &cx.deps;
     let ferb = cx.identity_profile().map_err(|e| e.message)?;
@@ -211,11 +225,13 @@ pub fn browsers(cx: &ferb_daemon::areas_b::browsers::Cx) -> Result<Value, String
             _ => String::new(),
         };
         let key = (p.browser.clone(), p.folder.clone());
-        out.push(json!({"browser": p.browser, "folder": p.folder, "name": p.display_name,
-                        "ferb_identity": Some(&key) == ferb.as_ref(), "paired": b.is_some(),
-                        "identity": b.map(|b| b.identity.as_str()), "connected": connected,
-                        "extension_version": version,
-                        "refused": if connected { None } else { b.and_then(|b| d.hub.problem(b)) }}));
+        let mut entry = named(&p);
+        let state = json!({"ferb_identity": Some(&key) == ferb.as_ref(), "paired": b.is_some(),
+                           "identity": b.map(|b| b.identity.as_str()), "connected": connected,
+                           "extension_version": version,
+                           "refused": if connected { None } else { b.and_then(|b| d.hub.problem(b)) }});
+        entry.extend(state.as_object().cloned().unwrap_or_default());
+        out.push(Value::Object(entry));
     }
     let unpaired = d.hub.unpaired();
     Ok(json!({"profiles": out, "unpaired_connections": unpaired.len()}))

@@ -717,6 +717,7 @@ impl Cx {
         browser: &str,
         folder: &str,
         token: &str,
+        told: Option<FallbackTold>,
     ) -> Result<PairWait, HandlerError> {
         let mut wait = PairWait {
             cx: self.clone(),
@@ -727,6 +728,7 @@ impl Cx {
             fell_back: false,
             wake: None,
             ended: false,
+            told,
         };
         let known = self.blocking(|c| c.profiles()).await;
         let quiet = !self
@@ -835,6 +837,17 @@ impl Cx {
         p: BrowserProfile,
         timeout: f64,
     ) -> Result<Map<String, Value>, HandlerError> {
+        self.pair_one_told(p, timeout, None).await
+    }
+
+    /// [`Cx::pair_one`], telling `told` the profile's `(browser, folder)` when its pairing falls back to the profile's
+    /// window (HAND-523), as that fallback starts: Pair all's stream says so to the owner.
+    pub async fn pair_one_told(
+        &self,
+        p: BrowserProfile,
+        timeout: f64,
+        told: Option<FallbackTold>,
+    ) -> Result<Map<String, Value>, HandlerError> {
         let base = object(
             json!({"browser": p.browser, "folder": p.folder, "name": p.display_name,
                                  "email": p.email}),
@@ -877,7 +890,9 @@ impl Cx {
             .pairings
             .issue_token(&p.browser, &p.folder, Identity::Owner);
         let _revoke = Revoke(self.deps.pairings.clone(), token.clone());
-        let mut wait = self.open_pairing(&p.browser, &p.folder, &token).await?;
+        let mut wait = self
+            .open_pairing(&p.browser, &p.folder, &token, told)
+            .await?;
         let clock = self.host.clock.clone();
         let end = clock.monotonic() + timeout;
         let mut recheck = clock.monotonic() + self.deps.pair_load_wait_s;
@@ -1241,7 +1256,12 @@ struct PairWait {
     wake: Option<wake::WakePage>,
     /// The wait's outcome was told; otherwise dropping a wait that fell back journals [`PAIR_ABANDONED`].
     ended: bool,
+    /// Who hears that the fallback started (Pair all's stream); None: nobody.
+    told: Option<FallbackTold>,
 }
+
+/// Where a pairing says its fallback to the profile's window started: the profile's `(browser, folder)`.
+pub type FallbackTold = tokio::sync::mpsc::UnboundedSender<(String, String)>;
 
 impl PairWait {
     /// An outcome's journal row, naming the fallback when the wait fell back (Python's row otherwise).
@@ -1293,6 +1313,10 @@ impl PairWait {
         ));
         cx.host.journal(PAIR_FALLBACK, row, None)?;
         self.fell_back = true;
+        if let Some(told) = &self.told {
+            // a listener that left changes nothing here
+            let _ = told.send((b.clone(), f.clone()));
+        }
         let page = pages.open();
         let url = page.url.clone();
         self.wake = Some(page);
@@ -1719,7 +1743,9 @@ impl Sink {
 }
 
 /// `_pair_all_events` (HAND-411, HAND-412): `plan`, a `result` per profile as it lands, then `done`. Leaving the
-/// stream stops the pairings still waiting (their keys revoked).
+/// stream stops the pairings still waiting (their keys revoked). Added to Python's events, on the stream only: a
+/// `fallback` event for a profile whose windowless start got no paired connection, as its pairing falls back to the
+/// profile's window (HAND-523), before that profile's `result`.
 async fn pair_all_events(cx: Cx, params: Params, sink: &mut Sink) -> Result<(), HandlerError> {
     let store = cx.store_id()?;
     let ids = cx.accepted_ids()?;
@@ -1812,14 +1838,31 @@ async fn pair_all_events(cx: Cx, params: Params, sink: &mut Sink) -> Result<(), 
         return Ok(());
     }
     let timeout = timeout_s(&params, 60.0)?;
+    // decision: HAND-523
+    // only a stream says a fallback as it starts: the one reply keeps Python's
+    let (told, mut fallbacks) = tokio::sync::mpsc::unbounded_channel::<(String, String)>();
+    let streamed = matches!(sink, Sink::Stream(_));
+    let shown: Vec<BrowserProfile> = todo.clone();
     let mut jobs = tokio::task::JoinSet::new();
     for p in todo {
         let c = cx.clone();
-        jobs.spawn(async move { c.pair_one(p, timeout).await });
+        let told = streamed.then(|| told.clone());
+        jobs.spawn(async move { c.pair_one_told(p, timeout, told).await });
     }
     let mut results: Vec<Value> = vec![];
     loop {
         let next = tokio::select! {
+            // a fallback is told before its profile's result: said first
+            biased;
+            Some((b, f)) = fallbacks.recv() => {
+                let Some(p) = shown.iter().find(|p| p.browser == b && p.folder == f) else { continue };
+                let event = json!({"type": "fallback", "browser": p.browser, "folder": p.folder,
+                                   "name": p.display_name, "email": p.email, "label": label_for(&b, &f)});
+                if !sink.emit(object(event)).await {
+                    return Ok(());
+                }
+                continue;
+            }
             next = jobs.join_next() => next,
             _ = sink.left() => return Ok(()),      // the caller left: dropping `jobs` stops the waits
         };
@@ -2129,7 +2172,7 @@ async fn identity_pair(cx: Cx, params: Params) -> HandlerResult {
         .pairings
         .issue_token(&browser, &folder, Identity::Ferb);
     let _revoke = Revoke(cx.deps.pairings.clone(), token.clone());
-    let mut wait = cx.open_pairing(&browser, &folder, &token).await?;
+    let mut wait = cx.open_pairing(&browser, &folder, &token, None).await?;
     let clock = cx.host.clock.clone();
     let end = clock.monotonic() + timeout_s(&params, 60.0)?;
     while clock.monotonic() < end {

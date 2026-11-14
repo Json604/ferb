@@ -26,6 +26,8 @@ use ferb_core::errors::FerbError;
 use ferb_core::types::{Identity, ModelImage, ModelRequest, RuntimeEventKind, Task, TaskRole};
 use ferb_core::when::DateTime;
 use ferb_identity::Secret;
+// the planner's lookups and scopes: the supervisor's own list, offered sorted in the check's planner call
+use ferb_orchestrator::lookups::{PLANNER_SCOPES, PLANNER_TOOLS};
 use ferb_rpc::{BoxFuture, HandlerError, HandlerResult, Server};
 use ferb_runtimes::catalog::{self, Config as _, SignInFacts, CATALOG, ROLES};
 use ferb_runtimes::error::RuntimeError;
@@ -218,16 +220,6 @@ pub struct Runtimes {
     pub deps: Deps,
 }
 
-/// The planner's lookups (supervisor.py PLANNER_TOOLS, sorted) and scopes (PLANNER_SCOPES).
-pub const PLANNER_TOOLS: [&str; 6] = [
-    "about.read",
-    "chat.history",
-    "memory.read",
-    "task.evidence",
-    "trail.days",
-    "trail.query",
-];
-pub const PLANNER_SCOPES: [&str; 2] = ["task:read", "trail:read"];
 /// The journal kinds that hold a runtime's last refusal, and the one that ends it (APP-882).
 pub const REFUSAL_KINDS: [&str; 3] = [
     "runtime.signed_out",
@@ -1293,7 +1285,8 @@ impl Runtimes {
             cacheable: 0,
             images,
         };
-        let planner_tools: Vec<String> = PLANNER_TOOLS.iter().map(|s| s.to_string()).collect();
+        let mut planner_tools: Vec<String> = PLANNER_TOOLS.iter().map(|s| s.to_string()).collect();
+        planner_tools.sort();
         let planner_scopes: BTreeSet<String> =
             PLANNER_SCOPES.iter().map(|s| s.to_string()).collect();
         let mut lines = vec![

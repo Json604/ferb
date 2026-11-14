@@ -17,22 +17,13 @@ pub const NO_OUTCOME: &str =
     "I couldn't finish this scheduled run: it ended without reporting an outcome. That's a \
 bug in FERB, not something you asked wrong.";
 
-// ---- the planner's limits (ORCH-303, ORCH-326, ORCH-516, ORCH-618) ----
+// ---- the planner's limits (ORCH-303, ORCH-326, ORCH-641, ORCH-618) ----
 pub const HEARTBEAT_POLL_S: f64 = 5.0;
 pub const FRONT_WINDOW_WAIT_S: f64 = 10.0;
 pub const WAITING_TOKENS: usize = 2000;
-/// Python's six, then `about.diagnostics` (DMN-595: FERB's own diagnostics, a Rust addition); the planner is offered
-/// each one that is installed.
-pub const PLANNER_TOOLS: [&str; 7] = [
-    "memory.read",
-    "chat.history",
-    "task.evidence",
-    "trail.query",
-    "trail.days",
-    "about.read",
-    "about.diagnostics",
-];
-pub const PLANNER_SCOPES: [&str; 2] = ["task:read", "trail:read"];
+/// The planner's lookups and scopes, one list with the runtime check's; the planner is offered each lookup that is
+/// installed.
+pub use ferb_orchestrator::lookups::{PLANNER_SCOPES, PLANNER_TOOLS};
 pub const PLANNER_LOOKUPS: usize = 10;
 pub const LOOKUPS: &str = ".lookups";
 pub const LOOKUPS_SPENT_NOTE: &str =

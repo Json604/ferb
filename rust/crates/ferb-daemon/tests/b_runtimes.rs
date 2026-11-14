@@ -497,6 +497,32 @@ fn stream_raise_fix(request: &str, expected: &str) -> Option<String> {
     ))
 }
 
+/// Named difference from Python (DMN-595): the check's planner call offers the planner's lookups as the supervisor
+/// does, `about.diagnostics` (a Rust addition) with Python's six, sorted. The recorded planner builds and their run
+/// tokens are compared with it added; returns how many lists it named.
+fn planner_lookups_added(log: &mut Value) -> usize {
+    let python: Vec<&str> = {
+        let mut six: Vec<&str> = ferb_orchestrator::lookups::PLANNER_TOOLS
+            .iter()
+            .copied()
+            .filter(|t| *t != "about.diagnostics")
+            .collect();
+        six.sort();
+        six
+    };
+    let mut rust = ferb_orchestrator::lookups::PLANNER_TOOLS.to_vec();
+    rust.sort();
+    let mut n = 0;
+    for e in log.as_array_mut().unwrap() {
+        let planner = (e[0] == "build" && e[1]["mode"] == "supervisor") || e[0] == "token.issue";
+        if planner && e[1]["tools"] == json!(python) {
+            e[1]["tools"] = json!(rust);
+            n += 1;
+        }
+    }
+    n
+}
+
 fn renumber(log: &[Value]) -> Value {
     let text = serde_json::to_string(log).unwrap();
     let re = regex::Regex::new(r"check-#\d+").unwrap();
@@ -556,7 +582,8 @@ async fn wait_sign_in(state: &State, want: &str, url: bool) {
     }
 }
 
-async fn play(name: &str) -> (usize, usize) {
+/// (lines the same, answers named, planner builds named).
+async fn play(name: &str) -> (usize, usize, usize) {
     let file = fixture("daemon-b/runtimes.json");
     let sc = scenario(&file, name);
     let s = &sc["setup"];
@@ -637,9 +664,11 @@ async fn play(name: &str) -> (usize, usize) {
         &mut all_diffs,
     );
     let rust_log = renumber(&st.world.0.log.lock().unwrap());
+    let mut python_log = expand(&sc["log"]);
+    let lookups = planner_lookups_added(&mut python_log);
     diff(
         &format!("{name} log"),
-        &expand(&sc["log"]),
+        &python_log,
         &rust_log,
         &mut all_diffs,
     );
@@ -678,7 +707,7 @@ async fn play(name: &str) -> (usize, usize) {
         all_diffs.join("\n")
     );
     assert!(same > 0);
-    (same, named)
+    (same, named, lookups)
 }
 
 fn sort_items(v: &Value) -> Value {
@@ -693,38 +722,48 @@ fn sort_items(v: &Value) -> Value {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn status_and_choice() {
-    let (same, _) = play("status_and_choice").await;
+    let (same, _, lookups) = play("status_and_choice").await;
+    assert_eq!(lookups, 0);
     eprintln!("status_and_choice: {same} lines");
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn keys() {
-    let (same, _) = play("keys").await;
+    let (same, _, lookups) = play("keys").await;
+    assert_eq!(lookups, 0);
     eprintln!("keys: {same} lines");
 }
 
+// decision: DMN-595, ORCH-641
 #[tokio::test(flavor = "multi_thread")]
 async fn checks() {
-    let (same, named) = play("checks").await;
+    let (same, named, lookups) = play("checks").await;
     assert_eq!(named, 1, "the one named difference: a stream that raises");
+    assert_eq!(
+        lookups, 6,
+        "three planner calls' lookups, built and granted, about.diagnostics added"
+    );
     eprintln!("checks: {same} lines, {named} named");
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn model_choice() {
-    let (same, _) = play("model_choice").await;
+    let (same, _, lookups) = play("model_choice").await;
+    assert_eq!(lookups, 0);
     eprintln!("model_choice: {same} lines");
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn switch_task() {
-    let (same, _) = play("switch_task").await;
+    let (same, _, lookups) = play("switch_task").await;
+    assert_eq!(lookups, 0);
     eprintln!("switch_task: {same} lines");
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn sign_in() {
-    let (same, _) = play("sign_in").await;
+    let (same, _, lookups) = play("sign_in").await;
+    assert_eq!(lookups, 0);
     eprintln!("sign_in: {same} lines");
 }
 

@@ -1809,3 +1809,51 @@ decisions.
 - Workspace and task-made files are not asked about.
 - Owner's: the application-task case (3 questions), the workspace exception, how long each Yes lasts.
 - The link rule: lock the tightened version, close prefill-then-click (F3), scope of a Yes (F1).
+
+## 2026-11-14 · 63 · The link rule tightened as the review gave it; one answer for a file on every site; FERB says what it can't apply; pairing's fallback shown; profiles by email; apps grouped; one lookup list
+
+**What.**
+- GATE-589..592: the URL sink lets a private value go back to the same host it was read on, exactly (C1–C5: https or
+  the source's scheme, the default or the source's port, no userinfo, one source unit holding every id-shaped piece,
+  no nested address from elsewhere), and lets through an address read as written, before FERB wrote any of its
+  values, in a page, mail, app or non-FERB file, or in the owner's words (B1–B4). Otherwise GATE-528's page rule
+  applies (now with C1 and exact hosts), then the question. F3, smallest form: an address's query and fragment values
+  count as typed at submit. `confirm.rs` `SameHost`, `LinkFacts`; `gateway.rs` `link_facts`; `spans.rs`
+  `call_arguments`. The review's optional uppercase clause is left out (it breaks the locale-change shape).
+- GATE-593..595: a file question offers "Send to every site in this task" (one file by identity, one tree, in
+  memory); the answer lists the sites.
+- PRM-355/356: `about.read section=answers`, computed at call time from the gateway's choice table
+  (`ferb-gateway/src/answers.rs`); one prompt line (about 75 tokens); "Nothing was applied" for non-choice words.
+- APP-909/HAND-524: the `fallback` pairing event and its one line on the setup screen and in Settings → Browsers.
+  DMN-596: diagnostics names profiles with `account_hint`. HAND-525: apps left running grouped by reason. ORCH-641:
+  `PLANNER_TOOLS` held once in `ferb-orchestrator/src/lookups.rs`.
+- kb tasks T-1098 (second last: an independent full-device security audit) and T-1097 (last: the owner's navigable
+  map of the code), both in PLAN.md after stage 5.
+
+**Why.** The owner's answers of 2026-11-14 to journal 62's open list. On the link rule the owner said "im trusting
+you with the safety here ... confirm and then lets lock this": an independent red-team review on the coordinator's
+model found the coordinator's proposal unsafe as worded (FERB-written records laundering an address; "any occurrence"
+turning attacker text into proof; sibling hosts) and gave the rule built here. The owner kept the cleanup wait at 35 s
+and a Yes's host-wide, permanent scope.
+
+**Evidence.** `ferb-gateway/tests/link_rule.rs` (38: every attack the review listed, the measured pass shapes, nine
+documented holes), 5 tests added to `outside_destinations.rs`, `answers.rs` guards, `unsupported_answers.rs` (2),
+`b_browsers` fallback event, `diagnostics`, grouping texts, Swift PairProgress (2). Whole workspace: 847 pass, 0 fail,
+16 ignored; Swift 758, 0 failures; portable ok. Replay through the code of the 24 link questions in the archive:
+today's rule asks 14, the new rule 9 (7 values carried to another site in addresses FERB built, 2 addresses seen
+only in shell output).
+
+**Corrected.** The coordinator told the owner the rule would remove about 9 of the still-asked questions (a hand
+estimate); the code replay gives 5. The archive holds 24 such questions, not 25.
+
+**Named differences from Python.** Parity: 8 of 524 URL-sink cases (`LINK_RULE_CHANGES`); scenario `tab_link` (the
+shop `/dp/<id>` now opens unasked); `b_runtimes` (3 planner builds and 3 grants gain about.diagnostics); prompt
+change PRM-355. Two comment-only decision tags in `tests/test_value_provenance.py` drop the superseded GATE-541/542.
+
+**Open.**
+- Live: the three-choice card, the pairing line on a real fallback, a real model using the answers lookup.
+- The words path for file grants (needs the owner's change to GATE-512); grants are lost at a restart.
+- Link holes documented as tests: a plain-word space on the same host, a recipient prefilled by the address (F2),
+  the matching link in a list, reversed or split values, a value in a shell command's address, typing without
+  submitting, any value to a named or approved host, the owner's open-tab addresses, a file an earlier task wrote.
+  These are T-1098's starting list.

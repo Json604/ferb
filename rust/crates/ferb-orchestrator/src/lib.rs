@@ -32,6 +32,7 @@ pub mod language;
 pub mod ledger;
 pub mod leftovers;
 pub mod lines;
+pub mod lookups;
 pub mod loops;
 pub mod models;
 pub mod names;

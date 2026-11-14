@@ -252,6 +252,10 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
             var results: [[String: Any]] = []
             for (index, row) in todo.enumerated() {
                 await state.pause(1.5)
+                if index == 2 {         // HAND-523: this one's windowless start doesn't answer; its window opens
+                    yield(row.merging(["type": "fallback"]) { $1 })
+                    await state.pause(2)
+                }
                 let paired = !(fails && index == 1)
                 let result = row.merging(["paired": paired, "reason": paired ? "" : "off",
                                           "why": paired ? "" : "turn FERB on in Google Chrome's extensions"]) { $1 }

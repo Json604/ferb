@@ -1502,3 +1502,21 @@ words_source = "Owner 2026-11-14, on HAND-520's windowless pairing (journal 60),
 rule = "Refines HAND-520. Pairing first loads the profile with no window and opens the self-closing pairing page; with no paired connection within 10 s (a method detail) it falls back to the visible method: the profile's window with FERB's local wake page, then the pairing page again. The wake page closes itself on every outcome: its script asks FERB's local server whether its pairing is over and closes when told or when the server is gone. The fallback is journaled (browsers.pair_fallback) and logged. FERB quits no browser and closes no tab it didn't open."
 why = "The windowless start was measured on one Mac only; the owner asked for the old method as a fallback."
 paths = ["rust/crates/ferb-daemon/src/areas_b/browsers/mod.rs", "rust/crates/ferbd/src/compose/tools/browser.rs"]
+
+[HAND-524]
+title = "Pair all reports a profile's fallback to its window as a progress event"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "For APP-909. On the setup.browsers_pairing stream, when a profile's fallback to its window starts (after browsers.pair_fallback is journaled, before the window opens), the daemon sends setup.browsers_pairing.event {type: fallback, browser, folder, name, email, label} (the profile's plan entry), once per profile and before its result. Single-reply pairing calls (browsers.pair, setup.browser_pair, identity.pair) have no progress channel and only journal it. An addition to Python's events; older apps ignore the type."
+why = "The pairing rows already follow this stream's plan and result events; one more event type keeps FERB.app and the daemon on one channel without a new RPC."
+paths = ["rust/crates/ferb-daemon/src/areas_b/browsers/mod.rs::pair_all_events", "rust/crates/ferb-daemon/src/areas_b/browsers/mod.rs::PairWait"]
+
+[HAND-525]
+title = "Apps left running for one reason are one sentence"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "Refines HAND-521. In the leftovers message, apps FERB opened and left running are grouped by identical reason, in record order, each app named once: \"Blender and Terminal are still open: FERB opened them for this task and left them running because you used them during the task.\" All apps are named. One app keeps today's sentence; a reason with no plural form stays one sentence per app."
+why = "The owner asked \"whats number 3???\" of a list of one-line app notices and was told they would be grouped like tabs."
+paths = ["rust/crates/ferb-mac-hands/src/launched.rs"]

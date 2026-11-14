@@ -1079,7 +1079,16 @@ pub struct TextForms {
     url_parts: OnceLock<UrlParts>,
 }
 
-type UrlParts = (Vec<(String, HashSet<String>)>, HashSet<String>);
+/// A link written in a read text: its page scope, its value forms, and the address as written (trailing
+/// punctuation dropped; a scheme-less one with `https://`).
+#[derive(Debug, Clone)]
+struct Link {
+    scope: String,
+    forms: HashSet<String>,
+    address: String,
+}
+
+type UrlParts = (Vec<Link>, HashSet<String>);
 
 fn cache(t: &Text) -> &TextForms {
     t.forms.get_or_init(TextForms::default)
@@ -1364,7 +1373,11 @@ fn url_parts(t: &Text) -> &UrlParts {
             let addr = address.trim_end_matches(|c| TRAIL.contains(c));
             let parsed = urls::parse(addr);
             if parsed.is_some_and(|p| !p.host.is_empty()) && *a >= cut {
-                links.push((page_scope(addr), value_forms(&folded[*a..*b], None)));
+                links.push(Link {
+                    scope: page_scope(addr),
+                    forms: value_forms(&folded[*a..*b], None),
+                    address: addr.to_string(),
+                });
                 rest.push(&folded[cut..*a]);
                 cut = *b;
             }
@@ -1374,13 +1387,61 @@ fn url_parts(t: &Text) -> &UrlParts {
     })
 }
 
+/// A host as the link rule compares it: lowercased, a trailing dot and one leading `www.` dropped.
+pub fn host_key(host: &str) -> String {
+    let h = py::lower(host);
+    let h = h.trim_end_matches('.');
+    h.strip_prefix("www.").unwrap_or(h).to_string()
+}
+
+/// `same_host` (GATE-589): equal after lowercasing, dropping a trailing dot and one leading `www.`; nothing else (a
+/// host under another, a sibling under one registrable domain and a lookalike are other hosts).
+pub fn same_host(a: &str, b: &str) -> bool {
+    let a = host_key(a);
+    !a.is_empty() && a == host_key(b)
+}
+
 fn host_had_it(seen: &str, dest: &str) -> bool {
-    let (seen, dest) = (seen.trim_end_matches('.'), dest.trim_end_matches('.'));
-    let bare = seen.strip_prefix("www.").unwrap_or(seen);
-    dest == seen
-        || dest == bare
-        || dest == format!("www.{bare}")
-        || dest.ends_with(&format!(".{seen}"))
+    same_host(seen, dest)
+}
+
+/// The default port of a scheme FERB opens.
+fn default_port(scheme: &str) -> &'static str {
+    match scheme {
+        "https" => "443",
+        "http" => "80",
+        _ => "",
+    }
+}
+
+/// C1 (GATE-589): the destination is https or the source's scheme, its port the default or the source's, with no
+/// userinfo. A source given as a page scope or a stored site (no scheme) is https on its default port.
+fn c1(dest: &urls::Url, source: Option<&urls::Url>) -> bool {
+    let (scheme, port) = source.map_or(("https", ""), |s| (s.scheme.as_str(), s.port.as_str()));
+    let dest_scheme = py::lower(&dest.scheme);
+    let src_port = if port.is_empty() {
+        default_port(&py::lower(scheme))
+    } else {
+        port
+    };
+    dest.username.is_empty()
+        && dest.password.is_empty()
+        && (dest_scheme == "https" || dest_scheme == py::lower(scheme))
+        && (dest.port.is_empty()
+            || dest.port == default_port(&dest_scheme)
+            || dest.port == src_port)
+}
+
+fn parsed_source(address: &str) -> Option<urls::Url> {
+    if address.is_empty() {
+        return None;
+    }
+    let a = if address.contains("://") {
+        address.to_string()
+    } else {
+        format!("https://{address}")
+    };
+    urls::parse(&a)
 }
 
 /// `page_scope` (GATE-528): the host and the page's path through its first segment that holds a value.
@@ -1452,14 +1513,22 @@ pub type Sites = HashMap<usize, HashSet<String>>;
 /// The page each record was read from, by span order.
 pub type Pages = HashMap<i64, String>;
 
+/// A record's grouped values in their joined form (GATE-516..518), so the grouped check reads the same set (GATE-589 D).
+fn run_forms(t: &Text) -> impl Iterator<Item = String> + '_ {
+    runs(t).iter().map(|r| r.joined.clone())
+}
+
+/// Today's page scope (GATE-528) where the same-host rule (GATE-589 C) does not cover an address: the values
+/// seen only on the destination's page. Hosts compare as `same_host` and the destination passes C1 against the page or
+/// link it was seen on.
 fn same_site_only(
     private: &Records,
-    dest: &str,
+    dest_url: &urls::Url,
     origins: Option<&Origins>,
     sites: Option<&Sites>,
-    dest_path: &str,
     pages: Option<&Pages>,
 ) -> HashSet<String> {
+    let (dest, dest_path) = (dest_url.host.as_str(), dest_url.path.as_str());
     let mut inside: HashSet<String> = HashSet::new();
     let mut elsewhere: HashSet<String> = HashSet::new();
     let empty = HashSet::new();
@@ -1467,30 +1536,40 @@ fn same_site_only(
         if let Some(origins) = origins {
             if read_from(origins.get(order).unwrap_or(&empty), dest) {
                 let page = pages.and_then(|p| p.get(order)).map_or("", String::as_str);
-                if !page.is_empty() && in_scope(&page_scope(page), dest, dest_path) {
+                if !page.is_empty()
+                    && in_scope(&page_scope(page), dest, dest_path)
+                    && c1(dest_url, parsed_source(page).as_ref())
+                {
                     inside.extend(toks(t).iter().cloned());
+                    inside.extend(run_forms(t));
                     continue;
                 }
             }
         }
         if let Some(read_on) = sites.and_then(|s| s.get(&index)).filter(|r| !r.is_empty()) {
-            let target = if read_on.iter().all(|scope| in_scope(scope, dest, dest_path)) {
+            let target = if read_on.iter().all(|scope| in_scope(scope, dest, dest_path))
+                && c1(dest_url, None)
+            {
                 &mut inside
             } else {
                 &mut elsewhere
             };
             target.extend(toks(t).iter().cloned());
+            target.extend(run_forms(t));
             continue;
         }
         let (links, rest) = url_parts(t);
-        for (scope, forms) in links {
-            if in_scope(scope, dest, dest_path) {
-                inside.extend(forms.iter().cloned());
+        for link in links {
+            if in_scope(&link.scope, dest, dest_path)
+                && c1(dest_url, parsed_source(&link.address).as_ref())
+            {
+                inside.extend(link.forms.iter().cloned());
             } else {
-                elsewhere.extend(forms.iter().cloned());
+                elsewhere.extend(link.forms.iter().cloned());
             }
         }
         elsewhere.extend(rest.iter().cloned());
+        elsewhere.extend(run_forms(t));
     }
     inside.retain(|x| !elsewhere.contains(x));
     inside
@@ -1531,6 +1610,24 @@ fn url_pieces(url: &str) -> Vec<String> {
         pieces.push(pyurl::unquote_plus(&parts.password));
     }
     pieces.extend(value_labels(&parts.host));
+    pieces.extend(raw_path_pieces(&parts));
+    with_decoded_again(pieces)
+}
+
+fn with_decoded_again(mut pieces: Vec<String>) -> Vec<String> {
+    let again: Vec<String> = pieces.iter().flat_map(|p| decoded_again(p)).collect();
+    pieces.extend(again);
+    pieces
+}
+
+/// The pieces of a URL after its host, as `_url_pieces` makes them: every path segment (and its parts), query name
+/// and value, the fragment and its pieces, percent-decoded with the extra rounds (GATE-589's pieces).
+fn path_pieces(parts: &urls::Url) -> Vec<String> {
+    with_decoded_again(raw_path_pieces(parts))
+}
+
+fn raw_path_pieces(parts: &urls::Url) -> Vec<String> {
+    let mut pieces: Vec<String> = Vec::new();
     for seg in parts.path.split('/') {
         let seg = pyurl::unquote_plus(seg);
         let main = seg.split(';').next().unwrap_or("").to_string();
@@ -1559,8 +1656,6 @@ fn url_pieces(url: &str) -> Vec<String> {
             }
         }
     }
-    let again: Vec<String> = pieces.iter().flat_map(|p| decoded_again(p)).collect();
-    pieces.extend(again);
     pieces
 }
 
@@ -1666,6 +1761,311 @@ fn own_name(
     forms
 }
 
+// ---------- the link rule: same host (GATE-589 C) ----------
+
+/// Whether the optional "uppercase letter after the first character" clause makes a piece id-shaped (GATE-589): left
+/// out, measured against the shapes the rule must let through (a help article's `en-US` locale would become an id).
+pub const UPPER_IDS: bool = false;
+
+/// `dotted_name`: a dotted name whose last label is two or more letters (`evil.example`, `notes.pdf`).
+fn dotted_name(low: &str) -> bool {
+    let labels: Vec<&str> = low.split('.').collect();
+    labels.len() >= 2
+        && labels.iter().all(|l| !l.is_empty())
+        && labels[labels.len() - 1].chars().count() >= 2
+        && labels[labels.len() - 1]
+            .chars()
+            .all(|c| c.is_ascii_alphabetic())
+}
+
+/// A piece that is itself an address (GATE-589): it holds `://`, is written as a host and a path, or is a dotted name.
+pub fn nested_address(piece: &str) -> bool {
+    let low = py::lower(piece);
+    low.contains("://") || !host_path_spans(&low).is_empty() || dotted_name(&low)
+}
+
+/// An id-shaped piece (GATE-589): `is_value` at any length, or a nested address.
+pub fn id_shaped(piece: &str) -> bool {
+    let upper = UPPER_IDS && piece.chars().skip(1).any(char::is_uppercase);
+    is_value(&py::lower(piece)) || nested_address(piece) || upper
+}
+
+/// An address's id-shaped pieces after its host, lowercased, each once.
+pub fn address_ids(url: &urls::Url) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for p in path_pieces(url) {
+        if id_shaped(&p) {
+            let low = py::lower(&p);
+            if !out.contains(&low) {
+                out.push(low);
+            }
+        }
+    }
+    out
+}
+
+fn letters_digits(text: &str) -> String {
+    py::lower(&alnum_only(text))
+}
+
+/// Whether a piece of the destination is the one matched value (as written, or the same letters and digits).
+fn piece_of_value(piece: &str, value: &str) -> bool {
+    let joined = letters_digits(value);
+    piece == value || (!joined.is_empty() && letters_digits(piece) == joined)
+}
+
+/// GATE-589 C for one destination: which of the owner's private values may go back to the host they were read on.
+pub struct SameHost<'a> {
+    dest: urls::Url,
+    ids: Vec<String>,
+    private: &'a Records,
+    origins: Option<&'a Origins>,
+    sites: Option<&'a Sites>,
+    pages: Option<&'a Pages>,
+    single_author: &'a [i64],
+    /// C3 through an address of the host written in a record: some such address holds every id-shaped piece of the
+    /// destination (nested addresses exactly, C4) and passes C1.
+    one_address: bool,
+    memo: std::cell::RefCell<HashMap<String, bool>>,
+}
+
+impl<'a> SameHost<'a> {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        dest: urls::Url,
+        private: &'a Records,
+        outside: &'a Records,
+        origins: Option<&'a Origins>,
+        sites: Option<&'a Sites>,
+        pages: Option<&'a Pages>,
+        single_author: &'a [i64],
+    ) -> Option<SameHost<'a>> {
+        if dest.host.is_empty() || !dest.username.is_empty() || !dest.password.is_empty() {
+            return None;
+        }
+        let ids = address_ids(&dest);
+        let one_address = private.iter().chain(outside).any(|(_, t)| {
+            url_parts(t).0.iter().any(|link| {
+                let Some(source) = parsed_source(&link.address) else {
+                    return false;
+                };
+                if !same_host(&source.host, &dest.host) || !c1(&dest, Some(&source)) {
+                    return false;
+                }
+                let pieces: HashSet<String> =
+                    path_pieces(&source).iter().map(|p| py::lower(p)).collect();
+                ids.iter().all(|p| pieces.contains(p))
+            })
+        });
+        Some(SameHost {
+            dest,
+            ids,
+            private,
+            origins,
+            sites,
+            pages,
+            single_author,
+            one_address,
+            memo: std::cell::RefCell::new(HashMap::new()),
+        })
+    }
+
+    /// A single value (a token of a record).
+    fn covers_token(&self, value: &str) -> bool {
+        if let Some(&known) = self.memo.borrow().get(value) {
+            return known;
+        }
+        let known = self.covers(value, &|t| toks(t).contains(value), &|f| f.contains(value));
+        self.memo.borrow_mut().insert(value.to_string(), known);
+        known
+    }
+
+    /// C2 for `value` (where `occurs` finds it in a record and `in_forms` in a link's or the rest's forms), then C3/C5:
+    /// one source unit holds every id-shaped piece of the destination and passes C1.
+    fn covers(
+        &self,
+        value: &str,
+        occurs: &dyn Fn(&Text) -> bool,
+        in_forms: &dyn Fn(&HashSet<String>) -> bool,
+    ) -> bool {
+        let host = self.dest.host.as_str();
+        let empty = HashSet::new();
+        // the pages of the host the value was read on: each a source of the unit "the one value as read there"
+        let mut read_on: Vec<Option<urls::Url>> = Vec::new();
+        let mut seen = false;
+        for (index, (order, t)) in self.private.iter().enumerate() {
+            let labels = self.origins.and_then(|o| o.get(order)).unwrap_or(&empty);
+            if read_from(labels, host) {
+                if occurs(t) {
+                    seen = true;
+                    let page = self
+                        .pages
+                        .and_then(|p| p.get(order))
+                        .map_or("", String::as_str);
+                    read_on.push(parsed_source(page));
+                }
+                continue;
+            }
+            if let Some(scopes) = self
+                .sites
+                .and_then(|s| s.get(&index))
+                .filter(|r| !r.is_empty())
+            {
+                if occurs(t) {
+                    // C5: a carried value stored as read only on sites' pages: its site must be this host
+                    if !scopes
+                        .iter()
+                        .all(|scope| same_host(scope.split('/').next().unwrap_or(""), host))
+                    {
+                        return false;
+                    }
+                    seen = true;
+                    read_on.push(None);
+                }
+                continue;
+            }
+            if !occurs(t) {
+                continue;
+            }
+            let (links, rest) = url_parts(t);
+            let mut on_host = false;
+            for link in links {
+                if !in_forms(&link.forms) {
+                    continue;
+                }
+                let link_host = parsed_source(&link.address)
+                    .map(|u| u.host)
+                    .unwrap_or_default();
+                if same_host(&link_host, host) {
+                    on_host = true;
+                } else {
+                    return false;
+                }
+            }
+            let in_rest = in_forms(rest);
+            // an occurrence outside the host's addresses cancels it, except elsewhere in the one record of a single
+            // author (the owner's file) that also writes the address
+            if (in_rest && !(on_host && self.single_author.contains(order)))
+                || (!in_rest && !on_host)
+            {
+                return false;
+            }
+            seen = true;
+        }
+        seen && (self.one_address
+            || read_on.iter().any(|source| {
+                c1(&self.dest, source.as_ref()) && self.ids.iter().all(|p| piece_of_value(p, value))
+            }))
+    }
+}
+
+// ---------- the link rule: links in what FERB read (GATE-589 B) ----------
+
+/// What the link rule reads besides the sink's records (GATE-589 B).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LinkFacts<'a> {
+    /// B1: each record of a kind whose links count, with its span order: a page read by a browser tool, a mail,
+    /// message or app read, a file that is not FERB-written, the owner's parts of FERB's conversation and the values
+    /// an earlier task's record held. The owner's words are read from `owner`.
+    pub sources: &'a [(i64, Text)],
+    /// B2: each tool-call argument in this task tree (the call's arguments as one text), with its span order.
+    pub args: &'a [(i64, Text)],
+    /// The span orders of single-author records (the owner's files): another occurrence of a value inside one does
+    /// not cancel the address it also writes (C2).
+    pub single_author: &'a [i64],
+}
+
+/// Whether an argument holds a matched value in a spelling the matcher knows.
+fn arg_holds(arg: &Text, value: &str) -> bool {
+    let mut spelled = spellings(value);
+    spelled.insert(letters_digits(value));
+    spelled.retain(|v| py::char_len(v) >= MIN_LEN);
+    let forms = toks(arg);
+    if spelled.iter().any(|v| forms.contains(v)) {
+        return true;
+    }
+    let joined = crate::carried::joined(&arg.folded);
+    if spelled
+        .iter()
+        .any(|v| provenance::contains(&arg.folded, v) || provenance::contains(&joined, v))
+    {
+        return true;
+    }
+    url_spans(&arg.folded).iter().any(|&(a, b)| {
+        url_pieces(&arg.folded[a..b]).iter().any(|p| {
+            let (shown, decoded) = variants(p);
+            spelled
+                .iter()
+                .any(|v| shown.contains(v) || decoded.contains(v))
+        })
+    })
+}
+
+/// Where in the address (char offsets of its casefolded form) each matched value sits; the whole address when one
+/// can't be found.
+fn value_spans(url: &str, hits: &[PrivateValue]) -> Vec<(usize, usize)> {
+    let chars: Vec<char> = py::casefold(url).chars().collect();
+    let mut out = Vec::new();
+    for h in hits {
+        let mut found = false;
+        let forms = [
+            h.piece.clone(),
+            h.matched.clone(),
+            pyurl::quote(&h.piece, ""),
+            pyurl::quote_plus(&h.piece),
+            pyurl::quote(&h.piece, "/:"),
+        ];
+        for f in forms {
+            let f: Vec<char> = py::casefold(&f).chars().collect();
+            if f.is_empty() || f.len() > chars.len() {
+                continue;
+            }
+            for i in 0..=chars.len() - f.len() {
+                if chars[i..i + f.len()] == f[..] {
+                    out.push((i, i + f.len()));
+                    found = true;
+                }
+            }
+        }
+        if !found {
+            out.push((0, chars.len()));
+        }
+    }
+    out
+}
+
+/// B3: the address wrapped by whitespace inside its own extent, no break falling immediately before or inside a
+/// matched value.
+fn broken_link_clear(url: &str, folded: &str, values: &[(usize, usize)]) -> bool {
+    let chars = py::casefold(url);
+    if chars.is_empty() {
+        return false;
+    }
+    let pattern: Vec<String> = chars
+        .chars()
+        .map(|c| regex::escape(&c.to_string()))
+        .collect();
+    let re = crate::rx::plain(&pattern.join("[{S}]*"));
+    let found = re.find_iter(folded).any(|m| {
+        let mut k = 0usize;
+        let mut breaks: Vec<usize> = Vec::new();
+        for c in m.as_str().chars() {
+            if py::is_space(c) {
+                if breaks.last() != Some(&k) {
+                    breaks.push(k);
+                }
+            } else {
+                k += 1;
+            }
+        }
+        !breaks.is_empty()
+            && breaks
+                .iter()
+                .all(|&b| !values.iter().any(|&(start, end)| start <= b && b < end))
+    });
+    found
+}
+
 /// A piece carrying the owner's data (GATE-507): the piece as it leaves, the token it matched, and the record that
 /// token was first read from (span order).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1676,6 +2076,7 @@ pub struct PrivateValue {
 }
 
 /// `url_carries_private`.
+#[allow(clippy::too_many_arguments)]
 pub fn url_carries_private(
     url: &str,
     private: &Records,
@@ -1684,14 +2085,19 @@ pub fn url_carries_private(
     origins: Option<&Origins>,
     sites: Option<&Sites>,
     pages: Option<&Pages>,
+    link: &LinkFacts<'_>,
 ) -> Vec<String> {
-    url_private_values(url, private, outside, owner, origins, sites, pages)
+    url_private_values(url, private, outside, owner, origins, sites, pages, link)
         .into_iter()
         .map(|v| v.piece)
         .collect()
 }
 
-/// `url_private_values`: the sink rule for navigation (S4, SQ6, N1, L4, GATE-506/528/536/570).
+/// `url_private_values`: the sink rule for navigation (S4, SQ6, N1, L4, GATE-506/528/570, GATE-589..592). A value
+/// counts unless the owner's words hold it, the host may have it (its own name; the same host it was read on, C; the
+/// page it was read on, GATE-528), or the address itself was read, as written, in a record of a counting kind before
+/// FERB wrote any of its values (B).
+#[allow(clippy::too_many_arguments)]
 pub fn url_private_values(
     url: &str,
     private: &Records,
@@ -1700,34 +2106,59 @@ pub fn url_private_values(
     origins: Option<&Origins>,
     sites: Option<&Sites>,
     pages: Option<&Pages>,
+    link: &LinkFacts<'_>,
 ) -> Vec<PrivateValue> {
     if private.is_empty() {
         return Vec::new();
     }
-    let known_to_site = match urls::parse(url) {
-        Some(dest) if !dest.host.is_empty() => {
-            let mut k = same_site_only(private, &dest.host, origins, sites, &dest.path, pages);
+    let dest = urls::parse(url).filter(|d| !d.host.is_empty());
+    let known_to_site = match &dest {
+        Some(dest) => {
+            let mut k = same_site_only(private, dest, origins, sites, pages);
             k.extend(own_name(&dest.host, private, outside, origins));
             k
         }
-        _ => HashSet::new(),
+        None => HashSet::new(),
     };
-    let hits = private_hits(&url_pieces(url), private, outside, owner, &known_to_site);
+    let cover = dest.and_then(|d| {
+        SameHost::new(
+            d,
+            private,
+            outside,
+            origins,
+            sites,
+            pages,
+            link.single_author,
+        )
+    });
+    let hits = private_hits(
+        &url_pieces(url),
+        private,
+        outside,
+        owner,
+        &known_to_site,
+        cover.as_ref(),
+    );
     if hits.is_empty() {
         return hits;
     }
-    let earliest = hits.iter().map(|h| h.first_read).min().unwrap_or(0);
-    let seen_url = [py::casefold(url), py::casefold(&url.replace('\\', "/"))];
-    if outside.iter().any(|(order, t)| {
-        *order < earliest && seen_url.iter().any(|u| t.folded.contains(u.as_str()))
-    }) {
-        return Vec::new();
-    }
-    if private
+    // B2: the first argument FERB wrote that holds any of the values
+    let first_written = link
+        .args
         .iter()
-        .any(|(_, t)| link_appears(url, &t.folded) || broken_link_appears(url, &t.folded))
-    {
-        return Vec::new();
+        .filter(|(_, t)| hits.iter().any(|h| arg_holds(t, &h.matched)))
+        .map(|(o, _)| *o)
+        .min()
+        .unwrap_or(i64::MAX);
+    let spans = value_spans(url, &hits);
+    let owner_words = (i64::MIN, owner);
+    let read = std::iter::once(owner_words).chain(link.sources.iter().map(|(o, t)| (*o, t)));
+    for (order, t) in read {
+        if order < first_written
+            && (link_appears(url, &t.folded) || broken_link_clear(url, &t.folded, &spans))
+        {
+            return Vec::new();
+        }
     }
     hits
 }
@@ -1745,21 +2176,25 @@ fn link_appears(url: &str, folded: &str) -> bool {
         .any(|f| folded.contains(py::casefold(f).as_str()))
 }
 
-fn broken_link_appears(url: &str, folded: &str) -> bool {
-    let chars = py::casefold(url);
-    if chars.is_empty() {
-        return false;
+/// GATE-589 F3: the field values an address fills a form with: each query value and each value of the fragment's
+/// `name=value` pairs, percent-decoded, empty ones left out.
+pub fn address_fields(url: &str) -> Vec<String> {
+    let Some(parts) = urls::parse(url) else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = Vec::new();
+    for pair in parts.query.split('&') {
+        if let Some((_, v)) = pair.split_once('=') {
+            out.push(pyurl::unquote_plus(v));
+        }
     }
-    // r"\s*".join(re.escape(c) for c in chars): a match counts only with whitespace inside it
-    let pattern: Vec<String> = chars
-        .chars()
-        .map(|c| regex::escape(&c.to_string()))
-        .collect();
-    let re = crate::rx::plain(&pattern.join("[{S}]*"));
-    let found = re
-        .find_iter(folded)
-        .any(|m| m.as_str().chars().any(py::is_space));
-    found
+    for pair in pyurl::unquote_plus(&parts.fragment).split('&') {
+        if let Some((_, v)) = pair.split_once('=') {
+            out.push(v.to_string());
+        }
+    }
+    out.retain(|v| !py::strip(v).is_empty());
+    out
 }
 
 /// `contacts_in`: the email addresses (lowercased) and phone numbers (digits, at least 7) written in `text`.
@@ -1820,7 +2255,7 @@ pub fn text_private_values(
             .filter(|t| !t.is_empty())
             .map(str::to_string),
     );
-    private_hits(&pieces, private, outside, owner, &HashSet::new())
+    private_hits(&pieces, private, outside, owner, &HashSet::new(), None)
 }
 
 fn private_hits(
@@ -1829,6 +2264,7 @@ fn private_hits(
     outside: &Records,
     owner: &Text,
     known_to_site: &HashSet<String>,
+    cover: Option<&SameHost<'_>>,
 ) -> Vec<PrivateValue> {
     let mut first_private: HashMap<String, i64> = HashMap::new();
     for (order, t) in private {
@@ -1857,6 +2293,7 @@ fn private_hits(
                         .iter()
                         .any(|(o, ts)| *o < fp && ts.contains(*m))
                     && !is_year(m)
+                    && !cover.is_some_and(|c| c.covers_token(m))
             })
             .cloned()
             .collect();
@@ -1877,7 +2314,14 @@ fn private_hits(
                 .filter(|(_, t)| in_runs(runs(t), &groups, &forms))
                 .map(|(o, _)| *o)
                 .collect();
-            if let Some(&min) = orders.iter().min() {
+            let low = py::lower(&value);
+            let to_site = forms.iter().any(|f| known_to_site.contains(f))
+                || cover.is_some_and(|c| {
+                    c.covers(&low, &|t| in_runs(runs(t), &groups, &forms), &|f| {
+                        forms.iter().any(|x| f.contains(x))
+                    })
+                });
+            if let Some(&min) = orders.iter().min().filter(|_| !to_site) {
                 if !in_runs(runs(owner), &groups, &forms)
                     && !outside
                         .iter()
@@ -1894,8 +2338,12 @@ fn private_hits(
                 .filter(|(_, t)| phrase(&value, t, known_to_site))
                 .map(|(o, _)| *o)
                 .collect();
-            if let Some(&min) = orders.iter().min() {
-                let none = HashSet::new();
+            let none = HashSet::new();
+            let low = py::lower(&value);
+            let to_site = cover.is_some_and(|c| {
+                c.covers(&low, &|t| phrase(&value, t, &none), &|f| f.contains(&low))
+            });
+            if let Some(&min) = orders.iter().min().filter(|_| !to_site) {
                 if !phrase(&value, owner, &none)
                     && !outside
                         .iter()
@@ -1964,6 +2412,16 @@ fn private_hits(
                     && last_at.contains_key(pair[1].as_str())
                     && first_at[pair[0].as_str()] < last_at[pair[1].as_str()]
                     && !hits.iter().any(|h| h.matched == k)
+                    && !known_to_site.contains(&pair.concat())
+                    && !cover.is_some_and(|c| {
+                        // the whole grouped value the pair belongs to, as read on the host
+                        let whole = vec![run.groups.clone()];
+                        c.covers(
+                            &run.groups.join(" "),
+                            &|t| in_runs(runs(t), &whole, &[]),
+                            &|f| f.contains(&run.joined),
+                        )
+                    })
                     && !in_runs(runs(owner), &pair_v, &[])
                     && !outside
                         .iter()

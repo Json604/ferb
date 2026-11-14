@@ -268,6 +268,11 @@ fn installed(p: &Parts) -> BTreeSet<String> {
 // about.read (ferb/daemon/about.py AboutRead)
 // ---------------------------------------------------------------------------------------------------------------
 
+/// `about.read section=answers`: the kinds of FERB's questions, their choices and how long each lasts
+/// (`ferb_gateway::answers::lookup`). Read on its own only: the full document and the catalog's section list stay
+/// Python's (the frozen catalog), so the planner's prompt names it.
+pub const ANSWERS_SECTION: &str = "answers";
+
 /// `AboutRead.run` over the document as the About area builds it.
 pub fn about_read(
     section: Option<&str>,
@@ -605,6 +610,13 @@ pub fn tool_named(p: &Parts, name: &'static str) -> Arc<dyn Tool> {
             let p = parts.clone();
             let section = s(a, "section");
             Box::pin(async move {
+                // decision: PRM-355 (the owner, 2026-11-14), PRM-356: what FERB's questions can be answered with and how long
+                // each answer lasts, computed from the gateway's own table when read; only on lookup, never in the
+                // full document or the prompt
+                if section.as_deref() == Some(ANSWERS_SECTION) {
+                    let looked = json!({ ANSWERS_SECTION: ferb_gateway::answers::lookup() });
+                    return Ok(answer(looked, false, Vec::new()).into());
+                }
                 if let Some(sec) = &section {
                     if !ferb_daemon::areas_b::about::SECTIONS.contains(&sec.as_str()) {
                         return about_read(Some(sec), Ok(Map::new())).map(Into::into);

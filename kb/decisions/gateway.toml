@@ -698,7 +698,8 @@ paths = ["ferb/policy/confirm.py::url_private_values"]
 title = "Same page path only stays for the same-site exemption"
 by = "owner"
 date = 2026-11-08
-status = "active"
+status = "superseded"
+superseded_by = "GATE-589"
 words = "Take your view (Recommended)"
 words_source = "Owner 2026-11-08, answering the unnecessary-questions audit's table, row D5, not taken: a signed-in site's whole host for its values; GATE-528 (same page path only) stays"
 rule = "GATE-528 stays: a value read on a site's page goes back unasked only to that page (its path through the first segment holding an id); another path on the same host still asks."
@@ -708,7 +709,8 @@ paths = ["ferb/policy/confirm.py::page_scope"]
 title = "The link rule counts links in records of the owner's data only"
 by = "agent"
 date = 2026-11-08
-status = "active"
+status = "superseded"
+superseded_by = "GATE-590"
 rule = "For GATE-536: the records whose links count are those holding the owner's data (a signed-in page or mail, a file, the owner's parts of FERB's conversation), as GATE-521 read them. A link only an outside-only page shows keeps today's rule (asked unless that page was read before the value was)."
 why = "A page listing candidate links (one per guess of the owner's code) learns which one FERB opens; counting outside-only pages' links would turn GATE-536 into that oracle (corpus candidate_list, echo_laundering)."
 paths = ["ferb/policy/confirm.py::url_private_values"]
@@ -1189,3 +1191,78 @@ rule = "For GATE-587. Owner's file: under home, not in FERB's workspace or downl
 why = "One key per site: one answer covers upload, command and form, and a No stands for the host. Workspace and task-made files are FERB's; downloads are outside. Words only: a script's upload can't be seen without running it; the proxy still records the host."
 rejected = ["Comparing an uploaded file's bytes with the owner's values: file reads in the gateway, misses binaries", "A new question kind for files: the form's question already names the site"]
 paths = ["rust/crates/ferb-gateway/src/gateway.rs::Gateway.owner_file", "rust/crates/ferb-gateway/src/gateway.rs::Gateway.destination_allowed", "rust/crates/ferb-policy/src/confirm.rs::decide"]
+
+[GATE-589]
+title = "A private value may go back to the host it was read on; a link read as written passes"
+by = "owner"
+date = 2026-11-14
+status = "active"
+supersedes = ["GATE-541"]
+words = "yes i agree too. BUT im trusting you witht eh safety here, cause i cant thnk of more cases where soemthgin could be slippped up. confirma dn then lets lock this"
+words_source = "Owner 2026-11-14, widening GATE-541's \"only to that page\" after the measured history; a review then gave the exact safe rule, which the owner accepted, sibling hosts declined."
+rule = "Supersedes GATE-541. The link question is not asked for a private value V in an address D when (C) D is https or its source's scheme, on the default or source's port, no userinfo, on the same host (lowercase; a trailing dot and one www. aside) where every private occurrence of V was read (its pages or its addresses), and one source unit holds every id-shaped piece of D; or (B) D was read as written in a page, mail, app or non-FERB file or the owner's words before FERB wrote any of its values. Else GATE-528, then ask."
+why = "Measured on the owner's history: 25 link questions, never answered No, most a value going back to the site it came from. The owner widened the page-only rule and trusted the safety to an independent review's exact rule."
+evidence = "Review: a host under the source, a sibling host, http for https, another port, userinfo, a nested address and a second id each ask; FERB's own writing (files, shell output, typing, its replies) never vouches for a link. Holes kept: tests today_*_is_not_asked."
+rejected = ["Sibling hosts under one registrable domain (alice.github.io, bob.github.io): the review's unsafe form", "A Yes narrower than host-wide and permanent: owner, \"not good\""]
+paths = ["rust/crates/ferb-policy/src/confirm.rs::url_private_values", "rust/crates/ferb-policy/src/confirm.rs::SameHost", "rust/crates/ferb-gateway/src/gateway.rs::Gateway.url_sink_need"]
+
+[GATE-590]
+title = "The link rule's B: which records' links count, before FERB wrote the value, breaks outside it"
+by = "agent"
+date = 2026-11-14
+status = "active"
+supersedes = ["GATE-542"]
+rule = "For GATE-589 B. Links count in: a browser tool's result; mac.snapshot, screenshot, record, clipboard, recording.inspect, audio.listen, trail reads; fs.read or fs.look of a file outside FERB's workspace not made by this tree; the owner's words and messages; values an earlier row stored with an owner or site class. Never shell or script output, memory, evidence or arguments. The record precedes the tree's first tool call whose arguments hold a matched value in any spelling. A wrapped link has no break before or inside a value."
+why = "FERB's own writing can't vouch for an address it built: typing a value then reading the page back, a search reflecting it, a file or output it wrote. A page's link counts whenever it was read (B4)."
+rejected = ["Read order between the page and the value's first private read (GATE-542's): replaced by FERB's own first writing (B2)"]
+paths = ["rust/crates/ferb-gateway/src/gateway.rs::Gateway.link_facts", "rust/crates/ferb-gateway/src/gateway.rs::link_kind", "rust/crates/ferb-policy/src/carried.rs::link_parts", "rust/crates/ferb-store/src/spans.rs::SpanStore.call_arguments"]
+
+[GATE-591]
+title = "The link rule's C: pieces, id shapes, source units, and the page rule kept beside it"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "For GATE-589 C. Pieces: url_pieces after the host, decoded with extra rounds. Id-shaped: is_value at any length, or a nested address (://, a host and path, a dotted name ending in 2+ letters); the uppercase clause is left out. A unit: an address of the host written in any record (C1 against it), or the value read on a page of the host (C1 against that page). An occurrence elsewhere in the owner's file that writes the host's address doesn't cancel. Grouped, pair and phrase checks use the same sets. GATE-528's page rule keeps C1 and exact hosts."
+why = "With the uppercase clause a help article's en-US locale is an id and the locale change asks; the replay and the other shapes are unchanged by it. C1 and exact hosts in the page rule keep the review's holes closed where C does not apply."
+rejected = ["The uppercase-after-the-first-character clause: makes fr-FR an id", "A host under the seen host in the page rule (host_had_it): the review's a_host_under_the_source_host_asks"]
+paths = ["rust/crates/ferb-policy/src/confirm.rs::id_shaped", "rust/crates/ferb-policy/src/confirm.rs::same_host", "rust/crates/ferb-policy/src/confirm.rs::same_site_only"]
+
+[GATE-592]
+title = "A form filled by its address: the address's values count as typed at submit"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "For GATE-589 F3 (owner informed). At a form's submit the form sink also reads the values the page's own address fills the form with: its query values and the fragment's name=value values, from the call's page and page_url facts, whether or not FERB typed anything. The tools report no field values at submit, so this is the smallest honest version: values in the path and a recipient an address prefills are not counted (F2 stays open)."
+why = "An address opened unasked (a link a page listed, a click) could prefill the owner's value into a form that FERB then submits; the form sink only read what FERB typed."
+paths = ["rust/crates/ferb-gateway/src/gateway.rs::Gateway.submit_sink", "rust/crates/ferb-policy/src/confirm.rs::address_fields"]
+
+[GATE-593]
+title = "A file question offers \"Send to every site in this task\" for that one file"
+by = "owner"
+date = 2026-11-14
+status = "active"
+words = "those are good 3 questions, BUT i want a yes for all per task button, so it deosnt ask for that file on eveyr site or a better woudl be a yes text condition that i can give in chat or in the text if avaibalel in these questions. and those instructions are followed. · yes i agree"
+words_source = "Owner 2026-11-14 on GATE-587's file questions, then agreeing to the coordinator's proposal quoted in evidence."
+rule = "Refines GATE-587. The file question (an upload or a shell file send under sink:new_destination) offers Send (this file, this site), Send to every site in this task (this file for the rest of this task tree: no more questions about it) and Don't send. Only the owner grants it: a click on the card or the choice's own words typed by the owner; never a page, a file or the model. The task's answer lists every site that got the file under it. No permanent any-file grant; standing permissions stay tied to named sites or people."
+why = "The owner applies with one file to many sites in one task and was asked once per site."
+evidence = "Proposal agreed: three choices, or the owner's words on the card or in chat read by the planner into a scope code enforces (this site, named sites, every site in this task, no); a condition code cannot enforce is never treated as enforced (PRM-355). The words path is not built yet."
+rejected = ["A permanent \"any file anywhere\" answer"]
+paths = ["rust/crates/ferb-gateway/src/file_grants.rs", "rust/crates/ferb-gateway/src/gateway.rs::Gateway.file_send_needs"]
+
+[GATE-594]
+title = "A file grant: one file by identity, one task tree, in memory"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "For GATE-593. A grant is kept in the gateway's memory per task tree root, keyed by the file's canonical path with its size, modification time and inode: a changed file or a copy elsewhere is another file and asks again. It ends when the tree is forgotten or FERB restarts (asks again). The sites that received the file are recorded only after the call ran without error and shown as one line after Sites contacted: \"Sent notes.txt to: a.example, b.example.\""
+why = "The owner's Yes covered the file he saw; a changed or copied file is not that file. Memory only: a grant must never outlive the task."
+paths = ["rust/crates/ferb-gateway/src/file_grants.rs::FileId", "rust/crates/ferb-gateway/src/file_grants.rs::FileGrants", "rust/crates/ferb-supervisor/src/flow/tree.rs"]
+
+[GATE-595]
+title = "File question choices come from one table; typed answers are a choice's exact words"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "For GATE-593. A question's options come from answers::choices, the table the supported-answers lookup reads (PRM-355). The third choice appears only when every need on the card is a file send. Typed answers count only as a choice's or its button's exact words (GATE-512), on the card's box or in chat. The words path (named sites, conditions) waits on the owner: it needs a scope field the planner fills, a change to GATE-512 for these cards, and host checks against the owner's typed text."
+why = "One table for what is offered and what FERB says it supports keeps them from drifting; the words path is not shipped half-enforced."
+paths = ["rust/crates/ferb-gateway/src/answers.rs::choices", "rust/crates/ferb-gateway/src/gateway.rs::Gateway.authorize_held"]

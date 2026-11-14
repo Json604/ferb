@@ -1800,3 +1800,12 @@ words_source = "Owner 2026-11-14, after FERB answered his mid-task \"whats the l
 rule = "Refines ORCH-516. Asked what a running task has so far, the planner looks up its records first (task.evidence: worker reports, one being checked included, else tool results) and says what it has, plainly not checked or final yet; never that it can't tell while records exist (supervisor.md). The status row carries the latest report's first line and, while a worker runs, its latest words (redacted, in memory only, cleared at the run's end). Origins and the sink rule hold. Code decides nothing about which message is a progress question (rule 4)."
 why = "The planner answered progress only from the status row (supervisor.md) and did not look at the task's records it could read."
 paths = ["ferb/orchestrator/prompts/supervisor.md", "rust/crates/ferb-supervisor/src/planner.rs", "rust/crates/ferb-supervisor/src/flow/turn.rs", "rust/crates/ferb-worker/src/worker.rs", "rust/crates/ferb-worker/src/runs.rs"]
+
+[ORCH-641]
+title = "The planner's seven lookups, kept once"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "Refines ORCH-516's tool list (as ORCH-578 and DMN-595 added to it). PLANNER_TOOLS is memory.read, chat.history, task.evidence, trail.query, trail.days, about.read and about.diagnostics, held once in ferb-orchestrator (lookups.rs) with PLANNER_SCOPES; the supervisor's run token and the runtime check's offered tools both read it. The runtime check's Python recording offered six: a named difference."
+why = "The runtime check kept its own copy of the list and drifted to six after about.diagnostics joined (journal 61)."
+paths = ["rust/crates/ferb-orchestrator/src/lookups.rs", "rust/crates/ferb-supervisor/src/words.rs", "rust/crates/ferb-daemon/src/areas_b/runtimes/mod.rs"]

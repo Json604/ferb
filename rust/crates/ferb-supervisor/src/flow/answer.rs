@@ -18,6 +18,10 @@ use crate::words::{
     ANSWERED, FERB_CHECKS, NOT_WAITING, NO_QUESTION, PASTED_ANSWER, WHICH_ONE, WHICH_QUESTION,
 };
 
+/// FERB's word when the owner's words to one of its checks aren't one of its choices (an answer asking for more, a
+/// condition, a lasting permission): nothing was applied. Not in Python, which asks only "Is that …?".
+pub const NOT_APPLIED: &str = "Nothing was applied: this check takes only one of its choices.";
+
 /// supervisor.py:216 `ROUTABLE_QUESTIONS`.
 pub fn routable(capability: &str) -> bool {
     capability == "owner.ask" || capability == "plan.ask" || FERB_CHECKS.contains(&capability)
@@ -147,7 +151,12 @@ impl Inner {
             choice = ap.option_for(&bare(&text));
             if choice.is_none() || ap.option_for(&bare(&routed.answer)) != choice {
                 set_focus(None, BTreeSet::from([ap.id.clone()]));
-                return ("clarify".into(), plain_choice(&facts(&ap)));
+                // PRM-355 (the owner, 2026-11-14), PRM-356: words that aren't one of the check's choices are never taken as
+                // applied: FERB says so and offers the choices it has
+                return (
+                    "clarify".into(),
+                    format!("{NOT_APPLIED}\n{}", plain_choice(&facts(&ap))),
+                );
             }
             if !carried {
                 // FERB just asked "Yes or No?" about exactly this check: questions open then don't compete

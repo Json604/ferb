@@ -193,7 +193,7 @@ def test_candidate_link_after_private_read_still_asks(daemon: RunningDaemon) -> 
     assert f'"{ref}"' in q["question"]
 
 
-# decision: GATE-536, GATE-540, GATE-542
+# decision: GATE-536, GATE-540
 @pytest.mark.parametrize("link_page", ["outside", "signed_in"])
 def test_value_first_in_history_then_in_link_still_asks(daemon: RunningDaemon, link_page: str) -> None:
     """S11: a value first reached the task in FERB's history (the owner's data), then appeared inside a link on a page.
@@ -647,7 +647,7 @@ def test_a_plain_year_never_asks_and_other_numbers_still_do() -> None:
     assert confirm.text_carries_private("4471", private, [], none) == ["4471"]
 
 
-# decision: GATE-524, GATE-528, GATE-541
+# decision: GATE-524, GATE-528
 def test_a_value_read_on_a_site_goes_back_to_it_through_the_chat(daemon: RunningDaemon) -> None:
     """Owner: "Let it go back", and on shared sites "Same page path only". A value FERB's conversation stored as read
     only on a page of a site's own (the scaler class id) may go back to that page; sent anywhere else, to another page

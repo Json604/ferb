@@ -677,3 +677,20 @@ kind = "bug"
 status = "open"
 why = "DMN-589 kickstarts the registration launchd already runs on a Developer ID update; launchd keeps the definition it loaded, so FERB_APP_BUILD (salvage.this_build's once-per-build check) may stay the older build's (inferred). Read it from the bundle, or re-register."
 decisions = ["DMN-589", "STORE-4"]
+
+[T-1097]
+title = "Last: a way for the owner to navigate the code, from each process down to how it works"
+area = "project"
+kind = "build"
+status = "open"
+after = ["T-1098"]
+why = "Owner 2026-11-14: \"a systme way for to navigate code, understand eveyr  process at the macro level BUT will interactive zoomness to its micro wokring ... sure of whats built where adn how does it work and any edge casees\". Built from code and kb; propose the form first."
+decisions = ["PROJ-508"]
+
+[T-1098]
+title = "Second last: an independent full-device security audit, live, by a fresh agent"
+area = "project"
+kind = "live"
+status = "open"
+why = "Owner 2026-11-14: \"a full device acces securoty audiot by an independent fable agent ... i will give it my amc, and my moto and any other access it needs to do the live security testsing at the extreme\". Before T-1097; the owner grants the access when it starts."
+decisions = ["PROJ-508"]

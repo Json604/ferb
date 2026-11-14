@@ -1296,6 +1296,9 @@ impl Daemon for SupDaemon {
         let db = lock(&self.db);
         ferb_policy::stores::sites_contacted(&db, tree_id).unwrap_or_default()
     }
+    fn file_sent_lines(&self, tree_id: &str) -> Vec<String> {
+        self.gateway.file_sent_lines(tree_id)
+    }
     fn schedule_label(&self, schedule_id: &str) -> String {
         // supervisor.py:4456 `_schedule_label`: its name, else its instruction's first clause (ORCH-542)
         let db = lock(&self.db);

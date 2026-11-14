@@ -3661,3 +3661,14 @@ rule = "Refines APP-660. Input counts for APP-528 only when it is a microphone: 
 why = "Owner's first Rust setup, 2026-11-14: every sound logged \"FERB stayed silent (…): PairIt - AudioRelay is using the microphone\"; that relay ran input on a tap naming no device with the microphone off. A device's kind is a structural fact."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/MicrophoneUse.swift", "ui/mac/FERBNotch/Sources/FERBNotch/AudioOutputFacts.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FerbSoundEngine.swift"]
 live = ["LIVE-724"]
+
+[APP-909]
+title = "Pairing says on the setup screen when it brings a profile forward"
+by = "owner"
+date = 2026-11-14
+status = "active"
+words = "if this fails, FERB informs on teh same setup screen about the fialure adn it switchign to bringing it forward or somethigni like that in short natural format"
+words_source = "Owner 2026-11-14, on HAND-523's fallback from the quiet start to the visible pairing page."
+rule = "When a profile's quiet (windowless) pairing start gets no answer and pairing falls back to opening its window (HAND-523), the pairing rows on the tour and in Settings, Browsers show one short line for that profile until its result lands: \"<profile> didn't answer quietly, so I'm opening it to finish pairing.\", the profile named as the app names it (browser, name, account email). A daemon that never reports it shows no line."
+why = "The owner wants to see why a window opens during pairing, in short natural words, on the screen he is looking at."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/PairProgress.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift"]
