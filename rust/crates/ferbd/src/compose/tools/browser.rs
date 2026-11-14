@@ -1376,10 +1376,6 @@ pub fn browsers_deps(
             .join("Library/Application Support/Google/Chrome"),
         new_handoff_id: Arc::new(|| ferb_runtimes::codex::token_hex(6)),
         pair_load_wait_s: 2.0,
-        // HAND-523: a windowless start's pairing page that has no paired connection after this long falls back to
-        // the profile's window with FERB's wake page
-        pair_quiet_wait_s: 10.0,
-        log: Arc::new(|text: &str| crate::log::line(text)),
         pair_timeout_s: 60.0,
         handoff_poll_s: 2.0,
         state: Arc::new(b::State::default()),

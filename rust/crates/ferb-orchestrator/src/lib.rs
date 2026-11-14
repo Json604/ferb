@@ -60,5 +60,6 @@ pub mod tree;
 pub mod validate;
 #[cfg(feature = "store")]
 pub mod verify;
+pub mod waits;
 
 pub use models::*;

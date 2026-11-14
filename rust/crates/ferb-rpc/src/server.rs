@@ -187,6 +187,9 @@ pub struct NativeConnection {
     /// What the host sent right behind its hello, already read off the socket.
     pub buffered: Vec<u8>,
     pub writer: OwnedWriteHalf,
+    /// HAND-530: the extension origin the host's hello named (checked against FERB's extension ids, at most 120
+    /// characters): which copy of the extension this connection is, for the bridge's refusal facts.
+    pub origin: String,
 }
 
 /// The extension message channel (the browser bridge). Its future is dropped when the server closes.
@@ -641,10 +644,19 @@ async fn connection(inner: Arc<Inner>, stream: UnixStream) {
                         if let Some(native) = native {
                             // the rest of the connection is extension messages
                             let (reader, buffered) = reader.into_parts();
+                            let origin = req
+                                .params
+                                .get("origin")
+                                .and_then(|o| o.as_str())
+                                .unwrap_or("")
+                                .chars()
+                                .take(120)
+                                .collect();
                             let connection = NativeConnection {
                                 reader,
                                 buffered,
                                 writer: writer.into_half(),
+                                origin,
                             };
                             let mut phase = inner.phase.subscribe();
                             tokio::select! {

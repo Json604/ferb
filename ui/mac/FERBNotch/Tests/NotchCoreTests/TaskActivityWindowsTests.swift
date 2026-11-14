@@ -1,5 +1,6 @@
 import AppKit
 import XCTest
+@testable import NotchCore
 @testable import FERBNotch
 
 /// One detached activity window per running task (APP-898, owner 2026-11-12: "i cant open multiple live preview
@@ -43,6 +44,48 @@ final class TaskActivityWindowsTests: XCTestCase {
 
         windows.closeAll()
         XCTAssertTrue(windows.windows.isEmpty)
+    }
+
+    /// Owner 2026-11-14: "i want these row live preview circles to expand the same as the below main one, currently they
+    /// just open the expanded view, no window to extract them and keep seeing". A row's picture stands for its step: the
+    /// same short view and Detach activity as the main picture, the window showing that step's own picture.
+    // decision: APP-912, APP-898, APP-888
+    func testARowsPictureDetachesItsStepIntoAWindowOfItsOwnBesideTheTasks() async throws {
+        let model = NotchModel(preferences: scratchDefaults("ActivityWindowsStep"))
+        model.runningTasks["t-1"] = "Research three things"
+        let task = try XCTUnwrap(model.taskItems.first { $0.isRunning })
+        let root = task.backendID ?? task.id
+        let row = RowPreview(model: model, preview: model.preview(task: root, worker: root + ".step.laptops"),
+                             label: "Laptops under 80k", task: root)
+        let step = row.subject
+        XCTAssertEqual(PreviewSubject(key: step.key), step, "the window's key carries the task, the step and its label")
+        XCTAssertEqual(step.task(in: model)?.id, task.id, "a row names its task by the daemon's id")
+        XCTAssertTrue(step.preview(in: model, task: task) === model.preview(task: root, worker: root + ".step.laptops"),
+                      "the step's window shows the step's own picture")
+        let main = PreviewSubject(taskID: task.id)
+        XCTAssertTrue(main.preview(in: model, task: task) === model.preview(for: task), "the main picture's is the task's")
+        XCTAssertEqual(step.title(task), "Laptops under 80k")
+        model.stepLive[root + ".step.laptops"] = LiveProgress(text: "Reading www.example.com", startedAt: Date())
+        XCTAssertEqual(step.currentLine(in: model, task: task), RowDisplay.sentence("Reading www.example.com"),
+                       "the step's own line, as its row says it")
+
+        let windows = TaskActivityWindows(
+            make: { key, close in TaskActivityPanel(model: model, taskID: key, onClose: close) },
+            bringForward: { $0.contentView?.layoutSubtreeIfNeeded() }, release: { _ in })
+        windows.open(main.key)
+        windows.open(step.key)
+        let stepWindow = try XCTUnwrap(windows.window(for: step.key))
+        XCTAssertFalse(windows.window(for: main.key) === stepWindow, "the step's window is its own, beside the task's")
+        XCTAssertEqual(stepWindow.sharingType, .none, "hidden from capture like every activity window (APP-406)")
+        windows.open(step.key)
+        XCTAssertEqual(windows.windows.count, 2, "the same step again brings its window forward")
+
+        model.runningTasks.removeValue(forKey: root)
+        for _ in 0..<3 {
+            for window in windows.windows.map(\.window) { window.contentView?.layoutSubtreeIfNeeded() }
+            await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        }
+        XCTAssertTrue(windows.windows.isEmpty, "its task ended: the step's window closed with the task's")
     }
 
     // decision: APP-898

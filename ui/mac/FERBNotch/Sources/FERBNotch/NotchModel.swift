@@ -196,7 +196,10 @@ final class NotchModel: ObservableObject {
     let paymentPictures: PaymentPictures
     @Published var questionFocus: QuestionFocus?
     @Published var promptError: String?
-    @Published var sendingAnswer = false
+    /// The questions whose answer is on its way to the daemon, by approval id. Each card waits only on its own answer:
+    /// another open question stays answerable meanwhile (several are open at once: a plan's asks, a safety check).
+    @Published var sendingAnswers: Set<String> = []
+    func isSending(_ approval: DaemonApproval) -> Bool { sendingAnswers.contains(approval.id) }
     @Published var runningTasks: [String: String] = [:] {
         didSet {
             guard runningTasks != oldValue else { return }
@@ -359,6 +362,7 @@ final class NotchModel: ObservableObject {
     var onStatusChange: (() -> Void)?
     var onInteractionEnded: (() -> Void)?
     var onInteraction: (() -> Void)?
+    /// Detach activity: a PreviewSubject's key (a task, or one of its steps, APP-912) to open in a window of its own.
     var onDetachTaskActivity: ((String) -> Void)?
     private var completionTask: Task<Void, Never>?
     private var attentionTask: Task<Void, Never>?

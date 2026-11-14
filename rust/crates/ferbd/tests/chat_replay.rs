@@ -230,7 +230,7 @@ fn unhash(text: &str) -> String {
 }
 
 /// The deliberate differences from Python (ENG-6), applied to the recording: (scenario, recorded, the port's).
-const FIXES: [(&str, &str, &str); 6] = [
+const FIXES: [(&str, &str, &str); 10] = [
     (
         "global_stop",
         "(from the task) FERB was stopped",
@@ -252,6 +252,24 @@ const FIXES: [(&str, &str, &str); 6] = [
     ("displaced_question", "\": 2715,", "\": 2699,"),
     ("displaced_question", "\": 3422,", "\": 3406,"),
     ("displaced_question", "\": 4422,", "\": 4406,"),
+    // ORCH-642 (fixed against Python): the repair also names the dependency the plan lacks, raw, JSON-escaped once and
+    // twice, and the repair call's budget line grows by those 42 bytes (ferb-supervisor's FIXES)
+    (
+        "plan_repair",
+        "answer_step.\"]",
+        "answer_step.\", \"write: missing dependencies ['gather']\"]",
+    ),
+    (
+        "plan_repair",
+        "answer_step.\\\"]",
+        "answer_step.\\\", \\\"write: missing dependencies ['gather']\\\"]",
+    ),
+    (
+        "plan_repair",
+        "answer_step.\\\\\\\"]",
+        "answer_step.\\\\\\\", \\\\\\\"write: missing dependencies ['gather']\\\\\\\"]",
+    ),
+    ("plan_repair", "\": 2139,", "\": 2181,"),
 ];
 
 fn fixed(scenario: &str, text: &str) -> String {
@@ -1355,7 +1373,14 @@ struct More {
 
 impl More {
     fn new() -> More {
-        let more = fixture("supervisor/more_scenarios.json");
+        // ORCH-642 (a named difference, as ferb-supervisor's replay_more): event_wait's invented topic, which the port
+        // refuses at admission, replays as one FERB publishes
+        let more: Value = serde_json::from_str(
+            &serde_json::to_string(&fixture("supervisor/more_scenarios.json"))
+                .unwrap()
+                .replace("browser.download_finished", "timer.fired"),
+        )
+        .unwrap();
         let chat = fixture("daemon/chat_scenarios.json");
         let (_folder, run_root) = RunRoot::new(recorded_root_len(&chat));
         let answers = fixture("catalog/answer_schemas.json");

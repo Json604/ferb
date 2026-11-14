@@ -30,6 +30,29 @@ final class StepChecklistTests: XCTestCase {
         }
     }
 
+    // decision: ORCH-644
+    /// The live run of 2026-11-14 (task 15737cce): a step waiting for another task said nothing the owner could
+    /// read. The daemon's own line is shown; an older daemon's state (no line) keeps the app's words.
+    func testAStepWaitingForAnotherTaskSaysWhatItWaitsFor() {
+        let plan: [[String: Any]] = [
+            ["id": "wait", "label": "Wait for comparisons", "kind": "wait", "depends_on": [String](),
+             "step_task_id": "T.step.wait"],
+            ["id": "sheet", "label": "Make the sheet", "kind": "do", "depends_on": ["wait"],
+             "step_task_id": "T.step.sheet"]]
+        var waiting = state("waiting", seq: 1)
+        waiting["event"] = "task.finished"
+        waiting["line"] = "Waiting for “Laptop research” to finish"
+        var checklist = StepChecklist(["steps": plan, "states": [
+            "wait": waiting, "sheet": state("waiting", seq: 2, waitsOn: ["wait"])]], taskID: "T")!
+        XCTAssertEqual(lines(checklist, live: true), [
+            "waiting Wait for comparisons · Waiting for “Laptop research” to finish",
+            "upcoming Make the sheet"])
+        var old = state("waiting", seq: 3)
+        old["event"] = "task.finished"
+        checklist.apply(step: ["step": "wait"].merging(old) { $1 })
+        XCTAssertEqual(lines(checklist, live: true).first, "waiting Wait for comparisons · Waiting for its event")
+    }
+
     // decision: APP-894, ORCH-626
     func testTheLiveFourStepAskShowsItsStepsAtEachMoment() {
         // 14:19:19, the plan: both independent steps start, the others wait on them

@@ -161,6 +161,7 @@ public struct ChecklistLine: Equatable, Identifiable {
         if state.status == "waiting" {
             // a wait step's own time or event; a step waiting on earlier ones is simply not started yet
             if let until = state.until { return line(.waiting, "Waiting until " + RowDisplay.clock(until)) }
+            if let said = state.line { return line(.waiting, said) }
             if state.event != nil { return line(.waiting, "Waiting for its event") }
             return line(.upcoming)
         }

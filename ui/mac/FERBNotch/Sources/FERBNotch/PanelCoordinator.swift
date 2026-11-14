@@ -701,9 +701,10 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     /// A running task's own activity window (APP-898): another task's opens beside the ones open; its own, if open,
     /// comes forward.
-    private func showTaskActivity(_ taskID: String) {
-        guard model.taskItems.contains(where: { $0.id == taskID && $0.isUnderway }) else { return }
-        activityWindows.open(taskID)
+    /// `key`: a PreviewSubject's key, a task or one of its steps (APP-912); one window each (APP-898).
+    private func showTaskActivity(_ key: String) {
+        guard PreviewSubject(key: key).task(in: model)?.isUnderway ?? false else { return }
+        activityWindows.open(key)
     }
 
     /// The expanded control is a subview of the chat window: one WindowServer move.

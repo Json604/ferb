@@ -398,8 +398,6 @@ struct World {
     waits: Arc<Mutex<Vec<Value>>>,
     store: Arc<MemInstalls>,
     open_tabs: OpenTabs,
-    /// The daemon log's lines (DMN-592).
-    log: Arc<Mutex<Vec<String>>>,
     /// What a test adds to each browser command, after the fake's own (a browser's behaviour).
     hook: Arc<Mutex<Option<Hook>>>,
 }
@@ -528,7 +526,6 @@ fn world(setup: &Value, access: bool) -> World {
         go: go_rx,
     });
     let waits = Arc::new(Mutex::new(vec![]));
-    let log = Arc::new(Mutex::new(vec![]));
     let deps = Deps {
         pairings,
         hub: hub.clone(),
@@ -559,13 +556,6 @@ fn world(setup: &Value, access: bool) -> World {
             .join("user/Library/Application Support/Google/Chrome"),
         new_handoff_id: Arc::new(|| "abcdef012345".to_string()),
         pair_load_wait_s: 0.0,
-        // the fake clock stands still unless a test moves it, so the windowless start's time runs out only when a
-        // test says so
-        pair_quiet_wait_s: 10.0,
-        log: {
-            let log = log.clone();
-            Arc::new(move |text: &str| log.lock().unwrap().push(text.to_string()))
-        },
         pair_timeout_s: 60.0,
         handoff_poll_s: 0.0,
         state: Arc::new(State::default()),
@@ -585,7 +575,6 @@ fn world(setup: &Value, access: bool) -> World {
         waits,
         open_tabs,
         store,
-        log,
         hook,
     }
 }
@@ -691,33 +680,50 @@ fn python_journal(sc: &Value, home: &Path) -> Vec<Value> {
         .collect()
 }
 
-/// Fixed against Python (ENG-6): a profile that isn't connected is loaded for its pairing page with no window
-/// (`--no-startup-window`) instead of with Python's blank local wake page, so there is no page to close afterwards
-/// (`wake_close`). Python's recording opened seven wake pages and closed two: the five pairings that didn't succeed left
-/// theirs open. Python's launches and bridge calls with that one difference.
+/// The recording gave Python's wake server one address (`d.wake.url = lambda: WAKE`); each of FERB's wake pages has its
+/// own on a free local port, in the shape of Python's real `WakeServer.url()` (`http://127.0.0.1:<port>/wake/<16 hex>`).
 const WAKE_PAGE: &str = "http://127.0.0.1:9/wake#w1";
 
-fn without_wake_pages(launched: &Value, calls: &Value) -> (Value, Value) {
-    let launched: Vec<Value> = launched
-        .as_array()
-        .unwrap()
+/// A wake page's address as the recording wrote it; any other text as it is.
+fn as_recorded(text: &str) -> Value {
+    let wake = regex::Regex::new(r"^http://127\.0\.0\.1:\d+/wake/[0-9a-f]{16}$").unwrap();
+    json!(if wake.is_match(text) { WAKE_PAGE } else { text })
+}
+
+/// The browser commands with each wake page's address as recorded.
+fn launched_as_recorded(launched: &[Value]) -> Value {
+    json!(launched
         .iter()
-        .map(|argv| {
-            let mut argv = argv.as_array().unwrap().clone();
-            if argv.last().and_then(Value::as_str) == Some(WAKE_PAGE) {
-                *argv.last_mut().unwrap() = json!("--no-startup-window");
+        .map(|argv| json!(argv
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|a| as_recorded(a.as_str().unwrap()))
+            .collect::<Vec<_>>()))
+        .collect::<Vec<_>>())
+}
+
+/// The calls a profile was sent with each wake page's address as recorded.
+fn calls_as_recorded(calls: &[Value]) -> Vec<Value> {
+    calls
+        .iter()
+        .map(|c| {
+            let mut c = c.clone();
+            if let Some(url) = c[2]["url"].as_str().map(str::to_string) {
+                c[2]["url"] = as_recorded(&url);
             }
-            json!(argv)
+            c
         })
-        .collect();
-    let calls: Vec<Value> = calls
-        .as_array()
-        .unwrap()
+        .collect()
+}
+
+/// The wake pages a run opened, by their own addresses.
+fn wake_pages(launched: &[Value]) -> Vec<String> {
+    launched
         .iter()
-        .filter(|c| c[1] != "wake_close")
-        .cloned()
-        .collect();
-    (json!(launched), json!(calls))
+        .filter_map(|argv| argv.as_array()?.last()?.as_str().map(str::to_string))
+        .filter(|last| as_recorded(last) == WAKE_PAGE)
+        .collect()
 }
 
 fn same_calls(python: &Value, rust: &[Value]) {
@@ -764,7 +770,7 @@ async fn without_full_disk_access_only_paired_profiles_are_known_by_their_folder
     assert_eq!(installs_now(&w.store), sc["after"]["installs"]);
 }
 
-// decision: DMN-507, DMN-508, HAND-406, HAND-407, HAND-411, HAND-412, HAND-413, HAND-424, HAND-449, DMN-25, DMN-546
+// decision: DMN-507, DMN-508, HAND-406, HAND-407, HAND-411, HAND-412, HAND-413, HAND-424, HAND-449, DMN-25, DMN-546, HAND-526
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn with_full_disk_access_every_call_answers_writes_and_launches_as_python() {
     let file = fixture("daemon-b/browsers.json");
@@ -850,14 +856,32 @@ async fn with_full_disk_access_every_call_answers_writes_and_launches_as_python(
     assert_eq!(json!(*w.waits.lock().unwrap()), h["waiting"]);
 
     assert_eq!(w.home.journal_rows(), python_journal(sc, &home));
-    assert_eq!(
-        json!(*w.launched.lock().unwrap()),
-        without_wake_pages(&sc["launched"], &sc["bridge_calls"]).0
-    );
+    let launched = w.launched.lock().unwrap().clone();
+    assert_eq!(launched_as_recorded(&launched), sc["launched"]);
+    // a connected profile is asked to close its wake page as the pairing ends, without waiting for the answer
+    let want = sc["bridge_calls"].as_array().unwrap().len();
+    for _ in 0..500 {
+        if w.hub.calls.lock().unwrap().len() >= want {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
     same_calls(
-        &without_wake_pages(&sc["launched"], &sc["bridge_calls"]).1,
-        &w.hub.calls.lock().unwrap(),
+        &sc["bridge_calls"],
+        &calls_as_recorded(&w.hub.calls.lock().unwrap()),
     );
+    // The one named difference (ENG-6, HAND-526): Python's wake page was blank and closed only after a pairing that
+    // succeeded (2 of these 7); each of FERB's is served with the script that closes it, and every one is told its
+    // pairing is over, however it ended.
+    let pages = wake_pages(&launched);
+    assert_eq!(pages.len(), 7, "{pages:?}");
+    for url in &pages {
+        assert_eq!(local_get(url).await.as_deref(), Some(browsers::wake::PAGE));
+        assert_eq!(
+            local_get(&format!("{url}/done")).await.as_deref(),
+            Some("1")
+        );
+    }
     let after = &sc["after"];
     let config = std::fs::read_to_string(home.join("config.toml")).unwrap();
     assert_eq!(config, line_text(&after["config"]));
@@ -876,11 +900,39 @@ async fn with_full_disk_access_every_call_answers_writes_and_launches_as_python(
     assert!(w.home.events().is_empty());
 }
 
+/// The wake page's own script, as a browser runs it: it asks FERB's local server whether its pairing is over (`0`
+/// while it runs; `1`, or no server, closes it), then closes its own tab and is noted in `closed`.
+fn run_wake_page(tabs: OpenTabs, closed: Arc<Mutex<Vec<String>>>, profile: String, url: String) {
+    tokio::spawn(async move {
+        let page = local_get(&url).await.expect("the wake page is served");
+        assert!(page.contains("window.close()"), "{page}");
+        while let Some("0") = local_get(&format!("{url}/done")).await.as_deref() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        if let Some(t) = tabs.lock().unwrap().get_mut(&profile) {
+            t.retain(|t| *t != url);
+        }
+        closed.lock().unwrap().push(url);
+    });
+}
+
+/// Waits until every page in `pages` has closed itself.
+async fn all_closed(closed: &Arc<Mutex<Vec<String>>>, pages: &[String], what: &str) {
+    for _ in 0..500 {
+        if pages.iter().all(|p| closed.lock().unwrap().contains(p)) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("{what}: a wake page didn't close itself: {pages:?}");
+}
+
 /// The owner (2026-11-14): FERB closes the tabs it opened to pair once the profile is paired, never quits a browser
-/// and never closes a tab it didn't open. Pair all over profiles that aren't connected: each is loaded with no window,
-/// then gets its pairing page, which closes itself once it has handed over its token; nothing else opens, no command
-/// closes any tab, and every profile is left with exactly the owner's own tabs.
-// decision: HAND-520, HAND-523, HAND-411, HAND-412
+/// and never closes a tab it didn't open. Pair all over profiles that aren't connected: each gets its own window with
+/// FERB's wake page, then its pairing page; the pairing page closes itself once it has handed over its token, the
+/// wake page once its pairing is over; nothing else opens, no window-less start, and every profile is left with
+/// exactly the owner's own tabs.
+// decision: HAND-526, HAND-411, HAND-412
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pair_all_leaves_each_profile_with_only_the_owners_tabs() {
     let file = fixture("daemon-b/browsers.json");
@@ -898,6 +950,16 @@ async fn pair_all_leaves_each_profile_with_only_the_owners_tabs() {
     .map(|(k, v)| (k.to_string(), v.into_iter().map(String::from).collect()))
     .collect();
     *w.open_tabs.lock().unwrap() = owners.clone();
+    let closed_itself: Arc<Mutex<Vec<String>>> = Arc::default();
+    {
+        let (tabs, closed) = (w.open_tabs.clone(), closed_itself.clone());
+        *w.hook.lock().unwrap() = Some(Box::new(move |argv: &[String]| {
+            let url = argv.last().cloned().unwrap_or_default();
+            if url.contains("/wake/") {
+                run_wake_page(tabs.clone(), closed.clone(), launched_profile(argv), url);
+            }
+        }));
+    }
     w.answer.store(true, Ordering::SeqCst);
     let d = start(&w).await;
     let mut c = d.connect().await;
@@ -921,7 +983,8 @@ async fn pair_all_leaves_each_profile_with_only_the_owners_tabs() {
         .collect();
     assert!(!paired.is_empty(), "{reply}");
 
-    // exactly two commands per profile it paired: the windowless load, then the pairing page; no other page
+    // exactly two commands per profile: its window with the wake page, then the pairing page; no other page, and
+    // never a start with no window
     let launched: Vec<Vec<String>> = w
         .launched
         .lock()
@@ -930,61 +993,72 @@ async fn pair_all_leaves_each_profile_with_only_the_owners_tabs() {
         .map(|a| serde_json::from_value(a.clone()).unwrap())
         .collect();
     assert_eq!(launched.len(), 2 * results.len(), "{launched:?}");
+    assert!(
+        launched
+            .iter()
+            .all(|a| !a.iter().any(|w| w == "--no-startup-window")),
+        "{launched:?}"
+    );
+    let mut pages = vec![];
     for profile in &paired {
         let mine: Vec<&Vec<String>> = launched
             .iter()
             .filter(|a| launched_profile(a) == *profile)
             .collect();
         assert_eq!(mine.len(), 2, "{profile}: {mine:?}");
-        assert_eq!(
-            mine[0].last().unwrap(),
-            "--no-startup-window",
+        let wake = mine[0].last().unwrap();
+        assert!(
+            wake.starts_with("http://127.0.0.1:") && wake.contains("/wake/"),
             "{profile}: {mine:?}"
         );
         assert!(
             mine[1].last().unwrap().contains("/pair.html#token="),
             "{profile}: {mine:?}"
         );
+        pages.push(wake.clone());
     }
-    // no browser was quit and no tab was closed by a command: the pairing pages closed themselves
-    assert!(
-        w.hub.calls.lock().unwrap().is_empty(),
-        "{:?}",
-        w.hub.calls.lock().unwrap()
-    );
+    // every wake page closed itself; no browser was quit and no command closed a tab but FERB's own wake pages
+    all_closed(&closed_itself, &pages, "Pair all").await;
     let mut left = w.open_tabs.lock().unwrap().clone();
     left.retain(|_, tabs| !tabs.is_empty());
     assert_eq!(left, owners);
-    // the windowless start answered: no fallback, no wake page (HAND-523)
     assert!(
-        !w.home
-            .journal_rows()
+        w.hub
+            .calls
+            .lock()
+            .unwrap()
             .iter()
-            .any(|r| r[0] == browsers::PAIR_FALLBACK || r[0] == browsers::PAIR_ABANDONED),
+            .all(|c| c[1] == "wake_close"),
+        "{:?}",
+        w.hub.calls.lock().unwrap()
+    );
+    // Python's journal rows, nothing added
+    assert!(
+        w.home.journal_rows().iter().all(|r| !r[0]
+            .as_str()
+            .unwrap()
+            .starts_with("browsers.pair")
+            || r[1]["step"].is_null()),
         "{:?}",
         w.home.journal_rows()
     );
-    assert!(
-        w.log.lock().unwrap().is_empty(),
-        "{:?}",
-        w.log.lock().unwrap()
-    );
 }
 
-/// How the fallback's pairing ends in [`a_windowless_start_that_gets_no_answer_falls_back_and_leaves_no_tab`].
+/// How a pairing ends in [`the_wake_page_closes_itself_however_the_pairing_ends`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Ending {
-    /// The profile's window lets its extension answer: paired.
+    /// The extension answers: paired.
     Paired,
     /// The page is answered, then FERB refuses that copy (too old: HAND-412's `problem`).
     Refused,
-    /// Nobody answers, even with the window: the wait times out.
+    /// Nobody answers: the wait times out.
     TimedOut,
-    /// The caller leaves while the fallback waits.
+    /// The caller leaves while the pairing waits.
     Cancelled,
 }
 
-/// One `GET` on the wake page's local server, as the page's own script does; None when the server is gone.
+/// One `GET` on the wake page's local server, as the page's own script does: the body, or None when the server is
+/// gone.
 async fn local_get(url: &str) -> Option<String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let rest = url.strip_prefix("http://127.0.0.1:")?;
@@ -1000,15 +1074,13 @@ async fn local_get(url: &str) -> Option<String> {
     Some(got.split_once("\r\n\r\n")?.1.to_string())
 }
 
-/// HAND-523 (refining HAND-520): a profile whose extension doesn't answer after the windowless start (here: one that
-/// answers only while the profile has a window) falls back to the profile's window with FERB's wake page, then the
-/// pairing page again with the same token. The wake page closes itself on every outcome (paired, refused, timed out,
-/// the caller gone): its script reads `done` from FERB's local server and closes its tab; nothing else of FERB's is
-/// left, the owner's tabs are untouched, and the fallback and its outcome are journaled and logged. Only a profile
-/// connected at the end is also asked to close the page (`wake_close`).
-// decision: HAND-523, HAND-520
+/// HAND-526: a profile that isn't connected gets its own window with FERB's wake page, then the pairing page, and
+/// nothing else. The wake page closes itself on every outcome (paired, refused, timed out, the caller gone): its
+/// script reads `done` from FERB's local server and closes its tab; the owner's tabs are untouched, and the journal
+/// keeps Python's rows. Only a profile connected at the end is also asked to close the page (`wake_close`).
+// decision: HAND-526
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_windowless_start_that_gets_no_answer_falls_back_and_leaves_no_tab() {
+async fn the_wake_page_closes_itself_however_the_pairing_ends() {
     let file = fixture("daemon-b/browsers.json");
     let sc = scenario(&file, "with_access");
     for ending in [
@@ -1039,20 +1111,7 @@ async fn a_windowless_start_that_gets_no_answer_falls_back_and_leaves_no_tab() {
                 let profile = launched_profile(argv);
                 let url = argv.last().cloned().unwrap_or_default();
                 if url.contains("/wake/") {
-                    // the wake page's script: it asks whether its pairing is over, then closes its own tab
-                    let (tabs, closed) = (tabs.clone(), closed.clone());
-                    tokio::spawn(async move {
-                        let page = local_get(&url).await.expect("the wake page is served");
-                        assert!(page.contains("window.close()"), "{page}");
-                        // `0` while the pairing runs; `1`, or no server, closes it
-                        while let Some("0") = local_get(&format!("{url}/done")).await.as_deref() {
-                            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                        }
-                        if let Some(t) = tabs.lock().unwrap().get_mut(&profile) {
-                            t.retain(|t| *t != url);
-                        }
-                        closed.lock().unwrap().push(url);
-                    });
+                    run_wake_page(tabs.clone(), closed.clone(), profile, url);
                     return;
                 }
                 let Some((_, token)) = url.split_once("/pair.html#token=") else {
@@ -1062,20 +1121,10 @@ async fn a_windowless_start_that_gets_no_answer_falls_back_and_leaves_no_tab() {
                 if let Some(t) = tabs.lock().unwrap().get_mut(&profile) {
                     t.retain(|t| *t != url);
                 }
-                let window = tabs
-                    .lock()
-                    .unwrap()
-                    .get(&profile)
-                    .is_some_and(|t| t.iter().any(|t| t.contains("/wake/")));
-                if !window {
-                    // the windowless start: the worker can't reach FERB, and the start's time runs out
-                    *clock.mono.lock().unwrap() += 10.0;
-                    return;
-                }
                 match ending {
                     Ending::Paired | Ending::Refused => {
                         let m = ExtMessage {
-                            install_id: "inst-fallback".into(),
+                            install_id: "inst-wake".into(),
                             mtype: ExtType::Pair,
                             body_json: json!({"token": token}).to_string(),
                             seq: None,
@@ -1090,8 +1139,17 @@ async fn a_windowless_start_that_gets_no_answer_falls_back_and_leaves_no_tab() {
                             store.set_version(&b.install_id, "0.1.0").unwrap();
                         }
                     }
-                    // nobody answers: the wait's time runs out
-                    Ending::TimedOut => *clock.mono.lock().unwrap() += 100.0,
+                    // nobody answers: the wait's time runs out (moved on while it waits: its end is set after
+                    // this page opens)
+                    Ending::TimedOut => {
+                        let clock = clock.clone();
+                        tokio::spawn(async move {
+                            for _ in 0..200 {
+                                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                                *clock.mono.lock().unwrap() += 100.0;
+                            }
+                        });
+                    }
                     Ending::Cancelled => {}
                 }
             }));
@@ -1099,7 +1157,7 @@ async fn a_windowless_start_that_gets_no_answer_falls_back_and_leaves_no_tab() {
         let cx = Cx::new(&w.home.host, &w.deps);
         let job = tokio::spawn(async move { cx.pair_for_task("chrome", "Profile 1").await });
         let reply = if ending == Ending::Cancelled {
-            while w.launched.lock().unwrap().len() < 4 {
+            while w.launched.lock().unwrap().len() < 2 {
                 tokio::time::sleep(std::time::Duration::from_millis(5)).await;
             }
             job.abort();
@@ -1109,7 +1167,7 @@ async fn a_windowless_start_that_gets_no_answer_falls_back_and_leaves_no_tab() {
             Some(job.await.unwrap().unwrap())
         };
 
-        // the windowless start, its pairing page, then the window with the wake page and the pairing page again
+        // the window with the wake page, then the pairing page
         let launched: Vec<Vec<String>> = w
             .launched
             .lock()
@@ -1121,15 +1179,16 @@ async fn a_windowless_start_that_gets_no_answer_falls_back_and_leaves_no_tab() {
             .iter()
             .map(|a| a.last().unwrap().as_str())
             .collect();
-        assert_eq!(launched.len(), 4, "{ending:?}: {launched:?}");
+        assert_eq!(launched.len(), 2, "{ending:?}: {launched:?}");
         assert!(launched
             .iter()
             .all(|a| launched_profile(a) == "chrome/Profile 1"));
-        assert_eq!(lasts[0], "--no-startup-window", "{ending:?}");
+        assert!(
+            lasts[0].starts_with("http://127.0.0.1:") && lasts[0].contains("/wake/"),
+            "{ending:?}"
+        );
         assert!(lasts[1].contains("/pair.html#token="), "{ending:?}");
-        assert!(lasts[2].starts_with("http://127.0.0.1:") && lasts[2].contains("/wake/"));
-        assert_eq!(lasts[3], lasts[1], "{ending:?}: the same token");
-        let wake = lasts[2].to_string();
+        let wake = lasts[0].to_string();
 
         let want = match ending {
             Ending::Paired => Some(json!({"paired": true})),
@@ -1144,28 +1203,16 @@ async fn a_windowless_start_that_gets_no_answer_falls_back_and_leaves_no_tab() {
         }
 
         // the wake page closed itself; every tab left is the owner's
-        let mut waited = 0;
-        while !closed_itself.lock().unwrap().contains(&wake) {
-            assert!(
-                waited < 500,
-                "{ending:?}: the wake page didn't close itself"
-            );
-            waited += 1;
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
+        all_closed(
+            &closed_itself,
+            std::slice::from_ref(&wake),
+            &format!("{ending:?}"),
+        )
+        .await;
         let mut left = w.open_tabs.lock().unwrap().clone();
         left.retain(|_, tabs| !tabs.is_empty());
         assert_eq!(left, owners, "{ending:?}");
         // the extension is asked to close it too only when the profile is connected at the end
-        let asked: Vec<Value> = w
-            .hub
-            .calls
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|c| c[1] == "wake_close")
-            .cloned()
-            .collect();
         if ending == Ending::Paired {
             while w.hub.calls.lock().unwrap().is_empty() {
                 tokio::time::sleep(std::time::Duration::from_millis(5)).await;
@@ -1175,172 +1222,29 @@ async fn a_windowless_start_that_gets_no_answer_falls_back_and_leaves_no_tab() {
                 vec![json!(["chrome/Profile 1", "wake_close", {"url": wake}, 5.0])]
             );
         } else {
-            assert!(asked.is_empty(), "{ending:?}: {asked:?}");
+            assert!(
+                w.hub.calls.lock().unwrap().is_empty(),
+                "{ending:?}: {:?}",
+                w.hub.calls.lock().unwrap()
+            );
         }
 
-        // the journal: the fallback with what the windowless start had got, then the outcome naming the fallback
-        let rows = w.home.journal_rows();
-        let from = rows
-            .iter()
-            .position(|r| r[0] == browsers::PAIR_FALLBACK)
-            .expect("the fallback is journaled");
-        assert_eq!(
-            rows[from][1],
-            json!({"browser": "chrome", "folder": "Profile 1", "seen": "no_connection", "waited_s": 10.0})
-        );
-        let end = &rows[from + 1..];
+        // the journal: Python's rows for the outcome, nothing else of pairing's
+        let rows: Vec<Value> = w
+            .home
+            .journal_rows()
+            .into_iter()
+            .filter(|r| r[0].as_str().unwrap().starts_with("browsers.pair"))
+            .collect();
         let want_rows = match ending {
             Ending::Paired => vec![json!(["browsers.paired",
-                {"browser": "chrome", "folder": "Profile 1", "step": "fallback"}, "ferb"])],
+                {"browser": "chrome", "folder": "Profile 1"}, "ferb"])],
             Ending::Refused => vec![json!(["browsers.pair_failed",
-                {"browser": "chrome", "folder": "Profile 1", "reason": "problem", "step": "fallback"}, "ferb"])],
+                {"browser": "chrome", "folder": "Profile 1", "reason": "problem"}, "ferb"])],
             Ending::TimedOut => vec![json!(["browsers.pair_failed",
-                {"browser": "chrome", "folder": "Profile 1", "why": "the pairing page wasn't answered",
-                 "step": "fallback"}, "ferb"])],
-            Ending::Cancelled => vec![json!([browsers::PAIR_ABANDONED,
-                {"browser": "chrome", "folder": "Profile 1", "step": "fallback"}, "ferb"])],
+                {"browser": "chrome", "folder": "Profile 1", "why": "the pairing page wasn't answered"}, "ferb"])],
+            Ending::Cancelled => vec![],
         };
-        assert_eq!(end.to_vec(), want_rows, "{ending:?}");
-        // and the daemon's log names it
-        let log = w.log.lock().unwrap().clone();
-        assert_eq!(log.len(), 1, "{log:?}");
-        assert!(
-            log[0].starts_with(
-                "pairing chrome/Profile 1: the windowless start got no paired connection"
-            ),
-            "{log:?}"
-        );
+        assert_eq!(rows, want_rows, "{ending:?}");
     }
-}
-
-/// Pair all's stream says when one profile's pairing falls back to its window (HAND-523): a `fallback` event naming
-/// that profile as the plan named it (browser, folder, name, email, label), sent as the fallback starts and before
-/// that profile's `result`; a profile whose windowless start answered gets none. The app shows one line for it. The
-/// event is an addition to Python's events (its recordings never fall back: the fake clock stands still there).
-// decision: HAND-523
-// decision: HAND-524
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn pair_all_tells_the_owner_when_a_profile_falls_back_to_its_window() {
-    let file = fixture("daemon-b/browsers.json");
-    let sc = scenario(&file, "with_access");
-    let w = world(&sc["setup"], true);
-    {
-        let (tabs, pairings, hub, clock) = (
-            w.open_tabs.clone(),
-            w.deps.pairings.clone(),
-            w.hub.clone(),
-            w.home.clock.clone(),
-        );
-        let n = AtomicUsize::new(0);
-        *w.hook.lock().unwrap() = Some(Box::new(move |argv: &[String]| {
-            let profile = launched_profile(argv);
-            let url = argv.last().cloned().unwrap_or_default();
-            let Some((_, token)) = url.split_once("/pair.html#token=") else {
-                return;
-            };
-            let window = tabs
-                .lock()
-                .unwrap()
-                .get(&profile)
-                .is_some_and(|t| t.iter().any(|t| t.contains("/wake/")));
-            if profile == "chrome/Profile 1" && !window {
-                // this profile's windowless start can't reach FERB: its time runs out
-                *clock.mono.lock().unwrap() += 10.0;
-                return;
-            }
-            let m = ExtMessage {
-                install_id: format!("inst-told-{}", n.fetch_add(1, Ordering::SeqCst)),
-                mtype: ExtType::Pair,
-                body_json: json!({"token": token}).to_string(),
-                seq: None,
-                mac: None,
-            };
-            let verdict = pairings.handle(&m).unwrap();
-            assert!(verdict.accepted, "{}", verdict.reason);
-            let b = verdict.binding.unwrap();
-            hub.connect(&b.browser, &b.folder, "0.19.5");
-        }));
-    }
-    let d = start(&w).await;
-    let mut c = d.connect().await;
-    c.send(r#"{"jsonrpc": "2.0", "id": 1, "method": "auth.hello", "params": {"role": "cli"}}"#)
-        .await;
-    c.recv().await.unwrap();
-    c.send(r#"{"jsonrpc": "2.0", "id": 2, "method": "setup.browsers_pairing", "params": {"timeout_s": 30}}"#)
-        .await;
-    let mut events: Vec<Value> = vec![];
-    loop {
-        let line: Value = serde_json::from_str(&c.recv().await.unwrap()).unwrap();
-        if line["method"] == "setup.browsers_pairing.event" {
-            let done = line["params"]["type"] == "done";
-            events.push(line["params"].clone());
-            if done {
-                break;
-            }
-        } else {
-            assert!(line.get("error").is_none(), "{line}");
-            break;
-        }
-    }
-    let kinds: Vec<&str> = events.iter().map(|e| e["type"].as_str().unwrap()).collect();
-    assert_eq!(kinds.first(), Some(&"plan"), "{events:?}");
-    assert_eq!(kinds.last(), Some(&"done"), "{events:?}");
-    let todo = events[0]["todo"].as_array().unwrap();
-    assert!(todo.len() > 1, "{events:?}");
-    let shown = todo
-        .iter()
-        .find(|p| p["folder"] == "Profile 1" && p["browser"] == "chrome")
-        .expect("chrome/Profile 1 is paired by Pair all")
-        .clone();
-
-    // exactly one fallback, for that profile, as the plan named it, before its result
-    let told: Vec<usize> = (0..events.len())
-        .filter(|&i| events[i]["type"] == "fallback")
-        .collect();
-    assert_eq!(told.len(), 1, "{events:?}");
-    let mut want = shown.as_object().unwrap().clone();
-    want.insert("type".into(), json!("fallback"));
-    assert_eq!(events[told[0]], Value::Object(want));
-    assert_eq!(events[told[0]]["name"], "Work");
-    assert_eq!(events[told[0]]["email"], "work@example.test");
-    assert_eq!(events[told[0]]["label"], "Google Chrome");
-    let result = events
-        .iter()
-        .position(|e| {
-            e["type"] == "result" && e["folder"] == "Profile 1" && e["browser"] == "chrome"
-        })
-        .expect("its result");
-    assert!(told[0] < result, "{events:?}");
-    assert_eq!(events[result]["paired"], true, "{events:?}");
-    // every profile still gets its result, and `done` keeps Python's shape
-    assert_eq!(
-        kinds.iter().filter(|k| **k == "result").count(),
-        todo.len(),
-        "{events:?}"
-    );
-    let done = events.last().unwrap().as_object().unwrap();
-    let mut keys: Vec<&str> = done.keys().map(String::as_str).collect();
-    keys.sort_unstable();
-    assert_eq!(
-        keys,
-        [
-            "paired",
-            "profiles",
-            "results",
-            "skipped",
-            "store_url",
-            "type"
-        ]
-    );
-    assert!(done["results"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|r| r.get("type").is_none()));
-    // the journal row is the one HAND-523 already writes
-    assert!(w
-        .home
-        .journal_rows()
-        .iter()
-        .any(|r| r[0] == browsers::PAIR_FALLBACK && r[1]["folder"] == "Profile 1"));
 }

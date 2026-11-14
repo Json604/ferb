@@ -214,7 +214,7 @@ pub struct State {
     files_done: Mutex<Option<FilesKey>>,
     files_lock: tokio::sync::Mutex<()>,
     handoffs: Mutex<HashMap<String, Value>>,
-    /// HAND-523: the wake pages' local server, started the first time a pairing falls back.
+    /// HAND-526: the wake pages' local server, started the first time a pairing opens a profile's window.
     wake: Mutex<Option<Arc<wake::WakePages>>>,
 }
 
@@ -268,11 +268,6 @@ pub struct Deps {
     pub new_handoff_id: Arc<dyn Fn() -> String + Send + Sync>,
     /// A profile opened just to pair gets this long to load.
     pub pair_load_wait_s: f64,
-    /// HAND-523: how long a windowless start's pairing page may go without a paired connection before pairing falls
-    /// back to the profile's window with FERB's wake page.
-    pub pair_quiet_wait_s: f64,
-    /// A line in the daemon's log (DMN-592).
-    pub log: Arc<dyn Fn(&str) + Send + Sync>,
     /// How long a task's pairing page may take (`pair_timeout_s`).
     pub pair_timeout_s: f64,
     /// How often a handed-off check's page is looked at.
@@ -702,61 +697,42 @@ impl Cx {
         }
     }
 
-    /// `_open_pairing`: the extension's pairing page in that profile, which closes itself once it has handed over
-    /// its token (pair.js). A profile that isn't connected is loaded first with no window (`--no-startup-window`, as
-    /// the drivers' wake loads one: HAND-403), so its extension is running when the page arrives; when that start
-    /// gets no paired connection in time, the wait falls back to the profile's window ([`PairWait::fall_back`],
-    /// HAND-523).
+    /// `_open_pairing` (HAND-526): the extension's pairing page in that profile, which closes itself once it has
+    /// handed over its token (pair.js). A profile that isn't connected is loaded first in its own window with FERB's
+    /// local wake page, and given the load time, so its extension is running when the pairing page arrives (Python's
+    /// order and commands). The returned [`PairWake`] holds that wake page until the pairing ends, however it ends.
     ///
-    /// Fixed against Python (ENG-6): Python loaded it with a blank local page (`WakeServer`) and closed that page
-    /// only after a pairing that succeeded (`wake_close`), so every failed, refused, timed-out or abandoned pairing
-    /// left a "FERB" tab behind; on the owner's first Rust setup (2026-11-14) every profile kept one. FERB now opens
-    /// no tab but the self-closing pairing page, and in the fallback a wake page that closes itself on every outcome.
+    /// Fixed against Python (ENG-6): Python's wake page was blank and closed only after a pairing that succeeded
+    /// (`wake_close`), so every failed, refused, timed-out or abandoned pairing left a "FERB" tab behind; on the owner's
+    /// first Rust setup (2026-11-14) every profile kept one. Here the wake page closes itself on every outcome
+    /// ([`wake`]).
     async fn open_pairing(
         &self,
         browser: &str,
         folder: &str,
         token: &str,
-        told: Option<FallbackTold>,
-    ) -> Result<PairWait, HandlerError> {
-        let mut wait = PairWait {
+    ) -> Result<PairWake, HandlerError> {
+        let known = self.blocking(|c| c.profiles()).await;
+        let mut held = PairWake {
             cx: self.clone(),
             browser: browser.to_string(),
             folder: folder.to_string(),
-            token: token.to_string(),
-            quiet_until: None,
-            fell_back: false,
-            wake: None,
-            ended: false,
-            told,
+            page: None,
         };
-        let known = self.blocking(|c| c.profiles()).await;
-        let quiet = !self
+        if !self
             .deps
             .hub
             .bridge(browser, folder)
-            .is_some_and(|b| b.connected);
-        if quiet {
-            self.open_known(browser, folder, None, &known, false)?
+            .is_some_and(|b| b.connected)
+        {
+            // a local server that can't listen is the caller's OSError (Python's WakeServer stopped the daemon's start)
+            let page = self.deps.state.wake_pages().map_err(os_err)?.open();
+            let url = page.url.clone();
+            held.page = Some(page);
+            self.open_known(browser, folder, Some(&url), &known, false)?
                 .map_err(value_error)?;
             sleep_s(self.deps.pair_load_wait_s).await;
         }
-        if quiet {
-            // the pairing page's time runs from its opening
-            wait.quiet_until = Some(self.host.clock.monotonic() + self.deps.pair_quiet_wait_s);
-        }
-        self.open_pairing_page(browser, folder, token, &known)?;
-        Ok(wait)
-    }
-
-    /// The extension's pairing page with that token, opened in that profile.
-    fn open_pairing_page(
-        &self,
-        browser: &str,
-        folder: &str,
-        token: &str,
-        known: &[BrowserProfile],
-    ) -> Result<(), HandlerError> {
         let ids = self.accepted_ids()?;
         let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
         let found = known
@@ -767,8 +743,9 @@ impl Cx {
             });
         let ext = found.map_or_else(|| ids[0].clone(), |f| f.0);
         let page = format!("chrome-extension://{ext}/pair.html#token={token}");
-        self.open_known(browser, folder, Some(&page), known, false)?
-            .map_err(value_error)
+        self.open_known(browser, folder, Some(&page), &known, false)?
+            .map_err(value_error)?;
+        Ok(held)
     }
 
     /// `_answered_but_refused` (HAND-412): the pairing page was answered and FERB then refused that profile's hello.
@@ -837,17 +814,6 @@ impl Cx {
         p: BrowserProfile,
         timeout: f64,
     ) -> Result<Map<String, Value>, HandlerError> {
-        self.pair_one_told(p, timeout, None).await
-    }
-
-    /// [`Cx::pair_one`], telling `told` the profile's `(browser, folder)` when its pairing falls back to the profile's
-    /// window (HAND-523), as that fallback starts: Pair all's stream says so to the owner.
-    pub async fn pair_one_told(
-        &self,
-        p: BrowserProfile,
-        timeout: f64,
-        told: Option<FallbackTold>,
-    ) -> Result<Map<String, Value>, HandlerError> {
         let base = object(
             json!({"browser": p.browser, "folder": p.folder, "name": p.display_name,
                                  "email": p.email}),
@@ -890,9 +856,7 @@ impl Cx {
             .pairings
             .issue_token(&p.browser, &p.folder, Identity::Owner);
         let _revoke = Revoke(self.deps.pairings.clone(), token.clone());
-        let mut wait = self
-            .open_pairing(&p.browser, &p.folder, &token, told)
-            .await?;
+        let _wake = self.open_pairing(&p.browser, &p.folder, &token).await?;
         let clock = self.host.clock.clone();
         let end = clock.monotonic() + timeout;
         let mut recheck = clock.monotonic() + self.deps.pair_load_wait_s;
@@ -903,10 +867,9 @@ impl Cx {
                 .bridge(&p.browser, &p.folder)
                 .is_some_and(|b| b.connected);
             if self.deps.pairings.was_paired(&token) && connected {
-                wait.ended = true;
                 self.host.journal(
                     "browsers.paired",
-                    wait.row(json!({"browser": p.browser, "folder": p.folder})),
+                    json!({"browser": p.browser, "folder": p.folder}),
                     None,
                 )?;
                 return Ok(merge(base, json!({"paired": true})));
@@ -919,10 +882,9 @@ impl Cx {
             }
             if let Some((reason, text)) = why {
                 self.deps.pairings.revoke(&token);
-                wait.ended = true;
                 self.host.journal(
                     "browsers.pair_failed",
-                    wait.row(json!({"browser": p.browser, "folder": p.folder, "reason": reason})),
+                    json!({"browser": p.browser, "folder": p.folder, "reason": reason}),
                     None,
                 )?;
                 return Ok(merge(
@@ -930,7 +892,6 @@ impl Cx {
                     json!({"paired": false, "reason": reason, "why": text}),
                 ));
             }
-            wait.fall_back().await?;
             sleep_s(0.2).await;
         }
         self.deps.pairings.revoke(&token);
@@ -941,12 +902,8 @@ impl Cx {
         if let Some((reason, _)) = &stands {
             failed.insert("reason".into(), json!(reason));
         }
-        wait.ended = true;
-        self.host.journal(
-            "browsers.pair_failed",
-            wait.row(Value::Object(failed)),
-            None,
-        )?;
+        self.host
+            .journal("browsers.pair_failed", Value::Object(failed), None)?;
         if let Some((reason, why)) = stands {
             return Ok(merge(
                 base,
@@ -1228,121 +1185,25 @@ impl Drop for Revoke {
     }
 }
 
-/// The journal row of a pairing that fell back to the profile's window (HAND-523): the profile, what the windowless
-/// start had got when its time ran out (`seen`: `no_connection`, `connected_not_paired`, `paired_not_connected`),
-/// and how long it was given. With `error` when the wake page couldn't be served (no fallback then).
-pub const PAIR_FALLBACK: &str = "browsers.pair_fallback";
-/// The journal row of a pairing wait that had fallen back to the profile's window and then ended with no outcome of
-/// its own (HAND-523): its caller left, or an error went back to the caller. A wait that didn't fall back keeps
-/// Python's rows (none there).
-pub const PAIR_ABANDONED: &str = "browsers.pair_abandoned";
-
-/// One pairing's wait (HAND-520, HAND-523). A profile that wasn't connected was started with no window; when that
-/// start has no paired connection by `quiet_until`, [`PairWait::fall_back`] opens the profile's window with FERB's
-/// wake page, then the pairing page again (the same token, while unused). Dropping this, on every outcome (paired,
-/// refused, timed out, a caller that left), closes the wake page: the page closes itself once its [`wake::WakePage`]
-/// is dropped, and the profile's extension is asked to close it too while it is connected (`wake_close`, Python's
-/// close after a pairing that succeeded), without waiting for its answer.
-struct PairWait {
+/// One pairing's wake page (HAND-526), held while the pairing waits. Dropping it, on every outcome (paired, refused,
+/// timed out, a caller that left), closes the page: the page closes itself once its [`wake::WakePage`] is dropped,
+/// and the profile's extension is asked to close it too while it is connected (`wake_close`, Python's close after a
+/// pairing that succeeded), without waiting for its answer. A profile that was connected opened no wake page.
+struct PairWake {
     cx: Cx,
     browser: String,
     folder: String,
-    token: String,
-    /// When the windowless start's answer is due; None: the profile was connected (no windowless start), or the
-    /// time came.
-    quiet_until: Option<f64>,
-    /// The wait fell back to the profile's window.
-    fell_back: bool,
-    wake: Option<wake::WakePage>,
-    /// The wait's outcome was told; otherwise dropping a wait that fell back journals [`PAIR_ABANDONED`].
-    ended: bool,
-    /// Who hears that the fallback started (Pair all's stream); None: nobody.
-    told: Option<FallbackTold>,
+    page: Option<wake::WakePage>,
 }
 
-/// Where a pairing says its fallback to the profile's window started: the profile's `(browser, folder)`.
-pub type FallbackTold = tokio::sync::mpsc::UnboundedSender<(String, String)>;
-
-impl PairWait {
-    /// An outcome's journal row, naming the fallback when the wait fell back (Python's row otherwise).
-    fn row(&self, data: Value) -> Value {
-        let mut data = data;
-        if self.fell_back {
-            data["step"] = json!("fallback");
-        }
-        data
-    }
-
-    /// HAND-523: once the windowless start's time is up with no paired connection, the profile's window with FERB's
-    /// wake page, the load time, then the pairing page again unless its token was used meanwhile.
-    async fn fall_back(&mut self) -> Result<(), HandlerError> {
-        let cx = self.cx.clone();
-        let Some(due) = self.quiet_until else {
-            return Ok(());
-        };
-        if cx.host.clock.monotonic() < due {
-            return Ok(());
-        }
-        self.quiet_until = None;
-        let (b, f) = (self.browser.clone(), self.folder.clone());
-        let used = cx.deps.pairings.was_paired(&self.token);
-        let connected = cx.deps.hub.bridge(&b, &f).is_some_and(|br| br.connected);
-        let seen = match (used, connected) {
-            (true, true) => return Ok(()),
-            (false, false) => "no_connection",
-            (false, true) => "connected_not_paired",
-            (true, false) => "paired_not_connected",
-        };
-        let mut row = json!({"browser": b, "folder": f, "seen": seen,
-                             "waited_s": cx.deps.pair_quiet_wait_s});
-        let pages = match cx.deps.state.wake_pages() {
-            Ok(pages) => pages,
-            Err(e) => {
-                (cx.deps.log)(&format!(
-                    "pairing {b}/{f}: the windowless start got no paired connection ({seen}); FERB's wake page \
-                     couldn't be served, so there is no fallback: {e}"
-                ));
-                row["error"] = json!(e.to_string());
-                return cx.host.journal(PAIR_FALLBACK, row, None);
-            }
-        };
-        (cx.deps.log)(&format!(
-            "pairing {b}/{f}: the windowless start got no paired connection in {} s ({seen}); opening the profile's \
-             window with FERB's wake page",
-            cx.deps.pair_quiet_wait_s
-        ));
-        cx.host.journal(PAIR_FALLBACK, row, None)?;
-        self.fell_back = true;
-        if let Some(told) = &self.told {
-            // a listener that left changes nothing here
-            let _ = told.send((b.clone(), f.clone()));
-        }
-        let page = pages.open();
-        let url = page.url.clone();
-        self.wake = Some(page);
-        let known = cx.blocking(|c| c.profiles()).await;
-        cx.open_known(&b, &f, Some(&url), &known, false)?
-            .map_err(value_error)?;
-        sleep_s(cx.deps.pair_load_wait_s).await;
-        if !cx.deps.pairings.was_paired(&self.token) {
-            cx.open_pairing_page(&b, &f, &self.token, &known)?;
-        }
-        Ok(())
-    }
-}
-
-impl Drop for PairWait {
+impl Drop for PairWake {
     fn drop(&mut self) {
-        let cx = &self.cx;
-        if !self.ended && self.fell_back {
-            let row = json!({"browser": self.browser, "folder": self.folder, "step": "fallback"});
-            let _ = cx.host.journal(PAIR_ABANDONED, row, None);
-        }
-        let Some(page) = self.wake.take() else {
+        let Some(page) = self.page.take() else {
             return;
         };
         let url = page.url.clone();
         drop(page);
+        let cx = &self.cx;
         let connected = cx
             .deps
             .hub
@@ -1743,9 +1604,7 @@ impl Sink {
 }
 
 /// `_pair_all_events` (HAND-411, HAND-412): `plan`, a `result` per profile as it lands, then `done`. Leaving the
-/// stream stops the pairings still waiting (their keys revoked). Added to Python's events, on the stream only: a
-/// `fallback` event for a profile whose windowless start got no paired connection, as its pairing falls back to the
-/// profile's window (HAND-523), before that profile's `result`.
+/// stream stops the pairings still waiting (their keys revoked).
 async fn pair_all_events(cx: Cx, params: Params, sink: &mut Sink) -> Result<(), HandlerError> {
     let store = cx.store_id()?;
     let ids = cx.accepted_ids()?;
@@ -1838,31 +1697,14 @@ async fn pair_all_events(cx: Cx, params: Params, sink: &mut Sink) -> Result<(), 
         return Ok(());
     }
     let timeout = timeout_s(&params, 60.0)?;
-    // decision: HAND-523
-    // only a stream says a fallback as it starts: the one reply keeps Python's
-    let (told, mut fallbacks) = tokio::sync::mpsc::unbounded_channel::<(String, String)>();
-    let streamed = matches!(sink, Sink::Stream(_));
-    let shown: Vec<BrowserProfile> = todo.clone();
     let mut jobs = tokio::task::JoinSet::new();
     for p in todo {
         let c = cx.clone();
-        let told = streamed.then(|| told.clone());
-        jobs.spawn(async move { c.pair_one_told(p, timeout, told).await });
+        jobs.spawn(async move { c.pair_one(p, timeout).await });
     }
     let mut results: Vec<Value> = vec![];
     loop {
         let next = tokio::select! {
-            // a fallback is told before its profile's result: said first
-            biased;
-            Some((b, f)) = fallbacks.recv() => {
-                let Some(p) = shown.iter().find(|p| p.browser == b && p.folder == f) else { continue };
-                let event = json!({"type": "fallback", "browser": p.browser, "folder": p.folder,
-                                   "name": p.display_name, "email": p.email, "label": label_for(&b, &f)});
-                if !sink.emit(object(event)).await {
-                    return Ok(());
-                }
-                continue;
-            }
             next = jobs.join_next() => next,
             _ = sink.left() => return Ok(()),      // the caller left: dropping `jobs` stops the waits
         };
@@ -2172,7 +2014,7 @@ async fn identity_pair(cx: Cx, params: Params) -> HandlerResult {
         .pairings
         .issue_token(&browser, &folder, Identity::Ferb);
     let _revoke = Revoke(cx.deps.pairings.clone(), token.clone());
-    let mut wait = cx.open_pairing(&browser, &folder, &token, None).await?;
+    let _wake = cx.open_pairing(&browser, &folder, &token).await?;
     let clock = cx.host.clock.clone();
     let end = clock.monotonic() + timeout_s(&params, 60.0)?;
     while clock.monotonic() < end {
@@ -2188,25 +2030,13 @@ async fn identity_pair(cx: Cx, params: Params) -> HandlerResult {
                 && b.is_some_and(|b| b.identity == Identity::Ferb)
                 && fresh
             {
-                wait.ended = true;
                 cx.attach_identity_if_paired()?;
                 return Ok(object(json!({"paired": true, "profile": folder})));
             }
         }
-        wait.fall_back().await?;
         sleep_s(0.2).await;
     }
     cx.deps.pairings.revoke(&token);
-    // Python journals nothing here; a wait that fell back says how it ended (HAND-523)
-    wait.ended = true;
-    if wait.fell_back {
-        cx.host.journal(
-            "browsers.pair_failed",
-            wait.row(json!({"browser": browser, "folder": folder,
-                            "why": "the pairing page wasn't answered"})),
-            None,
-        )?;
-    }
     Ok(object(json!({"paired": false, "profile": folder,
                      "hint": "is the FERB extension loaded in FERB's profile?"})))
 }

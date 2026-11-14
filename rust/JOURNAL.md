@@ -1857,3 +1857,102 @@ change PRM-355. Two comment-only decision tags in `tests/test_value_provenance.p
   the matching link in a list, reversed or split values, a value in a shell command's address, typing without
   submitting, any value to a named or approved host, the owner's open-tab addresses, a file an earlier task wrote.
   These are T-1098's starting list.
+
+## 2026-11-14 · 64 · Pairing opens the profile's window with FERB's wake page, and nothing windowless
+
+**What.** HAND-526 (owner; supersedes HAND-520, HAND-523, HAND-524, APP-909): a profile that isn't connected is paired
+as Python paired it: its window with FERB's local wake page, the load time (2 s), then the pairing page; a connected
+profile gets only the pairing page. The wake page closes itself on every outcome (`areas_b/browsers/wake.rs`,
+unchanged). Removed: the windowless first attempt, `pair_quiet_wait_s`, `PairWait`, the `browsers.pair_fallback` and
+`browsers.pair_abandoned` rows, `step: "fallback"`, the stream's `fallback` event, FERB.app's fallback line and its
+tests. The drivers' ordinary wake and the cleanup wake are unchanged (owner: "it queitly start and does what it needs
+to do. SO DONT REMOVE OR CHANGE THAT").
+
+**Why.** Owner, live on build 202611141614 (fresh install, browsers left running): "that fallback worked, but the
+minizmied one shifted my focus anyways. SO lets just ahve the proven working method. REMOVE the minized one and eveyr
+other code it added". From the system log: the six `--no-startup-window` commands (22:39:29) moved nothing; the six
+pairing pages handed to profiles with no window (22:39:31) were followed by Brave and Chrome making themselves
+frontmost and a Space switch. A quiet start with no address opens no window, which is why mid-task wakes never moved
+focus.
+
+**Evidence.** `b_browsers`: Python's recording replays with its commands (7 wake pages, 2 `wake_close`);
+`pair_all_leaves_each_profile_with_only_the_owners_tabs`; `the_wake_page_closes_itself_however_the_pairing_ends`.
+
+**Fixed against Python.** The wake page closes itself on every outcome (Python: only after a pairing that succeeded).
+
+**Open.** The visible method opens a browser window by design and keeps no front app. Live: pairing on the next build.
+
+## 2026-11-14 · 65 · A stop reaches a waiting plan; a wait names an event FERB publishes and reads its task's recorded end; refused hellos name their sender
+
+**What.**
+- Corrected drift: the Rust `cancel_tree` did not wake the plan run as `supervisor.py:6130` does, so a stop never
+  ended a step parked on an event. A stop and a continue now wake the wait; the wait registers its wake-up before it
+  checks anything.
+- ORCH-642: a plan's wait or loop event must be in `ferb-orchestrator/src/waits.rs` `WAIT_EVENTS` (`task.finished`,
+  `timer.fired`) with only that event's fields matched; otherwise the planner is told the names through the repair
+  path. Guards: every bus topic is sorted into `WAIT_EVENTS` or `NOT_WAITED`; every topic published by name is on the
+  bus. A plan's own structural checks run for every plan.
+- ORCH-643: a wait on another task reads that task's recorded status at its start and on every wake (ended before
+  the wait began: continue at once; any end but done: the step fails with that fact).
+- ORCH-644: a waiting step's own line ("Waiting for “…” to finish"), shown by FERB.app's checklist
+  (`StepChecklist.swift`, `StepState.line`); `waiting_steps` in the planner's task facts while a step waits (what,
+  since when, minutes, continue or stop).
+- ORCH-645: an open browsing-profile question says what its answer settles, so a plan built meanwhile doesn't ask
+  again.
+- HAND-530: a hello refused for its MAC or as a replay records its sender (extension origin, browser process,
+  connection, counters, the profile's accepted connection).
+- No prompt changes (owner: "where are you addin it?? the systme promtp again?").
+
+**Why.** Live on build 202611141614, tree 15737cce: the planner waited on an invented `task_completed` event and the
+plan sat for over 45 minutes; the owner's "cancel them all" (twice) and six presses of Stop task did not end it
+("ok so waiting takss cant be cacnelled currnelrty??? FIX THIS"); FERB answered "I've asked it to stop; it's still
+finishing what it was doing" with nothing running; the plan asked for a browser profile the owner had picked 20 s
+into its turn. Chrome Profile 15's `bad_mac` repeated 1,119 times with no sender recorded.
+
+**Evidence.** `ferb-supervisor/tests/stop_waits.rs` (3: the live plan shape, an event wait alone, a time wait; the
+event-wait tests fail without the wake-up), `task_waits.rs` (5), orchestrator `waits` (3 + guard),
+`ferb-browser/tests/refused_sender.rs`, Swift `testAStepWaitingForAnotherTaskSaysWhatItWaitsFor`.
+
+**Fixed against Python.** A plan's own checks run when no step lists inputs (since ORCH-625 Python skipped them);
+an unknown wait event is refused (Python waited forever too).
+
+**Named differences.** `plan_repair` (one more problem named, budget +42); `event_wait` replays with `timer.fired`;
+the refusal's sender facts.
+
+**Not changed.** The link question "Open www.amazon.in? The link includes “asus vivobook oled …”" is the locked rule
+working as written: the phrase counted as private only because Google's results page, read in the signed-in
+profile, echoed FERB's own query (T-1075). A proposal ("FERB's own words echoed back are not private") is with an
+independent review, not built.
+
+**Open.**
+- Owner's: an upper bound on waits (none added); the link-rule adjustment after its review.
+- Which extension context sent the bad_mac hellos (leading theory: the previous install's key kept in the
+  extension's storage, since the store was wiped and the browsers were not); `pair_failed` decided from a refusal
+  in the same instant as a pairing that succeeded; a re-key needs an extension protocol change.
+- The Tasks list shows the last finished step's text while the task waits.
+- A test run hung 1 h 40 min on six copied `ferb-secrets` helpers that never started (syspolicyd restarting, as in
+  journal 58); long test commands now run under a timeout.
+
+## 2026-11-14 · 66 · FERB.app's chat: each question waits only on its own answer; a row's picture detaches; the plan folds
+
+**What.**
+- APP-910: one question waits only on its own answer (`NotchModel.sendingAnswers`, a set of approval ids). One
+  app-wide `sendingAnswer` flag (since 2026-10-13) had disabled every open question's buttons and Send, and silently
+  dropped a typed answer's Return, while any one answer's call was out.
+- APP-912 (owner): a card row's or checklist line's preview opens the main preview's short view (`TaskShortView`)
+  with its Detach window for that step (`PreviewSubject`), through the one path `TaskActivityWindows` already used.
+- APP-911 (owner): the plan message folds by the same rule and component as answers (`CollapsibleText`);
+  `FirstReplyView` had never been wrapped in APP-725's fold.
+
+**Why.** Owner, live: "why are htese unselectable??? but when i clsoe and open chat again, they are visible then";
+"i wnat these row live preview circles to expan the smae as the below main one"; "why diens it follow the show more
+logic we have for other thigs??? IT SHOUDL FOLLOW IT". Four questions were open at once (a plan's three asks and a
+link check).
+
+**Evidence.** Swift 760 tests, 0 failures: `QuestionAnswerInFlightTests` (fails with 8 assertions on the old code),
+additions to `TaskActivityWindowsTests` and `FoldClipTests`. Not a Rust wire difference; the Python build's app had
+the flag too.
+
+**Open.** Why an answer's call stayed out for more than 15 s (before the daemon read it; nothing records where).
+`TranscriptList.setEnvironment` refreshes built rows on only four keys (a row built disabled would stay dimmed;
+nothing triggers it today). The owner's eyes on all three on the next build.

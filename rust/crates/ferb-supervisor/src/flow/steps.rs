@@ -116,6 +116,14 @@ impl Inner {
                 continue;
             };
             if step.kind == "wait" && state.status == "waiting" {
+                // ORCH-644: a wait for another task names that task (the planner's running row and the preview say
+                // the same)
+                if let Some(task) = ferb_orchestrator::waits::awaited_task(step) {
+                    return Some((
+                        "waiting".into(),
+                        ferb_orchestrator::waits::waiting_for_task(&self.task_name(task)),
+                    ));
+                }
                 let what = [
                     step.goal.clone(),
                     step.until.clone().unwrap_or_default(),

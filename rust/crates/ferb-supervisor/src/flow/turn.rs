@@ -1078,12 +1078,31 @@ impl Inner {
                 .into_iter()
                 .filter(|p| self.deps.daemon.read_denied(p))
                 .collect();
+            // ORCH-642: a wait on an event FERB never publishes, or on a task FERB has no record of, would never end
+            problems.extend(ferb_orchestrator::waits::problems(plan));
+            for step in &plan.steps {
+                if let Some(task) = ferb_orchestrator::waits::awaited_task(step) {
+                    if self.task_column(task, "status").is_none() {
+                        problems.push(format!(
+                            "{}: waits for task {} to finish, but FERB has no task with that id; name one from the \
+                             task status facts.",
+                            step.id,
+                            ferb_orchestrator::py::repr_str(task)
+                        ));
+                    }
+                }
+            }
             if !closed.is_empty() {
                 problems.push(format!(
                     "Inventory paths are protected: {}",
                     ferb_py::json::dumps(&closed)
                 ));
-            } else if !walk.is_empty() {
+            } else if walk.is_empty() {
+                // Fixed against Python (ORCH-625 left them out): a plan whose steps list no inputs still gets the
+                // plan's own checks (dependencies, cycles, a wait's time or event, an ask's question); with no input
+                // list the inventory checks find nothing
+                problems.extend(ferb_orchestrator::plans::problems(plan, &[], 0));
+            } else {
                 let task = candidate.task.as_ref().expect("a task");
                 // the worker model's window (L28)
                 let available = self.worker_room(turn, &task.identity, &task.worker_type);
@@ -2016,6 +2035,7 @@ impl Inner {
             let loops = self.loop_facts(&tree.id);
             let asleep = self.live().sleeping.get(&tree.id).cloned();
             let preview = self.preview_status(&tree.id, "");
+            let waits = self.waiting_facts(&tree);
             let st = tree.lock();
             let spec = st.spec.clone().expect("a spec");
             let steps = if spec.plan.is_some() {
@@ -2045,6 +2065,7 @@ impl Inner {
                 latest_words: self.runs.latest_words(&tree.id),
                 asleep,
                 preview,
+                waits,
                 goals: spec.plan.as_ref().map(|p| {
                     p.steps
                         .iter()

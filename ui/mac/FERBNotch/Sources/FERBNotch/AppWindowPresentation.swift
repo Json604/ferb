@@ -375,6 +375,8 @@ extension AppWindowPresentation {
         // With their window
         .init(name: "The task activity window's popovers", mechanism: .withParent, file: "TaskActivityBubble.swift",
               code: ".popover("),
+        .init(name: "A card row's live picture's short view (APP-912, the task activity popover for its step)",
+              mechanism: .withParent, file: "TurnCardView.swift", code: ".popover("),
         .init(name: "An enlarged picture: a payment page, a card row's or a task's live preview (APP-889, APP-890)",
               mechanism: .withParent, file: "VisualComponents.swift", code: ".popover("),
         .init(name: "Settings' confirmations (Uninstall, Delete secret)", mechanism: .withParent,

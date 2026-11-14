@@ -29,6 +29,19 @@ use tokio::task::JoinHandle;
 
 use common::{fixture, Counter};
 
+/// HAND-530: the sender facts the port adds to a refused hello (`Hub::refused_sender`).
+const SENDER_FACTS: [&str; 9] = [
+    "extension",
+    "browser_pid",
+    "connection",
+    "messages_on_connection",
+    "presented_seq",
+    "accepted_seq",
+    "paired_connection",
+    "paired_connection_browser_pid",
+    "paired_connection_extension",
+];
+
 #[path = "ops/mod.rs"]
 mod ops;
 
@@ -818,6 +831,14 @@ async fn replay(f: &Value, scenario: &Value) -> usize {
             tokio::task::yield_now().await;
         }
         let mut got: Vec<Value> = std::mem::take(&mut *run.log.lock().unwrap());
+        // HAND-530 (an addition): a refused hello's facts also name its sender; Python's recording has none
+        for e in got.iter_mut() {
+            if let Some(Value::Object(r)) = e.get_mut("ref") {
+                for k in SENDER_FACTS {
+                    r.remove(k);
+                }
+            }
+        }
         // Python iterates its `lost` set in hash order; Rust in sorted order: reconciliations compare as a set
         let order = |v: &mut Vec<Value>| {
             v.sort_by_key(|e| {

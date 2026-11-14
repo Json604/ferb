@@ -206,6 +206,10 @@ pub struct Conn {
     pub browser_pid: Option<i32>,
     /// That process's app bundle id (`peer_refusal`).
     pub app: Option<String>,
+    /// HAND-530: the extension origin its native host named ("" when unknown): which copy of the extension it is.
+    pub origin: String,
+    /// HAND-530: how many messages this connection has sent, accepted or not.
+    received: std::sync::atomic::AtomicU64,
     state: Mutex<ConnState>,
 }
 
@@ -228,12 +232,15 @@ impl Conn {
         writer: Box<dyn AsyncWrite + Send + Unpin>,
         browser_pid: Option<i32>,
         app: Option<String>,
+        origin: String,
     ) -> Conn {
         Conn {
             id: CONN_IDS.fetch_add(1, Ordering::Relaxed),
             writer: tokio::sync::Mutex::new(writer),
             browser_pid,
             app,
+            origin,
+            received: std::sync::atomic::AtomicU64::new(0),
             state: Mutex::default(),
         }
     }
@@ -1128,6 +1135,66 @@ impl Hub {
         record(out);
     }
 
+    /// HAND-530: who sent a hello refused for its MAC or as a replay, beside the refusal: the extension's origin, the
+    /// browser process, this connection's number and how many messages it sent, the counter it presented and the
+    /// last one FERB accepted for that install, and the profile's live accepted connection: this one, another (its
+    /// browser process and origin) or none. Facts only; nothing here decides anything. Not in Python (an addition).
+    fn refused_sender(&self, conn: &Conn, m: &ExtMessage) -> Map<String, Value> {
+        let mut out = Map::new();
+        out.insert("extension".into(), conn.origin.clone().into());
+        out.insert(
+            "browser_pid".into(),
+            conn.browser_pid.map_or(Value::Null, Value::from),
+        );
+        out.insert("connection".into(), conn.id.into());
+        out.insert(
+            "messages_on_connection".into(),
+            conn.received
+                .load(std::sync::atomic::Ordering::Relaxed)
+                .into(),
+        );
+        out.insert(
+            "presented_seq".into(),
+            m.seq.map_or(Value::Null, Value::from),
+        );
+        let accepted = self.pairings.last_seq(&m.install_id).ok().flatten();
+        out.insert(
+            "accepted_seq".into(),
+            accepted.map_or(Value::Null, Value::from),
+        );
+        let binding = self.pairings.binding(&m.install_id).ok().flatten();
+        let bridge = binding.and_then(|b| {
+            let key = (b.browser.clone(), b.folder.clone());
+            lock(&self.state)
+                .bridges
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, br)| Arc::clone(br))
+        });
+        let live = bridge.and_then(|br| lock(&br.state).conn.clone());
+        // the profile's live accepted connection: this one, another one (its browser process and origin), or none
+        match live {
+            Some(c) if c.id == conn.id => {
+                out.insert("paired_connection".into(), "this".into());
+            }
+            Some(c) => {
+                out.insert("paired_connection".into(), "another".into());
+                out.insert(
+                    "paired_connection_browser_pid".into(),
+                    c.browser_pid.map_or(Value::Null, Value::from),
+                );
+                out.insert(
+                    "paired_connection_extension".into(),
+                    c.origin.clone().into(),
+                );
+            }
+            None => {
+                out.insert("paired_connection".into(), "none".into());
+            }
+        }
+        out
+    }
+
     /// `server.on_native_refused` → `note_refusal("host", why, origin=origin)` (HAND-406): a native
     /// host's hello the daemon's socket refused before the hub saw the connection.
     pub fn note_host_refusal(&self, why: &str, origin: &str) {
@@ -1290,9 +1357,25 @@ impl Hub {
         R: AsyncBufRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send + 'static,
     {
+        self.serve_from(reader, writer, browser_pid, String::new())
+            .await
+    }
+
+    /// [`Hub::serve`] for a native host that named its extension's origin (HAND-530: the refusal facts say which
+    /// copy of the extension a refused connection is).
+    pub async fn serve_from<R, W>(
+        self: Arc<Self>,
+        reader: R,
+        writer: W,
+        browser_pid: Option<i32>,
+        origin: String,
+    ) where
+        R: AsyncBufRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send + 'static,
+    {
         // Python reads it in a worker thread; it is one libproc call and one small plist read, so it is read here
         let app = (self.app_of)(browser_pid);
-        let conn = Arc::new(Conn::new(Box::new(writer), browser_pid, app));
+        let conn = Arc::new(Conn::new(Box::new(writer), browser_pid, app, origin));
         if let Some(why) = rules::peer_refusal(self.apps.as_ref(), conn.app.as_deref(), None) {
             let mut data = Map::new();
             data.insert("why".into(), why.clone().into());
@@ -1306,6 +1389,8 @@ impl Hub {
         let mut reader = reader;
         while let Some(line) = read_line(&mut reader).await {
             let raw: Option<Value> = serde_json::from_slice(&line).ok();
+            conn.received
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             match raw
                 .as_ref()
                 .filter(|v| v.is_object())
@@ -1370,7 +1455,8 @@ impl Hub {
                     "extension pairing failed ({}); pair this profile again (browser_pair, or Settings → Browsers)",
                     v.reason
                 );
-                self.note_refusal(&v.reason, &why, Some(&m.install_id), app, Map::new());
+                let facts = self.refused_sender(conn, &m);
+                self.note_refusal(&v.reason, &why, Some(&m.install_id), app, facts);
                 Self::write(conn, &json!({"type": "refused", "reason": why})).await?;
             } else if matches!(m.mtype, ExtType::Hello | ExtType::Pair) {
                 // a pairing that didn't take (unknown or expired token)
@@ -1768,7 +1854,12 @@ pub mod native {
             let pid = (self.browser_pid)(connection.reader.as_ref().as_fd());
             let reader =
                 BufReader::new(std::io::Cursor::new(connection.buffered).chain(connection.reader));
-            Box::pin(Arc::clone(&self.hub).serve(reader, connection.writer, pid))
+            Box::pin(Arc::clone(&self.hub).serve_from(
+                reader,
+                connection.writer,
+                pid,
+                connection.origin,
+            ))
         }
     }
 }

@@ -373,7 +373,8 @@ pub struct TestDaemon {
     schemas: Map<String, Value>,
     pub recorded: Vec<Value>,
     pub calls: Mutex<Calls>,
-    supervise: Mutex<Vec<Value>>,
+    /// The recorded planner turns' facts, one taken per turn (a test may add one for a turn of its own).
+    pub supervise: Mutex<Vec<Value>>,
     systems: Mutex<Vec<Value>>,
     contexts: Mutex<Vec<Value>>,
     availability: String,
@@ -1716,6 +1717,19 @@ pub fn run_with(w: &mut World, name: &str, edit: impl FnOnce(&mut Vec<Value>)) -
             let conn = s(&st["conn"]);
             match st["do"].as_str().unwrap() {
                 "connect" | "close" | "note" => {}
+                // a test's own step: a change to the store (an awaited task's end), then an event FERB publishes
+                "plan_event" => {
+                    if let Some(sql) = st["sql"].as_str() {
+                        w.db.lock().unwrap().conn().execute_batch(sql).unwrap();
+                    }
+                    let topic = s(&st["topic"]);
+                    if !topic.is_empty() {
+                        w.sup.inner().notify_plan_event(&topic, &st["data"]);
+                    }
+                    for _ in 0..200 {
+                        tokio::task::yield_now().await;
+                    }
+                }
                 "call" => call_step(w, st, &mut report).await,
                 "stream" => {
                     let sent: Value =
@@ -1993,6 +2007,21 @@ async fn wait_step(w: &World, until_: &str) -> bool {
     match until_ {
         "an approval is pending" | "an approval is pending again" => {
             until(|| !w.daemon.questions.lock().unwrap().pending().is_empty()).await
+        }
+        // ORCH-643 tests: a step of the plan is parked on its event or time
+        "a plan step waits" => {
+            until(|| {
+                let db = w.db.lock().unwrap();
+                db.conn()
+                    .query_row(
+                        "SELECT COUNT(*) FROM plan_steps WHERE status = 'waiting'",
+                        [],
+                        |r| r.get::<_, i64>(0),
+                    )
+                    .unwrap_or(0)
+                    > 0
+            })
+            .await
         }
         "the task is paused" | "the task ended" => {
             let want_paused = until_ == "the task is paused";

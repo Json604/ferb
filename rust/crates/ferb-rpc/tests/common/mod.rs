@@ -71,6 +71,7 @@ impl NativeChannel for EchoChannel {
                 reader,
                 buffered,
                 mut writer,
+                ..
             } = connection;
             let mut line = buffered;
             let mut reader = BufReader::new(reader);

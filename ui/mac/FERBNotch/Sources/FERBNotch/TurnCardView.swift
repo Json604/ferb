@@ -10,6 +10,7 @@ import NotchCore
 /// at once only when there is no card (with one, each is its own row, APP-755). While the plan streams, its words so far stand where the plan line will be.
 struct FirstReplyView: View {
     let turn: ConversationTurn
+    @ObservedObject var model: NotchModel
 
     var body: some View {
         if !turn.firstReplySays {
@@ -20,18 +21,29 @@ struct FirstReplyView: View {
             let direct = turn.shownDirect, lines = turn.planLines ?? []
             let receipts = CardLayout.remaining(turn.receipts ?? [], turn.receiptCards ?? [])
             FerbBubble {
-                NativeMessageText(MessageTextAttributes.joined(
-                    direct.map { MarkdownTextAttributes.make($0, size: 12) }
-                    + receipts.map { NativeMessageText($0).text }
-                    + (line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? [] : [NativeMessageText(line).text])
-                    + lines.map { NativeMessageText($0, secondary: true).text }
-                ))
+                folding {
+                    NativeMessageText(MessageTextAttributes.joined(
+                        direct.map { MarkdownTextAttributes.make($0, size: 12) }
+                        + receipts.map { NativeMessageText($0).text }
+                        + (line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? [] : [NativeMessageText(line).text])
+                        + lines.map { NativeMessageText($0, secondary: true).text }
+                    ))
+                }
             }
         } else if let plan = turn.shownPlan {
-            FerbBubble { NativeMessageText(plan) }            // saved before the plan line was its own field
+            FerbBubble { folding { NativeMessageText(plan) } }  // saved before the plan line was its own field
         } else if let streaming = turn.streamingPlan, !streaming.isEmpty {
             FerbBubble { PlanLineBlock(line: streaming, lines: []) }
         }
+    }
+
+    /// APP-911 (owner 2026-11-14: "why doesnt it follow the show more logic we have for other things??? IT SHOULD
+    /// FOLLOW IT"): a long plan folds as a long answer does (APP-725): taller than the chat area, it shows about half
+    /// that height with Show all; the same text either way.
+    private func folding<Content: View>(@ViewBuilder _ content: @escaping () -> Content) -> some View {
+        CollapsibleText(key: ExpansionState.key(turn: turn.id, item: "plan"),
+                        kind: .answer(viewport: model.preferredTranscriptHeight),
+                        target: TranscriptTarget.entry(turn.id), more: "Show all", model: model, content: content)
     }
 }
 
@@ -417,9 +429,11 @@ struct RuntimeSwitchRow: View {
 
 /// APP-888 (owner 2026-11-11: "shoud we add one to each in their rows as they start streaming???"): a running row of a
 /// multi-part card shows its own step's live preview (`tasks.preview` with the row's step task id, DMN-404), the same
-/// round picture as the active-task line's, smaller; a click shows it larger in a popover hidden from screen sharing
-/// (APP-406). Live only while the chat shows and isn't stepped aside (APP-407). The active-task line's picture stays:
-/// it shows the step that acted last (the daemon's default).
+/// round picture as the active-task line's, smaller. Live only while the chat shows and isn't stepped aside (APP-407).
+/// The active-task line's picture stays: it shows the step that acted last (the daemon's default). APP-912 (owner
+/// 2026-11-14: "i want these row live preview circles to expand the same as the below main one"): a click opens the
+/// main picture's own short view (TaskShortView, hidden from screen sharing, APP-406) for this step, with its Detach
+/// activity window.
 struct RowPreview: View {
     @ObservedObject var model: NotchModel
     let preview: TaskPreview
@@ -428,6 +442,7 @@ struct RowPreview: View {
     var task: String = ""
     @State private var id = UUID()
     @State private var onScreen = false
+    @State private var open = false
 
     /// The step task id a row watches: one whose step is working now (starting, running, retrying, checking).
     static func watch(_ row: CardRow, _ display: RowDisplay) -> String? {
@@ -436,18 +451,26 @@ struct RowPreview: View {
         return step
     }
 
+    /// The step this picture shows, as the short view and its window take it.
+    var subject: PreviewSubject { PreviewSubject(taskID: preview.taskID, step: preview.worker, label: label) }
+
     var body: some View {
-        // APP-889: enlarged with its ✕, made small again by a click on it, outside it or Esc
-        EnlargeablePicture(model: model, label: "Live preview of " + label) {
+        Button { open = true } label: {
             TaskVideoView(preview: preview, compact: true, active: model.expanded && !model.isYielded)
                 .frame(width: 22, height: 22)
                 .clipShape(Circle())
                 .overlay(Circle().stroke(Palette.amber.opacity(0.65), lineWidth: 1))
-        } large: {
-            TaskVideoView(preview: preview)
-                .frame(width: EnlargedPreview.size.width, height: EnlargedPreview.size.height)
-                .clipShape(RoundedRectangle(cornerRadius: 9))
         }
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel("Live preview of " + label)
+        .accessibilityHint("Shows it larger")
+        .popover(isPresented: $open, arrowEdge: .bottom) {
+            TaskShortView(model: model, subject: subject) { open = false }
+                .background(TaskPreviewWindow(model: model, hidesFromCapture: true))
+        }
+        .onChange(of: model.previewDismissalRevision) { _, _ in open = false }
+        .onChange(of: model.expanded) { _, expanded in if !expanded { open = false } }
         // APP-891: while this row's picture is on screen in the open chat, the active-task strip leaves its task out
         .background(OnScreenReader { visible in onScreen = visible })
         .onChange(of: onScreen && model.expanded && !model.isYielded, initial: true) { _, shown in

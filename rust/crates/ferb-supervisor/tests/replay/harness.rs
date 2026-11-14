@@ -3064,7 +3064,7 @@ pub fn run_scenario(
 
 /// The deliberate differences from Python (ENG-6), applied to what the recording expects before it is compared:
 /// (scenario, recorded text, what the port says instead).
-pub const FIXES: [(&str, &str, &str); 6] = [
+pub const FIXES: [(&str, &str, &str); 10] = [
     // GATE-581: Python ends a task the global stop cut with "(from the task) FERB was stopped", marking FERB's own words
     // as the task's; the port says "FERB was stopped" (the outcome frame, the task row, the span, the journal)
     (
@@ -3091,6 +3091,26 @@ pub const FIXES: [(&str, &str, &str); 6] = [
     ("displaced_question", "\": 2715,", "\": 2699,"),
     ("displaced_question", "\": 3422,", "\": 3406,"),
     ("displaced_question", "\": 4422,", "\": 4406,"),
+    // ORCH-642 (fixed against Python): since ORCH-625 Python skipped a plan's own checks when no step lists inputs,
+    // so its repair was told only of the parts problem; the port also names the dependency the plan lacks, in the
+    // repair call's context (raw, JSON-escaped twice in the span), the task.repair row, and its budget line grows by
+    // those 42 bytes
+    (
+        "plan_repair",
+        "answer_step.\"]",
+        "answer_step.\", \"write: missing dependencies ['gather']\"]",
+    ),
+    (
+        "plan_repair",
+        "answer_step.\\\"]",
+        "answer_step.\\\", \\\"write: missing dependencies ['gather']\\\"]",
+    ),
+    (
+        "plan_repair",
+        "answer_step.\\\\\\\"]",
+        "answer_step.\\\\\\\", \\\\\\\"write: missing dependencies ['gather']\\\\\\\"]",
+    ),
+    ("plan_repair", "\": 2139,", "\": 2181,"),
 ];
 
 pub fn fixed(scenario: &str, text: &str) -> String {

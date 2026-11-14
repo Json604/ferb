@@ -1809,3 +1809,42 @@ status = "active"
 rule = "Refines ORCH-516's tool list (as ORCH-578 and DMN-595 added to it). PLANNER_TOOLS is memory.read, chat.history, task.evidence, trail.query, trail.days, about.read and about.diagnostics, held once in ferb-orchestrator (lookups.rs) with PLANNER_SCOPES; the supervisor's run token and the runtime check's offered tools both read it. The runtime check's Python recording offered six: a named difference."
 why = "The runtime check kept its own copy of the list and drifted to six after about.diagnostics joined (journal 61)."
 paths = ["rust/crates/ferb-orchestrator/src/lookups.rs", "rust/crates/ferb-supervisor/src/words.rs", "rust/crates/ferb-daemon/src/areas_b/runtimes/mod.rs"]
+
+[ORCH-642]
+title = "A plan's wait names an event FERB publishes; a plan's own checks always run"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "Argument validity (rule 3). A wait's or a loop's event is one of WAIT_EVENTS (task.finished {task_id, status}, timer.fired {timer_id, kind, name}), its event_match names only that event's fields, and a task.finished wait names a task FERB has; else the plan is told back through the repair path with the names. A stored plan's wait on another name ends at once with that fact. Every bus topic is in WAIT_EVENTS or NOT_WAITED (guard tests). Fixed against Python: a plan's own checks run even when no step lists inputs (ORCH-625 skipped them). The names are not in the prompt; the refusal carries them."
+why = "Live 2026-11-14 22:47 (tree 15737cce): the planner invented the event task_completed; nothing publishes it, so the step waited until the owner's stop, which could not end it either."
+evidence = "Owner's database: task_plans 15737cce step wait_research event task_completed, plan_steps waiting {event_cursor 0}, plan_events 0 rows; research tree 153f1603 task.outcome done 22:53:53."
+rejected = ["Listing the event names in supervisor.md: the owner asked for no prompt additions where a refusal can carry them", "Accepting any bus topic: most are FERB's own telemetry a plan has no use waiting for"]
+paths = ["rust/crates/ferb-orchestrator/src/waits.rs", "rust/crates/ferb-supervisor/src/flow/turn.rs", "rust/crates/ferb-supervisor/src/flow/tree.rs"]
+
+[ORCH-643]
+title = "A wait for another task reads that task's recorded end; a bad end ends the wait with that fact"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "Refines ORCH-322. A wait on task.finished with event_match task_id reads the awaited task's recorded status at its start and at every wake as well as later events, so a task that ended before the step began (or while FERB was down) ends the wait at once. done or done_unverified: the step is done, its summary naming the task and where its answer is read (chat_history task_id), never its content. Any other end: the step fails with that fact and the steps that needed it won't run (ORCH-532). No time limit is added (rule 18)."
+why = "The event cursor only sees events after the wait registered, and FERB stores an event only when a running plan waits on its topic: a wait registered after the awaited task ended would never wake."
+paths = ["rust/crates/ferb-orchestrator/src/waits.rs", "rust/crates/ferb-supervisor/src/flow/tree.rs"]
+
+[ORCH-644]
+title = "A waiting step says what it waits for and since when; continue and stop reach it"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "Refines ORCH-598 and ORCH-531. A wait for another task's end reads \"Waiting for “<name>” to finish\" (step state line, preview, planner row). While a plan step waits, the planner's task facts carry waiting_steps (step, what it waits for, since, minutes, and WAIT_CONTROLS: continue looks again now, stop ends the task), absent otherwise. A continue and a stop wake the plan's wait (Python's cancel_tree woke the plan run; the port had not, so a stop never ended an event wait). No timer or message is added (rule 18)."
+why = "Live 2026-11-14 23:28-23:35: the planner read that the task was stuck but offered nothing; the owner's \"cancel them all\" and six Stop presses left it running."
+evidence = "Owner's database: journal 107-125 (chat replies, STOP_SETTLING twice, task.stopped six times), plan_steps wait_research still waiting at 23:35."
+paths = ["rust/crates/ferb-orchestrator/src/waits.rs", "rust/crates/ferb-supervisor/src/flow/tree.rs", "rust/crates/ferb-supervisor/src/flow/steps.rs", "rust/crates/ferb-supervisor/src/flow/control.rs", "rust/crates/ferb-supervisor/src/planner.rs"]
+
+[ORCH-645]
+title = "An open browsing-profile question says what its answer settles"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "In the planner's open questions, a browsing.choose question carries its_answer (browsing.rs QUESTION_SETTLES): the profile every web task uses, this message's tasks included; a plan doesn't ask the owner which profile again while it is open, and FERB uses the answer by itself. Present only while such a question is open; nothing reads the planner's words."
+why = "Live 2026-11-14 22:46: the next message's planner turn was built at 22:46:13 while the browsing question was open (picked 22:46:33, during the turn), and the plan asked which profile to use, listing all six."
+paths = ["rust/crates/ferb-orchestrator/src/browsing.rs", "rust/crates/ferb-supervisor/src/planner.rs"]

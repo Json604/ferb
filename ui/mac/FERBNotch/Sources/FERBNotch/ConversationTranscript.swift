@@ -329,7 +329,7 @@ private struct TurnView: View {
                             leadIsAbove: (leadIndex ?? 0) < (turns.firstIndex { $0.id == turn.id } ?? 0))
             }
             if turn.showsTyping { TypingDots() }
-            FirstReplyView(turn: turn)
+            FirstReplyView(turn: turn, model: model)
             if let cards = turn.receiptCards {
                 ResultCardsView(cards: CardBoxes.shown(cards, hiding: hidden), turnID: turn.id, model: model)
             }

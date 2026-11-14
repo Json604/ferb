@@ -240,6 +240,11 @@ impl Pairings {
         token
     }
 
+    /// HAND-530: the last message counter FERB accepted for this install (never its key).
+    pub fn last_seq(&self, install_id: &str) -> Result<Option<i64>, StoreError> {
+        Ok(self.store.key_and_seq(install_id)?.map(|(_, seq)| seq))
+    }
+
     pub fn binding(&self, install_id: &str) -> Result<Option<Binding>, StoreError> {
         Ok(self.store.row(install_id)?.map(|r| Binding {
             install_id: install_id.into(),

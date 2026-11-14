@@ -53,13 +53,13 @@ fn rows() -> Vec<(&'static str, &'static str, Value, &'static str)> {
         (
             "2026-01-01T08:00:00+00:00",
             "browsers.pair_failed",
-            json!({"step": "quiet", "seen": "no connection"}),
+            json!({"browser": "chrome", "folder": "Default", "reason": "problem"}),
             "ferb",
         ),
         (
             "2026-01-01T08:05:00+00:00",
             "browsers.pair_failed",
-            json!({"step": "fallback", "seen": "timeout"}),
+            json!({"browser": "chrome", "folder": "Profile 1", "why": "the pairing page wasn't answered"}),
             "ferb",
         ),
         (
@@ -160,7 +160,10 @@ fn the_diagnostics_read_ferb_s_own_records_bounded_and_change_nothing() {
     let pair = &out["journal"]["kinds"][3];
     assert_eq!(pair["count"], 2);
     assert_eq!(pair["first_at"], "2026-01-01T08:00:00+00:00");
-    assert_eq!(pair["latest"], r#"{"step": "fallback", "seen": "timeout"}"#);
+    assert_eq!(
+        pair["latest"],
+        r#"{"browser": "chrome", "folder": "Profile 1", "why": "the pairing page wasn't answered"}"#
+    );
     // one family, newest first
     let fam = Value::Object(
         d::compose(home, since, Some("browsers."), json!({}), json!({}), vec![]).unwrap(),
@@ -168,7 +171,7 @@ fn the_diagnostics_read_ferb_s_own_records_bounded_and_change_nothing() {
     assert_eq!(fam["journal"]["total"], 2);
     assert_eq!(
         fam["journal"]["records"][0]["data"],
-        r#"{"step": "fallback", "seen": "timeout"}"#
+        r#"{"browser": "chrome", "folder": "Profile 1", "why": "the pairing page wasn't answered"}"#
     );
     let chat = Value::Object(
         d::compose(home, since, Some("chat."), json!({}), json!({}), vec![]).unwrap(),

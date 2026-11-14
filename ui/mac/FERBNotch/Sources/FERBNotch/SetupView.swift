@@ -473,7 +473,6 @@ struct BrowsersStepView: View {
                     Text("Pairing: \(progress.landed) of \(progress.tried) done"
                          + (progress.pairing.isEmpty ? "" : " — " + progress.pairing.map(\.text).joined(separator: ", ")))
                         .font(.callout).foregroundStyle(.secondary)
-                    ForEach(progress.fallbackLines, id: \.self) { Text($0).font(.callout) }     // HAND-523
                 }
                 if let waiting = model.addWait {
                     // HAND-413: after Add to, until FERB is on there

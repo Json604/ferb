@@ -16,6 +16,8 @@ struct ApprovalView: View {
     /// task takes Yes / No, or words for that task, sent as a correction and never as a Yes (GATE-510).
     private var box: DaemonApproval.AnswerBox { approval.answerBox }
     private var takesTypedAnswer: Bool { box != .none }
+    /// This question's own answer is on its way: only its own controls wait (another open question stays answerable).
+    private var sending: Bool { model.isSending(approval) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: inRow ? 6 : 9) {
@@ -79,8 +81,11 @@ struct ApprovalView: View {
             } else if !approval.isSecret {
                 ForEach(Array(approval.options.indices), id: \.self) { index in
                     Button(approval.optionLabel(index)) { model.chooseApproval(approval, index: index) }
-                        .buttonStyle(FerbButtonStyle()).disabled(model.sendingAnswer)
+                        .buttonStyle(FerbButtonStyle()).disabled(sending)
                 }
+            }
+            if sending && !takesTypedAnswer {           // the buttons wait for this answer: say so (its Send says it)
+                Text("Sending your answer…").font(.system(size: 10)).foregroundStyle(Palette.secondary)
             }
             if !approval.isSecret, let note = approval.note {   // GATE-566: what the 30-minute answer covers
                 Text(note).font(.system(size: 10)).foregroundStyle(Palette.secondary)
@@ -122,7 +127,7 @@ struct ApprovalView: View {
     @ViewBuilder private var optionButtons: some View {
         ForEach(Array(approval.options.indices), id: \.self) { index in
             Button(approval.optionLabel(index)) { model.chooseApproval(approval, index: index) }
-                .buttonStyle(FerbButtonStyle(primary: index == 0)).disabled(model.sendingAnswer)
+                .buttonStyle(FerbButtonStyle(primary: index == 0)).disabled(sending)
         }
     }
 
@@ -135,10 +140,10 @@ struct ApprovalView: View {
                 }.buttonStyle(FerbButtonStyle(quiet: true))
             }
             Spacer()
-            Button(model.sendingAnswer ? "Sending…" : approval.isSecret ? approval.sendLabel ?? "Fill in" : "Send",
+            Button(sending ? "Sending…" : approval.isSecret ? approval.sendLabel ?? "Fill in" : "Send",
                    action: send)
-                .buttonStyle(FerbButtonStyle(primary: true)).disabled(answer.isEmpty || model.sendingAnswer)
-        }.disabled(model.sendingAnswer)
+                .buttonStyle(FerbButtonStyle(primary: true)).disabled(answer.isEmpty || sending)
+        }.disabled(sending)
     }
 
     private func takeRequestedFocus() {
@@ -149,7 +154,7 @@ struct ApprovalView: View {
     }
 
     private func send() {
-        guard !answer.isEmpty, !model.sendingAnswer else { return }
+        guard !answer.isEmpty, !sending else { return }
         let value = answer
         answer = ""
         if box == .correction { model.correctApproval(approval, text: value) }

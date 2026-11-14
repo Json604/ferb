@@ -3666,9 +3666,44 @@ live = ["LIVE-724"]
 title = "Pairing says on the setup screen when it brings a profile forward"
 by = "owner"
 date = 2026-11-14
-status = "active"
+status = "superseded"
+superseded_by = "HAND-526"
 words = "if this fails, FERB informs on teh same setup screen about the fialure adn it switchign to bringing it forward or somethigni like that in short natural format"
 words_source = "Owner 2026-11-14, on HAND-523's fallback from the quiet start to the visible pairing page."
 rule = "When a profile's quiet (windowless) pairing start gets no answer and pairing falls back to opening its window (HAND-523), the pairing rows on the tour and in Settings, Browsers show one short line for that profile until its result lands: \"<profile> didn't answer quietly, so I'm opening it to finish pairing.\", the profile named as the app names it (browser, name, account email). A daemon that never reports it shows no line."
 why = "The owner wants to see why a window opens during pairing, in short natural words, on the screen he is looking at."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/PairProgress.swift", "ui/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift", "ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift"]
+
+[APP-910]
+title = "Each open question waits only on its own answer"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "For APP-581. While an answer to one question is on its way to the daemon (chat.approve, chat.answer, chat.correct, a decline), only that question's card waits: its buttons and Send are disabled, its Send reads Sending… and a card with buttons only says \"Sending your answer…\". Every other open question stays answerable, by its buttons or typed words, at the same time (NotchModel.sendingAnswers, by approval id). The same question can't be answered twice while its answer is out."
+why = "Owner 2026-11-14, three plan asks and a safety check open at once: \"why are these unselectable???\". One app-wide flag (sendingAnswer, since 2026-10-13) disabled every card while any one answer's call was out and dropped a typed Return silently."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/ApprovalView.swift", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift::NotchModel.chooseApproval", "ui/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.sendingAnswers"]
+untestable = "How long an answer's call was out on the owner's Mac on 2026-11-14 isn't recorded anywhere (the daemon journals no slow call; the app logs no RPC time); the owner answering two open questions one after the other on the next build is the live check."
+
+[APP-911]
+title = "A long plan message folds by the long answer's rule"
+by = "owner"
+date = 2026-11-14
+status = "active"
+words = "where is this plan style code written?? why doesnt it follow the show more logic we have for other things??? IT SHOULD FOLLOW IT"
+words_source = "Owner 2026-11-14, with a screenshot of \"Here's the plan; I'm starting now. Reply to change anything:\" and five long steps shown whole past the chat's height."
+rule = "Refines APP-725. FERB's first reply on a turn (the plan line with its steps, the parts answered at once and code's lines under it; a turn saved before the plan line had its own field: its plan text) folds as a long chat answer does: taller than the chat area (APP-587), it shows about half that height with Show all / Show less, the same text either way; a shorter one shows whole with no control. The same fold (CollapsibleText, CollapsePolicy.answer, MessageFold), never a second one."
+why = "No decision exempted the plan: its bubble (FirstReplyView) was simply never wrapped in the fold that answers and card rows use."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::FirstReplyView", "ui/mac/FERBNotch/Sources/NotchCore/CardRowState.swift::CollapsePolicy"]
+untestable = "How it reads in the owner's chat is the live check; FoldClipTests measures the fold offscreen."
+
+[APP-912]
+title = "A card row's live picture opens the main picture's short view and its own window"
+by = "owner"
+date = 2026-11-14
+status = "active"
+words = "i want these row live preview circles to expand the same as the below main one, currently they just open the expanded view, no window to extract them and keep seeing. i want it added there too"
+words_source = "Owner 2026-11-14, with a screenshot of a three-row research card whose running rows each had their round live picture, above \"2 active tasks · 3:26\" and its round picture."
+rule = "Refines APP-888, APP-889, APP-890 and APP-898. A click on a running card row's or checklist line's round picture opens the same short view as the round picture by \"N active tasks\" (TaskShortView: the larger picture, which enlarges on a click, the row's label, what that step is doing now, Detach activity), showing that step's picture (tasks.preview with its step task id). Its Detach activity opens a window of its own for that step (a TaskActivityPanel, APP-898: hidden from capture, a second one beside the task's, the same step's again brings it forward, closed by its ✕ or when its task ends)."
+why = "The row's picture only enlarged (APP-889), with no way to keep watching that step in a window as the main picture allows."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/TurnCardView.swift::RowPreview", "ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift::TaskShortView", "ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift::PreviewSubject", "ui/mac/FERBNotch/Sources/FERBNotch/TaskActivityBubble.swift::DetachedTaskActivityView", "ui/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+untestable = "The popover and the window on the owner's screen are the live check; the tests check the subject, the step's picture and the windows."

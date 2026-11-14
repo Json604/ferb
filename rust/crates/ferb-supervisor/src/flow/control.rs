@@ -346,7 +346,10 @@ impl Inner {
         for member in members {
             member.lock().stop = stop.clone();
         }
-        // (the plan runner sees the stop words at its next look; the tree's loops look now)
+        // supervisor.py:6130 `self._plan_runs[tree.id].wake()`: a step waiting on its event or time sees the stop now
+        // (the port had left it out, so a stop never ended an event wait: live 2026-11-14, tree 15737cce); the tree's
+        // loops look now
+        self.plan_wake(&tree.id).notify_waiters();
         self.wake_loops(&tree.id);
         self.interrupt(tree, true);
     }
@@ -648,6 +651,9 @@ impl Inner {
                     )
                     .await?
                 {
+                    // ORCH-644: a step of its plan that waits looks again now (its awaited task's recorded end, its
+                    // event, its time), so continuing a task whose wait is already met carries it on
+                    self.plan_wake(&active.id).notify_waiters();
                     // the woken loop's round starts before this reply is written, as on Python's one thread
                     self.hand_over(turn).await;
                     if text == JUST_ENDED {

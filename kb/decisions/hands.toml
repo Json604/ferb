@@ -1465,7 +1465,8 @@ live = ["LIVE-939"]
 title = "Pairing opens no tab but its own self-closing page"
 by = "agent"
 date = 2026-11-14
-status = "active"
+status = "superseded"
+superseded_by = "HAND-526"
 rule = "To pair a profile that isn't connected, FERB first loads it with no window (the browser run with --no-startup-window, as the drivers' wake loads one, HAND-403), waits the load time (2 s), then opens the extension's pairing page there, which closes itself once it has handed over its token (pair.js). No blank local wake page is opened, so nothing is left to close whether the pairing succeeds, fails, is refused, times out or its caller leaves. FERB quits no browser and closes no tab it didn't open."
 why = "Owner, 2026-11-14, after blank \"FERB\" tabs were left: \"not quit browsers ... BUT close the tabs it opened to pair when paired\". Python's wake page closed only after a pairing that succeeded (its recording: seven opened, two closed); ENG-6."
 paths = ["rust/crates/ferb-daemon/src/areas_b/browsers/mod.rs"]
@@ -1496,7 +1497,8 @@ paths = ["rust/crates/ferb-browser/src/driver.rs", "rust/crates/ferb-browser/src
 title = "Pairing falls back to the visible wake page, and closes it on every outcome"
 by = "owner"
 date = 2026-11-14
-status = "active"
+status = "superseded"
+superseded_by = "HAND-526"
 words = "this wont have misfires on any other laptop ,right??? if you dont know add the current method as fallback when pairign isnt happenign this way or somethign and can FERB read these failure logs too??? shoudl it? so it can help the suer find the error n all?? Casue if ferb cant see its own apps diagnosis and errors/logs how will it help the user?"
 words_source = "Owner 2026-11-14, on HAND-520's windowless pairing (journal 60), relayed by the coordinator. The second half (FERB reading its own logs) is DMN-595."
 rule = "Refines HAND-520. Pairing first loads the profile with no window and opens the self-closing pairing page; with no paired connection within 10 s (a method detail) it falls back to the visible method: the profile's window with FERB's local wake page, then the pairing page again. The wake page closes itself on every outcome: its script asks FERB's local server whether its pairing is over and closes when told or when the server is gone. The fallback is journaled (browsers.pair_fallback) and logged. FERB quits no browser and closes no tab it didn't open."
@@ -1507,10 +1509,11 @@ paths = ["rust/crates/ferb-daemon/src/areas_b/browsers/mod.rs", "rust/crates/fer
 title = "Pair all reports a profile's fallback to its window as a progress event"
 by = "agent"
 date = 2026-11-14
-status = "active"
+status = "superseded"
+superseded_by = "HAND-526"
 rule = "For APP-909. On the setup.browsers_pairing stream, when a profile's fallback to its window starts (after browsers.pair_fallback is journaled, before the window opens), the daemon sends setup.browsers_pairing.event {type: fallback, browser, folder, name, email, label} (the profile's plan entry), once per profile and before its result. Single-reply pairing calls (browsers.pair, setup.browser_pair, identity.pair) have no progress channel and only journal it. An addition to Python's events; older apps ignore the type."
 why = "The pairing rows already follow this stream's plan and result events; one more event type keeps FERB.app and the daemon on one channel without a new RPC."
-paths = ["rust/crates/ferb-daemon/src/areas_b/browsers/mod.rs::pair_all_events", "rust/crates/ferb-daemon/src/areas_b/browsers/mod.rs::PairWait"]
+paths = ["rust/crates/ferb-daemon/src/areas_b/browsers/mod.rs::pair_all_events"]
 
 [HAND-525]
 title = "Apps left running for one reason are one sentence"
@@ -1520,3 +1523,25 @@ status = "active"
 rule = "Refines HAND-521. In the leftovers message, apps FERB opened and left running are grouped by identical reason, in record order, each app named once: \"Blender and Terminal are still open: FERB opened them for this task and left them running because you used them during the task.\" All apps are named. One app keeps today's sentence; a reason with no plural form stays one sentence per app."
 why = "The owner asked \"whats number 3???\" of a list of one-line app notices and was told they would be grouped like tabs."
 paths = ["rust/crates/ferb-mac-hands/src/launched.rs"]
+
+[HAND-526]
+title = "Pairing opens the profile's window with FERB's wake page; every tab it opened closes itself"
+by = "owner"
+date = 2026-11-14
+status = "active"
+words = "that fallback worked, but the minizmied one shifted my focus anyways. SO lets just ahve the proven working method. REMOVE the minized one and eveyr other code it added - thats not necessary. also it did correctly closed all those tabs, so that is the implementtaion to keep"
+words_source = "Owner 2026-11-14, live on build 202611141614 (fresh install, browsers left running), on HAND-523's windowless start and its fallback to the profile's window; relayed by the coordinator."
+rule = "Pairing a profile that isn't connected opens its window with FERB's local wake page, waits the load time (2 s), then opens the pairing page there; a connected profile gets only the pairing page. Pairing never starts a profile with no window and has no fallback. Every tab FERB opened to pair closes itself on every outcome (paired, refused, timed out, cancelled, caller gone): the pairing page after handing over its token; the wake page when FERB's local server says its pairing is over or is gone (wake_close too if connected). FERB quits no browser."
+why = "Live 2026-11-14 22:39 (journal 64): pairing pages handed to windowless profiles opened windows that brought Brave and Chrome forward; three Chrome profiles connected only once the visible method opened their window, and its wake pages closed themselves."
+supersedes = ["HAND-520", "HAND-523", "HAND-524", "APP-909"]
+paths = ["rust/crates/ferb-daemon/src/areas_b/browsers/mod.rs", "rust/crates/ferb-daemon/src/areas_b/browsers/wake.rs"]
+
+[HAND-530]
+title = "A hello refused for its MAC or as a replay names its sender"
+by = "agent"
+date = 2026-11-14
+status = "active"
+rule = "Refines HAND-406. Beside a bad_mac or replay refusal of an extension's hello, browser.connection_refused carries: extension (the origin its native host named), browser_pid, connection (this connection's number), messages_on_connection, presented_seq, accepted_seq (the install's last accepted counter) and paired_connection (this, another or none; for another, its browser_pid and extension). Facts only: nothing decides from them, no key or MAC is in them. The native host's origin reaches the bridge with its connection (ferb-rpc NativeConnection.origin). An addition to Python's facts."
+why = "Live 2026-11-14: bad_mac for chrome/Profile 15 repeated 1,119 times in ten minutes beside an accepted connection for the same profile (242 for brave/Default in the first run); the records could not say which copy, process or counter sent them."
+evidence = "Owner's database: journal 27 (22:39:36.604) and 80 (22:49:36, repeats 1119); ext_installs e8893a44 chrome/Profile 15 paired_at 22:39:36.603871, last_seq 250590; browsers.pair_failed Profile 15 reason problem 22:39:36.737."
+paths = ["rust/crates/ferb-browser/src/bridge.rs", "rust/crates/ferb-browser/src/pairing.rs", "rust/crates/ferb-rpc/src/server.rs"]

@@ -138,6 +138,13 @@ pub fn questions_block(
             "ferb_check".into(),
             Value::Bool(ferb_checks.contains(&a.capability.as_str())),
         );
+        if a.capability == ferb_orchestrator::browsing::BROWSING_ASK {
+            // ORCH-645: what its answer settles, so a plan doesn't ask the owner the same thing again
+            q.insert(
+                "its_answer".into(),
+                Value::String(ferb_orchestrator::browsing::QUESTION_SETTLES.into()),
+            );
+        }
         questions.push(Value::Object(q));
     }
     for a in pending
@@ -769,6 +776,8 @@ pub struct TreeView {
     pub asleep: Option<Map<String, Value>>,
     /// `preview_status(key, "")`: (status, text).
     pub preview: Option<(String, String)>,
+    /// ORCH-644: each plan step waiting on its event or time now, as code states it (empty otherwise).
+    pub waits: Vec<Value>,
     /// The plan's step goals (`goal or question or kind`) by step id; None without a plan.
     pub goals: Option<Map<String, Value>>,
     pub runtime: String,
@@ -905,6 +914,10 @@ pub fn task_state(
         }
         if let Some(last) = &t.last_report {
             row.insert("last_report".into(), Value::String(report_line(last)));
+        }
+        if !t.waits.is_empty() {
+            // ORCH-644: present only while a step waits, so a stuck wait is seen and offered without being asked
+            row.insert("waiting_steps".into(), Value::Array(t.waits.clone()));
         }
         // ORCH-640: what the running worker last wrote, while it runs (model-written; the block carries the task's
         // origins)

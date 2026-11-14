@@ -19,6 +19,9 @@ public struct StepState: Equatable {
     /// A wait step's own time or event (its plan's `until`, `event`).
     public let until: Date?
     public let event: String?
+    /// The daemon's own words for what a waiting step waits for (ORCH-644: "Waiting for “…” to finish"); an older
+    /// daemon sends none.
+    public let line: String?
 
     public init?(_ value: Any?) {
         guard let value = value as? [String: Any], let status = value["status"] as? String, !status.isEmpty else { return nil }
@@ -31,6 +34,7 @@ public struct StepState: Equatable {
         loop = value["loop"] as? Bool ?? false
         until = LiveProgress.time(value["until"])
         event = (value["event"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        line = (value["line"] as? String).flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// `new` replaces `current`: a state with a later seq, or any state over none; a state without a seq (from the

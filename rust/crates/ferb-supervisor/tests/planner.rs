@@ -96,6 +96,7 @@ fn tree_view(t: &Value) -> TreeView {
         standing: t["standing"].as_array().cloned().unwrap_or_default(),
         folders: strs(&t["folders"]),
         origins: set(&t["origins"]),
+        waits: Vec::new(),
     }
 }
 
@@ -466,4 +467,40 @@ fn every_turn_payload() {
         }
     }
     assert_eq!(checked, 37);
+}
+
+// The live race (2026-11-14 22:46): the owner's browsing-profile question was still open when the next message's
+// planner turn was built, and the planner asked its own "Which browser profile …" step. The open question now says
+// what its answer settles; any other question carries no such line.
+// decision: ORCH-645
+#[test]
+fn an_open_browsing_question_says_what_its_answer_settles() {
+    let q = |id: &str, capability: &str| OpenQuestion {
+        id: id.into(),
+        kind: "owner_question".into(),
+        capability: capability.into(),
+        reason: "Which browser profile should FERB use for web work?".into(),
+        options: vec!["Chrome \u{201c}Invented\u{201d}".into(), "None".into()],
+        task_label: String::new(),
+        card_row: Map::new(),
+    };
+    let block = questions_block(
+        &[
+            q("ap-1", ferb_orchestrator::browsing::BROWSING_ASK),
+            q("ap-2", "plan.ask"),
+        ],
+        &[],
+        &FERB_CHECKS,
+        &|t: &str| t.to_string(),
+    );
+    let text = format!("{block:?}");
+    assert_eq!(
+        text.matches("its_answer").count(),
+        1,
+        "only the browsing question carries it: {text}"
+    );
+    assert!(
+        text.contains("a plan never asks the owner which profile again while this is open"),
+        "{text}"
+    );
 }

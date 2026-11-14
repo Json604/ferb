@@ -18,8 +18,20 @@ use serde_json::{json, Map, Value};
 
 fn more() -> &'static Value {
     static M: OnceLock<Value> = OnceLock::new();
-    M.get_or_init(|| read("rust/fixtures/supervisor/more_scenarios.json"))
+    M.get_or_init(|| {
+        let text =
+            std::fs::read_to_string(repo().join("rust/fixtures/supervisor/more_scenarios.json"))
+                .unwrap();
+        // ORCH-642 (a named difference): make_more.py's event wait waits on an invented topic nothing publishes,
+        // which the port refuses at admission; the scenario replays with a topic FERB does publish, everywhere it
+        // appears (the plan, the step's state, the stored plan and event, the event the test delivers)
+        serde_json::from_str(&text.replace("browser.download_finished", EVENT_WAIT_TOPIC))
+            .expect("fixture JSON")
+    })
 }
+
+/// The topic event_wait replays with (ORCH-642).
+const EVENT_WAIT_TOPIC: &str = "timer.fired";
 
 /// A scenario's kept records (make_more.py `kept_records`), each role's instruction inputs put back.
 fn records(name: &str) -> Vec<Value> {

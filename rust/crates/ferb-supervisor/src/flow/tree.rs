@@ -941,7 +941,8 @@ impl Inner {
         {
             state.insert("loop".into(), json!(true));
         }
-        for k in ["until", "event"] {
+        // ORCH-644: `line`, a wait's own words for what it waits for
+        for k in ["until", "event", "line"] {
             if let Some(v) = facts.get(k).filter(|v| ferb_py::value::truthy(v)) {
                 state.insert(k.into(), v.clone());
             }
@@ -1604,15 +1605,63 @@ impl Inner {
             Some(e) => facts.insert("event".into(), json!(e)),
             None => facts.insert("until".into(), json!(step.until)),
         };
+        // ORCH-643: a wait for another task to finish reads that task's recorded end as well as future events, so a
+        // task that ended before this step began (or while FERB was down) ends the wait at once
+        if let Some(topic) = ferb_orchestrator::waits::waited(step) {
+            if ferb_orchestrator::waits::wait_event(topic).is_none() {
+                // ORCH-642: a plan admitted before the check (stored, resumed after a restart) never waits forever on
+                // an event nothing publishes: the step ends with that fact, and the steps after it won't run
+                return Ok(json!({"status": "failed", "summary": format!(
+                    "This step waited for an event FERB never publishes ({}), so it could never end.",
+                    ferb_orchestrator::py::repr_str(topic)
+                )}));
+            }
+        }
+        let awaited = ferb_orchestrator::waits::awaited_task(step).map(str::to_string);
+        if let Some(task) = &awaited {
+            // ORCH-644: its row says what it waits for in plain words
+            facts.insert(
+                "line".into(),
+                json!(ferb_orchestrator::waits::waiting_for_task(
+                    &self.task_name(task)
+                )),
+            );
+        }
         self.step_state(&tree.id, &step.id, "waiting", facts);
         let wake = self.plan_wake(&tree.id);
-        while !self.stopped(tree) {
+        loop {
+            // registered before the stop and the records are looked at, so a stop, an event or a steer that comes
+            // meanwhile still wakes this look (`notify_waiters` reaches a Notified once it exists)
+            let woken = wake.notified();
+            if self.stopped(tree) {
+                break;
+            }
             if let Some(event) = &step.event {
+                if let Some(task) = &awaited {
+                    if let Some(status) = self.ended_status(task) {
+                        return Ok(ferb_orchestrator::waits::task_end_output(
+                            task,
+                            &self.task_name(task),
+                            &status,
+                        ));
+                    }
+                }
                 let found = self.plans(|p| p.event_after(event, cursor, &step.event_match))?;
                 if let Some(payload) = found {
+                    if let Some(task) = &awaited {
+                        let status = payload
+                            .get("status")
+                            .map(ferb_py::value::py_str)
+                            .unwrap_or_default();
+                        return Ok(ferb_orchestrator::waits::task_end_output(
+                            task,
+                            &self.task_name(task),
+                            &status,
+                        ));
+                    }
                     return Ok(json!({"status": "done", "summary": step.goal, "event": payload}));
                 }
-                wake.notified().await;
+                woken.await;
             } else {
                 let until = step.until.clone().unwrap_or_default();
                 let at = ferb_clock::py::parse(&until.replace('Z', "+00:00")).ok_or_else(|| {
@@ -1631,12 +1680,85 @@ impl Inner {
                 let left = (at - now).num_milliseconds().max(0) as f64 / 1000.0;
                 let wait = left.min(ferb_clock::timers::POLL_S);
                 tokio::select! {
-                    _ = wake.notified() => {}
+                    _ = woken => {}
                     _ = tokio::time::sleep(std::time::Duration::from_secs_f64(wait)) => {}
                 }
             }
         }
         Ok(json!({"status": "cancelled", "summary": "stopped by you"}))
+    }
+
+    /// ORCH-644: each step of this tree's plan waiting on its event or time now: what it waits for, since when (the
+    /// waiting state's own time, in memory: after a restart, since the restart) and what can be done. Empty when none
+    /// waits, so the planner's facts carry it only then.
+    pub(crate) fn waiting_facts(&self, tree: &Arc<Tree>) -> Vec<Value> {
+        let Some(plan) = tree.lock().spec.as_ref().and_then(|s| s.plan.clone()) else {
+            return Vec::new();
+        };
+        let states = self.plans(|p| p.steps(&tree.id)).unwrap_or_default();
+        let live = tree.lock().step_states.clone();
+        let zone = self.deps.clock.zone();
+        let now = self.now();
+        let mut out = Vec::new();
+        for (key, state) in states {
+            if state.status != "waiting" {
+                continue;
+            }
+            let Some(step) = plan.steps.iter().find(|s| s.id == key && s.kind == "wait") else {
+                continue;
+            };
+            let what = match (
+                ferb_orchestrator::waits::awaited_task(step),
+                ferb_orchestrator::waits::waited(step),
+            ) {
+                (Some(task), _) => {
+                    ferb_orchestrator::waits::waiting_for_task(&self.task_name(task))
+                }
+                (None, Some(topic)) => format!("Waiting for the event {topic}"),
+                (None, None) => format!("Waiting until {}", step.until.clone().unwrap_or_default()),
+            };
+            let mut row = obj(json!({"step": key, "waits_for": what}));
+            let since = live
+                .get(&key)
+                .filter(|v| v.get("status").and_then(Value::as_str) == Some("waiting"))
+                .and_then(|v| v.get("seq"))
+                .and_then(Value::as_str)
+                .and_then(ferb_clock::py::parse);
+            if let Some(at) = since {
+                row.insert(
+                    "since".into(),
+                    json!(ferb_clock::py::fmt(&zone.local(&at), "%a %d %b %H:%M")),
+                );
+                row.insert("minutes".into(), json!((now - at).num_minutes().max(0)));
+            }
+            row.insert("can".into(), json!(ferb_orchestrator::waits::WAIT_CONTROLS));
+            out.push(Value::Object(row));
+        }
+        out
+    }
+
+    /// ORCH-643: a task's end as FERB recorded it (its row's status, once it is one that never runs again).
+    pub(crate) fn ended_status(&self, task_id: &str) -> Option<String> {
+        let status = self.task_column(task_id, "status")?;
+        let status = status.as_str()?.to_string();
+        ferb_orchestrator::plans::ENDED
+            .contains(&status.as_str())
+            .then_some(status)
+    }
+
+    /// A task's heading for FERB's own lines: its running tree's name, else its recorded goal's (redacted).
+    pub(crate) fn task_name(&self, task_id: &str) -> String {
+        let live = self.tree_name(task_id);
+        let name = if live.is_empty() {
+            let goal = self
+                .task_column(task_id, "goal")
+                .map(|g| ferb_py::value::py_str(&g))
+                .unwrap_or_default();
+            ferb_orchestrator::names::shown_name(None, &goal)
+        } else {
+            live
+        };
+        self.redact_text(&name)
     }
 
     /// The plan run's wake (plan_executor.py `PlanExecutor.wake`): a plan event, a steer or a stop for this tree.

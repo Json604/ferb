@@ -1,7 +1,7 @@
-//! HAND-523: FERB's wake page, opened only when a profile's windowless start (HAND-520) got no answer and pairing
-//! falls back to the profile's window. Python's `WakeServer` (ext_bridge.py:809) served a blank local page there and
-//! closed it through the extension (`wake_close`) only after a pairing that succeeded, so every other outcome left a
-//! "FERB" tab behind.
+//! HAND-526: FERB's wake page, opened in the window of a profile that isn't connected before its pairing page, so the
+//! profile's extension is running when that page arrives. Python's `WakeServer` (ext_bridge.py:809) served a blank
+//! local page there and closed it through the extension (`wake_close`) only after a pairing that succeeded, so every
+//! other outcome left a "FERB" tab behind.
 //!
 //! The page here closes itself: its script asks this server whether the pairing that opened it is over
 //! (`/wake/<id>/done`: `0` while it runs, `1` once its [`WakePage`] is dropped, which the pairing's wait does on every
@@ -143,7 +143,7 @@ mod tests {
 
     /// Each wake is its own local address; it answers the page, and `done` says 0 while its pairing runs and 1 once
     /// it is dropped (and for a page it never knew).
-    // decision: HAND-523
+    // decision: HAND-526
     #[tokio::test]
     async fn each_wake_page_is_unique_and_says_when_its_pairing_is_over() {
         let pages = WakePages::start().expect("the wake pages start");

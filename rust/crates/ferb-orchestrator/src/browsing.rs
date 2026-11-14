@@ -14,6 +14,9 @@ pub const CHOSEN: &str =
 pub const NONE_CHOSEN: &str = "Done: FERB won't use any of your profiles for web work. Some tasks will be much slower and less reliable: without a browser, FERB fetches pages directly, and pages that need JavaScript, a sign-in or a bot check can't be read that way. You can pick a profile anytime in Settings → Browsers.";
 pub const NO_BROWSER_RUN: &str = "This run had no browser: you haven't picked which of your profiles FERB uses for web work, so it read pages without one (slower and less reliable). I'll ask you the next time a task needs it.";
 pub const GONE_RUN: &str = "This run had no browser: the profile FERB used for web work, {label}, isn't there any more, so it read pages without one (slower and less reliable). I'll ask you the next time a task needs it.";
+/// ORCH-645: what an open browsing question's answer settles, beside it in the planner's open questions.
+pub const QUESTION_SETTLES: &str = "the browser profile every web task uses, this message's tasks included; a plan \
+     never asks the owner which profile again while this is open, and FERB uses the answer by itself";
 pub const UNASKED_FACT: &str = "not set up; when a task does web work as FERB, FERB asks the owner once which of their browser profiles to use, and works there as the owner";
 pub const CHOSEN_FACT: &str =
     "not set up; web work as FERB runs as the owner in their {label}, the profile they picked";

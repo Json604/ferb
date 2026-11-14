@@ -304,7 +304,7 @@ final class PlaygroundPlayer: ObservableObject {
 
     private func waitForApproval(_ id: String) async -> DaemonApproval? {
         for _ in 0..<200 {
-            if let found = model.pendingApprovals.first(where: { $0.id == id }), !model.sendingAnswer { return found }
+            if let found = model.pendingApprovals.first(where: { $0.id == id }), !model.isSending(found) { return found }
             try? await Task.sleep(for: .milliseconds(25))
         }
         failures.append("question \(id) never reached the notch")
