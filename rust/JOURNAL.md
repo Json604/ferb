@@ -1956,3 +1956,26 @@ the flag too.
 **Open.** Why an answer's call stayed out for more than 15 s (before the daemon read it; nothing records where).
 `TranscriptList.setEnvironment` refreshes built rows on only four keys (a row built disabled would stay dimmed;
 nothing triggers it today). The owner's eyes on all three on the next build.
+
+## 2026-11-15 · 67 · A part's quote is compared as words
+
+**What.** ORCH-646: a plan part's quote passes when its letters-and-digits words, in order and unbroken, are words
+the owner typed (`ferb-supervisor/src/words.rs` `said_as_words`, tried after `quoted`'s character comparison in
+`flow/turn.rs`). Punctuation, quote styles, line breaks and marks a paste carries are not words; words the owner
+didn't type, or in another order, are still refused.
+
+**Why.** Owner, live on build 202611142038 (02:27): "i pasted some takss but it rejected after a loooong thignking".
+The pasted text came from the coordinator's terminal reply and carried its quote bar and line breaks between words
+("give me the \n  ▎ link."); the planner quoted the plain words; `quoted` (items.py:157, compared by characters)
+refused three parts, the one repair gave the same quotes, and the request ended after two minutes as "something broke
+inside FERB (PlanRejected…)". The check is the Python build's, unchanged since the first port.
+
+**Evidence.** `ferb-supervisor/tests/quote_words.rs` (the live paste's shapes pass; other words, another order, an
+added sentence and an empty quote are refused). Whole workspace: 861 pass, 0 fail, 16 ignored.
+
+**Fixed against Python.** `quoted` compares characters, so one pasted mark between two of the owner's words refused
+the owner's own request.
+
+**Open.** Memory's `remember` quote check still compares characters (`ferb-memory` `contains_words`): the same paste
+would refuse a remembered preference. The same run asked "Which Chrome profile should I use for the Google Sheet?"
+as a plan step on a fresh install with no profile picked: not examined.

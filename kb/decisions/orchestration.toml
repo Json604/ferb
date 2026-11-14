@@ -1848,3 +1848,12 @@ status = "active"
 rule = "In the planner's open questions, a browsing.choose question carries its_answer (browsing.rs QUESTION_SETTLES): the profile every web task uses, this message's tasks included; a plan doesn't ask the owner which profile again while it is open, and FERB uses the answer by itself. Present only while such a question is open; nothing reads the planner's words."
 why = "Live 2026-11-14 22:46: the next message's planner turn was built at 22:46:13 while the browsing question was open (picked 22:46:33, during the turn), and the plan asked which profile to use, listing all six."
 paths = ["rust/crates/ferb-orchestrator/src/browsing.rs", "rust/crates/ferb-supervisor/src/planner.rs"]
+
+[ORCH-646]
+title = "A part's quote is the owner's words when its words are, in order; pasted marks and punctuation aside"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "A plan part's quote passes when its letters-and-digits words, in order and unbroken, are words the owner typed in this message or their recent ones (case aside); punctuation, quote styles, line breaks and marks a paste carries are not words. Words the owner didn't type, or in another order, are still refused."
+why = "Live 2026-11-15 02:27: the owner pasted requests carrying a terminal's quote bar and line breaks between words; the planner quoted the plain words, the character comparison refused them twice, and the request ended as 'something broke inside FERB'. Python's quoted compares characters too."
+paths = ["rust/crates/ferb-supervisor/src/words.rs::said_as_words"]
