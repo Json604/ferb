@@ -8,7 +8,7 @@
 set -euo pipefail
 ROOT="${0:A:h:h}"
 source "$ROOT/scripts/swiftpm-anonymous.sh"      # SwiftPM fetches anonymously: never the owner's keychain
-NOTCH="$ROOT/ui/mac/FERBNotch"
+NOTCH="$ROOT/apps/mac/FERBNotch"
 die() { print -u2 "sparkle-keys.sh: $*"; exit 1 }
 
 OUT=""

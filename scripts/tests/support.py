@@ -16,7 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
-CRATES = ROOT / "rust" / "crates"
+CRATES = ROOT / "engine" / "crates"
 SIGN_APP = SCRIPTS / "sign-app.sh"
 BUILD_APP = SCRIPTS / "build-app-rust.sh"
 BUILD_DMG = SCRIPTS / "build-dmg.sh"
@@ -101,14 +101,14 @@ def rust_const(path: Path, name: str) -> str:
 
 
 def workspace_version() -> str:
-    """rust/Cargo.toml's [workspace.package] version (read without tomllib, which Python 3.9 lacks)."""
-    text = (ROOT / "rust" / "Cargo.toml").read_text()
+    """engine/Cargo.toml's [workspace.package] version (read without tomllib, which Python 3.9 lacks)."""
+    text = (ROOT / "engine" / "Cargo.toml").read_text()
     section = re.search(r"^\[workspace\.package\]\s*$(.*?)(?=^\[|\Z)", text, re.M | re.S)
     if section is None:
-        raise AssertionError("rust/Cargo.toml has no [workspace.package]")
+        raise AssertionError("engine/Cargo.toml has no [workspace.package]")
     found = re.findall(r'^version\s*=\s*"([^"]*)"\s*$', section.group(1), re.M)
     if len(found) != 1:
-        raise AssertionError("rust/Cargo.toml's [workspace.package] names no single version")
+        raise AssertionError("engine/Cargo.toml's [workspace.package] names no single version")
     return found[0]
 
 

@@ -25,7 +25,7 @@ class ReleaseChecks(unittest.TestCase):
     def test_a_development_version_is_refused(self) -> None:
         found = rc.problems("0.27.0.dev1", "v0.27.0", [], "0.19.0", "0.19.0")
         self.assertTrue(any("development version" in p for p in found), found)
-        self.assertTrue(any("rust/crates/ferbd/src/compose/mod.rs" in p and "rust/Cargo.toml" in p for p in found))
+        self.assertTrue(any("engine/crates/ferbd/src/compose/mod.rs" in p and "engine/Cargo.toml" in p for p in found))
 
     # decision: REL-2
     def test_a_version_not_newer_than_the_last_release_is_refused(self) -> None:
@@ -52,10 +52,10 @@ class ReleaseChecks(unittest.TestCase):
 
     # decision: REL-2, REL-425
     def test_the_version_is_the_same_in_both_files(self) -> None:
-        """ferbd's VERSION (what FERB.app and the engine report) equals rust/Cargo.toml's workspace version."""
+        """ferbd's VERSION (what FERB.app and the engine report) equals engine/Cargo.toml's workspace version."""
         version = rust_const(CRATES / "ferbd/src/compose/mod.rs", "VERSION")
         self.assertEqual(version, workspace_version())
-        self.assertFalse((ROOT / "rust/crates/ferbd/src/compose/mod.rs").read_text().count('pub const VERSION:') != 1)
+        self.assertFalse((ROOT / "engine/crates/ferbd/src/compose/mod.rs").read_text().count('pub const VERSION:') != 1)
 
     def test_the_release_checks_name_no_python_source(self) -> None:
         text = (SCRIPTS / "release_checks.py").read_text()

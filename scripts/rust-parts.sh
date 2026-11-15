@@ -1,4 +1,4 @@
-# FERB.app's Rust build (rust/PLAN.md part 13): its pins, parts and checks, sourced by build-app-rust.sh (zsh) after
+# FERB.app's Rust build (engine/PLAN.md part 13): its pins, parts and checks, sourced by build-app-rust.sh (zsh) after
 # app-parts.sh, and by release-appcast.sh for the release constants. Nothing here builds, signs or downloads.
 
 # ferb_rust_const FILE NAME: the value of `pub const NAME: &str = "…";` in the Rust source FILE (exactly one), or
@@ -14,29 +14,29 @@ ferb_rust_const() {
 }
 
 # ferb_rust_pins ROOT: the release constants, read from the checkout ROOT's Rust sources:
-#   FERB_VERSION          FERB's version          rust/crates/ferbd/src/compose/mod.rs VERSION
-#   FERB_CODEX_VERSION    the pinned Codex        rust/crates/ferb-runtimes/src/codex/mod.rs CODEX_VERSION
-#   FERB_CLAUDE_VERSION   the pinned Claude Code  rust/crates/ferb-runtimes/src/claude/transport.rs CLAUDE_CODE_VERSION
-#   FERB_MIN_EXTENSION    the oldest extension    rust/crates/ferb-browser/src/protocol.rs MIN_EXTENSION_VERSION
-#   FERB_STORE_EXTENSION  its Web Store id        rust/crates/ferb-browser/src/autoinstall.rs STORE_EXTENSION_ID
+#   FERB_VERSION          FERB's version          engine/crates/ferbd/src/compose/mod.rs VERSION
+#   FERB_CODEX_VERSION    the pinned Codex        engine/crates/ferb-runtimes/src/codex/mod.rs CODEX_VERSION
+#   FERB_CLAUDE_VERSION   the pinned Claude Code  engine/crates/ferb-runtimes/src/claude/transport.rs CLAUDE_CODE_VERSION
+#   FERB_MIN_EXTENSION    the oldest extension    engine/crates/ferb-browser/src/protocol.rs MIN_EXTENSION_VERSION
+#   FERB_STORE_EXTENSION  its Web Store id        engine/crates/ferb-browser/src/autoinstall.rs STORE_EXTENSION_ID
 # Status 1, naming the missing one, when any can't be read.
 ferb_rust_pins() {
-  local root=${1:?} c=${1:?}/rust/crates
+  local root=${1:?} c=${1:?}/engine/crates
   FERB_VERSION=$(ferb_rust_const "$c/ferbd/src/compose/mod.rs" VERSION) \
-    || { print -u2 "no VERSION in rust/crates/ferbd/src/compose/mod.rs"; return 1 }
+    || { print -u2 "no VERSION in engine/crates/ferbd/src/compose/mod.rs"; return 1 }
   FERB_CODEX_VERSION=$(ferb_rust_const "$c/ferb-runtimes/src/codex/mod.rs" CODEX_VERSION) \
-    || { print -u2 "no CODEX_VERSION in rust/crates/ferb-runtimes/src/codex/mod.rs"; return 1 }
+    || { print -u2 "no CODEX_VERSION in engine/crates/ferb-runtimes/src/codex/mod.rs"; return 1 }
   FERB_CLAUDE_VERSION=$(ferb_rust_const "$c/ferb-runtimes/src/claude/transport.rs" CLAUDE_CODE_VERSION) \
-    || { print -u2 "no CLAUDE_CODE_VERSION in rust/crates/ferb-runtimes/src/claude/transport.rs"; return 1 }
+    || { print -u2 "no CLAUDE_CODE_VERSION in engine/crates/ferb-runtimes/src/claude/transport.rs"; return 1 }
   FERB_MIN_EXTENSION=$(ferb_rust_const "$c/ferb-browser/src/protocol.rs" MIN_EXTENSION_VERSION) \
-    || { print -u2 "no MIN_EXTENSION_VERSION in rust/crates/ferb-browser/src/protocol.rs"; return 1 }
+    || { print -u2 "no MIN_EXTENSION_VERSION in engine/crates/ferb-browser/src/protocol.rs"; return 1 }
   FERB_STORE_EXTENSION=$(ferb_rust_const "$c/ferb-browser/src/autoinstall.rs" STORE_EXTENSION_ID) \
-    || { print -u2 "no STORE_EXTENSION_ID in rust/crates/ferb-browser/src/autoinstall.rs"; return 1 }
+    || { print -u2 "no STORE_EXTENSION_ID in engine/crates/ferb-browser/src/autoinstall.rs"; return 1 }
 }
 
 # ferb_rust_arch_names ARCH: app-parts.sh's names for ARCH (Codex's) plus the Rust build's:
 #   FERB_RUST_TARGET   rustc's target for the daemon programs
-#   FERB_CLAUDE_NPM    Claude Code's npm platform package (rust/packaging/package-lock.json)
+#   FERB_CLAUDE_NPM    Claude Code's npm platform package (engine/packaging/package-lock.json)
 #   FERB_CLAUDE_BIN    its binary in FERB.app, relative to Contents (ferbd compose/runtimes.rs claude_bin)
 ferb_rust_arch_names() {
   ferb_arch_names "${1:-}" || return 1
@@ -57,20 +57,20 @@ FERB_RUST_PACKAGE="Resources/ferb"                               # the runtime M
 FERB_RUST_EXTENSION="Resources/extensions/chromium"
 
 # ferb_rust_runtime_markdown ROOT: the runtime Markdown the Rust engine reads from FERB's package folder (AGENTS.md:
-# executable input), relative to ROOT/ferb, one per line, sorted: the role and supervisor prompts, the memory
+# executable input), relative to ROOT/engine/runtime, one per line, sorted: the role and supervisor prompts, the memory
 # prompts, the abilities' procedures. Python files never.
 ferb_rust_runtime_markdown() {
-  local f=${1:?}/ferb
+  local f=${1:?}/engine/runtime
   {
     (cd "$f" && find orchestrator/prompts abilities -type f -name '*.md' -print)
     (cd "$f" && find memory -maxdepth 1 -type f -name '*.md' -print)
   } | LC_ALL=C sort
 }
 
-# ferb_model_pin ROOT: the embedding model the Rust engine expects (rust/crates/ferb-memory/src/embeddings.rs):
+# ferb_model_pin ROOT: the embedding model the Rust engine expects (engine/crates/ferb-memory/src/embeddings.rs):
 # FERB_MODEL_NAME, FERB_MODEL_REPOSITORY, FERB_MODEL_REVISION, and FERB_MODEL_FILES ("name sha256" per entry).
 ferb_model_pin() {
-  local src=${1:?}/rust/crates/ferb-memory/src/embeddings.rs
+  local src=${1:?}/engine/crates/ferb-memory/src/embeddings.rs
   FERB_MODEL_NAME=$(ferb_rust_const "$src" MODEL_NAME) || return 1
   FERB_MODEL_REPOSITORY=$(ferb_rust_const "$src" MODEL_REPOSITORY) || return 1
   FERB_MODEL_REVISION=$(ferb_rust_const "$src" MODEL_REVISION) || return 1

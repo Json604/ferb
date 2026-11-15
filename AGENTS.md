@@ -8,9 +8,9 @@ patches. Judge designs by quality, the owner's goals and security, never by buil
 
 ## Source of truth
 
-- `rust/PLAN.md`, `rust/STATUS.md` and `rust/JOURNAL.md`: the Rust rewrite. PLAN is what is left, in order, with
+- `engine/PLAN.md`, `engine/STATUS.md` and `engine/JOURNAL.md`: the Rust rewrite. PLAN is what is left, in order, with
   each part's Python sources, needs and known traps, and how to pick the work up; STATUS is the state of every
-  part; JOURNAL is what was done and why. Read all three before touching `rust/`; add a journal entry and update
+  part; JOURNAL is what was done and why. Read all three before touching `engine/`; add a journal entry and update
   the status row (and the plan, when it changes) in the commit that changes them.
 - `HANDOFF.md`: the end state of the Python build on 2026-11-13, kept as history: the Python code it describes was
   removed from the repo (ENG-11, ENG-16) and is read in git at the commit `kb/config.toml` `historical` names.
@@ -18,10 +18,11 @@ patches. Judge designs by quality, the owner's goals and security, never by buil
   `tools/kb/run kb show <file>` before editing). Owner decisions are authoritative; a later decision supersedes an
   earlier one. If code, a prompt or this file disagrees with a decision, name both and ask the owner.
 - `README.md`: setup and use (being rewritten).
-- Runtime Markdown under `ferb/` (`ferb/orchestrator/prompts/*.md`, `ferb/memory/*.md`, `ferb/abilities/**`,
-  `ferb/decide/prompts/*.md`) is executable input, not documentation; it changes only as the `prompts` area's
-  decisions in kb/ say. With `ferb/store/migrations` (the store's schema) and `ferb/identity/secret_helper.swift`, it
-  is all that is left in `ferb/`: the Rust engine reads it, and FERB.app carries it byte for byte.
+- Runtime Markdown under `engine/runtime/` (`orchestrator/prompts/*.md`, `memory/*.md`, `abilities/**`,
+  `decide/prompts/*.md`) is executable input, not documentation; it changes only as the `prompts` area's decisions in
+  kb/ say. With `engine/runtime/store/migrations` (the store's schema) and `engine/runtime/identity/secret_helper.swift`,
+  it is all of `engine/runtime/` (what was left of `ferb/`): the Rust engine reads it, and FERB.app carries it byte for
+  byte (the Markdown still as `Contents/Resources/ferb`).
 - `vibed/` holds abandoned versions: never read, search or reuse it. The old `spikes/` experiments were removed on
   2026-11-15 and remain only in git history.
 
@@ -73,64 +74,67 @@ patches. Judge designs by quality, the owner's goals and security, never by buil
 
 ## The Rust rewrite (branch `rust`, PROJ-508)
 
-The Rust engine in `rust/` replaced the Python daemon: stage 1 is cut over (ENG-11) and the Python code was removed
+The Rust engine in `engine/` replaced the Python daemon: stage 1 is cut over (ENG-11) and the Python code was removed
 from the repo (ENG-16). It stays readable in git at the commit `kb/config.toml` `historical` names, and the fixtures
-in `rust/fixtures` hold what it produced.
+in `engine/fixtures` hold what it produced.
 
 - **Order (ENG-1):** 1. the Mac engine at exact parity (same RPC, events, extension protocol, tools and store;
   FERB.app and the extension unchanged), 2. history owned by the engine and shared by every client, 3. the phone
   role and the Android app, 4. the iPhone app, 5. closed-app notifications. The phone code comes from the owner's
   tested labs outside this repo (`~/Desktop/ferb-phone-link`); those folders are read, never changed.
 - **Layout:** a shared Rust foundation. Portable crates hold the engine and must compile for iOS and Android
-  (`rust/gate.sh portable`); everything that touches Apple frameworks or macOS tools lives in
+  (`engine/gate.sh portable`); everything that touches Apple frameworks or macOS tools lives in
   `ferb-platform-macos` and reaches the engine only through traits. The crate list is at the top of
-  `rust/STATUS.md`. No Windows or Linux code (PROJ-506). No Python ships with the Rust engine (ENG-2).
-- **How the parts were ported (ENG-3):** each `rust/fixtures/<part>/make.py` ran the Python code on invented data in
+  `engine/STATUS.md`. No Windows or Linux code (PROJ-506). No Python ships with the Rust engine (ENG-2).
+- **Folders (PROJ-510, PROJ-512):** `engine/` (the crates, fixtures and packaging; `engine/runtime/` the files above),
+  `apps/mac` (FERB.app), `apps/android` and `apps/ios` (stages 3 and 4), `extension/` (the unpacked browser
+  extension, exactly what is zipped and loaded) and `extension-store/` (its store listing and artwork).
+- **How the parts were ported (ENG-3):** each `engine/fixtures/<part>/make.py` ran the Python code on invented data in
   a temporary home and recorded what it produced; the Rust is tested against those fixtures. They are frozen
   contracts (ENG-17): changed only as a named difference, never regenerated from the Rust code; the scripts run only
-  at the commit before the removal (`rust/fixtures/README.md`). A ported behavior keeps its decision IDs
+  at the commit before the removal (`engine/fixtures/README.md`). A ported behavior keeps its decision IDs
   (`// decision: GATE-572` above the test). "Verified" means it matches the fixtures or a live check, never that it
   compiles. Every difference from Python that remains is listed in the journal; an unlisted difference is the worst
   outcome.
 - **Bytes that are contracts:** whatever reaches a model, a client, the extension or the database. Python's
   `json.dumps` spacing and escaping, pydantic's schemas and error text, jsonschema's messages and `re`'s Unicode
-  rules differ from Rust's defaults; `ferb-py` holds the Python-exact helpers and `rust/fixtures/catalog` freezes
+  rules differ from Rust's defaults; `ferb-py` holds the Python-exact helpers and `engine/fixtures/catalog` freezes
   what the models receive.
 - **A bug found in the Python code** is fixed in the Rust port when the part is ported. The fixture test names
   that one deliberate difference, so the comparison stays strict everywhere else, and the journal lists it under
-  "Fixed against Python". Anything else that differs from Python is a drift, not a fix. `rust/PLAN.md` keeps the
+  "Fixed against Python". Anything else that differs from Python is a drift, not a fix. `engine/PLAN.md` keeps the
   table of bugs found.
-- **The store (ENG-4, ENG-11):** one copy of the migrations (`ferb/store/migrations`); schemas above 0062 are
+- **The store (ENG-4, ENG-11):** one copy of the migrations (`engine/runtime/store/migrations`); schemas above 0062 are
   allowed since the cutover.
 - **Tests** use temporary folders only: never `~/.ferb`, the Keychain, the real secrets helper, a browser's folders
   or a model provider. Time and ids are injected (TEST-508).
-- **Checks:** from `rust/`: `./gate.sh fmt`, `./gate.sh lint`, `./gate.sh test`, `./gate.sh portable`
-  (the toolchain is pinned in `rust/rust-toolchain.toml`; `. ~/.cargo/env` first).
-- **GitHub's push protection** flags the invented key-shaped values in `rust/fixtures/sanitize`. Never re-encode
+- **Checks:** from `engine/`: `./gate.sh fmt`, `./gate.sh lint`, `./gate.sh test`, `./gate.sh portable`
+  (the toolchain is pinned in `engine/rust-toolchain.toml`; `. ~/.cargo/env` first).
+- **GitHub's push protection** flags the invented key-shaped values in `engine/fixtures/sanitize`. Never re-encode
   or hide fixtures to get past a scanner; allowing them is the owner's choice.
 - **Parallel agents:** one agent per crate or fixture folder, named in its brief, each with its own build folder
-  (`CARGO_TARGET_DIR=rust/target/agents/<crate>`) so builds don't queue. A crate being ported sits in the
+  (`CARGO_TARGET_DIR=engine/target/agents/<crate>`) so builds don't queue. A crate being ported sits in the
   workspace's `exclude` list and is built by its own manifest, so unfinished work never breaks the gate; the
   coordinator moves it to `members` once verified. An agent never commits, and ends with a journal entry listing what is unverified. The
   coordinator runs the whole workspace's checks before committing. Launch every part whose needs are met at once
-  rather than in waves. The shared brief is `rust/AGENT-BRIEF.md`. Subagents run on Opus or below (owner,
+  rather than in waves. The shared brief is `engine/AGENT-BRIEF.md`. Subagents run on Opus or below (owner,
   2026-11-13); the coordinator's own model is kept for a big decision or an independent verification.
 
 ## Development
 
-The engine is Rust (`rust/`, checks above); FERB.app is Swift (`ui/`, below). Release tooling in `scripts/` is zsh with
+The engine is Rust (`engine/`, checks above); FERB.app is Swift (`apps/mac`, below). Release tooling in `scripts/` is zsh with
 a few stdlib Python helpers; its tests: `python3 -I -m unittest discover -s scripts/tests -t .`. Tests guard the
 safety floor and past bugs, and run end to end with stand-in models through the real daemon and gateway. Don't test
 exact prompt text, owner-facing wording or internal wiring. For a change: focused tests, then the gate's checks and
 `git diff --check`.
 
-Debug from evidence with the Rust `ferb` program (`cargo run --manifest-path rust/crates/ferbd/Cargo.toml --bin ferb
+Debug from evidence with the Rust `ferb` program (`cargo run --manifest-path engine/crates/ferbd/Cargo.toml --bin ferb
 --`, or FERB.app's `Contents/Resources/bin/ferb`): `ferb trace TASK --full` / `--json`, `ferb stats`, `ferb doctor`,
 `ferb logs`. Explain changes through concrete behavior and trace evidence. Report checkout validation, installation
 status and the owner's live results separately.
 
-Extension protocol changes update the manifest, `extensions/chromium/protocol.js`, ferb-browser's `protocol.rs` and
-the minimum versions together (`rust/crates/ferb-browser/tests/extension_version.rs` checks them). Upgrading from any
+Extension protocol changes update the manifest, `extension/protocol.js`, ferb-browser's `protocol.rs` and
+the minimum versions together (`engine/crates/ferb-browser/tests/extension_version.rs` checks them). Upgrading from any
 older FERB build must keep working (STORE-403).
 
 ## Knowledge and checks (repo-kb)
@@ -165,9 +169,9 @@ never force-push. The checkout can be shared by parallel agents: never `git stas
 `git diff --cached` before committing.
 
 ## The UI
-`ui/` is the owner's side (often built with Codex); `ui/AGENTS.md` covers it. The app talks to the daemon only through
-its RPCs (methods and roles in `rust/crates/ferb-rpc`); a UI change that needs a new or changed RPC is a
-daemon change, recorded in kb/. `swift test` in `ui/mac/FERBNotch` after
+`apps/` is the owner's side (often built with Codex); `apps/AGENTS.md` covers it. The app talks to the daemon only through
+its RPCs (methods and roles in `engine/crates/ferb-rpc`); a UI change that needs a new or changed RPC is a
+daemon change, recorded in kb/. `swift test` in `apps/mac/FERBNotch` after
 `source scripts/swiftpm-anonymous.sh`; SwiftPM must never use the owner's keychain.
 
 ## Running and building
@@ -183,5 +187,5 @@ daemon change, recorded in kb/. `swift test` in `ui/mac/FERBNotch` after
 - **Signing:** the "FERB Release Signing" certificate (SHA-1 in `scripts/release-cert.sha1`) and the Sparkle update
   key live in the owner's login keychain. Never commit, print or move the private keys: together they could ship a
   fake update to every user.
-- **Rust tests:** `rust/gate.sh test` (`nice -n 10` while the owner works); never two full workspace runs at once.
+- **Rust tests:** `engine/gate.sh test` (`nice -n 10` while the owner works); never two full workspace runs at once.
   Live checks are in `kb/live.toml` and need the owner watching.

@@ -12,7 +12,7 @@
 # release passes its live checks).
 set -euo pipefail
 ROOT="${0:A:h:h}"
-NOTCH="$ROOT/ui/mac/FERBNotch"
+NOTCH="$ROOT/apps/mac/FERBNotch"
 die() { print -u2 "release-appcast.sh: $*"; exit 1 }
 
 TAG=${1:?usage: release-appcast.sh TAG DMG ARCH}
@@ -61,7 +61,7 @@ fi
 [[ "$FEED" == *"/appcast-$ARCH.xml" ]] || die "the app in ${DMG:t} checks '${FEED:-no feed}', not appcast-$ARCH.xml"
 "$ROOT/tools/kb/run" gate release || die "the repo gate refused the release (above)"   # kb/setup.toml release_gate
 SIGN=$(find "$NOTCH/.build/artifacts" -path '*/Sparkle/bin/sign_update' -type f 2>/dev/null | head -1)
-[[ -n "$SIGN" ]] || die "Sparkle's sign_update isn't here yet: swift package --package-path ui/mac/FERBNotch resolve"
+[[ -n "$SIGN" ]] || die "Sparkle's sign_update isn't here yet: swift package --package-path apps/mac/FERBNotch resolve"
 
 # The release checks (scripts/release_checks.py): a bumped, non-development version named by the tag, and the Chrome
 # Web Store already serving an extension this FERB accepts.

@@ -23,9 +23,9 @@ from scripts.tests.support import (BUILD_APP, BUILD_DMG, CRATES, DEV_ID, DEVID_L
                                    executable, fake_app, parts, read_calls, release_env, run, rust_const, sign_only,
                                    signed_paths, stubs, team_requirement)
 
-NOTCH_PLIST = ROOT / "ui" / "mac" / "FERBNotch" / "Info.plist"
+NOTCH_PLIST = ROOT / "apps" / "mac" / "FERBNotch" / "Info.plist"
 # The bundles macOS shows as FERB: the app and its daemon helper (Privacy lists, Activity Monitor)
-BUNDLES = {"FERB.app": NOTCH_PLIST, "Helpers/FERB.app": ROOT / "ui" / "mac" / "FERBAgent" / "Info.plist"}
+BUNDLES = {"FERB.app": NOTCH_PLIST, "Helpers/FERB.app": ROOT / "apps" / "mac" / "FERBAgent" / "Info.plist"}
 APP_ICON = ROOT / "assets" / "logo" / "AppIcon.icns"
 
 
@@ -70,9 +70,9 @@ class Identity(TempCase):
         self.assertEqual({f.name for f in out.iterdir()}, sizes)
 
     def test_the_development_build_keeps_its_own_identity(self) -> None:
-        """`ui/mac/FERBNotch/build.sh` (the owner's dev notch) must not take the packaged app's bundle id, or macOS
+        """`apps/mac/FERBNotch/build.sh` (the owner's dev notch) must not take the packaged app's bundle id, or macOS
         would mix up the two apps' permissions."""
-        script = (ROOT / "ui" / "mac" / "FERBNotch" / "build.sh").read_text()
+        script = (ROOT / "apps" / "mac" / "FERBNotch" / "build.sh").read_text()
         self.assertTrue("dev.ferb.notch" in script and "FERB Notch" in script)
 
     # decision: APP-525, APP-535
@@ -81,7 +81,7 @@ class Identity(TempCase):
         sound lives once, at the package root build-app-rust.sh copies into Contents/Resources, never also in the
         Sounds bundle; the Google Material sounds' CC BY 4.0 credit sits beside them and in both notices the app
         ships."""
-        notch = ROOT / "ui" / "mac" / "FERBNotch"
+        notch = ROOT / "apps" / "mac" / "FERBNotch"
         sounds = notch / "Sources" / "FERBNotch" / "Resources" / "Sounds"
         files = sorted(p.name for p in sounds.iterdir())
         self.assertTrue("CREDITS.md" in files and all(n.endswith(".caf") for n in files if n != "CREDITS.md"))

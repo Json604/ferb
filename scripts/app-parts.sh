@@ -11,7 +11,7 @@ _ferb_bytes() {
 # ferb_arch_names ARCH: the names one architecture goes by (ARCH: arm64 or x86_64; anything else returns 1).
 # FERB_NPM_CPU, FERB_CODEX_NPM: Codex's npm platform package.
 # FERB_CODEX_TRIPLE: its binary's folder. FERB_CODEX_BIN: that binary in FERB.app, relative to Contents
-# (rust/crates/ferb-runtimes/src/codex/mod.rs native_bin names the same file).
+# (engine/crates/ferb-runtimes/src/codex/mod.rs native_bin names the same file).
 ferb_arch_names() {
   case ${1:-} in
     arm64)  FERB_NPM_CPU=arm64; FERB_CODEX_TRIPLE=aarch64-apple-darwin ;;

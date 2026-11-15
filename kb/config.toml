@@ -14,6 +14,16 @@ claude_rules = true
 # them (PROJ-509).
 historical = [{commit = "9d3f84bc1258a824ddcc43e50e8653fdc5f68c96", paths = ["ferb", "tests", "pyproject.toml", "uv.lock", ".python-version", "scripts/build-app.sh", "scripts/codex_standin.py", "scripts/question_run.py", "scripts/question_compare.py", "rust/crates/ferbd/tests/python_client.rs", "rust/crates/ferb-rpc/tests/python_client.rs", "ui/mac/FERBAgent/main.c", "spikes"], why = "ENG-11: the Python daemon left the repo"}]
 
+# Folders that moved (PROJ-510, 2026-11-16): a record keeps the path it was written with; one under `from` that names
+# nothing tracked now is read at its place under `to`, before `historical` (PROJ-511). The longest `from` wins.
+moved = [
+    {from = "rust", to = "engine", why = "PROJ-510: the Rust engine's folder"},
+    {from = "ferb", to = "engine/runtime", why = "PROJ-510: what the Python package left (runtime Markdown, migrations, the helper's source)"},
+    {from = "ui", to = "apps", why = "PROJ-510: FERB.app in apps/mac; the phone apps beside it"},
+    {from = "extensions/chromium", to = "extension", why = "PROJ-510: the unpacked browser extension"},
+    {from = "extensions/store", to = "extension-store", why = "PROJ-512: the extension's store listing, kept out of the unpacked folder"},
+]
+
 [kb.limits]
 # Field length caps, in characters. They are what keeps records from growing into essays.
 # rule = 600

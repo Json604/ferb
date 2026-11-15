@@ -1,5 +1,5 @@
 #!/bin/zsh -f
-# Build FERB.app with the Rust engine (rust/PLAN.md part 13) and sign it once (scripts/signing.sh). No Python inside.
+# Build FERB.app with the Rust engine (engine/PLAN.md part 13) and sign it once (scripts/signing.sh). No Python inside.
 #
 #   scripts/build-app-rust.sh [--arch arm64|x86_64] [OUT_DIR]
 #                                           build OUT_DIR/FERB.app (default build/rust-app-<arch>) for one architecture
@@ -7,12 +7,12 @@
 #                                           ID, by `scripts/sign-app.sh APP` (the signing is shared: signing.sh).
 #
 # The app holds: the notch UI as its main executable (FERBNotch's SwiftPM release build); the agent app FERB
-# (Helpers/FERB.app, bundle id com.ferb.daemon, ui/mac/FERBAgent/Info.plist): its executable is `ferbd`, so macOS names
+# (Helpers/FERB.app, bundle id com.ferb.daemon, apps/mac/FERBAgent/Info.plist): its executable is `ferbd`, so macOS names
 # FERB in permission prompts and its grants attach to it as they did to the C host; `ferbd` runs there only as the
-# daemon, the models' tool bridge and the grant probe (rust/crates/ferbd/src/host.rs); `ferb-native-host` beside it in
+# daemon, the models' tool bridge and the grant probe (engine/crates/ferbd/src/host.rs); `ferb-native-host` beside it in
 # Helpers; the `ferb` program (Resources/bin/ferb) for FERB.app's internal commands; the runtime Markdown the engine
-# reads (Resources/ferb, byte for byte from ferb/); the extension; the pinned Codex (package-lock.json) and Claude
-# Code (rust/packaging/package-lock.json); the pinned secret helper; the local embedding model; the background
+# reads (Resources/ferb, byte for byte from engine/runtime/); the extension; the pinned Codex (package-lock.json) and Claude
+# Code (engine/packaging/package-lock.json); the pinned secret helper; the local embedding model; the background
 # service's definition naming `FERB daemon`. The database migrations and the o200k tokenizer are compiled into ferbd.
 # Pins (version, Codex, Claude Code, embedding model) come from the Rust sources (scripts/rust-parts.sh).
 # Env: SIGN_IDENTITY (default "-", ad hoc; devid or release: scripts/signing.sh); FERB_NOTARIZE=0 with devid signs for
@@ -48,13 +48,13 @@ ferb_check_notary_credentials
 for tool in swift xcrun npm cargo rustup codesign ditto lipo curl shasum python3; do
   command -v $tool >/dev/null || die "needs $tool"
 done
-# rustup picks the toolchain by the working folder: rust/rust-toolchain.toml's pinned one, from rust/
-rustup_here() { (cd "$ROOT/rust" && "$@") }
+# rustup picks the toolchain by the working folder: engine/rust-toolchain.toml's pinned one, from engine/
+rustup_here() { (cd "$ROOT/engine" && "$@") }
 rustup_here rustup target list --installed 2>/dev/null | grep -qx "$FERB_RUST_TARGET" \
   || die "the Rust target $FERB_RUST_TARGET isn't installed: (cd rust && rustup target add $FERB_RUST_TARGET)"
 
 ferb_rust_pins "$ROOT" || die "the Rust sources don't name FERB's pins (above)"
-ferb_model_pin "$ROOT" || die "rust/crates/ferb-memory/src/embeddings.rs doesn't name the embedding model's files"
+ferb_model_pin "$ROOT" || die "engine/crates/ferb-memory/src/embeddings.rs doesn't name the embedding model's files"
 VERSION=$FERB_VERSION
 SHORT_VERSION=${${VERSION%%[a-z]*}%.}
 BUILD=$(date -u +%Y%m%d%H%M)                           # increases with every build; the service records it
@@ -67,7 +67,7 @@ CONTENTS="$APP/Contents"
 plist() { /usr/libexec/PlistBuddy -c "$1" "$2" }
 
 print "==> Notch UI (main executable, $ARCH)"
-NOTCH="$ROOT/ui/mac/FERBNotch"
+NOTCH="$ROOT/apps/mac/FERBNotch"
 SWIFT=(swift build --package-path "$NOTCH" -c release --arch "$ARCH" --scratch-path "$WORK/swift")
 "${SWIFT[@]}" -Xswiftc -file-prefix-map -Xswiftc "$ROOT=."
 NOTCH_BIN=$("${SWIFT[@]}" --show-bin-path)
@@ -83,7 +83,7 @@ NOTCH_RESOURCES="$NOTCH_BIN/FERBNotch_FERBNotch.bundle"
 [[ -d "$NOTCH_RESOURCES/Contents/Resources/Sounds" ]] || die "swift build left no sound family in $NOTCH_RESOURCES"
 ditto "$NOTCH_RESOURCES" "$CONTENTS/Resources/FERBNotch_FERBNotch.bundle"
 diff -rq "$NOTCH/Sources/FERBNotch/Resources/Sounds" "$CONTENTS/Resources/FERBNotch_FERBNotch.bundle/Contents/Resources/Sounds" \
-  || die "the app's sounds differ from ui/mac/FERBNotch/Sources/FERBNotch/Resources/Sounds (rm -rf $WORK/swift and build again)"
+  || die "the app's sounds differ from apps/mac/FERBNotch/Sources/FERBNotch/Resources/Sounds (rm -rf $WORK/swift and build again)"
 cp "$NOTCH/ferb-notification-banner.caf" "$CONTENTS/Resources/ferb-notification-banner.caf"
 ICON="$ROOT/assets/logo/AppIcon.icns"
 cp "$ICON" "$CONTENTS/Resources/AppIcon.icns"
@@ -122,13 +122,13 @@ CARGO_DIR=${CARGO_HOME:-$HOME/.cargo}
 RUSTFLAGS="--remap-path-prefix=$ROOT=. --remap-path-prefix=$CARGO_DIR=/cargo --remap-path-prefix=$WORK=/build"
 # The oldest macOS FERB.app runs on (the agent's LSMinimumSystemVersion, as the C host was built): without it an Intel
 # build targets 10.12 and links Swift's back-deployment libraries by @rpath, which dyld can't find
-MACOSX_DEPLOYMENT_TARGET=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$ROOT/ui/mac/FERBAgent/Info.plist")
+MACOSX_DEPLOYMENT_TARGET=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$ROOT/apps/mac/FERBAgent/Info.plist")
 export RUSTFLAGS CARGO_TARGET_DIR="$WORK/cargo" MACOSX_DEPLOYMENT_TARGET
 # ferbd is a workspace member: the workspace's Cargo.lock locks it and ferb-native-host alike
-[[ -f "$ROOT/rust/Cargo.lock" ]] || die "rust/Cargo.lock is missing: a release builds only locked dependencies"
+[[ -f "$ROOT/engine/Cargo.lock" ]] || die "engine/Cargo.lock is missing: a release builds only locked dependencies"
 rustup_here cargo build --release --locked --target "$FERB_RUST_TARGET" \
-  --manifest-path "$ROOT/rust/crates/ferbd/Cargo.toml" --bin ferbd --bin ferb
-rustup_here cargo build --release --locked --target "$FERB_RUST_TARGET" --manifest-path "$ROOT/rust/Cargo.toml" \
+  --manifest-path "$ROOT/engine/crates/ferbd/Cargo.toml" --bin ferbd --bin ferb
+rustup_here cargo build --release --locked --target "$FERB_RUST_TARGET" --manifest-path "$ROOT/engine/Cargo.toml" \
   -p ferb-native-host
 print "    $(rustup_here rustc --version)"
 BUILT="$WORK/cargo/$FERB_RUST_TARGET/release"
@@ -141,7 +141,7 @@ done
 print "==> FERB agent app (runs the daemon: ferbd as com.ferb.daemon's executable)"
 AGENT="$CONTENTS/Helpers/FERB.app"
 mkdir -p "$AGENT/Contents/MacOS" "$AGENT/Contents/Resources"
-cp "$ROOT/ui/mac/FERBAgent/Info.plist" "$AGENT/Contents/Info.plist"     # the same id and usage descriptions
+cp "$ROOT/apps/mac/FERBAgent/Info.plist" "$AGENT/Contents/Info.plist"     # the same id and usage descriptions
 cp "$ICON" "$AGENT/Contents/Resources/AppIcon.icns"
 plist "Set :CFBundleShortVersionString $SHORT_VERSION" "$AGENT/Contents/Info.plist"
 plist "Set :CFBundleVersion $BUILD" "$AGENT/Contents/Info.plist"
@@ -153,7 +153,7 @@ chmod 755 "$CONTENTS/$FERB_RUST_AGENT" "$CONTENTS/$FERB_RUST_NATIVE_HOST" "$CONT
 print "==> Background service definition (FERB daemon; for SMAppService with a Developer ID, DMN-587)"
 SERVICE="$CONTENTS/Library/LaunchAgents/com.ferb.daemon.plist"     # ferb-device install.rs BUNDLE_SERVICE
 mkdir -p "${SERVICE:h}"
-cp "$ROOT/ui/mac/FERBAgent/com.ferb.daemon.plist" "$SERVICE"
+cp "$ROOT/apps/mac/FERBAgent/com.ferb.daemon.plist" "$SERVICE"
 plist "Set :EnvironmentVariables:FERB_APP_BUILD $BUILD" "$SERVICE"
 plist "Delete :ProgramArguments" "$SERVICE"
 plist "Add :ProgramArguments array" "$SERVICE"
@@ -161,20 +161,20 @@ plist "Add :ProgramArguments:0 string FERB" "$SERVICE"
 plist "Add :ProgramArguments:1 string daemon" "$SERVICE"                # ferb-device RUST_DAEMON_ARG
 plutil -lint "$SERVICE" >/dev/null || die "the service definition isn't a valid plist"
 
-print "==> Runtime Markdown (ferb/, byte for byte) and the extension"
+print "==> Runtime Markdown (engine/runtime/, byte for byte) and the extension"
 PACKAGE="$CONTENTS/$FERB_RUST_PACKAGE"
 MARKDOWN=(${(f)"$(ferb_rust_runtime_markdown "$ROOT")"})
-(( ${#MARKDOWN} > 0 )) || die "no runtime Markdown under $ROOT/ferb"
+(( ${#MARKDOWN} > 0 )) || die "no runtime Markdown under $ROOT/engine/runtime"
 for rel in $MARKDOWN; do
   mkdir -p "$PACKAGE/${rel:h}"
-  cp "$ROOT/ferb/$rel" "$PACKAGE/$rel"
-  cmp -s "$ROOT/ferb/$rel" "$PACKAGE/$rel" || die "ferb/$rel changed on its way into the app"
+  cp "$ROOT/engine/runtime/$rel" "$PACKAGE/$rel"
+  cmp -s "$ROOT/engine/runtime/$rel" "$PACKAGE/$rel" || die "engine/runtime/$rel changed on its way into the app"
 done
 [[ -f "$PACKAGE/orchestrator/prompts/supervisor.md" && -f "$PACKAGE/memory/profile.md" ]] \
   || die "the runtime Markdown is incomplete in $PACKAGE"
 EXT="$CONTENTS/$FERB_RUST_EXTENSION"
 mkdir -p "${EXT:h}"
-ditto "$ROOT/extensions/chromium" "$EXT"
+ditto "$ROOT/extension" "$EXT"
 find "$EXT" -name .DS_Store -delete
 [[ -f "$EXT/manifest.json" && -f "$EXT/background.js" ]] || die "the extension is incomplete in $EXT"
 
@@ -207,15 +207,15 @@ got=$("$CODEX_PKG/vendor/$FERB_CODEX_TRIPLE/bin/codex" --version | awk '{ print 
 mkdir -p "$CONTENTS/Resources/node/node_modules/@openai"
 ditto "$CODEX_PKG" "$CONTENTS/Resources/node/node_modules/@openai/$FERB_CODEX_NPM"
 
-print "==> Claude Code $FERB_CLAUDE_VERSION for $ARCH (pinned in rust/packaging/package-lock.json)"
+print "==> Claude Code $FERB_CLAUDE_VERSION for $ARCH (pinned in engine/packaging/package-lock.json)"
 mkdir -p "$WORK/claude-node"
-cp "$ROOT/rust/packaging/package.json" "$ROOT/rust/packaging/package-lock.json" "$WORK/claude-node/"
+cp "$ROOT/engine/packaging/package.json" "$ROOT/engine/packaging/package-lock.json" "$WORK/claude-node/"
 (cd "$WORK/claude-node" && npm ci --ignore-scripts --no-audit --no-fund --loglevel=error --os=darwin --cpu="$FERB_NPM_CPU")
 CLAUDE_PKG="$WORK/claude-node/node_modules/@anthropic-ai/$FERB_CLAUDE_NPM"
 [[ -x "$CLAUDE_PKG/claude" ]] || die "npm installed no $FERB_CLAUDE_NPM"
 # ferbd checks the same at its first use of Claude (compose/runtimes.rs checked_claude): an empty environment
 got=$(env -i PATH=/usr/bin:/bin "$CLAUDE_PKG/claude" --version | awk '{ print $1 }')
-[[ "$got" == "$FERB_CLAUDE_VERSION" ]] || die "rust/packaging/package-lock.json has Claude Code $got, ferb-runtimes pins $FERB_CLAUDE_VERSION"
+[[ "$got" == "$FERB_CLAUDE_VERSION" ]] || die "engine/packaging/package-lock.json has Claude Code $got, ferb-runtimes pins $FERB_CLAUDE_VERSION"
 mkdir -p "$CONTENTS/Resources/node/node_modules/@anthropic-ai"
 ditto "$CLAUDE_PKG" "$CONTENTS/Resources/node/node_modules/@anthropic-ai/$FERB_CLAUDE_NPM"
 

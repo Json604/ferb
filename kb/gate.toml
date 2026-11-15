@@ -48,60 +48,61 @@ builtin = "local_ignored"
 name = "migrations are append-only"
 level = "commit"
 builtin = "append_only"
-args = { globs = ["ferb/store/migrations/**"] }
+args = { globs = ["engine/runtime/store/migrations/**"] }
 
 [[check]]
-name = "kb tool tests (historical paths)"     # ~3 s: throwaway git repositories (PROJ-509)
+name = "kb tool tests (historical and moved paths)"   # ~5 s: throwaway git repositories (PROJ-509, PROJ-511)
 level = "commit"
 # kb.py needs Python 3.11+ (tomllib), as tools/kb/run picks it
-run = "for p in python3.14 python3.13 python3.12 python3.11 python3; do command -v $p >/dev/null && $p -c 'import tomllib' 2>/dev/null && exec $p -I -B tools/kb/test_kb_historical.py; done; echo 'needs Python 3.11 or newer' >&2; exit 1"
+run = "for p in python3.14 python3.13 python3.12 python3.11 python3; do command -v $p >/dev/null && $p -c 'import tomllib' 2>/dev/null && { $p -I -B tools/kb/test_kb_historical.py || exit 1; exec $p -I -B tools/kb/test_kb_moved.py; }; done; echo 'needs Python 3.11 or newer' >&2; exit 1"
 when = ["tools/kb/**", "kb/config.toml"]
 
 [[check]]
 name = "release tooling tests (scripts/tests)" # ~10-20 s: stdlib unittest, stubs for every signing tool (REL-426)
 level = "push"
 run = "/usr/bin/python3 -I -m unittest discover -s scripts/tests -t ."
-when = ["scripts/**", "assets/**", "THIRD_PARTY_NOTICES.md", "package.json", "package-lock.json", "rust/packaging/**",
-        "rust/Cargo.toml", "rust/crates/ferbd/src/**", "rust/crates/ferb-runtimes/src/**",
-        "rust/crates/ferb-browser/src/**", "rust/crates/ferb-memory/src/embeddings.rs",
-        "rust/crates/ferb-device/src/install.rs", "extensions/chromium/manifest.json", "ui/mac/FERBNotch/Info.plist",
-        "ui/mac/FERBAgent/**", "ferb/**/*.md"]
+when = ["scripts/**", "assets/**", "THIRD_PARTY_NOTICES.md", "package.json", "package-lock.json", "engine/packaging/**",
+        "engine/Cargo.toml", "engine/crates/ferbd/src/**", "engine/crates/ferb-runtimes/src/**",
+        "engine/crates/ferb-browser/src/**", "engine/crates/ferb-memory/src/embeddings.rs",
+        "engine/crates/ferb-device/src/install.rs", "extension/manifest.json", "apps/mac/FERBNotch/Info.plist",
+        "apps/mac/FERBAgent/**", "engine/runtime/**/*.md"]
 timeout = 600
 
 [[check]]
 name = "Swift tests (FERB.app)"              # ~20 s warm, minutes cold
 level = "push"
 run = "scripts/swift-test-gate.sh"   # names the failing tests last, where the gate shows them
-when = ["ui/mac/FERBNotch/**"]
+when = ["apps/mac/FERBNotch/**"]
 timeout = 1800
 
 # --- Rust engine (area `engine`, ENG-1): when the engine or what it reads changes ---
 [[check]]
 name = "Rust format"                         # under 1 s
 level = "commit"
-run = "rust/gate.sh fmt"
-when = ["rust/**"]
+run = "engine/gate.sh fmt"
+when = ["engine/**"]
 
 [[check]]
 name = "Rust lint (clippy, warnings refused)"
 level = "push"
-run = "rust/gate.sh lint"
-when = ["rust/**"]
+run = "engine/gate.sh lint"
+when = ["engine/**"]
 timeout = 1800
 
 [[check]]
 name = "Rust foundation builds for iOS and Android"   # ENG-5: the engine crates, without the Mac platform crate
 level = "push"
-run = "rust/gate.sh portable"
-when = ["rust/**"]
+run = "engine/gate.sh portable"
+when = ["engine/**"]
 timeout = 1800
 
 [[check]]
 name = "Rust tests"
 level = "push"
-run = "rust/gate.sh test"
-# ferb/: the runtime Markdown and migrations the engine reads; extensions/: ferb-browser tests/extension_version.rs
-when = ["rust/**", "ferb/**", "extensions/**"]
+run = "engine/gate.sh test"
+# engine/runtime/ (inside engine/): the runtime Markdown and migrations the engine reads; extension/: ferb-browser
+# tests/extension_version.rs and extension_background.rs
+when = ["engine/**", "extension/**"]
 timeout = 1800
 
 [[check]]

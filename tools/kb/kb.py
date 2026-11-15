@@ -57,6 +57,9 @@ DEFAULT_CONFIG: dict = {
     # Paths removed from the repository, read as history: [{commit, paths, why}]. A record's path that names nothing
     # tracked now but files under those paths at that commit is checked there (path_exists).
     "historical": [],
+    # Folders that moved in the repository: [{from, to, why}]. A record's path under `from` that names nothing tracked
+    # now is read at its place under `to` (the longest `from` wins), before `historical` (PROJ-511).
+    "moved": [],
     "limits":{"title": 100, "words": 600, "rule": 600, "why": 300, "evidence": 300, "purpose": 500,
                "meaning": 300, "ask": 400, "request": 500, "pass": 500, "result": 200, "waiver": 300,
                "untestable": 300, "words_source": 200, "legacy": 160, "surface": 200, "list_item": 200},
@@ -180,6 +183,7 @@ class KB:
         self._history: dict[str, list[str]] = {}
         self._history_sets: dict[str, set[str]] = {}
         self._text_at: dict[str, str | None] = {}
+        self._moves: list[tuple[str, str]] | None = None
         self._load()
 
     # loading ----------------------------------------------------------
@@ -335,6 +339,13 @@ class KB:
         why = self._exists_in(self.files(), self._tracked, base, sym, lambda f: None)
         if why is None or why.startswith(("has no symbol", "names a folder")):
             return why
+        new = self.moved(base)
+        if new is not None:
+            now = self._exists_in(self.files(), self._tracked, new, sym, lambda f: None)
+            if now is None:
+                return None
+            if now.startswith(("has no symbol", "names a folder")):
+                return f"{now} (at its new place {new}, kb/config.toml moved)"
         for h in self.historical():
             commit = h["commit"]
             files = self.history_files(h)
@@ -353,11 +364,59 @@ class KB:
             self._tracked = set(self.files())
         if self._exists_in(self.files(), self._tracked, base, "", lambda f: None) is None:
             return None
+        if self.moved_to(base):
+            return None
         for h in self.historical():
             files = self.history_files(h)
             if self._exists_in(files, self.history_set(h), base, "", lambda f: None) is None:
                 return h["commit"]
         return None
+
+    # moves: folders that moved in the repository (kb/config.toml `moved`) ---------------------
+    def moves(self) -> list[tuple[str, str]]:
+        """The well-formed `moved` entries as (from, to), longest `from` first; check() reports the others."""
+        if self._moves is None:
+            raw = self.cfg.get("moved")
+            out = []
+            for m in raw if isinstance(raw, list) else []:
+                if isinstance(m, dict) and isinstance(m.get("from"), str) and isinstance(m.get("to"), str):
+                    a, b = _clean_move(m["from"]), _clean_move(m["to"])
+                    if a and b and a != b and not GLOB_CHARS & set(a + b):
+                        out.append((a, b))
+            self._moves = sorted(out, key=lambda x: (-len(x[0]), x[0]))
+        return self._moves
+
+    def moved(self, entry: str) -> str | None:
+        """`entry` (a file, folder or glob, `::symbol` kept) written at its new place, through the longest `moved` `from`
+        it is or lies under; None when no entry covers it. Says nothing about whether the new place exists."""
+        base, sep, sym = entry.partition("::")
+        b = base.strip().removeprefix("./")
+        for a, to in self.moves():
+            if b == a or b.startswith(a + "/"):
+                return to + b[len(a):] + sep + sym
+        return None
+
+    def moved_to(self, entry: str) -> str | None:
+        """The new place of a path that names nothing tracked now as written but does through `moved`; else None."""
+        base = entry.split("::", 1)[0].strip().removeprefix("./")
+        new = self.moved(base)
+        if new is None:
+            return None
+        if self._tracked is None:
+            self._tracked = set(self.files())
+        if self._exists_in(self.files(), self._tracked, base, "", lambda f: None) is None:
+            return None
+        return new if self._exists_in(self.files(), self._tracked, new, "", lambda f: None) is None else None
+
+    def entry_matches(self, entry: str, path: str) -> bool:
+        """A record's `paths` entry against a file of the current tree: as written, or at its place through `moved`."""
+        if path_matches(entry, path):
+            return True
+        new = self.moved(entry)
+        return new is not None and path_matches(new, path)
+
+    def entries_match(self, entries: list[str], path: str) -> bool:
+        return any(self.entry_matches(e, path) for e in entries)
 
     # history: paths removed from the repository (kb/config.toml `historical`) ---------------
     def historical(self) -> list[dict]:
@@ -399,10 +458,10 @@ class KB:
         return out
 
     def areas_of(self, f: str) -> list[str]:
-        return [k for k, a in self.areas.items() if any_match(list(a.get("paths", [])), f)]
+        return [k for k, a in self.areas.items() if self.entries_match(list(a.get("paths", [])), f)]
 
     def governing(self, f: str, active_only: bool = True) -> list[str]:
-        ids = {k for k, d in self.decisions.items() if any_match(list(d.get("paths", [])), f)}
+        ids = {k for k, d in self.decisions.items() if self.entries_match(list(d.get("paths", [])), f)}
         ids |= {t.id for t in self.tags() if t.file == f and not t.test}
         ids &= set(self.decisions)
         if active_only:
@@ -471,9 +530,58 @@ class KB:
                 out.append(f"{where}: `why` is required")
         return out
 
+    def _moved_problems(self) -> list[str]:
+        raw = self.cfg.get("moved")
+        if not isinstance(raw, list):
+            return ["kb/config.toml: `moved` must be a list of {from, to, why} tables"]
+        out, seen = [], {}
+        good: list[tuple[int, str, str]] = []
+        for i, m in enumerate(raw):
+            where = f"kb/config.toml: moved[{i}]"
+            if not isinstance(m, dict):
+                out.append(f"{where} must be a table {{from, to, why}}")
+                continue
+            extra = sorted(set(m) - {"from", "to", "why"})
+            if extra:
+                out.append(f"{where}: unknown keys {extra} (allowed: from, to, why)")
+            if "why" in m and not (isinstance(m["why"], str) and m["why"].strip()):
+                out.append(f"{where}: `why`, when given, is text")
+            ends = {}
+            for k in ("from", "to"):
+                v = m.get(k)
+                if not (isinstance(v, str) and _clean_move(v)):
+                    out.append(f"{where}: `{k}` is required (a folder or file path)")
+                elif GLOB_CHARS & set(v):
+                    out.append(f"{where}: `{k}` = {v!r} is a glob; name a folder or a file")
+                else:
+                    ends[k] = _clean_move(v)
+            if len(ends) < 2:
+                continue
+            a, b = ends["from"], ends["to"]
+            if a == b:
+                out.append(f"{where}: `from` and `to` are the same path {a!r}")
+                continue
+            if a in seen:
+                out.append(f"{where}: `from` {a!r} is also moved[{seen[a]}]")
+                continue
+            seen[a] = i
+            good.append((i, a, b))
+        if self._tracked is None:
+            self._tracked = set(self.files())
+        for i, a, b in good:
+            where = f"kb/config.toml: moved[{i}]"
+            if self._exists_in(self.files(), self._tracked, b, "", lambda f: None) is not None:
+                out.append(f"{where}: `to` {b!r} names nothing tracked now")
+            for j, a2, _ in good:
+                if b == a2 or b.startswith(a2 + "/"):
+                    out.append(f"{where}: `to` {b!r} moves again by moved[{j}] (from {a2!r}): a chain or a cycle; "
+                               f"write each folder's final place")
+        return out
+
     def check(self) -> list[str]:
         e = list(self.errors)
         e += self._historical_problems()
+        e += self._moved_problems()
         lim = self.cfg["limits"]
         tp, lp = self.cfg["task_prefix"], self.cfg["live_prefix"]
         roles_owner, roles_agent = set(self.cfg["owner_roles"]), set(self.cfg["agent_roles"])
@@ -773,6 +881,7 @@ class KB:
             globs = []
             for p in a.get("paths", []):
                 p = p.split("::", 1)[0]
+                p = self.moved_to(p) or p          # Claude Code loads the rules for the files where they are now
                 globs.append(p if GLOB_CHARS & set(p) or "." in Path(p).name else p.rstrip("/") + "/**")
             body = ["---", "paths:"] + [f'  - "{g}"' for g in globs] + ["---", f"<!-- {GENERATED} -->", "",
                     f"# {a.get('title', k)} (area `{k}`)", "", a.get("purpose", ""), "",
@@ -815,6 +924,11 @@ class KB:
             tests.setdefault(t.id, []).append({"file": t.file, "line": t.line, "test": t.test})
         return {"areas": clean(self.areas), "decisions": clean(self.decisions), "tasks": clean(self.tasks),
                 "live": clean(self.live), "glossary": clean(self.glossary), "tags": tests}
+
+
+def _clean_move(p: str) -> str:
+    """A `moved` end as a repository path: no leading ./, no slashes at either end."""
+    return p.strip().removeprefix("./").strip("/")
 
 
 def id_key(i: str):
@@ -984,6 +1098,9 @@ def print_record(kb: KB, ident: str):
             print(f"  {k}: {', '.join(v) if isinstance(v, list) else as_text(v)}")
     if kind == "decision":
         for p in rec.get("paths") or []:
+            now = kb.moved_to(p)
+            if now:
+                print(f"  moved path: {p} (now {now}, kb/config.toml moved)")
             gone = kb.removed_at(p)
             if gone:
                 print(f"  removed path: {p} (read at {gone[:12]}, kb/config.toml historical)")
@@ -1029,8 +1146,12 @@ def cmd_show(kb: KB, target: str):
         return
     p = Path(target)
     rel = kb.rel(p.resolve()) if p.exists() else target.removeprefix("./")
-    areas = kb.areas_of(rel)
     print(f"{rel}")
+    now = kb.moved_to(rel)
+    if now:
+        print(f"  moved: now {now} (kb/config.toml moved); what follows is for {now}")
+        rel = now
+    areas = kb.areas_of(rel)
     gone = kb.removed_at(rel)
     if gone:
         print(f"  removed from the repository; read at {gone[:12]} (kb/config.toml historical)")
@@ -1144,7 +1265,7 @@ def cmd_audit(kb: KB, area: str):
         print(f"rule: {d.get('rule')}")
         if d.get("words"):
             print(f"owner's words: {d.get('words')}")
-        gov = [f for f in kb.files() if any_match(list(d.get("paths", [])), f)]
+        gov = [f for f in kb.files() if kb.entries_match(list(d.get("paths", [])), f)]
         print(f"governs: {', '.join(gov[:30]) or '(no paths)'}{' ...' if len(gov) > 30 else ''}")
         for t in kb.tests_for(i):
             print(f"test: {t.file}:{t.line}")

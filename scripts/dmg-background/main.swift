@@ -1,7 +1,7 @@
 // The disk image's background (REL-409): a still frame of FERB's startup field (Gravity — Dense, APP-612) drawn by
 // the app's own StartupStudyField around where FERB's icon sits, as the logo sits in the startup, with the window's
 // words in the system font as FERB.app sets them. scripts/make_dmg_background.py compiles this file together with
-// ui/mac/FERBNotch/Sources/FERBNotch/StartupStudies.swift and GravityDenseStudy.swift; never a hand-drawn imitation.
+// apps/mac/FERBNotch/Sources/FERBNotch/StartupStudies.swift and GravityDenseStudy.swift; never a hand-drawn imitation.
 //
 //   render SPEC.json OUT_PREFIX     writes OUT_PREFIX.png (1x) and OUT_PREFIX@2x.png from scripts/dmg_layout.py's spec
 import AppKit

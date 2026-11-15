@@ -1,34 +1,36 @@
 # Areas: every tracked file belongs to exactly one (kb check). Decisions of an area live in kb/decisions/<id>.toml
 # and are named <prefix>-<number>. Proposed by the agent from the folders and the old notes/ areas, 2026-11-02.
+# Paths name today's folders; a path under a folder that moved (kb/config.toml `moved`) or was removed (`historical`)
+# is read at its new place or at that commit (PROJ-509, PROJ-511).
 
 [app]
 title = "FERB.app (notch UI, intro, sounds)"
 prefix = "APP"
-paths = ["ui", "demo"]
+paths = ["apps", "demo"]
 purpose = "The Mac app the owner uses: notch, chat, settings, setup intro, orb, sounds, preview window, playground. The owner's side; talks to the daemon only through its RPC."
 
 [memory]
 title = "Memory and memory import"
 prefix = "MEM"
-paths = ["ferb/memory"]
+paths = ["engine/runtime/memory"]
 purpose = "What FERB remembers about the owner, how it is recalled within limits, and importing memory from other assistants."
 
 [orchestration]
 title = "Orchestration"
 prefix = "ORCH"
-paths = ["ferb/orchestrator/*.py", "ferb/decide", "ferb/clock"]
+paths = ["ferb/orchestrator/*.py", "engine/runtime/decide", "ferb/clock"]
 purpose = "Planner and workers, task lifecycle, questions, pause/stop, schedules, reminders, loops and continuity between turns."
 
 [prompts]
 title = "Prompts and abilities"
 prefix = "PRM"
-paths = ["ferb/orchestrator/prompts", "ferb/abilities"]
+paths = ["engine/runtime/orchestrator/prompts", "engine/runtime/abilities"]
 purpose = "Runtime Markdown the models read (prompts, abilities). Executable input, not documentation."
 
 [gateway]
 title = "Gateway and safety"
 prefix = "GATE"
-paths = ["ferb/policy", "ferb/sanitize", "ferb/identity"]
+paths = ["ferb/policy", "ferb/sanitize", "engine/runtime/identity"]
 purpose = "Boundaries code enforces: confirmations, protection lists, terminal typing, redaction, secrets and the sealed fill path, owner identity."
 
 [runtimes]
@@ -40,7 +42,7 @@ purpose = "Codex, Claude Agent SDK and API adapters behind one interface; pinned
 [hands]
 title = "Hands (browser and Mac control)"
 prefix = "HAND"
-paths = ["ferb/act", "ferb/native_host", "extensions"]
+paths = ["ferb/act", "ferb/native_host", "extension", "extension-store"]
 purpose = "Acting on the Mac and in browsers in the background: the extension, its protocol and store listing, native host, Mac input, downloads, tab groups."
 
 [perception]
@@ -64,7 +66,7 @@ purpose = "The background service, its RPC areas, setup/install/update commands,
 [storage]
 title = "Storage"
 prefix = "STORE"
-paths = ["ferb/store"]
+paths = ["engine/runtime/store"]
 purpose = "The database, migrations, retention and upgrades from any older build."
 
 [release]
@@ -88,5 +90,5 @@ purpose = "Docs, licences, agent instructions, this kb registry and gate, and hi
 [engine]
 title = "Rust engine (the rewrite)"
 prefix = "ENG"
-paths = ["rust"]
-purpose = "The Rust replacement of the Python daemon, built beside it on branch rust: workspace, crates, fixtures taken from the Python build, and the work journal (rust/JOURNAL.md). A ported behavior keeps its original decision IDs; ENG decisions cover the rewrite itself."
+paths = ["engine/*", "engine/crates", "engine/fixtures", "engine/packaging"]
+purpose = "The Rust replacement of the Python daemon, built beside it on branch rust: workspace, crates, fixtures taken from the Python build, and the work journal (engine/JOURNAL.md). A ported behavior keeps its original decision IDs; ENG decisions cover the rewrite itself."

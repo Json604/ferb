@@ -18,15 +18,15 @@ Apple's documents or a live run. Line numbers are from `20386b7b` on `ui/ux`.
 | config `[hearing] requirement` / `[voice] requirement` (`ferb/cli/setup.py:1080-1090`, read `ferb/daemon/areas/voice.py:52-54`, checked `ferb/sense/transcribe.py:107-109`) | FERB.app's DR from `Installer.own_requirement` (`install.py:698-707`, DMN-400) | re-pinned by the same update; `trusted_requirement` accepts any DR containing `certificate leaf` (`install.py:125-130`), so the team DR passes |
 | `ferb/daemon/app_peer.py:142-153` (APP_ONLY peers) | no stored pin: the DR is read again from the bundle whenever its signature stamp changes (`:177-189`) | unaffected. **DMN-34/T-9 (open)** would add a pin to the release leaf, which needs an owner decision (§7) |
 | macOS TCC (8 services: Accessibility, AllFiles, ScreenCapture, ListenEvent, Microphone, SpeechRecognition, Pasteboard, Automation) | each grant stores the client's DR as `csreq` | old grants don't match the new DR, so everything is granted once more (step 6) |
-| Login keychain items the **helper** created (`ferb/identity/secret_helper.swift:17-28`: services `ferb`, `ferb.owner-secrets`) | partition list `cdhash:<helper hash>` (REL-404 why) | one prompt per item, then `teamid:<TEAMID>` holds across builds (step 5) |
-| Keychain items written through `/usr/bin/security` (API keys `ui/mac/.../SetupServices.swift:264-290`, `ferb/runtimes/keys.py`, `ferb/identity/secrets.py`; Claude Code's own item `ferb/runtimes/claude_login.py:8`) | trusted to Apple's `security` tool, not FERB's signer | unaffected (inferred from the ACL owner; worth checking in the live run) |
+| Login keychain items the **helper** created (`engine/runtime/identity/secret_helper.swift:17-28`: services `ferb`, `ferb.owner-secrets`) | partition list `cdhash:<helper hash>` (REL-404 why) | one prompt per item, then `teamid:<TEAMID>` holds across builds (step 5) |
+| Keychain items written through `/usr/bin/security` (API keys `apps/mac/.../SetupServices.swift:264-290`, `ferb/runtimes/keys.py`, `ferb/identity/secrets.py`; Claude Code's own item `ferb/runtimes/claude_login.py:8`) | trusted to Apple's `security` tool, not FERB's signer | unaffected (inferred from the ACL owner; worth checking in the live run) |
 | Background service: SMAppService plus APP-599 (`SetupModel.swift:255-258`), and after T-29 a user LaunchAgent | without a team, the launch constraint (LWCR) names one exact build (DMN-513 why) | becomes team-based; SMAppService comes back (DMN-513 rule; step 7) |
 | Login item: `SMAppService.mainApp`, with the fallback LaunchAgent `com.ferb.FERB.login` (`LoginItemController.swift:25-46,96-110`; `LoginItemPlan.swift`) | fallback used when macOS refuses the self-signed login item | the fallback can go, but Macs that have it need moving (step 8) |
-| Sparkle 2.10.0 (`ui/mac/FERBNotch/Package.swift:10`), EdDSA key `scripts/sparkle-public-key.txt`, `build-app.sh:109-124` | `signing.sh:11` and `NotchCore/UpdatePlan.swift:4` say updates pass a "same-certificate check" | **wrong for Sparkle 2**: EdDSA alone is enough (§1). Fix the comments |
+| Sparkle 2.10.0 (`apps/mac/FERBNotch/Package.swift:10`), EdDSA key `scripts/sparkle-public-key.txt`, `build-app.sh:109-124` | `signing.sh:11` and `NotchCore/UpdatePlan.swift:4` say updates pass a "same-certificate check" | **wrong for Sparkle 2**: EdDSA alone is enough (§1). Fix the comments |
 | `build-dmg.sh:17,40-43`, `README.md:22,150`, site (T-28) | "Open Anyway" first-open instructions | notarized: the normal "downloaded from the Internet" prompt |
 | APP-601 `NotchCore/OwnQuarantine.swift` | strips quarantine because nested code ran outside the Open Anyway approval | not needed for notarized builds (the ticket covers the nested code hashes) (inferred) |
 | REL-404 `assets/secret-helper/*`, `scripts/secret_helper.py`, `build-app.sh:213-218`, `tests/test_secret_helper_pin.py` | fixed helper bytes so its cdhash survives releases | removable once team partitions are proven (step 5) |
-| `extensions/`, `relay/`, the native-messaging manifests | no signature dependency found (grep for codesign/requirement/certificate) | none |
+| `extension/`, `extension-store/`, `relay/`, the native-messaging manifests | no signature dependency found (grep for codesign/requirement/certificate) | none |
 
 ## 1. Sparkle: does an installed self-signed build accept a Developer ID update? Yes.
 
@@ -161,7 +161,7 @@ the signed app, nothing can edit it (rule 6) and deleting the app removes it.
   with `launchctl print gui/$UID/com.ferb.daemon` across two Developer ID builds).
 - **Move from T-29's LaunchAgent** (the first Developer ID build's setup): bring back the parts of DMN-2 that T-29
   removes (as of `20386b7b`: `Installer.retire_legacy_agent` `install.py:495-504`, `BUNDLE_SERVICE` `:58`,
-  `build-app.sh:180-185`, `ui/mac/FERBAgent/com.ferb.daemon.plist`, `SetupServices.swift:57-82`, `AppSetupPlan.decide`).
+  `build-app.sh:180-185`, `apps/mac/FERBAgent/com.ferb.daemon.plist`, `SetupServices.swift:57-82`, `AppSetupPlan.decide`).
   The order is: bootout `gui/$UID/com.ferb.daemon`, wait for exit (`_check_exited`), delete the plist, `register()`, wait
   for `ping`. The same label can't be loaded twice (`install.py:496-498`).
 - **Fallback, no lockout:** if `register()` throws, or the status stays `.notRegistered`, write the LaunchAgent again with

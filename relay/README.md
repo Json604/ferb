@@ -67,7 +67,7 @@ npx wrangler secret put GITHUB_TOKEN  # paste the fine-grained token (Issues and
 ```
 
 FERB's address for it is `https://ferb-reports.<your-subdomain>.workers.dev`: it goes into
-`rust/crates/ferb-daemon/src/areas_b/reports.rs` as `RELAY_URL` (a config `[feedback] relay_url` overrides it on one
+`engine/crates/ferb-daemon/src/areas_b/reports.rs` as `RELAY_URL` (a config `[feedback] relay_url` overrides it on one
 Mac; an address ending in `/report`, as the first relay used, works too).
 
 ## Test with two requests

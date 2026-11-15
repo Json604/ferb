@@ -5,7 +5,7 @@
 . scripts/swiftpm-anonymous.sh
 log=$(mktemp -t ferb-swift-test) || exit 1
 trap 'rm -f "$log"' EXIT
-swift test --package-path ui/mac/FERBNotch >"$log" 2>&1
+swift test --package-path apps/mac/FERBNotch >"$log" 2>&1
 result=$?
 cat "$log"
 if (( result != 0 )); then

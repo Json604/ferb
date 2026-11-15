@@ -813,3 +813,12 @@ area = "hands"
 kind = "build"
 status = "open"
 why = "Owner 2026-11-15: 'this is to be tested separetly with real tests with a new agent … the best methods we can use to kepe ferb performing in bg'. A fresh agent measures on real apps how input reaches a non-front app, then proposes. Needs a time the owner's Mac is free."
+
+[T-1115]
+title = "AGENTS.md rule 13 still names ui/ for the Mac app, which is apps/mac since PROJ-510"
+area = "project"
+kind = "question"
+status = "open"
+why = "PROJ-510 moved ui/ to apps/. The owner's rules 1-18 are kept word for word, so rule 13's two `ui/` mentions were left as written."
+decisions = ["PROJ-510"]
+ask = "AGENTS.md rule 13 says \"The Mac app (`ui/`, FERB.app) is the product\" and \"`ui/` is the owner's side\". The app now lives in apps/mac (apps/ also holds the phone apps). May rule 13 say `apps/mac` and `apps/` there, with nothing else changed?"

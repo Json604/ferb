@@ -1,4 +1,4 @@
-"""FERB.app with the Rust engine (rust/PLAN.md part 13; scripts/build-app-rust.sh and scripts/rust-parts.sh): the
+"""FERB.app with the Rust engine (engine/PLAN.md part 13; scripts/build-app-rust.sh and scripts/rust-parts.sh): the
 pins it reads from the Rust sources, the Claude Code lock, the places in the bundle, the runtime Markdown it carries,
 its checks for Python left behind, its size cap, the notices, and (with `FERB_RUST_APP_BUNDLE=/path/FERB.app`) a built
 bundle, including its agent's refusals and a daemon on a temporary home through the development override. Ported from
@@ -26,7 +26,7 @@ from scripts.tests.support import (BUILD_APP, BUILD_DMG, CRATES, DEVID_SHA, RELE
                                    SYSTEM_PATH, TempCase, compile_macho, devid_env, lipo_archs, rust_const, sign_only,
                                    stubs, version_tuple, workspace_version, zsh, zsh_vars)
 
-AGENT_PLIST = ROOT / "ui" / "mac" / "FERBAgent" / "Info.plist"
+AGENT_PLIST = ROOT / "apps" / "mac" / "FERBAgent" / "Info.plist"
 ARCHS = ("arm64", "x86_64")
 
 
@@ -46,14 +46,14 @@ class RustBuild(TempCase):
                         "FERB_MIN_EXTENSION", "FERB_STORE_EXTENSION")
         lock = json.loads((ROOT / "package-lock.json").read_text())["packages"]
         self.assertEqual(lock["node_modules/@openai/codex"]["version"], pins["FERB_CODEX_VERSION"])
-        manifest = json.loads((ROOT / "rust/packaging/package.json").read_text())
+        manifest = json.loads((ROOT / "engine/packaging/package.json").read_text())
         self.assertEqual(manifest["devDependencies"]["@anthropic-ai/claude-code"], pins["FERB_CLAUDE_VERSION"])
-        extension = json.loads((ROOT / "extensions/chromium/manifest.json").read_text())["version"]
+        extension = json.loads((ROOT / "extension/manifest.json").read_text())["version"]
         self.assertGreaterEqual(version_tuple(extension), version_tuple(pins["FERB_MIN_EXTENSION"]))
         self.assertRegex(pins["FERB_STORE_EXTENSION"], r"^[a-p]{32}$")       # a Chrome extension id
         self.assertEqual(pins["FERB_VERSION"], workspace_version())
         # ferbd's own copy of the Codex pin is the runtimes crate's
-        again = zsh("ferb_rust_const $ROOT/rust/crates/ferbd/src/compose/runtimes.rs CODEX_VERSION")
+        again = zsh("ferb_rust_const $ROOT/engine/crates/ferbd/src/compose/runtimes.rs CODEX_VERSION")
         self.assertEqual(again.stdout.strip(), pins["FERB_CODEX_VERSION"])
         # the release checks read the same constants; a Python app's engine is refused
         got = zsh_vars(self, "ferb_release_constants $ROOT", "FERB_STORE_EXTENSION", "FERB_MIN_EXTENSION")
@@ -71,12 +71,12 @@ class RustBuild(TempCase):
 
     # decision: ENG-7
     def test_claude_code_is_locked_like_codex_for_both_architectures(self) -> None:
-        """rust/packaging pins npm's Claude Code at the version the engine checks, each Mac's platform package with its
+        """engine/packaging pins npm's Claude Code at the version the engine checks, each Mac's platform package with its
         registry integrity, as package-lock.json pins Codex."""
         version = rust_const(CRATES / "ferb-runtimes/src/claude/transport.rs", "CLAUDE_CODE_VERSION")
-        manifest = json.loads((ROOT / "rust/packaging/package.json").read_text())
+        manifest = json.loads((ROOT / "engine/packaging/package.json").read_text())
         self.assertEqual(manifest["devDependencies"], {"@anthropic-ai/claude-code": version})
-        lock = json.loads((ROOT / "rust/packaging/package-lock.json").read_text())["packages"]
+        lock = json.loads((ROOT / "engine/packaging/package-lock.json").read_text())["packages"]
         for cpu in ("arm64", "x64"):
             entry = lock[f"node_modules/@anthropic-ai/claude-code-darwin-{cpu}"]
             self.assertTrue(entry["version"] == version and entry["integrity"].startswith("sha512-"), cpu)
@@ -317,7 +317,7 @@ class BuiltRustBundle(TempCase):
                     "Resources/ferb/orchestrator/prompts/supervisor.md", "Library/LaunchAgents/com.ferb.daemon.plist"):
             self.assertTrue((c / rel).is_file(), rel)
         for rel in zsh("ferb_rust_runtime_markdown $ROOT").stdout.split():   # byte for byte
-            self.assertEqual((c / "Resources/ferb" / rel).read_bytes(), (ROOT / "ferb" / rel).read_bytes(), rel)
+            self.assertEqual((c / "Resources/ferb" / rel).read_bytes(), (ROOT / "engine" / "runtime" / rel).read_bytes(), rel)
 
     # decision: ENG-7
     def test_rust_bundles_agent_is_todays_agent_app_with_ferbd_inside(self) -> None:

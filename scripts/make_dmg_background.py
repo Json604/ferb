@@ -1,5 +1,5 @@
 """Render the disk image's backgrounds (REL-409) from FERB's startup drawing code: a still of the Gravity — Dense field
-(ui/mac/FERBNotch/Sources/FERBNotch/StartupStudies.swift, GravityDenseStudy.swift) compiled with
+(apps/mac/FERBNotch/Sources/FERBNotch/StartupStudies.swift, GravityDenseStudy.swift) compiled with
 scripts/dmg-background/main.swift, with the words of each variant in scripts/dmg_layout.py.
 
     python3 -I scripts/make_dmg_background.py      (the standard library only, with Xcode's swiftc)
@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dmg_layout  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-FERB_SOURCES = ROOT / "ui" / "mac" / "FERBNotch" / "Sources" / "FERBNotch"
+FERB_SOURCES = ROOT / "apps" / "mac" / "FERBNotch" / "Sources" / "FERBNotch"
 SOURCES = [ROOT / "scripts" / "dmg-background" / "main.swift",
            FERB_SOURCES / "StartupStudies.swift", FERB_SOURCES / "GravityDenseStudy.swift"]
 

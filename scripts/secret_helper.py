@@ -4,7 +4,7 @@ macOS's login keychain admits code that has no Apple Team ID (FERB's self-made r
 by that code's exact hash (the item's partition list holds "cdhash:<hash>"), so every change to ferb-secrets' bytes
 makes macOS ask again, once for every saved secret, with the login password. Its bytes change with its code and with
 the compiler and SDK that build it. So FERB.app never compiles the helper: build-app-rust.sh takes the arm64 or x86_64
-slice of assets/secret-helper/ferb-secrets, which this script builds from ferb/identity/secret_helper.swift and pins
+slice of assets/secret-helper/ferb-secrets, which this script builds from engine/runtime/identity/secret_helper.swift and pins
 in assets/secret-helper/pin.json. The same bytes signed with the same certificate, identifier and flags keep the same
 code hash (measured), so an approval holds across releases until the helper's code changes on purpose.
 
@@ -21,7 +21,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SOURCE = ROOT / "ferb/identity/secret_helper.swift"
+SOURCE = ROOT / "engine/runtime/identity/secret_helper.swift"
 FOLDER = ROOT / "assets/secret-helper"
 BINARY, PIN = FOLDER / "ferb-secrets", FOLDER / "pin.json"
 ARCHS = ("arm64", "x86_64")
@@ -71,7 +71,7 @@ def problems(source: Path = SOURCE, binary: Path = BINARY, pin: Path = PIN) -> l
         return [f"the pinned secret helper is missing or unreadable ({e}): run scripts/secret_helper.py --build"]
     out = []
     if recorded.get("code_sha256") != code_sha256(source.read_text()):
-        out.append("ferb/identity/secret_helper.swift's code changed since the helper was pinned: run "
+        out.append("engine/runtime/identity/secret_helper.swift's code changed since the helper was pinned: run "
                    "scripts/secret_helper.py --build and commit assets/secret-helper (every saved secret asks for "
                    "the owner's OK once more on each Mac)")
     if recorded.get("binary_sha256") != hashlib.sha256(built).hexdigest():
@@ -89,6 +89,8 @@ def build() -> None:
     text = SOURCE.read_text()
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
+        # the path the pinned slices were compiled at (mapped to "."): the source moved to engine/runtime/ in the
+        # repository, but the compile keeps its old relative path so the same code still builds the same bytes
         src = work / "src" / "ferb/identity/secret_helper.swift"
         src.parent.mkdir(parents=True)
         src.write_text(text)

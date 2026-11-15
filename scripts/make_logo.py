@@ -16,9 +16,9 @@ Writes, all from the master:
   assets/logo/ferb-logo-1024.png              the master at 1024 px (transparent margin, as the SVG draws it)
   assets/logo/AppIcon.icns                    FERB.app, its daemon helper and the DMG's volume icon, on
                                               Apple's macOS icon grid (824 of 1024 px, centered, with a soft shadow)
-  extensions/store/src/icon.svg               the master itself; icon-small.svg: the same, cropped to the square
-  ui/mac/FERBNotch/Sources/FERBNotch/Resources/ferb-mark.svg   the master itself (the notch's handle)
-  extensions/{chromium/icons,store/src}/icon{16,32,48,128}.png   16-48 from the cropped square, 128 with Chrome's margin
+  extension-store/src/icon.svg               the master itself; icon-small.svg: the same, cropped to the square
+  apps/mac/FERBNotch/Sources/FERBNotch/Resources/ferb-mark.svg   the master itself (the notch's handle)
+  extension/icons and extension-store/src: icon{16,32,48,128}.png   16-48 from the cropped square, 128 with Chrome's margin
   site/logo.svg, site/favicon.ico, site/apple-touch-icon.png      the cropped square; the touch icon is full-bleed
 """
 
@@ -113,10 +113,10 @@ def main() -> None:
         subprocess.run(["iconutil", "-c", "icns", "-o", str(icns), str(iconset)], check=True)
         print(icns.relative_to(ROOT))
 
-    write(ROOT / "extensions/store/src/icon.svg", master)
-    write(ROOT / "extensions/store/src/icon-small.svg", square)
-    write(ROOT / "ui/mac/FERBNotch/Sources/FERBNotch/Resources/ferb-mark.svg", master)
-    for folder in ("extensions/chromium/icons", "extensions/store/src"):
+    write(ROOT / "extension-store/src/icon.svg", master)
+    write(ROOT / "extension-store/src/icon-small.svg", square)
+    write(ROOT / "apps/mac/FERBNotch/Sources/FERBNotch/Resources/ferb-mark.svg", master)
+    for folder in ("extension/icons", "extension-store/src"):
         for size in (16, 32, 48):
             write(ROOT / folder / f"icon{size}.png", render(square, size))
         write(ROOT / folder / "icon128.png", render(master, 128))

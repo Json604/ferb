@@ -104,3 +104,35 @@ rule = "kb/config.toml `historical` lists {commit, paths, why}. A decision's or 
 why = "ENG-16: the records keep their whole history, and 1,602 path entries in 685 decisions plus 24 area paths name Python files the removal deletes. Rewriting them would edit owner records; turning the check off would let a mistyped path pass."
 rejected = ["Editing the records' paths to the Rust files: owner records are never reworded, and the Python file is what the decision was about.", "Not checking paths under removed folders: a mistyped path would then pass silently."]
 paths = ["tools/kb/kb.py", "tools/kb/test_kb_historical.py", "kb/config.toml"]
+
+[PROJ-510]
+title = "Top-level folders: engine/ (with engine/runtime/), apps/, extension/"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "yes do it i agree"
+words_source = "Answer on 2026-11-16 to the agent's proposal: rust/ to engine/, ferb/ to engine/runtime/, ui/mac to apps/mac, new apps/android and apps/ios, extensions/chromium to extension/."
+rule = "The Rust engine is in engine/ (crates, fixtures, packaging) with the runtime files (prompts, memory notes, abilities, migrations, the helper's source) in engine/runtime/; the apps in apps/ (apps/mac is FERB.app; apps/android and apps/ios for stages 3 and 4); the browser extension in extension/. kb/, scripts/, tools/, assets/, site/ and relay/ stay. One mechanical move: FERB.app's contents and run-time paths unchanged; kb records keep their words."
+why = "The Python daemon is gone and the phone apps are next: names that say what each folder is now, with room for the phone apps beside the Mac app."
+paths = ["AGENTS.md", "apps/android", "apps/ios"]
+untestable = "A folder layout: git shows it, and kb check reads every record's old path at its new place (PROJ-511)."
+
+[PROJ-511]
+title = "kb paths under a moved folder are read at the new place, before history"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "kb/config.toml `moved` lists {from, to, why}. A record's path that names nothing tracked now is read at its place under `to` (longest `from` wins), then in `historical`. kb show for a file at its new place lists the records naming its old place; generated rules use new places. A `to` must exist and never move again (no chain or cycle). Records keep their paths as written."
+why = "PROJ-510 moved rust/, ferb/, ui/ and extensions/: 1,397 decision paths name the old places. Records are never rewritten and history still holds the old layout, so the tool resolves a move instead of the records changing."
+rejected = ["Rewriting the records' paths: owner records are never reworded.", "Listing the moved folders in `historical`: the files exist now and must be checked on the current tree, and kb show must find them at their new place."]
+paths = ["tools/kb/kb.py", "tools/kb/test_kb_moved.py", "kb/config.toml"]
+
+[PROJ-512]
+title = "The store listing sits beside the extension; the rest of ui/ moved to apps/"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PROJ-510. extensions/store (the Chrome Web Store listing and its artwork) is extension-store/, beside extension/, so extension/ holds only the unpacked extension that is zipped and loaded. ui/ moved whole to apps/: apps/AGENTS.md, apps/docs, apps/output and apps/.gitignore with apps/mac."
+why = "The extension folder is copied into FERB.app and zipped for the store as it is; a listing inside it would ship."
+paths = ["extension-store", "apps/AGENTS.md"]
+untestable = "A folder placement: git shows it; the bundle comparison in journal 87 shows extension/ ships unchanged."

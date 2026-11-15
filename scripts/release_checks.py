@@ -11,7 +11,7 @@ import sys
 
 VERSION = re.compile(r"\d+\.\d+\.\d+")
 # Where FERB's version lives; the two must be equal (scripts/tests/test_release_checks.py)
-VERSION_FILES = ("rust/crates/ferbd/src/compose/mod.rs (VERSION) and rust/Cargo.toml ([workspace.package] "
+VERSION_FILES = ("engine/crates/ferbd/src/compose/mod.rs (VERSION) and engine/Cargo.toml ([workspace.package] "
                  "version)")
 
 
@@ -21,7 +21,7 @@ def _parts(v: str) -> tuple[int, ...]:
 
 def problems(version: str, tag: str, released: list[str], store_extension: str, min_extension: str) -> list[str]:
     """Why this can't be released yet; empty when it can. `version` is FERB's full version (FERB.app's FERBVersion:
-    rust/crates/ferbd/src/compose/mod.rs VERSION, equal to rust/Cargo.toml's [workspace.package] version),
+    engine/crates/ferbd/src/compose/mod.rs VERSION, equal to engine/Cargo.toml's [workspace.package] version),
     `released` the tags already published, `store_extension` the version the Web Store serves ("" if unknown)."""
     out = []
     if not VERSION.fullmatch(version):
@@ -38,7 +38,7 @@ def problems(version: str, tag: str, released: list[str], store_extension: str, 
     elif _parts(store_extension) < _parts(min_extension):
         out.append(f"the Chrome Web Store serves extension {store_extension} but this FERB needs {min_extension}: "
                    "upload build/store/ferb-extension-*.zip (`ferb browsers extension package --out build/store`, "
-                   "the Rust `ferb` program: cargo run --manifest-path rust/crates/ferbd/Cargo.toml --bin ferb -- "
+                   "the Rust `ferb` program: cargo run --manifest-path engine/crates/ferbd/Cargo.toml --bin ferb -- "
                    "browsers extension package --out build/store) and wait until it is published")
     return out
 
