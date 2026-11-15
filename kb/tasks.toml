@@ -806,3 +806,10 @@ kind = "chore"
 status = "open"
 why = "After ENG-16: ferb-device's installer still has Programs::Python, the venv and uv paths, and setup.rs:903 says a checkout runs `uv run ferb`; THIRD_PARTY_NOTICES.md names the Python files the adapted code came from; PLAYGROUND.md and com.ferb.daemon.plist's comment name build-app.sh."
 decisions = ["ENG-16"]
+
+[T-1114]
+title = "Investigate, with real tests, the best ways to keep FERB's Mac-app work in the background"
+area = "hands"
+kind = "build"
+status = "open"
+why = "Owner 2026-11-15: 'this is to be tested separetly with real tests with a new agent … the best methods we can use to kepe ferb performing in bg'. A fresh agent measures on real apps how input reaches a non-front app, then proposes. Needs a time the owner's Mac is free."

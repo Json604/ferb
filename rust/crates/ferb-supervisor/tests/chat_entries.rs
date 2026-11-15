@@ -333,6 +333,113 @@ fn scenarios() -> Vec<Scenario> {
             });
         }
     }
+    out.extend(invented());
+    out
+}
+
+/// The invented scenario of the live case of 2026-11-15 (APP-919).
+const STOP_TWO_TURNS: &str = "stop_beside_new_work_two_turns";
+/// What the stopped task had found, as code recorded its end (ORCH-611).
+const STOPPED_SUMMARY: &str =
+    "Stopped, as you asked. This is where things stood:\n\nThe app is complete, but the \
+     report is not ready to submit.\n\nSites contacted: 2 sites";
+/// The new task's plan line under the stop message (ORCH-638: the stop's words come first, in text and receipts).
+const FILES_LINE: &str = "I'm listing every file the assignment workers made.";
+
+/// Timelines written here for chat cases found live that no recording has (ENG-18: the Python daemon is gone, ENG-16),
+/// in the steps a recorded timeline has; they come after the 71 recorded scenarios.
+fn invented() -> Vec<Scenario> {
+    vec![Scenario {
+        name: STOP_TWO_TURNS.into(),
+        source: "invented: chat_entries.rs, the live case of 2026-11-15".into(),
+        timeline: stop_beside_new_work_two_turns(true),
+    }]
+}
+
+/// The live case of 2026-11-15 (APP-919): a task the owner restarted with a second message (the same task now runs
+/// under two turns: the first already answered "Stopped" below, the second bound by its plan), then a third message
+/// that stops it and asks for new work (ORCH-638). The stopped task's end comes on the second turn's stream naming the
+/// third message (`told_in`, ORCH-579); the third message's plan says the stop first. `plan_first`: the new task's plan
+/// is fed before the stopped task's end (the engine's order that night); otherwise after it.
+fn stop_beside_new_work_two_turns(plan_first: bool) -> Vec<Value> {
+    let at = |m: u32| format!("2026-01-01T09:{m:02}:00+00:00");
+    let send = |stream: u64, request: &str, text: &str, m: u32| {
+        vec![
+            json!({"do": "send", "stream": stream, "session": "s1", "request_id": request, "text": text,
+                   "input_paths": [], "at": at(m)}),
+            json!({"do": "frame", "stream": stream, "session": "s1",
+                   "frame": {"type": "ack", "request_id": request, "message": text, "at": at(m)}}),
+        ]
+    };
+    let frame = |stream: u64, f: Value| json!({"do": "frame", "stream": stream, "session": "s1", "frame": f});
+    let end = |stream: u64| json!({"do": "end", "stream": stream, "session": "s1"});
+    let result = |f: &Value, m: u32| {
+        let mut data = f.clone();
+        data["shown"] = json!(true);
+        json!({"do": "bus", "session": "s1", "topic": "task.result", "data": data, "at": at(m)})
+    };
+    let goal = "Complete the three course assignments";
+    let first_end = json!({"type": "outcome", "task_id": "t-assign", "status": "cancelled", "summary": "stopped by you",
+        "answer": "Stopped, as you asked.\n\nSites contacted: 1 site", "verified": false, "artifacts": [],
+        "lines": ["Sites contacted: 1 site"], "goal": goal, "name": "Course assignments", "request_id": "r1",
+        "at": at(5)});
+    let stopped = json!({"type": "outcome", "task_id": "t-assign", "status": "cancelled", "summary": "stopped by you",
+        "answer": STOPPED_SUMMARY, "verified": false, "artifacts": ["/FX/work/app.zip", "/FX/work/report.pdf"],
+        "lines": ["Sites contacted: 2 sites"], "told_in": "r3", "goal": goal, "name": "Course assignments",
+        "request_id": "r2", "at": at(20)});
+    let files_plan = frame(
+        2,
+        json!({"type": "plan", "task_id": "t-files", "text": format!("{STOPPED_SUMMARY}\n\n{FILES_LINE}"),
+               "goal": "List every file the assignment workers made", "name": "List generated files",
+               "plan_line": FILES_LINE, "lines": [], "receipts": [STOPPED_SUMMARY], "request_id": "r3", "at": at(20)}),
+    );
+    let files_end = json!({"type": "outcome", "task_id": "t-files", "status": "done",
+        "summary": "Two files: /FX/work/app.zip and /FX/work/report.pdf.",
+        "answer": "Two files: /FX/work/app.zip and /FX/work/report.pdf.", "verified": true, "artifacts": [],
+        "goal": "List every file the assignment workers made", "name": "List generated files", "request_id": "r3",
+        "at": at(21)});
+    let mut out = send(0, "r1", "do the three course assignments", 0);
+    out.push(frame(
+        0,
+        json!({"type": "plan", "task_id": "t-assign", "text": "Working on the three assignments.", "goal": goal,
+               "name": "Course assignments", "plan_line": "Working on the three assignments.", "lines": [],
+               "request_id": "r1", "at": at(0)}),
+    ));
+    // the second message restarts the same task: its first run's end, then the second turn's plan for it
+    out.extend(send(
+        1,
+        "r2",
+        "start again with three workers, one per assignment",
+        5,
+    ));
+    out.push(frame(0, first_end.clone()));
+    out.push(result(&first_end, 5));
+    out.push(end(0));
+    out.push(frame(
+        1,
+        json!({"type": "plan", "task_id": "t-assign", "text": "I'm restarting it with three workers.", "goal": goal,
+               "name": "Course assignments", "plan_line": "I'm restarting it with three workers.", "lines": [],
+               "request_id": "r2", "at": at(5)}),
+    ));
+    // the third message stops it and asks for new work
+    out.extend(send(
+        2,
+        "r3",
+        "stop all the tasks. list where all the files they made are",
+        20,
+    ));
+    if plan_first {
+        out.push(files_plan.clone());
+    }
+    out.push(frame(1, stopped.clone()));
+    out.push(result(&stopped, 20));
+    out.push(end(1));
+    if !plan_first {
+        out.push(files_plan);
+    }
+    out.push(frame(2, files_end.clone()));
+    out.push(result(&files_end, 21));
+    out.push(end(2));
     out
 }
 
@@ -461,7 +568,8 @@ fn golden(all: &[Scenario]) -> String {
     out += &serde_json::to_string(
         "Generated by rust/crates/ferb-supervisor/tests/chat_entries.rs (UPDATE_GOLDEN=1). Not Python-recorded: Python \
          has no counterpart. Each scenario's timeline is built from the recorded scenarios named in `source`; `entries` \
-         are what ChatProjector made of it, each entry as it stands at the end, per conversation in creation order.",
+         are what ChatProjector made of it, each entry as it stands at the end, per conversation in creation order. A \
+         `source` starting \"invented:\" is a timeline written in chat_entries.rs for a case found live (ENG-18).",
     )
     .unwrap();
     out += ",\n\"scenarios\": [\n";
@@ -494,10 +602,15 @@ fn golden(all: &[Scenario]) -> String {
 }
 
 // decision: ENG-9
+// decision: ENG-18
 #[test]
 fn the_recorded_scenarios_fold_into_the_golden_entries() {
     let all = scenarios();
-    assert_eq!(all.len(), 71, "28 daemon, 10 control and 33 more scenarios");
+    assert_eq!(
+        all.len(),
+        72,
+        "28 daemon, 10 control and 33 more recorded scenarios, and 1 invented (ENG-18)"
+    );
     let made = golden(&all);
     let path = fixtures().join(GOLDEN);
     if std::env::var_os("UPDATE_GOLDEN").is_some() {
@@ -638,8 +751,14 @@ fn every_rule_holds_over_every_scenario() {
             }
         }
     }
-    assert_eq!(acks, 101, "every ack of the 71 scenarios");
-    assert_eq!(live, 669, "the live frames of the 71 scenarios");
+    assert_eq!(
+        acks, 104,
+        "every ack of the 72 scenarios (101 recorded, 3 invented)"
+    );
+    assert_eq!(
+        live, 669,
+        "the live frames of the 72 scenarios (the invented one has none)"
+    );
 }
 
 // ---- the rules on invented frames ----
@@ -1128,6 +1247,175 @@ fn a_journaled_reply_answers_a_message_left_without_one() {
         back.after_restart(&|_| false, &mut c).is_empty(),
         "answered: nothing to interrupt"
     );
+}
+
+// ---- a task two turns ran (APP-919: the live case of 2026-11-15) ----
+
+fn answer_text(e: &Entry) -> String {
+    e.body_as::<AnswerBody>()
+        .map(|b| b.text)
+        .unwrap_or_default()
+}
+
+fn follows(e: &Entry) -> Option<String> {
+    e.body_as::<AnswerBody>().and_then(|b| b.follows)
+}
+
+/// Live 2026-11-15: a stop beside new work, while a task the owner had restarted with a second message ran, showed the
+/// stopped task's summary three times (the stop message's plan and receipt, the task's turn, and a later answer on the
+/// task's FIRST turn at the bottom). The end is said once on the turn that ran it, and once by the stop message's plan
+/// (ORCH-638's receipt); the first turn keeps its own answer and nothing follows it. In both orders the engine can feed
+/// the new task's plan and the stopped task's end.
+// decision: APP-919
+// decision: ORCH-638
+// decision: APP-825
+#[test]
+fn a_stopped_task_two_turns_ran_tells_its_end_once_on_the_turn_that_ran_it() {
+    for plan_first in [true, false] {
+        let r = run(&stop_beside_new_work_two_turns(plan_first));
+        let entries = &r.entries["s1"];
+        let of = |kind: EntryKind, request: &str| -> Vec<&Entry> {
+            entries
+                .iter()
+                .filter(|e| e.kind == kind && e.request_id.as_deref() == Some(request))
+                .collect()
+        };
+        let told: Vec<&Entry> = entries
+            .iter()
+            .filter(|e| e.kind == EntryKind::Answer && answer_text(e) == STOPPED_SUMMARY)
+            .collect();
+        assert_eq!(
+            told.len(),
+            1,
+            "plan_first {plan_first}: the stopped end is one answer"
+        );
+        assert_eq!(told[0].request_id.as_deref(), Some("r2"));
+        assert_eq!(told[0].placement, Some(Placement::Inline));
+        assert_eq!(told[0].state, EntryState::Cancelled);
+        assert!(
+            entries.iter().all(|e| follows(e).is_none()),
+            "no later answer"
+        );
+        // the first turn keeps the answer its first run ended with, posted below when it came
+        let first = of(EntryKind::Answer, "r1");
+        assert_eq!(first.len(), 1);
+        assert_eq!(
+            answer_text(first[0]),
+            "Stopped, as you asked.\n\nSites contacted: 1 site"
+        );
+        assert_eq!(first[0].placement, Some(Placement::Below));
+        // the stop message: the stop said first, then the new task's plan line (ORCH-638), and its own task's answer
+        let plan: ferb_core::chat_entry::PlanBody = of(EntryKind::Plan, "r3")[0].body_as().unwrap();
+        assert_eq!(plan.receipts, Some(vec![STOPPED_SUMMARY.to_string()]));
+        assert_eq!(plan.plan_line.as_deref(), Some(FILES_LINE));
+        let files = of(EntryKind::Answer, "r3");
+        assert_eq!(files.len(), 1);
+        assert!(answer_text(files[0]).starts_with("Two files"));
+    }
+}
+
+/// A history saved before the fix (the stopped end also kept as a later answer on the task's first turn, as the engine
+/// stored it that night) is read back whole, and the same end told again makes nothing new.
+// decision: APP-919
+// decision: ENG-9
+#[test]
+fn a_history_saved_with_the_extra_answer_is_read_back_and_the_end_again_adds_nothing() {
+    let timeline = stop_beside_new_work_two_turns(true);
+    let mut stored = run(&timeline).entries["s1"].clone();
+    let first = stored
+        .iter()
+        .find(|e| e.kind == EntryKind::Answer && e.request_id.as_deref() == Some("r1"))
+        .cloned()
+        .unwrap();
+    let mut extra = stored
+        .iter()
+        .find(|e| e.kind == EntryKind::Answer && answer_text(e) == STOPPED_SUMMARY)
+        .cloned()
+        .unwrap();
+    let mut body: AnswerBody = extra.body_as().unwrap();
+    body.follows = Some(first.id.clone());
+    extra.id = "old-extra".into();
+    extra.request_id = Some("r1".into());
+    extra.answers = first.answers.clone();
+    extra.pos = stored.iter().map(|e| e.pos).max().unwrap() + 1;
+    extra.body = ferb_core::chat_entry::body(&body);
+    stored.push(extra);
+    let next = stored.iter().map(|e| e.pos).max().unwrap() + 1;
+    let mut back = ChatProjector::restore("s1", stored.clone(), Vec::new(), next);
+    assert_eq!(back.entries(), stored, "read back whole");
+    let mut c = Clock {
+        n: 1000,
+        seq: 10_000,
+    };
+    for item in timeline
+        .iter()
+        .filter(|t| t["do"] == "bus" && t["data"]["task_id"] == "t-assign")
+    {
+        let again = back.apply(
+            Input::Bus {
+                topic: "task.result",
+                data: &item["data"],
+            },
+            &mut c,
+        );
+        assert!(
+            again.changes.iter().all(|ch| ch.entry.rev > 1),
+            "nothing new"
+        );
+    }
+}
+
+/// A result read back with no request and no session (after a restart, `chat.status`) ends the task's newest turn,
+/// never an earlier one it ran under: that turn already has its answer.
+// decision: APP-919
+#[test]
+fn a_result_with_no_request_ends_the_newest_turn_of_its_task() {
+    let (mut p, mut c) = (ChatProjector::new("s1", 1), Clock { n: 0, seq: 0 });
+    for (r, text) in [("r1", "watch the build"), ("r2", "start it again")] {
+        frame(
+            &mut p,
+            &mut c,
+            r,
+            json!({"type": "ack", "request_id": r, "message": text}),
+        );
+        if r == "r1" {
+            frame(
+                &mut p,
+                &mut c,
+                "r1",
+                json!({"type": "plan", "task_id": "t1", "text": "Watching.", "request_id": "r1"}),
+            );
+            frame(
+                &mut p,
+                &mut c,
+                "r1",
+                json!({"type": "outcome", "task_id": "t1", "status": "cancelled", "answer": "Stopped.", "request_id": "r1"}),
+            );
+        }
+    }
+    frame(
+        &mut p,
+        &mut c,
+        "r2",
+        json!({"type": "plan", "task_id": "t1", "text": "Watching again.", "request_id": "r2"}),
+    );
+    let next = p.next_pos();
+    let mut back = ChatProjector::restore("s1", p.entries(), Vec::new(), next);
+    back.apply(
+        Input::Bus {
+            topic: "task.result",
+            data: &json!({"task_id": "t1", "status": "done", "answer": "The build passed."}),
+        },
+        &mut c,
+    );
+    let answers = by_kind(&back, EntryKind::Answer);
+    let ended: Vec<&Entry> = answers
+        .iter()
+        .filter(|e| answer_text(e) == "The build passed.")
+        .collect();
+    assert_eq!(ended.len(), 1);
+    assert_eq!(ended[0].request_id.as_deref(), Some("r2"));
+    assert!(follows(ended[0]).is_none());
 }
 
 // ---- the order rules over invented interleavings (journal 72's open item) ----

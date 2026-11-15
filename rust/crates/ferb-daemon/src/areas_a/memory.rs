@@ -269,6 +269,31 @@ pub fn forget_memory(
     Ok(plan)
 }
 
+/// STORE-426: what FERB learned only from a turn the owner deleted in Settings → Stored data. Each memory item goes
+/// as Memory's Forget forgets it (`forget_memory`; its sources kept: the turn's are already deleted), then the learned
+/// cards and what was derived from them (`forget_nodes`), then the same settling as `memory.forget`. Returns how many
+/// items and learned nodes went; an item already gone is skipped.
+pub async fn forget_turn_learning(
+    st: &Rc<State>,
+    items: &[String],
+    nodes: &[String],
+) -> ferb_learning::Result<(usize, usize)> {
+    let mut forgotten = 0;
+    for id in items {
+        if st.memory.get(id)?.is_some() {
+            forget_memory(st, id, true)?;
+            forgotten += 1;
+        }
+    }
+    let learned = if nodes.is_empty() {
+        0
+    } else {
+        forget_nodes(st, nodes)?.len()
+    };
+    settle_forgets(st).await;
+    Ok((forgotten, learned))
+}
+
 /// `_forget_nodes`: learned items the owner asked to forget go, and FERB's questions about them close.
 pub fn forget_nodes(st: &State, refs: &[String]) -> ferb_learning::Result<Vec<String>> {
     let deleted = st.learning.forget(refs)?;

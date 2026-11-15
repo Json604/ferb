@@ -75,6 +75,15 @@ impl WorkerHost for Host {
     fn calls_refused(&self, watch_id: &str) -> u64 {
         self.sup().deps.daemon.calls_refused(watch_id)
     }
+    fn paused(&self, tree_id: &str) -> Option<String> {
+        let wait = self.sup().live().pauses.get(tree_id).cloned()?;
+        // RUN-465: the owner's pause asks nothing; FERB's own (a closed tab) carries its question
+        Some(if wait.question.is_empty() {
+            crate::words::PAUSED_BY_YOU.to_string()
+        } else {
+            crate::words::PAUSED_BY_FERB.to_string()
+        })
+    }
     fn issue_token(
         &self,
         task_id: &str,

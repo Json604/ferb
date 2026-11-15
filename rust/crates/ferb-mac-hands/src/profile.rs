@@ -35,6 +35,11 @@ pub struct Profiles {
     now: Now,
 }
 
+/// HAND-554: the mechanism an app's raw input (pointer and key events posted to it, not its Accessibility actions) is
+/// recorded under: `landed` when the app stayed where it was, `failed` when it came to the front during FERB's call.
+/// The last observation decides (`comes_forward`), so one raw input that leaves the app behind clears it.
+pub const RAW_INPUT_BACKGROUND: &str = "raw_input_background";
+
 pub fn now_utc() -> String {
     chrono::Utc::now()
         .format("%Y-%m-%dT%H:%M:%S+00:00")
@@ -57,6 +62,24 @@ impl Profiles {
 
     pub fn memory() -> Self {
         Self::new(None, Arc::new(now_utc))
+    }
+
+    /// One `Profiles` per folder in this process, so every reader (the Mac driver, the gateway's question about raw
+    /// input) sees the same records as they are written (HAND-554).
+    pub fn shared(dir: &Path) -> Arc<Profiles> {
+        static SHARED: Mutex<Vec<(PathBuf, Arc<Profiles>)>> = Mutex::new(Vec::new());
+        let mut all = SHARED.lock().expect("lock");
+        if let Some((_, p)) = all.iter().find(|(d, _)| d == dir) {
+            return p.clone();
+        }
+        let p = Arc::new(Profiles::new(Some(dir), Arc::new(now_utc)));
+        all.push((dir.to_path_buf(), p.clone()));
+        p
+    }
+
+    /// HAND-554: the last raw input FERB sent this app brought it to the front.
+    pub fn comes_forward(&self, bundle: &str) -> bool {
+        self.status(bundle, RAW_INPUT_BACKGROUND).as_deref() == Some("failed")
     }
 
     fn path(&self, bundle: &str) -> Option<PathBuf> {

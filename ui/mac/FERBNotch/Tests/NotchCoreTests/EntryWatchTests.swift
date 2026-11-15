@@ -11,7 +11,7 @@ final class EntryWatchTests: XCTestCase {
 
     // MARK: the recorded scenarios
 
-    /// The 71 recorded scenarios' transcripts are unchanged with the watch connected: the scenario's own entries,
+    /// The 72 scenarios' (71 recorded, 1 invented) transcripts are unchanged with the watch connected: the scenario's own entries,
     /// stamped with this install's client id, go through the watch (interleaved: each request's entries right after the
     /// frame that bound its turn, the rest at the end; then all again as a relaunch's first read) and change nothing.
     // decision: ENG-10
@@ -52,7 +52,7 @@ final class EntryWatchTests: XCTestCase {
                 model.disconnectDaemon()
             }
         }
-        XCTAssertEqual(compared, 71)
+        XCTAssertEqual(compared, 72)                // 71 recorded, 1 invented (ENG-18)
         XCTAssertTrue(differences.isEmpty, differences.joined(separator: "\n"))
     }
 

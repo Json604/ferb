@@ -251,6 +251,7 @@ fn ctx() -> ToolContext {
 }
 
 // decision: HAND-533
+// decision: HAND-546
 #[tokio::test(start_paused = true)]
 async fn a_window_the_page_brought_forward_is_the_tabs_next_fact_once() {
     let random = Arc::new(Counter::new());
@@ -259,10 +260,16 @@ async fn a_window_the_page_brought_forward_is_the_tabs_next_fact_once() {
         Arc::new(Clocked),
         random.clone(),
     ));
+    let published: Arc<Mutex<Vec<(String, Value)>>> = Arc::default();
+    let seen = published.clone();
     let hub = Hub::new(
         pairings,
         Arc::new(NoLedger),
-        Arc::new(|_: &str, _: Map<String, Value>| {}),
+        Arc::new(move |topic: &str, data: Map<String, Value>| {
+            seen.lock()
+                .unwrap()
+                .push((topic.to_string(), Value::Object(data)));
+        }),
         Arc::new(|| "dev-1".to_string()),
         random.clone(),
         Arc::new(Apps),
@@ -270,6 +277,7 @@ async fn a_window_the_page_brought_forward_is_the_tabs_next_fact_once() {
     );
     let tasks = Tasks {
         running: Arc::new(|t: &str| t == "task-a"),
+        root: Arc::new(|t: &str| t.split('.').next().unwrap_or(t).to_string()),
         ..Tasks::default()
     };
     let driver = ferb_browser::driver::Driver::new(
@@ -317,6 +325,22 @@ async fn a_window_the_page_brought_forward_is_the_tabs_next_fact_once() {
         !first.content.contains_key("surfaced"),
         "the extension's raw list never reaches the worker"
     );
+    // HAND-546: the window that came up (not the refused request) goes out for the owner's line, with the task's
+    // tree and the tab's site
+    let shown: Vec<Value> = published
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(t, _)| t == "browser.window_shown")
+        .map(|(_, d)| d.clone())
+        .collect();
+    assert_eq!(
+        shown,
+        vec![
+            json!({"task_id": "task-a", "tab": tab.tab_id, "site": "sign.example",
+                    "shown": [{"cause": "new_tab", "window": "ferb", "focused": true, "put_back": true}]})
+        ]
+    );
 
     // told once: the next result of the tab has nothing more
     let args = json!({"tab": tab.tab_id, "url": "https://sign.example/next"});
@@ -327,6 +351,13 @@ async fn a_window_the_page_brought_forward_is_the_tabs_next_fact_once() {
         again.content
     );
     assert!(driver.surfaced_for(&tab).is_empty());
+    let more = published
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(t, _)| t == "browser.window_shown")
+        .count();
+    assert_eq!(more, 1, "nothing new: nothing more for the owner");
 }
 
 // decision: HAND-533

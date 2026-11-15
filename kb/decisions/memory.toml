@@ -682,3 +682,13 @@ rule = "Supersedes ORCH-646 for every check that a quote is the owner's own word
 why = "Journal 67: the live paste's quote bar and line breaks refused the owner's own plan parts; the same paste would refuse a remembered preference or a schedule. One helper in the lowest crate every caller uses (ferb-memory) instead of a second comparison in the supervisor."
 supersedes = ["ORCH-646"]
 paths = ["rust/crates/ferb-memory/src/terms.rs::quoted", "rust/crates/ferb-memory/src/terms.rs::said_as_words", "rust/crates/ferb-learning/src/text.rs::quoted"]
+
+[MEM-431]
+title = "A remembered fact's own words end where its sentence ends, as well as at a clause mark"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Refines MEM-420 (its \"never a period\" guarded \"Dr.\" and \"prof.\"): the clause holding the planner's content also ends at a period that ends a sentence: space or the text's end follows it and the word it closes is no abbreviation by shape (single letters joined by periods; one to four letters before a capital or number). A period inside a word (v2.1, kartikey.xyz) never ends one. No word list. Fixed against Python."
+why = "MEM-419 saves the span that states the fact; a fact quoted from one sentence must never carry the sentences after it into always-on memory."
+evidence = "Live 2026-11-15 23:04 (tree 3a0cc55b): quote and content \"roll no: 2024eb02238\"; saved \"roll no: 2024eb02238 . THEY SHOULNT MENTION AI or anuytign tthere. they are dpoing this assingment as me\" (memory_items seq 7)."
+paths = ["rust/crates/ferb-learning/src/text.rs::sentence_end", "rust/crates/ferb-learning/src/text.rs::clause_span"]

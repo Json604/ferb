@@ -474,6 +474,9 @@ pub struct Browsers {
     pub identity: Option<Arc<Driver>>,
     owner: Arc<Tools>,
     ferb: Option<Arc<Tools>>,
+    /// HAND-560: the Mac's tools, whose activation puts the owner's app back after a call's own browser came forward
+    /// (None: a daemon without the Mac's parts).
+    mac: Option<Arc<ferb_mac_hands::tools::MacTools>>,
     /// The browser area, once group B builds it (browser.pair, browser.handoff).
     area: Arc<OnceLock<ferb_daemon::areas_b::browsers::Cx>>,
     /// D35: a download in a task tab becomes a file in the workspace plus facts, never a dialog
@@ -987,6 +990,7 @@ impl Browsers {
             identity: Some(identity),
             owner,
             ferb: Some(ferb),
+            mac: p.mac().map(|m| m.tools.clone()),
             area,
             downloads,
             uploads,
@@ -994,12 +998,15 @@ impl Browsers {
     }
 
     pub fn owner_tools(&self) -> Vec<Arc<dyn Tool>> {
-        family_tools(&self.owner)
+        family_tools(&self.owner, &self.mac)
     }
 
     /// FERB's own profile's tools: the catalog's `ferb_browser.*` (21).
     pub fn ferb_tools(&self) -> Vec<Arc<dyn Tool>> {
-        self.ferb.as_ref().map(family_tools).unwrap_or_default()
+        self.ferb
+            .as_ref()
+            .map(|t| family_tools(t, &self.mac))
+            .unwrap_or_default()
     }
 
     /// The browser area, for browser.pair and browser.handoff.
@@ -1025,7 +1032,10 @@ impl Browsers {
     }
 }
 
-fn family_tools(t: &Arc<Tools>) -> Vec<Arc<dyn Tool>> {
+fn family_tools(
+    t: &Arc<Tools>,
+    mac: &Option<Arc<ferb_mac_hands::tools::MacTools>>,
+) -> Vec<Arc<dyn Tool>> {
     t.verbs()
         .into_iter()
         .map(|v| {
@@ -1034,6 +1044,7 @@ fn family_tools(t: &Arc<Tools>) -> Vec<Arc<dyn Tool>> {
                 name,
                 verb: v,
                 tools: t.clone(),
+                mac: mac.clone(),
             }) as Arc<dyn Tool>
         })
         .collect()
@@ -1044,6 +1055,8 @@ pub struct BrowserTool {
     name: &'static str,
     verb: &'static Verb,
     tools: Arc<Tools>,
+    /// HAND-560: the Mac's activation, for putting the owner's app back.
+    mac: Option<Arc<ferb_mac_hands::tools::MacTools>>,
 }
 
 fn v(args: &Args) -> Value {
@@ -1072,6 +1085,39 @@ impl Tool for BrowserTool {
 
     fn describe(&self, args: &Args) -> ActionSpec {
         self.tools.describe(self.verb, &v(args))
+    }
+
+    /// HAND-546: the browser process behind the call's tab (its extension's connection), when the call names one.
+    fn background_pid(&self, args: &Args) -> Option<i64> {
+        let tab = args.get("tab").and_then(Value::as_str)?;
+        let t = self.tools.driver.tab(tab)?;
+        t.bridge.browser_pid().map(i64::from)
+    }
+
+    /// HAND-560: after the call's own browser came to the front (`front`), the app that was in front before
+    /// (`previous`: the sampler's {pid, bundle_id, name}) goes back in front through the Mac driver's own put-back
+    /// (HAND-549), unless the browser isn't in front any more (someone switched since) or that app quit.
+    fn put_back<'a>(
+        &'a self,
+        front: &'a Value,
+        previous: &'a Value,
+        task: &'a str,
+    ) -> BoxFuture<'a, Option<(bool, Option<String>)>> {
+        Box::pin(async move {
+            let mac = self.mac.as_ref()?;
+            let app = |v: &Value| {
+                let pid = v.get("pid").and_then(Value::as_i64)?;
+                let text = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+                Some(ferb_mac_hands::apps::RunningApp::new(
+                    &text("bundle_id"),
+                    &text("name"),
+                    i32::try_from(pid).ok()?,
+                    false,
+                ))
+            };
+            let (target, before) = (app(front)?, app(previous)?);
+            Some(mac.put_back(&target, &before, task).await)
+        })
     }
 
     fn locks(&self, args: &Args) -> Vec<String> {
@@ -1631,6 +1677,7 @@ mod wiring_tests {
                 policy: Arc::new(BrowserPolicy),
                 host: host(),
             }),
+            mac: None,
         }
     }
 

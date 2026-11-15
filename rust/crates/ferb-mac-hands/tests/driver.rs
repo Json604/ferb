@@ -849,6 +849,7 @@ fn action_of(v: &Value) -> ComputerAction {
             "ax_value" => Mechanism::AxValue,
             _ => Mechanism::Foreground,
         }),
+        name: None,
     }
 }
 
@@ -1199,14 +1200,24 @@ fn declarations_match_the_catalog() {
         .iter()
         .map(|t| (t["name"].as_str().unwrap().to_string(), t.clone()))
         .collect();
+    // decision: HAND-551: the deliberate description changes (rust/fixtures/catalog/tool_changes.json) applied
+    let changes: Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../fixtures/catalog/tool_changes.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     for d in ferb_mac_hands::tools::declarations() {
         let t = &tools[d.name];
-        assert_eq!(
-            t["description"].as_str().unwrap(),
-            d.description,
-            "{}",
-            d.name
-        );
+        let mut want = t["description"].as_str().unwrap().to_string();
+        for c in changes["changes"].as_array().unwrap() {
+            if c["tool"] == d.name && c["part"] == "description" {
+                want = want.replacen(c["old"].as_str().unwrap(), c["new"].as_str().unwrap(), 1);
+            }
+        }
+        assert_eq!(want, d.description, "{}", d.name);
         assert_eq!(
             t["scopes"],
             json!(d.scopes.iter().copied().collect::<BTreeSet<_>>()),

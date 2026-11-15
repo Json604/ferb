@@ -54,6 +54,10 @@ struct FERBAppActions {
     /// Plan F's: Settings → General → Startup.
     var loginItems: LoginItemController?
     var updates: UpdateCoordinator?
+    /// Settings → Stored data deleted a turn (STORE-424): the chat this app holds drops it (its request id).
+    var turnDeleted: ((String) -> Void)?
+    /// Settings → Stored data → Start a fresh conversation (STORE-425): nil when done, else why not.
+    var freshConversation: (() async -> String?)?
     var logsDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ferb/logs", isDirectory: true)
     var openNotificationSettings: () -> Void = {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") { NSWorkspace.shared.open(url) }
@@ -188,7 +192,7 @@ struct FERBWindowView: View {
                     }
                     settingsGroup("Experience", tabs: [.general, .notch, .notifications])
                     settingsGroup("Connections", tabs: [.ai, .browsers, .permissions])
-                    settingsGroup("Manage FERB", tabs: [.privacy, .data, .advanced, .about])
+                    settingsGroup("Manage FERB", tabs: [.privacy, .data, .stored, .advanced, .about])
                 }.padding(.horizontal, 12).padding(.bottom, 24)
             }.scrollIndicators(.automatic)
         }

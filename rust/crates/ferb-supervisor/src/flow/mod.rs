@@ -39,6 +39,8 @@ pub mod chat;
 // stage 2: the chat as entries, projected from the frames and events (entries) and kept (chat_log)
 pub mod chat_log;
 pub mod conversations;
+pub mod data_delete;
+pub mod data_rpc;
 pub mod entries;
 pub mod entries_rpc;
 pub mod fold;
@@ -440,6 +442,16 @@ pub trait Daemon: Send + Sync {
     /// The memory port's `forget_request(item_id, request_id)`: code's line (a forget asks the owner first, I2). None:
     /// no memory port here.
     fn forget_memory(&self, _item_id: &str, _request_id: &str) -> Option<String> {
+        None
+    }
+    /// The memory port's forget of what FERB learned only from a turn the owner deleted (STORE-426): each memory item
+    /// as Memory's Forget forgets it (its sources kept: the turn's are already gone), then the learned cards and what
+    /// was derived from them. (memories, cards) forgotten; None: no memory port here.
+    fn forget_learned(
+        &self,
+        _items: &[String],
+        _nodes: &[String],
+    ) -> Option<Result<(usize, usize), String>> {
         None
     }
     /// The memory port's `question_answered(ap)`: what follows an answered question (e.g. a forget the owner just said

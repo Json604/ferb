@@ -459,6 +459,32 @@ impl ChatLog {
         });
     }
 
+    // ---- the owner's delete (STORE-424) ----
+
+    /// Whether a stream is still open for this message (FERB is still answering it).
+    pub fn is_open(&self, request_id: &str) -> bool {
+        lock(&self.state).open.contains_key(request_id)
+    }
+
+    /// `work` in the log's write transaction, after everything queued: the entries it revised (tombstones) go to the
+    /// watchers once committed, and their conversations' projectors are dropped (rebuilt from the store when next
+    /// used), so nothing held in memory writes a deleted entry back.
+    pub fn rewrite<T>(
+        &self,
+        inner: &Inner,
+        work: impl FnOnce(&Connection) -> Result<(T, Vec<Entry>), ferb_store::Error>,
+    ) -> Result<T, ferb_store::Error> {
+        self.run(inner, |conn, ctx| {
+            let (value, revised) = work(conn)?;
+            for e in revised {
+                ctx.st.projectors.remove(&e.conversation_id);
+                ctx.made
+                    .push((e.conversation_id.clone(), Watched::Change(Box::new(e))));
+            }
+            Ok(value)
+        })
+    }
+
     // ---- watchers ----
 
     /// A new watcher of one conversation: everything committed from now on, and the live frames.

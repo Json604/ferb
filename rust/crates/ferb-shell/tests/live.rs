@@ -728,3 +728,42 @@ async fn network_goes_only_through_the_proxy_is_recorded_and_a_download_past_its
         .any(|f| f["destinations"][0]["host"] == "origin.test"));
     proxy.close();
 }
+
+/// A command FERB runs never waits on a pager or a terminal prompt: the inherited defaults print through and make git
+/// and gh fail at once (live 2026-11-15: `git log` sat at "Press RETURN" and `git push` asked for a user name), while
+/// a value the command sets itself still wins.
+// decision: HAND-561
+#[tokio::test(flavor = "multi_thread")]
+async fn a_command_sees_no_pager_and_no_terminal_prompt_unless_it_sets_one() {
+    if skip() {
+        return;
+    }
+    let (tmp, home) = home();
+    let lists = Lists::new(&home, &[], &[], None);
+    let ws = lists.workspace.clone();
+    let m = manager(tmp.path(), lists);
+    let show = "/bin/echo \"[$PAGER|$GIT_PAGER|$GH_PAGER|$GIT_TERMINAL_PROMPT|$GH_PROMPT_DISABLED|$TERM]\"";
+    let h = m
+        .start(show, &ws, "t", false, None, None, &[])
+        .await
+        .unwrap();
+    m.wait(&h, 10.0).await.unwrap();
+    let (text, _, _) = m.read(&h, 0, None).await.unwrap();
+    assert!(text.contains("[cat|cat|cat|0|1|dumb]"), "{text}");
+    let h = m
+        .start(
+            &format!("GIT_PAGER=less; export GIT_PAGER; {show}"),
+            &ws,
+            "t",
+            false,
+            None,
+            None,
+            &[],
+        )
+        .await
+        .unwrap();
+    m.wait(&h, 10.0).await.unwrap();
+    let (text, _, _) = m.read(&h, 0, None).await.unwrap();
+    assert!(text.contains("[cat|less|cat|0|1|dumb]"), "{text}");
+    m.kill_all().await;
+}

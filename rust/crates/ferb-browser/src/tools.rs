@@ -1389,15 +1389,14 @@ impl Tools {
             news.insert("closed_tabs".into(), json!(closed));
         }
         // HAND-533: a window the page brought forward (and FERB put back down), a fact for the worker (HAND-212)
-        let shown: Vec<String> = self
-            .driver
-            .surfaced_for(tab)
-            .iter()
-            .map(crate::surfaced::told)
-            .collect();
+        let surfaced = self.driver.surfaced_for(tab);
+        let shown: Vec<String> = surfaced.iter().map(crate::surfaced::told).collect();
         if !shown.is_empty() {
             news.insert("window_shown".into(), json!(shown));
         }
+        // HAND-546: and for the owner's line, the ones that brought a window up, with the tab's site
+        let site = self.host_of(self.driver.tab_url(&tab.tab_id).as_deref());
+        self.driver.window_shown(tab, site, &surfaced);
         let mut sources = download_sources(&found);
         sources.extend(
             tabs.iter()
@@ -2029,7 +2028,22 @@ impl Tools {
                 let (url, server) = serve_once(html, self.driver.random())
                     .await
                     .map_err(|e| Error::driver(e.to_string()))?;
-                let opened = d.open_for(&url, &ctx.task_id, None, None, false).await;
+                // HAND-562: where the resolver alone puts the task's tabs, else the profile this task already works in
+                // (its newest open tab's); the one-time page is local and loads nothing. Fixed against Python
+                // (tools.py:713 opened with no profile: "select a profile from the task context", live 2026-11-15)
+                let profile = d.in_use_profile(&ctx.task_id);
+                let opened = d
+                    .open_for(&url, &ctx.task_id, profile.as_deref(), None, false)
+                    .await
+                    .map_err(|e| match &profile {
+                        None if e.message().starts_with(crate::profiles::NO_CHOICE) => Error::refused(format!(
+                            "browser.pdf prints html_path in a browser profile this task already works in, and it \
+                             has no tab open yet: open one first with browser.open url=<any page> profile=<name or \
+                             browser/folder>, then call browser.pdf again with html_path. {}",
+                            e.message()
+                        )),
+                        _ => e,
+                    });
                 let printed = match &opened {
                     Ok(tab) => d.pdf(tab, a.landscape).await,
                     Err(e) => Err(e.clone()),

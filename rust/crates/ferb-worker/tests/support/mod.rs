@@ -557,6 +557,8 @@ pub struct TestHost {
     pub schemas: Value,
     policy: TestPolicy,
     me: Weak<TestHost>,
+    /// RUN-465: who paused the tree, while it is paused (a scripted `pause` step sets it).
+    pub paused: Mutex<Option<String>>,
 }
 
 impl TestHost {
@@ -596,6 +598,7 @@ impl TestHost {
             schemas: schemas.clone(),
             policy: TestPolicy,
             me: me.clone(),
+            paused: Mutex::default(),
         })
     }
 
@@ -646,6 +649,9 @@ fn fixture_tools() -> Vec<Value> {
 }
 
 impl WorkerHost for TestHost {
+    fn paused(&self, _tree_id: &str) -> Option<String> {
+        self.paused.lock().unwrap().clone()
+    }
     fn clock(&self) -> &dyn ZonedClock {
         &self.clock
     }
@@ -948,6 +954,16 @@ async fn stop_tree(host: &TestHost, reason: &str) {
     }
 }
 
+/// What the supervisor's pause does to a running worker (RUN-465): the tree is marked paused, its tree's stop stays
+/// empty, and each active run is cancelled.
+async fn pause_tree(host: &TestHost, by: &str) {
+    *host.paused.lock().unwrap() = Some(by.to_string());
+    let worker = host.worker();
+    for run in worker.runs().active() {
+        run.control.cancel().await;
+    }
+}
+
 impl ModelRuntime for ScriptRuntime {
     fn name(&self) -> String {
         self.name.clone()
@@ -1157,6 +1173,8 @@ impl EventSource for ScriptEvents {
                     }
                 } else if let Some(reason) = step.get("stop").and_then(Value::as_str) {
                     stop_tree(&self.host, reason).await;
+                } else if let Some(by) = step.get("pause").and_then(Value::as_str) {
+                    pause_tree(&self.host, by).await;
                 } else if step.get("stall").is_some() {
                     while !self.cancelled.load(Ordering::SeqCst) {
                         tokio::time::sleep(std::time::Duration::from_millis(5)).await;

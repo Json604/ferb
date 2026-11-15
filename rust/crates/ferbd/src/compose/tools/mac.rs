@@ -410,8 +410,37 @@ impl MacImages {
     }
 }
 
+/// HAND-548: what a tool call's span keeps of one image's redaction: each attempt that failed (step, error domain and
+/// code) and `read_by` (a later attempt read it) or `withheld`; empty when the first attempt read it, or nothing was
+/// tried. Never the image or its text.
+pub fn span_notes(
+    got: &Result<ferb_mac_hands::ocr::Redacted, ferb_mac_hands::ocr::Withheld>,
+) -> Map<String, Value> {
+    let (faults, last) = match got {
+        Ok(r) => (&r.faults, ("read_by", json!(r.read_by))),
+        Err(w) => (&w.faults, ("withheld", json!(true))),
+    };
+    let mut out = Map::new();
+    if faults.is_empty() {
+        return out;
+    }
+    out.insert(
+        "faults".into(),
+        Value::Array(faults.iter().map(|f| f.facts()).collect()),
+    );
+    out.insert(last.0.into(), last.1);
+    out
+}
+
 impl ferb_gateway::call_hooks::ImageSanitizer for MacImages {
     fn sanitize<'a>(&'a self, image: &'a [u8]) -> BoxFuture<'a, Result<Vec<u8>, String>> {
+        Box::pin(async move { self.sanitize_noted(image).await.0 })
+    }
+
+    fn sanitize_noted<'a>(
+        &'a self,
+        image: &'a [u8],
+    ) -> BoxFuture<'a, ferb_gateway::call_hooks::SanitizedNoted> {
         let image = image.to_vec();
         let me = self.clone();
         // a live preview's frame: its faults go to preview.failed, and it never queues behind a running child
@@ -420,7 +449,8 @@ impl ferb_gateway::call_hooks::ImageSanitizer for MacImages {
             move || {
                 let got = me.images.redact_noted(&image, Some(preview.is_none()));
                 me.note(if preview.is_some() { "preview" } else { "tool" }, &got);
-                match got {
+                let notes = span_notes(&got);
+                let answer = match got {
                     Ok(r) => Ok(r.image),
                     Err(w) => {
                         if let Some(sink) = preview {
@@ -430,9 +460,13 @@ impl ferb_gateway::call_hooks::ImageSanitizer for MacImages {
                         }
                         Err(w.to_string())
                     }
-                }
+                };
+                (answer, notes)
             },
-            Err(ferb_mac_hands::ocr::UNAVAILABLE.to_string()),
+            (
+                Err(ferb_mac_hands::ocr::UNAVAILABLE.to_string()),
+                Map::new(),
+            ),
         )
     }
 }
@@ -583,10 +617,9 @@ impl Mac {
                 .map(|s| s.into_iter().collect())
                 .unwrap_or_default()
         });
-        d.profiles = Arc::new(ferb_mac_hands::profile::Profiles::new(
-            Some(&p.home().join("device").join("apps")),
-            Arc::new(ferb_mac_hands::profile::now_utc),
-        ));
+        // one instance per folder: the gateway's raw-input question reads the records the driver writes (HAND-554)
+        d.profiles =
+            ferb_mac_hands::profile::Profiles::shared(&p.home().join("device").join("apps"));
         let c = config.clone();
         d.snapshot_images = Arc::new(move || config_bool(&c, "mac", "snapshot_image", true));
         let c = config.clone();
@@ -641,6 +674,16 @@ impl Mac {
         let a = p.attribution();
         d.on_activate =
             Arc::new(move |bundle: &str, task: Option<&str>| a.ferb_activated(bundle, task));
+        // HAND-549, HAND-554: an app that came to the front during a Mac call is told to the owner on the same path
+        // as a browser window that came up (HAND-546's notice, `browser.window_shown`, no site)
+        let events = p.events();
+        d.came_forward = Some(Arc::new(move |task: &str, shown: Value| {
+            let mut data = Map::new();
+            data.insert("task_id".into(), Value::String(task.to_string()));
+            data.insert("site".into(), Value::String(String::new()));
+            data.insert("shown".into(), Value::Array(vec![shown]));
+            events.publish("browser.window_shown", data);
+        }));
         let a = p.attribution();
         d.acting = Some(Arc::new(move |bundle: &str, task: Option<&str>| {
             Box::new(a.acting_owned(bundle, task)) as Box<dyn std::any::Any + Send>
@@ -1582,6 +1625,39 @@ mod tests {
         assert!(
             !all.contains("482913") && !all.contains("verification"),
             "{all}"
+        );
+    }
+
+    /// HAND-548: the span's notes of one image: the faults and how it ended; nothing when the first attempt read it.
+    #[test]
+    fn an_images_span_notes_are_its_faults_and_how_it_ended() {
+        use ferb_mac_hands::ocr::{Redacted, Withheld};
+        let first: Result<Redacted, Withheld> = Ok(Redacted {
+            image: b"Your verification code is 482913".to_vec(),
+            read_by: "vision",
+            faults: vec![],
+        });
+        assert!(span_notes(&first).is_empty());
+        assert!(span_notes(&Err(Withheld::default())).is_empty());
+        let cpu: Result<Redacted, Withheld> = Ok(Redacted {
+            image: b"Your verification code is 482913".to_vec(),
+            read_by: "vision_cpu",
+            faults: vec![fault("vision", "com.apple.Vision", 9)],
+        });
+        let notes = Value::Object(span_notes(&cpu));
+        assert_eq!(
+            notes,
+            json!({"faults": [{"step": "vision", "domain": "com.apple.Vision", "code": 9}],
+                   "read_by": "vision_cpu"})
+        );
+        assert!(!notes.to_string().contains("482913"));
+        let withheld: Result<Redacted, Withheld> = Err(Withheld {
+            faults: vec![fault("vision", "com.apple.Vision", 9)],
+        });
+        assert_eq!(
+            Value::Object(span_notes(&withheld)),
+            json!({"faults": [{"step": "vision", "domain": "com.apple.Vision", "code": 9}],
+                   "withheld": true})
         );
     }
 }

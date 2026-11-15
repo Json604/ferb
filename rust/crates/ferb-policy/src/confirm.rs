@@ -199,6 +199,28 @@ pub trait Apps {
     fn installed_bundle(&self, name: &str) -> Result<Option<String>, AppsUnread>;
     /// `browsers.is_browser_app(app)`.
     fn is_browser_app(&self, app: &str) -> bool;
+    /// HAND-549, HAND-554: the last raw input FERB sent this app (pointer or key events) brought it to the front (its
+    /// Mac profile's record); false when unknown.
+    fn comes_forward_on_input(&self, _app: &str) -> bool {
+        false
+    }
+}
+
+/// HAND-554: a call that sends an app raw input (pointer or key events posted to it), not its elements'
+/// Accessibility actions: mac.click by pointer, mac.pointer but a hover, mac.act by process events (type and key by
+/// default, or mechanism pid). Mirrors ferb_mac_hands::tools::raw_input.
+pub fn raw_input(tool: &str, args: &serde_json::Map<String, Value>) -> bool {
+    let mechanism = arg_str(args, "mechanism");
+    match tool {
+        "mac.click" => mechanism.is_empty() || mechanism == "pointer",
+        "mac.pointer" => arg_str(args, "action") != "hover",
+        "mac.act" => {
+            mechanism == "pid"
+                || (mechanism.is_empty()
+                    && matches!(arg_str(args, "action").as_str(), "type" | "key"))
+        }
+        _ => false,
+    }
 }
 
 /// `key(*parts)`: the rule and the exact values one answer covers (JSON of the tuple, ensure_ascii=False).
@@ -306,7 +328,9 @@ pub fn foreground_need(
         .get("allow_foreground")
         .is_some_and(ferb_py::value::truthy)
         || args.get("mechanism") == Some(&json!("foreground"));
-    if !in_browser && (!FOREGROUND_TOOLS.contains(&tool) || !flagged) {
+    // HAND-549: raw input to an app seen coming to the front on FERB's raw input asks first, as foreground input does
+    let comes_forward = raw_input(tool, args) && apps.comes_forward_on_input(&arg_str(args, "app"));
+    if !in_browser && !comes_forward && (!FOREGROUND_TOOLS.contains(&tool) || !flagged) {
         return None;
     }
     let app = {

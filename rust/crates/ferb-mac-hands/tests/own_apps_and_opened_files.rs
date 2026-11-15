@@ -404,6 +404,7 @@ fn foreground(kind: K, text: &str) -> ComputerAction {
         window: None,
         allow_foreground: true,
         mechanism: Some(Mechanism::Foreground),
+        name: None,
     }
 }
 

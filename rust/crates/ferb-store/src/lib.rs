@@ -14,6 +14,7 @@
 pub mod chat_entries;
 pub mod chat_history;
 pub mod cleanup;
+pub mod data_view;
 mod migrate;
 pub mod pyval;
 pub mod retention;

@@ -167,6 +167,11 @@ pub trait WorkerHost: Send + Sync {
     fn forget_calls(&self, worker_id: &str);
     /// `gateway.calls_refused(watch_id)`: lookups refused after they were spent (RUN-445).
     fn calls_refused(&self, watch_id: &str) -> u64;
+    /// RUN-465: while the tree `tree_id` is paused, who paused it, in the words the run's record keeps ("paused by
+    /// you"); None while it isn't. A run a pause interrupted ends as that, never as a failure.
+    fn paused(&self, _tree_id: &str) -> Option<String> {
+        None
+    }
 
     // --- run tokens (auth.py `RunTokens`) ---
     fn issue_token(

@@ -617,6 +617,34 @@ impl Inner {
                 ));
             }
             if choice.action == "ask" {
+                if let Some(answer) = self.answered_in_step(tree, &choice.question) {
+                    // ORCH-650: the owner already answered this very question in this step: not asked again; the
+                    // next attempt has their answer (and every later check reads it in the step's context)
+                    self.journal(
+                        "plan.question_answered_before",
+                        json!({"task_id": tree.id, "step": tree.step_id, "question": choice.question}),
+                        None,
+                    );
+                    instructions =
+                        super::owner_wait::owner_continuation(&super::owner_wait::OwnerReply {
+                            kind: "answer".into(),
+                            words: answer,
+                            question: choice.question.clone(),
+                            ..Default::default()
+                        });
+                    retrying = true;
+                    if attempts.failed_one() {
+                        match self
+                            .check_in_step(tree, &task, &mut attempts, out.artifacts.clone())
+                            .await
+                        {
+                            Ok(more) => instructions.push_str(&more),
+                            Err(None) => break,
+                            Err(Some(failed)) => return Ok(failed),
+                        }
+                    }
+                    continue;
+                }
                 tree.lock().owner_question = choice.question.clone();
                 if tree.asks_in_place {
                     match self.ask_in_place(tree, &task, &choice.question).await {
@@ -672,6 +700,30 @@ impl Inner {
             },
             Vec::new(),
         ))
+    }
+
+    /// ORCH-650: the owner's latest answer in this step to `question` asked in the same words (as the card showed it,
+    /// case and spacing aside), if the step asked it before.
+    fn answered_in_step(&self, tree: &Arc<Tree>, question: &str) -> Option<String> {
+        let norm = |t: &str| {
+            t.split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_lowercase()
+        };
+        let plain = ferb_sanitize::terminal::printable(question);
+        let forms = [
+            norm(&plain),
+            norm(&ferb_policy::confirm::task_question(&plain)),
+        ];
+        if forms[0].is_empty() {
+            return None;
+        }
+        self.step_answers(&tree.id, &tree.step_id)
+            .iter()
+            .rev()
+            .find(|qa| forms.contains(&norm(qa["question"].as_str().unwrap_or(""))))
+            .and_then(|qa| qa["answer"].as_str().map(str::to_string))
     }
 
     /// supervisor.py:6356 `_read_report`.
@@ -1246,6 +1298,11 @@ impl Inner {
         let report = worker_context::verifier_report(&reads, &|t| self.wrap(t));
         let mut context = self.context(tree, false).await?;
         context.push(self.code_facts(task, calls_since));
+        // ORCH-650: the owner's answers to this step's questions, the check's own included
+        context.extend(worker_context::step_answers_block(
+            &self.step_answers(&tree.id, &tree.step_id),
+            &|t| self.wrap(t),
+        ));
         let above =
             |blocks: &[ContextBlock]| 1 + blocks.iter().map(|b| b.priority).max().unwrap_or(0);
         let mut ctx = context.clone();

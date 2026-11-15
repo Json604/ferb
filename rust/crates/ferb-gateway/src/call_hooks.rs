@@ -9,7 +9,7 @@
 //! previews, the evidence store, the change record, the image sanitizer, the app-window picture and its masking,
 //! the shadow advisor, and where events and journaled problems go.
 //!
-//! decision: DMN-5, DMN-403, HAND-212
+//! decision: DMN-5, DMN-403, HAND-550
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
@@ -180,8 +180,19 @@ pub trait ChangeRecord: Send + Sync {
 }
 
 /// The image sanitizer (L13, `ImageRedactor`): the image with its codes, card numbers and known secrets painted.
+/// HAND-548: an image's sanitized bytes (or why not), and what its call's span alone keeps of it.
+pub type SanitizedNoted = (Result<Vec<u8>, String>, Map<String, Value>);
+
+pub use crate::seams::ImageRedaction;
+
 pub trait ImageSanitizer: Send + Sync {
     fn sanitize<'a>(&'a self, image: &'a [u8]) -> BoxFuture<'a, Result<Vec<u8>, String>>;
+    /// HAND-548: the same answer, with what the call's span keeps of it: each attempt that failed (step, error domain
+    /// and code: `faults`), and `read_by` (a later attempt read it) or `withheld`; empty when the first attempt read
+    /// it. Never the image or its text, and never the model's.
+    fn sanitize_noted<'a>(&'a self, image: &'a [u8]) -> BoxFuture<'a, SanitizedNoted> {
+        Box::pin(async move { (self.sanitize(image).await, Map::new()) })
+    }
 }
 
 /// The working app's window as one picture (`ferb/act/mac/tools.py` `app_window`).
@@ -592,23 +603,20 @@ impl CallHooks for RealHooks {
         })
     }
 
-    fn redact_image<'a>(
-        &'a self,
-        out: ToolOutput,
-    ) -> BoxFuture<'a, (ToolOutput, Map<String, Value>)> {
+    fn redact_image<'a>(&'a self, out: ToolOutput) -> BoxFuture<'a, ImageRedaction> {
         Box::pin(async move {
             let mut out = out;
             let Some(image) = out.result.image.clone() else {
-                return (out, Map::new());
+                return (out, Map::new(), Map::new());
             };
-            let clean = match &self.parts.images {
-                Some(s) => s.sanitize(&image).await,
-                None => Err("no image sanitizer".into()),
+            let (clean, noted) = match &self.parts.images {
+                Some(s) => s.sanitize_noted(&image).await,
+                None => (Err("no image sanitizer".into()), Map::new()),
             };
             match clean {
                 Ok(img) => {
                     out.result.image = Some(img);
-                    (out, Map::new())
+                    (out, Map::new(), noted)
                 }
                 Err(_) => {
                     out.result.image = None;
@@ -617,7 +625,7 @@ impl CallHooks for RealHooks {
                         "image_withheld".into(),
                         Value::String("image redaction unavailable".into()),
                     );
-                    (out, facts)
+                    (out, facts, noted)
                 }
             }
         })

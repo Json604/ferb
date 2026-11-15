@@ -9,7 +9,7 @@ use crate::py;
 
 pub use terms::{contains_words, query_terms, slug, subject_key, weighted};
 
-/// items.py:111: where a clause ends; never a period ("Dr. Rao").
+/// items.py:111: where a clause ends; a period ends one only where it ends a sentence (`sentence_end`, MEM-431).
 const CLAUSE_MARKS: [char; 6] = [',', ';', ':', '!', '?', '\n'];
 /// items.py:112.
 const EDGE: &str = " \t.\"'“”‘’()[]";
@@ -80,16 +80,47 @@ pub fn found(text: &str, part: &str) -> Option<(usize, usize)> {
     None
 }
 
-/// items.py:127 `_clause_span`.
+/// MEM-431: the period at `i` ends a sentence: space or the text's end follows it, and the word it closes isn't an
+/// abbreviation by its shape. An abbreviation is single letters joined by periods ("e.g.", "U.S.") or a word of one
+/// to four letters followed by a capitalised word or a number ("Dr. Rao", "prof. Zorblat", "no. 5"). A period inside
+/// a word ("v2.1", "kartikey.xyz") is never followed by space, so it never ends one. Structure only, no word list.
+fn sentence_end(chars: &[char], i: usize) -> bool {
+    if chars[i] != '.' || chars.get(i + 1).is_some_and(|&c| !pystr::is_space(c)) {
+        return false;
+    }
+    let from = chars[..i]
+        .iter()
+        .rposition(|&c| pystr::is_space(c))
+        .map_or(0, |p| p + 1);
+    let word: String = chars[from..i].iter().collect();
+    if word.contains('.') {
+        let initials = word
+            .split('.')
+            .all(|s| s.chars().count() == 1 && s.chars().all(char::is_alphabetic));
+        return !initials;
+    }
+    let short = (1..=4).contains(&word.chars().count()) && word.chars().all(char::is_alphabetic);
+    let next = chars[i + 1..].iter().find(|&&c| !pystr::is_space(c));
+    !(short && next.is_some_and(|c| c.is_uppercase() || c.is_numeric()))
+}
+
+/// Where a clause ends: a clause mark, or a period that ends a sentence (MEM-431).
+fn clause_bound(chars: &[char], i: usize) -> bool {
+    CLAUSE_MARKS.contains(&chars[i]) || sentence_end(chars, i)
+}
+
+/// items.py:127 `_clause_span`, with a sentence's end as a bound too. Fixed against Python (MEM-431): Python never
+/// cut at a period, so a fact quoted from a message ("roll no: 2024eb02238 . THEY SHOULDN'T …") was saved with every
+/// sentence after it up to the next comma (live 2026-11-15).
 fn clause_span(chars: &[char], start: usize, end: usize) -> (usize, usize) {
-    let left = chars[..start]
-        .iter()
-        .rposition(|c| CLAUSE_MARKS.contains(c))
+    let left = (0..start)
+        .rev()
+        .find(|&i| clause_bound(chars, i))
         .map_or(0, |i| i + 1);
-    let right = chars[end.min(chars.len())..]
-        .iter()
-        .position(|c| CLAUSE_MARKS.contains(c))
-        .map_or(chars.len(), |i| end + i);
+    let end = end.min(chars.len());
+    let right = (end..chars.len())
+        .find(|&i| clause_bound(chars, i))
+        .unwrap_or(chars.len());
     (left, right)
 }
 

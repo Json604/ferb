@@ -263,6 +263,13 @@ struct World {
 }
 
 fn world() -> World {
+    world_choosing(Arc::new(|_| {
+        Ok(("chrome".to_string(), "Default".to_string()))
+    }))
+}
+
+/// `world` with the resolver `choose`.
+fn world_choosing(choose: ferb_browser::driver::Choose) -> World {
     let random = Arc::new(Counter::new());
     let pairings = Arc::new(Pairings::new(
         Arc::new(Installs(Mutex::new(vec![]))),
@@ -301,7 +308,7 @@ fn world() -> World {
     let driver = Driver::new(
         hub.clone(),
         Kind::Owner {
-            choose: Arc::new(|_| Ok(("chrome".to_string(), "Default".to_string()))),
+            choose,
             input: None,
         },
         tasks,
@@ -511,4 +518,59 @@ async fn a_woken_profiles_hello_leaves_the_cleanups_tabs_to_the_cleanup() {
         .filter(|(op, _)| op != "ping")
         .collect();
     assert_eq!(acts, vec![("close".to_string(), json!({"tab_id": 11}))]);
+}
+
+/// HAND-562: with several of the owner's profiles paired and none picked, the resolver can't choose alone; a print of
+/// a local HTML file then goes to the profile the task already works in (its newest open tab's), named as
+/// browser.open takes it; with no open tab, or when the resolver chooses alone, nothing is guessed. Live 2026-11-15:
+/// browser.pdf html_path failed five times with "select a profile from the task context".
+// decision: HAND-562
+#[tokio::test(start_paused = true)]
+async fn a_local_print_goes_to_the_profile_the_task_already_works_in() {
+    let w = world_choosing(Arc::new(|named: Option<&str>| match named {
+        Some("brave/Work") => Ok(("brave".to_string(), "Work".to_string())),
+        Some("chrome/Default") => Ok(("chrome".to_string(), "Default".to_string())),
+        _ => Err(ferb_browser::Error::refused(
+            "select a profile from the task context; available: brave/Work, chrome/Default",
+        )),
+    }));
+    assert_eq!(w.driver.in_use_profile("task-a"), None, "no tab yet");
+    w.ext.connect(
+        "install-brave",
+        tabs(&[(21, "task-a", false), (22, "task-b", false)]),
+    );
+    settle().await;
+    assert_eq!(
+        w.driver.in_use_profile("task-a").as_deref(),
+        Some("brave/Work")
+    );
+    assert_eq!(
+        w.driver.in_use_profile("task-c"),
+        None,
+        "another task's tab is not this one's"
+    );
+    let profile = w.driver.in_use_profile("task-a");
+    // the print's tab is asked of brave/Work's extension (this fake answers with no tab)
+    let _ = w
+        .driver
+        .open_for(
+            "http://127.0.0.1:1/print",
+            "task-a",
+            profile.as_deref(),
+            None,
+            false,
+        )
+        .await;
+    assert!(
+        w.ext.sent_on(1).iter().any(|(op, _)| op == "open"),
+        "{:?}",
+        w.ext.sent_on(1)
+    );
+
+    // when the resolver chooses alone, that choice stands (browser.open's)
+    let w = world();
+    w.ext
+        .connect("install-brave", tabs(&[(31, "task-a", false)]));
+    settle().await;
+    assert_eq!(w.driver.in_use_profile("task-a"), None);
 }

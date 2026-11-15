@@ -85,6 +85,85 @@ fn action_name(a: &str) -> Option<&'static str> {
     })
 }
 
+/// HAND-551: how many of an element's actions a snapshot lists, and how many characters of a name an app gives one of
+/// its own actions are kept (outside content: data, bounded).
+pub const MAX_ACTIONS: usize = 16;
+pub const MAX_ACTION_NAME: usize = 48;
+
+/// HAND-551: an advertised AX action as a snapshot lists it and `mac.act` names it: the known ones by FERB's word
+/// (Python's table, unchanged); an app's own action (NSAccessibilityCustomAction, advertised as
+/// `Name:<its name>\nTarget:…\nSelector:…`) by its name; any other `AX…` action by its words in snake case
+/// (`AXShowAlternateUI` → `show_alternate_ui`). Control characters and runs of white space become one space, and the
+/// name is cut at [`MAX_ACTION_NAME`] characters. None for a name with nothing left. The same raw name always gives
+/// the same listed one, so `mac.act` finds the raw action again by its listed name.
+pub fn action_shown(raw: &str) -> Option<String> {
+    if let Some(known) = action_name(raw) {
+        return Some(known.to_string());
+    }
+    let text = if let Some(rest) = raw.strip_prefix("Name:") {
+        rest.split('\n').next().unwrap_or("").to_string()
+    } else if let Some(rest) = raw
+        .strip_prefix("AX")
+        .filter(|r| !r.is_empty() && r.chars().all(|c| c.is_ascii_alphanumeric()))
+    {
+        snake(rest)
+    } else {
+        raw.to_string()
+    };
+    let mut out = String::new();
+    let mut space = false;
+    for c in text.chars() {
+        if c.is_whitespace() || c.is_control() {
+            space = !out.is_empty();
+            continue;
+        }
+        if space {
+            out.push(' ');
+            space = false;
+        }
+        out.push(c);
+    }
+    let out: String = out.chars().take(MAX_ACTION_NAME).collect();
+    let out = out.trim_end().to_string();
+    (!out.is_empty()).then_some(out)
+}
+
+/// `ShowAlternateUI` → `show_alternate_ui`.
+fn snake(words: &str) -> String {
+    let chars: Vec<char> = words.chars().collect();
+    let mut out = String::new();
+    for (i, c) in chars.iter().enumerate() {
+        if c.is_ascii_uppercase() && i > 0 {
+            let prev = chars[i - 1];
+            let next_lower = chars.get(i + 1).is_some_and(|n| n.is_ascii_lowercase());
+            if prev.is_ascii_lowercase()
+                || prev.is_ascii_digit()
+                || (prev.is_ascii_uppercase() && next_lower)
+            {
+                out.push('_');
+            }
+        }
+        out.push(c.to_ascii_lowercase());
+    }
+    out
+}
+
+/// HAND-551: an element's advertised actions as a snapshot lists them, each once, at most [`MAX_ACTIONS`].
+pub fn shown_actions(raw: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    for a in raw {
+        if out.len() >= MAX_ACTIONS {
+            break;
+        }
+        if let Some(s) = action_shown(a) {
+            if !out.contains(&s) {
+                out.push(s);
+            }
+        }
+    }
+    out
+}
+
 /// A text field whose metadata names it a password field: `(?i)passw|pwd` (accessibility.py:57).
 pub fn password_metadata(v: &str) -> bool {
     let low = ferb_py::text::lower(v);
@@ -986,6 +1065,12 @@ impl<S: AxSource> Ax<S> {
             container = Some("sheet".into());
             tree.containers.push("sheet".into());
         }
+        // HAND-552: a menu open inside the window (a context menu an element shows as its child) is a menu as the
+        // app's own open menus are: its items carry "in": "menu" and `open` lists it
+        if role == "AXMenu" && container.is_none() {
+            container = Some("menu".into());
+            tree.containers.push("menu".into());
+        }
         if depth > MAX_DEPTH {
             Self::mark(tree, "depth");
             self.inventory_below(&children, tree);
@@ -1104,10 +1189,9 @@ impl<S: AxSource> Ax<S> {
             secret,
             enabled: enabled.bool_or(Some(true)).unwrap_or(true),
             ax_role: role.to_string(),
-            actions: acts
-                .iter()
-                .filter_map(|a| action_name(a).map(String::from))
-                .collect(),
+            // HAND-551: Python listed only the actions its table knew; an element's other advertised actions (an
+            // app's own among them) are listed too, so mac.act can perform them
+            actions: shown_actions(acts),
             selected: self.attr(el, "AXSelected").bool_or(None),
             expanded: self.attr(el, "AXExpanded").bool_or(None),
             container,
@@ -1313,6 +1397,24 @@ impl<S: AxSource> Ax<S> {
         } else {
             None
         }
+    }
+
+    /// HAND-552: the context menu an element opened (AXShowMenu): its own AXMenu child, else the app's one open menu,
+    /// else the menu that holds the app's focused element (menu tracking focuses its first item); None when none of
+    /// these shows one.
+    pub fn context_menu(&self, el: &El, pid: i32) -> Option<El> {
+        if let Some(m) = self.popup_menu(el, pid) {
+            return Some(m);
+        }
+        let mut cur = self.focused_element(pid);
+        for _ in 0..12 {
+            let e = cur?;
+            if self.role_of(&e) == "AXMenu" {
+                return Some(e);
+            }
+            cur = self.parent_of(&e);
+        }
+        None
     }
 
     pub fn menu_items(&self, menu: &El) -> Vec<(El, String)> {

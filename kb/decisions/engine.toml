@@ -168,3 +168,12 @@ rule = "rust/fixtures/<part>/make.py and their helpers stay in the repo unchange
 why = "The fixtures are what the Python build produced; deleting the scripts would lose how each was made, and regenerating from Rust would make a test compare the port with itself."
 untestable = "A rule about how frozen files may change; it shows in each commit's diff and the journal."
 paths = ["rust/fixtures/README.md"]
+
+[ENG-18]
+title = "A chat case found live joins the entry scenarios as an invented timeline, marked not recorded"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "For ENG-9. scenarios.json holds the 71 timelines built from the Python recordings, then timelines written by hand in chat_entries.rs (`source` \"invented: ...\") for chat cases found live that no recording has, in the same steps; the golden, the order rules and EntryFoldTests (the app's reducer against the fold) run them like the others. The order rule for plans takes a task's first plan, since a resumed task has one per turn."
+why = "The Python daemon is gone (ENG-16): a live case can't be recorded again, and without a timeline the projector and the app could drift on it unseen. First case: APP-919."
+paths = ["rust/crates/ferb-supervisor/tests/chat_entries.rs", "rust/crates/ferb-supervisor/tests/support_entries/mod.rs", "rust/fixtures/chat-entries/scenarios.json", "ui/mac/FERBNotch/Tests/NotchCoreTests/EntryFoldTests.swift"]

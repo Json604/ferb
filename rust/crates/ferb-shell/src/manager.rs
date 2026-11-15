@@ -29,6 +29,17 @@ use crate::sandbox::{ProfileError, Sandbox};
 pub const CLEAN_ENV_KEYS: [&str; 8] = [
     "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "SHELL", "TMPDIR",
 ];
+/// What a command FERB runs sees so that nothing it starts waits on a person at a terminal (HAND-561): a pager prints
+/// straight through (`less` under TERM=dumb stops at "Press RETURN"), git and gh fail at once instead of asking for a
+/// user name or password on the terminal. A value the command sets itself (`GIT_PAGER=less git log`, an `export`)
+/// still wins: these are only the inherited defaults. Fixed against Python (manager.py:52 set TERM=dumb only).
+pub const NON_INTERACTIVE: [(&str, &str); 5] = [
+    ("PAGER", "cat"),
+    ("GIT_PAGER", "cat"),
+    ("GH_PAGER", "cat"),
+    ("GIT_TERMINAL_PROMPT", "0"),
+    ("GH_PROMPT_DISABLED", "1"),
+];
 /// How long shell.send keeps typing into a command that reads slowly.
 pub const SEND_WAIT_S: f64 = 2.0;
 /// How often the download budget and the free-disk floor are checked while a command runs.
@@ -80,6 +91,14 @@ fn set(env: &mut Vec<(String, String)>, key: &str, value: String) {
         Some(e) => e.1 = value,
         None => env.push((key.to_string(), value)),
     }
+}
+
+/// A shell command's environment: `env` (the clean one) with the non-interactive defaults (`NON_INTERACTIVE`).
+pub fn command_env(mut env: Vec<(String, String)>) -> Vec<(String, String)> {
+    for (k, v) in NON_INTERACTIVE {
+        set(&mut env, k, v.into());
+    }
+    env
 }
 
 /// `clean_env_from` on the daemon's own environment.
@@ -255,7 +274,7 @@ impl ShellManager {
     }
 
     fn env(&self, proc_id: &str) -> Vec<(String, String)> {
-        let mut env = clean_env(true);
+        let mut env = command_env(clean_env(true));
         if let Some(proxy) = &self.cfg.proxy {
             for (k, v) in proxy.env(proc_id) {
                 set(&mut env, &k, v);

@@ -595,6 +595,35 @@ impl Call {
     }
 }
 
+/// HAND-560: the sampler's `screen_changed_during_call` (`told`) joins a tool's own fact of the same name (a Mac
+/// tool's about an app that came forward: put_back, why, raw_input_asks, next) instead of replacing it; the tool's
+/// fields win.
+fn merge_told(into: &mut Map<String, Value>, told: Map<String, Value>) {
+    for (k, v) in told {
+        match (into.get_mut(&k), v) {
+            (Some(Value::Object(own)), Value::Object(sampled)) => {
+                for (f, x) in sampled {
+                    own.entry(f).or_insert(x);
+                }
+            }
+            (Some(_), _) => {}
+            (None, v) => {
+                into.insert(k, v);
+            }
+        }
+    }
+}
+
+/// HAND-560: whether FERB put the owner's app back after the call's own browser came forward, into the worker's fact.
+fn merge_put_back(into: &mut Map<String, Value>, back: Map<String, Value>) {
+    if back.is_empty() {
+        return;
+    }
+    if let Some(Value::Object(fact)) = into.get_mut("screen_changed_during_call") {
+        fact.extend(back);
+    }
+}
+
 fn obj(v: Value) -> Map<String, Value> {
     match v {
         Value::Object(m) => m,
@@ -5763,7 +5792,10 @@ impl Gateway {
             raw.insert("after".into(), after_block(&raw));
         }
         raw.extend(snap.clone());
-        raw.extend(self.hooks().told(&screen));
+        merge_told(&mut raw, self.hooks().told(&screen));
+        let explained = raw.contains_key("window_shown");
+        let back = self.came_forward(c, &screen, explained).await;
+        merge_put_back(&mut raw, back);
         let mut out = out;
         let changed = self.after_change(c, &out, kept.as_deref()).await;
         raw.extend(changed);
@@ -5816,12 +5848,15 @@ impl Gateway {
                 Err(_) => return cancelled_after(&raw, span),
             }
         }
+        // HAND-548: what the image's redaction went through, for the span alone
+        let mut image_notes = Map::new();
         if out.result.image.is_some() && !out.result.is_error {
             self.hooks().image_provided(&c.grant.task_id);
             match c.cancel.guard(self.hooks().redact_image(out)).await {
-                Ok((o2, withheld)) => {
+                Ok((o2, withheld, noted)) => {
                     out = o2;
                     raw.extend(withheld);
+                    image_notes = noted;
                 }
                 Err(_) => return cancelled_after(&raw, span),
             }
@@ -5896,6 +5931,10 @@ impl Gateway {
         }
         if !screen.is_empty() {
             recorded.insert("screen".into(), Value::Object(screen.clone()));
+        }
+        // HAND-548: on the span as `timing` is (HAND-436), never in what the model receives
+        if !image_notes.is_empty() {
+            recorded.insert("image_redaction".into(), Value::Object(image_notes));
         }
         let err_text = if out.result.is_error {
             content.get("error").map(ferb_py::value::py_str)
@@ -6006,8 +6045,64 @@ impl Gateway {
             );
         }
         content.extend(kept_out.unwrap_or_default());
-        content.extend(self.hooks().told(&screen));
+        merge_told(&mut content, self.hooks().told(&screen));
+        let back = self.came_forward(c, &screen, false).await;
+        merge_put_back(&mut content, back);
         Ok(self.reply(Some(&c.rec), content, true, None, false))
+    }
+
+    /// HAND-546: the app a call works in from the background (a browser call: its tab's browser, `background_pid`)
+    /// is the front app after the call when it wasn't before, and nothing the page reported (`window_shown`, the
+    /// extension's own facts) already says what came up: published for the owner's one line per task and site
+    /// (`browser.window_shown`; the notifier writes it). Structure only: the front app's process is the call's own.
+    /// HAND-560: the app that was in front before goes back in front (`Tool::put_back`, the Mac's own activation)
+    /// unless someone switched since; the answer is in the owner's line and returned for the worker's fact.
+    async fn came_forward(
+        &self,
+        c: &Call,
+        screen: &Map<String, Value>,
+        explained: bool,
+    ) -> Map<String, Value> {
+        let mut back = Map::new();
+        if explained {
+            return back;
+        }
+        let front = screen.get("frontmost_app");
+        let Some(after) = front.and_then(|f| f.get("after")).filter(|a| a.is_object()) else {
+            return back;
+        };
+        let pid = after.get("pid").and_then(Value::as_i64);
+        if pid.is_none() || c.tool.background_pid(&c.args) != pid {
+            return back;
+        }
+        let name = |v: &Value| {
+            v.get("name")
+                .filter(|v| ferb_py::value::truthy(v))
+                .or_else(|| v.get("bundle_id"))
+                .map(ferb_py::value::py_str)
+                .unwrap_or_default()
+        };
+        let mut shown = obj(json!({"cause": "front_app", "app": name(after)}));
+        let before = front
+            .and_then(|f| f.get("before"))
+            .filter(|b| b.is_object());
+        if let Some(before) = before {
+            if let Some((put, why)) = c.tool.put_back(after, before, &c.grant.task_id).await {
+                shown.insert("put_back".into(), Value::Bool(put));
+                shown.insert("previous".into(), Value::String(name(before)));
+                back.insert("put_back".into(), Value::Bool(put));
+                if let Some(w) = why {
+                    shown.insert("why".into(), Value::String(w.clone()));
+                    back.insert("why".into(), Value::String(w));
+                }
+            }
+        }
+        let site = c.spec.target.site.clone().unwrap_or_default();
+        self.publish(
+            "browser.window_shown",
+            obj(json!({"task_id": c.grant.task_id, "site": site, "shown": [shown]})),
+        );
+        back
     }
 
     /// `_snapshot_before` (S1): a local snapshot before a permanent delete or a shell command, on its own span.

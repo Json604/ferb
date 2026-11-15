@@ -48,6 +48,23 @@ impl Root {
     }
 }
 
+/// HAND-562 (fixed against Python): the refusal when the resolver can't choose also names the argument and a value
+/// that works, the first available profile as browser/folder; Python's named neither. Compared without that sentence,
+/// which must be there, after the list of profiles.
+// decision: HAND-562
+fn without_the_argument(m: &str) -> String {
+    if !m.starts_with("select a profile from the task context") {
+        return m.to_string();
+    }
+    let start = m
+        .find(
+            " Name one with the profile argument (its name or browser/folder, for example profile=",
+        )
+        .expect("the refusal names the argument");
+    let end = start + m[start..].find("). ").expect("its example") + 2;
+    format!("{}{}", &m[..start], &m[end..])
+}
+
 // decisions: HAND-2, HAND-247, HAND-407, HAND-412, HAND-414, HAND-415, HAND-416, HAND-424
 #[test]
 fn profiles_resolver_and_install_requests_are_pythons() {
@@ -223,7 +240,7 @@ fn profiles_resolver_and_install_requests_are_pythons() {
         };
         let got = match r.choose(case["named"].as_str()) {
             Ok(c) => json!({"ok": {"browser": c.browser, "folder": c.folder, "reason": c.reason}}),
-            Err(m) => json!({"error": "NeedsOwner", "message": m}),
+            Err(m) => json!({"error": "NeedsOwner", "message": without_the_argument(&m)}),
         };
         assert_eq!(got, case["out"], "{case}");
     }

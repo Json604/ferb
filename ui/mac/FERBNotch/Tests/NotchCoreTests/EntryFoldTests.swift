@@ -25,7 +25,7 @@ final class EntryFoldTests: XCTestCase {
     // decision: ENG-9
     func testEveryRecordedScenarioFoldsToTheTranscriptTheAppBuilds() throws {
         let scenarios = try Self.golden()
-        XCTAssertEqual(scenarios.count, 71)
+        XCTAssertEqual(scenarios.count, 72)          // 71 recorded, 1 invented (ENG-18)
         var compared = 0
         var differences: [String] = []
         for scenario in scenarios {
@@ -42,7 +42,7 @@ final class EntryFoldTests: XCTestCase {
                 }
             }
         }
-        XCTAssertEqual(compared, 71, "every conversation of every scenario (preview_attention sends no message; login_sites has two)")
+        XCTAssertEqual(compared, 72, "every conversation of every scenario (preview_attention sends no message; login_sites has two)")
         XCTAssertTrue(differences.isEmpty, differences.joined(separator: "\n"))
     }
 
@@ -136,6 +136,90 @@ final class EntryFoldTests: XCTestCase {
         guard case let .turn(turn, answeredBelow) = chat.transcript()[0] else { return XCTFail("the turn first") }
         XCTAssertEqual(turn.answer, "Handed over.")
         XCTAssertFalse(answeredBelow)
+    }
+
+    /// Live 2026-11-15 (APP-919): a message that stopped a task the owner had restarted with a second message, and asked
+    /// for new work, showed the stopped task's summary three times: the stop message's receipt (ORCH-638), the task's
+    /// own turn (APP-825), and a later answer of the task's FIRST turn at the bottom, because recordAnswer took the first
+    /// turn bound to the task. The invented scenario through the app's own reducer, in both orders the engine can send
+    /// the new task's plan and the stopped task's end: the summary is the second turn's answer and the stop message's
+    /// receipt, and no reply says it again.
+    // decision: APP-919
+    // decision: ENG-18
+    func testAStoppedTaskTwoTurnsRanTellsItsEndOnceOnTheTurnThatRanIt() throws {
+        let scenarios = try Self.golden()
+        let scenario = try XCTUnwrap(scenarios.first { $0["name"] as? String == "stop_beside_new_work_two_turns" })
+        let timeline = scenario["timeline"] as? [[String: Any]] ?? []
+        let plan = try XCTUnwrap(timeline.firstIndex {
+            ($0["stream"] as? NSNumber)?.intValue == 2 && ($0["frame"] as? [String: Any])?["type"] as? String == "plan"
+        })
+        let summary = try XCTUnwrap((timeline[plan]["frame"] as? [String: Any])?["receipts"] as? [String]).first
+        // the other order: the new task's plan after the stopped task's end and its stream's end
+        var later = timeline
+        let moved = later.remove(at: plan)
+        let streamEnd = try XCTUnwrap(later.firstIndex {
+            $0["do"] as? String == "end" && ($0["stream"] as? NSNumber)?.intValue == 1
+        })
+        later.insert(moved, at: streamEnd + 1)
+        for order in [timeline, later] {
+            let archive = appArchive(order)
+            XCTAssertEqual(archive.turns.count, 3)
+            XCTAssertEqual(archive.turns[0].answer, "Stopped, as you asked.\n\nSites contacted: 1 site")
+            XCTAssertEqual(archive.turns[1].answer, summary)
+            XCTAssertEqual(archive.turns[1].status, "cancelled")
+            XCTAssertEqual(archive.turns[2].receipts, [summary].compactMap { $0 })
+            XCTAssertEqual(archive.turns[2].planLine, "I'm listing every file the assignment workers made.")
+            XCTAssertTrue(archive.turns[2].answer.hasPrefix("Two files"))
+            // the first turn's own late answer (posted below when its first run ended) is the only reply
+            XCTAssertEqual(archive.replies.count, 1)
+            XCTAssertNil(archive.replies.first?.said)
+            XCTAssertEqual(archive.replies.first?.turnID, archive.turns[0].id)
+            let said = archive.transcript().compactMap { entry -> String? in
+                if case let .reply(reply, shown) = entry { return reply.said?.answer ?? shown.answer }
+                return nil
+            }
+            XCTAssertFalse(said.contains { $0 == summary }, "no reply says the stopped summary again")
+        }
+    }
+
+    /// A result read back with no request and no session (after a relaunch) ends the task's newest turn, never an
+    /// earlier one it ran under, which has its answer (APP-919).
+    // decision: APP-919
+    func testAResultWithNoRequestEndsTheNewestTurnOfItsTask() {
+        let model = NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults())
+        let first = UUID(), again = UUID()
+        model.conversation.begin(id: first, request: "watch the build", sources: [])
+        model.conversation.bind(id: first, taskID: "t1")
+        model.conversation.finish(id: first, answer: "Stopped.", status: "cancelled", artifacts: [])
+        model.conversation.begin(id: again, request: "start it again", sources: [])
+        model.conversation.bind(id: again, taskID: "t1")
+        model.receiveOutcome(["task_id": "t1", "status": "done", "answer": "The build passed."], announce: false,
+                             recordEvent: false)
+        XCTAssertEqual(model.conversation.turns.map(\.answer), ["Stopped.", "The build passed."])
+        XCTAssertTrue(model.conversation.replies.allSatisfy { $0.said == nil })
+    }
+
+    /// A history saved with the extra copy (a later answer of the task's first turn, as builds before APP-919 saved it)
+    /// is read back and drawn whole; the same end told again adds nothing.
+    // decision: APP-919
+    func testAHistorySavedWithTheExtraCopyIsReadBackWhole() throws {
+        var chat = ConversationArchive()
+        let first = UUID(), second = UUID(), stop = UUID()
+        let summary = "Stopped, as you asked. This is where things stood:\n\nThe app is complete."
+        chat.begin(id: first, request: "do the assignments", sources: [])
+        chat.bind(id: first, taskID: "t1")
+        chat.finish(id: first, answer: "Stopped, as you asked.", status: "cancelled", artifacts: [])
+        chat.begin(id: second, request: "start again", sources: [])
+        chat.bind(id: second, taskID: "t1")
+        chat.begin(id: stop, request: "stop all the tasks", sources: [])
+        chat.finish(id: second, answer: summary, status: "cancelled", artifacts: [])
+        chat.answerLater(id: first, LaterAnswer(answer: summary, status: "cancelled"))   // what the old code saved
+        let saved = try JSONDecoder().decode(ConversationArchive.self, from: JSONEncoder().encode(chat))
+        XCTAssertEqual(saved.transcript().count, chat.transcript().count)
+        XCTAssertEqual(saved.replies.compactMap(\.said?.answer), [summary])
+        var again = saved
+        again.finish(id: second, answer: summary, status: "cancelled", artifacts: [])
+        XCTAssertEqual(again.replies.count, saved.replies.count)
     }
 
     // decision: ENG-8

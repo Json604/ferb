@@ -285,6 +285,14 @@ pub trait Ax: Send + Sync {
     fn menu_items(&self, menu: &El) -> Vec<(El, String)> {
         vec![]
     }
+    /// HAND-551: the AX action names the element advertises now, as macOS gives them (none known: none).
+    fn action_list(&self, el: &El) -> Vec<String> {
+        vec![]
+    }
+    /// HAND-552: the context menu the element opened (`ax::Ax::context_menu`).
+    fn open_menu(&self, el: &El, pid: i32) -> Option<El> {
+        self.popup_menu(el, pid)
+    }
 }
 
 /// Elements compared as values when the source has no CFEqual (the tests' string elements), else by identity.
@@ -523,7 +531,27 @@ pub fn element_routes(kind: K) -> &'static [&'static str] {
         K::Cancel | K::Focus | K::Select => &["ax"],
         K::Scroll => &["ax", "foreground", "pid"],
         K::Key => &["ax", "foreground", "pid"],
+        // HAND-551: an element's own advertised actions go through Accessibility only
+        K::Menu | K::Perform => &["ax"],
     }
+}
+
+/// HAND-551: `perform` naming an action mac.act has its own word for is that action (press, cancel, menu): one path
+/// each, with its own checks.
+pub fn normalized(action: &ComputerAction) -> ComputerAction {
+    let mut a = action.clone();
+    if a.kind == K::Perform {
+        a.kind = match a.name.as_deref().map(ferb_py::value::strip) {
+            Some("press") => K::Press,
+            Some("cancel") => K::Cancel,
+            Some("menu") => K::Menu,
+            _ => K::Perform,
+        };
+        if a.kind != K::Perform {
+            a.name = None;
+        }
+    }
+    a
 }
 
 pub fn mech_str(m: Mechanism) -> &'static str {
@@ -547,6 +575,8 @@ pub fn kind_str(k: K) -> &'static str {
         K::Scroll => "scroll",
         K::Select => "select",
         K::Cancel => "cancel",
+        K::Menu => "menu",
+        K::Perform => "perform",
     }
 }
 
@@ -570,7 +600,7 @@ pub fn focused_typing(action: &ComputerAction) -> bool {
         && action.mechanism == Some(Mechanism::Foreground)
 }
 
-fn default_mechanism(action: &ComputerAction) -> &'static str {
+pub fn default_mechanism(action: &ComputerAction) -> &'static str {
     match action.mechanism {
         Some(m) => mech_str(m),
         None => {
@@ -585,6 +615,7 @@ fn default_mechanism(action: &ComputerAction) -> &'static str {
 
 /// driver.py:377 (L33): whether `act` would deliver this action to `n`.
 pub fn acts_on(action: &ComputerAction, n: &AxNode) -> bool {
+    let action = &normalized(action);
     if action.kind == K::Key
         || matches!(action.kind, K::Type | K::SetValue | K::Select) && action.text.is_none()
         || action.kind == K::Select
@@ -627,6 +658,16 @@ fn with(mut r: ActionResult, facts: Option<ActionFacts>) -> ActionResult {
     r
 }
 
+/// HAND-553: a pointer step stopped because the target app came to the front during FERB's own call (it wasn't in
+/// front when the call began), not because the owner was already using it.
+pub fn came_forward_stop(app: &str, kind: &str) -> String {
+    let app = if app.is_empty() { "the app" } else { app };
+    format!(
+        "{app} came to the front by itself when it got FERB's {kind} (it wasn't in front before), and the owner is \
+using the Mac, so the rest of the pointer input stopped"
+    )
+}
+
 /// Python's `repr()` of a str.
 pub fn py_repr(s: &str) -> String {
     crate::locks::ferb_py_repr(s)
@@ -656,6 +697,9 @@ pub struct MacDriver {
     pub terminal_apps: Arc<dyn Fn() -> Vec<String> + Send + Sync>,
     pub clipboard: Clipboard,
     pub launched: Option<Arc<LaunchedApps>>,
+    /// HAND-549, HAND-554: an app that came to the front during one of FERB's calls, told once for the owner's line
+    /// (task id, the `shown` fact); None: nobody listens.
+    pub came_forward: Option<Arc<dyn Fn(&str, Value) + Send + Sync>>,
     /// The SkyLight window-addressed route is available (window_input.py `load_route`).
     pub route: bool,
     /// This process (the daemon).
@@ -701,6 +745,7 @@ impl MacDriver {
             terminal_apps: Arc::new(Vec::new),
             clipboard: Arc::new(|| (0, None, false)),
             launched: None,
+            came_forward: None,
             route: false,
             own_pid: std::process::id() as i32,
             handlers: Arc::new(crate::apps::WebHandlers::default()),
@@ -1182,12 +1227,28 @@ substituted or brought forward",
             subtree_node = Some(n);
         }
         let tree = self.walk(&a, win, offset, true, None, false).await;
+        let out = self.listed(&a, &tree, subtree_node.as_ref(), window, offset, false);
+        Ok((a, out))
+    }
+
+    /// The snapshot's listing of a walk (driver.py:659's second half): the walk's nodes become this app's element ids
+    /// (a new generation), and the result the worker reads. `keep_window_id`: the walk was of something that isn't a
+    /// window (an open menu, HAND-552), so the snapshot's window stays the one read before.
+    fn listed(
+        &self,
+        a: &A,
+        tree: &AxTree,
+        subtree_node: Option<&AxNode>,
+        window: Option<&str>,
+        offset: usize,
+        keep_window_id: bool,
+    ) -> Map<String, Value> {
         let profile = self.profiles.as_dict(&a.bundle_id);
         let mut st = self.state.lock().expect("lock");
         let s = st.entry(a.bundle_id.clone()).or_default();
         s.gen += 1;
         let mut nodes = tree.nodes.clone();
-        if let Some(sn) = &subtree_node {
+        if let Some(sn) = subtree_node {
             for n in nodes.iter_mut() {
                 let mut path = sn.path.clone();
                 path.extend(n.path.iter().cloned());
@@ -1196,7 +1257,7 @@ substituted or brought forward",
                 }
                 n.path = path;
             }
-        } else {
+        } else if !keep_window_id {
             s.window_id = tree
                 .windows
                 .iter()
@@ -1251,7 +1312,7 @@ substituted or brought forward",
         if let Some(next) = tree.next_offset {
             let mut c = Map::new();
             c.insert("offset".into(), json!(next));
-            if let Some(sn) = &subtree_node {
+            if let Some(sn) = subtree_node {
                 let root = format!("s{gen}e0");
                 s.nodes.push((root.clone(), sn.clone()));
                 c.insert("subtree".into(), json!(root));
@@ -1283,7 +1344,7 @@ substituted or brought forward",
             );
             out.insert("retrieval".into(), json!("mac.snapshot with returned continuation arguments continues this exact page/subtree; subtree=<element id> retrieves below the depth limit; full text values are not clipped"));
         }
-        Ok((a, out))
+        out
     }
 
     /// driver.py:732: an element of this app's latest snapshot.
@@ -1923,8 +1984,12 @@ substituted or brought forward",
         if self.blk(move |d| d.own_pid_is(pid)).await {
             return refused(OWN_APP);
         }
+        // whether the app was in front when this call first looked (before any of FERB's events): it decides what a
+        // stop below says (HAND-553)
+        let front_first: Arc<Mutex<Option<bool>>> = Arc::new(Mutex::new(None));
         let window_ok = {
-            let (d, a, shot) = (self.clone(), a.clone(), shot.clone());
+            let (d, a, shot, first) = (self.clone(), a.clone(), shot.clone(), front_first.clone());
+            let what = kind.to_string();
             Arc::new(move || -> Result<()> {
                 let w = d.shots.window(shot.window);
                 match w {
@@ -1935,7 +2000,12 @@ substituted or brought forward",
                     return refused("window-targeted backend unavailable; the legacy pointer route is limited to the current Space on this Mac. No foreground switch was made");
                 }
                 let front = d.apps.frontmost();
-                if (d.input.owner_active)() && front.is_some_and(|f| f.pid == a.pid) {
+                let in_front = front.is_some_and(|f| f.pid == a.pid);
+                let was = *first.lock().expect("lock").get_or_insert(in_front);
+                if (d.input.owner_active)() && in_front {
+                    if !was {
+                        return refused(came_forward_stop(&a.name, &what));
+                    }
                     return refused(
                         "the owner is (or may be) using this app; pointer input stopped",
                     );
@@ -2496,4 +2566,5 @@ pub fn file_facts(path: &str) -> (String, String, String) {
 }
 
 mod act;
+pub use act::{advertised, PERFORM_NEEDS_NAME};
 mod terminal;

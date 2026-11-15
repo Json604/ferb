@@ -277,8 +277,17 @@ fn structure(
             }
         }
     }
-    // rule 4
+    // rule 4: the task's first plan (a task a later message resumed or restarted has one plan per turn that ran it, and
+    // its earlier run's answers come before the later plan: APP-919's scenario)
+    let mut first_plans: Vec<&Entry> = Vec::new();
     for p in stored.iter().filter(|e| e.kind == EntryKind::Plan) {
+        match first_plans.iter_mut().find(|f| f.task_id == p.task_id) {
+            Some(f) if p.pos < f.pos => *f = p,
+            Some(_) => {}
+            None => first_plans.push(p),
+        }
+    }
+    for p in first_plans {
         let Some(t) = &p.task_id else { continue };
         for e in stored {
             let of_task = match e.kind {

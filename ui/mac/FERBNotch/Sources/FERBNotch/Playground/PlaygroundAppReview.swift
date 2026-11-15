@@ -39,6 +39,8 @@ final class PlaygroundAppReview: PlayHost {
         actions.replayIntro = replayIntro
         actions.setHoverEnabled = { [weak model = coordinator.model] in model?.setHoverEnabled($0) }
         actions.hotKeys = coordinator.hotKeys
+        actions.turnDeleted = { [weak model = coordinator.model] request in model?.removeTurns(requestIDs: [request]) }
+        actions.freshConversation = { [weak model = coordinator.model] in await model?.startFreshConversation() }
         actions.loginItems = LoginItemController(appService: PlaygroundLoginItem(), launchAgent: PlaygroundLoginItem(enabled: false), available: true)
         actions.updates = updates
         actions.logsDirectory = services.home.appendingPathComponent("logs")

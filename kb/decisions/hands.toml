@@ -149,10 +149,11 @@ legacy = "notes/hands.md decision 8"
 title = "An app that comes forward by itself is let be"
 by = "owner"
 date = 2026-10-31
-status = "active"
+status = "superseded"
 words_source = "notes/hands.md owner decision 9: an agent's paraphrase; no verbatim quote recorded"
 rule = "When an app brings itself to the front in answer to FERB's background action, FERB doesn't put the owner's app back and doesn't ask. The worker is told as a fact and the trace shows it. FERB prefers routes that open no window (mdfind, AX reads, read-only AppleScript, a quiet reopen); lessons reach how-notes and playbooks. Code never scans AppleScript for \"activate\": the after-call fact covers it."
 evidence = "Live 2026-10-31: the Slack uninstall's background \"File > Find\" press made Finder come to the front."
+superseded_by = "HAND-549"
 paths = ["ferb/daemon/disturbance.py", "ferb/daemon/gateway.py", "ferb/act/mac/tools.py"]
 legacy = "notes/hands.md decision 9"
 
@@ -1612,3 +1613,141 @@ status = "active"
 rule = "HAND-532..536 ship as extension 0.19.11 with one optional reply field (`surfaced`), so the protocol and the minimum stay: an older extension keeps working without them (no window put back, no fact), and an older FERB reads the field as nothing, except in an act's reply, which it passes on as it is. The owner publishes 0.19.11 to the Chrome Web Store."
 why = "A protocol bump would stop every installed FERB until its browsers update (protocol.js, 0.19.3)."
 paths = ["extensions/chromium/manifest.json", "extensions/chromium/protocol.js"]
+
+[HAND-538]
+title = "An unanswered pairing page is opened again for the same token at 10 s and 25 s of the wait"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "Refines HAND-526. While a pairing's one-time token is still unused and nothing says the extension is off, gone or refused, its page is opened again for the same token at 10 s and at 25 s of the wait, exactly as the first (the wake page first when the profile isn't connected), and only inside the wait: at most two re-opens. The timeout, its failure and the journal rows stay. After a re-open, once the profile is connected, each pairing page is closed by its exact address (wake_close), so a page that never loaded doesn't stay. Pair all, a single pairing and identity.pair share the path."
+why = "A page can be missed (a profile still starting, its extension's link to FERB not up yet) and then nothing answers for the whole minute, while the same page opened again pairs at once. A page that works answers within a second, so 10 s doubles none. Python opened one page."
+evidence = "Live 2026-11-15, Pair all over 7 profiles at once: six paired within 6 s; Chrome Profile 2's wake page 22:47:35.9, pairing page 22:47:38.8, nothing for 60 s, pair_failed 22:48:39, no connection_refused. Try again: wake 22:48:41, pairing page 22:48:43.45, paired 22:48:43.66."
+paths = ["rust/crates/ferb-daemon/src/areas_b/browsers/mod.rs::pair_one", "rust/crates/ferb-daemon/src/areas_b/browsers/mod.rs::identity_pair", "rust/crates/ferb-daemon/src/areas_b/browsers/mod.rs::PairOpens"]
+
+[HAND-545]
+title = "The owner is told when a browser window came up during a task; FERB never waits to ask first"
+by = "owner"
+date = 2026-11-15
+status = "active"
+words = "i recommend notify too"
+words_source = "Owner 2026-11-15, choosing between Notify (the popup flashes, FERB minimizes it, the notch says so; no waiting) and Ask first (FERB holds the click and asks; the task waits)."
+rule = "When something a task's page did, or the task's own browser input, brought a browser window up (HAND-533, HAND-535), FERB tells the owner in one short line naming the site and what it did about it, and the task goes on; FERB never holds the click to ask first."
+paths = ["rust/crates/ferb-daemon/src/areas_b/notify.rs::tell_window_shown"]
+live = ["LIVE-955"]
+
+[HAND-546]
+title = "One quiet notice per task and site, written from the window facts"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "For HAND-545. The extension's surfaced facts where a window came up (not a refused request), and a browser call whose own browser process is the front app after it with no such fact, publish browser.window_shown. The notifier writes the line from the facts only (no model, no prompt), names a pop-up by its window type, never its purpose, and posts it once per task tree and site through tell_owner: a quiet FERB message in chat (APP-622's notices: no focus, no full chat), kept in notices and the chat's entries; the task's record gets an owner.notice span."
+why = "The attention-notice path already is the quiet one: no new surface, no focus, saved history, a banner only when no FERB client shows notices. One per task and site keeps a sign-in's popup, its dialog and the browser's activation from becoming a stream."
+paths = ["rust/crates/ferb-daemon/src/areas_b/notify.rs::window_shown_line", "rust/crates/ferb-browser/src/driver.rs::window_shown", "rust/crates/ferb-gateway/src/gateway.rs::came_forward", "rust/crates/ferbd/src/compose/consumers.rs", "rust/crates/ferbd/src/compose/tools/browser.rs::BrowserTool"]
+live = ["LIVE-955"]
+
+[HAND-547]
+title = "Image-redaction journal rows are pruned as preview.failed is; the text reader's 150 s limit stays"
+by = "owner"
+date = 2026-11-15
+status = "active"
+words = "ok agreed"
+words_source = "Owner 2026-11-15, on journal 78's open questions: prune image.redaction_failed and _recovered as preview.failed is (operational kinds), and keep the fresh-process text reader's 150 s limit."
+rule = "image.redaction_failed and image.redaction_recovered are operational journal kinds (OPERATIONAL_KINDS, STORE-401, STORE-408), deleted with preview.failed after the operational retention. ferb read-image-text's child keeps its 150 s limit (HAND-531)."
+paths = ["rust/crates/ferb-store/src/retention.rs::OPERATIONAL_KINDS", "rust/crates/ferb-mac-hands/src/vision_child.rs"]
+
+[HAND-548]
+title = "An image's redaction faults are on its tool call's span, never the model's"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "Refines HAND-531. ImageSanitizer::sanitize_noted returns the faults with the answer (the Mac's MacImages: each failed step's domain and code, then read_by or withheld). The gateway records them on the tool.call span's output as image_redaction, as timing is (HAND-436); the model's content is unchanged (image_withheld: image redaction unavailable)."
+why = "HAND-531's faults reached only the bounded journal rows, so a withheld or slow screenshot couldn't be tied to its call in ferb trace."
+paths = ["rust/crates/ferb-gateway/src/call_hooks.rs::ImageSanitizer", "rust/crates/ferb-gateway/src/gateway.rs", "rust/crates/ferbd/src/compose/tools/mac.rs::span_notes"]
+
+[HAND-549]
+title = "An app that raises itself on FERB's input is put back, told, and further raw input to it asks"
+by = "owner"
+date = 2026-11-15
+status = "active"
+words = "yes and yes"
+words_source = "Owner 2026-11-15, answering two questions relayed by the coordinator: tell at once and ask before more clicks (remembered per app); put the previous app back right after (full text: rule)."
+rule = "Q1: when a click makes an app come forward, FERB tells the owner at once, then asks before sending more clicks to that app in the task, and remembers that the app raises itself on clicks, so next time it asks before the first click. Q2: FERB puts the owner's previous app back in front right after an app raises itself (the window may flicker for a moment). Both reverse HAND-212's let it be."
+evidence = "Live 2026-11-15: FERB worked WhatsApp through Accessibility for two minutes, then right-clicked a document bubble for its menu; WhatsApp came to the front and the owner lost focus."
+supersedes = ["HAND-212"]
+paths = ["rust/crates/ferb-mac-hands/src/tools.rs::after_input", "rust/crates/ferb-policy/src/confirm.rs::foreground_need"]
+
+[HAND-550]
+title = "What HAND-212 kept: the after-call fact, windowless routes, no scan of AppleScript"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "The parts of HAND-212 that HAND-549 doesn't change. A change on the owner's screen during a call is the worker's fact (screen_changed_during_call) and in the trace. FERB prefers routes that open no window (mdfind, AX reads, read-only AppleScript, a quiet reopen); lessons reach how-notes and playbooks. Code never scans AppleScript for activate: a script's own activation isn't put back, the after-call fact covers it."
+why = "HAND-549 supersedes HAND-212 as a whole; its other parts still hold and the code cites them."
+paths = ["rust/crates/ferb-gateway/src/call_hooks.rs::told", "rust/crates/ferb-daemon/src/areas_b/disturbance.rs::told"]
+
+[HAND-551]
+title = "mac.act performs an element's advertised AX actions: menu, and perform with name for the rest"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "action menu performs AXShowMenu; perform with name any other action the element advertises now, matched by its listed name (perform press/cancel/menu is that action). A snapshot lists every advertised action: known ones by FERB's word, an app's own by its name (Name: part), other AX ones in snake case; whitespace folded, 48 chars, 16 per element, once each, as data. Not advertised or ambiguous: refused. Checks and identity are a press's (HAND-220), plus action and name."
+why = "The snapshot listed menu but nothing could do it, so the worker right-clicked and the app came forward; an app's own actions (Save As, Download) were dropped unseen. Two enum values and one field keep the schema small; menu is the word the snapshot already shows."
+evidence = "Live 2026-11-15: a WhatsApp document bubble listed [press, scroll_to_visible, cancel, menu]; mac.act had no way to perform menu, the worker sent mac.pointer rightclick and WhatsApp came to the front."
+paths = ["rust/crates/ferb-mac-hands/src/ax.rs::action_shown", "rust/crates/ferb-mac-hands/src/driver/act.rs::advertised", "rust/crates/ferb-mac-hands/src/driver/act.rs::perform_named", "rust/fixtures/catalog/tool_changes.json"]
+
+[HAND-552]
+title = "A context menu opens once the owner is quiet; its items come back with ids in the result"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "menu waits for the owner to be quiet (RealInput::quiet, as foreground input does; nothing held back), performs AXShowMenu, finds the menu (the element's AXMenu child, the app's one open menu, or the menu holding the app's focused element; 8 looks 0.2 s apart), walks it as a new snapshot generation and returns its elements; next says to press or cancel now. An AXMenu inside a window is a menu container in every snapshot. No answer with a menu open is success."
+why = "While open, AppKit's menu tracking takes the keyboard, so it shouldn't open under the owner's typing and should be acted on at once; returning the items saves a snapshot. AppKit often answers AXShowMenu only when its menu closes (kAXErrorCannotComplete)."
+paths = ["rust/crates/ferb-mac-hands/src/driver/act.rs::show_menu", "rust/crates/ferb-mac-hands/src/ax.rs::context_menu", "rust/crates/ferb-mac-hands/src/tools.rs::MENU_NEXT"]
+
+[HAND-553]
+title = "A pointer stop says when the target app came forward by itself, not that the owner is using it"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "For HAND-409. mac.pointer and mac.click note whether the app was in front at their first look, before any event. A later step refused because the app is in front while the owner is active says, when it wasn't in front at first: <app> came to the front by itself when it got FERB's <kind> (it wasn't in front before), and the owner is using the Mac, so the rest of the pointer input stopped. Otherwise the old text stands. When it asks is unchanged."
+why = "The old text blamed the owner for an app FERB's own right-click brought forward, so the worker misread why its input stopped."
+evidence = "Live 2026-11-15: WhatsApp came forward on FERB's right-click; the refusal said the owner is (or may be) using this app."
+paths = ["rust/crates/ferb-mac-hands/src/driver/mod.rs::came_forward_stop", "rust/crates/ferb-mac-hands/src/driver/mod.rs::pointer_at"]
+
+[HAND-554]
+title = "How HAND-549 runs: front app around each Mac call, put back, a profile record, the question"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "Every Mac input call but AppleScript and owner-allowed foreground input reads the front app before and after; if the target came forward it re-activates the earlier app (attributed to FERB) unless another is in front or it quit, adds screen_changed_during_call and publishes browser.window_shown (HAND-546's notice). Raw input records raw_input_background in the app's profile; while the last one came forward, foreground_need asks before raw input to it."
+why = "One shared path for every Mac tool; the profile is the existing per-app observation record, so the memory is learned only from what happened and the latest observation clears it. The foreground question and card are the existing ones, once per app per task."
+paths = ["rust/crates/ferb-mac-hands/src/tools.rs::after_input", "rust/crates/ferb-mac-hands/src/profile.rs::RAW_INPUT_BACKGROUND", "rust/crates/ferb-policy/src/confirm.rs::raw_input", "rust/crates/ferbd/src/compose/gateway.rs::MacApps", "rust/crates/ferbd/src/compose/tools/mac.rs"]
+
+[HAND-560]
+title = "An app that came forward is told with what FERB did; a browser call's own browser is put back too"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Basis: HAND-549's second yes, read as covering a browser that comes forward on FERB's browser input (HAND-532 said FERB doesn't switch back; owner to confirm). When the call's own browser is in front after a browser call, the app that was in front goes back through the Mac's put-back (skipped if another app is in front by then). The line names the app, what FERB did there (clicked, typed, scrolled, dragged) or the site, and whether it put the app back; a Mac app's line is once per task and app. A tool's own screen_changed_during_call keeps its fields when the sampler's joins."
+why = "One path for every app that raises itself during FERB's work: the Mac's activation, its fact and the owner's notice. Without the merge the sampler's fact replaced the Mac tool's own put_back, why, raw_input_asks and next."
+paths = ["rust/crates/ferb-daemon/src/areas_b/notify.rs::front_app_line", "rust/crates/ferb-gateway/src/gateway.rs::merge_told", "rust/crates/ferb-gateway/src/gateway.rs::came_forward", "rust/crates/ferbd/src/compose/tools/browser.rs::BrowserTool", "rust/crates/ferb-mac-hands/src/tools.rs::input_action"]
+
+[HAND-561]
+title = "A shell command never waits on a pager or a terminal prompt FERB's environment would start"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Every command the shell tools run inherits PAGER=cat, GIT_PAGER=cat, GH_PAGER=cat, GIT_TERMINAL_PROMPT=0 and GH_PROMPT_DISABLED=1 besides TERM=dumb (ferb-shell manager NON_INTERACTIVE). They are inherited defaults only: a value the command sets itself wins. AppleScript's environment is unchanged. Fixed against Python (manager.py set TERM=dumb only)."
+why = "Commands run on a pty, so git starts less, which under TERM=dumb stops at \"Press RETURN\"; git asks for a user name on the terminal. Nobody is at that terminal: each wait cost the task about 30 s."
+evidence = "Live 2026-11-15, step software of tree 3a0cc55b: git log sat at \"Press RETURN\" twice and git push waited for a username."
+paths = ["rust/crates/ferb-shell/src/manager.rs::NON_INTERACTIVE", "rust/crates/ferb-shell/src/manager.rs::command_env"]
+
+[HAND-562]
+title = "browser.pdf of an HTML file prints in the profile the task works in; a choice names its argument"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "When the resolver alone can't choose (several owner profiles paired, none picked), browser.pdf html_path prints in the owner profile of the task's newest open tab; with none open it says to open one with browser.open profile=. The resolver's refusal names the profile argument with an example (the first available as browser/folder). No schema change. Fixed against Python."
+why = "The one-time page is local and loads nothing, so the profile only needs to be one the task already uses; the worker had no argument to give and retried the same call."
+evidence = "Live 2026-11-15 23:09-23:24, tree 3a0cc55b: browser.pdf html_path failed five times with \"select a profile from the task context; available: …\" while the task's tabs were in chrome/Profile 2 and brave/Default."
+paths = ["rust/crates/ferb-browser/src/driver.rs::in_use_profile", "rust/crates/ferb-browser/src/tools.rs", "rust/crates/ferb-browser/src/profiles.rs::NO_CHOICE"]

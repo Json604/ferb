@@ -47,6 +47,13 @@ pub const ADDABLE: [&str; 3] = ["removed", "not_added", "requested"];
 pub const PAIR_UNANSWERED: &str = "FERB's pairing page got no answer there: {label} may have FERB turned off, \
 updating or waiting for you to accept new permissions in that profile. Open chrome://extensions in that profile, make \
 sure FERB is on and up to date, then try again";
+/// HAND-538: seconds after the first pairing page opened at which a page whose one-time token is still unused (and
+/// nothing says the extension is off, gone or refused) is opened again for that token, exactly as the first was; only
+/// those inside the wait. A page that works is answered within a second (live 2026-11-15: 0.2 s; six of seven
+/// profiles launched at once within 6 s), so 10 s doubles no page that was merely slow; 25 s covers a profile still
+/// starting then (the extension retries its link to FERB after 1, 2, 4 and 8 s), and leaves 35 s of a 60 s wait for the
+/// last page. Fixed against Python (ENG-6): one page, and a page missed meant waiting out the whole timeout.
+pub const PAIR_REOPEN_AT_S: [f64; 2] = [10.0, 25.0];
 /// The refusal for a `timeout_s` Python's `float()` refuses (fixed against Python: it was an internal error).
 pub const BAD_TIMEOUT: &str = "timeout_s must be a number of seconds";
 
@@ -718,6 +725,7 @@ impl Cx {
             browser: browser.to_string(),
             folder: folder.to_string(),
             page: None,
+            pair_page: String::new(),
         };
         if !self
             .deps
@@ -745,7 +753,42 @@ impl Cx {
         let page = format!("chrome-extension://{ext}/pair.html#token={token}");
         self.open_known(browser, folder, Some(&page), &known, false)?
             .map_err(value_error)?;
+        held.pair_page = page;
         Ok(held)
+    }
+
+    /// A pairing's first open ([`Cx::open_pairing`]), held with every re-open until the wait ends (HAND-538). The
+    /// caller sets the wait's length; until then nothing is re-opened.
+    async fn open_pairing_held(
+        &self,
+        browser: &str,
+        folder: &str,
+        token: &str,
+    ) -> Result<PairOpens, HandlerError> {
+        let first = self.open_pairing(browser, folder, token).await?;
+        Ok(PairOpens {
+            opens: vec![first],
+            start: self.host.clock.monotonic(),
+            timeout: 0.0,
+        })
+    }
+
+    /// HAND-538: when a re-open is due at `now` and the token is still unused, the pairing page is opened again for
+    /// the same token exactly as the first ([`Cx::open_pairing`]: a wake page first when the profile isn't
+    /// connected). The caller has already ended the wait on anything saying the extension is off, gone or refused.
+    async fn reopen_if_due(
+        &self,
+        held: &mut PairOpens,
+        token: &str,
+        now: f64,
+    ) -> Result<(), HandlerError> {
+        if !held.reopen_due(now) || self.deps.pairings.was_paired(token) {
+            return Ok(());
+        }
+        let (browser, folder) = (held.opens[0].browser.clone(), held.opens[0].folder.clone());
+        let again = self.open_pairing(&browser, &folder, token).await?;
+        held.opens.push(again);
+        Ok(())
     }
 
     /// `_answered_but_refused` (HAND-412): the pairing page was answered and FERB then refused that profile's hello.
@@ -808,7 +851,9 @@ impl Cx {
 
     /// `_pair_one`: the extension's own pairing page, with a one-time token, opened in that profile; done once that
     /// token is used and the profile's extension is connected. A page left unanswered revokes its token (so does a
-    /// caller that leaves: the token is revoked when this is dropped).
+    /// caller that leaves: the token is revoked when this is dropped). A page still unanswered at
+    /// [`PAIR_REOPEN_AT_S`] is opened again for the same token (HAND-538; fixed against Python, ENG-6: one page, and
+    /// a page missed waited out the whole timeout); the timeout, the failure and the journal rows are Python's.
     pub async fn pair_one(
         &self,
         p: BrowserProfile,
@@ -856,11 +901,19 @@ impl Cx {
             .pairings
             .issue_token(&p.browser, &p.folder, Identity::Owner);
         let _revoke = Revoke(self.deps.pairings.clone(), token.clone());
-        let _wake = self.open_pairing(&p.browser, &p.folder, &token).await?;
+        let mut opened = self
+            .open_pairing_held(&p.browser, &p.folder, &token)
+            .await?;
+        opened.timeout = timeout;
         let clock = self.host.clock.clone();
-        let end = clock.monotonic() + timeout;
+        let end = opened.start + timeout;
         let mut recheck = clock.monotonic() + self.deps.pair_load_wait_s;
-        while clock.monotonic() < end {
+        loop {
+            // one reading per round: the wait's end and a re-open are judged at the same moment
+            let now = clock.monotonic();
+            if now >= end {
+                break;
+            }
             let connected = self
                 .deps
                 .hub
@@ -892,6 +945,7 @@ impl Cx {
                     json!({"paired": false, "reason": reason, "why": text}),
                 ));
             }
+            self.reopen_if_due(&mut opened, &token, now).await?;
             sleep_s(0.2).await;
         }
         self.deps.pairings.revoke(&token);
@@ -1194,6 +1248,8 @@ struct PairWake {
     browser: String,
     folder: String,
     page: Option<wake::WakePage>,
+    /// The pairing page's address as opened (with its token).
+    pair_page: String,
 }
 
 impl Drop for PairWake {
@@ -1214,6 +1270,60 @@ impl Drop for PairWake {
                 cx.deps.hub.clone(),
                 self.browser.clone(),
                 self.folder.clone(),
+            );
+            rt.spawn(async move {
+                let _ = hub
+                    .call(&b, &f, "wake_close", json!({"url": url}), 5.0)
+                    .await;
+            });
+        }
+    }
+}
+
+/// Every page one pairing opened (HAND-526, HAND-538): the first open and each re-open, held until the wait ends
+/// however it ends. Each [`PairWake`] closes its own wake page when this is dropped.
+struct PairOpens {
+    opens: Vec<PairWake>,
+    /// The clock's monotonic reading once the first pairing page had opened.
+    start: f64,
+    /// The wait's length; a re-open falls inside it.
+    timeout: f64,
+}
+
+impl PairOpens {
+    /// The next of [`PAIR_REOPEN_AT_S`] has passed at `now` and falls inside the wait; each is used once.
+    fn reopen_due(&self, now: f64) -> bool {
+        PAIR_REOPEN_AT_S
+            .get(self.opens.len() - 1)
+            .is_some_and(|&at| at < self.timeout && now - self.start >= at)
+    }
+}
+
+impl Drop for PairOpens {
+    /// After a re-open (HAND-538), a pairing page that never ran pair.js (opened before the profile's extension could
+    /// load it) keeps its address, token included, and would stay open; a page that ran dropped the token from its
+    /// address and closed itself. So once the profile is connected its extension is asked to close each pairing page
+    /// by exactly that address (`wake_close` closes the tabs at one exact address), without waiting for the answer;
+    /// one that ran matches nothing. A pairing that opened one page asks nothing more (Python's calls).
+    fn drop(&mut self) {
+        let Some(first) = self.opens.first().filter(|_| self.opens.len() > 1) else {
+            return;
+        };
+        let cx = &first.cx;
+        let connected = cx
+            .deps
+            .hub
+            .bridge(&first.browser, &first.folder)
+            .is_some_and(|b| b.connected);
+        let (true, Ok(rt)) = (connected, tokio::runtime::Handle::try_current()) else {
+            return;
+        };
+        for w in &self.opens {
+            let (hub, b, f, url) = (
+                cx.deps.hub.clone(),
+                w.browser.clone(),
+                w.folder.clone(),
+                w.pair_page.clone(),
             );
             rt.spawn(async move {
                 let _ = hub
@@ -2026,10 +2136,17 @@ async fn identity_pair(cx: Cx, params: Params) -> HandlerResult {
         .pairings
         .issue_token(&browser, &folder, Identity::Ferb);
     let _revoke = Revoke(cx.deps.pairings.clone(), token.clone());
-    let _wake = cx.open_pairing(&browser, &folder, &token).await?;
+    let mut opened = cx.open_pairing_held(&browser, &folder, &token).await?;
+    // read after the page opened, as Python did (a `timeout_s` it refuses fails after the page opened)
+    let timeout = timeout_s(&params, 60.0)?;
+    opened.timeout = timeout;
     let clock = cx.host.clock.clone();
-    let end = clock.monotonic() + timeout_s(&params, 60.0)?;
-    while clock.monotonic() < end {
+    let end = opened.start + timeout;
+    loop {
+        let now = clock.monotonic();
+        if now >= end {
+            break;
+        }
         let b = cx
             .deps
             .pairings
@@ -2046,6 +2163,7 @@ async fn identity_pair(cx: Cx, params: Params) -> HandlerResult {
                 return Ok(object(json!({"paired": true, "profile": folder})));
             }
         }
+        cx.reopen_if_due(&mut opened, &token, now).await?;
         sleep_s(0.2).await;
     }
     cx.deps.pairings.revoke(&token);

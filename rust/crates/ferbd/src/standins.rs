@@ -642,6 +642,14 @@ async fn control(d: &Arc<Daemon>, s: &StandIns, req: &Value) -> Result<Value, St
                 },
             )
         }
+        // an event a part of the daemon publishes, as it publishes it (HAND-546: a browser window that came up), for
+        // the consumers wired to it; their work is spawned, so the caller looks for its effects after
+        "publish" => {
+            let topic = req["topic"].as_str().unwrap_or("").to_string();
+            let data = req["data"].as_object().cloned().unwrap_or_default();
+            d.events.publish(&topic, data);
+            Ok(Value::Null)
+        }
         // make_more.py: the attention check (`Supervisor.attention`)
         "attention" => {
             let refs: Vec<String> = req["source_refs"]

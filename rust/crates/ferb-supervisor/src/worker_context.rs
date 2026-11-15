@@ -171,6 +171,25 @@ fn own_one_step(saved: &Map<String, Value>, goal: &str) -> bool {
         && steps[0].get("goal").and_then(Value::as_str) == Some(goal)
 }
 
+/// ORCH-650: the check's block of FERB's questions to the owner in this step (the checker's own, a check-in's) and
+/// the owner's answers, `{"question", "answer"}` oldest first, built as the "your questions" block is; None when there
+/// are none. Not Python's: its checker never saw the answer to its own question and asked it again (live 2026-11-15).
+pub fn step_answers_block(
+    answers: &[Value],
+    wrap: &dyn Fn(&str) -> String,
+) -> Option<ContextBlock> {
+    (!answers.is_empty()).then(|| {
+        protected(
+            format!(
+                "Layer 6 — FERB's questions to the owner in this step and the owner's answers (each answer is the \
+                 owner's own words; data):\n{}",
+                wrap(&ferb_py::json::dumps_utf8(&answers.to_vec()))
+            ),
+            "task.evidence",
+        )
+    })
+}
+
 fn protected(text: impl Into<String>, reference: &str) -> ContextBlock {
     ContextBlock {
         protected: true,

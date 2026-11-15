@@ -20,6 +20,9 @@ mod entry_rules;
 // the deliberate prompt changes since the recording (ENG-6, rust/fixtures/catalog/prompt_changes.json)
 #[path = "../../ferb-supervisor/tests/common/prompt_changes.rs"]
 mod prompt_changes;
+// the deliberate differences RUN-465 and ORCH-650 (tests/common/named_diffs.rs of ferb-supervisor)
+#[path = "../../ferb-supervisor/tests/common/named_diffs.rs"]
+mod named_diffs;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -1632,6 +1635,7 @@ fn run_scenario(
             }
         };
         report.checked += 1;
+        let (expected, actual) = named_diffs::named_call(expected, actual, &mut Vec::new());
         if expected != actual {
             let field = expected
                 .as_object()
@@ -1708,6 +1712,7 @@ fn run_scenario(
                     report.tables.push(format!("{table}: columns {mcols:?}"));
                     continue;
                 }
+                let (rows, mrows) = named_diffs::named_rows(table, &cols, rows.clone(), mrows);
                 for i in 0..rows.len().max(mrows.len()) {
                     if rows.get(i) != mrows.get(i) {
                         let detail = match (rows.get(i), mrows.get(i)) {

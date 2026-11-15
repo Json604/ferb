@@ -760,13 +760,23 @@ fn the_clean_up_never_writes_a_protected_table() {
 }
 
 // decisions: STORE-5, ENG-11
+// decision: HAND-547
 #[test]
 fn the_rule_tables_are_python_s() {
     let fixture = fixture();
-    assert_eq!(
-        json!(retention::OPERATIONAL_KINDS.to_vec()),
-        fixture["operational_kinds"]
-    );
+    // Python's kinds, then exactly the image redaction's two (HAND-547, after Python), in the sorted order bound
+    let mut kinds: Vec<String> = fixture["operational_kinds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|k| k.as_str().unwrap().to_string())
+        .collect();
+    kinds.extend([
+        "image.redaction_failed".into(),
+        "image.redaction_recovered".into(),
+    ]);
+    kinds.sort();
+    assert_eq!(json!(retention::OPERATIONAL_KINDS.to_vec()), json!(kinds));
     let rules: Vec<Value> = retention::RULES
         .iter()
         .map(|r| {

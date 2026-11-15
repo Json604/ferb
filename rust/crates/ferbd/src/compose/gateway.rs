@@ -198,6 +198,8 @@ impl Usage for RealUsage {
 /// `is_browser_app`). `native` false: none are read (a daemon started with its Mac parts off).
 pub struct MacApps {
     pub native: bool,
+    /// The Mac driver's per-app records (HAND-554), the same instance the driver writes.
+    pub profiles: Arc<ferb_mac_hands::profile::Profiles>,
 }
 
 impl Apps for MacApps {
@@ -238,6 +240,19 @@ impl Apps for MacApps {
                 .collect()
         };
         ferb_mac_hands::apps::is_browser_app(&handlers, app, &running)
+    }
+
+    /// HAND-549, HAND-554: the app a Mac tool's `app` names (one running app) came to the front on FERB's last raw
+    /// input to it.
+    fn comes_forward_on_input(&self, app: &str) -> bool {
+        if !self.native {
+            return false;
+        }
+        let running = ferb_mac_hands::native::apps::running();
+        match ferb_mac_hands::apps::candidates(&running, ferb_py::value::strip(app)).as_slice() {
+            [one] => self.profiles.comes_forward(&one.bundle_id),
+            _ => false,
+        }
     }
 }
 
@@ -610,7 +625,12 @@ pub fn build(registry: Registry, p: GatewayParts) -> Arc<Gateway> {
         recovery,
         snapshots: p.snapshots,
         usage: Arc::new(RealUsage),
-        apps: Arc::new(MacApps { native: p.native }),
+        apps: Arc::new(MacApps {
+            native: p.native,
+            profiles: ferb_mac_hands::profile::Profiles::shared(
+                &p.home.join("device").join("apps"),
+            ),
+        }),
         describe: Arc::new(Words { native: p.native }),
         journal_problem: p.journal_problem,
         // browser_pair's question names the profile and its signed-in account (compose.py:121-122)

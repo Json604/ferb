@@ -1819,6 +1819,8 @@ pub struct Report {
     pub checked: usize,
     /// The daemon's own lines (its other RPC areas, its notifications, the timer loop): passed over, not compared.
     pub skipped: Vec<String>,
+    /// ORCH-650: the step-answer blocks the checks had (compared apart from Python's calls).
+    pub step_answers: Vec<String>,
 }
 
 impl Report {
@@ -2963,6 +2965,9 @@ pub fn run_scenario(
             }
         };
         report.checked += 1;
+        // the named differences (ORCH-650, tests/common/named_diffs.rs)
+        let (expected, actual) =
+            crate::common::named_diffs::named_call(expected, actual, &mut report.step_answers);
         if expected != actual {
             let field = expected
                 .as_object()
@@ -3038,6 +3043,9 @@ pub fn run_scenario(
                     report.tables.push(format!("{table}: columns {mcols:?}"));
                     continue;
                 }
+                // the named differences (RUN-465, ORCH-650, tests/common/named_diffs.rs)
+                let (rows, mrows) =
+                    crate::common::named_diffs::named_rows(table, &cols, rows.clone(), mrows);
                 for i in 0..rows.len().max(mrows.len()) {
                     if rows.get(i) != mrows.get(i) {
                         let show = |r: Option<&Vec<Value>>| {

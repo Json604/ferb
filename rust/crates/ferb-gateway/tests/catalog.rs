@@ -3,7 +3,9 @@
 //!
 //! The Rust engine's own tools (`catalog::additions`, each with its decision) are the one named difference: each
 //! listing is Python's byte for byte with them taken out, and each addition is listed right after the tool it follows
-//! wherever that tool is listed.
+//! wherever that tool is listed. The deliberate changes to Python's tools (`catalog::changes`, each with its decision;
+//! HAND-551 mac.act's element actions) are the other: taken out of a listing before its bytes are compared, applied to
+//! a recorded row.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -101,7 +103,8 @@ fn every_listing_is_python_s_byte_for_byte() {
             .map(|n| n.as_str().unwrap())
             .collect();
         assert_eq!(names, want, "{label}");
-        let text = ferb_py::json::dumps(&Value::Array(listed));
+        // decision: HAND-551: the listing with the deliberate changes taken out is Python's
+        let text = catalog::revert_changes(&ferb_py::json::dumps(&Value::Array(listed)));
         assert_eq!(
             text.len() as u64,
             l["json_default_len"].as_u64().unwrap(),
@@ -123,15 +126,15 @@ fn every_tool_row_is_python_s() {
         let name = t["name"].as_str().unwrap();
         let tool = r.get(name).unwrap();
         let schema = ferb_gateway::listing::listed_schema(tool.as_ref());
-        assert_eq!(schema, t["input_schema"], "{name}");
-        // key order is contract: compare the bytes json.dumps writes
+        // key order is contract: compare the bytes json.dumps writes; the deliberate changes (HAND-551) applied to
+        // the recorded row
         assert_eq!(
             ferb_py::json::dumps(&schema),
-            ferb_py::json::dumps(&t["input_schema"]),
+            catalog::apply_changes(&ferb_py::json::dumps(&t["input_schema"])),
             "{name}"
         );
         let forms = &t["input_schema_forms"];
-        let text = ferb_py::json::dumps(&schema);
+        let text = catalog::revert_changes(&ferb_py::json::dumps(&schema));
         assert_eq!(
             hex::encode(Sha256::digest(text.as_bytes())),
             forms["default_sha256"].as_str().unwrap(),
@@ -139,7 +142,7 @@ fn every_tool_row_is_python_s() {
         );
         assert_eq!(
             tool.description(&Live::default()),
-            t["description"].as_str().unwrap()
+            catalog::apply_changes(t["description"].as_str().unwrap())
         );
         assert_eq!(
             ferb_gateway::listing::acts(tool.as_ref()),
@@ -224,4 +227,67 @@ fn descriptions_that_read_live_facts_are_composed_as_python_does() {
     )
     .unwrap();
     assert!(five.contains("passes 5.5 GB"), "{five}");
+}
+
+// decision: HAND-551
+#[test]
+fn the_deliberate_changes_are_the_only_ones() {
+    let raw = catalog::catalog().raw();
+    let c = catalog::changes();
+    assert_eq!(
+        c.iter()
+            .map(|c| (c.decision.as_str(), c.tool.as_str(), c.part.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            ("HAND-551", "mac.act", "input_schema"),
+            ("HAND-551", "mac.act", "description"),
+            ("HAND-551", "mac.act", "validation"),
+        ]
+    );
+    for c in c.iter().filter(|c| c.part != "validation") {
+        let t = raw["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == c.tool.as_str())
+            .unwrap();
+        let recorded = match c.part.as_str() {
+            "description" => t["description"].as_str().unwrap().to_string(),
+            _ => ferb_py::json::dumps(&t["input_schema"]),
+        };
+        // the old text is Python's, once; the new one is what the catalog serves now
+        assert_eq!(recorded.matches(c.old.as_str()).count(), 1, "{}", c.part);
+        let e = catalog::catalog().entry(&c.tool).unwrap();
+        let now = match c.part.as_str() {
+            "description" => e.description.clone(),
+            _ => ferb_py::json::dumps(&e.schema),
+        };
+        assert!(now.contains(c.new.as_str()), "{}", c.part);
+        // taken out again, Python's text (the recorded schema also holds what the gateway adds: compared as listed in
+        // every_tool_row_is_python_s)
+        if c.part == "description" {
+            assert_eq!(catalog::revert_changes(&now), recorded);
+        }
+    }
+    // mac.act names its element actions: menu and perform with name
+    let e = catalog::catalog().entry("mac.act").unwrap();
+    assert_eq!(
+        e.schema["properties"]["action"]["enum"],
+        serde_json::json!([
+            "press",
+            "set_value",
+            "focus",
+            "click",
+            "type",
+            "key",
+            "edit",
+            "scroll",
+            "select",
+            "cancel",
+            "menu",
+            "perform"
+        ])
+    );
+    assert_eq!(e.schema["properties"]["name"]["title"], "Name");
+    assert!(e.description.contains("not by a right-click at a point"));
 }

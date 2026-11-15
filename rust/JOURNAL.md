@@ -2582,3 +2582,436 @@ came from (it ships in FERB.app, so it was left byte for byte); `ui/mac/FERBNotc
 `com.ferb.daemon.plist`'s comment name build-app.sh (left: the Swift gate and the bundle). Comments in the
 migrations, `protocol.js` and the Swift sources name Python files as where a rule came from (bytes that ship or are
 checksummed: unchanged).
+
+## 2026-11-15 · 81 · A pairing page nobody answered is opened again inside the wait
+
+**What.** The owner's live report (a fresh install's Pair all over seven profiles at once, 22:47): six profiles
+paired within 6 s; Chrome "Profile 2" got its wake page (22:47:35.943) and its pairing page (22:47:38.774), nothing
+answered, and `browsers.pair_failed {"why": "the pairing page wasn't answered"}` came at 22:48:39 with no
+`browser.connection_refused`; Try again paired it in 0.2 s (pairing page 22:48:43.454, paired 22:48:43.663). HAND-538
+(agent): while the one-time token is still unused and nothing says the extension is off, gone or refused, the page
+is opened again for the same token at 10 s and at 25 s of the wait (`PAIR_REOPEN_AT_S`), exactly as the first
+(`open_pairing` unchanged: the wake page first when the profile isn't connected, its load time, then the pairing
+page), only inside the wait, so at most two re-opens. `pair_one` (Pair all, a single pairing, a task's browser_pair)
+and `identity_pair` share it (`Cx::open_pairing_held`, `Cx::reopen_if_due`, `PairOpens` in
+`ferb-daemon/src/areas_b/browsers/mod.rs`). Each round reads the clock once, so the wait's end and a re-open are judged
+at the same moment. The timeout, its failure text, the `hint` and the journal rows are Python's; no row was added.
+Every wake page is held until the wait ends and closes itself as before (HAND-526). After a re-open, once the
+profile is connected, its extension is asked to close each pairing page by its exact address (`wake_close`): a page
+that never ran pair.js keeps its address with the token and would stay; one that ran dropped the token from its
+address and closed itself, so it matches nothing. A pairing that opened one page asks nothing more (Python's calls).
+
+**Why / cause.** Proven: the first page went unanswered for 60 s and a second open of the same flow paired at once;
+nothing was refused. Not proven which of these lost the first page; read in the extension (not changed):
+`chrome.runtime.onMessage` takes `pairToken` and calls `send("pair")`; `send` queues every message in `outbox` while
+the native port is down (`background.js:266-270`), and the outbox is flushed only on a `welcome`
+(`background.js:454`), which an unpaired install never gets: the daemon answers its hello with `pairing_required`
+(`ferb-browser/src/bridge.rs:1544`) and the extension sets `gen = null`. So a token handed over in a moment the port
+is down (the native host not up yet, or retrying after a disconnect: 1, 2, 4… s, the 30 s alarm) waits in the outbox
+for good, while the page itself closes (inferred from Chrome's documented behaviour: the `sendMessage` callback runs once the
+listener returns without replying). The next
+page, with the port up, posts `pair` at once. The other way is a page Chrome opened before the profile's extension was
+loaded (seven launches in the same instant), which never runs pair.js. Either way a second page is what worked, so
+the daemon reopens; the extension's outbox is worth fixing in the extension itself (posting a `pair` once the port is
+up, as a `hello` is).
+
+Pair all's simultaneous start was left as it is (one `pair_one` per profile in a JoinSet): six of seven paired within
+6 s that way, the failure isn't shown to be the crowding, and staggering would add the 2 s load wait per profile
+(about 14 s for seven) to every Pair all.
+
+**Evidence.** `tests/b_browsers.rs::an_unanswered_pairing_page_is_opened_again_inside_the_wait` (HAND-538; the fake
+hub moves the injected clock 10 s per lookup, so a wait's rounds are known steps): the second page answered pairs
+after one re-open, two pairing pages with one token, each after its wake page; the first answered opens one page and
+asks only Python's wake_close; never answered in 60 s opens three pages (no fourth) and ends with Python's
+`no_answer` reply and its one `pair_failed` row; a 20 s wait opens two, an 8 s wait one; FERB turned off in that
+profile as the first page opens ends at once with one page and Python's row. Once paired, every tab FERB opened is
+gone and the owner's tab is left. With the re-open disabled the test fails (2 launches where 4 were expected). The
+fixture test `with_full_disk_access_every_call_answers_writes_and_launches_as_python` keeps Python's commands byte for
+byte: every recorded wait (timeout_s 0, or 5 answered at once on a still clock) ends before the first re-open (named
+there). ferb-daemon: 68 passed, 0 failed (b_browsers 7 passed, five runs); clippy -p ferb-daemon --all-targets
+-D warnings clean; my files rustfmt-clean. The workspace's `gate.sh fmt` and `lint` fail on other agents' files in
+progress (ferb-store, ferb-supervisor, ferb-gateway's `type_complexity`, `b_window_shown.rs`), not on these.
+`kb check`: only other agents' pending citations (HAND-546, HAND-547, STORE-423, STORE-424).
+
+**Fixed against Python.** HAND-538: Python opened one pairing page, and a page missed waited out the whole timeout;
+the re-opens, and closing a never-run pairing page after a re-open, are the deliberate difference.
+
+**Unverified.** Everything live: no real browser ran. Which of the two ways lost the first page on the owner's Mac;
+that Chrome keeps a never-loaded chrome-extension:// page's address with its token (so `wake_close` finds it);
+`identity.pair`'s re-open has no test of its own (same helper). A page answered late together with a re-opened one
+could deliver the used token a second time: the bridge then notes `unknown_token` for that install until its next
+hello (a transient `problem` and a `browser.connection_refused` row), inferred from `bridge.rs:1498-1506`, not seen.
+Pairing pages that never ran stay open when the wait times out (nobody can close them: the profile isn't connected),
+as before.
+
+## 2026-11-15 · 82 · The owner is told when a browser window came up; image-redaction rows pruned; an image's faults on its call's span
+
+**What.**
+- HAND-545 (owner: "i recommend notify too"), HAND-546. When a task's page brought a browser window up (extension
+  0.19.11's `surfaced` facts where a window came up, not a refused request) the browser part publishes
+  `browser.window_shown` {task_id: the tree, tab, site, shown} (`Driver::window_shown`, from `tools.rs::news`). The
+  gateway publishes the same topic when a sampled browser call ends with its own browser process at the front
+  (`came_forward`: the screen fact's front app pid equals the new `Tool::background_pid`, which ferbd's BrowserTool
+  answers from the tab's bridge) and the result carried no `window_shown`. ferbd's consumer hands it to
+  `Notifier::tell_window_shown`: the line is written from the facts by `notify::window_shown_line` (no model, no
+  prompt) and posted through `tell_owner` as notice `window-shown-<tree>-<site>` (once per task and site; refs
+  `task:<tree>`): a quiet FERB message in today's chat (APP-622's notices: no focus, no full chat; one notification
+  sound; a banner only when no FERB client shows notices), kept in `notices.list` and the chat's entries. The task's
+  record gets an `owner.notice` span (notice id, text, site, facts; `desktop::fact_span`). No Swift or extension change.
+  The lines: "A pop-up window opened for a moment on <site>; I minimized it." (with "and took your keyboard focus"
+  before the semicolon when it did; "; I couldn't minimize it." when it stayed); "My browser window came up for a
+  moment when <site> opened a new tab / showed a dialog; I minimized it."; "Your browser window came to the front when
+  <site> …; I left it as it was."; "Google Chrome came to the front while I was working on <site>." Without a site:
+  "a page", or no place. Never "sign-in": a pop-up is named by its window type only.
+- HAND-547 (owner: "ok agreed"): `image.redaction_failed` and `image.redaction_recovered` join OPERATIONAL_KINDS
+  (53 kinds, sorted) and go with `preview.failed`; the child reader's 150 s limit stays.
+- HAND-548: `ImageSanitizer::sanitize_noted` (defaulted) returns the span's notes with the answer; MacImages fills
+  them (`span_notes`: faults, then `read_by` or `withheld`); `redact_image` returns them as a third part and the
+  gateway records them on the tool.call span's output as `image_redaction`, as `timing` is (HAND-436). What the model
+  receives is unchanged.
+- Bus: `browser.window_shown` is a telemetry topic and in waits.rs NOT_WAITED; ferbd's stand-ins gain a `publish`
+  control for the wiring test.
+
+**Evidence.** ferb-gateway `tests/span_notes.rs` (2: faults on the span and nowhere in the model's reply, withheld
+and recovered; the call's own browser at the front publishes once, another app or an explained one doesn't);
+ferb-daemon `tests/b_window_shown.rs` (2: every line from its facts, refused/unknown say nothing, no "sign"; once per
+task and site, published `attention.notice` without banner, `chat.notice` journaled, refs `task:<tree>`); ferb-browser
+`background_first.rs` (the published event: tree, tab, site, only the window that came up, once); ferbd
+`tests/wiring.rs::a_window_that_came_up_is_told_once_and_kept_in_the_tasks_record` (through the real program: one
+notice in `notices.list` for two publishes, an `owner.notice` span, one fallback banner recorded) and
+`compose::tools::mac` span_notes unit test; ferb-store `tests/retention_kinds.rs` and `tables.rs` (Python's kinds plus
+exactly the two). Runs: ferb-store, ferb-core, ferb-orchestrator, ferb-gateway, ferb-browser 265 passed, 0 failed, 1
+ignored; clippy -D warnings clean on those five; `gate.sh fmt` and `portable` clean; the new ferb-daemon and ferbd
+ferb-daemon + ferbd 194 passed, 0 failed, 5 ignored and clippy -D warnings clean on all seven touched crates, run in a
+worktree at HEAD with only these files (another agent's open ComputerAction change in ferb-core/ferb-mac-hands kept
+the shared tree from compiling at the time). `seams-off.txt` names `Tool::background_pid`'s default for MacTool.
+
+**Changed against Python (deliberate).** The bus's telemetry list gains `browser.window_shown` and OPERATIONAL_KINDS
+the two image kinds; both named in their fixture tests.
+
+**Unverified / open.** Live: LIVE-955 (the line in the notch with the real extension, its timing against the
+popup's flash, and that the notification sound is wanted for it). The front-app case needs the bridge's
+`browser_pid` (the relay's parent); an unknown pid tells nothing. A front-app change the owner made themselves into
+the task's own browser during a call would read as the browser coming up (structure can't tell). The new test files
+are untracked: kb sees their `decision:` tags once they are added.
+
+**Follow-up (2026-11-16, HAND-560, after journal 85's HAND-549).** The Mac's `came_forward` fact reaches the same
+notice. `window_shown_line`'s front-app line (`notify.rs::front_app_line`) now reads the fact's fields: the app, what
+FERB did there (`action`, added to the Mac fact by `tools.rs::input_action`: click, type for text/keys/values,
+scroll, drag, else use) or the site, and `put_back` / `previous` / a plain `why`. The lines: "WhatsApp came to the
+front when I clicked in it; I put Notes back." / "… when I typed in it …" / "… when I scrolled in it; I left it in
+front." (put_back false, no why) / "WhatsApp came to the front while I was working in it; I couldn't put Notes back:
+another app is in front now." / "Google Chrome came to the front while I was working on app.example.edu; I put Brave
+Browser back." (a browser call; without `put_back` it ends after the site as before). A line with no site is once per
+task and app (`window-shown-<tree>-app:<app>`). The gateway merges the sampler's `screen_changed_during_call` into a
+tool's own instead of replacing it (`merge_told`; the tool's fields win), so the Mac tool's put_back, why,
+raw_input_asks and next survive. A browser call whose own browser is in front after it now puts the app that was in
+front back (`Tool::put_back`, ferbd's BrowserTool through `MacTools::put_back`, made public: the same activation and
+the same check that the browser is still in front, so an owner who switched meanwhile is left alone); the result is
+in the published fact and the worker's. Reading of HAND-549's second yes as covering browsers (HAND-532 said FERB
+doesn't switch back) is the coordinator's, to be confirmed with the owner. The topic keeps its name
+(`browser.window_shown`): a rename touches the bus fixture test, waits, the browser, the gateway, ferbd and five tests
+for no behaviour. Evidence: ferb-daemon `b_window_shown.rs` (+2: the Mac and browser strings; once per task and
+app), ferb-gateway `span_notes.rs` (+2: the merged fact; put back, and the owner-switched answer told as it is),
+ferb-mac-hands `element_actions.rs` (+2: the put-back the browser uses, skipped after a switch; the action words; the
+HAND-549 test's fact gains `action`). Unverified: live; the ferbd conversion from the sampler's {pid, bundle_id, name}
+to the Mac's RunningApp has no test of its own; whether the owner caused the browser to come forward can't be told
+from the sampler's facts (only "someone switched since" is).
+
+## 2026-11-15 · 83 · Settings → Stored data: every table viewable, a phrase found, a turn deleted so the planner no longer reads it
+
+**What.** The owner's request (STORE-422, his words kept): "where is this exact word written??? i wanna see the db
+too … add a storage/db viewer in setting … i wann see all teh data", and "delete in db by user if they want".
+- Viewer (STORE-423): `ferb-store/src/data_view.rs` reads on a read-only connection of its own (`open_read_only`:
+  `SQLITE_OPEN_READ_ONLY`, `query_only`): `tables` (every `sqlite_master` table, its rows, columns, a group for a
+  person, `internal` for full-text indexes, their shadow tables and SQLite's own), `rows` (newest first by rowid,
+  pages of up to 200, each text cut in SQL at up to 2 000 characters with its full length in `cut`, a blob as its
+  size, the page stopped at 500 000 characters, an optional `equals`/`starts_with` filter on a real column), `row`
+  (one row, each cell up to 200 000 characters and the row up to 600 000), `cell` (the rest in pieces of up to
+  200 000), `search` (LIKE with `\` escaping, ASCII case ignored, also the phrase as Python's `json.dumps` stores it
+  so accents and quotes inside FERB's JSON are found; 20 rows per table; the important groups first; 8 s, then
+  `stopped`). Table names only from `sqlite_master`, columns only the table's own, values as parameters.
+  `ferb-supervisor/src/flow/data_rpc.rs` serves them as `data.tables|rows|row|cell|search` on blocking threads, plus
+  `data.context` (`Inner::conversation_now`: the `_conversation_blocks` the planner's next turn reads) and
+  `data.delete`; dispatched from `chat_rpc.rs`, app_only on the cli role (`auth.rs` `DATA_ADDITIONS`, the golden).
+- Delete (STORE-424): `flow/data_delete.rs`. `plan` reads what a turn (a request id; a task resolves to its turn)
+  holds; `apply` runs inside `ChatLog::rewrite` (new: the log's write transaction after everything queued; the
+  tombstoned entries go to the watchers and their conversations' projectors are dropped): the journal's conversation
+  rows naming the request or its tasks (`data_view::CONTENT_KINDS`, tested equal to `CONVERSATION_KINDS`,
+  `SELF_POSTS`, `chat.plan` and `chat.summary`) and every running summary of that chat from the first that folded one
+  in (a later summary carries the earlier one's text); the journal's delete trigger empties chat_fts (secure-delete)
+  and the recall vectors; `forgotten_refs` gets `journal:<id>`; chat entries become tombstones (`chat_entries::
+  tombstone`: body `{}`, new seq); chat_history's turn (`$.requestID`) and its replies (`$.turnID`); tasks,
+  task_results, cards, names, task_context (a later task's `prior_task` set NULL), plans and steps; spans of the tasks
+  and of the planner calls (`input.request_id`) with their children (recursive). Then, in its own transaction, a
+  later `model.*` call whose input quotes one of the turn's texts (≥ 24 characters with a space, once or twice
+  JSON-escaped) gets the attention forget's `CONTEXT_REMOVED` as its context. Refused while the turn's stream is
+  open or a tree of it runs. `data.deleted` is journaled with the request id, task ids and counts only. Memory:
+  the existing `memory.forget` (`confirm: true`).
+- Fresh conversation (STORE-425): `chat.attach {new: true}` already made a new current conversation; FERB.app now
+  asks for it (`NotchModel.startFreshConversation`, keeps the new id for `chat.send`).
+- FERB.app: Settings → Stored data (`SettingsTab.stored`, in Manage FERB): a search field, "Start a fresh
+  conversation…", the groups with their tables (internal ones behind a switch), under What the AI was given "Next
+  turn: what FERB would read now" and "Model calls"; a table's rows newest first with Load more; a row in full
+  (`StoredData.readable`: JSON indented, long texts such as `context` shown as written, selectable, Show more); Delete
+  this turn… / Forget this memory… with an alert listing what goes and what stays. A deleted turn leaves the chat the
+  app holds (`ConversationArchive.removeTurns`). Models in `NotchCore/StoredData.swift`; the playground answers the
+  calls from a small invented database (`PlaygroundStoredData`).
+
+**Why.** The planner's conversation is read from the journal (`turn.rs` `conversation_view` → `entries_of
+(CONVERSATION_KINDS + SELF_POSTS)` and `chat.summary`), so deleting a turn must delete those rows; `0001` keeps the
+journal append-only for updates but leaves delete for "forget = purge", and `0054`'s trigger takes the index copies.
+Rule 6: no generic row delete; the journal's other rows, the action ledger, confirmations, standing permissions, known
+destinations and recovery copies are shown, not deletable here (Uninstall's delete everything covers them).
+
+**Evidence.** ferb-store `tests/data_view.rs` (5: tables and groups equal `sqlite_master`, paging and cursor,
+a 250 000-character cell cut and read back whole in pieces, search incl. `café said "no"` stored as `é`/`\"`,
+`%` literal, budget 0 stops, bad names/columns refused, the connection can't write). ferb-supervisor
+`tests/data_delete.rs` (2, through the real RPC server after the recorded `plain_reply` turn ran through the real
+supervisor): a non-app connection refused all seven calls (`-32005`); tables/rows/row/search through the wire; the
+planner's context held "hi there" and the answer before; after `chat.attach new` the new conversation's context had
+neither; preview changed nothing; after the delete the context of `s1` had neither, journal rows and chat_fts gone,
+2 tombstones with `{}` bodies and last_seq +2, chat_history empty, the turn's spans gone, the later quote blanked,
+`data.deleted` without the words, a second delete "nothing stored". ferb-rpc auth unit test and the golden (+7).
+Runs: ferb-store, ferb-rpc, ferb-supervisor 189 passed, 0 failed; clippy -D warnings clean on the three (run with
+`-A clippy::type_complexity` because another agent's open ferb-gateway change trips it); `gate.sh portable` clean;
+Swift `StoredDataTests` 8 passed; whole `swift test` 786 executed, 0 unexpected failures.
+
+**Unverified / open.** Live: LIVE-956. ferbd was not compiled (another agent's open ferb-mac-hands change doesn't
+build); `data.*` reach ferbd through `chat_rpc::register`, which it already calls. Not covered by a test: the
+"still running" refusals, a summary chain, task tables' rows (the recorded turn had no task). Copies a delete
+leaves: the journal's audit rows naming the turn (e.g. `chat.ack`, `task.*`), screenshots until they age out,
+memories and learned cards built from it (counted in the preview; Memory forgets them; learning reads the
+`journal:` tombstones), a later call's paraphrase of it, the WAL until its checkpoint, FERB.app's unsent-history
+outbox, a phone's copy until it reads the tombstone. EntryWatch keeps the old conversation id until FERB.app
+reconnects after a fresh conversation. The new files are untracked: kb sees their tags and paths once added.
+
+**Addition: the owner's three answers (STORE-426, "yes yes yes to all.").**
+- What FERB learned from a deleted turn goes with it (STORE-428). The link used is what FERB records: a memory item
+  whose every `memory_sources` row is one of the turn's journal rows or a `trail` row of its tasks; a learned card
+  whose every `learning_sources` ref is `journal:<row>` of the turn or `episode:<task>` of its tasks. After the
+  turn's transaction, the new `Daemon::forget_learned` seam (ferbd → `areas_a::memory::forget_turn_learning`) runs
+  Memory's own forget for each item (`forget_memory`, sources kept: the turn's are gone) and `forget_nodes` for the
+  cards (with what was derived from them), then `settle_forgets`. One with other sources is kept; the preview lists
+  both with their words (`will_delete.memories`/`learned`, `keeps_memories`/`keeps_learned`). Not linkable: a memory
+  FERB recorded from another turn that says the same thing, or one with no recorded source; those stay.
+- The tasks' `episodes` rows go (their how-notes by the foreign key), and their evidence: each row's file under
+  `<home>/evidence` (home = the database's folder), only plain-name relative paths whose folder resolves inside it,
+  never followed (a link there is removed itself, never its target); a file that can't go keeps its row
+  (`screenshots_kept`). `data.deleted` carries the counts, never paths.
+- A fresh conversation (STORE-427): `chat.attach {new}` writes a notice entry "New conversation: FERB doesn't read the
+  messages above." (ref `conversation:<id>`, origin ferb) into the new stream through `ChatLog::rewrite`, not
+  journaled; FERB.app adds the same line to its chat (`addNotice`, saved) and restarts its entry watch on the new id.
+- Tests: ferb-supervisor `tests/data_delete.rs` now 4 (a turn with a two-task tree: tasks, results, context, spans
+  with a child, task.answer, episode, three summaries of which the 2nd and 3rd go, four evidence rows: a file and a
+  link removed, the link's target outside kept, a `../` path refused and kept, a data-only row removed; the memory
+  port asked for exactly the only-from-it item and card, the shared ones kept and named; the audit row and trail
+  kept; the fact without names. The marker entry. `busy` refusals and a finished turn not open). ferb-daemon
+  `tests/a_turn_learning.rs` (the real forget path: item and its memory_fts copy gone, card and its derived card gone
+  with tombstones, the others kept). Swift: the preview's words, the marker in the chat, the watch following the new
+  conversation.
+- Runs: ferb-store, ferb-rpc, ferb-supervisor, ferb-daemon and ferbd, 69 test binaries (chat_replay included): 390
+  passed, 0 failed, 5 ignored; clippy -D warnings clean on the five (with `-A clippy::manual_contains -A
+  clippy::type_complexity` for another agent's open ferb-gateway change); Swift 790 executed, 0 unexpected failures.
+  The entry's "Unverified" items on screenshots, memories, the entry watch, the refusals, summary chains and task
+  rows are covered by the above; still live-only: LIVE-956.
+
+## 2026-11-15 · 84 · A stopped task's summary said once more, not three times: a task's end goes to the turn that ran it
+
+**What.** APP-919: a task's end is filed on the turn of the session that ran it (`Conversation.swift`
+`recordAnswer`), else on the turn its request names, else on the task's NEWEST turn (`DaemonConnection.swift`
+`receiveOutcome`), then on any other turn of it still waiting; an earlier turn the task ran under before a later
+message restarted it keeps its answer. `ChatProjector` mirrors both (`handle_outcome`, `receive_outcome`). ENG-18:
+`scenarios.json` gains its first invented timeline, `stop_beside_new_work_two_turns`, after the 71 recorded ones;
+the order rule for plans (rule 4, `support_entries`) takes a task's first plan, since a resumed task has one per turn.
+
+**Why.** Owner, live 2026-11-15 23:24: "i just got triple replies for the latest assignment task, why??? FIX". Task
+3a0cc55b ran under two turns (B85892C6, then 0BEBF605 after "start 3 parallel agents"). "stop all the tasks. list
+where all the files … are" (b5dfa157) stopped it beside new work (ORCH-638): `control.rs` `then_start` journaled
+`chat.reply` (told_task; no frame) and the new task's plan frame carried the stop's words first (`tree.rs`
+`said_first`: plan text and first receipt, as Python's recording `stop_plus_new_task` does). The stopped task's
+`outcome` came on 0BEBF605's stream with `told_in` b5dfa157. Copies, as read from the owner's chat_history and
+chat_entries (read-only) and the code:
+1. 95361593's first bubble (receipt + plan line; `plan` stores the same words, not drawn while a `planLine` exists,
+   `TurnCardView.swift:18`): ORCH-638's design.
+2. 0BEBF605's answer: APP-825's design (the told end filed on its own turn).
+3. A later answer of B85892C6 at the bottom (reply 3E1DA219; entry …320 `follows` …307): the bug.
+   `receiveOutcome` → `handleOutcome` → `recordAnswer`, whose `turns.first { id == receipt.id || backendTaskID ==
+   task }` (`Conversation.swift:131`, since 2026-10-13) matched B85892C6 first; it already had its answer ("Stopped,
+   as you asked. Sites contacted: 1 site", from the restart), so `finish` made the summary a later answer (APP-914,
+   61b2908a). The projector copied the lookup (`entries.rs` `handle_outcome`'s `first`), hence …320 and …321.
+Before APP-914 the same lookup overwrote B85892C6's answer in place (a copy up the chat, no new bubble): the
+lookup predates the Rust build; APP-914 made it a bubble at the bottom. Nothing in the engine's frames or their
+order differs from Python's.
+
+**Evidence.** ferb-supervisor `chat_entries`: `a_stopped_task_two_turns_ran_tells_its_end_once_on_the_turn_that_ran_it`
+(both orders of the new plan and the stopped end) and `a_result_with_no_request_ends_the_newest_turn_of_its_task`
+fail on the old `entries.rs` (2 answers with the summary, as the owner's store; the end on r1) and pass on the new;
+`a_history_saved_with_the_extra_answer_…` reads an old store back whole. Golden: the 71 recorded scenarios
+byte-identical (the diff is the header line, the last recorded scenario's closing comma and the new scenario).
+EntryFoldTests: 72 of 72 transcripts equal; `testAStoppedTaskTwoTurnsRanTellsItsEndOnceOnTheTurnThatRanIt`,
+`testAResultWithNoRequestEndsTheNewestTurnOfItsTask`, `testAHistorySavedWithTheExtraCopyIsReadBackWhole`.
+On the old app code (a worktree with only this diff, the two Swift lines put back) the first two fail (the summary
+said again by a reply; the end on the first turn) and the scenario's fold differs; on the new, EntryFold, EntryWatch,
+StopToldOnce and ArchiveUpgrade tests: 28, 0 failures. Runs: worktree `gate.sh fmt` and `lint` clean, ferb-supervisor
+98 passed, 0 failed; ferbd `chat_replay` 10 passed, 2 ignored (`engine_*.json` unchanged); Swift on the shared
+checkout 790 tests, the only failures EntryWatch's scenario count (fixed since) and SpaceRuleTests on another agent's
+new StoredDataPage.swift alerts.
+
+**For the owner.** By ORCH-638 and APP-825 the stopped task's summary still shows twice when a stop comes with new
+work: on the stopped task's own turn and as the first lines of the new message's bubble. In this case the two turns
+are next to each other. Whether one of them should be shorter (e.g. the stopped turn saying only that it stopped)
+is the owner's call.
+
+**Open.** Not live-checked. The engine's replay through the real program (`chat_replay`, `engine_*.json`) has no
+such scenario (its timelines are Python recordings). A saved history keeps its old third copy (installs are wiped).
+
+## 2026-11-15 · 85 · An element's own AX actions in mac.act (context menus in the background); an app that raises itself is put back and asks next time
+
+**What.**
+- HAND-551: `mac.act` gains `action: "menu"` (AXShowMenu) and `action: "perform"` with a new optional `name` (any
+  other action the element advertises now, matched by its listed name; `perform` naming press/cancel/menu is that
+  action, `driver::normalized`). A snapshot lists every advertised action (`ax::action_shown`): Python's table by
+  FERB's word, an app's own NSAccessibilityCustomAction by the name in its `Name:…\nTarget:…` string, any other `AX…`
+  action in snake case; white space and control characters folded, cut at 48 characters, 16 per element, once each.
+  An action the element doesn't list, or a name two actions share, is refused with a plain fact
+  (`act::advertised`). `perform` goes through every check a press does (files, cmd+Q/cmd+H items, run controls,
+  paste and terminal items; terminal_input asks as for a press). ferb-core's `ComputerActionKind` gains `Menu` and
+  `Perform` and `ComputerAction` an optional `name` (absent from the JSON when None, so Python's types fixture holds).
+- HAND-552: `menu` waits for the owner to be quiet (`RealInput::quiet`, as foreground input does; nothing held
+  back), performs AXShowMenu, finds the menu (`ax::context_menu`: the element's AXMenu child, the app's one open
+  menu, or the menu holding the app's focused element; 8 looks 0.2 s apart), walks it as a new snapshot generation
+  (`MacDriver::listed`, the snapshot's listing taken out of `snapshot`) and returns its elements in `facts.elements`;
+  the result's `next` is `tools::MENU_NEXT`. AXShowMenu that the app didn't answer (kAXErrorCannotComplete) counts as
+  done when a menu is found open. An AXMenu inside a window is a `menu` container in every snapshot.
+- HAND-553: a pointer step refused because the target is in front while the owner is active now says, when the
+  app wasn't in front at the call's first look, "<app> came to the front by itself when it got FERB's <kind> (it
+  wasn't in front before), and the owner is using the Mac, so the rest of the pointer input stopped"
+  (`driver::came_forward_stop`); the owner's text stands otherwise; when it asks is unchanged.
+- HAND-549 (owner: "yes and yes"; supersedes HAND-212), HAND-550 (what HAND-212 kept), HAND-554 (how): every Mac input
+  call but AppleScript and owner-allowed foreground input reads the front app before and after (`MacTools::run`,
+  `after_input`). If the target came forward, the app in front before goes back in front (`apps.activate`,
+  attributed to FERB through `on_activate`) unless another app is in front by then or it quit; the result carries
+  `screen_changed_during_call` {front_app, by, put_back, why, raw_input_asks, next} (a PointerInterrupted gets the
+  same sentence appended); the driver's `came_forward` seam publishes `browser.window_shown` {task_id, site "",
+  shown [{cause front_app, app, put_back, previous, input}]} for HAND-546's notice (ferbd `tools/mac.rs`). Raw
+  input (`tools::raw_input`: mac.click by pointer, mac.pointer but hover, mac.act by process events) records
+  `raw_input_background` in the app's profile: failed when it came forward, landed when it stayed behind; the last
+  one decides. `confirm::foreground_need` asks the existing foreground question (same key and card, once per app per
+  task) before raw input to an app whose last record is failed (`Apps::comes_forward_on_input`, defaulted false;
+  ferbd's `MacApps` reads the driver's records through `Profiles::shared`, one instance per folder).
+- Catalog: `rust/fixtures/catalog/tool_changes.json` (new, by hand) holds the deliberate changes to Python's tools;
+  ferb-gateway's `catalog::Change` applies them at load; `apply_changes`/`revert_changes`/`changes_shift` for the
+  tests (gateway catalog and validation, ferbd catalog_mcp, ferb-supervisor `prompt_changes::tool_shift` for the
+  token reserve). The three HAND-551 changes: the action enum plus `name` (schema), one description sentence, and
+  pydantic's literal_error text. The description sentence: "The actions an element lists in the snapshot are done
+  in the background: menu opens its context menu (the result lists the menu's items with ids to press; cancel
+  closes it), and perform with name does any other listed action exactly as listed, an app's own ones included. A
+  context menu is opened this way, not by a right-click at a point." `tools::D_ACT` follows.
+
+**Why.** Live 2026-11-15: FERB worked WhatsApp through Accessibility for two minutes, then needed a document bubble's
+menu; the snapshot listed `menu` but mac.act couldn't do it, the worker right-clicked, WhatsApp came to the front,
+the owner lost focus, and the refusal blamed the owner. The owner then answered "yes and yes" to: tell at once and
+ask before more clicks to that app (remembered per app), and put the previous app back right away.
+
+**Evidence.** ferb-mac-hands `tests/element_actions.rs` (15 + 1 ignored by-hand test, on fakes over the real
+`ax::Ax` walk: the live case's bubble lists [press, scroll_to_visible, cancel, menu]; menu opens it, the items come back
+with ids, the next snapshot shows `open: [menu]`, Delete pressed by AX; cancel closes it; the owner typing makes menu
+wait and yield; Download performed by its Name: string; an unlisted name, an unadvertised menu and a perform without
+name refused with nothing performed; the context menu's Quit (cmd+Q) item guarded for press and perform; FERB's notch
+refused; describe kind and ledger identity equal a press's plus action/name; a self-raising right-click: the stop's
+text, Notes activated again, one `shown` fact, profile failed; an app the owner uses keeps the old text, no put back;
+an app that stays behind changes nothing and clears the record; an AX menu that raised the app is put back without a
+raw-input record; owner-allowed foreground typing is never put back), `tests/driver.rs` (description with the
+change applied), ferb-policy `tests/raw_input.rs` (raw input to a recorded app asks with the foreground key; menu,
+perform, press, hover, AX click and other apps don't), ferb-gateway `tests/catalog.rs` (listings byte for byte with
+the changes taken out; the three changes, once each) and `validation.rs` (627 cases, mac.act's with the change).
+Runs: ferb-core, ferb-policy, ferb-gateway, ferb-mac-hands 228 passed, 0 failed, 7 ignored; ferbd catalog_mcp,
+chat_replay (the token reserve moved by the change's bytes), wiring 17 passed, 2 ignored; ferb-supervisor and
+ferb-daemon in the first run passed (290 passed with ferbd, its 2 replay failures being the reserve, since fixed).
+clippy -D warnings clean on ferb-core, ferb-policy, ferb-gateway, ferb-mac-hands, ferbd, ferb-supervisor;
+`gate.sh fmt` and `portable` clean. The tag lines citing HAND-212 in ferb-gateway call_hooks.rs/hooks.rs and
+ferb-daemon b_disturbance.rs now cite HAND-550.
+
+**Changed against Python (deliberate).** A snapshot lists actions Python's table dropped (an app's own, other AX
+ones); mac.act's schema, description and literal_error text (tool_changes.json, named in the catalog tests); an
+AXMenu inside a window is a menu container (Python left its items uncontained); HAND-212's let-it-be is replaced
+(owner).
+
+**Unverified / open.** Nothing ran on a real app. The owner's checks: in WhatsApp (or TextEdit) ask FERB to open a
+message's or document's context menu and pick an item: the app should stay behind and the items come back in one
+call; a right-click into an app that raises itself should put the owner's app back, give one notch line, and the
+next raw click in that app should ask. Whether AXShowMenu on a background app takes key focus or activates the app
+is not known from code or probes here (the menu tracking's keyboard capture is my reading of AppKit; the by-hand
+ignored test `element_actions::by_hand_textedit_context_menu` prints the front app before and after). Where macOS
+puts a context menu in AX (element child, app child or only via focus) is covered by three lookups, not observed. The
+notice line is HAND-546's (`window_shown_line`): for these facts it says "<app> came to the front while I was working
+in it." and is posted once per task tree (site ""), not per app; the owner's wording ("… when I clicked in it; I put
+<previous> back.") needs `window_shown_line` to read `put_back`/`previous`, the other agent's open file. The gateway
+writes the sampler's `screen_changed_during_call` over the tool's own when the sampler saw a change (only when the
+put-back failed, or a key-window change remains). The owner's own switch to the raising app during FERB's
+sub-second call reads as the app's (the input tap doesn't say which app input went to). `kb lock` also locked
+HAND-545, HAND-547 and STORE-422, which were unlocked. HAND-532's "(HAND-212 stands)" now conflicts in part with
+HAND-549 for browser tasks: the browser path is unchanged here.
+
+## 2026-11-16 · 86 · Five bugs from the live assignment task: a memory note's sentence, the checker's own question, pagers, a local PDF's profile, a pause read as a failure
+
+**What.** From a read-only comparison of tree 3a0cc55b (2026-11-15 22:52-23:25):
+- MEM-431 (`ferb-learning` text.rs `sentence_end`, `clause_span`): the owner's words saved for a fact also end where a
+  sentence ends (a period followed by space or the end, not closing an abbreviation by shape: single letters with
+  periods, or one to four letters before a capital or a number). Refines MEM-420 ("never a period"), recorded as a
+  new agent decision because existing decisions aren't edited: whether MEM-420 should be marked superseded is the
+  coordinator's call.
+- ORCH-650 (`ferb-supervisor` store.rs `step_answers`, attempt.rs `answered_in_step`, worker_context.rs
+  `step_answers_block`): the verifier's context gets a block of FERB's questions to the owner in this step
+  (plan.question/plan.answer, loop.*, paired by question id) with the owner's answers; a check that asks again, in the
+  same words, a question answered in this step is not asked: journal `plan.question_answered_before`, the next
+  attempt gets `owner_continuation`'s line, counted as a failed attempt (the check-in bounds it). Prompt files unchanged.
+- HAND-561 (`ferb-shell` manager.rs `NON_INTERACTIVE`, `command_env`): shell commands inherit PAGER, GIT_PAGER and
+  GH_PAGER=cat, GIT_TERMINAL_PROMPT=0, GH_PROMPT_DISABLED=1; a command's own assignment wins. AppleScript's and the dev
+  tools' environment (`clean_env`) unchanged.
+- HAND-562 (`ferb-browser` driver.rs `in_use_profile`, tools.rs `pdf`, profiles.rs `NO_CHOICE`): when the resolver
+  alone can't choose, browser.pdf html_path prints in the owner profile of the task's newest open tab; with none it
+  says to open one with browser.open profile=. The resolver's shared refusal names the profile argument with an
+  example (first available, browser/folder). No catalog change: a `profile` argument on browser.pdf was tried and
+  dropped, because ferb_browser.pdf's schema is byte-identical and tool_changes.json's text swap would change both.
+- RUN-465 (`ferb-worker` worker.rs `classify`, ports.rs `WorkerHost::paused`, supervisor host.rs, words.rs): a run
+  whose tree was stopped or is paused ends cancelled with the stop's words or "paused by you" / "paused by FERB to ask
+  you", whatever error the cut left; no failure in its span.
+
+**Why.** Live: the saved roll number carried "THEY SHOULNT MENTION AI …" into always-on memory (memory_items seq 7);
+the HCI step's checker asked the owner the same question three times (journal 98-112); `git log` sat at "Press
+RETURN" and `git push` asked for a username; browser.pdf html_path failed five times with "select a profile from the
+task context"; the owner's pause at 23:02 recorded step.search's run as failed "runtime finished without an answer".
+
+**Evidence.** New tests: ferb-learning `tests/clause_sentences.rs` (2), ferb-shell `tests/live.rs`
+`a_command_sees_no_pager_and_no_terminal_prompt_unless_it_sets_one` (real sandbox-exec), ferb-worker `tests/replay.rs`
+`a_paused_run_ends_as_paused_never_as_a_failure`, ferb-browser `tests/cleanup_wake.rs`
+`a_local_print_goes_to_the_profile_the_task_already_works_in`, ferb-supervisor `tests/control_scenarios.rs`
+`the_check_after_an_answer_reads_it` and `a_question_answered_in_the_step_is_not_asked_again`. Fixture comparisons
+with the differences named: ferb-learning pure_rules (no recorded case flips), ferb-worker worker_runs
+(`stop_records_no_failure`), ferb-browser profiles (`without_the_argument`), and the supervisor's and ferbd's replays
+through one shared file, `ferb-supervisor/tests/common/named_diffs.rs` (support_control, replay/harness.rs,
+ferbd chat_replay). Runs: ferb-shell, ferb-learning, ferb-worker, ferb-browser, ferb-gateway, ferb-supervisor all
+passed; ferbd chat_replay 10 passed, 2 ignored; `gate.sh fmt` and `lint` clean.
+
+**Fixed against Python.**
+- items.py `_clause_span` never cut at a period: a fact took every following sentence up to the next comma (MEM-431).
+- supervisor.py `_verifier`/`_context` never gave the checker the owner's answer to its own question (ORCH-650).
+- manager.py's environment set only TERM=dumb (HAND-561).
+- tools.py `BrowserPdf._run` opened the print page with no profile (HAND-562); profiles' NeedsOwner text named no
+  argument.
+- worker.py classify recorded a paused run as failed, and checked the stop only for a ValueError (RUN-465). Recorded
+  changes this makes: a stopped or paused worker span has no error; a paused run's span is cancelled "paused by …";
+  a stopped check's episode step reads "checked nothing — 1 condition unknown" with "⚠ 1 check left conditions
+  unknown" (`stop_while_checking`); a paused run's episode step reads "stopped: paused by …".
+
+**Open / unverified.** Nothing ran live. The owner's existing memory item (seq 7) still holds the long text: code
+doesn't rewrite it; forgetting or correcting it is the owner's. MEM-431's abbreviation shape keeps a sentence ending
+in a word of four letters or fewer before a capital ("I met Raj. He …") joined, as before. ORCH-650's dedup matches
+the same words only: the live checker reworded its question each time, so there it is the context block that should
+stop the repeat (a model's judgment, not verified). Check-in answers ("Keep going") and runtime-switch answers are in
+the block too. HAND-562 picks the newest live tab's profile when the task has tabs in several. I reformatted
+`fixtures/catalog/tool_changes.json` (another agent's untracked file) once, same content, while trying and removing
+a change. `cargo fmt -p ferb-supervisor` ran once over the whole crate, which can touch whitespace in files other
+agents are editing.

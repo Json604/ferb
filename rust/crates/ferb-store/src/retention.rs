@@ -31,8 +31,9 @@ pub const BATCH: usize = 200;
 /// STORE-401's "operational journal kinds" (`retention.py:40-54`; decision: STORE-408), in
 /// sorted order as the query binds them (`retention.py:225`). Owner and chat kinds, day
 /// summaries, schedule, timer-set and memory records, and the audit kinds (decision: STORE-418)
-/// are not among them and stay.
-pub const OPERATIONAL_KINDS: [&str; 51] = [
+/// are not among them and stay. Added after Python (decision: HAND-547): the image redaction's
+/// rows (`image.redaction_failed`, `image.redaction_recovered`, HAND-531) go as `preview.failed` does.
+pub const OPERATIONAL_KINDS: [&str; 53] = [
     "attention.failed",
     "browser.focus_returned",
     "daemon.background_failed",
@@ -43,6 +44,8 @@ pub const OPERATIONAL_KINDS: [&str; 51] = [
     "daemon.stopped",
     "daemon.unhandled",
     "episode.failed",
+    "image.redaction_failed",
+    "image.redaction_recovered",
     "loop.round",
     "mac.back_in_use",
     "memory.cards_failed",

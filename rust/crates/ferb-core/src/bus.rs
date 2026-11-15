@@ -95,6 +95,7 @@ pub const TELEMETRY: &[&str] = &[
     "task.step",     // ORCH-531: a lost one is re-read: bus.dropped -> chat.status
     "task.progress", // APP-893: a lost one is replaced by the next
     "cursor.point",
+    "browser.window_shown", // HAND-546: the owner's notice is written by the daemon's own consumer, not the bus
 ];
 
 /// The synthetic notice to a subscriber: `{"count": n}` telemetry events were dropped.

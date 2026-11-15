@@ -176,6 +176,9 @@ struct FakeHub {
     calls: Mutex<Vec<Value>>,
     /// The open tabs of each profile ("chrome/Profile 1"), as the browsers would hold them.
     tabs: OpenTabs,
+    /// When set, each `bridge` lookup moves this clock on by this many seconds: a pairing's wait looks its profile up
+    /// once per round (and once per page it opens), so its time passes in known steps.
+    tick: Mutex<Option<(Arc<b_support::FakeClock>, f64)>>,
 }
 
 /// Each profile's open tabs by address: the owner's, and what FERB's launches opened.
@@ -242,6 +245,14 @@ impl FakeHub {
 }
 
 impl Extensions for FakeHub {
+    fn bridge(&self, browser: &str, folder: &str) -> Option<BridgeView> {
+        if let Some((clock, step)) = self.tick.lock().unwrap().as_ref() {
+            *clock.mono.lock().unwrap() += step;
+        }
+        self.bridges()
+            .into_iter()
+            .find(|b| b.browser == browser && b.folder == folder)
+    }
     fn bridges(&self) -> Vec<BridgeView> {
         self.bridges
             .lock()
@@ -458,6 +469,7 @@ fn world(setup: &Value, access: bool) -> World {
         next: AtomicUsize::new(0),
         calls: Mutex::new(vec![]),
         tabs: OpenTabs::default(),
+        tick: Mutex::new(None),
     });
     for b in setup["bridges"].as_array().into_iter().flatten() {
         hub.connect(
@@ -857,6 +869,11 @@ async fn with_full_disk_access_every_call_answers_writes_and_launches_as_python(
 
     assert_eq!(w.home.journal_rows(), python_journal(sc, &home));
     let launched = w.launched.lock().unwrap().clone();
+    // A named difference that this recording never reaches (ENG-6, HAND-538): a pairing page still unanswered at
+    // PAIR_REOPEN_AT_S is opened again; Python opened one. Every recorded wait (timeout_s 0, or 5 and answered at once,
+    // on a clock that doesn't move) ends before the first re-open, so Python's commands are compared byte for byte;
+    // the re-open is `an_unanswered_pairing_page_is_opened_again_inside_the_wait`'s.
+    const { assert!(browsers::PAIR_REOPEN_AT_S[0] > 5.0) };
     assert_eq!(launched_as_recorded(&launched), sc["launched"]);
     // a connected profile is asked to close its wake page as the pairing ends, without waiting for the answer
     let want = sc["bridge_calls"].as_array().unwrap().len();
@@ -1246,6 +1263,204 @@ async fn the_wake_page_closes_itself_however_the_pairing_ends() {
             Ending::Cancelled => vec![],
         };
         assert_eq!(rows, want_rows, "{ending:?}");
+    }
+}
+
+/// What the profile's browser does with the pairing pages in
+/// [`an_unanswered_pairing_page_is_opened_again_inside_the_wait`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PageFate {
+    /// Only the nth pairing page runs pair.js (hands over the token, closes itself); the others never load and stay.
+    AnsweredAt(usize),
+    /// No page ever runs.
+    Never,
+    /// The owner turns FERB off in that profile as the first page opens; no page runs.
+    TurnedOff,
+}
+
+/// HAND-538 (live 2026-11-15, Pair all over seven profiles at once): Chrome "Profile 2" got its wake page and its
+/// pairing page, nothing answered for 60 s, and Try again paired it in 0.2 s. A pairing page whose token is still
+/// unused at 10 s and at 25 s of the wait is opened again for the same token, exactly as the first (the wake page
+/// first, then the pairing page); never more than those two, only inside the wait, never after the token was used, and
+/// never once the profile's files say FERB is off (that still ends the wait at once). The timeout's failure and the
+/// journal rows are Python's. After a re-open, a pairing page that never ran is closed by its exact address once the
+/// profile is connected; the wake pages close themselves. The wait's time moves 10 s per round (the fake hub's tick).
+// decision: HAND-538
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_unanswered_pairing_page_is_opened_again_inside_the_wait() {
+    let file = fixture("daemon-b/browsers.json");
+    let sc = scenario(&file, "with_access");
+    // (what the pages do, the wait's length, how many pairing pages open)
+    let cases = [
+        (PageFate::AnsweredAt(2), 60.0, 2),
+        (PageFate::AnsweredAt(1), 60.0, 1),
+        (PageFate::Never, 60.0, 3),
+        (PageFate::Never, 20.0, 2),
+        (PageFate::Never, 8.0, 1),
+        (PageFate::TurnedOff, 60.0, 1),
+    ];
+    for (fate, timeout, pages_opened) in cases {
+        let what = format!("{fate:?}, {timeout} s");
+        let mut w = world(&sc["setup"], true);
+        w.deps.pair_timeout_s = timeout;
+        *w.hub.tick.lock().unwrap() = Some((w.home.clock.clone(), 10.0));
+        let owners: BTreeMap<String, Vec<String>> = [(
+            "chrome/Profile 1".to_string(),
+            vec!["https://docs.example.test/a".to_string()],
+        )]
+        .into_iter()
+        .collect();
+        *w.open_tabs.lock().unwrap() = owners.clone();
+        let closed_itself: Arc<Mutex<Vec<String>>> = Arc::default();
+        {
+            let (tabs, pairings, hub, closed) = (
+                w.open_tabs.clone(),
+                w.deps.pairings.clone(),
+                w.hub.clone(),
+                closed_itself.clone(),
+            );
+            let prefs = w.support.join("Google/Chrome/Profile 1/Preferences");
+            let seen = AtomicUsize::new(0);
+            *w.hook.lock().unwrap() = Some(Box::new(move |argv: &[String]| {
+                let profile = launched_profile(argv);
+                let url = argv.last().cloned().unwrap_or_default();
+                if url.contains("/wake/") {
+                    run_wake_page(tabs.clone(), closed.clone(), profile, url);
+                    return;
+                }
+                let Some((_, token)) = url.split_once("/pair.html#token=") else {
+                    return;
+                };
+                let n = seen.fetch_add(1, Ordering::SeqCst) + 1;
+                match fate {
+                    PageFate::AnsweredAt(k) if k == n => {
+                        let m = ExtMessage {
+                            install_id: "inst-again".into(),
+                            mtype: ExtType::Pair,
+                            body_json: json!({"token": token}).to_string(),
+                            seq: None,
+                            mac: None,
+                        };
+                        let verdict = pairings.handle(&m).unwrap();
+                        assert!(verdict.accepted, "{}", verdict.reason);
+                        let b = verdict.binding.unwrap();
+                        hub.connect(&b.browser, &b.folder, "0.19.5");
+                        // pair.js: the token leaves the address, the page closes itself
+                        if let Some(t) = tabs.lock().unwrap().get_mut(&profile) {
+                            t.retain(|t| *t != url);
+                        }
+                    }
+                    PageFate::TurnedOff if n == 1 => {
+                        std::fs::write(
+                            &prefs,
+                            r#"{"extensions": {"settings": {"plbfkifcmgkgnlfgikdeaaglgncdhkma": {"location": 1, "path": "plbfkifcmgkgnlfgikdeaaglgncdhkma/0.19.5_0", "disable_reasons": [4]}}}, "account_info": [{"email": "work@example.test"}]}"#,
+                        )
+                        .unwrap();
+                    }
+                    _ => {} // the page never loads: it keeps its address and stays
+                }
+            }));
+        }
+        let cx = Cx::new(&w.home.host, &w.deps);
+        let reply = cx.pair_for_task("chrome", "Profile 1").await.unwrap();
+
+        // each open is the first's: the wake page, then the pairing page with the same token; at most two re-opens
+        let launched: Vec<String> = w
+            .launched
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|a| {
+                let a: Vec<String> = serde_json::from_value(a.clone()).unwrap();
+                assert_eq!(launched_profile(&a), "chrome/Profile 1", "{what}");
+                a.last().unwrap().clone()
+            })
+            .collect();
+        assert_eq!(launched.len(), 2 * pages_opened, "{what}: {launched:?}");
+        let mut tokens = vec![];
+        for pair in launched.chunks(2) {
+            assert!(pair[0].contains("/wake/"), "{what}: {launched:?}");
+            let (_, token) = pair[1]
+                .split_once("/pair.html#token=")
+                .expect("a pairing page");
+            tokens.push(token.to_string());
+        }
+        tokens.dedup();
+        assert_eq!(tokens.len(), 1, "{what}: one token for every page");
+
+        // the outcome and the journal rows are Python's
+        let rows: Vec<Value> = w
+            .home
+            .journal_rows()
+            .into_iter()
+            .filter(|r| r[0].as_str().unwrap().starts_with("browsers.pair"))
+            .collect();
+        match fate {
+            PageFate::AnsweredAt(_) => {
+                assert_eq!(reply.get("paired"), Some(&json!(true)), "{what}: {reply:?}");
+                assert_eq!(
+                    rows,
+                    vec![json!(["browsers.paired",
+                        {"browser": "chrome", "folder": "Profile 1"}, "ferb"])],
+                    "{what}"
+                );
+            }
+            PageFate::Never => {
+                assert_eq!(reply.get("paired"), Some(&json!(false)), "{what}");
+                assert_eq!(reply.get("reason"), Some(&json!("no_answer")), "{what}");
+                let prefix = browsers::PAIR_UNANSWERED.split("{label}").next().unwrap();
+                assert!(
+                    reply["why"].as_str().unwrap().starts_with(prefix),
+                    "{what}: {reply:?}"
+                );
+                assert_eq!(
+                    rows,
+                    vec![json!(["browsers.pair_failed",
+                        {"browser": "chrome", "folder": "Profile 1",
+                         "why": "the pairing page wasn't answered"}, "ferb"])],
+                    "{what}"
+                );
+            }
+            PageFate::TurnedOff => {
+                let reason = reply["reason"].as_str().unwrap().to_string();
+                assert_eq!(reply.get("paired"), Some(&json!(false)), "{what}");
+                assert_ne!(reason, "no_answer", "{what}: {reply:?}");
+                assert_eq!(
+                    rows,
+                    vec![json!(["browsers.pair_failed",
+                        {"browser": "chrome", "folder": "Profile 1", "reason": reason}, "ferb"])],
+                    "{what}"
+                );
+            }
+        }
+
+        // every wake page closed itself; once paired, the extension closed each pairing page that never ran by its
+        // exact address (only after a re-open: one page asks nothing more), and the owner's tabs are untouched
+        let wakes: Vec<String> = launched.iter().step_by(2).cloned().collect();
+        all_closed(&closed_itself, &wakes, &what).await;
+        if let PageFate::AnsweredAt(_) = fate {
+            let pair_pages: Vec<&String> = launched.iter().skip(1).step_by(2).collect();
+            let want = wakes.len()
+                + if pair_pages.len() > 1 {
+                    pair_pages.len()
+                } else {
+                    0
+                };
+            for _ in 0..500 {
+                if w.hub.calls.lock().unwrap().len() >= want {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+            let calls = w.hub.calls.lock().unwrap().clone();
+            assert_eq!(calls.len(), want, "{what}: {calls:?}");
+            assert!(calls.iter().all(|c| c[1] == "wake_close"), "{what}");
+            let mut left = w.open_tabs.lock().unwrap().clone();
+            left.retain(|_, tabs| !tabs.is_empty());
+            assert_eq!(left, owners, "{what}");
+        } else {
+            assert!(w.hub.calls.lock().unwrap().is_empty(), "{what}");
+        }
     }
 }
 

@@ -683,6 +683,19 @@ impl Worker {
         let host = self.host();
         let redact = |t: &str| redact_text(host, t);
         let route = self.route();
+        // RUN-465: a run the owner's stop or pause cut ends as that, whatever error the cut left it with: no failure
+        // words, no failure in the record, and the record says who ended it. Fixed against Python (worker.py:446-488
+        // checked `tree.stop` only for a ValueError and never the pause: a paused run was "The report from this
+        // attempt wasn't usable: runtime finished without an answer", live 2026-11-15 23:02).
+        let stop = tree.stop();
+        let ended_by = if stop.is_empty() {
+            host.paused(&tree.id())
+        } else {
+            Some(stop)
+        };
+        if let Some(by) = ended_by {
+            return (plain(task, OutcomeStatus::Cancelled, by, vec![]), None);
+        }
         match &e {
             Error::Violation(_) | Error::AnswerMissing(_) => {
                 // plain words with the reason, which the owner may read (L11); the exact failure is evidence
@@ -796,17 +809,13 @@ impl Worker {
                         }
                         ended(&words(&text, Some(&redact)))
                     };
-                    let stop = tree.stop();
-                    let attempt = if stop.is_empty() {
-                        plain(
-                            task,
-                            OutcomeStatus::Failed,
-                            format!("The report from this attempt wasn't usable: {why}"),
-                            vec![failure.clone()],
-                        )
-                    } else {
-                        plain(task, OutcomeStatus::Cancelled, stop, vec![])
-                    };
+                    // a stopped tree's run ended above (RUN-465)
+                    let attempt = plain(
+                        task,
+                        OutcomeStatus::Failed,
+                        format!("The report from this attempt wasn't usable: {why}"),
+                        vec![failure.clone()],
+                    );
                     (attempt, Some(failure))
                 }
             }

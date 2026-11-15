@@ -133,6 +133,41 @@ pub fn wire(
             }),
         );
     }
+    // HAND-545, HAND-546: a browser window that came up during a task: one line for the owner per task and site (a
+    // quiet notice in chat), and the task's record keeps what was told (`owner.notice`)
+    {
+        let (n, parts) = (notifier.clone(), desktop.parts.clone());
+        events.events.on(
+            Some(&["browser.window_shown"]),
+            Arc::new(move |_topic: &str, data: Map<String, Value>| {
+                let (n, parts) = (n.clone(), parts.clone());
+                if let Ok(rt) = tokio::runtime::Handle::try_current() {
+                    rt.spawn(async move {
+                        let Ok(Some((notice, text))) = n.tell_window_shown(&data).await else {
+                            return;
+                        };
+                        let task = data.get("task_id").and_then(Value::as_str).unwrap_or("");
+                        let tree = task.split('.').next().unwrap_or(task);
+                        let mut told = Map::new();
+                        told.insert("notice".into(), notice.into());
+                        told.insert("text".into(), text.into());
+                        for k in ["site", "shown"] {
+                            if let Some(v) = data.get(k) {
+                                told.insert(k.into(), v.clone());
+                            }
+                        }
+                        super::desktop::fact_span(
+                            &parts,
+                            tree,
+                            "owner.notice",
+                            "tell the owner",
+                            &Value::Object(told),
+                        );
+                    });
+                }
+            }),
+        );
+    }
     // compose.py:239 (GATE-562): a page asked again for a value FERB filled sealed
     {
         let n = notifier;

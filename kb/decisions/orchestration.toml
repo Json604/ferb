@@ -1885,3 +1885,13 @@ status = "active"
 rule = "Refines ORCH-519 (no ids): when the owner pauses, resumes, takes over or closes a delegated conversation from chat, code's line is one past-tense line per action naming the chat by its scope's recipients: \"Paused the chat with Robin.\", \"Resumed the chat with Robin.\", \"Handed the chat with Robin back to you.\", \"Closed the chat with Robin.\" (several people: \"Robin, Sam and Ada\"; no one named: \"that conversation\"). Never the conversation's id or the raw action. Fixed against Python, whose line was 'Conversation ' + action + ': ' + id (supervisor.py:3369). Refusals keep their own words."
 why = "Journal 71: \"Conversation pause: id-000021:chat\" showed a raw internal id to the owner; the owner, 2026-11-15: \"ok fix them if you know it\"."
 paths = ["rust/crates/ferb-supervisor/src/lines.rs::conversation_changed", "rust/crates/ferb-supervisor/src/flow/turn.rs", "rust/crates/ferb-supervisor/tests/replay/harness.rs::FIXES", "rust/crates/ferbd/tests/chat_replay.rs::FIXES", "rust/crates/ferb-supervisor/tests/chat_entries.rs::FIXES"]
+
+[ORCH-650]
+title = "A step's check reads the owner's answers to the step's questions; one answered isn't asked again"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "A check (the verifier) reads, in its own block, every question FERB asked the owner in this step (the check's own, a check-in's; plan.question/plan.answer, loop.*) with the owner's answer, as data built like the \"your questions\" block. A check that asks again, in the same words (case and spacing aside), a question answered in this step is not asked: the next attempt gets that answer, counted as a failed attempt (ORCH-307's check-in bounds it). Fixed against Python."
+why = "The owner's answer went only into the worker's next instructions; the next check never saw it and asked again. Prompt text unchanged; the check still judges the work."
+evidence = "Live 2026-11-15 23:14-23:20, step hci of tree 3a0cc55b: the checker asked \"Which should the report follow…\" three times (journal 98-112), each answered by the owner, then failed the step."
+paths = ["rust/crates/ferb-supervisor/src/flow/attempt.rs::answered_in_step", "rust/crates/ferb-supervisor/src/flow/store.rs::step_answers", "rust/crates/ferb-supervisor/src/worker_context.rs::step_answers_block"]

@@ -91,6 +91,13 @@ fn every_refused_argument_reads_as_pydantic_wrote_it() {
     let mut fixed = 0;
     for (name, t) in f["tools"].as_object().unwrap() {
         let tool = Frozen(name.clone());
+        // decision: HAND-551: a tool's deliberate changes (mac.act's two new actions) applied to its recorded texts
+        let changed = catalog::changes().iter().any(|c| c.tool == *name);
+        let t = if changed {
+            serde_json::from_str(&catalog::apply_changes(&ferb_py::json::dumps(t))).unwrap()
+        } else {
+            t.clone()
+        };
         for c in t["cases"].as_array().unwrap() {
             cases += 1;
             let given = c["arguments"].as_object().unwrap();

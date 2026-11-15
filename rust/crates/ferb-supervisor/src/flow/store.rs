@@ -354,6 +354,38 @@ impl Inner {
         })
     }
 
+    /// ORCH-650: FERB's questions to the owner in the step `step` of tree `root` that the owner answered
+    /// (`plan.question`/`plan.answer`, a loop step's `loop.*`, paired by the question's id), `{"question", "answer"}`
+    /// oldest first: the step's later attempts and checks read them, and a question already answered here is not
+    /// asked again in the same words.
+    pub fn step_answers(&self, root: &str, step: &str) -> Vec<Value> {
+        let mut out = Vec::new();
+        for (asked_kind, answered_kind) in [
+            ("plan.question", "plan.answer"),
+            ("loop.question", "loop.answer"),
+        ] {
+            let asked = self.of_kind(asked_kind, "task_id", root, None);
+            for a in self.of_kind(answered_kind, "task_id", root, None) {
+                let d = &a.data;
+                if d.get("step").and_then(Value::as_str) != Some(step) {
+                    continue;
+                }
+                let id = d.get("approval_id").and_then(Value::as_str);
+                let Some(q) = asked.iter().find(|q| {
+                    q.data.get("approval_id").and_then(Value::as_str) == id
+                        && q.data.get("step").and_then(Value::as_str) == Some(step)
+                }) else {
+                    continue;
+                };
+                out.push(
+                    json!({"question": q.data.get("question").cloned().unwrap_or(Value::Null),
+                                "answer": d.get("answer").cloned().unwrap_or(Value::Null)}),
+                );
+            }
+        }
+        out
+    }
+
     pub fn reopened_answers(&self, root: &str) -> BTreeSet<String> {
         self.with_spans(|s| s.reopened_answers(root).unwrap_or_default())
     }

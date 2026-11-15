@@ -457,7 +457,7 @@ async fn replay(case: &Value) -> Value {
                     image: s(op, "image").map(String::into_bytes),
                     ..ToolResult::default()
                 });
-                let (o, facts) = hooks.redact_image(out).await;
+                let (o, facts, _span_only) = hooks.redact_image(out).await;
                 json!({"image": utf8(&o.result.image), "facts": facts})
             }
             "preview" => {
@@ -588,7 +588,7 @@ fn same(a: &Value, b: &Value) -> bool {
     ferb_py::json::dumps(a) == ferb_py::json::dumps(b)
 }
 
-// decision: DMN-5, DMN-403, HAND-212
+// decision: DMN-5, DMN-403, HAND-550
 #[test]
 fn every_hook_does_what_pythons_did() {
     let text = std::fs::read_to_string(concat!(

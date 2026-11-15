@@ -174,6 +174,54 @@ pub fn tool_shift(recorded_tools: &[String]) -> i64 {
             recorded_tools.iter().any(|t| t == after) && !recorded_tools.iter().any(|t| t == name)
         })
         .map(|(_, _, row)| ferb_py::json::dumps(row).len() as i64 + 2)
+        .sum::<i64>()
+        + tool_changes_shift(recorded_tools)
+}
+
+/// The deliberate changes to Python's tools (rust/fixtures/catalog/tool_changes.json, each with its decision; HAND-551
+/// mac.act's element actions): (tool, part, old, new).
+pub fn tool_changes() -> &'static [(String, String, String, String)] {
+    static C: OnceLock<Vec<(String, String, String, String)>> = OnceLock::new();
+    C.get_or_init(|| {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/catalog/tool_changes.json");
+        let text =
+            std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let v: Value = serde_json::from_str(&text).expect("tool_changes.json");
+        v["changes"]
+            .as_array()
+            .expect("changes")
+            .iter()
+            .map(|c| {
+                let s = |k: &str| c[k].as_str().expect(k).to_string();
+                (s("tool"), s("part"), s("old"), s("new"))
+            })
+            .collect()
+    })
+}
+
+/// How many more tokens a model call offered a changed tool reserves (decision: HAND-551): the listing's bytes grow by
+/// each change's new text less its old one, as `json.dumps` writes them.
+pub fn tool_changes_shift(recorded_tools: &[String]) -> i64 {
+    tool_changes()
+        .iter()
+        .filter(|(tool, part, _, _)| {
+            part != "validation"
+                && recorded_tools
+                    .iter()
+                    .any(|t| *t == *tool || *t == tool.replace('.', "_"))
+        })
+        .map(|(_, part, old, new)| {
+            // a schema piece is JSON text inside the listing as it is; a description is a string, escaped
+            let d = |t: &str| {
+                if part == "input_schema" {
+                    t.len() as i64
+                } else {
+                    ferb_py::json::dumps(&Value::String(t.to_string())).len() as i64
+                }
+            };
+            d(new) - d(old)
+        })
         .sum()
 }
 

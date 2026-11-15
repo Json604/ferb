@@ -20,6 +20,41 @@ use crate::error::{refused, stale, HandError, Result};
 use crate::input::Step;
 use crate::keys;
 
+/// HAND-551.
+pub const PERFORM_NEEDS_NAME: &str =
+    "perform needs name: one of the element's actions exactly as the snapshot lists it";
+
+/// HAND-551: the raw AX action an element advertises under `want` (its listed name), or the plain fact why not.
+pub fn advertised(
+    raw: &[String],
+    want: &str,
+    element: &str,
+) -> std::result::Result<String, String> {
+    let found: Vec<&String> = raw
+        .iter()
+        .filter(|r| crate::ax::action_shown(r).as_deref() == Some(want))
+        .collect();
+    match found.len() {
+        1 => Ok(found[0].clone()),
+        0 => {
+            let listed = crate::ax::shown_actions(raw);
+            Err(format!(
+                "{element} doesn't list the action {} now (it lists: {}); nothing was done; take a new snapshot",
+                py_repr(want),
+                if listed.is_empty() {
+                    "none".to_string()
+                } else {
+                    listed.join(", ")
+                }
+            ))
+        }
+        k => Err(format!(
+            "{k} of {element}'s actions are listed as {}, so FERB can't tell which is meant; nothing was done",
+            py_repr(want)
+        )),
+    }
+}
+
 impl MacDriver {
     async fn terminal_check(
         self: &Arc<Self>,
@@ -88,6 +123,15 @@ impl MacDriver {
         task: Option<&str>,
         terminal: Option<&TerminalGrant>,
     ) -> Result<ActionResult> {
+        let action = &super::normalized(action);
+        if action.kind == K::Perform
+            && action
+                .name
+                .as_deref()
+                .is_none_or(|n| ferb_py::value::strip(n).is_empty())
+        {
+            return refused(PERFORM_NEEDS_NAME);
+        }
         if matches!(action.kind, K::Key | K::Type | K::SetValue | K::Select)
             && action.text.is_none()
         {
@@ -164,10 +208,22 @@ impl MacDriver {
             return refused(NEEDS_ELEMENT);
         };
         let n = self.node(&a.bundle_id, &element)?;
+        // HAND-551: only an action the element advertises now, by the name the snapshot lists it under
+        if matches!(action.kind, K::Menu | K::Perform) {
+            let want = match action.kind {
+                K::Menu => "menu".to_string(),
+                _ => ferb_py::value::strip(action.name.as_deref().unwrap_or("")).to_string(),
+            };
+            let r = n.r#ref.clone();
+            let raw = self.blk(move |d| d.ax.action_list(&r)).await;
+            if let Err(why) = advertised(&raw, &want, &element) {
+                return refused(why);
+            }
+        }
         if !matches!(action.kind, K::Type | K::SetValue | K::Edit) {
             self.armed.lock().expect("lock").remove(&a.pid);
         }
-        if matches!(action.kind, K::Press | K::Click) {
+        if matches!(action.kind, K::Press | K::Click | K::Perform) {
             let (a2, r, g) = (a.clone(), n.r#ref.clone(), terminal.cloned());
             if let Some(why) = self
                 .blk(move |d| d.files_refusal(&a2, &[d.element_file(Some(&r))], g.as_ref()))
@@ -261,7 +317,8 @@ impl MacDriver {
     ) -> Result<(ActionResult, bool, Option<El>, bool)> {
         let text = action.text.clone().unwrap_or_default();
         match action.kind {
-            K::Press | K::Click => {
+            // HAND-551: an element's own action goes through every check a press on it does
+            K::Press | K::Click | K::Perform => {
                 let (a2, r) = (a.clone(), n.r#ref.clone());
                 if self.blk(move |d| d.runs(&a2, Some(&r))).await.is_some() {
                     let (a2, g, l) = (a.clone(), terminal.cloned(), n.label.clone());
@@ -309,7 +366,10 @@ impl MacDriver {
                     )
                     .await?;
                 }
-                let r = if mechanism == "foreground" {
+                let r = if action.kind == K::Perform {
+                    self.perform_named(a, n, action.name.as_deref().unwrap_or(""))
+                        .await?
+                } else if mechanism == "foreground" {
                     let center = self.ax.center(n);
                     let g = self.gestures.clone();
                     self.foreground_element(
@@ -336,6 +396,12 @@ impl MacDriver {
                     .await?;
                 Ok((r, into, None, true))
             }
+            K::Menu => Ok((
+                self.show_menu(a, n, holder).await?,
+                false,
+                Some(n.r#ref.clone()),
+                false,
+            )),
             K::Cancel => {
                 let r = n.r#ref.clone();
                 let ok = self.blk(move |d| d.ax.cancel(&r)).await?;
@@ -562,6 +628,94 @@ impl MacDriver {
             self.terminal_typed(a, l[0].as_ref(), terminal, task, r.ok);
         }
         Ok((r, into, l.first().cloned().flatten()))
+    }
+
+    /// HAND-551: the element's own action by its listed name (resolved again now: the raw name macOS advertises).
+    async fn perform_named(
+        self: &Arc<Self>,
+        a: &A,
+        n: &AxNode,
+        name: &str,
+    ) -> Result<ActionResult> {
+        let want = ferb_py::value::strip(name).to_string();
+        let r = n.r#ref.clone();
+        let raw = self.blk(move |d| d.ax.action_list(&r)).await;
+        let found = match advertised(&raw, &want, "that element") {
+            Ok(r) => r,
+            Err(why) => return refused(why),
+        };
+        let r = n.r#ref.clone();
+        let ok = self.blk(move |d| d.ax.perform(&r, &found)).await?;
+        self.profiles.record(&a.bundle_id, "ax_perform", ok);
+        Ok(ok_result(
+            ok,
+            if ok {
+                format!("AX action {} accepted; inspect the outcome", py_repr(&want))
+            } else {
+                format!("AX action {} refused; check what happened before trying again (if it may have gone through, a repeat needs the owner)", py_repr(&want))
+            },
+            json!({"method": "ax", "action": want, "accepted": ok, "outcome_verified": false}),
+        ))
+    }
+
+    /// HAND-552: the element's context menu (AXShowMenu), opened in the background once the owner is quiet: while a
+    /// menu is open AppKit's menu tracking takes the keyboard, so it isn't opened under the owner's typing (the wait
+    /// `RealInput::quiet`, as foreground input waits; the owner's events are never held back). The open menu is walked
+    /// at once and its items become this app's element ids, in the result, so an item is pressed without another
+    /// snapshot. AppKit often answers AXShowMenu only once its menu closes, so an action the app didn't answer is looked
+    /// at, not failed: the menu found open is the outcome.
+    async fn show_menu(self: &Arc<Self>, a: &A, n: &AxNode, holder: &str) -> Result<ActionResult> {
+        self.input.quiet(holder, "menu").await?;
+        let r = n.r#ref.clone();
+        let (accepted, menu) = match self.blk(move |d| d.ax.perform(&r, "AXShowMenu")).await {
+            Ok(false) => {
+                self.profiles.record(&a.bundle_id, "ax_menu", false);
+                return Ok(ok_result(
+                    false,
+                    "AXShowMenu refused; no menu opened",
+                    json!({"method": "ax", "accepted": false, "menu_open": false}),
+                ));
+            }
+            Ok(true) => (Some(true), self.find_menu(a, n).await),
+            Err(HandError::NoAnswer(e)) => match self.find_menu(a, n).await {
+                Some(m) => (None, Some(m)),
+                None => return Err(HandError::NoAnswer(e)),
+            },
+            Err(e) => return Err(e),
+        };
+        let Some(menu) = menu else {
+            self.profiles.record(&a.bundle_id, "ax_menu", false);
+            return Ok(ok_result(
+                false,
+                "AXShowMenu accepted, but no open menu could be read; take a new snapshot before anything else (a menu \
+that is open takes the keyboard; action cancel on it closes it)",
+                json!({"method": "ax", "accepted": true, "menu_open": false, "outcome_verified": false}),
+            ));
+        };
+        self.profiles.record(&a.bundle_id, "ax_menu", true);
+        let tree = self.walk(a, Some(menu), 0, true, None, false).await;
+        let listed = self.listed(a, &tree, None, None, 0, true);
+        let elements = listed.get("elements").cloned().unwrap_or(json!([]));
+        let items = elements
+            .as_array()
+            .map(|l| l.iter().filter(|e| e["role"] == "menuitem").count())
+            .unwrap_or(0);
+        Ok(ok_result(
+            true,
+            format!("the context menu is open ({items} items): its elements below have new ids (the earlier snapshot's ids no longer hold)"),
+            json!({"method": "ax", "accepted": accepted, "menu_open": true, "elements": elements}),
+        ))
+    }
+
+    async fn find_menu(self: &Arc<Self>, a: &A, n: &AxNode) -> Option<El> {
+        for _ in 0..8 {
+            let (r, pid) = (n.r#ref.clone(), a.pid);
+            if let Some(m) = self.blk(move |d| d.ax.open_menu(&r, pid)).await {
+                return Some(m);
+            }
+            self.sleep(0.2).await;
+        }
+        None
     }
 
     async fn press(self: &Arc<Self>, a: &A, n: &AxNode) -> Result<ActionResult> {

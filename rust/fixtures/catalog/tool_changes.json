@@ -1,0 +1,26 @@
+{
+  "about": "Written by hand, never by make.py: the deliberate changes to tools of Python's frozen catalog (tools.json) made after it was recorded, each with its decision (ENG-17). part: description (the tool's description text), input_schema (a piece of its input schema as json.dumps writes it, so of every listing's bytes) or validation (the texts its argument checks write). ferb-gateway's catalog applies them to the tool when it loads (rust/crates/ferb-gateway/src/catalog.rs, Change); every test that compares with a recorded text applies them (apply_changes) or takes them out (revert_changes) in the raw and JSON-escaped forms, and a recorded token reserve moves by changes_shift. Old must be in the recorded text once; every other byte is compared as recorded.",
+  "changes": [
+    {
+      "decision": "HAND-551",
+      "tool": "mac.act",
+      "part": "input_schema",
+      "old": "\"select\", \"cancel\"], \"title\": \"Action\", \"type\": \"string\"}, \"mechanism\": {",
+      "new": "\"select\", \"cancel\", \"menu\", \"perform\"], \"title\": \"Action\", \"type\": \"string\"}, \"name\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"description\": \"perform: one of the element's actions exactly as the snapshot lists it\", \"title\": \"Name\"}, \"mechanism\": {"
+    },
+    {
+      "decision": "HAND-551",
+      "tool": "mac.act",
+      "part": "description",
+      "old": "an action refuses a route it doesn't take (focus and select: ax only). ",
+      "new": "an action refuses a route it doesn't take (focus and select: ax only). The actions an element lists in the snapshot are done in the background: menu opens its context menu (the result lists the menu's items with ids to press; cancel closes it), and perform with name does any other listed action exactly as listed, an app's own ones included. A context menu is opened this way, not by a right-click at a point. "
+    },
+    {
+      "decision": "HAND-551",
+      "tool": "mac.act",
+      "part": "validation",
+      "old": "'select' or 'cancel'",
+      "new": "'select', 'cancel', 'menu' or 'perform'"
+    }
+  ]
+}

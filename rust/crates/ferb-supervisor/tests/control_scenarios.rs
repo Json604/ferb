@@ -11,7 +11,7 @@ mod common;
 mod support_control;
 
 use serde_json::{json, Value};
-use support_control::{run, world, Report};
+use support_control::{run, world, world_with, Report};
 
 fn replay(name: &str) -> Report {
     let mut w = world(name);
@@ -66,6 +66,22 @@ fn check_in_after_five() {
 #[test]
 fn worker_question_answered() {
     full("worker_question_answered");
+}
+
+/// ORCH-650: the step's check after the owner answered the step's question reads that answer as the owner's words
+/// (live 2026-11-15: the checker asked the same question three times, never seeing the answer).
+// decision: ORCH-650
+#[test]
+fn the_check_after_an_answer_reads_it() {
+    let r = replay("worker_question_answered");
+    assert!(r.full(), "{}", r.verdict());
+    assert_eq!(r.step_answers.len(), 1, "{:?}", r.step_answers);
+    let block = &r.step_answers[0];
+    assert!(
+        block.contains(r#""question": "Which folder should I sort?""#)
+            && block.contains(r#""answer": "the Downloads folder""#),
+        "{block}"
+    );
 }
 
 /// The global stop (`stop.engage`): the gateway's stop order (block, revoke every run token, the hooks: the
@@ -316,4 +332,55 @@ fn a_wait_a_restart_cut_is_told_as_python_tells_it() {
         );
     }
     println!("{} cases equal", cases.len());
+}
+
+/// ORCH-650: a question the step's check asks again in the same words, after the owner answered it in this step, is
+/// not asked again: the next attempt has the owner's answer (live 2026-11-15: the same question three times).
+/// Scripted on worker_question_answered: the second check asks "Which folder should I sort?" again.
+// decision: ORCH-650
+#[test]
+fn a_question_answered_in_the_step_is_not_asked_again() {
+    let name = "worker_question_answered";
+    let mut w = world_with(name, |calls| {
+        let checks: Vec<usize> = (0..calls.len())
+            .filter(|i| calls[*i]["key"] == "step.sort.verify")
+            .collect();
+        let works: Vec<usize> = (0..calls.len())
+            .filter(|i| calls[*i]["key"] == "step.sort")
+            .collect();
+        let (asked, accept, done) = (
+            calls[checks[0]].clone(),
+            calls[checks[1]].clone(),
+            calls[works[1]].clone(),
+        );
+        calls[checks[1]] = asked;
+        calls.insert(checks[1] + 1, done);
+        calls.insert(checks[1] + 2, accept);
+    });
+    let _ = support_control::run(&mut w, name);
+    let db = w.db.lock().unwrap();
+    let kinds: Vec<String> = {
+        let mut st = db
+            .conn()
+            .prepare("SELECT kind FROM journal ORDER BY seq")
+            .unwrap();
+        let rows = st.query_map([], |r| r.get::<_, String>(0)).unwrap();
+        rows.map(|r| r.unwrap()).collect()
+    };
+    let count = |k: &str| kinds.iter().filter(|x| *x == k).count();
+    assert_eq!(count("plan.question"), 1, "{kinds:?}");
+    assert_eq!(count("plan.question_answered_before"), 1, "{kinds:?}");
+    drop(db);
+    let calls = w.daemon.calls.lock().unwrap();
+    let told =
+        "The owner's answer to the question “Which folder should I sort?”: the Downloads folder";
+    let workers_told = calls
+        .started
+        .iter()
+        .filter(|c| c["parts"].to_string().contains(told))
+        .count();
+    assert_eq!(
+        workers_told, 2,
+        "both later attempts have the owner's answer"
+    );
 }

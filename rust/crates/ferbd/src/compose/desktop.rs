@@ -74,38 +74,8 @@ pub fn sentinel(p: &Parts, read: Arc<dyn DesktopRead>) -> Arc<DisturbanceSentine
 
 /// desktop.py `_record_disturbance`: persisted before broadcast; tool arguments stay in their own action span.
 fn record(p: &Parts, task_id: &str, kind: &str, data: Value) {
-    let parent = p.task(task_id).map(|t| t.span_id);
-    let id = {
-        let shared = p.db();
-        let db = lock(&shared);
-        let r = p.redactor();
-        let spans = ferb_store::spans::SpanStore::new(
-            &db,
-            Box::new(ferb_gateway::gateway::StoreTime(p.clock())),
-            Box::new(ferb_gateway::gateway::StoreIds(p.ids())),
-            Box::new(move |v: &Value| r.value(v)),
-            Box::new(|kind: &str| ferb_policy::rules::REVERSIBLE.contains(&kind)),
-        );
-        let Ok(mut span) = spans.start(
-            kind,
-            &json!({"operation": "observe desktop"}),
-            Some(task_id),
-            parent.as_deref(),
-            None,
-        ) else {
-            return;
-        };
-        let _ = spans.finish(
-            &mut span,
-            ferb_store::spans::Finish {
-                output: Some(&data),
-                error: None,
-                cost_usd: None,
-                origin: None,
-                summary: None,
-            },
-        );
-        span.id
+    let Some(id) = fact_span(p, task_id, kind, "observe desktop", &data) else {
+        return;
     };
     if kind == "disturbance.change" || kind == "disturbance.error" {
         let mut out = Map::new();
@@ -116,6 +86,48 @@ fn record(p: &Parts, task_id: &str, kind: &str, data: Value) {
         }
         p.events().publish("disturbance.observed", out);
     }
+}
+
+/// One finished span of a task's record (`kind`, under the task's own span while it runs) holding a fact; its id.
+/// The desktop's records, and what FERB told the owner about a task (HAND-546: `owner.notice`).
+pub(crate) fn fact_span(
+    p: &Parts,
+    task_id: &str,
+    kind: &str,
+    operation: &str,
+    data: &Value,
+) -> Option<String> {
+    let parent = p.task(task_id).map(|t| t.span_id);
+    let shared = p.db();
+    let db = lock(&shared);
+    let r = p.redactor();
+    let spans = ferb_store::spans::SpanStore::new(
+        &db,
+        Box::new(ferb_gateway::gateway::StoreTime(p.clock())),
+        Box::new(ferb_gateway::gateway::StoreIds(p.ids())),
+        Box::new(move |v: &Value| r.value(v)),
+        Box::new(|kind: &str| ferb_policy::rules::REVERSIBLE.contains(&kind)),
+    );
+    let mut span = spans
+        .start(
+            kind,
+            &json!({ "operation": operation }),
+            Some(task_id),
+            parent.as_deref(),
+            None,
+        )
+        .ok()?;
+    let _ = spans.finish(
+        &mut span,
+        ferb_store::spans::Finish {
+            output: Some(data),
+            error: None,
+            cost_usd: None,
+            origin: None,
+            summary: None,
+        },
+    );
+    Some(span.id)
 }
 
 /// The sentinel behind ferb-gateway's call hooks (`call_hooks.py` `screen_before` / `screen_after`).

@@ -410,6 +410,8 @@ pub struct TestDaemon {
     pub browsing_calls: Mutex<Vec<(bool, String)>>,
     /// The owner's profiles' names, emails and folders (`names_profile`).
     pub profile_names: Mutex<Vec<String>>,
+    /// STORE-426: each forget of what FERB learned from a deleted turn (memory items, learned cards), as asked.
+    pub forgot_learned: Mutex<Vec<(Vec<String>, Vec<String>)>>,
 }
 
 pub struct Gate {
@@ -619,6 +621,17 @@ impl TestDaemon {
 }
 
 impl Daemon for TestDaemon {
+    fn forget_learned(
+        &self,
+        items: &[String],
+        nodes: &[String],
+    ) -> Option<Result<(usize, usize), String>> {
+        self.forgot_learned
+            .lock()
+            .unwrap()
+            .push((items.to_vec(), nodes.to_vec()));
+        Some(Ok((items.len(), nodes.len())))
+    }
     fn tool_names(&self) -> Vec<String> {
         self.tools.iter().map(|t| t.name.clone()).collect()
     }
@@ -1211,6 +1224,8 @@ pub struct Report {
     pub stopped: Option<String>,
     pub skipped: Vec<String>,
     pub checked: usize,
+    /// ORCH-650: the step-answer blocks the checks had (compared apart from Python's calls).
+    pub step_answers: Vec<String>,
 }
 
 impl Report {
@@ -1651,6 +1666,7 @@ pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
         browsing: Mutex::default(),
         browsing_calls: Mutex::default(),
         profile_names: Mutex::default(),
+        forgot_learned: Mutex::default(),
     });
     let clock = Arc::new(
         FakeClock::new(ferb_clock::py::parse("2026-01-01T09:00:00+00:00")).with_zone(Zone::utc()),
@@ -2137,6 +2153,9 @@ fn compare_calls(w: &World, _sc: &Value, report: &mut Report) {
             }
         };
         report.checked += 1;
+        // the named differences (ORCH-650, tests/common/named_diffs.rs)
+        let (expected, actual) =
+            crate::common::named_diffs::named_call(expected, actual, &mut report.step_answers);
         if expected != actual {
             let field = expected
                 .as_object()
@@ -2238,6 +2257,9 @@ fn compare_tables(w: &World, sc: &Value, report: &mut Report) {
                     report.tables.push(format!("{table}: columns {mcols:?}"));
                     continue;
                 }
+                // the named differences (RUN-465, ORCH-650, tests/common/named_diffs.rs)
+                let (rows, mrows) =
+                    crate::common::named_diffs::named_rows(table, &cols, rows.clone(), mrows);
                 for i in 0..rows.len().max(mrows.len()) {
                     if rows.get(i) != mrows.get(i) {
                         let detail = match (rows.get(i), mrows.get(i)) {

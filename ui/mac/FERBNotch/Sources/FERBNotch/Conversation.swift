@@ -128,9 +128,10 @@ extension NotchModel {
 
     func recordAnswer(announce: Bool, displayText: String? = nil, verified: Bool = false) {
         guard let receipt = session.result else { return }
-        let existing = conversation.turns.first { turn in
-            turn.id == receipt.id || (receipt.backendTaskID != nil && turn.backendTaskID == receipt.backendTaskID)
-        }
+        // APP-919: the session's own turn, else the task's newest turn; never an earlier turn the task ran under before a
+        // later message restarted it (it has its answer: the end said again there was a third copy, live 2026-11-15)
+        let existing = conversation.turns.first { $0.id == receipt.id }
+            ?? receipt.backendTaskID.flatMap { task in conversation.turns.last { $0.backendTaskID == task } }
         let id = existing?.id ?? receipt.id
         if receipt.isResumed {
             // A task this chat didn't send (reconnected or recovered): its request is the daemon's goal, never shown

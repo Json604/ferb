@@ -86,6 +86,15 @@ pub const METHODS: &[Method] = &[
     m("clipboard.request", &[Role::Cli], false),
     m("conversations.change", &[Role::Cli], false),
     m("conversations.list", &[Role::Cli], false),
+    // STORE-423, STORE-424 (owner STORE-422): FERB.app's stored-data viewer and the owner's delete of a turn, FERB.app's
+    // own (app_only): never a model's tools (mcp_shim), the extension or a command line. Not Python's: DATA_ADDITIONS.
+    m("data.cell", &[Role::Cli], true),
+    m("data.context", &[Role::Cli], true),
+    m("data.delete", &[Role::Cli], true),
+    m("data.row", &[Role::Cli], true),
+    m("data.rows", &[Role::Cli], true),
+    m("data.search", &[Role::Cli], true),
+    m("data.tables", &[Role::Cli], true),
     m("doctor.check", &[Role::Cli], false),
     m("identity.check", &[Role::Cli], false),
     m("identity.choose", &[Role::Cli], true),
@@ -193,6 +202,18 @@ pub const STAGE2_ADDITIONS: [&str; 6] = [
 /// The methods the owner's identifier choices added to Python's table (GATE-601, GATE-602): FERB.app's own
 /// (`app_only`), never a tool's or the phone's.
 pub const IDENTIFIER_ADDITIONS: [&str; 2] = ["secrets.mask", "secrets.unmask"];
+
+/// The methods of FERB.app's stored-data viewer and the owner's delete (STORE-423, STORE-424): FERB.app's own
+/// (`app_only`), never a tool's, the phone's or a command line's.
+pub const DATA_ADDITIONS: [&str; 7] = [
+    "data.cell",
+    "data.context",
+    "data.delete",
+    "data.row",
+    "data.rows",
+    "data.search",
+    "data.tables",
+];
 
 /// The method's row, when FERB has such a method at all.
 pub fn method(name: &str) -> Option<&'static Method> {
@@ -533,6 +554,20 @@ mod tests {
     fn restore_stays_on_the_cli_role_and_is_not_app_only() {
         for name in ["recovery.list", "recovery.restore"] {
             assert!(allowed(Role::Cli, name) && !app_only(name));
+        }
+    }
+
+    /// STORE-423, STORE-424: the viewer's reads and the owner's delete are FERB.app's alone: a model's tools reach the
+    /// daemon as mcp_shim, the extension's relay has no methods, and a cli connection that isn't FERB.app is refused.
+    // decision: STORE-423
+    // decision: STORE-424
+    #[test]
+    fn the_data_viewer_and_delete_are_ferb_app_s_own() {
+        for name in DATA_ADDITIONS {
+            assert!(app_only(name), "{name}");
+            assert!(allowed(Role::Cli, name), "{name}");
+            assert!(!allowed(Role::McpShim, name), "{name}");
+            assert!(!allowed(Role::NativeHost, name), "{name}");
         }
     }
 

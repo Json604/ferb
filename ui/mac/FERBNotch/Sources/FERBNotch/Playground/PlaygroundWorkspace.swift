@@ -32,6 +32,8 @@ final class PlaygroundWorkspace {
     var recovered = false
     var secrets: [[String: Any]] = [["place": "studio.example", "name": "Sample studio login", "kind": "password"]]
     var importFinished = false
+    /// Settings → Stored data's invented database (STORE-423).
+    let storedData = PlaygroundStoredData()
     lazy var sampleImage = PlaygroundSamples.image()
     var artifact: URL { state.home.appendingPathComponent("Afternoon brief.txt") }
 
@@ -185,6 +187,7 @@ final class PlaygroundWorkspace {
                     "results": tasks.filter { ["done", "failed", "cancelled"].contains($0["status"] as? String ?? "") && !seenResults.contains($0["task_id"] as? String ?? "") },
                     "notices": notices.filter { $0["shown"] as? Bool != true && !seenNotices.contains($0["id"] as? String ?? "") }, "approvals": approvals]
         case "ping" where enabled: return ["pid": 0, "role": "app", "stopped": stopped]
+        case let data where data.hasPrefix("data."): return storedData.answer(data, params)
         default: return nil
         }
     }

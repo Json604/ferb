@@ -11,6 +11,7 @@ use ferb_context::prompts::PromptRoot;
 use ferb_supervisor::history::Sourced;
 use serde_json::Value;
 
+pub mod named_diffs;
 pub mod prompt_changes;
 
 pub fn repo() -> PathBuf {

@@ -97,6 +97,7 @@ pub const NOT_WAITED: &[&str] = &[
     "task.step",
     "task.progress",
     "cursor.point",
+    "browser.window_shown", // HAND-546: the owner's line about a window that came up
 ];
 
 /// The event named `topic`, when a plan can wait for it.

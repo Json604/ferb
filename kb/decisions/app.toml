@@ -3762,3 +3762,13 @@ status = "active"
 rule = "For ENG-14. The cursor (FERBEntriesCursor) is saved only after the history write or its outbox holds what it covers; changes dedupe by request and entry id. No cursor, reset_required or cursor_ahead: watch from now (nothing imported); behind or the stream's end: watch again from the cursor. chat.send carries the install id (FERBClientID) and a submission id per message; a link failure before any frame is resent once with the same ids, and a `repeat` ack adopts the turn. chat.entries.mark: delivered_seq per batch, read_pos while today's chat shows."
 why = "ENG-14: a cursor ahead of the saved history could lose a turn; a resend after a dropped link must never start a second turn."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/EntryWatch.swift", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift::NotchModel.submitToDaemon", "ui/mac/FERBNotch/Sources/NotchCore/AppSettings.swift"]
+
+[APP-919]
+title = "A task's end answers the turn whose session ran it, else its newest turn; never an earlier one"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "Refines APP-914, APP-825. A task's end is filed on the turn of the session that ran it (recordAnswer: the session's own turn), else on the turn its request names, else on the newest turn bound to the task; then on any other turn of it still waiting. A turn the task ran under before a later message restarted or resumed it keeps its answer: the end is never said there again as a later answer. ChatProjector mirrors it (handle_outcome, receive_outcome)."
+why = "Live 2026-11-15: a stop beside new work, while a task restarted by a second message ran, showed the stopped summary three times; recordAnswer's turns.first matched the task's first turn, already answered, and APP-914 posted the end there again at the bottom."
+evidence = "Owner's chat_history: reply 3E1DA219, said = the stopped summary, turnID B85892C6 (the task's first turn), after turn 95361593. Engine: chat_entries pos 4294967320 follows 4294967307, that turn's answer; 4294967321 the same words on turn 0BEBF605."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Conversation.swift::NotchModel.recordAnswer", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift::NotchModel.receiveOutcome", "rust/crates/ferb-supervisor/src/flow/entries.rs::ChatProjector.handle_outcome", "rust/crates/ferb-supervisor/src/flow/entries.rs::ChatProjector.receive_outcome"]

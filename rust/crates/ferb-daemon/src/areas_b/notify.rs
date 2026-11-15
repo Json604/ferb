@@ -229,6 +229,99 @@ pub fn applescript_quote(text: &str) -> String {
     format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
+/// HAND-545, HAND-546: the owner's line for one fact about a browser window that came up during a task, from the fact
+/// alone (no model writes it): which window, what the page did (a structural fact: a pop-up window is a window's type,
+/// never its purpose), and what FERB did about it. `None` for a fact that brought nothing forward (a request the page
+/// made and the extension refused) or one of a kind not known here.
+pub fn window_shown_line(fact: &Map<String, Value>, site: &str) -> Option<String> {
+    let flag = |k: &str| fact.get(k) == Some(&Value::Bool(true));
+    if flag("prevented") {
+        return None;
+    }
+    let cause = fact.get("cause").and_then(Value::as_str)?;
+    if cause == "front_app" {
+        return Some(front_app_line(fact, site));
+    }
+    let did = match cause {
+        "new_tab" => "opened a new tab",
+        "popup_window" => "opened a pop-up window",
+        "dialog" => "showed a dialog",
+        _ => return None,
+    };
+    let page = if site.is_empty() { "a page" } else { site };
+    let focus = if flag("focused") {
+        " and took your keyboard focus"
+    } else {
+        ""
+    };
+    let window = fact.get("window").and_then(Value::as_str)?;
+    if window == "owner" {
+        return Some(format!(
+            "Your browser window came to the front{focus} when {page} {did}; I left it as it was."
+        ));
+    }
+    let after = if flag("put_back") {
+        "I minimized it"
+    } else {
+        "I couldn't minimize it"
+    };
+    let moment = if flag("put_back") {
+        " for a moment"
+    } else {
+        ""
+    };
+    Some(if cause == "popup_window" {
+        // the page's own new window: where it opened, then what it did
+        let on = if site.is_empty() {
+            String::new()
+        } else {
+            format!(" on {site}")
+        };
+        format!("A pop-up window opened{moment}{on}{focus}; {after}.")
+    } else {
+        let what = if window == "popup" {
+            "A pop-up window"
+        } else {
+            "My browser window"
+        };
+        format!("{what} came up{moment}{focus} when {page} {did}; {after}.")
+    })
+}
+
+/// HAND-549, HAND-560: an app that came to the front during one of FERB's calls (a Mac app on FERB's input, or the
+/// call's own browser): which app, what FERB did there (`action`, a Mac call's: click, type, scroll, drag) or the
+/// site it worked on, and whether FERB put the previous app back (`put_back`, `previous`, a plain `why`). Without
+/// `put_back` (FERB didn't try) it says only what came forward.
+fn front_app_line(fact: &Map<String, Value>, site: &str) -> String {
+    let text = |k: &str| {
+        fact.get(k)
+            .and_then(Value::as_str)
+            .filter(|t| !t.is_empty())
+    };
+    let app = text("app").unwrap_or("Your browser");
+    let how = if !site.is_empty() {
+        format!(" while I was working on {site}")
+    } else {
+        match text("action") {
+            Some("click") => " when I clicked in it".into(),
+            Some("type") => " when I typed in it".into(),
+            Some("scroll") => " when I scrolled in it".into(),
+            Some("drag") => " when I dragged in it".into(),
+            _ => " while I was working in it".into(),
+        }
+    };
+    let previous = text("previous").unwrap_or("your app");
+    let then = match fact.get("put_back").and_then(Value::as_bool) {
+        Some(true) => format!("; I put {previous} back."),
+        Some(false) => match text("why") {
+            Some(why) => format!("; I couldn't put {previous} back: {why}."),
+            None => "; I left it in front.".into(),
+        },
+        None => ".".into(),
+    };
+    format!("{app} came to the front{how}{then}")
+}
+
 impl Notifier {
     /// `_osascript_notify`: the OS's own notification; title and text redacted and quoted for AppleScript.
     pub async fn osascript_notify(&self, title: &str, text: &str) -> Result<(), String> {
@@ -408,8 +501,89 @@ impl Notifier {
         quotes: &Value,
         quote_origin: Option<&str>,
     ) -> Result<(), String> {
+        self.tell_owner_once(
+            ident,
+            refs,
+            text,
+            notice_origin,
+            category,
+            task_id,
+            cards,
+            quotes,
+            quote_origin,
+        )
+        .await
+        .map(|_| ())
+    }
+
+    /// HAND-545, HAND-546: a browser window that came up during a task (`browser.window_shown`: the extension's facts
+    /// for the tab, or the call's own browser at the front after it), told to the owner in one line per task tree and
+    /// site, written from the facts by [`window_shown_line`] (no model), as a notice: a quiet FERB message in chat,
+    /// kept with the notices and the chat's entries. Some((notice id, its stored text)) when this posted it.
+    pub async fn tell_window_shown(
+        &self,
+        data: &Map<String, Value>,
+    ) -> Result<Option<(String, String)>, String> {
+        let task = data.get("task_id").and_then(Value::as_str).unwrap_or("");
+        let tree = task.split('.').next().unwrap_or("");
+        if tree.is_empty() {
+            return Ok(None);
+        }
+        let site = data.get("site").and_then(Value::as_str).unwrap_or("");
+        let told = data
+            .get("shown")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_object)
+            .find_map(|f| window_shown_line(f, site).map(|l| (f, l)));
+        let Some((fact, line)) = told else {
+            return Ok(None);
+        };
+        // once per task and site; a Mac app's (no site, HAND-549) once per task and app
+        let place = if site.is_empty() {
+            let app = fact.get("app").and_then(Value::as_str).unwrap_or("");
+            format!("app:{app}")
+        } else {
+            site.to_string()
+        };
+        let ident = format!("window-shown-{tree}-{place}");
+        let posted = self
+            .tell_owner_once(
+                &ident,
+                &[format!("task:{tree}")],
+                &line,
+                ferb_sanitize::origin::FERB,
+                "alert",
+                tree,
+                &[],
+                &Value::Null,
+                None,
+            )
+            .await?;
+        Ok(posted.map(|n| {
+            let text = n.get("text").map(ferb_py::value::py_str).unwrap_or(line);
+            (ident, text)
+        }))
+    }
+
+    /// [`Notifier::tell_owner`], answering with the notice when this call posted it (None: posted before, or notices
+    /// are unavailable).
+    #[allow(clippy::too_many_arguments)]
+    async fn tell_owner_once(
+        &self,
+        ident: &str,
+        refs: &[String],
+        text: &str,
+        notice_origin: &str,
+        category: &str,
+        task_id: &str,
+        cards: &[Value],
+        quotes: &Value,
+        quote_origin: Option<&str>,
+    ) -> Result<Option<Map<String, Value>>, String> {
         let Some(db) = &self.notices else {
-            return Ok(());
+            return Ok(None);
         };
         let notice = {
             let guard = db.lock().unwrap();
@@ -426,10 +600,10 @@ impl Notifier {
             )
             .map_err(|e| e.to_string())?
         };
-        if let Some(notice) = notice {
-            self.post_notice(&notice, category, task_id).await?;
+        if let Some(notice) = &notice {
+            self.post_notice(notice, category, task_id).await?;
         }
-        Ok(())
+        Ok(notice)
     }
 
     /// `_loop_notice` (L31): a loop's back-off or pause notice, posted like a notice.

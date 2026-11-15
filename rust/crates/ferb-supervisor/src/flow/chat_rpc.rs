@@ -153,6 +153,10 @@ impl ChatRpc {
                 "conversations.change" => self.conversations_change(&params),
                 "ui.click_through" => self.click_through(session, &params),
                 // stage 2: the chat as entries, read like from a server (entries_rpc.rs)
+                // FERB.app's stored-data viewer and the owner's delete (STORE-423, STORE-424)
+                m if m.starts_with("data.") => {
+                    super::data_rpc::call(self.sup().inner(), m, &params).await
+                }
                 "chat.entries.page" => super::entries_rpc::page(self.sup().inner(), &params),
                 "chat.entries.changes" => super::entries_rpc::changes(self.sup().inner(), &params),
                 "chat.entries.get" => super::entries_rpc::get(self.sup().inner(), &params),
@@ -619,6 +623,17 @@ impl ChatRpc {
         let conversation = inner
             .continuity(|c| c.attach(new, resume.as_deref()))
             .map_err(|e| HandlerError::fault("ValueError", e.to_string()))?;
+        if new {
+            // STORE-427: a fresh conversation starts with its marker, for every client (a failed write isn't the
+            // attach's failure: the conversation is fresh either way)
+            if let Err(e) = inner.mark_fresh(&conversation) {
+                inner.journal(
+                    "chat.entries_failed",
+                    json!({"what": "fresh conversation marker", "error": e}),
+                    None,
+                );
+            }
+        }
         (self.deps.prepare_persona)();
         Ok(obj(
             json!({"ok": true, "session_id": conversation, "capabilities": CAPABILITIES}),
@@ -891,6 +906,13 @@ pub fn register(server: &Server, rpc: Arc<ChatRpc>) {
         "conversations.list",
         "conversations.change",
         "ui.click_through",
+        "data.tables",
+        "data.rows",
+        "data.row",
+        "data.cell",
+        "data.search",
+        "data.context",
+        "data.delete",
         "chat.entries.page",
         "chat.entries.changes",
         "chat.entries.get",

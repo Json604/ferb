@@ -63,7 +63,9 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
         case "ping", "auth.hello":
             return ["pid": 0, "role": "app", "stopped": false]
         case "chat.attach":
-            return ["session_id": "playground", "capabilities": ["input_paths"]]
+            // Settings → Stored data's fresh conversation (STORE-425) starts another sample conversation
+            return ["session_id": params["new"] as? Bool == true ? "playground-fresh" : "playground",
+                    "capabilities": ["input_paths"]]
         case "chat.status":
             return ["paused": s.paused, "stopped": false, "running": [[String: Any]](), "results": [[String: Any]](),
                     "notices": [[String: Any]](), "approvals": [[String: Any]]()]

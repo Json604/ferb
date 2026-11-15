@@ -582,3 +582,13 @@ date = 2026-11-10
 status = "active"
 rule = "For APP-881. Codex: its catalog's supported_reasoning_levels and default_reasoning_level, minus ultra. Anthropic API: platform.claude.com effort page (low/medium/high everywhere, xhigh and max per model; default medium on Opus 5.5 and Haiku 5.5, else high). Claude Code: the same levels, no default given (Claude Code's own). Gemini: its thinking page's per-model table. OpenAI: its guide gives no per-model set, so Default and a typed level, with the defaults it names. Read 2026-11-10."
 paths = ["ferb/runtimes/models.py::effort_levels"]
+
+[RUN-465]
+title = "A worker run a pause or stop cut ends as paused or stopped, never as a failure"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Whatever error a cut run ends with, a run whose tree was stopped ends cancelled with the stop's words, and one whose tree is paused ends cancelled with \"paused by you\" (\"paused by FERB to ask you\" for FERB's own pause): no failure words, no error in its span, no retry counted. Fixed against Python (worker.py checked the stop only for a ValueError and never the pause)."
+why = "A paused run read in the trace and the task's episode as \"The report from this attempt wasn't usable: runtime finished without an answer\": a failure that never happened."
+evidence = "Live 2026-11-15 23:02, step search of tree 3a0cc55b: the owner's pause ended the run as status failed, error \"ValueError: runtime finished without an answer\" (span 79c61135)."
+paths = ["rust/crates/ferb-worker/src/worker.rs::classify", "rust/crates/ferb-worker/src/ports.rs::WorkerHost", "rust/crates/ferb-supervisor/src/flow/host.rs"]

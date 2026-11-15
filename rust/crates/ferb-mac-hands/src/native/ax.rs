@@ -425,6 +425,12 @@ impl Ax for AxDriver {
     fn menu_items(&self, menu: &El) -> Vec<(El, String)> {
         self.ax.menu_items(menu)
     }
+    fn action_list(&self, el: &El) -> Vec<String> {
+        self.ax.src.actions(el)
+    }
+    fn open_menu(&self, el: &El, pid: i32) -> Option<El> {
+        self.ax.context_menu(el, pid)
+    }
 }
 
 /// launched.py `unsaved`: a window marked edited; None when FERB can't tell.

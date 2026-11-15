@@ -170,6 +170,30 @@ fn live_json(
     Value::Object(out)
 }
 
+/// RUN-465 (fixed against Python): a run the owner's stop cut ends as the stop, with no failure in its record, so
+/// the cut's own error is neither redacted for the record nor kept as the span's error. The two recorded stops
+/// (`stop_while_starting`, `stop_mid_run`) are compared with that taken out of Python's log; the result is as recorded.
+// decision: RUN-465
+fn stop_records_no_failure(name: &str, log: &Value) -> Value {
+    if !["stop_while_starting", "stop_mid_run"].contains(&name) {
+        return log.clone();
+    }
+    let out: Vec<Value> = log
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e[0] != "gateway.redact")
+        .map(|e| {
+            let mut e = e.clone();
+            if e[0] == "spans.finish" {
+                e[1]["error"] = Value::Null;
+            }
+            e
+        })
+        .collect();
+    Value::Array(out)
+}
+
 /// The one addition to Python's worker here (ORCH-640): a worker run's words (each `message` event) are redacted as
 /// they arrive and kept, while the run runs, for the planner's task status row; Python dropped them. The log is
 /// compared without those redactions (one per scripted message, with its text), everything else as recorded.
@@ -255,7 +279,11 @@ async fn worker_runs_match_python() {
                 .await
                 .unwrap_or_else(|e| panic!("{name}: escaped: {e:?}"));
             let what = format!("{name}#{i}");
-            d.log(&what, &rec["log"], &without_words(sc, host.take_log()));
+            d.log(
+                &what,
+                &stop_records_no_failure(name, &rec["log"]),
+                &without_words(sc, host.take_log()),
+            );
             let mut got = result_json(&result);
             if let Attempt::Report(py) = &result {
                 got["report"] = report_value(py);
@@ -697,4 +725,67 @@ async fn a_dropped_attempt_cleans_up() {
     let left = worker.runs().left();
     assert_eq!(left["active"], json!([]));
     assert_eq!(left["worker_runs"], json!([]));
+}
+
+/// RUN-465: a run the owner's pause cut (its tree not stopped) ends as paused, in the words the host gives, with no
+/// failure in its record and no failure words; before, it was "The report from this attempt wasn't usable: runtime
+/// finished without an answer" (live 2026-11-15 23:02, step.search). Recorded `stop_mid_run`, its stop made a pause.
+// decision: RUN-465
+#[tokio::test(start_paused = true)]
+async fn a_paused_run_ends_as_paused_never_as_a_failure() {
+    let fx = fixture("worker", "worker.json");
+    let rec = fx["worker"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["name"] == "stop_mid_run")
+        .unwrap()
+        .clone();
+    let mut sc = rec["scenario"].clone();
+    sc["runtimes"][0]["calls"][0]["steps"][1] = json!({"pause": "paused by you"});
+    let (host, worker) = setup(&fx, &sc);
+    let tree = Arc::new(TestTree::from_spec(&json!({})));
+    *host.tree.lock().unwrap() = Some(tree.clone());
+    let wtree: Arc<dyn WorkerTree> = tree.clone();
+    let inputs = &rec["attempts"][0]["inputs"];
+    *host.system.lock().unwrap() = inputs["system"].as_str().unwrap().to_string();
+    let schema = &fx["schemas"][inputs["schema"]["schema"].as_str().unwrap()];
+    let ctx = inputs["ctx"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(block_from)
+        .collect();
+    let (result, _) = worker
+        .run_worker(
+            &wtree,
+            &task_from(&inputs["task"]),
+            inputs["prompt"].as_str().unwrap(),
+            ctx,
+            schema,
+            inputs["span"].as_str().unwrap(),
+            &RunOptions {
+                effort: None,
+                roles: Vec::new(),
+                observe_only: false,
+            },
+        )
+        .await
+        .unwrap();
+    let Attempt::Outcome(o) = &result else {
+        panic!("an outcome: {}", result_json(&result))
+    };
+    assert_eq!(o.outcome.status.as_str(), "cancelled");
+    assert_eq!(o.outcome.summary, "paused by you");
+    assert!(tree.stop().is_empty());
+    let log = host.take_log();
+    let finish = log.iter().find(|e| e[0] == "spans.finish").unwrap();
+    assert_eq!(finish[1]["error"], Value::Null, "{finish}");
+    assert_eq!(finish[1]["output"]["status"], "cancelled", "{finish}");
+    assert!(
+        !serde_json::to_string(&log)
+            .unwrap()
+            .contains("wasn't usable"),
+        "no failure words"
+    );
 }

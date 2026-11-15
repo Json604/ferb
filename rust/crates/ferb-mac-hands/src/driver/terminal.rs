@@ -287,6 +287,7 @@ impl MacDriver {
         task: Option<&str>,
     ) -> Result<Option<TerminalInput>> {
         let a = self.app(app)?;
+        let action = &super::normalized(action);
         if focused_typing(action) {
             let focus = self.focus_of(&a);
             let text = action.text.clone().unwrap_or_default();
@@ -325,7 +326,8 @@ impl MacDriver {
         }
         let mut is_paste = false;
         let mut item: Option<String> = None;
-        if matches!(action.kind, K::Press | K::Click) && element.is_some() {
+        // HAND-551: an element's own action (perform) asks as a press on it does
+        if matches!(action.kind, K::Press | K::Click | K::Perform) && element.is_some() {
             let n = self.node(&a.bundle_id, element.as_deref().unwrap_or(""))?;
             if let Some(opened) = self.files_input(&a, &[self.element_file(Some(&n.r#ref))]) {
                 return Ok(Some(opened));

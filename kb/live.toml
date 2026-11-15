@@ -4533,3 +4533,21 @@ request = "Ask FERB to open the probe page in that profile and click each of its
 pass = "You keep working in your app the whole time: no Chrome window comes up and your typing never goes to Chrome. Where Chrome showed a window anyway, FERB's results say so (window_shown or screen_changed_during_call) and the window was minimized within a moment."
 decisions = ["HAND-532", "HAND-533", "HAND-534", "HAND-536"]
 sitting = "after 0.19.11 is published and loaded, and this engine is installed"
+
+[LIVE-955]
+title = "When a browser window comes up during a task, the notch says so once and FERB keeps working"
+area = "hands"
+surface = "FERB.app with this engine and the FERB extension 0.19.11; a paired Chrome profile; a page whose button opens a pop-up window (the background probe page or a sign-in page); you in another app"
+request = "Ask FERB to open the page and click the button that opens a pop-up window, then a second one on the same site."
+pass = "One line appears in today's chat, e.g. \"A pop-up window opened for a moment on <site>; I minimized it.\", once for the site, without the notch opening or taking your focus; the task goes on without asking; ferb trace TASK --full shows an owner.notice span with the same words."
+decisions = ["HAND-545", "HAND-546"]
+sitting = "after 0.19.11 is published and loaded, and this engine is installed"
+
+[LIVE-956]
+title = "Stored data shows what FERB was given and finds a phrase; a deleted turn stops reaching the planner"
+area = "storage"
+surface = "FERB.app with this engine, Settings → Stored data; a chat with at least two finished turns, one with a task"
+request = "Send FERB \"Remember the code word teal-giraffe for this test\". Then in Stored data search teal-giraffe, open each hit, open 'Next turn: what FERB would read now', then Delete this turn on the message's row, and ask FERB \"what was the code word?\"."
+pass = "The search finds the message in the conversation, journal and trace; the model call's context shows the words as written. The delete's question lists what goes and stays; afterwards the turn is gone from the chat, Next turn no longer shows it, a new search finds only kept audit rows (or a memory, if FERB saved one) and FERB's answer doesn't know the word unless Memory has it."
+decisions = ["STORE-422", "STORE-423", "STORE-424"]
+sitting = "after this engine and FERB.app are installed"

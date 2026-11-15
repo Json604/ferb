@@ -161,6 +161,17 @@ compares a model call's budget line also moves its `reserved_tokens` by the byte
 `the_deliberate_prompt_changes_are_the_only_ones` checks each change is in its file now and the old text is what
 the recording holds. Every other byte is compared as recorded.
 
+## tool_changes.json
+
+Written by hand, never by make.py: the deliberate changes to tools of Python's catalog (tools.json) made after it was
+recorded, each with its decision (HAND-551 the first: mac.act's `menu` and `perform` with `name`, and the description
+sentence about an element's listed actions). `part` is `description`, `input_schema` (a piece of the schema as
+`json.dumps` writes it, so of every listing's bytes) or `validation` (the texts its argument checks write).
+`rust/crates/ferb-gateway/src/catalog.rs` (`Change`) applies them when it loads the catalog; tests that compare with a
+recorded text apply them (`apply_changes`) or take them out (`revert_changes`) in the raw and JSON-escaped forms, and a
+recorded token reserve moves by `changes_shift` (ferb-supervisor's `prompt_changes::tool_changes_shift`). Every other
+byte is compared as recorded.
+
 ## repair_notes.json
 
 - **Produced by** `check_final` (`ferb/core/structured.py:15-27`): `json.loads`, then

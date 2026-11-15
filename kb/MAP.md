@@ -6,19 +6,19 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 296 | 11 | 40 |
+| app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 297 | 11 | 40 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 88 | 10 | 7 |
-| engine | Rust engine (the rewrite) | `rust` | 17 | 0 | 0 |
+| engine | Rust engine (the rewrite) | `rust` | 18 | 0 | 0 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 114 | 9 | 60 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 149 | 10 | 34 |
-| memory | Memory and memory import | `ferb/memory` | 59 | 4 | 0 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 153 | 8 | 35 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 162 | 11 | 35 |
+| memory | Memory and memory import | `ferb/memory` | 60 | 4 | 0 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 154 | 8 | 35 |
 | perception | Perception | `ferb/sense` | 17 | 3 | 0 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 10 | 8 | 0 |
 | prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 47 | 4 | 10 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 25 | 3 | 4 |
-| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 55 | 6 | 5 |
-| storage | Storage | `ferb/store` | 26 | 7 | 3 |
+| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 56 | 6 | 5 |
+| storage | Storage | `ferb/store` | 33 | 7 | 4 |
 | tests | Tests | `tests` | 11 | 16 | 0 |
 | voice | Voice | `ferb/voice` | 3 | 0 | 0 |
 

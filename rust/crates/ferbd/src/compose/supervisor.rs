@@ -1598,6 +1598,20 @@ impl Daemon for SupDaemon {
             });
         }
     }
+    fn forget_learned(
+        &self,
+        items: &[String],
+        nodes: &[String],
+    ) -> Option<Result<(usize, usize), String>> {
+        let (items, nodes) = (items.to_vec(), nodes.to_vec());
+        let a = self.a.get()?;
+        a.call_blocking(move |st| async move {
+            ferb_daemon::areas_a::memory::forget_turn_learning(&st, &items, &nodes)
+                .await
+                .map_err(|e| e.to_string())
+        })
+        .ok()
+    }
     fn forget_memory(&self, item_id: &str, request_id: &str) -> Option<String> {
         let (item, request) = (item_id.to_string(), request_id.to_string());
         let a = self.a.get()?;

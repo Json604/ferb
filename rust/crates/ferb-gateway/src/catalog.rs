@@ -19,6 +19,135 @@ use serde_json::{Map, Value};
 const TOOLS_JSON: &str = include_str!("../../../fixtures/catalog/tools.json");
 /// The Rust engine's own tools (not Python's), each with its decision and the tool it follows.
 const ADDITIONS_JSON: &str = include_str!("catalog_additions.json");
+/// The deliberate changes to Python's tools (`rust/fixtures/catalog/tool_changes.json`), each with its decision.
+const CHANGES_JSON: &str = include_str!("../../../fixtures/catalog/tool_changes.json");
+
+/// One deliberate change to a tool of Python's catalog (HAND-551 the first): `old` replaced by `new`, once, in the
+/// tool's `description`, in its `input_schema` as `json.dumps` writes it (so in every listing's bytes), or
+/// (`validation`) in the texts its argument checks write. Every test that compares with a recorded catalog text applies
+/// them ([`apply_changes`]) or takes them out ([`revert_changes`]); every other byte stays Python's.
+#[derive(Debug, Clone)]
+pub struct Change {
+    pub decision: String,
+    pub tool: String,
+    /// `description`, `input_schema` or `validation`.
+    pub part: String,
+    pub old: String,
+    pub new: String,
+}
+
+fn load_changes() -> Vec<Change> {
+    let v: Value = serde_json::from_str(CHANGES_JSON).expect("tool_changes.json is JSON");
+    v["changes"]
+        .as_array()
+        .expect("changes is a list")
+        .iter()
+        .map(|c| {
+            let s = |k: &str| c[k].as_str().expect(k).to_string();
+            Change {
+                decision: s("decision"),
+                tool: s("tool"),
+                part: s("part"),
+                old: s("old"),
+                new: s("new"),
+            }
+        })
+        .collect()
+}
+
+/// The deliberate changes to Python's tools, in order.
+pub fn changes() -> &'static [Change] {
+    static C: OnceLock<Vec<Change>> = OnceLock::new();
+    C.get_or_init(load_changes)
+}
+
+/// A text as it may sit in a recorded text: raw, JSON-escaped once and twice (both `json.dumps` forms).
+fn forms(text: &str) -> Vec<String> {
+    let mut out = vec![text.to_string()];
+    for ascii in [true, false] {
+        let esc = |t: &str| {
+            let v = Value::String(t.to_string());
+            let d = if ascii {
+                ferb_py::json::dumps(&v)
+            } else {
+                ferb_py::json::dumps_utf8(&v)
+            };
+            d[1..d.len() - 1].to_string()
+        };
+        let once = esc(text);
+        let twice = esc(&once);
+        for f in [once, twice] {
+            if !out.contains(&f) {
+                out.push(f);
+            }
+        }
+    }
+    out
+}
+
+fn swap(text: &str, from: &str, to: &str) -> String {
+    let mut out = text.to_string();
+    for (f, t) in forms(from).into_iter().zip(forms(to)) {
+        if out.contains(&f) {
+            out = out.replace(&f, &t);
+        }
+    }
+    out
+}
+
+/// A recorded text (a listing, a schema, a description, an argument check's reply) with every change applied, in
+/// the raw and JSON-escaped forms.
+pub fn apply_changes(text: &str) -> String {
+    changes()
+        .iter()
+        .fold(text.to_string(), |t, c| swap(&t, &c.old, &c.new))
+}
+
+/// A text of today's catalog with every change taken out: what Python wrote.
+pub fn revert_changes(text: &str) -> String {
+    changes()
+        .iter()
+        .rev()
+        .fold(text.to_string(), |t, c| swap(&t, &c.new, &c.old))
+}
+
+/// How many bytes the changes add to a listing (`json.dumps`, ASCII) that offers these tools: the token reserve
+/// counts them.
+pub fn changes_shift(tools: &[String]) -> i64 {
+    changes()
+        .iter()
+        .filter(|c| c.part != "validation" && tools.contains(&c.tool))
+        .map(|c| {
+            // a schema piece is JSON text inside the listing as it is; a description is a string, escaped
+            let d = |t: &str| {
+                if c.part == "input_schema" {
+                    t.len() as i64
+                } else {
+                    ferb_py::json::dumps(&Value::String(t.to_string())).len() as i64
+                }
+            };
+            d(&c.new) - d(&c.old)
+        })
+        .sum()
+}
+
+fn changed(e: &mut Entry) {
+    for c in changes().iter().filter(|c| c.tool == e.name) {
+        match c.part.as_str() {
+            "description" => {
+                assert!(e.description.contains(&c.old), "{}: {}", c.decision, c.tool);
+                e.description = e.description.replacen(&c.old, &c.new, 1);
+            }
+            "input_schema" => {
+                let text = ferb_py::json::dumps(&e.schema);
+                assert!(text.contains(&c.old), "{}: {}", c.decision, c.tool);
+                e.schema = serde_json::from_str(&text.replacen(&c.old, &c.new, 1))
+                    .expect("a changed schema is JSON");
+            }
+            _ => {}
+        }
+    }
+}
 
 /// One tool the Rust engine adds to Python's catalog.
 #[derive(Debug, Clone)]
@@ -94,6 +223,7 @@ impl Catalog {
             .iter()
             .map(entry_of)
             .collect();
+        entries.iter_mut().for_each(changed);
         let extra: Value = serde_json::from_str(ADDITIONS_JSON).expect("the additions are JSON");
         let mut additions = Vec::new();
         for t in extra["tools"].as_array().expect("tools is a list") {

@@ -14,6 +14,10 @@ use serde_json::{Map, Value};
 use crate::tool::{Args, Tool, ToolOutput};
 use crate::words::LedgerRow;
 
+/// L13 and HAND-548: the call's output with its image sanitized, the facts for the model when that failed, and what
+/// the call's span alone keeps of it.
+pub type ImageRedaction = (ToolOutput, Map<String, Value>, Map<String, Value>);
+
 /// Why the ledger refuses a repeat (P19): an identical action is unknown (reconcile it first) or still in flight.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DuplicateUnresolved {
@@ -188,12 +192,10 @@ pub trait CallHooks: Send + Sync {
     ) -> BoxFuture<'a, ToolOutput> {
         Box::pin(async move { out })
     }
-    /// L13: the image through the image sanitizer; facts when that fails.
-    fn redact_image<'a>(
-        &'a self,
-        out: ToolOutput,
-    ) -> BoxFuture<'a, (ToolOutput, Map<String, Value>)> {
-        Box::pin(async move { (out, Map::new()) })
+    /// L13: the image through the image sanitizer; facts when that fails (the model's); then what the call's span
+    /// alone keeps of it (HAND-548: the attempts that failed).
+    fn redact_image<'a>(&'a self, out: ToolOutput) -> BoxFuture<'a, ImageRedaction> {
+        Box::pin(async move { (out, Map::new(), Map::new()) })
     }
     /// V1: the image kept as evidence; `{"evidence": id}` or `{"evidence_error": ...}`; {} with no evidence store.
     #[allow(clippy::too_many_arguments)]

@@ -823,6 +823,9 @@ words!(ComputerActionKind {
     Scroll = "scroll",
     Select = "select",
     Cancel = "cancel",
+    // HAND-551: an element's own advertised Accessibility actions (Rust engine only; not in Python's types)
+    Menu = "menu",
+    Perform = "perform",
 });
 words!(Mechanism { Ax = "ax", Pid = "pid", AxValue = "ax_value", Foreground = "foreground" });
 
@@ -840,4 +843,7 @@ pub struct ComputerAction {
     /// Task-authorized permission, not a fallback instruction.
     pub allow_foreground: bool,
     pub mechanism: Option<Mechanism>,
+    /// perform: the element's action as the snapshot lists it (Rust engine only; absent from Python's JSON).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }

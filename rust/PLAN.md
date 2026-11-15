@@ -358,3 +358,4 @@ also worth fixing in the Python build on `main`, since that build is installed t
 | `ferb/act/shell/proxy.py` | A bare-LF head is forwarded with `Connection: close` after the body bytes | open: mirrored in `ferb-shell` (20) |
 | forget question in chat | FERB's own heading tagged "(from the task)" | fixed in Rust (50) |
 | `ferb/act/mac/tools.py:348` | A launched app looked for once, too early, goes unrecorded | fixed in Rust (47) |
+| `ferb/daemon/areas/browsers.py` `_pair_one` | A pairing page missed by the profile is never opened again; the wait runs out its minute | fixed in Rust (81) |

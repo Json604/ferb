@@ -1159,6 +1159,33 @@ impl Driver {
             .unwrap_or_default()
     }
 
+    /// HAND-546: of a tab's window facts (HAND-533), those where a window came up (not a request the page made that the
+    /// extension refused), published for the owner's one line per task and site (`browser.window_shown`), with the
+    /// task tree and the tab's site. Nothing for a tab no task owns.
+    pub fn window_shown(&self, tab: &TabRef, site: Option<String>, facts: &[Map<String, Value>]) {
+        let shown: Vec<Value> = facts
+            .iter()
+            .filter(|f| crate::surfaced::came_up(f))
+            .map(|f| Value::Object(f.clone()))
+            .collect();
+        if shown.is_empty() {
+            return;
+        }
+        let Some(owner) = self
+            .tab(&tab.tab_id)
+            .and_then(|t| t.owner)
+            .filter(|o| !o.is_empty())
+        else {
+            return;
+        };
+        let mut data = Map::new();
+        data.insert("task_id".into(), (self.tasks.root)(&owner).into());
+        data.insert("tab".into(), tab.tab_id.clone().into());
+        data.insert("site".into(), site.unwrap_or_default().into());
+        data.insert("shown".into(), Value::Array(shown));
+        self.hub.publish("browser.window_shown", data);
+    }
+
     /// `opened_for`: new tabs this tab started, now this task's, not yet reported.
     pub fn opened_for(&self, tab: &TabRef) -> Vec<Map<String, Value>> {
         let mut out = vec![];
@@ -1901,6 +1928,28 @@ impl Driver {
             args["text"] = x.into();
         }
         t.bridge.call("dialog", args, 10.0, None).await
+    }
+
+    /// HAND-562: when the resolver alone can't choose where this task's new tab goes (several of the owner's
+    /// profiles paired, none picked), the owner profile the task already works in: its newest open tab's, as
+    /// "browser/folder". None for FERB's own browser, when the resolver chooses alone, or with no open tab.
+    pub fn in_use_profile(&self, owner: &str) -> Option<String> {
+        let Kind::Owner { choose, .. } = &self.kind else {
+            return None;
+        };
+        if choose(None).is_ok() {
+            return None;
+        }
+        self.st()
+            .tabs
+            .values()
+            .filter(|t| {
+                t.owner.as_deref() == Some(owner)
+                    && !t.closed
+                    && t.bridge.binding.identity == Identity::Owner
+            })
+            .max_by_key(|t| alias_number(&t.tab.tab_id).unwrap_or(0))
+            .map(|t| format!("{}/{}", t.tab.browser, t.tab.profile))
     }
 
     /// `open_for`: the task's new tab in the profile this driver takes.

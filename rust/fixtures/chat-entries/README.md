@@ -6,7 +6,7 @@ fixtures (ENG-3) and no Python script makes them.
 
 | File | What |
 |---|---|
-| `scenarios.json` | 71 scenarios: each one's `timeline` (built from the recordings) and the `entries` it ends with |
+| `scenarios.json` | 72 scenarios: each one's `timeline` (built from the recordings, or for an `invented:` source written in `chat_entries.rs` from a case found live, ENG-18) and the `entries` it ends with |
 | `engine_chat.json`, `engine_more.json` | the 28 and 33 scenarios ferbd replays through the real program: each one's `timeline` in the order the ENGINE fed its chat log (its real interleaving across connections and the bus) and the `entries` it stored |
 
 `scenarios.json` is written by `rust/crates/ferb-supervisor/tests/chat_entries.rs`:

@@ -269,3 +269,74 @@ rule = "The first Rust release does not upgrade a Python install in place: it is
 why = "The owner said only they and a friend have the old Python app and that the Rust app ships anyway; carrying upgrade paths from it buys nothing."
 paths = ["rust/PLAN.md"]
 untestable = "A release rule: there is no in-place upgrade from the Python build to test."
+
+[STORE-422]
+title = "The owner can see all of FERB's stored data in Settings and delete in the database"
+by = "owner"
+date = 2026-11-15
+status = "active"
+words = "where is this exact word written??? i wanna see the db too, some users also might want to. so add a storage/db viewer in setting sif posisble. i wann see all teh data … im thikning of delete in db byuse if they wany"
+words_source = "The owner, 2026-11-15, told that a model's refusal reached the next model through the conversation and a memory note; the second part on what a model switch offers."
+rule = "FERB.app's Settings has a viewer of everything FERB stores in its database, for the owner and any user. A user can delete data in the database when they want."
+why = "The owner wants to see exactly where a word FERB was given is stored, and to be able to remove data so an old message no longer steers FERB."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/StoredDataPage.swift", "rust/crates/ferb-supervisor/src/flow/data_rpc.rs"]
+live = ["LIVE-956"]
+
+[STORE-423]
+title = "Settings → Stored data shows every table read-only through FERB.app's own data calls"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "Stored data lists every table with its rows, grouped for a person (Conversation, Tasks, What the AI was given, Memory, Activity log, Safety records, Everything else), index tables hidden by default; rows newest first in pages; a row in full, long cells cut with their length and read in pieces; a search across tables (8 s, 20 rows per table); the planner's next conversation. data.* calls are app_only; reads use a read-only connection, names from sqlite_master only, values as parameters, text cut in SQL; stored data as stored, never the Keychain."
+why = "STORE-422. A person asks what FERB was given and where a phrase is, not which table holds it; the raw tables stay one click away. A 100 MB cell or a slow search must never freeze the app or hold the engine's own connection."
+rejected = ["A raw SQL box: names and SQL would come from the client.", "Reading the cells whole and cutting in the app: a huge cell would cross the wire and the 1 MiB message limit."]
+paths = ["rust/crates/ferb-store/src/data_view.rs", "rust/crates/ferb-supervisor/src/flow/data_rpc.rs", "rust/crates/ferb-rpc/src/auth.rs", "ui/mac/FERBNotch/Sources/NotchCore/StoredData.swift", "ui/mac/FERBNotch/Sources/FERBNotch/StoredDataPage.swift", "ui/mac/FERBNotch/Sources/FERBNotch/Playground/PlaygroundStoredData.swift"]
+
+[STORE-424]
+title = "The owner deletes a turn with its tasks, or forgets a memory; audit and safety records stay"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "After a preview and the owner's Yes, data.delete removes a turn (a task is deleted as its turn): its journal conversation rows and the chat's summaries from the first that folded one in (chat_fts and vectors by trigger, journal:<id> tombstones), its chat entries as tombstones, FERB.app's chat_history rows, its tasks, results and spans; later calls' verbatim quotes are blanked. Refused while it runs. Journaled with counts only. Memories go by memory.forget. The journal's audit rows, action ledger, confirmations, permissions, destinations and recovery copies are not deletable here."
+why = "STORE-422: a deleted message must stop reaching the planner, which reads only those journal rows and summaries. Rule 6 keeps FERB's audit and the records its safety rules read; ENG-12 keeps entries as tombstones so phones drop them."
+rejected = ["Row deletion in any table: it would break the audit (rule 6) and the safety rules' records, and leave copies the planner still reads.", "Hiding a turn from the planner while keeping its text: the owner asked for delete in the database."]
+paths = ["rust/crates/ferb-supervisor/src/flow/data_delete.rs", "rust/crates/ferb-supervisor/src/flow/chat_log.rs", "rust/crates/ferb-store/src/data_view.rs", "ui/mac/FERBNotch/Sources/FERBNotch/StoredDataChat.swift"]
+
+[STORE-425]
+title = "Start a fresh conversation: the planner reads no earlier message, the history stays"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "Stored data's 'Start a fresh conversation' asks first, then calls chat.attach with new: a new conversation id becomes the current one and FERB.app's, so the planner's conversation, summaries and latest result start empty. Earlier turns stay in the chat history and the database (delete a turn to remove it); memory stays. Notices without a conversation still reach every chat, as before."
+why = "STORE-422's other half: after a model switch the owner may want the next model to start clean without losing the history. The engine already had the boundary (continuity.attach new); the app lacked a way to ask for it."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/StoredDataChat.swift", "rust/crates/ferb-orchestrator/src/continuity.rs"]
+
+[STORE-426]
+title = "A deleted turn also forgets what FERB learned from it and its screenshots; a fresh chat is marked"
+by = "owner"
+date = 2026-11-15
+status = "active"
+words = "yes yes yes to all."
+words_source = "To: \"1. Should deleting a turn also forget the memories learned from it? 2. Should 'Start a fresh conversation' leave a visible marker in the chat? 3. Should a deleted turn's screenshots go at once?\""
+rule = "Deleting a turn also forgets the memories FERB learned from it. Starting a fresh conversation leaves a visible marker in the chat (\"FERB doesn't read the messages above\"). A deleted turn's screenshots are deleted at once instead of aging out."
+why = "The owner's answers to the three questions left open by STORE-424 and STORE-425."
+paths = ["rust/crates/ferb-supervisor/src/flow/data_delete.rs"]
+live = ["LIVE-956"]
+
+[STORE-427]
+title = "A fresh conversation starts with a notice entry and the same line in FERB.app's chat"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "chat.attach with new writes, in the new conversation's stream, a notice entry (ref conversation:<id>, origin ferb) with the text \"New conversation: FERB doesn't read the messages above.\" through the chat log, so phones read it; it is not journaled, so the planner's conversation stays empty. FERB.app adds the same line to its chat as a notice saved like FERB's other lines, and its entry watch follows the new conversation at once."
+why = "STORE-426's marker: it must survive a restart and reach every client (ENG-8 entries, additive), and the app's chat comes from its own saved history; the watch kept the old conversation until a reconnect."
+paths = ["rust/crates/ferb-supervisor/src/flow/data_delete.rs", "rust/crates/ferb-supervisor/src/flow/chat_rpc.rs", "ui/mac/FERBNotch/Sources/FERBNotch/StoredDataChat.swift"]
+
+[STORE-428]
+title = "What was learned from a deleted turn is found by its recorded sources and forgotten by Memory's path"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "A memory item goes with a turn when every memory_sources row of it is one of the turn's journal rows or trail rows of its tasks; a learned card when every learning_sources ref is journal:<row> of the turn or episode:<task> of its tasks. Both go through the memory port (forget_memory with sources kept, forget_nodes, settle_forgets); one with other sources is kept and named in the preview. The tasks' episodes rows go, and each evidence row's file under home/evidence, never through a link; a file that can't go keeps its row."
+why = "STORE-426, using the links FERB records and the forget the Memory page uses, so tombstones and search copies are handled one way. A memory with no recorded link to the turn (e.g. said again in another turn) can't be told apart and stays."
+paths = ["rust/crates/ferb-supervisor/src/flow/data_delete.rs", "rust/crates/ferb-daemon/src/areas_a/memory.rs", "rust/crates/ferbd/src/compose/supervisor.rs"]

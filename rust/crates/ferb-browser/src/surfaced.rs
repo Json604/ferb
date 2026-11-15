@@ -43,6 +43,12 @@ pub fn fact(v: &Value) -> Option<Map<String, Value>> {
     (prevented || out.contains_key("window")).then_some(out)
 }
 
+/// HAND-546: whether a fact is a window that came up (one of FERB's, a popup it claimed, or the owner's), not a request
+/// the page made and the extension refused.
+pub fn came_up(f: &Map<String, Value>) -> bool {
+    f.get("prevented") != Some(&Value::Bool(true)) && f.contains_key("window")
+}
+
 /// The worker's line for one fact.
 pub fn told(f: &Map<String, Value>) -> String {
     let cause = f.get("cause").and_then(Value::as_str).unwrap_or("");

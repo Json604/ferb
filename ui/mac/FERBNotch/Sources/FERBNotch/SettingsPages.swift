@@ -3,7 +3,7 @@ import SwiftUI
 import NotchCore
 
 enum SettingsTab: Hashable, CaseIterable, Identifiable {
-    case general, notch, notifications, ai, browsers, permissions, privacy, data, advanced, about
+    case general, notch, notifications, ai, browsers, permissions, privacy, data, stored, advanced, about
 
     var id: SettingsTab { self }
 
@@ -17,6 +17,7 @@ enum SettingsTab: Hashable, CaseIterable, Identifiable {
         case .notifications: return "Sounds & Notifications"
         case .privacy: return "Privacy"
         case .data: return "Data"
+        case .stored: return "Stored data"
         case .advanced: return "Advanced"
         case .about: return "About"
         }
@@ -32,6 +33,7 @@ enum SettingsTab: Hashable, CaseIterable, Identifiable {
         case .permissions: return "The access FERB needs to work on your Mac."
         case .privacy: return "What FERB can notice, and what stays private."
         case .data: return "Your saved information and recovery options."
+        case .stored: return "Everything FERB keeps in its database, as stored. Delete a turn or forget a memory here."
         case .advanced: return "Diagnostics and maintenance when you need them."
         case .about: return "Your FERB version and the services behind it."
         }
@@ -47,6 +49,7 @@ enum SettingsTab: Hashable, CaseIterable, Identifiable {
         case .notifications: return "bell"
         case .privacy: return "hand.raised"
         case .data: return "externaldrive"
+        case .stored: return "cylinder.split.1x2"
         case .advanced: return "slider.horizontal.3"
         case .about: return "info.circle"
         }
@@ -62,6 +65,17 @@ struct SettingsView: View {
     @StateObject private var advancedOutput = FerbOutput()
     @StateObject private var privacyDraft = PrivacySettingsDraft()
     @StateObject private var cleanup = CleanupRunner()
+    @StateObject private var stored: StoredDataModel
+
+    init(store: FERBWindowStore, selection: FERBWindowSelection, actions: FERBAppActions) {
+        self.store = store
+        self.selection = selection
+        self.actions = actions
+        let model = StoredDataModel(rpc: store.rpc)
+        model.turnDeleted = actions.turnDeleted
+        model.freshConversation = actions.freshConversation
+        _stored = StateObject(wrappedValue: model)
+    }
 
     var body: some View {
         Group {
@@ -76,6 +90,7 @@ struct SettingsView: View {
             case .notifications: NotificationsSettingsPage(store: store, feedback: actions.feedback, openSettings: actions.openNotificationSettings)
             case .privacy: PrivacySettingsPage(store: store, draft: privacyDraft)
             case .data: DataSettingsPage(store: store, actions: actions, cleanup: cleanup)
+            case .stored: StoredDataSettingsPage(model: stored)
             case .advanced: AdvancedSettingsPage(store: store, actions: actions, output: advancedOutput)
             case .about: AboutSettingsPage(store: store)
             }

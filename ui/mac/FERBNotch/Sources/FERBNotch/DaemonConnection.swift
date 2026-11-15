@@ -739,7 +739,7 @@ extension NotchModel {
             if watched {
                 // its answer comes as the engine's entry (EntryWatch.swift)
             } else if let turn = (event["request_id"] as? String).flatMap(conversation.turn(requestID:))
-                ?? conversation.turns.first(where: { $0.backendTaskID == taskID }) {
+                ?? conversation.turns.last(where: { $0.backendTaskID == taskID }) {     // APP-919: its newest turn
                 // Bound here too, so Tasks and Inspect reach a turn found by its request.
                 conversation.bind(id: turn.id, taskID: taskID)
                 conversation.finish(id: turn.id, answer: event["answer"] as? String ?? event["summary"] as? String ?? turn.answer,

@@ -282,6 +282,8 @@ pub fn running(platform: &dyn Platform, binaries: &Binaries, key: &str) -> bool 
 
 /// `CHROMIUM_EXTENSION_TYPE`: Chromium's own file type for an extension package, which every
 /// Chromium-built browser's Info.plist declares (Electron apps don't).
+/// How the resolver's refusal starts when it can't choose among the owner's paired profiles alone (HAND-562).
+pub const NO_CHOICE: &str = "select a profile from the task context";
 pub const CHROMIUM_EXTENSION_TYPE: &str = "org.chromium.extension";
 
 /// `_info`: an app's Info.plist (XML or binary), `{}` when it can't be read or isn't a dictionary.
@@ -1067,10 +1069,13 @@ impl Resolver<'_> {
         }
         let mut sorted = paired.clone();
         sorted.sort();
+        // HAND-562: the refusal names the argument and a value that works (Python's named neither)
         Err(format!(
-            "select a profile from the task context; available: {}. Use ferb_browser for ordinary browsing in FERB's own \
-             profile.",
-            sorted.iter().map(|(b, f)| self.name(b, f)).collect::<Vec<_>>().join(", ")
+            "{NO_CHOICE}; available: {}. Name one with the profile argument (its name or \
+             browser/folder, for example profile={}/{}). Use ferb_browser for ordinary browsing in FERB's own profile.",
+            sorted.iter().map(|(b, f)| self.name(b, f)).collect::<Vec<_>>().join(", "),
+            sorted[0].0,
+            sorted[0].1
         ))
     }
 }

@@ -3,6 +3,9 @@
 
 // ---- ends of a task's run (L11) ----
 pub const STOPPED_BY_YOU: &str = "stopped by you";
+/// RUN-465: a worker run a pause cut ends as this in its record (not Python's: it recorded a failure).
+pub const PAUSED_BY_YOU: &str = "paused by you";
+pub const PAUSED_BY_FERB: &str = "paused by FERB to ask you";
 pub const SHUT_DOWN: &str = "FERB shut down before it finished";
 pub const RETRY_APPROVED_STATUS: &str =
     "outcome unknown; the owner approved one retry, not tried yet";

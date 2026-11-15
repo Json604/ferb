@@ -133,3 +133,53 @@ fn data_set_aside_at_start_is_told_once() {
     assert_eq!(again.as_array().map(Vec::len), Some(1), "{again}");
     run.stop();
 }
+
+/// HAND-545, HAND-546: a browser window that came up during a task, as the browser part publishes it, reaches the owner
+/// through the daemon's own consumer: one notice (shown in chat, kept in `notices.list`), once per task and site, and
+/// the task's record holds what was told (an `owner.notice` span).
+// decision: HAND-546
+#[test]
+fn a_window_that_came_up_is_told_once_and_kept_in_the_tasks_record() {
+    let tmp = root();
+    let mut run = Run::start(tmp.path(), "05", json!({"record_banners": true}));
+    banners(&run); // whatever the start posted
+    let shown = json!({"task_id": "tree-9.1", "tab": "t3", "site": "app.example.edu",
+                       "shown": [{"cause": "popup_window", "window": "popup", "focused": true, "put_back": true}]});
+    for _ in 0..2 {
+        run.control(json!({"do": "publish", "topic": "browser.window_shown", "data": shown}));
+    }
+    let line = "A pop-up window opened for a moment on app.example.edu and took your keyboard focus; I minimized it.";
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let ours = |run: &Run| -> Vec<Value> {
+        call(run, "notices.list", json!({}))["notices"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|n| n["id"] == "window-shown-tree-9-app.example.edu")
+            .collect()
+    };
+    while ours(&run).is_empty() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    std::thread::sleep(Duration::from_millis(300)); // the second publish's work, had it posted anything
+    let notices = ours(&run);
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(notices[0]["text"], json!(line));
+    let spans = run.control(json!({"do": "table", "name": "spans"}));
+    let told: Vec<&Value> = spans
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r.to_string().contains("owner.notice"))
+        .collect();
+    assert_eq!(told.len(), 1, "{told:?}");
+    let row = told[0].to_string();
+    assert!(
+        row.contains("tree-9") && row.contains("took your keyboard focus"),
+        "{row}"
+    );
+    // no FERB client was connected: the fallback banner, once
+    assert_eq!(banners(&run).len(), 1);
+    run.stop();
+}

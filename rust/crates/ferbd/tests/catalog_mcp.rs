@@ -4,7 +4,8 @@
 //!
 //! The one named difference: the Rust engine's own tools (`ferb_gateway::catalog::additions`, each with its
 //! decision; DMN-595 `about.diagnostics`) are taken out before comparing with Python's catalog, and each is checked to
-//! be listed right after the tool it follows.
+//! be listed right after the tool it follows. The deliberate changes to Python's tools (`catalog::changes`, HAND-551)
+//! are taken out of a listing before its bytes are compared.
 
 mod support;
 
@@ -116,7 +117,8 @@ fn the_registry_is_the_frozen_catalog() {
             .map(|n| n.as_str().unwrap())
             .collect();
         assert_eq!(got_names, want_names, "{name}: names");
-        let text = ferb_py::json::dumps(&got);
+        // decision: HAND-551: the deliberate changes to Python's tools (tool_changes.json) taken out
+        let text = ferb_gateway::catalog::revert_changes(&ferb_py::json::dumps(&got));
         assert_eq!(
             sha(&text),
             l["json_default_sha256"],

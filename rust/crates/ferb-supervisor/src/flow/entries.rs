@@ -984,9 +984,10 @@ impl ChatProjector {
                         .position(|x| x.request_id.as_ref() == Some(&r) && x.recovered.is_none())
                 })
                 .or_else(|| {
+                    // APP-919: a task several turns ran (resumed or restarted by a later message) ends on the newest
                     self.turns
                         .iter()
-                        .position(|x| x.task_id.as_deref() == Some(&task))
+                        .rposition(|x| x.task_id.as_deref() == Some(&task))
                 });
             let mut end = End {
                 said: String::new(),
@@ -1039,8 +1040,10 @@ impl ChatProjector {
         self.dirty.insert(t);
     }
 
-    /// handleOutcome on the session `s` that runs `task`: the session ends; the first turn of that session or task is
-    /// answered (recordAnswer), then any other turn of the task still waiting.
+    /// handleOutcome on the session `s` that runs `task`: the session ends; that session's own turn is answered
+    /// (recordAnswer), then any other turn of the task still waiting. APP-919: never an earlier turn the task ran under
+    /// before a later message restarted it (that turn already has its answer; the end said again there was a third copy
+    /// of a stopped task's summary, live 2026-11-15).
     fn handle_outcome(&mut self, s: usize, task: &str, event: &Value, seams: &mut dyn Seams) {
         self.turns[s].active = false;
         let end = End {
@@ -1053,14 +1056,8 @@ impl ChatProjector {
             verified: flag(event, "verified").unwrap_or(false),
             from: "task",
         };
-        let first = self
-            .turns
-            .iter()
-            .enumerate()
-            .position(|(i, x)| i == s || x.task_id.as_deref() == Some(task))
-            .unwrap_or(s);
-        self.turns[first].task_id = Some(task.to_string());
-        self.finish(first, end.clone(), seams);
+        self.turns[s].task_id = Some(task.to_string());
+        self.finish(s, end.clone(), seams);
         for t in 0..self.turns.len() {
             let x = &self.turns[t];
             if x.task_id.as_deref() == Some(task)

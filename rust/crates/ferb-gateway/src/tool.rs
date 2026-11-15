@@ -278,6 +278,24 @@ pub trait Tool: Send + Sync {
         Box::pin(async { None })
     }
 
+    /// HAND-546: the process of the app this call works in from the background (a browser call: its tab's browser);
+    /// that app coming to the front during the call is told to the owner. None: the tool doesn't say.
+    fn background_pid(&self, _args: &Args) -> Option<i64> {
+        None
+    }
+
+    /// HAND-560: after `background_pid`'s app came to the front during the call (`front`), put the app that was in
+    /// front (`previous`; both the sampler's {pid, bundle_id, name}) back in front: (put back, why not). None: the
+    /// tool can't.
+    fn put_back<'a>(
+        &'a self,
+        _front: &'a Value,
+        _previous: &'a Value,
+        _task: &'a str,
+    ) -> BoxFuture<'a, Option<(bool, Option<String>)>> {
+        Box::pin(async { None })
+    }
+
     /// `browser_page(args)`: a browser's own page the input would land on (rule 5).
     fn browser_page<'a>(&'a self, _args: &'a Args) -> BoxFuture<'a, Option<String>> {
         Box::pin(async { None })

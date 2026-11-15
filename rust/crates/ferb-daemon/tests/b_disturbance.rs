@@ -282,7 +282,7 @@ async fn every_scenario_matches_python() {
     println!("{} scenarios, 0 differ", scenarios.len());
 }
 
-// decision: DMN-5, HAND-212
+// decision: DMN-5, HAND-550
 #[test]
 fn the_pure_helpers_match_python() {
     let f = fixture();

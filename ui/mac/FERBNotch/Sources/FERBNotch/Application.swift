@@ -83,6 +83,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             var actions = FERBAppActions(feedback: coordinator.model.feedback, cursor: coordinator.cursor)
             actions.setHoverEnabled = { [weak model = coordinator.model] enabled in model?.setHoverEnabled(enabled) }
             actions.hotKeys = coordinator.hotKeys
+            actions.turnDeleted = { [weak model = coordinator.model] request in model?.removeTurns(requestIDs: [request]) }
+            actions.freshConversation = { [weak model = coordinator.model] in await model?.startFreshConversation() }
             let loginItems = LoginItemController.installed(available: appSetup.isPackaged)
             self.loginItems = loginItems
             actions.loginItems = loginItems

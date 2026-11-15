@@ -55,7 +55,15 @@ fn the_topic_lists_are_pythons() {
         v
     };
     assert_eq!(sorted(CRITICAL), strs(&fx["critical"]));
-    assert_eq!(sorted(TELEMETRY), strs(&fx["telemetry"]));
+    // Python's telemetry topics, and exactly one added after it: a browser window that came up during a task, for the
+    // owner's line (decision: HAND-546)
+    let python: Vec<&str> = TELEMETRY
+        .iter()
+        .copied()
+        .filter(|t| *t != "browser.window_shown")
+        .collect();
+    assert_eq!(TELEMETRY.len(), python.len() + 1);
+    assert_eq!(sorted(&python), strs(&fx["telemetry"]));
     assert_eq!(DROPPED, fx["dropped"].as_str().unwrap());
     assert!(CRITICAL.iter().all(|t| !TELEMETRY.contains(t)));
 }

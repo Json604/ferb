@@ -30,6 +30,7 @@ files that are read in git at `9d3f84bc` (`kb/config.toml` `historical`).
 |---|---|---|---|---|
 | Store: connection, migrations, checksums | `ferb/store/db.py`, migrations | 240 | `ferb-store` | verified (journal 3) |
 | Store: typed tables (spans, results, history, retention, clean-up, salvage) | `ferb/store` | ~1,550 | `ferb-store` (Python's JSON and times: `ferb-py`) | verified (journal 11) |
+| Stored data viewer and the owner's delete of a turn (no Python counterpart; STORE-422..425) | - | - | `ferb-store` `data_view`, `ferb-supervisor` `data_rpc`, `data_delete`; FERB.app Settings → Stored data | built and tested through the RPC server and Swift (journal 83, with STORE-426's learned memories, screenshots and the fresh-conversation marker); not live-checked (LIVE-956) |
 | Redaction and origins | `ferb/sanitize` (not `images.py`), `ferb/core/origin.py` | 2,118 | `ferb-sanitize` | verified and hardened (journal 4, 13) |
 | RPC wire, roles, app-only check | `ferb/daemon/server.py`, `auth.py`, `app_peer.py` | ~900 | `ferb-rpc`; Security framework and audit token: `ferb-platform-macos` | verified offline; signed-app check unproven (journal 5) |
 | Browser native-messaging relay | `ferb/native_host` | 73 | `ferb-native-host` | verified offline; no browser run yet (journal 6) |
@@ -64,7 +65,7 @@ files that are read in git at `9d3f84bc` (`kb/config.toml` `historical`).
 
 | Stage | What | State |
 |---|---|---|
-| 2 | History owned by the engine, shared by every client | in progress: entry contract, projector and app fold verified on 71 scenarios (journal 69); store (migration 0063), wiring into the engine and the `chat.entries.*` calls built and tested through the program (journal 72): the stored entries equal the golden on 61 recorded scenarios (33 strictly, 28 with named differences of the golden's timeline); the stored order checked by seven rules on the engine's own trace after every replayed scenario and on 1,826 invented interleavings, and FERB.app's reducer driven in the engine's real order equal to the stored entries on all 61 (journal 73); FERB.app shows turns another client sent (the watch, APP-916..918; Swift-tested, not live-checked); the phone role and the archive import's run remain |
+| 2 | History owned by the engine, shared by every client | in progress: entry contract, projector and app fold verified on 71 scenarios (journal 69); store (migration 0063), wiring into the engine and the `chat.entries.*` calls built and tested through the program (journal 72): the stored entries equal the golden on 61 recorded scenarios (33 strictly, 28 with named differences of the golden's timeline); the stored order checked by seven rules on the engine's own trace after every replayed scenario and on 1,826 invented interleavings, and FERB.app's reducer driven in the engine's real order equal to the stored entries on all 61 (journal 73); FERB.app shows turns another client sent (the watch, APP-916..918; Swift-tested, not live-checked); a task's end goes to the turn that ran it, with the live triple-reply case as the first invented scenario, 72 of 72 (APP-919, ENG-18, journal 84; not live-checked); the phone role and the archive import's run remain |
 | 3 | Phone role in the daemon; Android app (from the phone lab) | not started |
 | 4 | iPhone app | not started |
 | 5 | Closed-app notifications | not started |
